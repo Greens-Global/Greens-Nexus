@@ -73,7 +73,9 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   useEffect(() => {
     if (!mine || typeof api.formsMine !== 'function') return undefined;
     let live = true;
-    api.formsMine().then((r) => { if (live) setShiftForms((Array.isArray(r) ? r : r?.forms || []).filter((f) => f.showOnShifts)); }).catch(() => {});
+    // Through the phone (forms/formsOffline.js): the buttons are there with no signal too.
+    import('../forms/formsOffline').then((m) => m.loadMyForms())
+      .then((r) => { if (live) setShiftForms((Array.isArray(r) ? r : r?.forms || []).filter((f) => f.showOnShifts)); }).catch(() => {});
     return () => { live = false; };
   }, [mine]);
   useEffect(() => {

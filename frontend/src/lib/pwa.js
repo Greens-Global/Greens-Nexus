@@ -1,7 +1,8 @@
 // Nexus as an installable app with push (Frontline Reach, Neil 11/02/2026).
 //
 // Three small pieces, all browser-API thin:
-//   registerServiceWorker()  - /sw.js (public/), push only, no caching; called
+//   registerServiceWorker()  - /sw.js (public/): push, and the offline app
+//                              shell (Neil 11/03/2026, docs/Offline.md); called
 //                              once the person is signed in (main.jsx). Skipped
 //                              on a localhost dev server unless VITE_PWA_DEV=1,
 //                              so `npm run dev` never gets a worker stuck on it.
@@ -61,7 +62,9 @@ export function registerServiceWorker() {
   if (devWithoutOptIn()) return Promise.resolve(null);
   if (registration) return Promise.resolve(registration);
   if (!registering) {
-    registering = navigator.serviceWorker.register(SW_URL, { scope: '/' })
+    // updateViaCache 'none': the browser always asks the server for /sw.js,
+    // so a deploy's new offline shell is picked up on the next load.
+    registering = navigator.serviceWorker.register(SW_URL, { scope: '/', updateViaCache: 'none' })
       .then((reg) => { registration = reg; return reg; })
       .catch((e) => { console.warn('[pwa] service worker not registered:', e?.message || e); registering = null; return null; });
   }

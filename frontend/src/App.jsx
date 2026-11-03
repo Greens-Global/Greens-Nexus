@@ -37,6 +37,10 @@ import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
 import { hasUnsavedWork, askToLeave, guardPopstate, rememberEntry, runPopGuard } from "./lib/dialogGuard";
+// Field offline (Neil, 11/03/2026; docs/Offline.md): the offline bar, and the
+// signal state that hides the "reconnecting" bar while there is no signal.
+import OfflineBar from "./components/offline/OfflineBar";
+import { useOffline } from "./lib/offline/useOffline";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -636,6 +640,9 @@ function MainApp() {
   const [prevLabel, setPrevLabel] = useState(null);
   const prevLocRef = useRef({ view: activeView, sub: activeSub });
   const [backendDown,      setBackendDown]      = useState(false);
+  // No signal is not "Nexus is down": the offline bar speaks then, not the red one.
+  const { online } = useOffline();
+  const serverDown = backendDown && online;
   // PDF Editor tells us (via PdfEditorModule → window event) whether a document
   // is open. We hide the top header only while editing a doc; the landing screen
   // keeps the bar.
@@ -865,7 +872,7 @@ function MainApp() {
             <AccountingHandoff next={new URLSearchParams(window.location.search).get('next') || undefined} />
           </Suspense>
         )}
-        {backendDown && (
+        {serverDown && (
           <div style={{
             position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
             background: '#b91c1c', color: '#fff',
@@ -877,7 +884,7 @@ function MainApp() {
             Service is reconnecting - data may be delayed. Retrying automatically…
           </div>
         )}
-        <div className="app-container" style={backendDown ? { paddingTop: 34 } : undefined}>
+        <div className="app-container" style={serverDown ? { paddingTop: 34 } : undefined}>
           <WidgetBoundary name="sidebar" resetKey={widgetKey}
             fallback={<NavFallback as="aside" className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`} />}>
           <Sidebar
@@ -909,6 +916,7 @@ function MainApp() {
             {/* The announcement bar - across the top of the page, above the
                 header: the weekly "New in Nexus" news, or "a new version is
                 ready, Reload" (components/FeatureBanner.jsx). */}
+            <WidgetBoundary name="offline-bar" resetKey={widgetKey}><OfflineBar /></WidgetBoundary>
             <WidgetBoundary name="feature-banner" resetKey={widgetKey}><FeatureBanner activeView={activeView} onNavigate={navigate} /></WidgetBoundary>
             {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
                 the Nexus top header so it gets the whole viewport height. */}

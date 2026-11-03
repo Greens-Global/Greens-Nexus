@@ -9960,3 +9960,22 @@ class PerfBonusPlanLog(Base):
     snapshot   = Column(JSON, default=dict)
     changed_by = Column(String, default="")
     changed_at = Column(String, default="")
+
+
+class NexusIdempotencyKey(Base):
+    """One answered write per Idempotency-Key (field offline, Neil 11/03/2026,
+    backend/idempotency.py). The phone's outbox sends every queued change
+    with the key it made when the change was saved; a resend of a write
+    that already landed (its answer was lost to a dead signal) gets this
+    stored answer back instead of a second row. Only 2xx answers are kept,
+    for 7 days (reminders_loop -> idempotency.purge_expired). RLS on (main.py)."""
+    __tablename__ = "nexus_idempotency_keys"
+    __table_args__ = (UniqueConstraint("user_email", "idem_key", name="ux_idempotency_user_key"),)
+    id              = Column(String, primary_key=True)
+    idem_key        = Column(String, nullable=False)
+    user_email      = Column(String, nullable=False, default="")
+    route           = Column(String, default="")        # "POST /construction/logs/{log_id}/media"
+    request_hash    = Column(String, default="")        # sha256 of method + path + body
+    response_status = Column(Integer, default=200)
+    response_json   = Column(Text, default="")
+    created_at      = Column(String, default="", index=True)

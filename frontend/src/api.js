@@ -14,6 +14,10 @@ import { rewriteResponseText, restoreRequestBody, fromViewUrl } from './lib/stor
 let _reauthing = false;
 function _maybeReauth() {
   if (_reauthing) return;
+  // No signal: a redirect to Microsoft could only fail, and the page would be
+  // gone. Field offline (11/03/2026) parks the change and sends it after the
+  // next sign-in instead (lib/offline/outbox.js).
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
   let acct;
   try { acct = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0]; } catch { return; }
   if (!acct) return;   // genuinely signed out - the login gate handles that
@@ -179,6 +183,7 @@ export function setCacheBridge(client) { _queryClient = client; }
 
 export function getActAsSessionId() { return _actAsSessionId; }
 export function setActAsSessionId(id) {
+  const changed = (_actAsSessionId || null) !== (id || null);
   _actAsSessionId = id;
   if (id) sessionStorage.setItem(ACT_AS_KEY, id);
   else sessionStorage.removeItem(ACT_AS_KEY);
@@ -186,6 +191,8 @@ export function setActAsSessionId(id) {
   // the PREVIOUS identity and must never leak across an Act As boundary.
   _getCache.clear();
   _queryClient?.clear();
+  // ...nor what the phone keeps for offline (lib/offline/auth.js clears it).
+  if (changed && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('nexus:identity-change'));
 }
 function _actAsHeader() {
   return _actAsSessionId ? { 'X-Act-As-Session': _actAsSessionId } : {};
@@ -2022,12 +2029,15 @@ export const api = {
   // <a href> carries no Authorization header - it would just 401.
   exportConstructionReportPdf: (reportId) => reqBlob(`/construction/reports/${reportId}/pdf`),
   getConstructionLogs:  (projectId) => req(`/construction/projects/${projectId}/logs`),
-  startConstructionLog: (projectId, data) => req(`/construction/projects/${projectId}/logs`, { method: "POST", body: JSON.stringify(data) }),
-  updateConstructionLog: (logId, data) => req(`/construction/logs/${logId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // `opts.headers` (field offline, 11/03/2026): the outbox's Idempotency-Key
+  // rides here, so a resend of a write that landed is answered, not repeated
+  // (backend/idempotency.py, docs/Offline.md).
+  startConstructionLog: (projectId, data, opts = {}) => req(`/construction/projects/${projectId}/logs`, { method: "POST", body: JSON.stringify(data), headers: opts.headers }),
+  updateConstructionLog: (logId, data, opts = {}) => req(`/construction/logs/${logId}`, { method: "PATCH", body: JSON.stringify(data), headers: opts.headers }),
   submitConstructionLog: (logId) => req(`/construction/logs/${logId}/submit`, { method: "POST" }),
   reviewConstructionLog: (logId, data) => req(`/construction/logs/${logId}/review`, { method: "POST", body: JSON.stringify(data) }),
   getConstructionMedia: (logId) => req(`/construction/logs/${logId}/media`),
-  createConstructionMedia: (logId, data) => req(`/construction/logs/${logId}/media`, { method: "POST", body: JSON.stringify(data) }),
+  createConstructionMedia: (logId, data, opts = {}) => req(`/construction/logs/${logId}/media`, { method: "POST", body: JSON.stringify(data), headers: opts.headers }),
   deleteConstructionMedia: (mediaId) => req(`/construction/media/${mediaId}`, { method: "DELETE" }),
   // Milestones, RFIs and submittals share one set of endpoints - `kind` is one
   // of 'milestones' | 'rfis' | 'submittals'. Namespaced under /register/ so the

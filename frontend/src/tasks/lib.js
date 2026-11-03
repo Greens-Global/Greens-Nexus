@@ -1124,9 +1124,11 @@ export async function storeTaskFile(file, onProgress, folder = 'tasks', maxBytes
       if (xhr.status >= 200 && xhr.status < 300) return resolve();
       let msg = `upload failed (${xhr.status})`;
       try { msg = JSON.parse(xhr.responseText).message || msg; } catch { /* not JSON */ }
-      reject(new Error(msg));
+      // The storage's answer, so a caller can tell a refusal from no signal
+      // (field offline, lib/offline/outbox.js classify).
+      reject(Object.assign(new Error(msg), { status: xhr.status }));
     };
-    xhr.onerror = () => reject(new Error('upload failed'));
+    xhr.onerror = () => reject(Object.assign(new Error('upload failed'), { isNetworkError: true }));
     xhr.send(file);
   });
   return toViewUrl(supabase.storage.from('task-files').getPublicUrl(path).data.publicUrl);

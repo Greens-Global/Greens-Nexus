@@ -3557,6 +3557,10 @@ def _run_migrations():
         "CREATE INDEX IF NOT EXISTS ix_time_punches_jobsite ON time_punches (jobsite)",
         # ... and the construction job a form entry was filed for. models.DocFormEntry.
         "ALTER TABLE doc_form_entries ADD COLUMN IF NOT EXISTS linked_project_id VARCHAR DEFAULT ''",
+        # Field offline (Neil, 11/03/2026): one stored answer per
+        # Idempotency-Key the phone's outbox sends (backend/idempotency.py,
+        # models.NexusIdempotencyKey; create_all makes the table). RLS per CLAUDE.md.
+        "ALTER TABLE nexus_idempotency_keys ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

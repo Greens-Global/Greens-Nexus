@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { nxSrcVitePlugin } from './scripts/nxsrc-plugin.mjs'
 import { stampHtml } from './scripts/stamp-assets.mjs'
+import { offlineManifestPlugin } from './scripts/offline-manifest.mjs'
 
 // Build Mode (Oct 24 2026). Dev builds stamp every host JSX element that has a
 // handler or an aria / role attribute with data-nx-src="<fileId>:line:col"
@@ -163,6 +164,9 @@ export default defineConfig(({ command }) => ({
       // Dev serve stamps every element - size is irrelevant locally.
       ? [nxSrcVitePlugin({ root: FRONTEND_ROOT, only: command === 'serve' || process.env.VITE_NX_SRC === 'all' ? undefined : process.env.VITE_NX_SRC === 'interactive' ? 'interactive' : 'handlers' })] : []),
     react(), versionManifest(), stampUnhashedAssets(), excalidrawLocaleStub(),
+    // Full offline for field work (Neil, 11/03/2026): writes the app shell's
+    // file list into dist/sw.js (scripts/offline-manifest.mjs, docs/Offline.md).
+    offlineManifestPlugin({ buildId: BUILD_ID }),
   ],
   base: '/',
   // Build Mode's local preview / e2e runs share the main checkout's node_modules

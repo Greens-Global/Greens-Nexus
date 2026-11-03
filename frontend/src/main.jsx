@@ -113,8 +113,9 @@ function renderConnecting(waitedMs = 0) { if (!_booted) _root.render(<BootConnec
 function renderApp() {
   // Installable app + push (lib/pwa.js): the worker registers with the app
   // shell - never on a public page (an e-sign link, the careers form, a
-  // policy page), where the visitor has no account to push to. It only
-  // handles push. BFF mode reaches here only once the session is confirmed;
+  // policy page), where the visitor has no account to push to. It handles
+  // push and keeps the app shell for opening with no signal (field offline,
+  // Neil 11/03/2026 - public/sw.js). BFF mode reaches here only once the session is confirmed;
   // MSAL mode registers at first render and the worker simply has nothing to
   // show until the person signs in and turns push on.
   if (!isPublicPath) registerServiceWorker();

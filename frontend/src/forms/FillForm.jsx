@@ -19,6 +19,14 @@
 //
 // Loaded lazily by every entry point (the Workday tile, the shift card) so
 // the Workday page stays light; jsqr loads only when a code is scanned.
+//
+// Offline (Neil, 11/03/2026; forms/formsOffline.js, docs/Offline.md): the
+// form opens from what the phone saved, a photo or signature taken with no
+// signal is held on the phone (`nexus-offline:<id>` in the answer, shown from
+// the phone), and an entry that cannot go now - no signal, no answer, or a
+// held photo in it - is saved to the outbox, which uploads the photos and
+// sends the same entry (same entryKey) once there is signal. The screen then
+// says "Saved on This Phone" and follows it to Sent.
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { Camera, Upload, X, MapPin, PenTool, QrCode, Star, Plus, Trash2, Check, RefreshCw, ExternalLink, Asterisk } from 'lucide-react';
 import { api } from '../api';
@@ -37,6 +45,10 @@ import { groupDefs, isVisible, visibleAnswers, validateAnswers, computeFormulas,
 import { groupLabel } from './formsModel';
 import { loadDraft, saveDraft, clearDraft, newEntryKey, hasContent, draftNotice } from './formDraft';
 import { useRole } from '../contexts/RoleContext';
+import { loadForm, keepPhoto, dropHeldPhotos, queueEntry, unanswered } from './formsOffline';
+import { isOffline, blobIdsIn, blobIdOf, deleteBlob } from '../lib/offline/store';
+import HeldImage from '../components/offline/HeldImage';
+import SyncState from '../components/offline/SyncState';
 
 // The signature pad is Nexus Sign's (components/ESign.jsx) - loaded when a
 // signature field is tapped, so a form with none never fetches that chunk.
@@ -72,11 +84,13 @@ function PhotoField({ value, onChange, entryKey, phone, disabled, label: name = 
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       setUploads((u) => [...u, { id, name: file.name, progress: 0 }]);
       onUploading?.(1);   // Send waits for it (FillForm)
-      storeTaskFile(file, (p) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, progress: p } : x))), FOLDER(entryKey))
-        .then((url) => {
-          setUploads((u) => u.filter((x) => x.id !== id));
-          if (url) onChange((prev) => [...(Array.isArray(prev) ? prev : []), url]);
-        })
+      const append = (url) => { if (url) onChange((prev) => [...(Array.isArray(prev) ? prev : []), url]); };
+      // No signal: the photo is held on the phone and uploads with the entry.
+      const hold = () => keepPhoto(file, entryKey).then(append);
+      (isOffline() ? hold()
+        : storeTaskFile(file, (p) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, progress: p } : x))), FOLDER(entryKey))
+          .then(append, (e) => (e?.isNetworkError ? hold() : Promise.reject(e))))
+        .then(() => setUploads((u) => u.filter((x) => x.id !== id)))
         .catch((e) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, error: e?.message || 'upload failed' } : x))))
         .finally(() => onUploading?.(-1));
     }
@@ -89,9 +103,9 @@ function PhotoField({ value, onChange, entryKey, phone, disabled, label: name = 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: 8, marginBottom: 10 }}>
           {urls.map((u, i) => (
             <div key={u} style={{ position: 'relative', aspectRatio: '1', borderRadius: 10, overflow: 'hidden', border: `1px solid ${NX.border}` }}>
-              <img src={u} alt={`Photo ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              <HeldImage src={u} alt={`Photo ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
               {!disabled && (
-                <button type="button" aria-label={`Remove photo ${i + 1}`} onClick={() => onChange(urls.filter((x) => x !== u))}
+                <button type="button" aria-label={`Remove photo ${i + 1}`} onClick={() => { onChange(urls.filter((x) => x !== u)); if (blobIdOf(u)) deleteBlob(blobIdOf(u)); }}
                   style={{ position: 'absolute', top: 4, right: 4, width: phone ? 28 : 22, height: phone ? 28 : 22, padding: phone ? 6 : 0, borderRadius: '50%', border: 'none', background: 'rgba(17,24,39,0.7)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
                   <X size={phone ? 14 : 12} />
                 </button>
@@ -113,7 +127,7 @@ function PhotoField({ value, onChange, entryKey, phone, disabled, label: name = 
       {/* capture="environment" opens the rear camera on a phone and is an ordinary picker on a desktop. */}
       <input ref={camRef} type="file" accept="image/*" capture="environment" multiple hidden onChange={(e) => { add(e.target.files); e.target.value = ''; }} />
       <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { add(e.target.files); e.target.value = ''; }} />
-      <div style={hint}>{phone ? 'Take photos as you go - each one uploads at once.' : 'Take or upload photos, or press Ctrl+V to paste a screenshot.'}</div>
+      <div style={hint}>{phone ? 'Take photos as you go - each one uploads at once, or waits on this phone with no signal.' : 'Take or upload photos, or press Ctrl+V to paste a screenshot.'}</div>
     </div>
   );
 }
@@ -237,7 +251,8 @@ function SignatureField({ value, onChange, entryKey, disabled, signerName, phone
     if (!file) { setErr('The signature could not be saved - try again.'); return; }
     setBusy(true); setErr('');
     onUploading?.(1);
-    storeTaskFile(file, null, FOLDER(entryKey))
+    const hold = () => keepPhoto(file, entryKey);   // no signal: held on the phone
+    (isOffline() ? hold() : storeTaskFile(file, null, FOLDER(entryKey)).catch((e) => (e?.isNetworkError ? hold() : Promise.reject(e))))
       .then((url) => { if (url) onChange(url); else setErr('The signature could not be uploaded - try again.'); })
       .catch((e) => setErr(e?.message || 'The signature could not be uploaded - try again.'))
       .finally(() => { setBusy(false); onUploading?.(-1); });
@@ -246,7 +261,7 @@ function SignatureField({ value, onChange, entryKey, disabled, signerName, phone
     <div>
       {value && (
         <div style={{ marginBottom: 8, padding: 8, border: `1px solid ${NX.border}`, borderRadius: 10, background: '#fff', display: 'inline-block' }}>
-          <img src={value} alt="Signature" style={{ height: 56, display: 'block', maxWidth: '100%' }} />
+          <HeldImage src={value} alt="Signature" style={{ height: 56, display: 'block', maxWidth: '100%' }} />
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -345,6 +360,20 @@ function RepeatGroup({ item, rows, errors, ctx, onRow, onAdd, onRemove, groupErr
   );
 }
 
+/** After Send with no signal: the entry is in the outbox; this follows it. */
+function QueuedNotice({ id, title }) {
+  return (
+    <div style={{ textAlign: 'center', padding: '28px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+      <span style={{ width: 54, height: 54, borderRadius: '50%', background: 'hsla(var(--color-blue),0.12)', color: NX.blue, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Check size={28} /></span>
+      <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: NX.ink }}>Saved on This Phone</h3>
+      <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.5, maxWidth: 360 }}>
+        Your {title || 'form'} is saved on this phone with its photos and sends by itself when you are back online. You can close this.
+      </div>
+      <SyncState id={id} size="md" />
+    </div>
+  );
+}
+
 // ── The screen ────────────────────────────────────────────────────────────────
 
 export default function FillForm({ templateId, template: given = null, preview = false, onClose, onSent, shiftId = '', workSiteId = '', projectId = '', signerName = '', zIndex = 4100 }) {
@@ -353,10 +382,11 @@ export default function FillForm({ templateId, template: given = null, preview =
   const me = useRole()?.myEmail || '';   // the draft is this person's (formDraft.js)
   const [tpl, setTpl] = useState(given);
   const [loadErr, setLoadErr] = useState('');
+  const [savedAt, setSavedAt] = useState('');   // opened from the phone's copy (offline)
   const load = useCallback(() => {
     if (given) return;
-    setLoadErr('');
-    api.formGet(templateId).then(setTpl).catch((e) => setLoadErr(e?.message || 'Could not load this form.'));
+    setLoadErr(''); setSavedAt('');
+    loadForm(templateId, { onCache: setSavedAt }).then(setTpl).catch((e) => setLoadErr(e?.message || 'Could not load this form.'));
   }, [templateId, given]);
   useEffect(() => { load(); }, [load]);
 
@@ -443,7 +473,7 @@ export default function FillForm({ templateId, template: given = null, preview =
   };
 
   const continueDraft = () => { if (!offer) return; setAnswers((a) => ({ ...offer.answers, ...a })); setEntryKey(offer.entryKey); setOffer(null); };
-  const discardDraft = () => { clearDraft(tid, me); setOffer(null); };
+  const discardDraft = () => { clearDraft(tid, me); if (offer?.entryKey) dropHeldPhotos(offer.entryKey); setOffer(null); };
 
   const submit = async () => {
     if (preview || sending.current || sent || uploading > 0) return;
@@ -455,17 +485,34 @@ export default function FillForm({ templateId, template: given = null, preview =
       return;
     }
     sending.current = true; setBusy(true); setBanner('');
+    const body = visibleAnswers(defs, answers);
+    const stamp = defs.find((d) => d.type === 'gps' && body[d.token]);
+    const payload = {
+      entryKey, answers: body, workSiteId: site || '', shiftId: shiftId || '', projectId: job || '',
+      source: phone ? 'phone' : 'web', ...(stamp ? { gps: body[stamp.token] } : {}),
+    };
+    // Into the outbox: it sends the same entry (same entryKey) when it can.
+    const queue = async () => {
+      const queued = await queueEntry({ templateId: tid, title: tpl?.title, body: payload });
+      clearDraft(tid, me);
+      setSent({ id: '', queued: queued.id });
+    };
     try {
-      const body = visibleAnswers(defs, answers);
-      const stamp = defs.find((d) => d.type === 'gps' && body[d.token]);
-      const entry = await api.formSubmit(tid, {
-        entryKey, answers: body, workSiteId: site || '', shiftId: shiftId || '', projectId: job || '',
-        source: phone ? 'phone' : 'web', ...(stamp ? { gps: body[stamp.token] } : {}),
-      });
+      // No signal, or a photo still on the phone: the outbox sends it.
+      if (isOffline() || blobIdsIn(body).length) { await queue(); return; }
+      const entry = await api.formSubmit(tid, payload);
       clearDraft(tid, me);
       setSent(entry || { id: '' });
       onSent?.(entry);
     } catch (e) {
+      // No answer at all (the signal dropped mid-send): it may or may not
+      // have landed - the outbox resends it with the same entryKey, which the
+      // server answers with the first entry if it did.
+      if (unanswered(e) && !e?.code) {
+        // Where this browser cannot keep it (private browsing), the send's
+        // own error stands and the draft below keeps the answers.
+        try { await queue(); return; } catch { /* not kept - fall through */ }
+      }
       // Whatever went wrong, the answers are on this device now - not in
       // 300ms - so a browser closed in frustration still has them.
       if (hasContent(answers)) saveDraft(tid, { entryKey, answers, title: tpl?.title }, me);
@@ -516,7 +563,9 @@ export default function FillForm({ templateId, template: given = null, preview =
       <div ref={bodyRef} className="nx-fill" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, fontFamily: FONT }}>
         {loadErr ? <ErrorBanner message={loadErr} onRetry={load} />
           : !tpl ? <div style={{ padding: 30, display: 'flex', justifyContent: 'center' }}><Spinner size="section" label="Loading the form" /></div>
-          : sent ? (
+          : sent?.queued ? (
+            <QueuedNotice id={sent.queued} title={tpl.title} />
+          ) : sent ? (
             <div style={{ textAlign: 'center', padding: '28px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
               <span style={{ width: 54, height: 54, borderRadius: '50%', background: 'hsla(var(--color-green),0.12)', color: NX.green, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Check size={28} /></span>
               <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: NX.ink }}>Sent</h3>
@@ -542,6 +591,11 @@ export default function FillForm({ templateId, template: given = null, preview =
                   <span style={{ flex: 1, minWidth: 160 }}>{draftNotice(offer)}</span>
                   <button type="button" style={{ ...btn('primary'), padding: '6px 12px', fontSize: 12.5 }} onClick={continueDraft}>Continue</button>
                   <button type="button" style={{ ...btn('outline'), padding: '6px 12px', fontSize: 12.5 }} onClick={discardDraft}>Discard</button>
+                </div>
+              )}
+              {savedAt && (
+                <div role="status" style={{ padding: '8px 12px', borderRadius: 8, background: NX.surface2, color: NX.dim, fontSize: 12.5, marginBottom: 12 }}>
+                  Opened from this phone (saved {formatDateTime(savedAt)}). Fill it in and it sends when you are back online.
                 </div>
               )}
               {tpl.description && <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.5, marginBottom: 14 }}>{tpl.description}</div>}
