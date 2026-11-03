@@ -83,13 +83,28 @@ class OptoutTests(unittest.TestCase):
 
     def test_existing_switches_are_reused(self):
         self.client.put("/roles/me/email-optouts", json={"kind": "whats_new_digest", "on": True})
-        self.client.put("/roles/me/email-optouts", json={"kind": "ticket_weekly_report", "on": False})
+        orig = ticket_reports.weekly_status
+        ticket_reports.weekly_status = lambda db, email, *a, **k: {
+            "eligible": True, "on": ticket_reports.weekly_choice(db, email) is not False}
+        try:
+            r = self.client.put("/roles/me/email-optouts", json={"kind": "ticket_weekly_report", "on": False})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertFalse(r.json()["ticket_weekly_report"]["on"])
+        finally:
+            ticket_reports.weekly_status = orig
         db = database.SessionLocal()
         try:
             self.assertTrue(db.get(models.ChangelogSubscription, ME).digest)
             self.assertIs(ticket_reports.weekly_choice(db, ME), False)
         finally:
             db.close()
+
+    def test_ticket_report_switch_only_for_people_it_goes_to(self):
+        # An employee with no desk role is never sent it: no switch, and no PUT.
+        p = self.client.get("/roles/me/email-optouts").json()
+        self.assertNotIn("ticket_weekly_report", p)
+        r = self.client.put("/roles/me/email-optouts", json={"kind": "ticket_weekly_report", "on": True})
+        self.assertEqual(r.status_code, 422)
         self.client.put("/roles/me/email-optouts", json={"kind": "whats_new_digest", "on": False})
         db = database.SessionLocal()
         try:

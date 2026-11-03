@@ -3,8 +3,8 @@
 // to /?stopEmail=<kind>. The link changes nothing by itself (a mail scanner
 // that opens it cannot unsubscribe anyone): TopHeader reads it at module load
 // - before the app's boot rewrites the address - and opens Profile on its
-// email section, where DigestEmailPrefs takes it and turns that digest off
-// for the signed-in person, with Start It Again beside it.
+// email section, where DigestEmailPrefs takes it and asks one question,
+// "Stop the <digest> emails?" (Stop / Keep), with Start It Again after.
 export const EMAIL_KINDS = ['daily_briefing', 'weekly_digest', 'whats_new_digest', 'ticket_weekly_report'];
 
 let pending = '';

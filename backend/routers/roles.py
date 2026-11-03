@@ -218,7 +218,10 @@ def save_my_email_optout(body: EmailOptoutIn, user: dict = Depends(get_current_u
     import email_optout
     if body.kind not in email_optout.KINDS:
         raise HTTPException(status_code=422, detail="Unknown email")
-    return email_optout.set_on(db, user["email"], body.kind, body.on)
+    try:
+        return email_optout.set_on(db, user["email"], body.kind, body.on)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.get("")

@@ -1,12 +1,14 @@
 // Profile > Task Emails > Digest Emails (11/02/2026, the legal compliance
 // pass; backend/email_optout.py, /roles/me/email-optouts). One switch per
 // scheduled digest; a switch saves on change. Arriving from an email's "Stop
-// These Emails" link (lib/emailStop.js) turns that digest off at once and
-// says so, with Start It Again - stopping is never harder than starting.
+// These Emails" link (lib/emailStop.js) asks one centered question - Stop
+// the <digest> emails? Stop / Keep - so a link opened by accident or by
+// someone else changes nothing silently; Start It Again stays beside it.
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { SwitchRow } from './settings/SettingsUI';
 import { takePendingEmailStop } from '../lib/emailStop';
+import { dialog } from '../ui/dialog';
 
 const DESC = {
   daily_briefing: 'One email a day before your shift with what needs your attention. My Briefing in Nexus stays either way.',
@@ -46,7 +48,11 @@ export default function DigestEmailPrefs() {
         if (took.current) return;
         took.current = true;
         const stop = takePendingEmailStop();
-        if (stop && p?.[stop]) save(stop, false, true);
+        if (stop && p?.[stop]?.on) {
+          dialog.confirm(`Stop the ${p[stop].label} emails? You can start them again here at any time.`,
+            { title: 'Stop These Emails?', confirmText: 'Stop', cancelText: 'Keep' })
+            .then((yes) => { if (yes && live) save(stop, false, true); });
+        }
       })
       .catch(() => { if (live) setPrefs({ error: true }); });
     return () => { live = false; };

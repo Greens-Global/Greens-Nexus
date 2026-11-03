@@ -2,9 +2,10 @@
 stopping something must be no harder than starting it).
 
 The digests a person gets on a schedule now each carry a "Stop These Emails"
-link. It opens Nexus at `/?stopEmail=<kind>`; the signed-in app turns that
-digest off for the person at once and shows Start It Again beside it
-(Profile > Task Emails lists the same switches). The link carries no token
+link. It opens Nexus at `/?stopEmail=<kind>`; the signed-in app asks one
+question - "Stop the <digest> emails?" Stop / Keep - and shows Start It Again
+after (Profile > Task Emails lists the same switches). The Weekly Ticket
+Report switch is listed only for people it can go to (weekly_status). The link carries no token
 and changes nothing by itself: the change is the signed-in app's PUT, so a
 mail scanner that opens links cannot unsubscribe anyone.
 
@@ -56,10 +57,15 @@ def prefs(db, email: str) -> dict:
     out = {k: {"label": KINDS[k], "on": k not in _own_out(row)} for k in _OWN}
     sub = db.get(models.ChangelogSubscription, (email or "").strip().lower())
     out["whats_new_digest"] = {"label": KINDS["whats_new_digest"], "on": bool(sub and sub.digest)}
+    # The Weekly Ticket Report only for people it can go to, showing what the
+    # Reports tab shows (the effective value, the desk mode's default included).
     import ticket_reports
-    choice = ticket_reports.weekly_choice(db, email)
-    out["ticket_weekly_report"] = {"label": KINDS["ticket_weekly_report"], "on": choice is not False,
-                                   "unset": choice is None}
+    try:
+        st = ticket_reports.weekly_status(db, email)
+    except Exception:
+        st = {"eligible": False}
+    if st.get("eligible"):
+        out["ticket_weekly_report"] = {"label": KINDS["ticket_weekly_report"], "on": bool(st.get("on"))}
     return out
 
 
@@ -86,6 +92,8 @@ def set_on(db, email: str, kind: str, on: bool) -> dict:
         db.commit()
     else:
         import ticket_reports
+        if not ticket_reports.weekly_status(db, email).get("eligible"):
+            raise ValueError("The Weekly Ticket Report is not sent to you")
         ticket_reports.set_weekly_opt_in(db, email, on)
     return prefs(db, email)
 
