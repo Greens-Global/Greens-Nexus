@@ -108,6 +108,29 @@ class LeaveBalanceTests(unittest.TestCase):
         self.db.commit()
 
     # ── policy and buckets ──
+    def test_us_contractors_are_benefit_exempt(self):
+        """Visesh (Teams, 11/02/2026): a US-based contractor never accrues or
+        holds paid leave, even when a policy's eligible types say contractor.
+        A full-time person on the same policy is untouched, and so is a
+        contractor with no US country tag."""
+        self._cutover()
+        pols = lb.policies(self.db)
+        us_ca = {**pols["us-ca"], "eligibleTypes": ["full_time", "part_time", "contractor", "intern"]}
+        lb.save_policies(self.db, {"us-ca": us_ca}, HR_EMAIL)
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == A).update(
+            {"employment_type": "contractor"})
+        self.db.commit()
+        b = lb.balances(self.db, A, today=TODAY)
+        self.assertTrue(b["benefitExempt"])
+        self.assertFalse(b["vacation"]["eligible"])
+        self.assertFalse(b["sick"]["eligible"])
+        self.assertEqual(b["vacation"]["accrualPerHour"], 0)
+        self.assertIsNone(b["sick"]["grant"])
+        # Same policy, full time: accrues as before.
+        b2 = lb.balances(self.db, C, today=TODAY)
+        self.assertFalse(b2["benefitExempt"])
+        self.assertTrue(b2["sick"]["eligible"])
+
     def test_nothing_shows_before_the_start_date(self):
         b = lb.balances(self.db, A, today=TODAY)
         self.assertFalse(b["live"])
