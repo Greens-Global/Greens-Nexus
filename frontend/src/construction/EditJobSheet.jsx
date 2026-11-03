@@ -9,7 +9,9 @@
 // curated Nexus People list (getPeopleDirectory), never M365. Contract value
 // shows only to the people the server gave it to (it is absent otherwise),
 // and the property list is Asset Management's, private ones only for those
-// who may see them (the server's /ticket-properties).
+// who may see them (the server's /ticket-properties). The Books rows (the
+// job's Intacct Project-Job and entity, plan phase 4) show only to managers
+// with Accounting access (BooksRows; saved with the same one Save).
 import { useMemo, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { api } from '../api';
@@ -21,23 +23,29 @@ import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
 import { googleMapsUrl } from '../lib/addressSearch';
 import { useDraft } from '../lib/useDraft';
 import { PROJECT_STATUS } from './ui';
+import BooksRows from './BooksRows';
+import { useBooksDraft } from './lib/money';
 import { useNexusPeople, useProperties, savedOf, changesFor, invalidReason } from './lib/jobForm';
 
-export default function EditJobSheet({ project, onClose, onSaved }) {
+export default function EditJobSheet({ project, money = null, onClose, onSaved }) {
   const canCost = Object.prototype.hasOwnProperty.call(project, 'contractValue');
   const saved = useMemo(() => savedOf(project), [project]);
-  const { draft, patch, dirty, reset } = useDraft(saved);
+  const { draft, patch, dirty: jobDirty, reset: resetJob } = useDraft(saved);
+  const books = useBooksDraft(project, money);
+  const dirty = jobDirty || books.dirty;
+  const reset = () => { resetJob(); books.reset(); };
   const people = useNexusPeople();
   const properties = useProperties();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const invalid = invalidReason(draft);
+  const invalid = invalidReason(draft) || books.invalid;
 
   const save = async () => {
     if (!dirty || busy || invalid) return;
     setBusy(true); setError('');
     try {
-      const next = await api.updateConstructionProject(project.id, changesFor(saved, draft, { canCost }));
+      const next = jobDirty ? await api.updateConstructionProject(project.id, changesFor(saved, draft, { canCost })) : project;
+      if (books.dirty) await books.save();
       setBusy(false);
       onSaved?.(next);
     } catch (e) {
@@ -116,6 +124,7 @@ export default function EditJobSheet({ project, onClose, onSaved }) {
           </select>
         </SettingRow>
       </SettingCard>
+      {books.show && <BooksRows books={books} />}
       <SettingCard>
         <SettingRow title="Crew" desc="Who files daily logs on this job.">
           <div style={{ width: '100%' }} data-job-team="crew">

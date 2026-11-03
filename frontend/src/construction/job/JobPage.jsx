@@ -27,8 +27,12 @@ import { JOB_TYPE, PUNCH_STATE, jobTabs, tabFor, useLoad } from '../lib/job';
 import PunchTab from './PunchTab';
 import FieldTab from './FieldTab';
 import CloseoutTab from './CloseoutTab';
+import MoneyLine from './MoneyLine';
+import { useJobMoney } from '../lib/money';
 
 const ScheduleTab = lazy(() => import('./ScheduleTab'));
+// Money (phase 4): its own chunk with the Accounting side panel.
+const MoneyTab = lazy(() => import('./MoneyTab'));
 
 const go = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }));
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -70,7 +74,7 @@ function Line({ left, right, onClick }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function Overview({ project, onTab }) {
+function Overview({ project, onTab, money }) {
   const { data, error, reload } = useLoad(() => api.getJobConnected(project.id), project.id);
   const isProject = project.jobType !== 'work_order';
   const names = { ...(project.names || {}), ...(data?.names || {}) };
@@ -92,6 +96,7 @@ function Overview({ project, onTab }) {
           start={project.startOn ? `Started ${formatDate(project.startOn, project.startOn)}` : undefined}
           end={project.targetFinishOn ? `Target ${formatDate(project.targetFinishOn, project.targetFinishOn)}` : undefined}
           note={<><b>{pct}% complete</b>{project.phase ? ` - ${project.phase}` : ''}</>} />
+        <MoneyLine money={money} onOpen={() => onTab('money')} />
       </div>
       {error && <ErrorBanner message={error} onRetry={reload} />}
       {!data && !error ? <SkeletonBlocks count={3} height={120} borderRadius={12} /> : data && (
@@ -193,8 +198,12 @@ function dayGap(fromISO, toISO) {
 // ── The page ────────────────────────────────────────────────────────────────
 export default function JobPage({ project, tab = 'overview', onTab, onBack, onChanged }) {
   const [editing, setEditing] = useState(false);
-  const tabs = jobTabs(project.jobType);
-  const active = tabFor(project.jobType, tab);
+  // Money shows only when the server says this caller may see it; a link
+  // straight to the tab waits for that answer instead of falling to Overview.
+  const money = useJobMoney(project);
+  const moneyOn = !!money.data?.allowed || (tab === 'money' && !money.data && !money.error);
+  const tabs = jobTabs(project.jobType, { money: moneyOn });
+  const active = tabFor(project.jobType, tab, { money: moneyOn });
   const type = JOB_TYPE[project.jobType] || JOB_TYPE.project;
   const status = PROJECT_STATUS[project.status];
 
@@ -240,7 +249,7 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
       </div>
 
       <ViewErrorBoundary resetKey={`${project.id}:${active}`}>
-        {active === 'overview' && <Overview project={project} onTab={onTab} />}
+        {active === 'overview' && <Overview project={project} onTab={onTab} money={money} />}
         {active === 'schedule' && (
           <Suspense fallback={<SkeletonBlocks count={3} height={120} borderRadius={12} />}>
             <ScheduleTab project={project} onChanged={onChanged} />
@@ -252,12 +261,17 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
           <Registers project={project} canReview={!!project.canEdit} onChanged={onChanged}
             kinds={['rfis', 'submittals']} title="RFIs And Submittals" />
         )}
+        {active === 'money' && (
+          <Suspense fallback={<SkeletonBlocks count={3} height={120} borderRadius={12} />}>
+            <MoneyTab project={project} money={money} onEdit={project.canEdit ? () => setEditing(true) : null} />
+          </Suspense>
+        )}
         {active === 'closeout' && <CloseoutTab project={project} />}
       </ViewErrorBoundary>
 
       {editing && (
-        <EditJobSheet project={project} onClose={() => setEditing(false)}
-          onSaved={() => { setEditing(false); onChanged?.(); }} />
+        <EditJobSheet project={project} money={money} onClose={() => setEditing(false)}
+          onSaved={() => { setEditing(false); money.reload(); onChanged?.(); }} />
       )}
     </div>
   );

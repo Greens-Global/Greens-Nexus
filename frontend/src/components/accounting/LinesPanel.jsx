@@ -30,6 +30,8 @@ import { requestReportDrill } from './drill';
 //
 // `queries`: ledger searches (api.searchAccountingLedger), read together and
 // listed as one - e.g. one per expense account of an MRE line.
+// `keep` (optional): a test each line must pass, for a figure the search
+// cannot narrow to by itself - a job's "No Cost Code" lines (11/03/2026).
 
 export const LINES_LIMIT = 500;
 
@@ -62,17 +64,18 @@ export async function readLines(queries, limit = LINES_LIMIT) {
   return { lines, more };
 }
 
-export default function LinesPanel({ title, caption = '', queries, report = null, widthsKey = 'lines', label = 'Ledger lines', onClose }) {
+export default function LinesPanel({ title, caption = '', queries, report = null, widthsKey = 'lines', label = 'Ledger lines', keep = null, onClose }) {
   const key = JSON.stringify(queries || []);
   const [state, setState] = useState({ key: '', lines: null, more: false, error: '' });
   const [entry, setEntry] = useState(null);
   const entryOpen = useRef(false);
+  const keepRef = useRef(keep);
   useEffect(() => { entryOpen.current = !!entry; }, [entry]);
   const cols = useColumnWidths(`lines-panel:${widthsKey}`, Object.fromEntries(LINE_COLUMNS.map((c) => [c.key, c.width])), { min: 60 });
   useEffect(() => {
     let alive = true;
     readLines(JSON.parse(key))
-      .then((d) => { if (alive) setState({ key, ...d, error: '' }); })
+      .then((d) => { if (alive) setState({ key, ...d, lines: keepRef.current ? d.lines.filter(keepRef.current) : d.lines, error: '' }); })
       .catch((e) => { if (alive) setState({ key, lines: [], more: false, error: e?.message || 'Could not read the ledger lines.' }); });
     return () => { alive = false; };
   }, [key]);

@@ -252,7 +252,7 @@ function NewProjectModal({ onClose, onCreated }) {
 }
 
 // ── One project card ────────────────────────────────────────────────────────
-function ProjectCard({ p, onOpen }) {
+function ProjectCard({ p, onOpen, overBudget = false }) {
   return (
     <div role="button" tabIndex={0} data-project-card={p.id}
       onClick={() => onOpen(p.id)}
@@ -288,7 +288,7 @@ function ProjectCard({ p, onOpen }) {
         </div>
       </div>
       <Progress project={p} />
-      <HealthRow health={p.health} compact />
+      <HealthRow health={p.health} compact overBudget={overBudget} />
     </div>
   );
 }
@@ -322,6 +322,18 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
   }, []);
 
   useEffect(load, [load]);
+
+  // Over Budget on the cards (plan phase 4): managers with Accounting access
+  // only - the server answers {} for anyone else, and a failed read shows no flag.
+  const [moneyFlags, setMoneyFlags] = useState({});
+  useEffect(() => {
+    if (!canReview) return undefined;
+    let live = true;
+    Promise.resolve().then(() => api.getJobMoneyFlags?.())
+      .then((r) => { if (live) setMoneyFlags(r?.flags || {}); })
+      .catch(() => { if (live) setMoneyFlags({}); });
+    return () => { live = false; };
+  }, [canReview, data]);
 
   // A project URL may name one the list does not carry (complete, archived,
   // or not loaded yet): read it on its own.
@@ -375,7 +387,7 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
         />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {projects.map((p) => <ProjectCard key={p.id} p={p} onOpen={open} />)}
+          {projects.map((p) => <ProjectCard key={p.id} p={p} onOpen={open} overBudget={!!moneyFlags[p.id]?.overBudget} />)}
         </div>
       )}
     </div>

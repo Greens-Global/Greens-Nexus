@@ -8,10 +8,10 @@ import { HEALTH, healthFacts } from './lib/health';
 
 const INK = { bad: 'hsl(var(--color-red))', warn: 'var(--text-primary)' };
 
-export default function HealthRow({ health, compact = false }) {
+export default function HealthRow({ health, compact = false, overBudget = false }) {
   if (!health) return null;
   const meta = HEALTH[health.state] || HEALTH.on_track;
-  const facts = healthFacts(health);
+  const facts = healthFacts(health, { overBudget });
   return (
     <div data-health-row="" style={{ display: 'flex', alignItems: 'center', gap: '6px 12px', flexWrap: 'wrap', fontSize: compact ? '0.78rem' : '0.82rem', color: 'var(--text-secondary)' }}>
       <StatusLabel label={meta.label} color={meta.color} size={compact ? 'sm' : 'md'}
