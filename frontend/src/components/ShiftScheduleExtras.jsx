@@ -3,7 +3,7 @@
 // ShiftSchedule.jsx, which is the container; the grid itself is
 // components/shifts/WeekGrid.jsx (Oct 2026 rebuild, redesigned 10/02).
 import { useEffect, useState } from 'react';
-import { X, Upload, Download, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Search, Clock, CalendarDays, History } from 'lucide-react';
+import { X, Upload, Download, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Search, Clock, CalendarDays, History, UserMinus } from 'lucide-react';
 import { parseScheduleSheet } from './shiftScheduleLib';
 import { exportExcel } from '../tasks/exporting';
 import { formatDate, formatWeekday } from '../lib/datetime';
@@ -11,6 +11,7 @@ import { Spinner } from './AsyncState';
 import { ShiftBlock } from './shifts/ShiftBlock';
 import { ContextMenu, MenuItem, MenuSep, MenuHead } from './shifts/Menu';
 import { isoDate, dayHeading, shiftTimeText, minutesText, unpaidMinutes, SHIFT_COLORS, DEFAULT_SHIFT_COLOR } from './shifts/shiftLib';
+import { TODAY_CELL, TODAY_HEAD, TODAY_INK, plannerToday } from './shifts/nowLine';
 
 const MODAL_BACK = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' };
 const MODAL_CARD = { background: 'var(--card)', borderRadius: 14, padding: 20 };
@@ -23,7 +24,7 @@ export function ShiftTypeWeek({ days, shifts, presets, names, teamZone, onOpen }
   (shifts || []).forEach((s) => (rows.get(s.shiftId) || custom).items.push(s));
   const list = [...rows.values(), custom].filter((r) => r.items.length);
   const GRID = { display: 'grid', gridTemplateColumns: `230px repeat(${days.length}, minmax(128px, 1fr))` };
-  const today = isoDate(new Date());
+  const today = plannerToday(teamZone);   // the team zone's day (shifts/nowLine.js)
   return (
     <div style={{ overflow: 'auto', border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)' }}>
       <div style={{ minWidth: 230 + days.length * 128 }}>
@@ -32,8 +33,8 @@ export function ShiftTypeWeek({ days, shifts, presets, names, teamZone, onOpen }
           {days.map((d) => {
             const ds = isoDate(d);
             return (
-              <div key={ds} style={{ padding: '8px 10px', borderLeft: '1px solid var(--line)', background: ds === today ? 'var(--wk-brand-tint)' : 'transparent' }}>
-                <span style={{ fontSize: 17, fontWeight: 800, color: ds === today ? 'var(--wk-brand)' : 'var(--ink)' }}>{d.getDate()}</span>{' '}
+              <div key={ds} aria-current={ds === today ? 'date' : undefined} style={{ padding: '8px 10px', borderLeft: '1px solid var(--line)', background: 'transparent', ...(ds === today ? TODAY_HEAD : null) }}>
+                <span style={{ fontSize: 17, fontWeight: 800, color: ds === today ? TODAY_INK : 'var(--ink)' }}>{d.getDate()}</span>{' '}
                 <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)' }}>{dayHeading(d).replace(/ \d+$/, '')}</span>
               </div>
             );
@@ -53,7 +54,7 @@ export function ShiftTypeWeek({ days, shifts, presets, names, teamZone, onOpen }
               const ds = isoDate(d);
               const items = r.items.filter((s) => s.date === ds).sort((a, b) => a.start.localeCompare(b.start));
               return (
-                <div key={ds} style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 60, background: ds === today ? 'var(--wk-brand-tint)' : undefined }}>
+                <div key={ds} style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 60, background: ds === today ? TODAY_CELL : undefined }}>
                   {items.map((s) => (
                     <ShiftBlock key={s.id} shift={s} open={!s.email} teamZone={teamZone} onOpen={() => onOpen(s)}>
                       <div style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -228,7 +229,7 @@ export function ShiftMenu({ menu, presets = [], canTimeOff, hasCopied, onAction,
 
 // ── Person menu (the ⋯ on a row) ────────────────────────────────────────
 // Add Shift, Add Time Off, and the person's usual hours (their shift type).
-export function PersonMenu({ menu, presets = [], usualId = '', canTimeOff, onAction, onClose }) {
+export function PersonMenu({ menu, presets = [], usualId = '', canTimeOff, canTakeOff = true, onAction, onClose }) {
   return (
     <ContextMenu x={menu.x} y={menu.y} label={`Options for ${menu.emp.name}`} onClose={onClose} width={250}>
       <MenuItem Icon={Plus} label="Add Shift" onClick={() => onAction('add')} />
@@ -240,6 +241,8 @@ export function PersonMenu({ menu, presets = [], usualId = '', canTimeOff, onAct
       {presets.map((p) => (
         <MenuItem key={p.id} role="menuitemradio" checked={usualId === p.id} label={`${p.name} · ${shiftTimeText(p)}`} onClick={() => onAction('usual', p.id)} />
       ))}
+      {canTakeOff && <MenuSep />}
+      {canTakeOff && <MenuItem Icon={UserMinus} label="Take Off the Schedule" onClick={() => onAction('offSchedule')} />}
     </ContextMenu>
   );
 }

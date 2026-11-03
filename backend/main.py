@@ -1298,6 +1298,7 @@ def _run_migrations():
             "ALTER TABLE hr_packet_settings ADD COLUMN archived_at VARCHAR DEFAULT ''",
             "ALTER TABLE hr_packet_settings ADD COLUMN archived_by VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN duty_versions JSON DEFAULT '[]'",
+            "ALTER TABLE nexus_groups ADD COLUMN jd_file JSON DEFAULT '{}'",
             # Board card previews + a saved Board view's columns (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE tasks ADD COLUMN card_preview VARCHAR DEFAULT ''",
             "ALTER TABLE task_saved_views ADD COLUMN board_columns VARCHAR DEFAULT ''",
@@ -1418,6 +1419,8 @@ def _run_migrations():
             "ALTER TABLE nexus_notes ADD COLUMN collab_key VARCHAR DEFAULT ''",
             # Cubby tasks in Nexus Tasks (Oct 31 2026) - see the Postgres list. models.Task.
             "ALTER TABLE tasks ADD COLUMN cubby_task_id VARCHAR DEFAULT ''",
+            # Cubby task notes as comments (11/03/2026) - see the Postgres list. models.CubbyTaskLink.
+            "ALTER TABLE cubby_task_links ADD COLUMN note_ids JSON",
             # Training due modes and escalation (11/03/2026) - see the Postgres list.
             "ALTER TABLE kb_assignment_rules ADD COLUMN due_date VARCHAR DEFAULT ''",
             "ALTER TABLE kb_assignment_rules ADD COLUMN new_hires_only BOOLEAN DEFAULT 0",
@@ -1450,6 +1453,7 @@ def _run_migrations():
             "ALTER TABLE nexus_announcements ADD COLUMN work_site_id VARCHAR DEFAULT ''",
             # Federal forms in hiring packets (Neil, 11/02/2026) - see the Postgres list.
             "ALTER TABLE hr_packet_settings ADD COLUMN federal_forms JSON DEFAULT '[]'",
+            "ALTER TABLE hr_packet_settings ADD COLUMN field_sources JSON DEFAULT '{}'",
             # Sign-in notices (Neil, 11/02/2026): where each session signed in
             # from (sign_in_watch.record). models.ServerSession.
             "ALTER TABLE server_sessions ADD COLUMN ip VARCHAR DEFAULT ''",
@@ -1461,6 +1465,14 @@ def _run_migrations():
             "ALTER TABLE weather_outlook ADD COLUMN place VARCHAR DEFAULT ''",
             "ALTER TABLE weather_advisories ADD COLUMN place VARCHAR DEFAULT ''",
             "ALTER TABLE weather_decisions ADD COLUMN place VARCHAR DEFAULT ''",
+            # Items redesign (Neil, 11/02/2026) - see the Postgres list.
+            "ALTER TABLE item_checkouts ADD COLUMN requested_due_date VARCHAR DEFAULT ''",
+            "ALTER TABLE item_types ADD COLUMN borrowable BOOLEAN",
+            "ALTER TABLE item_types ADD COLUMN max_loan_days INTEGER DEFAULT 0",
+            # One-click stop for digest emails (legal pass, 11/02/2026) - see the Postgres list.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN email_optouts VARCHAR DEFAULT ''",
+            # On the Schedule (Neil, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN on_schedule INTEGER DEFAULT 1",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3150,6 +3162,8 @@ def _run_migrations():
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS archived_at VARCHAR DEFAULT ''",
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS archived_by VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS duty_versions JSONB DEFAULT '[]'::jsonb",
+        # A role's job description file (Nov 3 2026): models.NexusGroup.jd_file.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS jd_file JSONB DEFAULT '{}'::jsonb",
         # Board card previews (Oct 22 2026): models.Task.card_preview - what a
         # board card shows ("" = Automatic). A saved Board view's columns:
         # models.TaskSavedView.board_columns ("" = Status). Additive only.
@@ -3445,6 +3459,9 @@ def _run_migrations():
         "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS default_due_days INTEGER DEFAULT 0",
         "CREATE INDEX IF NOT EXISTS ix_tasks_cubby_task_id ON tasks (cubby_task_id)",
         "ALTER TABLE cubby_task_links ENABLE ROW LEVEL SECURITY",
+        # Cubby task notes as comments (Sagar, 11/03/2026): which warehouse
+        # notes a link has already posted. models.CubbyTaskLink.note_ids.
+        "ALTER TABLE cubby_task_links ADD COLUMN IF NOT EXISTS note_ids JSON",
         # Boards (Neil 11/02/2026): a whiteboard is a note - its drawing, a
         # thumbnail and where a Mark Up came from; versions keep the drawing.
         # Existing tables, no new RLS. models.NexusNote / NexusNoteVersion.
@@ -3478,6 +3495,8 @@ def _run_migrations():
         # I-9 and Direct Deposit Authorization a US hiring packet sends.
         # models.HrPacketSetting.federal_forms. Additive.
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS federal_forms JSONB DEFAULT '[]'::jsonb",
+        # Who fills each variable, per packet (Nov 3 2026): models.HrPacketSetting.field_sources.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS field_sources JSONB DEFAULT '{}'::jsonb",
         # Sign-in notices (Neil, 11/02/2026): where each session signed in from
         # (sign_in_watch.record) and the new nexus_sign_ins table's RLS.
         # models.ServerSession / NexusSignIn.
@@ -3495,6 +3514,21 @@ def _run_migrations():
         "ALTER TABLE weather_outlook ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
         "ALTER TABLE weather_advisories ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
         "ALTER TABLE weather_decisions ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        # Items redesign (Neil, 11/02/2026): Borrow asks for a return date on a
+        # calendar (the date the borrower picked, item_due.due_date), and each
+        # item type carries a Borrowable switch (NULL = the default) and its
+        # longest loan in days (0 = the 90-day ceiling).
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS requested_due_date VARCHAR DEFAULT ''",
+        "ALTER TABLE item_types ADD COLUMN IF NOT EXISTS borrowable BOOLEAN",
+        "ALTER TABLE item_types ADD COLUMN IF NOT EXISTS max_loan_days INTEGER DEFAULT 0",
+        # One-click stop for digest emails (the legal compliance pass,
+        # 11/02/2026, email_optout.py): the digests this person turned off
+        # from the email's own link or Profile > Email Settings, comma
+        # separated ('' = none). models.NexusPersonPref.email_optouts.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS email_optouts VARCHAR DEFAULT ''",
+        # On the Schedule (Neil, 11/03/2026): 0 = never placed, counted or
+        # alerted in scheduling; NULL / 1 = on. models.NexusEmployee.on_schedule.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS on_schedule INTEGER DEFAULT 1",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5405,3 +5439,5 @@ from routers import me_sessions as me_sessions_router  # noqa: E402 - nexus_sign
 app.include_router(me_sessions_router.router)  # My Profile > Security: where you are signed in, sign out other devices, recent sign-ins (Neil, 11/02/2026)
 from routers import pdf_tools as pdf_tools_router  # noqa: E402 - writes audit_logs rows only, no new table
 app.include_router(pdf_tools_router.router)  # PDF Tools: who did what - one Audit Log row per action, never the file (Neil, 11/02/2026)
+from routers import privacy_notice as privacy_notice_router  # noqa: E402 - reads only, no new table
+app.include_router(privacy_notice_router.router)  # Privacy Policy built from privacy_inventory.py: public /policy/privacy-notice + signed-in /me (legal compliance pass, 11/02/2026)

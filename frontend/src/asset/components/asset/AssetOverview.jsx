@@ -20,6 +20,8 @@ const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)', padding: '4
 
 const toneOf = (days) => (days < 0 ? 'hsl(var(--color-red))' : days <= 30 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-gold))');
 const dueText = (days) => (days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due Today' : `Due in ${days}d`);
+// A Critical Items category -> the health signal (assetSignals) about the same subject.
+const SIGNAL_OF_CATEGORY = { Service: 'Service', Insurance: 'Insurance', Registration: 'Registration', Inspection: 'Inspections' };
 const hover = (on) => (e) => { e.currentTarget.style.background = on ? 'var(--bg-secondary)' : 'none'; };
 
 /**
@@ -27,7 +29,13 @@ const hover = (on) => (e) => { e.currentTarget.style.background = on ? 'var(--bg
  */
 export function AssetOverview({ asset, store, onTab, onEdit, onGoTo }) {
   const due = useMemo(() => collectCriticalDates(store).filter((x) => x.id === asset.id && x.days <= 90).sort((a, b) => a.days - b.days), [store, asset.id]);
-  const warnings = useMemo(() => assetSignals(asset, store).filter((s) => s.t === 'warn' || s.t === 'bad'), [asset, store]);
+  // Counted per subject: a health warning whose subject already has a critical-date row above
+  // (Service, Insurance, Registration, Inspections) is that same item - shown and counted once.
+  // A Service warning about MILES is its own item (the critical row is the date).
+  const warnings = useMemo(() => {
+    const covered = new Set(due.map((x) => SIGNAL_OF_CATEGORY[x.cat]).filter(Boolean));
+    return assetSignals(asset, store).filter((s) => (s.t === 'warn' || s.t === 'bad') && !(covered.has(s.l) && s.by !== 'miles'));
+  }, [asset, store, due]);
   const gaps = useMemo(() => assetCompleteness(asset), [asset]);
   const recent = useMemo(() => (store.logs || []).filter((l) => l.propertyId === asset.id).slice(0, 5), [store.logs, asset.id]);
   const attention = due.length + warnings.length;

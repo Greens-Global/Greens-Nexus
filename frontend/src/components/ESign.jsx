@@ -13,16 +13,15 @@ import { isDocx } from '../lib/docxFile';
 import { RESERVED_TYPES as RESERVED_FIELD_TYPES, validateFieldValue, formatFieldValue } from '../lib/mergeFieldTypes';
 import TypedFieldInput from './TypedFieldInput';
 import EgnyteBrowser from './EgnyteBrowser';
-import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import { useIsMobile } from '../lib/useIsMobile';
 import { formatDate, formatDateTime, formatPacificDate, formatPacificDateTime } from '../lib/datetime';
-import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import AccessCodeField from './AccessCodeField';
 import AnchoredMenu from './AnchoredMenu';
 import { useRole } from '../contexts/RoleContext';
-import { Spinner, LoadingState } from './AsyncState';
+import { Spinner, LoadingState, SkeletonBlocks } from './AsyncState';
+import { MOTION, motionWait, prefersReducedMotion, useReducedMotion } from '../lib/motion';
 import BreakAttestModal, { BreakStatement } from './BreakAttestModal';
-import { PersonSelect } from '../tasks/components';
+import { PersonSelect, Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
 import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import SignTextField from './esign/SignTextField';
@@ -121,12 +120,55 @@ const UPLOAD_ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,.tif,.tiff';
 // signature against the field box it lands in.
 const SIG_W = 660;
 const SIG_H = 216;
+const SIG_INK = '#111827';
+
+// ── Motion (motion pass, 11/03/2026) ─────────────────────────────────────────
+// Nexus Sign moves on the app's motion tokens (style.css "Motion vocabulary",
+// lib/motion.js): arrivals decelerate (--ease-out), nothing bounces, and
+// everything stands still under reduced motion - including the smooth scrolls
+// and the Web Animations below, which the stylesheet's reduced-motion rules
+// cannot reach.
+const EASE_OUT = 'cubic-bezier(.16,1,.3,1)';      // = --ease-out
+const EASE_STANDARD = 'cubic-bezier(.4,0,.2,1)';  // for a there-and-back pulse
+const scrollBehavior = () => (prefersReducedMotion() ? 'auto' : 'smooth');
+
+// A content swap (a tab switch, a wizard step, the list giving way to the
+// signing page) brings the new content in instead of snapping: a fade, plus a
+// short slide in the direction of travel when `dx` is set. Web Animations
+// with no fill, so nothing stays "animated" once it ends. Not on the first
+// render - the surface's own arrival covers that - and never in tests or
+// under reduced motion (motionWait returns 0 there).
+function useSwapIn(ref, key, dx = 0) {
+  const first = useRef(true);
+  useLayoutEffect(() => {
+    if (first.current) { first.current = false; return; }
+    const el = ref.current;
+    if (!el?.animate || !motionWait(1)) return;
+    el.animate([{ opacity: 0, transform: dx ? `translateX(${dx}px)` : 'none' }, { opacity: 1, transform: 'none' }],
+      { duration: dx ? MOTION.md : MOTION.sm, easing: EASE_OUT });
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+// True for the moment a list's rows first arrive (its data went from not
+// loaded to loaded), so they rise in once (.nx-rise) - not again on every tab
+// switch or refresh, which would make a cached list feel slow.
+function useArrival(loaded) {
+  const [state, setState] = useState(loaded ? 'settled' : 'waiting');
+  if (loaded && state === 'waiting') setState('arriving');
+  if (!loaded && state !== 'waiting') setState('waiting');
+  useEffect(() => {
+    if (state !== 'arriving') return undefined;
+    const t = setTimeout(() => setState('settled'), 900);
+    return () => clearTimeout(t);
+  }, [state]);
+  return state === 'arriving';
+}
+const riseClass = (on) => (on ? 'nx-rise' : undefined);
+const riseStyle = (on, i) => (on ? { '--i': Math.min(i, 5) } : null);
 
 const SIG_FONTS = ['"Segoe Script"', '"Brush Script MT"', '"Lucida Handwriting"'];
 
 const FL = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.05em', textTransform: 'uppercase' };
-const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
-const cardStyle = { background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' };
 
 // Name box that auto-fills the email: type a teammate's name, matching people
 // drop down beneath, picking one populates name + email. Free text stays as a
@@ -227,41 +269,33 @@ function FieldOptionsModal({ field, onSave, onClose }) {
   // the sealed PDF would fill both circles.
   const clean = [...new Set(opts.map(o => o.trim()).filter(Boolean))];
   const dirty = JSON.stringify(opts) !== JSON.stringify(initial);
-  const guard = useUnsavedGuard(dirty, onClose, clean.length >= 2 ? () => { onSave(clean); onClose(); } : undefined);
+  // The Modal's "Save your changes?" always offers Save Changes; with fewer
+  // than two options there is nothing valid to save, so it keeps editing.
+  const saveDirty = () => { if (clean.length >= 2) { onSave(clean); onClose(); } };
   return (
-    <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>{FIELD_META[field.type]?.label} options</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
-        </div>
-        <div style={{ padding: '14px 20px', overflowY: 'auto' }}>
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>The values the signer can choose from - at least two.</p>
-          {opts.map((o, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-              <input className="form-input" value={o} placeholder={`Option ${i + 1}`} autoFocus={i === opts.length - 1 && !o}
-                onChange={e => setOpts(os => os.map((x, j) => j === i ? e.target.value : x))} style={{ flex: 1 }} />
-              <button onClick={() => setOpts(os => os.filter((_, j) => j !== i))} disabled={opts.length <= 2}
-                style={{ background: 'none', border: 'none', color: opts.length <= 2 ? 'var(--line)' : 'hsl(var(--color-red))', cursor: opts.length <= 2 ? 'default' : 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
-            </div>
-          ))}
-          <button className="secondary-btn" onClick={() => setOpts(os => [...os, ''])}
-            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Option</button>
-        </div>
-        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" disabled={clean.length < 2} onClick={() => { onSave(clean); onClose(); }}
+    <Modal zIndex={1500} onClose={onClose} isDirty={dirty} onSave={saveDirty}
+      title={`${FIELD_META[field.type]?.label} Options`}
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close()}>Cancel</button>
+          <button className="primary-btn" disabled={clean.length < 2} onClick={() => { onSave(clean); close(); }}
             style={{ opacity: clean.length < 2 ? 0.5 : 1 }}>Save Options</button>
+        </>
+      )}>
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>The values the signer can choose from - at least two.</p>
+      {opts.map((o, i) => (
+        <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+          <input className="form-input" value={o} placeholder={`Option ${i + 1}`} autoFocus={i === opts.length - 1 && !o}
+            onChange={e => setOpts(os => os.map((x, j) => j === i ? e.target.value : x))} style={{ flex: 1 }} />
+          <button onClick={() => setOpts(os => os.filter((_, j) => j !== i))} disabled={opts.length <= 2}
+            style={{ background: 'none', border: 'none', color: opts.length <= 2 ? 'var(--line)' : 'hsl(var(--color-red))', cursor: opts.length <= 2 ? 'default' : 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
         </div>
+      ))}
+      <div>
+        <button className="secondary-btn" onClick={() => setOpts(os => [...os, ''])}
+          style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Option</button>
       </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt
-          onKeepEditing={guard.keepEditing}
-          onDiscard={onClose}
-          onSave={clean.length >= 2 ? guard.saveAndClose : undefined}
-        />
-      )}
-    </div>
+    </Modal>
   );
 }
 // Which offer value an Offer Field prints. Picked at placement so the box
@@ -270,27 +304,21 @@ const MERGE_COLOR = { solid: '#0f766e', soft: 'rgba(15,118,110,0.10)' };
 function MergeFieldModal({ field, onSave, onClose }) {
   const [key, setKey] = useState(field.merge || 'salary');
   return (
-    <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Offer Field</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
-        </div>
-        <div style={{ padding: '14px 20px' }}>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
-            This box is printed from the offer when the packet is sent - nobody types into it. Pick what it shows.
-          </p>
-          <select className="form-input" value={key} onChange={e => setKey(e.target.value)} style={{ width: '100%' }} autoFocus>
-            {MERGE_FIELDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-          </select>
-          {key === 'salary' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 0' }}>Printed the way the typed pay reads, e.g. "$85,000.00 per year" or "₹7,00,000.00 per year".</p>}
-        </div>
-        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" onClick={() => { onSave(key); onClose(); }}>Use This Field</button>
-        </div>
-      </div>
-    </div>
+    <Modal zIndex={1500} onClose={onClose} title="Offer Field"
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close()}>Cancel</button>
+          <button className="primary-btn" onClick={() => { onSave(key); close(); }}>Use This Field</button>
+        </>
+      )}>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
+        This box is printed from the offer when the packet is sent - nobody types into it. Pick what it shows.
+      </p>
+      <select className="form-input" value={key} onChange={e => setKey(e.target.value)} style={{ width: '100%' }} autoFocus>
+        {MERGE_FIELDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+      </select>
+      {key === 'salary' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 0' }}>Printed the way the typed pay reads, e.g. "$85,000.00 per year" or "₹7,00,000.00 per year".</p>}
+    </Modal>
   );
 }
 // Label editor for upload fields (shared by both field placers). An upload box
@@ -303,39 +331,29 @@ function FieldLabelModal({ field, onSave, onClose }) {
   const [required, setRequired] = useState(field.required !== false);
   const dirty = label !== initial || required !== (field.required !== false);
   const save = () => { onSave({ label: label.trim(), required }); onClose(); };
-  const guard = useUnsavedGuard(dirty, onClose, save);
   return (
-    <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Attachment Field</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
-        </div>
-        <div style={{ padding: '16px 20px' }}>
-          <label style={FL}>What should the signer attach?</label>
-          <input className="form-input" autoFocus value={label} style={{ width: '100%' }}
-            placeholder="Certificate of insurance" onChange={e => setLabel(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') save(); }} />
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 14px' }}>
-            Shown on the box the signer clicks, and named on the signing certificate.
-          </p>
-          <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer' }}>
-            <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)}
-              style={{ width: 15, height: 15, marginTop: 1, accentColor: 'var(--pine)' }} />
-            <span style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-              Required - the signer cannot finish without attaching a file.
-            </span>
-          </label>
-        </div>
-        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" onClick={save}>Save</button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} />
-      )}
-    </div>
+    <Modal zIndex={1500} onClose={onClose} isDirty={dirty} onSave={save} title="Attachment Field"
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close()}>Cancel</button>
+          <button className="primary-btn" onClick={() => { onSave({ label: label.trim(), required }); close(); }}>Save</button>
+        </>
+      )}>
+      <label style={FL}>What should the signer attach?</label>
+      <input className="form-input" autoFocus value={label} style={{ width: '100%' }}
+        placeholder="Certificate of insurance" onChange={e => setLabel(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') save(); }} />
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 14px' }}>
+        Shown on the box the signer clicks, and named on the signing certificate.
+      </p>
+      <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer' }}>
+        <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)}
+          style={{ width: 15, height: 15, marginTop: 1, accentColor: 'var(--pine)' }} />
+        <span style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          Required - the signer cannot finish without attaching a file.
+        </span>
+      </label>
+    </Modal>
   );
 }
 const chip = (m) => ({ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: m.bg, color: m.fg, whiteSpace: 'nowrap' });
@@ -364,7 +382,9 @@ function useFillHeight(minH = 420) {
 const fillPanelStyle = (h) => ({ height: h, display: 'flex', flexDirection: 'column', border: '1px solid var(--line)', borderRadius: 14, background: 'var(--bg, #f3f4f6)', overflow: 'hidden' });
 
 // ── Signature pad - draw or type (with font styles), DocuSign "adopt" flow ────
-export function SignaturePad({ name = '', onAdopt, onClose }) {
+// `zIndex`: the pad is a sheet portaled to <body>, so a host that is itself a
+// higher sheet (Forms' fill sheet, 4100) passes a z above its own.
+export function SignaturePad({ name = '', onAdopt, onClose, zIndex = 1400 }) {
   const [tab, setTab] = useState('type');
   const [typed, setTyped] = useState(name);
   const [font, setFont] = useState(0);
@@ -373,34 +393,107 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
   const strokes = useRef([]);
   const drawing = useRef(false);
 
+  // Ink (motion pass, 11/03/2026). A stroke is a run of points joined by
+  // quadratic curves through their midpoints, so a quick loop reads as a curve
+  // rather than a polygon, and every point the pointer passed through is kept
+  // (coalesced events). Finished strokes live on a layer of their own
+  // (`ink.base`, an offscreen canvas); while the pen moves, each frame - at
+  // most one per display refresh, however fast the pointer reports - copies
+  // that layer and paints only the stroke in progress, ending in a short
+  // straight reach to the pen so the ink never trails it. Undo and Clear
+  // repaint the layer from the stroke list with the same curves.
+  const ink = useRef({ raf: 0, rect: null, base: null });
+  const pen = (ctx) => { ctx.strokeStyle = SIG_INK; ctx.fillStyle = SIG_INK; ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; };
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  function paintStroke(ctx, pts) {
+    const last = pts[pts.length - 1];
+    if (pts.length === 1) { ctx.beginPath(); ctx.arc(last.x, last.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill(); return; }
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let k = 1; k <= pts.length - 2; k++) {
+      const m = mid(pts[k], pts[k + 1]);
+      ctx.quadraticCurveTo(pts[k].x, pts[k].y, m.x, m.y);
+    }
+    ctx.lineTo(last.x, last.y);
+    ctx.stroke();
+  }
+  // A canvas the size of the pad in device pixels, drawing in pad units.
+  function sizeLayer(c) {
+    const scale = window.devicePixelRatio || 1;
+    c.width = SIG_W * scale; c.height = SIG_H * scale;
+    const ctx = c.getContext('2d');
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    pen(ctx);
+    return ctx;
+  }
+  // The finished strokes onto the layer (all but the one in progress).
+  function paintBase(list) {
+    const base = ink.current.base; if (!base) return;
+    const ctx = base.getContext('2d');
+    ctx.clearRect(0, 0, SIG_W, SIG_H);
+    pen(ctx);
+    for (const st of list) paintStroke(ctx, st);
+  }
+  // The layer, then the stroke in progress (if any), onto the visible pad.
+  function present(active) {
+    const c = canvasRef.current; const base = ink.current.base;
+    if (!c || !base) return;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, SIG_W, SIG_H);
+    ctx.drawImage(base, 0, 0, SIG_W, SIG_H);
+    if (active) { pen(ctx); paintStroke(ctx, active); }
+  }
+  function redraw() {
+    paintBase(strokes.current);
+    present(null);
+    setHasInk(strokes.current.length > 0);
+  }
+  function paintFrame() {
+    ink.current.raf = 0;
+    present(drawing.current ? strokes.current[strokes.current.length - 1] : null);
+  }
+
   useEffect(() => {
     const c = canvasRef.current;
     if (!c) return;
-    const scale = window.devicePixelRatio || 1;
-    c.width = SIG_W * scale; c.height = SIG_H * scale;
-    c.getContext('2d').scale(scale, scale);
+    sizeLayer(c);
+    ink.current.base = ink.current.base || document.createElement('canvas');
+    sizeLayer(ink.current.base);
     redraw();
-  }, [tab]);
+    // redraw reads only refs and a state setter, so a new copy each render changes nothing.
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function redraw() {
-    const c = canvasRef.current; if (!c) return;
-    const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, SIG_W, SIG_H);
-    ctx.strokeStyle = '#111827'; ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (const s of strokes.current) {
-      ctx.beginPath();
-      s.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-      ctx.stroke();
-    }
-    setHasInk(strokes.current.length > 0);
-  }
-  const pos = (e) => {
-    const r = canvasRef.current.getBoundingClientRect();
-    return { x: (e.clientX - r.left) * (SIG_W / r.width), y: (e.clientY - r.top) * (SIG_H / r.height) };
+  const pos = (e, r) => ({ x: (e.clientX - r.left) * (SIG_W / r.width), y: (e.clientY - r.top) * (SIG_H / r.height) });
+  const down = (e) => {
+    const st = ink.current;
+    st.rect = canvasRef.current.getBoundingClientRect();
+    drawing.current = true;
+    strokes.current.push([pos(e, st.rect)]);
+    try { e.target.setPointerCapture?.(e.pointerId); } catch { /* a pointer the browser no longer tracks */ }
+    if (!hasInk) setHasInk(true);
+    paintFrame();
   };
-  const down = (e) => { drawing.current = true; strokes.current.push([pos(e)]); e.target.setPointerCapture?.(e.pointerId); };
-  const move = (e) => { if (!drawing.current) return; strokes.current[strokes.current.length - 1].push(pos(e)); redraw(); };
-  const up = () => { drawing.current = false; redraw(); };
+  const move = (e) => {
+    if (!drawing.current) return;
+    const st = ink.current; const s = strokes.current[strokes.current.length - 1];
+    const evs = e.nativeEvent?.getCoalescedEvents?.() || [];
+    for (const ev of evs.length ? evs : [e]) {
+      const p = pos(ev, st.rect); const q = s[s.length - 1];
+      if (Math.abs(p.x - q.x) + Math.abs(p.y - q.y) >= 0.6) s.push(p);
+    }
+    if (!st.raf) st.raf = requestAnimationFrame(paintFrame);
+  };
+  const up = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    const st = ink.current;
+    if (st.raf) { cancelAnimationFrame(st.raf); st.raf = 0; }
+    // The finished stroke joins the layer; the pad shows the layer alone.
+    const base = st.base;
+    if (base) { const ctx = base.getContext('2d'); pen(ctx); paintStroke(ctx, strokes.current[strokes.current.length - 1]); }
+    present(null);
+  };
+  useEffect(() => () => { if (ink.current.raf) cancelAnimationFrame(ink.current.raf); }, []);
 
   function adopt() {
     if (tab === 'draw') {
@@ -434,25 +527,40 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
   // otherwise be silently lost on an outside click - a legally meaningful
   // loss for a signature specifically.
   const dirty = tab === 'draw' ? hasInk : typed.trim() !== (name || '').trim();
-  const guard = useUnsavedGuard(dirty, onClose, (tab === 'draw' ? hasInk : typed.trim()) ? adopt : undefined);
+  const canAdopt = !!(tab === 'draw' ? hasInk : typed.trim());
 
   return (
-    <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <PenTool size={17} style={{ color: 'var(--pine)' }} />
-          <div style={{ flex: 1 }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Adopt Your Signature</h3>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>This becomes your legal signature on this document.</div>
+    <Modal zIndex={zIndex} onClose={onClose} isDirty={dirty}
+      // "Save Changes" on the close question adopts; with nothing to adopt
+      // (a cleared name) it keeps the pad open instead.
+      onSave={() => { if (canAdopt) adopt(); }}
+      title={(
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <PenTool size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+          <span>
+            <span style={{ display: 'block', fontSize: 16, fontWeight: 800 }}>Adopt Your Signature</span>
+            <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--muted)', marginTop: 2 }}>This becomes your legal signature on this document.</span>
+          </span>
+        </span>
+      )}
+      footer={(close) => (
+        <>
+          <span style={{ fontSize: 10.5, color: 'var(--muted)', flex: '1 1 240px' }}>By adopting, you agree this is the electronic equivalent of your handwritten signature.</span>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="secondary-btn" onClick={() => close()}>Cancel</button>
+            <button className="primary-btn" onClick={adopt} disabled={!canAdopt}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: canAdopt ? 1 : 0.55 }}>
+              <CheckCircle size={14} /> Adopt &amp; Sign
+            </button>
           </div>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ padding: '18px 24px' }}>
+        </>
+      )}>
+        <div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>{seg('type', 'Type', Type)}{seg('draw', 'Draw', PenTool)}</div>
           {tab === 'draw' ? (
             <>
               <div style={{ position: 'relative' }}>
-                <canvas ref={canvasRef} onPointerDown={down} onPointerMove={move} onPointerUp={up}
+                <canvas ref={canvasRef} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
                   style={{ width: '100%', height: SIG_H, border: '1.5px dashed var(--line)', borderRadius: 12, touchAction: 'none', cursor: 'crosshair', background: '#fff' }} />
                 {!hasInk && <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 13, pointerEvents: 'none' }}>Draw your signature with your mouse or finger</span>}
                 <span style={{ position: 'absolute', left: 20, bottom: 26, right: 20, borderBottom: '1px solid #d1d5db', pointerEvents: 'none' }} />
@@ -477,25 +585,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
             </>
           )}
         </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 10.5, color: 'var(--muted)', maxWidth: 300 }}>By adopting, you agree this is the electronic equivalent of your handwritten signature.</span>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button className="secondary-btn" onClick={onClose}>Cancel</button>
-            <button className="primary-btn" onClick={adopt} disabled={tab === 'draw' ? !hasInk : !typed.trim()}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (tab === 'draw' ? hasInk : typed.trim()) ? 1 : 0.55 }}>
-              <CheckCircle size={14} /> Adopt &amp; Sign
-            </button>
-          </div>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt
-          onKeepEditing={guard.keepEditing}
-          onDiscard={onClose}
-          onSave={(tab === 'draw' ? hasInk : typed.trim()) ? guard.saveAndClose : undefined}
-        />
-      )}
-    </div>
+    </Modal>
   );
 }
 
@@ -503,6 +593,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
 // Passing the File's bytes directly (not fetch(blobUrl)) sidesteps CSP blocks
 // on blob: fetches - the "Failed to fetch" bug in v1.
 function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen, onPageCount }) {
+  const reduce = useReducedMotion();
   const [pages, setPages] = useState(null);
   const [error, setError] = useState('');
   // Which pages were actually SCROLLED INTO VIEW. The certificate may only say
@@ -540,7 +631,8 @@ function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen, onPageCount })
       {/* An indeterminate bar, not a bare spinner: "everything has a loading
           bar on it, so you're not just looking at an empty screen." */}
       <div style={{ margin: '12px auto 0', width: 220, height: 3, borderRadius: 2, background: 'var(--line)', overflow: 'hidden' }}>
-        <div style={{ width: '38%', height: '100%', borderRadius: 2, background: 'var(--pine, #166534)', animation: 'nexus-sign-slide 1.15s ease-in-out infinite' }} />
+        <div style={{ width: '38%', height: '100%', borderRadius: 2, background: 'var(--pine, #166534)',
+          ...(reduce ? { transform: 'translateX(82%)', animation: 'nxl-breathe 2s ease-in-out infinite' } : { animation: 'nexus-sign-slide 1.15s cubic-bezier(.65,0,.35,1) infinite' }) }} />
       </div>
       <style>{'@keyframes nexus-sign-slide{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}'}</style>
     </div>
@@ -911,17 +1003,14 @@ function HistoryPanel({ loadHistory, onClose }) {
   }, [loadHistory]);
 
   return (
-    <div style={{ ...overlayStyle, zIndex: 1450 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Clock size={17} style={{ color: 'var(--pine)' }} />
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, flex: 1 }}>History</h3>
-          <button onClick={onClose} aria-label="Close"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
-            <X size={16} />
-          </button>
-        </div>
-        <div style={{ padding: '6px 24px 18px', overflowY: 'auto' }}>
+    <Modal zIndex={1450} onClose={onClose}
+      title={(
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Clock size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} /> History
+        </span>
+      )}
+      footer={(close) => <button className="secondary-btn" onClick={() => close()}>Close</button>}>
+        <div>
           {error ? (
             <p style={{ fontSize: 13, color: 'hsl(var(--color-red))', margin: '14px 0' }}>{error}</p>
           ) : !rows ? (
@@ -970,11 +1059,7 @@ function HistoryPanel({ loadHistory, onClose }) {
             </ol>
           )}
         </div>
-        <div style={{ padding: '12px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Close</button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1204,10 +1289,11 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   const listBtnRef = useRef(null);
   const [declineOpen, setDeclineOpen] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
-  // Declining is itself a consequential, one-way action - Save Changes isn't
-  // offered on this guard (only Keep Editing / Discard); the modal's own
-  // primary "Decline" button is the deliberate way to actually submit it.
-  const declineGuard = useUnsavedGuard(!!declineReason.trim(), () => setDeclineOpen(false), undefined);
+  // Declining is itself a consequential, one-way action - the close question's
+  // Save Changes never declines: it keeps the typed reason for next time and
+  // closes (Discard clears it); the popup's own primary "Decline" button is the
+  // deliberate way to actually submit it.
+  const declineDirty = !!declineReason.trim();
   const fieldRefs = useRef({});
   const myRole = payload.myRole;
   // What the other parties have already put in - read-only here, but shown:
@@ -1225,7 +1311,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   useEffect(() => {
     if (!fieldError?.field) return;
     const el = fieldRefs.current[fieldError.field];
-    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    el?.scrollIntoView?.({ behavior: scrollBehavior(), block: 'center' });
     el?.focus?.({ preventScroll: true });
   }, [fieldError]);
   const setVal = (k, v) => { setValues(p => ({ ...p, [k]: v })); if (fieldErr && fieldErr.field === k) setDismissed(fieldErr); };
@@ -1289,8 +1375,9 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   const jumpTo = (task) => {
     const el = task && fieldRefs.current[task.id];
     if (el) {
-      el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-      el.animate?.([{ transform: 'scale(1)' }, { transform: 'scale(1.07)' }, { transform: 'scale(1)' }], { duration: 380 });
+      el.scrollIntoView?.({ behavior: scrollBehavior(), block: 'center' });
+      // One quick pulse says "this one" once it is in view.
+      if (motionWait(1)) el.animate?.([{ transform: 'scale(1)' }, { transform: 'scale(1.05)' }, { transform: 'scale(1)' }], { duration: 280, easing: EASE_STANDARD });
       el.focus?.({ preventScroll: true });
     }
   };
@@ -1318,7 +1405,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   const jumpNext = () => {
     setBarHidden(true);
     if (atEnd) {                       // nothing left above - go to the finish bar
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      window.scrollTo({ top: document.body.scrollHeight, behavior: scrollBehavior() });
       return;
     }
     setStarted(true);
@@ -1408,7 +1495,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
     : <span style={{ fontFamily: '"Segoe Script","Brush Script MT",cursive', fontSize: h * 0.55 }}>{sig?.data}</span>;
 
   const signHereTab = (key) => (
-    <button ref={el => { fieldRefs.current[key] = el; }} onClick={() => payload.myTurn && setPadOpen(true)} disabled={!payload.myTurn}
+    <button ref={el => { fieldRefs.current[key] = el; }} className="nx-press" onClick={() => payload.myTurn && setPadOpen(true)} disabled={!payload.myTurn}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 22px', borderRadius: 8,
         background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 13.5,
         cursor: payload.myTurn ? 'pointer' : 'default', fontFamily: 'Inter,sans-serif',
@@ -1600,18 +1687,40 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
     setPaperBusy(false);
   };
 
+  // One sheet for the three steps; the footer follows the step.
   const paperModal = (
-    <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && setPaperStep(0)}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Printer size={17} style={{ color: 'var(--pine)' }} />
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, flex: 1 }}>Sign on Paper</h3>
+    <Modal zIndex={1400} onClose={() => setPaperStep(0)}
+      title={(
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Printer size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+          <span>Sign on Paper</span>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>Step {paperStep} of 3</span>
-        </div>
-
-        {paperStep === 1 && (
+        </span>
+      )}
+      footer={(close) => (
+        paperStep === 1 ? (
           <>
-            <div style={{ padding: '18px 24px' }}>
+            <button className="secondary-btn" onClick={() => close()}>Cancel</button>
+            <button className="primary-btn" onClick={() => setPaperStep(2)}>Continue</button>
+          </>
+        ) : paperStep === 2 ? (
+          <>
+            <button className="secondary-btn" onClick={() => setPaperStep(1)}>Back</button>
+            <button className="primary-btn" onClick={() => setPaperStep(3)}>I Have Signed It</button>
+          </>
+        ) : (
+          <>
+            <button className="secondary-btn" onClick={() => setPaperStep(2)}>Back</button>
+            <button className="primary-btn" disabled={!paperFile || paperBusy} onClick={submitPaper}
+              style={{ opacity: paperFile && !paperBusy ? 1 : 0.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              {paperBusy ? <Spinner size={14} /> : <Check size={14} />}
+              Submit Signed Copy
+            </button>
+          </>
+        )
+      )}>
+        {paperStep === 1 && (
+            <div>
               <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 16px' }}>
                 How would you like to return the signed document?
               </p>
@@ -1628,16 +1737,10 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 </span>
               </label>
             </div>
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="secondary-btn" onClick={() => setPaperStep(0)}>Cancel</button>
-              <button className="primary-btn" onClick={() => setPaperStep(2)}>Continue</button>
-            </div>
-          </>
         )}
 
         {paperStep === 2 && (
-          <>
-            <div style={{ padding: '18px 24px' }}>
+            <div>
               <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 14px' }}>
                 Download the document, print it, and sign it by hand. Come back to this page when
                 you have a scan ready - this link stays valid.
@@ -1649,16 +1752,10 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 </button>
               )}
             </div>
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="secondary-btn" onClick={() => setPaperStep(1)}>Back</button>
-              <button className="primary-btn" onClick={() => setPaperStep(3)}>I Have Signed It</button>
-            </div>
-          </>
         )}
 
         {paperStep === 3 && (
-          <>
-            <div style={{ padding: '18px 24px' }}>
+            <div>
               <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 14px' }}>
                 Upload your signed copy. Make sure every signed page is included and readable.
               </p>
@@ -1683,30 +1780,29 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 <p style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', margin: '10px 0 0', fontWeight: 600 }}>{paperErr}</p>
               )}
             </div>
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="secondary-btn" onClick={() => setPaperStep(2)}>Back</button>
-              <button className="primary-btn" disabled={!paperFile || paperBusy} onClick={submitPaper}
-                style={{ opacity: paperFile && !paperBusy ? 1 : 0.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                {paperBusy ? <Spinner size={14} /> : <Check size={14} />}
-                Submit Signed Copy
-              </button>
-            </div>
-          </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 
   // Hoisted out of the return so the consent/OTP gates can render it too: a
   // signer who would rather use paper says so on the FIRST screen, long before
-  // the document exists to decline from.
+  // the document exists to decline from. A question with a reason box, so the
+  // centered card. Back keeps the typed reason; the close question's Discard
+  // (and a close with nothing typed) clears it.
   const declineModal = (
-    <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && declineGuard.requestClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)' }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Sign on Paper Instead</h3>
-        </div>
-        <div className="nx-fill" style={{ padding: '18px 24px' }}>
+    <Modal zIndex={1400} placement="center" title="Sign on Paper Instead"
+      onClose={(how) => { if (how !== 'back') setDeclineReason(''); setDeclineOpen(false); }}
+      isDirty={declineDirty} onSave={() => setDeclineOpen(false)}
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close('back')}>Back</button>
+          <button className="primary-btn" disabled={busy} onClick={() => onDecline(declineReason)}
+            style={{ background: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <XCircle size={14} /> Decline to Sign Electronically
+          </button>
+        </>
+      )}>
+        <div className="nx-fill">
           <p style={{ fontSize: 13, lineHeight: 1.6, margin: '0 0 14px', color: 'var(--muted)' }}>
             Tell the sender you would rather sign on paper and they will arrange it - download a
             copy above, print and sign it, then return the scan to them directly. Nothing is
@@ -1716,21 +1812,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
           <textarea className="form-input" rows={3} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
             value={declineReason} onChange={e => setDeclineReason(e.target.value)} autoFocus />
         </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={() => setDeclineOpen(false)}>Back</button>
-          <button className="primary-btn" disabled={busy} onClick={() => onDecline(declineReason)}
-            style={{ background: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <XCircle size={14} /> Decline to Sign Electronically
-          </button>
-        </div>
-      </div>
-      {declineGuard.confirming && (
-        <UnsavedChangesPrompt
-          onKeepEditing={declineGuard.keepEditing}
-          onDiscard={() => { setDeclineReason(''); setDeclineOpen(false); }}
-        />
-      )}
-    </div>
+    </Modal>
   );
 
   if (needsGate) return (
@@ -1783,10 +1865,11 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 fontSize: 11.5, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)',
                 display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: narrow ? 56 : 90, height: 5, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
-                <span style={{ display: 'block', height: '100%', width: `${required.length ? (doneCount / required.length) * 100 : 100}%`, background: allDone ? 'hsl(var(--color-green))' : '#fbbf24', transition: 'width .3s' }} />
+                <span style={{ display: 'block', height: '100%', width: '100%', transformOrigin: 'left center', transform: `scaleX(${required.length ? doneCount / required.length : 1})`,
+                  background: allDone ? 'hsl(var(--color-green))' : '#fbbf24', transition: 'transform var(--dur-md) var(--ease-out), background-color var(--dur-md) var(--ease-out)' }} />
               </span>
               {allDone ? 'All fields complete' : `${doneCount} of ${required.length} fields`}
-              {allDone ? <CheckCircle size={12} /> : <ChevronDown size={12} style={{ transform: listOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
+              {allDone ? <CheckCircle size={12} /> : <ChevronDown size={12} style={{ transform: listOpen ? 'rotate(180deg)' : 'none', transition: 'transform var(--dur-sm) var(--ease-out)' }} />}
             </button>
             {/* Portaled so the page's scroll areas can't clip it (phones). */}
             <AnchoredMenu anchorRef={listBtnRef} open={listOpen} onClose={() => setListOpen(false)} align="start" minWidth={250}
@@ -1904,7 +1987,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
             the name of the field it will take you to. Fixed to the left edge,
             level with that field's own row (see the effect above). */}
         {payload.myTurn && (nextTask || started) && (
-          <button onClick={jumpNext}
+          <button onClick={jumpNext} className="nx-press"
             aria-label={!started ? 'Start signing'
               : atEnd ? 'Go to the end of the document' : `Next field: ${taskName(nextTarget)}`}
             style={{ position: 'fixed', left: tabLeft, top: tabTop ?? 120, zIndex: 25, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 12, padding: '8px 14px 8px 10px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', borderRadius: '0 8px 8px 0', boxShadow: '0 2px 10px rgba(245,158,11,0.55)', maxWidth: '62vw' }}>
@@ -2225,12 +2308,14 @@ function MergePara({ text, onChange, onFocus, innerRef }) {
 export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
   const [url, setUrl] = useState('');
   const [fields, setFields] = useState(attachment.fields || []);
+  const [initialFields] = useState(() => JSON.stringify(attachment.fields || []));
   const [activeRole, setActiveRole] = useState(0);
   const [activeType, setActiveType] = useState('sign');
   const [optsFor, setOptsFor] = useState(null);   // field id whose options are being edited
   const [labelFor, setLabelFor] = useState(null); // upload field whose label is being edited
   const [mergeFor, setMergeFor] = useState(null); // offer field whose value is being picked
   const dragState = useRef(null);
+  const [liftId, setLiftId] = useState(null);   // the field in hand: lifted with a shadow
 
   useEffect(() => {
     api.getSignAttachmentUrl(attachment.path).then(r => setUrl(r.url))
@@ -2249,19 +2334,32 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
     if (meta.opts) setOptsFor(id); // choices matter more than position - edit them right away
     if (meta.merge) setMergeFor(id);
   }
-  const onDrag = useCallback((e) => {
-    const s = dragState.current; if (!s) return;
-    const dx = (e.clientX - s.startX) / s.rect.width, dy = (e.clientY - s.startY) / s.rect.height;
+  // One move per frame (motion pass, 11/03/2026): a modern mouse reports
+  // 500-1000 moves a second, and re-rendering the document for each one made
+  // a dragged field trail the pointer. The last position always lands.
+  const moveField = useCallback((s) => {
+    const dx = (s.x - s.startX) / s.rect.width, dy = (s.y - s.startY) / s.rect.height;
     setFields(fs => fs.map(f => f.id !== s.fieldId ? f
       : s.mode === 'move'
         ? { ...f, x: Math.min(0.99 - f.w, Math.max(0, s.orig.x + dx)), y: Math.min(0.99 - f.h, Math.max(0, s.orig.y + dy)) }
         : { ...f, w: Math.min(0.9, Math.max(0.02, s.orig.w + dx)), h: Math.min(0.4, Math.max(0.012, s.orig.h + dy)) }));
   }, []);
-  const endDrag = useCallback(() => { dragState.current = null; window.removeEventListener('pointermove', onDrag); }, [onDrag]);
+  const onDrag = useCallback((e) => {
+    const s = dragState.current; if (!s) return;
+    s.x = e.clientX; s.y = e.clientY;
+    if (!s.raf) s.raf = requestAnimationFrame(() => { s.raf = 0; if (dragState.current === s) moveField(s); });
+  }, [moveField]);
+  const endDrag = useCallback(() => {
+    const s = dragState.current;
+    if (s?.raf) { cancelAnimationFrame(s.raf); s.raf = 0; moveField(s); }
+    dragState.current = null; setLiftId(null);
+    window.removeEventListener('pointermove', onDrag);
+  }, [onDrag, moveField]);
   const startDrag = (e, f, mode) => {
     e.stopPropagation(); e.preventDefault();
     const pageEl = e.currentTarget.closest('[data-atpage]'); if (!pageEl) return;
     dragState.current = { fieldId: f.id, mode, rect: pageEl.getBoundingClientRect(), startX: e.clientX, startY: e.clientY, orig: { ...f } };
+    setLiftId(f.id);
     window.addEventListener('pointermove', onDrag);
     window.addEventListener('pointerup', endDrag, { once: true });
   };
@@ -2277,8 +2375,8 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
         return (
           <div key={f.id} onPointerDown={(e) => startDrag(e, f, 'move')} onClick={e => e.stopPropagation()}
             style={{ position: 'absolute', left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%`,
-              border: `2px ${M.merge ? 'dashed' : 'solid'} ${c.solid}`, background: c.soft, borderRadius: 5, cursor: 'grab', touchAction: 'none',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
+              border: `2px ${M.merge ? 'dashed' : 'solid'} ${c.solid}`, background: c.soft, borderRadius: 5, cursor: liftId === f.id ? 'grabbing' : 'grab', touchAction: 'none',
+              boxShadow: liftId === f.id ? '0 8px 22px rgba(17,24,39,0.20)' : 'none', zIndex: liftId === f.id ? 2 : undefined, transition: 'box-shadow var(--dur-xs) var(--ease-out)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
               <M.Icon size={10} /> {M.merge ? (MERGE_LABEL[f.merge] || 'Offer Field') : ((M.labeled && f.label) || M.label)}
             </span>
@@ -2303,21 +2401,33 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
     </div>
   );
 
+  // A workspace sheet, most of the screen wide. The Modal closes on an outside
+  // click and on Escape; with fields moved, added or removed those ask first
+  // (Save Changes saves the fields), so a stray click never loses placements.
   return (
-    <div style={{ ...overlayStyle, zIndex: 1350 }}>
-      <div style={{ background: 'var(--bg, #f3f4f6)', borderRadius: 16, width: '100%', maxWidth: 1400, height: 'min(94dvh, 940px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
-      <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', flexShrink: 0 }}>
-        <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</div>
-          <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Signing template · place the fields once, every send reuses them</div>
-        </div>
-        <button className="secondary-btn" onClick={onClose} style={{ fontSize: 12.5 }}>Cancel</button>
-        <button className="primary-btn" onClick={() => { onSave(fields); onClose(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-          <CheckCircle size={13} /> Save fields
-        </button>
-      </div>
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+    <>
+    <Modal zIndex={1350} width={1400} onClose={onClose}
+      isDirty={JSON.stringify(fields) !== initialFields} onSave={() => { onSave(fields); onClose(); }}
+      title={(
+        <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: 'block', fontWeight: 800, fontSize: 14, overflowWrap: 'anywhere' }}>{attachment.name}</span>
+            <span style={{ display: 'block', fontSize: 10.5, fontWeight: 400, color: 'var(--muted)' }}>Signing template · place the fields once, every send reuses them</span>
+          </span>
+        </span>
+      )}
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close()} style={{ fontSize: 12.5 }}>Cancel</button>
+          <button className="primary-btn" onClick={() => { onSave(fields); close(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+            <CheckCircle size={13} /> Save Fields
+          </button>
+        </>
+      )}>
+      {/* The three columns take the whole body edge to edge (the negative
+          margin undoes the Modal's 20px padding); each column scrolls itself. */}
+      <div style={{ flex: '1 1 auto', display: 'flex', minHeight: 0, margin: -20, background: 'var(--bg, #f3f4f6)' }}>
         <div style={{ width: 180, borderRight: '1px solid var(--line)', background: 'var(--card)', padding: '14px 12px', flexShrink: 0, overflowY: 'auto' }}>
           <label style={FL}>Included documents</label>
           <div style={{ border: '1.5px solid var(--pine)', borderRadius: 10, padding: '14px 10px', textAlign: 'center', background: 'var(--mist)' }}>
@@ -2334,7 +2444,7 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
           activeIdx={activeRole} onPick={setActiveRole} offerFields
           activeType={activeType} setActiveType={setActiveType} placed={fields.length} />
       </div>
-      </div>
+    </Modal>
       {mergeFor && fields.find(f => f.id === mergeFor) && (
         <MergeFieldModal field={fields.find(f => f.id === mergeFor)} onClose={() => setMergeFor(null)}
           onSave={(merge) => setFields(fs => fs.map(f => f.id === mergeFor ? { ...f, merge } : f))} />
@@ -2347,7 +2457,7 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
         <FieldOptionsModal field={fields.find(f => f.id === optsFor)} onClose={() => setOptsFor(null)}
           onSave={(options) => setFields(fs => fs.map(f => f.id === optsFor ? { ...f, options } : f))} />
       )}
-    </div>
+    </>
   );
 }
 
@@ -2442,6 +2552,9 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const dr = prefill?.draft?.payload || null;
   const [draftId, setDraftId] = useState(prefill?.draft?.id || '');
   const [step, setStep] = useState(0);
+  const [stepDir, setStepDir] = useState(1);   // +1 forward, -1 back: the side the next step slides in from
+  const stepRef = useRef(null);
+  useSwapIn(stepRef, step, 14 * stepDir);
   // Excluded-record acknowledgment (ESIGN 15 U.S.C. 7003 / Cal. Civ. Code
   // 1633.3). The list comes from the server so this checklist and the
   // guardrail that enforces it can never drift apart.
@@ -2511,6 +2624,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const [optsFor, setOptsFor] = useState(null);   // field id whose options are being edited
   const [labelFor, setLabelFor] = useState(null); // upload field whose label is being edited
   const dragState = useRef(null);   // {fieldId, mode:'move'|'resize', rect, startX, startY, orig}
+  const [liftId, setLiftId] = useState(null);   // the field in hand: lifted with a shadow
   const rkCounter = useRef(0);      // stable per-party field keys - survive removal/reorder
 
   useEffect(() => { api.getCandidates().then(setCandidates).catch(() => setCandidates([])); }, []);
@@ -2840,10 +2954,10 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
     }]);
     if (meta.opts) setOptsFor(id); // choices matter more than position - edit them right away
   }
-  const onFieldDrag = useCallback((e) => {
-    const s = dragState.current; if (!s) return;
-    const dx = (e.clientX - s.startX) / s.rect.width;
-    const dy = (e.clientY - s.startY) / s.rect.height;
+  // One move per frame - see moveField in the template field editor above.
+  const moveComposerField = useCallback((s) => {
+    const dx = (s.x - s.startX) / s.rect.width;
+    const dy = (s.y - s.startY) / s.rect.height;
     setFields(fs => fs.map(f => {
       if (f.id !== s.fieldId) return f;
       if (s.mode === 'move') {
@@ -2852,15 +2966,23 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
       return { ...f, w: Math.min(0.9, Math.max(0.02, s.orig.w + dx)), h: Math.min(0.4, Math.max(0.012, s.orig.h + dy)) };
     }));
   }, []);
+  const onFieldDrag = useCallback((e) => {
+    const s = dragState.current; if (!s) return;
+    s.x = e.clientX; s.y = e.clientY;
+    if (!s.raf) s.raf = requestAnimationFrame(() => { s.raf = 0; if (dragState.current === s) moveComposerField(s); });
+  }, [moveComposerField]);
   const endFieldDrag = useCallback(() => {
-    dragState.current = null;
+    const s = dragState.current;
+    if (s?.raf) { cancelAnimationFrame(s.raf); s.raf = 0; moveComposerField(s); }
+    dragState.current = null; setLiftId(null);
     window.removeEventListener('pointermove', onFieldDrag);
-  }, [onFieldDrag]);
+  }, [onFieldDrag, moveComposerField]);
   const startFieldDrag = (e, f, mode) => {
     e.stopPropagation(); e.preventDefault();
     const pageEl = e.currentTarget.closest('[data-espage]');
     if (!pageEl) return;
     dragState.current = { fieldId: f.id, mode, rect: pageEl.getBoundingClientRect(), startX: e.clientX, startY: e.clientY, orig: { ...f } };
+    setLiftId(f.id);
     window.addEventListener('pointermove', onFieldDrag);
     window.addEventListener('pointerup', endFieldDrag, { once: true });
   };
@@ -2877,8 +2999,8 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
         return (
           <div key={f.id} onPointerDown={(e) => startFieldDrag(e, f, 'move')} onClick={e => e.stopPropagation()}
             style={{ position: 'absolute', left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%`,
-              border: `2px solid ${c.solid}`, background: c.soft, borderRadius: 5, cursor: 'grab', touchAction: 'none',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
+              border: `2px solid ${c.solid}`, background: c.soft, borderRadius: 5, cursor: liftId === f.id ? 'grabbing' : 'grab', touchAction: 'none',
+              boxShadow: liftId === f.id ? '0 8px 22px rgba(17,24,39,0.20)' : 'none', zIndex: liftId === f.id ? 2 : undefined, transition: 'box-shadow var(--dur-xs) var(--ease-out)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
               <M.Icon size={10} /> {(M.labeled && f.label) || M.label}
             </span>
@@ -2922,8 +3044,8 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   };
   // One set of nav actions behind two bars - the desktop top bar and the mobile
   // bottom bar below it - so a phone can never end up on a step it cannot leave.
-  const goBack = () => setStep(s => s - 1);
-  const goNext = () => (stepOk() ? setStep(s => s + 1) : toastErr(stepHint()));
+  const goBack = () => { setStepDir(-1); setStep(s => s - 1); };
+  const goNext = () => { if (!stepOk()) { toastErr(stepHint()); return; } setStepDir(1); setStep(s => s + 1); };
   const sendBlocked = busy || !excludedAck || !documentClass || classBlocked;
   const sendTitle = classBlocked ? 'This document type cannot be signed electronically'
     : !documentClass ? 'Pick the document type first'
@@ -3006,7 +3128,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
           style={{ fontWeight: 700, fontSize: 14, width: 'min(300px, 26vw)' }} />
         <div style={{ flex: 1, display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
           {steps.map((s, i) => (
-            <button key={s} onClick={() => i < step && setStep(i)}
+            <button key={s} onClick={() => { if (i < step) { setStepDir(-1); setStep(i); } }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 13px', borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: 'Inter,sans-serif', border: 'none', cursor: i < step ? 'pointer' : 'default',
                 background: i === step ? 'var(--pine)' : i < step ? 'hsla(var(--color-green),0.12)' : 'var(--mist)',
                 color: i === step ? '#fff' : i < step ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
@@ -3035,7 +3157,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
       </div>
       )}
 
-      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+      <div ref={stepRef} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {/* STEP 0 - Document */}
         {step === 0 && (
           <div style={{ maxWidth: 980, margin: '0 auto', padding: isMobile ? '14px 12px' : '26px 18px' }}>
@@ -3710,21 +3832,23 @@ export function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toa
 
   const editingParty = editPid ? (req?.parties || []).find(p => p.id === editPid) : null;
   const dirty = !!editingParty && (pf.name !== editingParty.name || pf.email !== editingParty.email || pf.access_code.trim() !== '');
-  const guard = useUnsavedGuard(dirty, onClose, editingParty ? async () => { await saveParty(editingParty); onClose(); } : undefined);
   const sm = req ? (REQ_STATUS[reqStatusKey(req)] || REQ_STATUS.pending) : null;
   return (
-    <div style={overlayStyle} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div className="nx-popup" style={cardStyle}>
-        <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <FileSignature size={16} style={{ color: 'var(--pine)' }} />
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{req?.title || '…'}</h3>
+    <Modal zIndex={1200} onClose={onClose} isDirty={dirty}
+      // Save Changes on the close question saves the recipient being edited
+      // (dirty is only ever true while one is open).
+      onSave={async () => { if (editingParty) await saveParty(editingParty); onClose(); }}
+      title={(
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <FileSignature size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+          <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{req?.title || '…'}</span>
           {sm && <span style={chip(sm)}>{sm.label}</span>}
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
+        </span>
+      )}>
         {!req ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         ) : (
-          <div style={{ overflowY: 'auto', flex: 1, padding: '16px 24px' }}>
+          <div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('remind', () => api.remindSign(requestId), r => `Reminded ${r.reminded}.`)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Bell size={12} /> Remind</button>}
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={voidEnvelope} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))' }}><Ban size={12} /> Void</button>}
@@ -3799,12 +3923,7 @@ export function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toa
             ))}
           </div>
         )}
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
-          onSave={editingParty ? guard.saveAndClose : undefined} saving={guard.saving || busy === 'fix'} />
-      )}
-    </div>
+    </Modal>
   );
 }
 
@@ -3838,6 +3957,15 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   const loadTemplates = () => api.getSignTemplates().then(setTemplates).catch(() => setTemplates([]));
   const loadDrafts = () => api.signDrafts().then(setDrafts).catch(() => setDrafts([]));
   useEffect(() => { loadInbox(); loadRequests(); loadTemplates(); loadDrafts(); }, []);
+  // The list, the signing page and the send wizard replace each other in
+  // place; each comes in with a short fade, and so does a tab's content.
+  const viewRef = useRef(null);
+  const tabRef = useRef(null);
+  useSwapIn(viewRef, signParty ? 'sign' : sendOpen ? 'send' : 'list');
+  useSwapIn(tabRef, sub);
+  const inboxIn = useArrival(!!inbox);
+  const requestsIn = useArrival(!!requests);
+  const draftsIn = useArrival(!!drafts);
   // "Open in Nexus" in a Nexus Sign email carries ?request=<id> and must land
   // ON that envelope, not on a list the recipient then has to search (review
   // section 16). The param is consumed once and stripped, so a refresh or a
@@ -3922,10 +4050,13 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   // Signing + send wizard REPLACE the tab content in place - the Nexus
   // sidebar/header and HR tabs stay put (not a full-screen portal).
   if (signParty) return (
-    <SignModal partyId={signParty} toastOk={toastOk} toastErr={toastErr}
-      onClose={() => setSignParty(null)} onDone={() => { setSignParty(null); loadInbox(); loadRequests(); }} />
+    <div ref={viewRef}>
+      <SignModal partyId={signParty} toastOk={toastOk} toastErr={toastErr}
+        onClose={() => setSignParty(null)} onDone={() => { setSignParty(null); loadInbox(); loadRequests(); }} />
+    </div>
   );
   if (sendOpen) return (
+    <div ref={viewRef}>
     <SendWizard templates={templates || []} employees={employees} entities={entities}
       prefill={resumeDraft ? { draft: resumeDraft } : prefill}
       onPrefillConsumed={onPrefillConsumed} toastOk={toastOk} toastErr={toastErr}
@@ -3937,10 +4068,11 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
         setResumeDraft(null);
         onSentRequest?.(sent);
       }} />
+    </div>
   );
 
   return (
-    <div>
+    <div ref={viewRef}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <div className="scroll-tabs" data-tour="documents-esign-tabs" style={{ display: 'flex', gap: 4, flex: 1, borderBottom: '1px solid var(--line)' }}>
           {tabs.map(([id, label]) => (
@@ -3955,11 +4087,12 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
         </button>
       </div>
 
+      <div ref={tabRef}>
       {sub === 'inbox' && (
-        !inbox ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
+        !inbox ? <SkeletonBlocks count={3} height={62} borderRadius={12} />
         : inbox.length === 0 ? empty(FileSignature, 'Nothing awaiting your signature.')
-        : inbox.map(item => (
-          <div key={item.partyId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${item.myTurn ? '#fbbf24' : 'var(--line)'}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
+        : inbox.map((item, i) => (
+          <div key={item.partyId} className={riseClass(inboxIn)} style={{ ...riseStyle(inboxIn, i), display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${item.myTurn ? '#fbbf24' : 'var(--line)'}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
             <FileSignature size={17} style={{ color: item.myTurn ? '#f59e0b' : 'var(--muted)', flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
@@ -3974,7 +4107,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
       )}
 
       {sub === 'requests' && (
-        !requests ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
+        !requests ? <SkeletonBlocks count={3} height={62} borderRadius={12} />
         : requests.length === 0 ? empty(Send, 'No signature requests yet.',
             <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> Send Your First</button>)
         : (
@@ -4002,14 +4135,14 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
                 Nothing matches - clear the search or pick another status.
               </div>
             )}
-            {visibleRequests.map(r => {
+            {visibleRequests.map((r, i) => {
               const m = REQ_STATUS[reqStatusKey(r)] || REQ_STATUS.pending;
               const signers = (r.parties || []).filter(p => p.partyRole !== 'cc');
               const signed = signers.filter(p => p.status === 'signed').length;
               const total = signers.length;
               return (
-                <div key={r.id} onClick={() => setDetailId(r.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${m.fg}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)', cursor: 'pointer' }}>
+                <div key={r.id} onClick={() => setDetailId(r.id)} className={riseClass(requestsIn)}
+                  style={{ ...riseStyle(requestsIn, i), display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${m.fg}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)', cursor: 'pointer' }}>
                   <FileSignature size={17} style={{ color: m.fg, flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</div>
@@ -4032,14 +4165,14 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
       )}
 
       {sub === 'drafts' && (
-        !drafts ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
+        !drafts ? <SkeletonBlocks count={3} height={62} borderRadius={12} />
         : drafts.length === 0
           ? empty(FilePlus2, 'No drafts. A send you save from the wizard waits here until you finish it.',
               <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> Send for Signature</button>)
           : (
             <>
-              {drafts.map(d => (
-                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 16px', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
+              {drafts.map((d, i) => (
+                <div key={d.id} className={riseClass(draftsIn)} style={{ ...riseStyle(draftsIn, i), display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 16px', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
                   <FilePlus2 size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />
                   <div style={{ flex: '1 1 160px', minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
@@ -4063,6 +4196,8 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
             </>
           )
       )}
+
+      </div>
 
       {detailId && <RequestDetailModal requestId={detailId} toastOk={toastOk} toastErr={toastErr}
         onClose={() => setDetailId(null)} onChanged={loadRequests} />}

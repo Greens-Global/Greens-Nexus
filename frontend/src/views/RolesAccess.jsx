@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield, Plus, X, Search, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
-  LayoutGrid, Copy, MonitorOff, TimerOff, PlayCircle, Users, User, TrendingUp, MailPlus, ChevronLeft,
+  LayoutGrid, Copy, MonitorOff, TimerOff, PlayCircle, Users, User, MailPlus, ChevronLeft,
   Hash, MessageSquare,
 } from 'lucide-react';
-import { InviteExternalModal, ExternalPersonSection, ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
-import { RoleChangeModal } from '../components/HrPersonActions';
-import { RoleChangeRequestCard, RoleHistory } from '../components/RoleChangeRequests';
+import { ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
+import AccessTab from '../people/AccessTab';
+import AddPersonSheet from '../people/AddPersonSheet';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
@@ -19,8 +19,8 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { capabilityText } from '../lib/moduleCapabilities';
 import GuidedTour from '../components/GuidedTour';
 import { takePendingOpen } from '../lib/pendingOpen';
-import { PersonSelect } from '../tasks/components';
-import AnchoredMenu from '../components/AnchoredMenu';
+import { PersonSelect, Modal as SheetModal } from '../tasks/components';
+import RoleHiringDocs from '../components/RoleHiringDocs';
 import TeamsTargetPicker, { EMPTY_TEAMS_TARGET, teamsTargetLabel } from '../components/TeamsTargetPicker';
 import { registerTour } from '../lib/tours';
 
@@ -152,93 +152,6 @@ export function RoleOptions({ roles, companyName, label = r => r.name }) {
       {byCompany.get(k).map(r => <option key={r.id} value={r.id}>{label(r)}</option>)}
     </optgroup>
   ));
-}
-
-// A searchable role picker (Pranshu, Sep 28: "make it more UI friendly") -
-// replaces a plain <select> that dumped every role someone could hold (their
-// company's roles, then every shared one) into one flat native list. Same
-// shape as the Task module's ProjectPicker: a button that opens a small
-// panel with a search box and the choices grouped under plain-language
-// headings, closing on an outside click or Escape.
-function RoleMenu({ roles, companyName, placeholder, onPick, disabled = false }) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState('');
-  const btnRef = useRef(null);
-  const searchRef = useRef(null);
-
-  const { own, shared } = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    const match = r => !needle || r.name.toLowerCase().includes(needle)
-      || (r.company_id && companyName(r.company_id).toLowerCase().includes(needle));
-    const byName = (a, b) => a.name.localeCompare(b.name);
-    const list = (roles || []).filter(match);
-    return {
-      own: list.filter(r => r.company_id).sort(byName),
-      shared: list.filter(r => !r.company_id).sort(byName),
-    };
-  }, [roles, q, companyName]);
-
-  // The panel is portaled (AnchoredMenu), which closes it on an outside tap.
-  // Escape stays here, in the capture phase, so it closes only the picker and
-  // not a drawer or modal around it.
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [open]);
-  // A frame late: the panel's first frame is hidden while it is measured.
-  useEffect(() => {
-    if (!open) return undefined;
-    const f = requestAnimationFrame(() => searchRef.current?.focus());
-    return () => cancelAnimationFrame(f);
-  }, [open]);
-
-  const pick = r => { setOpen(false); setQ(''); onPick(r.id); };
-  const heading = { padding: '8px 10px 4px', fontSize: 10.5, fontWeight: 800, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' };
-  const row = r => (
-    <button key={r.id} type="button" className="hud-item" onClick={() => pick(r)}
-      style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', fontSize: 13 }}>
-      <Shield size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
-      {r.company_id && <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>{companyName(r.company_id)}</span>}
-    </button>
-  );
-
-  return (
-    <div style={{ display: 'inline-block' }}>
-      <button ref={btnRef} type="button" className="secondary-btn" disabled={disabled} onClick={() => setOpen(o => !o)}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 12.5 }}>
-        {placeholder} <ChevronDown size={13} />
-      </button>
-      <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} role="dialog" aria-label="Choose a role"
-        style={{
-          width: 300, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
-          boxShadow: 'var(--shadow-lg)',
-        }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
-          <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-          <input className="nx-inline-edit" ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search roles"
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const first = own[0] || shared[0]; if (first) pick(first); } }}
-            style={{ border: 'none', flex: 1, fontSize: 13, color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }} />
-        </div>
-        <div style={{ maxHeight: 280, overflowY: 'auto', padding: 4 }}>
-          {own.length === 0 && shared.length === 0 ? (
-            <div style={{ padding: '18px 12px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>
-              {q.trim() ? `No role matches "${q.trim()}".` : 'No roles available.'}
-            </div>
-          ) : (
-            <>
-              {own.length > 0 && <div style={heading}>This Company</div>}
-              {own.map(row)}
-              {shared.length > 0 && <div style={heading}>Shared Across Companies</div>}
-              {shared.map(row)}
-            </>
-          )}
-        </div>
-      </AnchoredMenu>
-    </div>
-  );
 }
 
 // Externals live INSIDE the People tab (Visesh, Aug 18) - no separate tab.
@@ -583,8 +496,8 @@ export default function RolesAccess({ embedded = false }) {
 
       {/* ── PEOPLE (default) ── */}
       {sub === 'people' && (
-        <PeopleTab people={scopedPeople} membership={membership} jobRoles={jobRoles} groups={groups}
-          person={person} setPerson={setPerson} nameOf={nameOf} photoOf={photoOf} companyName={companyName}
+        <PeopleTab people={scopedPeople} membership={membership} entities={entities}
+          person={person} setPerson={setPerson} nameOf={nameOf} photoOf={photoOf}
           onChanged={() => { loadRoles(); loadGroups(); }} onExternalsChanged={loadExternals}
           toastOk={toastOk} toastErr={toastErr} />
       )}
@@ -684,6 +597,11 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={sectLabel}>Time Sheet approver (default manager)</div>
                   <ApproverPicker role={selected} people={people} nameOf={nameOf}
                     onSaved={loadRoles} toastOk={toastOk} toastErr={toastErr} />
+                  {/* A shared role's job description goes with its offers in every company (Pranshu, 11/03/2026). */}
+                  {embedded && !selected.company_id && (
+                    <RoleHiringDocs key={selected.id} role={selected} toastOk={toastOk} toastErr={toastErr}
+                      onSaved={saved => setJobRoles(list => (list || []).map(x => (x.id === saved.id ? { ...x, ...saved } : x)))} />
+                  )}
                   <div style={sectLabel}>People with this role · {filterOn
                     ? `${(selected.members || []).filter(inFilter).length} of ${selected.member_count}`
                     : selected.member_count}</div>
@@ -804,40 +722,22 @@ export default function RolesAccess({ embedded = false }) {
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>{toast.m}</div>
       )}
-      <style>{`@media (max-width:900px){.ra-grid{grid-template-columns:1fr !important}.ra-people{grid-template-columns:1fr !important}}`}</style>
+      <style>{`@media (max-width:900px){.ra-grid{grid-template-columns:1fr !important}}`}</style>
     </div>
   );
 }
 
 // ── PEOPLE tab - search a person, see and change their access ────────────────
-function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, nameOf, photoOf = {}, companyName, onChanged, onExternalsChanged, toastOk, toastErr }) {
-  const { assignRole, myLevel, can } = useRole();
+// Settings > People & Access > People (Neil, 11/03/2026): the list finds a
+// person, and the person opens in a sheet holding people/AccessTab.jsx - the
+// SAME access editor as the record's Access tab (job role only through Change
+// Role, extra groups, company limits, the tier override for a Super
+// Administrator, the external lifecycle). Invite External opens Add Person.
+function PeopleTab({ people, membership, entities = [], person, setPerson, nameOf, photoOf = {}, onChanged, onExternalsChanged, toastOk, toastErr }) {
   const [q, setQ] = useState('');
-  const [co, setCo] = useState('');       // company (entity id) filter
-  const [dept, setDept] = useState('');   // department (name) filter
-  const [eff, setEff] = useState(null);
-  const [busy, setBusy] = useState(false);
-  // Change Role here changes it directly, with a reason (Neil, Oct 22) - RoleChangeModal.
-  const [roleReqOpen, setRoleReqOpen] = useState(false);
-  const [roleReqKey, setRoleReqKey] = useState(0);
-  // External (B2B guest) support: the selected person's external record (if
-  // any) drives the extra panel section; the invite modal enrolls a new one.
   const [inviteOpen, setInviteOpen] = useState(false);
-  const extRec = useMemo(() => people.find(p => p.email === person)?.external || null, [people, person]);
-  // Only roles this person can hold: their company's plus the shared ones.
-  const personCompany = people.find(p => p.email === person)?.company || '';
-  const roleChoices = rolesForCompany(jobRoles, personCompany);
-  // Which tiers this admin may hand out (mirrors the backend guard: owners give
-  // any, others only strictly below their own level).
-  const canAssignTier = t => can('owner') || (ROLES[t]?.level ?? 1) < myLevel;
-  useEffect(() => { setRoleReqOpen(false); }, [person]);
-
-  // Same courtesy as the role panel: picking a person deep in the list brings
-  // their panel (role picker, groups) into view instead of leaving it above.
-  const panelRef = useRef(null);
-  useEffect(() => {
-    if (person && panelRef.current) panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [person]);
+  const rec = useMemo(() => people.find(p => p.email === person) || null, [people, person]);
+  const extRec = rec?.external || null;
 
   // Company/department scoping happens upstream (the universal selector in the
   // tab strip hands this tab already-scoped people); only search lives here.
@@ -852,270 +752,86 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   // Up / Down / Enter over the rows on screen (lib/listNav.js), once typed.
   const peopleNav = useListNav(pageRows, { open: !!q.trim(), query: `${q}|${pageIdx}`, onPick: (p) => setPerson(p.email) });
 
-  useEffect(() => {
-    if (!person) { setEff(null); return; }
-    let dead = false;
-    setBusy(true); setEff(null);
-    api.getEffectiveAccess(person)
-      .then(d => { if (!dead) setEff(d); })
-      .catch(() => { if (!dead) setEff({ error: true }); })
-      .finally(() => { if (!dead) setBusy(false); });
-    return () => { dead = true; };
-  }, [person]);
-
-  const refresh = () => { onChanged(); if (person) api.getEffectiveAccess(person).then(setEff).catch(() => {}); };
-
-  async function changeRole(roleId) {
-    const r = (jobRoles || []).find(x => x.id === roleId);
-    if (!r || !person) return;
-    if (!await dialog.confirm(`Change ${nameOf(person)}'s job role to "${r.name}"? Their baseline access and tier will follow the new role.`, { title: 'Change job role', confirmText: 'Change role' })) return;
-    try {
-      const res = await api.assignJobRole(r.id, person);
-      toastOk(`${nameOf(person)} is now “${r.name}”.${res?.warning ? ` ${res.warning}` : ''}`); refresh();
-    } catch (e) { toastErr(e?.message || 'Could not change role.'); }
-  }
-  async function addToGroup(gid) {
-    const g = (groups || []).find(x => x.id === gid);
-    if (!g || !person) return;
-    try { await api.addGroupMembers(g.id, [person]); toastOk(`Added ${nameOf(person)} to “${g.name}”.`); refresh(); }
-    catch (e) { toastErr(e?.message || 'Could not add to group.'); }
-  }
-  // Remove from group is held on the chip (Hold to confirm, Neil, Oct 30
-  // 2026): one membership, so no dialog; Undo puts them back through the same
-  // add call; the card re-reads once the check has shown (onDone).
-  async function removeFromGroup(g) {
-    const who = person;
-    try { await api.removeGroupMember(g.id, who); toastOk(`Removed ${nameOf(who)} from “${g.name}”.`); }
-    catch (e) { throw new Error(e?.message || 'Could not remove.', { cause: e }); }
-    return {
-      undoMessage: `Removed ${nameOf(who)} from “${g.name}”.`,
-      undo: async () => {
-        try { await api.addGroupMembers(g.id, [who]); toastOk(`Added ${nameOf(who)} to “${g.name}”.`); refresh(); }
-        catch (e) { toastErr(e?.message || 'Could not add to group.'); }
-      },
-    };
-  }
-  // Per-person tier OVERRIDE: sets this individual's seniority tier directly and
-  // pins it, so two people in the SAME job role can hold different tiers and a
-  // later job-role tier edit won't re-stamp this person.
-  async function setTierOverride(tier) {
-    if (!person || !tier) return;
-    if (!await dialog.confirm(`Set ${nameOf(person)}'s tier to "${ROLES[tier].label}" - just for this person? It overrides their job role's tier and won't change when the role's tier is edited.`, { title: 'Override tier', confirmText: 'Set tier' })) return;
-    try { await assignRole(person, tier, nameOf(person)); toastOk(`${nameOf(person)} is now ${ROLES[tier].label}.`); refresh(); }
-    catch (e) { toastErr(e?.message || 'Could not set tier.'); }
-  }
-  async function resetTier() {
-    if (!person || !eff?.job_role) return;
-    if (!await dialog.confirm(`Reset ${nameOf(person)} to follow their "${eff.job_role.name}" tier again?`, { title: 'Reset tier', confirmText: 'Reset' })) return;
-    try { await api.assignJobRole(eff.job_role.id, person); toastOk('Now follows the job-role tier.'); refresh(); }
-    catch (e) { toastErr(e?.message || 'Could not reset.'); }
-  }
-
-  const memberGroupIds = new Set((eff?.extra_groups || []).map(g => g.id));
-  const addableGroups = (groups || []).filter(g => !memberGroupIds.has(g.id));
-
+  const shownName = extRec?.name || rec?.name || (person ? nameOf(person) : '');
   return (
-    <div className="ra-people" style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 18 }}>
-      {/* left: search + people list */}
-      <div style={{ alignSelf: 'start' }}>
-        <div data-tour="people-search" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-            <input value={q} onChange={e => { setQ(e.target.value); setPage(0); }} placeholder="Search anyone…"
-              {...peopleNav.inputProps} onKeyDown={peopleNav.onKeyDown}
-              style={{ ...input, paddingLeft: 34 }} />
-          </div>
-          <button className="secondary-btn" onClick={() => setInviteOpen(true)}
-            title="Invite a partner-company person as a Microsoft guest - they appear here like anyone else"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 13px', fontSize: 12.5, whiteSpace: 'nowrap' }}>
-            <MailPlus size={14} /> Invite External User
-          </button>
+    <div className="ra-people">
+      <div data-tour="people-search" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <div style={{ position: 'relative', flex: 1 }}>
+          <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+          <input value={q} onChange={e => { setQ(e.target.value); setPage(0); }} placeholder="Search anyone…"
+            {...peopleNav.inputProps} onKeyDown={peopleNav.onKeyDown}
+            style={{ ...input, paddingLeft: 34 }} />
         </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
-          {!people.length ? <ListSkeleton /> : filtered.length === 0 ? <Empty text="No matches." /> : pageRows.map((p, i) => {
-            const mem = membership[p.email];
-            const active = person === p.email;
-            return (
-              <button key={p.email} {...peopleNav.optionProps(i)} onClick={() => setPerson(p.email)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: active ? 'color-mix(in srgb, var(--ink) 8%, transparent)' : 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-                <Avatar name={p.name} src={p.photo} size={28} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13 }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                    {p.external && <ExternalBadge />}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {mem?.role ? mem.role.name : (p.title || 'No job role yet')}
-                    {mem?.groups?.length ? `  ·  +${mem.groups.length} ${mem.groups.length === 1 ? 'group' : 'groups'}` : ''}
-                  </div>
-                </div>
-                <ChevronRight size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-              </button>
-            );
-          })}
-          {filtered.length > PEOPLE_PAGE_SIZE && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 6px 2px', marginTop: 4, borderTop: '1px solid var(--line)' }}>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {pageIdx * PEOPLE_PAGE_SIZE + 1}-{Math.min((pageIdx + 1) * PEOPLE_PAGE_SIZE, filtered.length)} of {filtered.length}
-              </span>
-              <span style={{ display: 'inline-flex', gap: 6 }}>
-                <button className="secondary-btn" onClick={() => setPage(pageIdx - 1)} disabled={pageIdx === 0}
-                  aria-label="Previous page" style={{ padding: '5px 9px', display: 'inline-flex', alignItems: 'center' }}>
-                  <ChevronLeft size={14} />
-                </button>
-                <button className="secondary-btn" onClick={() => setPage(pageIdx + 1)} disabled={pageIdx >= pageCount - 1}
-                  aria-label="Next page" style={{ padding: '5px 9px', display: 'inline-flex', alignItems: 'center' }}>
-                  <ChevronRight size={14} />
-                </button>
-              </span>
-            </div>
-          )}
-        </div>
+        <button className="secondary-btn" onClick={() => setInviteOpen(true)}
+          title="Invite a partner-company person as a Microsoft guest - they appear here like anyone else"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 13px', fontSize: 12.5, whiteSpace: 'nowrap' }}>
+          <MailPlus size={14} /> Invite External User
+        </button>
       </div>
-
-      {/* right: person detail */}
-      <div ref={panelRef} data-tour="person-panel" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', minHeight: 220, scrollMarginTop: 12 }}>
-        {!person ? (
-          <div style={{ padding: '48px 16px', textAlign: 'center' }}>
-            <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', margin: '0 auto 12px' }}>
-              <User size={20} style={{ color: 'var(--muted)' }} />
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Pick a Person</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', maxWidth: '32ch', margin: '4px auto 0', lineHeight: 1.5 }}>
-              See exactly what they can do - and change their role or groups right here.
-            </div>
-          </div>
-        ) : busy || !eff ? <ListSkeleton /> : eff.error ? (
-          <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Could not load access for this person.</div>
-        ) : (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <Avatar name={extRec?.name || nameOf(eff.email)} src={photoOf[eff.email]} size={34} />
-              <h3 style={{ fontSize: 17, fontWeight: 800, flex: 1, minWidth: 140 }}>{extRec?.name || nameOf(eff.email)}</h3>
-              {/* Externals are badged "External", never a tier name (Visesh, Aug 18). */}
-              {extRec ? <ExternalBadge /> : <TierBadge tier={eff.tier} />}
-            </div>
-
-            {/* External guest: invite state + lifecycle actions. Everything
-                below (job role, tier, groups) is the same for everyone. */}
-            {extRec && (
-              <ExternalPersonSection ext={extRec} toastOk={toastOk} toastErr={toastErr}
-                onChanged={() => { onExternalsChanged?.(); refresh(); }}
-                onRemoved={() => { setPerson(null); onExternalsChanged?.(); onChanged(); }} />
-            )}
-
-            <div style={sectLabel}>Job role - the baseline</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              {eff.job_role
-                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 13px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontSize: 12.5, fontWeight: 700 }}><Shield size={13} /> {eff.job_role.name}{eff.job_role.company_id ? ` · ${companyName(eff.job_role.company_id)}` : ''}</span>
-                : <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>No job role yet</span>}
-              {/* Neil, Oct 8: a promotion is a letter made in People. A role
-                  change without one changes here or in People directly, with
-                  a required reason kept in their role history (Neil, Oct 22).
-                  Settings keeps the first assignment and external users direct. */}
-              {eff.job_role && !extRec ? (
-                <button className="secondary-btn" onClick={() => setRoleReqOpen(true)}
-                  title="Change their role now - the reason is kept in their role history"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5 }}>
-                  <TrendingUp size={13} /> Change Role
-                </button>
-              ) : (
-                <RoleMenu roles={roleChoices.filter(r => r.id !== eff.job_role?.id)} companyName={companyName}
-                  placeholder={eff.job_role ? 'Change role…' : 'Assign a role…'} onPick={changeRole} />
-              )}
-            </div>
-            {eff.job_role && !extRec && (
-              <div style={{ marginTop: 12 }}>
-                <RoleChangeRequestCard email={person} refreshKey={roleReqKey} toastOk={toastOk} toastErr={toastErr}
-                  onDecided={() => { setRoleReqKey(n => n + 1); refresh(); }} />
-                <RoleHistory email={person} refreshKey={`${roleReqKey}-${eff.job_role?.id || ''}`} />
-              </div>
-            )}
-            {roleReqOpen && (
-              <RoleChangeModal employee={{ workEmail: person, firstName: nameOf(person), jobTitle: eff.job_role?.name || '' }}
-                roles={roleChoices.filter(r => r.id !== eff.job_role?.id)}
-                onClose={() => setRoleReqOpen(false)} toastErr={toastErr}
-                onChanged={res => {
-                  setRoleReqOpen(false); setRoleReqKey(n => n + 1);
-                  toastOk(`${nameOf(person)} is now ${res.roleName}.${res.warning ? ` ${res.warning}` : ''}`); refresh();
-                }} />
-            )}
-
-            {/* Seniority tier is meaningless for externals: the server hard-caps
-                them at employee level regardless, so offering the override
-                selector would just mislead. The External section above already
-                labels what they are. */}
-            {!extRec && (<>
-            <div style={sectLabel}>Seniority tier</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <TierBadge tier={eff.tier} />
-              {eff.tier_pinned && (
-                <span title="Set for this person directly - a job-role tier change won't move them."
-                  style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 7px', borderRadius: 6 }}>
-                  Override
-                </span>
-              )}
-              <select value="" onChange={e => setTierOverride(e.target.value)} style={{ ...input, width: 'auto', padding: '6px 10px', fontSize: 12.5 }}>
-                <option value="">{eff.tier_pinned ? 'Change this person’s tier…' : 'Override tier for this person…'}</option>
-                {TIERS.filter(canAssignTier).map(t => <option key={t} value={t}>{ROLES[t].label}</option>)}
-              </select>
-              {eff.tier_pinned && eff.job_role && (
-                <button className="secondary-btn" onClick={resetTier} style={{ padding: '6px 12px', fontSize: 12.5 }}>Reset to role tier</button>
-              )}
-            </div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
-              {eff.tier_pinned
-                ? 'Set directly for this person - editing the job role’s tier won’t change them.'
-                : 'Follows their job role. Override it here to give this person a different tier while keeping them in the same role.'}
-            </div>
-            </>)}
-
-            <div style={sectLabel}>Extra groups - added on top</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {(eff.extra_groups || []).map(g => (
-                <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 6px 4px 12px', borderRadius: 999, border: '1px dashed var(--line-strong,var(--line))', fontSize: 12, fontWeight: 600 }}>
-                  + {g.name}
-                  <HoldButton size="sm" label="Remove" doneLabel="Removed" icon={X} ariaLabel={`Remove from ${g.name}`}
-                    onConfirm={() => removeFromGroup(g)} onDone={() => refresh()}
-                    fallbackMessage={`Remove ${nameOf(person)} from "${g.name}"? They lose that extra access; their job-role baseline is untouched.`}
-                    style={{ height: 24, padding: '0 9px', borderRadius: 999, fontSize: 11.5 }} />
-                </span>
-              ))}
-              {(eff.extra_groups || []).length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>None</span>}
-              {addableGroups.length > 0 && (
-                <select value="" onChange={e => e.target.value && addToGroup(e.target.value)} style={{ ...input, width: 'auto', padding: '6px 10px', fontSize: 12.5 }}>
-                  <option value="">+ Add to group…</option>
-                  {addableGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                </select>
-              )}
-            </div>
-
-            <div style={sectLabel}>What they can do</div>
-            {(eff.modules || []).length === 0
-              ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Nothing yet - assign a job role to give them their baseline.</div>
-              : eff.modules.map(m => (
-                <div key={m.module} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
-                  <span style={{ fontWeight: 600, fontSize: 13, minWidth: 150 }}>{moduleLabel(m.module)}</span>
-                  <LevelPill level={m.level} title={capabilityText(m.module, m.level, moduleLabel(m.module))} />
-                  <span style={{ flex: 1 }} />
-                  {/* Provenance reuses the dashed "+ group" language from the chips
-                      above, so baseline (quiet, from the role) vs extra (dashed
-                      add-on) reads at a glance - the whole point of this screen. */}
-                  {m.manual
-                    ? <span title={`Extra access from the “${m.source}” group`}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', border: '1px dashed var(--line-strong,var(--line))', borderRadius: 999, padding: '2px 9px', whiteSpace: 'nowrap' }}>+ {m.source}</span>
-                    : <span title={`From their job role, “${m.source}”`} style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>from {m.source}</span>}
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
+        {!people.length ? <ListSkeleton /> : filtered.length === 0 ? <Empty text="No matches." /> : pageRows.map((p, i) => {
+          const mem = membership[p.email];
+          const active = person === p.email;
+          return (
+            <button key={p.email} {...peopleNav.optionProps(i)} onClick={() => setPerson(p.email)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: active ? 'color-mix(in srgb, var(--ink) 8%, transparent)' : 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              <Avatar name={p.name} src={p.photo} size={28} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                  {p.external && <ExternalBadge />}
                 </div>
-              ))}
-          </>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {mem?.role ? mem.role.name : (p.title || 'No job role yet')}
+                  {mem?.groups?.length ? `  ·  +${mem.groups.length} ${mem.groups.length === 1 ? 'group' : 'groups'}` : ''}
+                </div>
+              </div>
+              <ChevronRight size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+            </button>
+          );
+        })}
+        {filtered.length > PEOPLE_PAGE_SIZE && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 6px 2px', marginTop: 4, borderTop: '1px solid var(--line)' }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {pageIdx * PEOPLE_PAGE_SIZE + 1}-{Math.min((pageIdx + 1) * PEOPLE_PAGE_SIZE, filtered.length)} of {filtered.length}
+            </span>
+            <span style={{ display: 'inline-flex', gap: 6 }}>
+              <button className="secondary-btn" onClick={() => setPage(pageIdx - 1)} disabled={pageIdx === 0}
+                aria-label="Previous page" style={{ padding: '5px 9px', display: 'inline-flex', alignItems: 'center' }}>
+                <ChevronLeft size={14} />
+              </button>
+              <button className="secondary-btn" onClick={() => setPage(pageIdx + 1)} disabled={pageIdx >= pageCount - 1}
+                aria-label="Next page" style={{ padding: '5px 9px', display: 'inline-flex', alignItems: 'center' }}>
+                <ChevronRight size={14} />
+              </button>
+            </span>
+          </div>
         )}
       </div>
 
+      {person && (
+        <SheetModal title={`Access - ${shownName}`} onClose={() => setPerson(null)} zIndex={4000}
+          footer={<button className="secondary-btn" onClick={() => setPerson(null)}>Close</button>}>
+          <div data-tour="person-panel" style={{ fontFamily: 'Inter,sans-serif' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+              <Avatar name={shownName} src={photoOf[person]} size={34} />
+              <div style={{ fontSize: 16, fontWeight: 800, flex: 1, minWidth: 0 }}>{shownName}</div>
+              {extRec && <ExternalBadge />}
+            </div>
+            <AccessTab key={person} email={person} identityType={extRec ? 'external' : 'internal'}
+              companyId={rec?.company || ''} external={extRec} showLifecycle showHistory nameOf={nameOf}
+              toastOk={toastOk} toastErr={toastErr} onChanged={onChanged}
+              onExternalChanged={() => { onExternalsChanged?.(); onChanged(); }}
+              onRemoved={() => { setPerson(null); onExternalsChanged?.(); onChanged(); }} />
+          </div>
+        </SheetModal>
+      )}
+
       {inviteOpen && (
-        <InviteExternalModal initial={null}
-          onClose={() => setInviteOpen(false)}
-          onSaved={(result) => {
-            setInviteOpen(false);
+        <AddPersonSheet initialKind="external" isAdmin canAddExternal entities={entities}
+          onClose={() => setInviteOpen(false)} toastOk={toastOk} toastErr={toastErr}
+          onSaved={() => onChanged()}
+          onExternalSaved={(result) => {
             inviteOutcomeToast(result, toastOk, toastErr);
             onExternalsChanged?.();
             if (result?.email) setPerson(result.email);

@@ -269,7 +269,7 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProj
               onDrop={dragId ? (e) => { e.preventDefault(); const id = dragId; endDrag(); moveTask(id, iso); } : undefined}
               style={{ borderBottom: `1px solid ${NX.border2}`, borderRight: `1px solid ${NX.border2}`, padding: 6, minHeight: weekly ? 320 : 104, background: over ? `${NX.primary}14` : inMonth ? NX.surface : NX.surface2, opacity: inMonth || over ? 1 : 0.6, boxShadow: over ? `inset 0 0 0 2px ${NX.primary}` : 'none', transition: 'background .1s' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ display: 'inline-flex', width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderRadius: '50%', fontSize: 11, fontWeight: 600, background: iso === todayIso ? NX.primary : 'transparent', color: iso === todayIso ? '#fff' : NX.dim }}>{d.getDate()}</span>
+                <span style={{ display: 'inline-flex', width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderRadius: '50%', fontSize: 11, background: 'transparent', color: iso === todayIso ? NX.ink : NX.dim, boxShadow: iso === todayIso ? 'inset 0 0 0 2px var(--wk-live)' : 'none', fontWeight: iso === todayIso ? 700 : 600 }} aria-current={iso === todayIso ? 'date' : undefined}>{d.getDate()}</span>
                 {onCreate && inMonth && hoverDay === iso && (
                   <button onClick={() => onCreate(iso)} title="Add Task" style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><Plus size={14} /></button>
                 )}

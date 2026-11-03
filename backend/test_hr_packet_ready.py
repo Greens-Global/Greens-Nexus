@@ -11,7 +11,6 @@ fixture (one temporary database for this run).
 import unittest
 
 import database
-import hr_packet_docs as hpd
 import models
 from test_hr_packet_review import CO, PLAIN, ReviewCase, _doc, _p, _sig
 
@@ -76,18 +75,13 @@ class ReadyTests(ReviewCase):
         self.assertIn('"NDA" has 3 fill-in blanks nothing fills (Emergency Contact, Bank:, Bank: branch)', c["detail"])
         self.assertEqual(c["fix"], {"kind": "template", "templateId": "t-nda"})
 
-    def test_variables_nothing_fills_are_listed_until_the_form_asks_for_them(self):
+    def test_a_variable_nothing_fills_is_typed_by_the_new_hire_while_signing(self):
+        # Nov 3 2026: a hiring packet has no unfilled variables - what the intake form does not ask,
+        # the new hire fills in the document while signing.
         self._edit(lambda db: _publish(db, "t-nda", _doc(_p("PAN ", "{{pan_number}}", " bank ", "{{bank_name}}"), _sig("employee"))))
         c = _ready(self.client)["variables"]
-        self.assertFalse(c["ok"])
-        self.assertEqual(c["fix"]["kind"], "addToForm")
-        self.assertEqual([v["token"] for v in c["fix"]["variables"]], ["bank_name", "pan_number"])
-
-        def form(db):
-            s = db.query(models.HrPacketSetting).filter_by(id="s-hire").first()
-            s.details_form = hpd.clean_form([{"label": "PAN Number", "type": "text"}, {"label": "Bank Name", "type": "text"}])
-        self._edit(form)
-        self.assertTrue(_ready(self.client)["variables"]["ok"])
+        self.assertTrue(c["ok"])
+        self.assertIn("while signing", c["detail"])
 
     def test_an_unpublished_template_points_at_itself(self):
         def unpublish(db):

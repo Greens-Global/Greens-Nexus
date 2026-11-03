@@ -59,6 +59,8 @@ class OfferCase(ReviewCase):
         _tpl(db, "t-letter", "Offer Of Employment", LETTER, [PROBATION])
         _tpl(db, "t-india", "India Contractor Offer", INDIA)
         _tpl(db, "t-intake", "Onboarding Requirements", INTAKE_DOC, [PAN], category="hr")
+        # The job description goes out after the offer letter (Neil, 11/03/2026).
+        _tpl(db, "t-jd", "Job Description", _doc(_p("Duties: ", "{{role_description}}")), category="job_description")
         _setting(db, "s-offer", "offer", "US Employee Offer", ["t-letter"], worker_type="employee", country="US")
         _setting(db, "s-offer-in", "offer", "India Contractor Offer", ["t-india"], worker_type="contractor", country="IN")
         db.query(models.HrPacketSetting).filter_by(id="s-hire").update({"doc_template_ids": ["t-intake"]})
@@ -76,7 +78,8 @@ class OfferCase(ReviewCase):
     def _offer(self, **inputs):
         body = {"inputs": {"worker_type": "employee", "employment_type": "full_time", "job_title": "Analyst",
                            "start_date": "2030-11-02", "offer_expires": "2030-10-28", "manager_email": MGR,
-                           "work_location": "Irvine, CA", "merge": {"probation_period": "90 days"}, **inputs},
+                           "work_location": "Irvine, CA", "merge": {"probation_period": "90 days"},
+                           "jd_template_id": "t-jd", "new_role_duties": "Reconciles accounts.", **inputs},
                 "pay": {"base": 85000, "payBasis": "salary", "frequency": "annual", "currency": "USD"}}
         return self.client.post("/hr/candidates/cand-1/offer/start", json=body)
 
@@ -187,7 +190,7 @@ class JourneyTests(OfferCase):
         self.assertEqual((offer["kind"], offer["status"]), ("offer", "review"))
         cand = self.db.query(models.HrCandidate).filter_by(id="cand-1").first()
         self.assertEqual(cand.stage, "offer")                  # Move To Offer moves them
-        row = self.db.query(models.Document).filter_by(life_event_id=offer["id"]).one()
+        row = self.db.query(models.Document).filter_by(life_event_id=offer["id"], template_id="t-letter").one()
         self.assertEqual(row.merge_overrides["work_location"], "Irvine, CA")
         self.assertEqual(row.merge_overrides["worker_type"], "Employee")
         self.assertEqual(row.merge_overrides["probation_period"], "90 days")
@@ -196,6 +199,12 @@ class JourneyTests(OfferCase):
         self._send_and_sign(offer["id"])
         ev = self._ev(offer["id"])
         self.assertEqual(ev.status, "completed", ev.apply_note)
+        # ONE document: the letter, the job description after it, then the tick box the candidate ticked.
+        req = self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).first()
+        self.assertEqual(req.documents or [], [])
+        ack = [f for f in req.fields or [] if f["type"] == "check"]
+        self.assertEqual([(f["label"], f["role"], f["required"]) for f in ack],
+                         [("I have read the job description", "employee", True)])
         self.db.expire_all()
         cand = self.db.query(models.HrCandidate).filter_by(id="cand-1").first()
         self.assertEqual(cand.stage, "hired")                  # the signed offer is the hire
@@ -362,7 +371,8 @@ class ReviewFixTests(OfferCase):
     def test_the_role_from_the_offer_is_applied_when_the_work_email_lands(self):
         from routers.hr import adopt_pending_role
         db = database.SessionLocal()
-        db.add(models.NexusGroup(id="role-y", name="Analyst", department="Accounting", is_job_role=1, company_id=CO))
+        db.add(models.NexusGroup(id="role-y", name="Analyst", department="Accounting", is_job_role=1, company_id=CO,
+                                 job_description="Reconciles accounts."))
         db.query(models.HrCandidate).filter_by(id="cand-1").update({"role_id": "role-y"})
         db.commit()
         db.close()

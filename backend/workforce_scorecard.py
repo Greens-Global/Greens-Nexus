@@ -384,6 +384,7 @@ def roster(db: Session, scope, cfg: dict, week_end: str) -> list:
         if not scope:
             return []
         q = q.filter(func.lower(models.NexusEmployee.work_email).in_(list(scope)))
+    import shift_roster
     exempt = time_tracking_exempt_emails(db)
     pay_types = set(cfg.get("payTypes") or ["hourly"])
     candidates = q.all()
@@ -393,7 +394,7 @@ def roster(db: Session, scope, cfg: dict, week_end: str) -> list:
     out = []
     for e in candidates:
         em = e.work_email.lower()
-        if em in exempt:
+        if em in exempt or not shift_roster.is_switched_on(e):   # off the schedule (11/03/2026)
             continue
         rr = rates.get(em)
         if ((rr.pay_type if rr else None) or "hourly") not in pay_types:

@@ -44,7 +44,7 @@ describe('InviteExternalModal', () => {
     fireEvent.change(screen.getByPlaceholderText('name@partnercompany.com'), { target: { value: 'jane.doe@acmeconstruction.com' } });
     // Find the first-name input by its label span, not by position - the field
     // order in the modal has changed before and silently broke inputs[N].
-    const firstNameInput = screen.getByText('First name').parentElement.querySelector('input');
+    const firstNameInput = screen.getByText('First Name').parentElement.querySelector('input');
     fireEvent.change(firstNameInput, { target: { value: 'Jane' } });
     // Staged-by-default (Neil, Aug 25): the primary action creates WITHOUT
     // sending anything; flipping the radio restores the one-step invite.
@@ -60,7 +60,7 @@ describe('InviteExternalModal', () => {
     const onSaved = vi.fn();
     render(<InviteExternalModal initial={null} onClose={() => {}} onSaved={onSaved} />);
     fireEvent.change(screen.getByPlaceholderText('name@partnercompany.com'), { target: { value: 'jane.doe@acmeconstruction.com' } });
-    const firstNameInput = screen.getByText('First name').parentElement.querySelector('input');
+    const firstNameInput = screen.getByText('First Name').parentElement.querySelector('input');
     fireEvent.change(firstNameInput, { target: { value: 'Jane' } });
     fireEvent.click(screen.getByText('Create and send the invite now'));
     fireEvent.click(screen.getByText('Send Invite'));

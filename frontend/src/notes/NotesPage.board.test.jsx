@@ -301,9 +301,10 @@ describe('A board on a phone', () => {
     await screen.findByRole('dialog', { name: 'Board' });
     // the sheet pushed its own entry; Back pops it
     expect(window.history.state?.nxSheet).toBeTruthy();
-    await act(async () => { window.history.back(); await new Promise((r) => setTimeout(r, 20)); });
-    expect(onSubChange).toHaveBeenLastCalledWith('notes');
-    expect(window.location.pathname).toBe('/dashboard/notes');
+    await act(async () => { window.history.back(); });
+    // Wait for the pop instead of a fixed 20 ms (flaky under full-suite load).
+    await waitFor(() => expect(onSubChange).toHaveBeenLastCalledWith('notes'));
+    await waitFor(() => expect(window.location.pathname).toBe('/dashboard/notes'));
   });
 });
 

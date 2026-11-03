@@ -619,6 +619,10 @@ class ItemCheckout(Base):
     extension_status         = Column(String, default="")   # '' | 'pending' (cleared on resolve)
     approver_email           = Column(String, default="")   # manager picked at checkout - only they get the approval notification
     approver_name            = Column(String, default="")
+    # The return date the borrower picked on the calendar (YYYY-MM-DD in their
+    # own zone, Neil 11/02/2026). '' = an older request that asked for a number
+    # of days. item_due.due_date reads it - see the rule there.
+    requested_due_date       = Column(String, default="")
 
 
 class ItemCartEntry(Base):
@@ -745,6 +749,11 @@ class NexusGroup(Base):
     # company - [{id, hiredAs, country, region, entityId, text, createdBy,
     # createdAt, updatedAt, archivedAt}]. hiring_setup.resolve_duties picks one.
     duty_versions   = Column(JSON, default=list)
+    # The role's job description as a FILE (Neil, 11/03/2026): a PDF - or a
+    # Word file Nexus converted to one - that goes out after the offer letter
+    # in place of the typed duties. {path (in the HR documents bucket), name,
+    # pages, size, uploadedAt, uploadedBy}; {} = the typed duties are used.
+    jd_file         = Column(JSON, default=dict)
 
 
 class NexusGroupMember(Base):
@@ -995,6 +1004,10 @@ class NexusEmployee(Base):
     # automatically; existing people still inside their window were started
     # once at release (hr_probation.backfill_existing).
     probation                = Column(JSON, default=dict)
+    # On the Schedule (Neil, 11/03/2026, shift_roster.py): 0 = the person never
+    # appears in scheduling (planner, fills, Late, no-shows, scorecard, trading);
+    # team memberships are kept. NULL / 1 = on, the default for everyone.
+    on_schedule              = Column(Integer, default=1)
 
 
 class HrRemovedIdentity(Base):
@@ -1170,6 +1183,13 @@ class ItemType(Base):
     sort_order = Column(Integer, default=0)
     created_by = Column(String, default="")
     created_at = Column(String, default="")
+    # Borrowable (Neil, 11/02/2026): does this type show in Borrow? NULL = the
+    # default - on for a type people check out, off for a permanent-only type
+    # (routers/items._type_borrowable). An admin's switch stores True / False.
+    borrowable    = Column(Boolean, nullable=True)
+    # The longest loan a Borrow request may ask for, in days (0 = the 90-day
+    # ceiling every checkout already had).
+    max_loan_days = Column(Integer, default=0)
 
 
 class KbDocument(Base):
@@ -6349,6 +6369,12 @@ class HrPacketSetting(Base):
     # field. [{key, label, type, required, options, sensitive, last4, help}];
     # each key is a {{variable}} the packet's templates can print.
     details_form     = Column(JSON, default=list)
+    # Who fills each variable, for THIS packet (Pranshu, 11/03/2026): the
+    # packet's own choice laid over its templates' - {token: {source:
+    # 'person' (the intake form) | 'hr' (HR at the offer) | 'same' (one value
+    # for every hire), value, required, sensitive}}. A token not here keeps
+    # what its template says; the templates themselves are never changed.
+    field_sources    = Column(JSON, default=dict)
     # Signs Once (Oct 14): the company signature a step marked `once` applies
     # to every packet, adopted ONCE by whoever holds that role for the
     # company. [{step, entityId, email, name, kind, data, digest, adoptedAt,
@@ -6707,6 +6733,11 @@ class NexusPersonPref(Base):
     # no email when training is only DUE SOON. Overdue training and policies
     # to sign always email; the bell always rings. ALTER lines in main.py.
     kb_due_soon_email = Column(Integer, default=1)
+    # Digest emails this person stopped (the legal compliance pass,
+    # 11/02/2026, email_optout.py): comma-separated kinds, '' = none. Set by
+    # the one-click link in the email or Profile > Email Settings. ALTER
+    # lines in main.py.
+    email_optouts = Column(String, default="")
 
 
 class TaskAutomationRun(Base):
@@ -9693,6 +9724,7 @@ class CubbyTaskLink(Base):
     created_at         = Column(String, default="")
     updated_at         = Column(String, default="")
     last_seen_at       = Column(String, default="")                   # last sync that listed it open
+    note_ids           = Column(JSON, default=list)                    # warehouse note ids already posted as comments
 # ── Web Push (Frontline Reach, Neil 11/02/2026) ──────────────────────────────
 # A phone or desktop that said yes to "Push to This Device" (My Profile >
 # Phone Notifications) registers its browser subscription here, one row per

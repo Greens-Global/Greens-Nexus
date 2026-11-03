@@ -98,6 +98,19 @@ describe('deriveMyTime', () => {
     expect(vm.actions.map(a => a.label)).toEqual(['Punch In']);
   });
 
+  it('today\'s shift track (Neil, 11/02/2026): from todayShift, live while clocked in, done after a worked shift, none without one', () => {
+    const todayShift = { startUtc: new Date(2026, 9, 8, 8, 0).toISOString(), endUtc: new Date(2026, 9, 8, 16, 0).toISOString() };
+    expect(deriveMyTime({ status: clockedInStatus(), now: NOW }).track).toBeNull();
+    const live = deriveMyTime({ status: clockedInStatus({ todayShift }), now: NOW }).track;
+    expect(live).toMatchObject({ kind: 'mid', state: 'live', leftMin: 330 });
+    const done = deriveMyTime({
+      status: clockedOutStatus({ todayShift, days: { [TODAY]: { workedMin: 480, punches: [{ kind: 'in', at: stamp(minsAgo(148)) }] } } }),
+      now: new Date(2026, 9, 8, 16, 30),
+    }).track;
+    expect(done).toMatchObject({ kind: 'done', state: 'done' });
+    expect(deriveMyTime({ status: clockedInStatus({ todayShift, staleOpenShift: true, allowed: ['in'] }), now: NOW }).track).toBeNull();
+  });
+
   it('exempt: no state, no punches; no status: unknown', () => {
     expect(deriveMyTime({ status: { timeTrackingExempt: true }, now: NOW })).toMatchObject({ exempt: true, state: 'exempt', actions: [] });
     expect(deriveMyTime({ status: null, now: NOW })).toMatchObject({ state: 'unknown', actions: [], todayMin: 0 });
@@ -131,6 +144,18 @@ describe('<MyTime /> render', () => {
     expect(screen.getByRole('button', { name: /Open Time Clock/ })).toBeTruthy();
     // The full features stay on Workday.
     expect(screen.queryByText(/This Week|Pay Period|Next Shift|Request Time Off|Coming Up/)).toBeNull();
+    // No shift today: no track at all.
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+
+  it('with a shift today: a slim live track between the state and the punches', async () => {
+    const todayShift = { startUtc: new Date(2026, 9, 8, 8, 0).toISOString(), endUtc: new Date(2026, 9, 8, 16, 0).toISOString() };
+    apiMock.timeStatus.mockResolvedValue(clockedInStatus({ todayShift }));
+    const { container } = render(<MyTime />);
+    const bar = await screen.findByRole('progressbar', { name: "Today's shift" });
+    expect(bar.getAttribute('aria-valuetext')).toBe("5h 30m left in today's shift (8:00 AM to 4:00 PM)");
+    expect(container.querySelector('.nx-track').className).toContain('is-live');
+    expect(container.querySelector('.nx-track').className).toContain('is-sm');
   });
 
   it('Start Break asks for the reason first (the Time Clock screen\'s prompt), then punches and says what it did', async () => {

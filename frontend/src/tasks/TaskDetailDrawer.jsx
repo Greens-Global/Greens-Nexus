@@ -10,7 +10,7 @@ import {
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma, MoveRight,
-  History, Upload, HardDrive, Image as ImageIcon, AudioLines, Warehouse,
+  History, Upload, HardDrive, Image as ImageIcon, AudioLines, Warehouse, ExternalLink,
 } from 'lucide-react';
 import MoveTaskModal from './MoveTaskModal';
 import MyDayToggle from './MyDayToggle';
@@ -1202,6 +1202,15 @@ function CubbyLink({ taskId }) {
         {info.automated && <Chip color={NX.teal} tint="rgba(13,148,136,0.15)">Automated</Chip>}
         <Chip color={info.status === 'OPEN' && !info.pushStatus ? NX.dim : NX.amber}
           tint={info.status === 'OPEN' && !info.pushStatus ? 'rgba(128,128,128,0.14)' : 'rgba(217,119,6,0.14)'}>{cubbyState}</Chip>
+        {/* Cubby's task page is keyed by an id its API never returns, so this is
+            its task list, not the task (Sagar, 11/03/2026: the state chip read
+            as a button and did nothing). */}
+        {info.url && (
+          <a href={info.url} target="_blank" rel="noopener noreferrer" className="ops-link"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600 }}>
+            Find in Cubby <ExternalLink size={11} aria-hidden="true" />
+          </a>
+        )}
       </div>
       {(people || info.createdBy) && (
         <span style={{ color: NX.faint }}>

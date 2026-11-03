@@ -1,7 +1,10 @@
 """Editable sign-in policy (Sep 26, 2026).
 
-Proves the defaults are the text and version everyone already accepted (so a
-deploy re-prompts nobody), that saving a draft never changes the version, that
+Proves the default carries the required sections (the 11/02/2026 legal pass
+added the notice at collection and location WITHOUT a new version - Neil:
+"Update text, no re-accept"), that a saved policy missing a required
+section is reported Out of Date and never rewritten, that saving a draft never
+changes the version, that
 publishing does and re-prompts, that an acceptance is always of the version on
 screen, the acceptance report, and that only Administrators can edit.
 
@@ -86,13 +89,19 @@ class PolicyConfigTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         return r.json()
 
-    def test_defaults_are_the_text_and_version_already_accepted(self):
+    def test_default_carries_the_required_sections_without_a_reaccept(self):
+        # Neil, 11/02/2026: "Update text, no re-accept" - the fuller default
+        # keeps the version everyone already accepted.
         s = self._status()
         self.assertEqual(s["version"], "2026-07-21")
         self.assertEqual(s["title"], "Company Policies & Monitoring")
         self.assertIn("Employee monitoring", s["body"])
         self.assertIn("does NOT capture your keystrokes", s["body"])
-        # Someone who accepted before this change is not asked again.
+        self.assertIn("## Notice at collection", s["body"])
+        self.assertIn("## Location", s["body"])
+        self.assertEqual(policy.missing_sections(s["body"]), [])
+        self.assertNotIn("\u2014", s["body"])   # no em dashes
+        # Someone who accepted before is not asked again.
         db = database.SessionLocal()
         try:
             db.add(models.PolicyAcknowledgment(id="pcfg-old", email=ADMIN, version="2026-07-21",
@@ -102,24 +111,42 @@ class PolicyConfigTests(unittest.TestCase):
             db.close()
         self.assertTrue(self._status()["accepted"])
 
+    def test_default_in_use_is_never_out_of_date(self):
+        cfg = self.client.get("/policy/config").json()
+        self.assertIsNone(cfg["outOfDate"])
+        self.assertEqual(cfg["default"]["version"], policy.POLICY_VERSION)
+        self.assertTrue(cfg["counselReview"])
+
+    def test_saved_policy_missing_a_section_is_out_of_date_and_kept(self):
+        body = "## Employee monitoring\nScreenshots while clocked in."
+        pub = self.client.post("/policy/publish", json={"title": "Ours", "body": body}).json()["published"]
+        cfg = self.client.get("/policy/config").json()
+        self.assertEqual(cfg["outOfDate"]["missing"], ["Location", "Notice at collection"])
+        # Never rewritten: the saved text and version stand, nobody re-prompted by it.
+        self.assertEqual((cfg["published"]["body"], cfg["published"]["version"]), (body, pub["version"]))
+        self.assertIn("## Notice at collection", cfg["default"]["body"])
+        # Publishing the new default clears it.
+        self.client.post("/policy/publish", json={"title": "Ours", "body": cfg["default"]["body"]})
+        self.assertIsNone(self.client.get("/policy/config").json()["outOfDate"])
+
     def test_draft_does_not_change_the_version(self):
-        self.client.post("/policy/accept", json={"version": "2026-07-21"})
+        self.client.post("/policy/accept", json={"version": policy.POLICY_VERSION})
         r = self.client.put("/policy/draft", json={"title": "New", "body": "## Rules\nBe kind."})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["draft"]["body"], "## Rules\nBe kind.")
         s = self._status()
-        self.assertEqual(s["version"], "2026-07-21")
+        self.assertEqual(s["version"], policy.POLICY_VERSION)
         self.assertTrue(s["accepted"])
         self.assertEqual(s["title"], "Company Policies & Monitoring")
         self.assertEqual(self.client.delete("/policy/draft").json()["draft"], None)
 
     def test_publish_bumps_the_version_and_reprompts(self):
-        self.client.post("/policy/accept", json={"version": "2026-07-21"})
+        self.client.post("/policy/accept", json={"version": policy.POLICY_VERSION})
         self.client.put("/policy/draft", json={"title": "New", "body": "Draft"})
         r = self.client.post("/policy/publish", json={"title": "Rules v2", "body": "## Rules\n- One\n- Two"})
         self.assertEqual(r.status_code, 200, r.text)
         v = r.json()["published"]["version"]
-        self.assertNotEqual(v, "2026-07-21")
+        self.assertNotEqual(v, policy.POLICY_VERSION)
         self.assertIsNone(r.json()["draft"])
         s = self._status()
         self.assertEqual((s["version"], s["title"], s["accepted"]), (v, "Rules v2", False))
@@ -137,7 +164,7 @@ class PolicyConfigTests(unittest.TestCase):
 
     def test_accepting_a_stale_version_is_refused(self):
         self.client.post("/policy/publish", json={"title": "T", "body": "B"})
-        self.assertEqual(self.client.post("/policy/accept", json={"version": "2026-07-21"}).status_code, 409)
+        self.assertEqual(self.client.post("/policy/accept", json={"version": policy.POLICY_VERSION}).status_code, 409)
         self.assertEqual(self.client.post("/policy/accept", json={"version": self._status()["version"]}).status_code, 200)
         self.assertTrue(self._status()["accepted"])
         # An older client that sends no version still records the current one.
@@ -169,11 +196,11 @@ class PolicyConfigTests(unittest.TestCase):
     def test_report_lists_who_accepted_newest_first_with_both_csvs(self):
         db = database.SessionLocal()
         try:
-            db.add(models.PolicyAcknowledgment(id="pcfg-a1", email=EMP, version="2026-07-21",
+            db.add(models.PolicyAcknowledgment(id="pcfg-a1", email=EMP, version=policy.POLICY_VERSION,
                                                accepted_at="2026-09-01T15:04:00+00:00"))
-            db.add(models.PolicyAcknowledgment(id="pcfg-a2", email=EMP2, version="2026-07-21",
+            db.add(models.PolicyAcknowledgment(id="pcfg-a2", email=EMP2, version=policy.POLICY_VERSION,
                                                accepted_at="2026-09-20T02:30:00+00:00"))
-            db.add(models.PolicyAcknowledgment(id="pcfg-a3", email=GUEST, version="2026-07-21",
+            db.add(models.PolicyAcknowledgment(id="pcfg-a3", email=GUEST, version=policy.POLICY_VERSION,
                                                accepted_at="2026-09-21T02:30:00+00:00"))
             db.commit()
         finally:
@@ -214,7 +241,7 @@ class PolicyConfigTests(unittest.TestCase):
             kw = {"json": body} if body is not None else {}
             r = getattr(self.client, method)(path, **kw)
             self.assertIn(r.status_code, (401, 403), path)
-        self.assertEqual(self._status()["version"], "2026-07-21")
+        self.assertEqual(self._status()["version"], policy.POLICY_VERSION)
 
 
 if __name__ == "__main__":

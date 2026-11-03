@@ -43,6 +43,13 @@ def _person(db: Session, email: str) -> Optional[models.NexusEmployee]:
     return p if p is not None and (p.status or "") in ("active", "onboarding") else None
 
 
+def hr_contacts_here(db: Session, company: str) -> list:
+    """The company's HR contacts still here, in the order Settings lists
+    them - the field may hold several emails, comma-separated."""
+    from hr_access import hr_contacts
+    return [e for e in hr_contacts(db, company or "") if _person(db, e)]
+
+
 def department_head(db: Session, cand: models.HrCandidate) -> str:
     """Who runs the department the role belongs to: the department's lead for
     the hiring company (Settings > Companies > Departments), else its backup, else
@@ -78,10 +85,7 @@ def screeners(db: Session, cand: models.HrCandidate) -> list:
         email = (p.manager_email or "").strip().lower()
     # HR screens too (Neil, Oct 19: "step 2 is HR and or department head").
     if cand.company:
-        ent = db.query(models.HrEntity).filter(models.HrEntity.id == cand.company).first()
-        hr = (ent.hr_contact_email or "").strip().lower() if ent is not None else ""
-        if hr and hr not in out and _person(db, hr):
-            out.append(hr)
+        out += [hr for hr in hr_contacts_here(db, cand.company) if hr not in out]
     # Nobody set up at all: the Global Admins are the stop gap (Neil, Oct 22).
     if not out:
         import hr_checklists as hc

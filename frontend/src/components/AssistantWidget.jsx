@@ -1,3 +1,4 @@
+import { detectCrisis, showCrisisSupport } from '../lib/crisisSupport';
 import { useState, useRef, useEffect, Component, lazy, Suspense } from 'react';
 import { X, Send, Sparkles } from 'lucide-react';
 import { api } from '../api';
@@ -75,9 +76,22 @@ function AssistantWidgetInner() {
     setInput('');
     setError('');
     setMessages(m => [...m, { role: 'user', content: text }]);
+    // Crisis support (11/02/2026): suicidal intent or self-harm gets the
+    // resources card and no generated reply (the server checks too).
+    const CRISIS_REPLY = 'If you are thinking about suicide or hurting yourself, you are not alone. In the US call or text 988; in India call Tele-MANAS at 14416. In an emergency call 911 (US) or 112 (India).';
+    if (detectCrisis(text)) {
+      setMessages(m => [...m, { role: 'assistant', content: CRISIS_REPLY }]);
+      showCrisisSupport();
+      return;
+    }
     setSending(true);
     try {
       const res = await api.askAssistant({ conversation_id: conversationId, message: text });
+      if (res?.crisis) {
+        setMessages(m => [...m, { role: 'assistant', content: CRISIS_REPLY }]);
+        showCrisisSupport({ resources: res.crisis.resources });
+        return;
+      }
       setConversationId(res.conversation_id);
       setMessages(m => [...m, { role: 'assistant', content: res.reply }]);
     } catch (e) {

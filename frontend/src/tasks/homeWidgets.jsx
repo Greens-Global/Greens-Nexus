@@ -12,11 +12,12 @@ import {
 import { NX, FONT, btn, card, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar } from './components';
 import ProjectIcon from './ProjectIcon';
-import { projectLook } from './projectLook';
 import { myTasksFootnote, MY_TASKS_RULE } from '../dashboard/myTasksCount';
 import { ago } from './updatesText';
 import { dayTitle, twoLetterDay, versusLastWeek, needsYouNow } from './homeRules';
 import { PriorityMark } from '../components/StatusLabel';
+import ProgressTrack, { countTrackState } from '../ui/ProgressTrack';
+import { todayISO } from './lib';
 
 const tint = (hex, a = '1f') => `${hex}${a}`;
 
@@ -154,9 +155,9 @@ export function ProjectsAtRiskWidget({ rows, onOpenProject, onViewAll, isMobile 
                   {dueWeek > 0 && <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: tint(NX.amber), color: NX.amber, whiteSpace: 'nowrap' }}>{dueWeek} This Week</span>}
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ flex: 1, height: 6, borderRadius: 99, background: NX.border2, overflow: 'hidden' }}>
-                    <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 99, background: projectLook(p, NX.purple).color }} />
-                  </span>
+                  <ProgressTrack size="sm" value={total ? done / total : 0}
+                    state={countTrackState({ done, total, dueISO: p.dueOn, todayISO: todayISO(), complete: p.status === 'completed' })}
+                    label={`${p.name} tasks done`} valueText={`${done} of ${total} done (${pct}%)`} style={{ flex: 1 }} />
                   <span style={{ fontSize: 11.5, color: NX.faint, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{done}/{total} done</span>
                 </span>
               </button>
@@ -247,7 +248,6 @@ export function MyDayWidget({ myDay, onOpenTask, onToggle, onOpenMyDay, isMobile
   const total = myDay.total || 0;
   const done = myDay.done?.length || 0;
   const next = (myDay.open || []).slice(0, 3);
-  const pct = total ? Math.round((done / total) * 100) : 0;
   return (
     <WidgetCard isMobile={isMobile}>
       <WidgetHeader Icon={Sun} tone={NX.amber} title="My Day" count={total ? `${done} of ${total} done` : null} action={{ label: 'Open My Day', onClick: onOpenMyDay }} />
@@ -255,10 +255,7 @@ export function MyDayWidget({ myDay, onOpenTask, onToggle, onOpenMyDay, isMobile
         empty('Nothing on My Day yet. Add tasks from any list\'s More Actions menu, or pick from the suggestions on the My Day tab.')
       ) : (
         <>
-          <div role="progressbar" aria-label="My Day progress" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}
-            style={{ height: 6, borderRadius: 99, background: NX.border2, overflow: 'hidden', marginBottom: 8 }}>
-            <div style={{ height: '100%', width: `${pct}%`, borderRadius: 99, background: pct === 100 ? NX.green : NX.amber }} />
-          </div>
+          <ProgressTrack value={total ? done / total : 0} label="My Day progress" valueText={`${done} of ${total} done`} style={{ marginBottom: 8 }} />
           {next.length === 0 ? empty('All done for today.') : next.map((t) => (
             <TaskLine key={t.id} t={t} onOpen={onOpenTask} onToggle={onToggle} compact />
           ))}

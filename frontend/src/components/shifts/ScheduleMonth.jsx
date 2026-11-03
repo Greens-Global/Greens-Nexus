@@ -5,6 +5,7 @@
 import { formatDate, formatWeekday } from '../../lib/datetime';
 import { isoDate, fmtHrs, planMinutes, counts, weekStartOf, timeOffWhen, isAllDayOff } from './shiftLib';
 import { Avatar } from '../ShiftScheduleExtras';
+import { TODAY_INK, plannerToday } from './nowLine';
 
 // Faces on each day (Visesh, 10/02: "show the people photos in the box so we
 // know who's available and who's not"): who is working, then who is off
@@ -27,7 +28,7 @@ function Faces({ list, people, names, off = false }) {
   );
 }
 
-export default function ScheduleMonth({ days, shifts, openShifts, timeoff, holidayDates, holidayNames, notes, visibleEmails, names, people = {}, weekStart = 'monday', onOpenDay }) {
+export default function ScheduleMonth({ days, shifts, openShifts, timeoff, holidayDates, holidayNames, notes, visibleEmails, names, people = {}, weekStart = 'monday', onOpenDay, teamZone = '' }) {
   if (!days.length) return null;
   const first = weekStartOf(days[0], weekStart);
   const cells = [];
@@ -36,7 +37,7 @@ export default function ScheduleMonth({ days, shifts, openShifts, timeoff, holid
     if (cells.length % 7 === 0 && d >= days[days.length - 1]) break;
   }
   const month = days[0].getMonth();
-  const today = isoDate(new Date());
+  const today = plannerToday(teamZone);   // the team zone's day (nowLine.js)
   const headers = Array.from({ length: 7 }, (_, i) => formatWeekday(new Date(first.getFullYear(), first.getMonth(), first.getDate() + i), 'short'));
   const perDay = (ds) => {
     const placed = shifts.filter((s) => s.date === ds && counts(s));
@@ -60,11 +61,13 @@ export default function ScheduleMonth({ days, shifts, openShifts, timeoff, holid
           const isToday = ds === today;
           const hol = inMonth && holidayDates.has(ds);
           return (
-            <button key={ds} type="button" onClick={() => inMonth && onOpenDay(ds)} aria-label={`Open ${formatDate(ds)}`} disabled={!inMonth}
+            <button key={ds} type="button" onClick={() => inMonth && onOpenDay(ds)} aria-label={`Open ${formatDate(ds)}`} disabled={!inMonth} aria-current={isToday ? 'date' : undefined}
               style={{ minHeight: 104, padding: '8px 10px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'stretch', gap: 2, border: 'none', borderRight: '1px solid var(--line)', borderBottom: '1px solid var(--line)', textAlign: 'left',
-                background: isToday ? 'var(--wk-brand-tint)' : hol ? 'hsla(var(--color-blue),0.06)' : 'transparent', cursor: inMonth ? 'pointer' : 'default', fontFamily: 'inherit', color: 'var(--ink)', opacity: inMonth ? 1 : 0.35 }}>
+                // Today is the live accent (Neil, 11/02/2026): the tint and a 2px line along its top.
+                background: isToday ? 'var(--wk-live-tint)' : hol ? 'hsla(var(--color-blue),0.06)' : 'transparent', boxShadow: isToday ? 'inset 0 2px 0 var(--wk-live)' : 'none',
+                cursor: inMonth ? 'pointer' : 'default', fontFamily: 'inherit', color: 'var(--ink)', opacity: inMonth ? 1 : 0.35 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span style={{ fontSize: 15, fontWeight: 800, color: isToday ? 'var(--wk-brand)' : 'var(--ink)' }}>{d.getDate()}</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: isToday ? TODAY_INK : 'var(--ink)' }}>{d.getDate()}</span>
                 {hol && <span style={{ fontSize: 10, fontWeight: 700, color: 'hsl(var(--color-blue))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{holidayNames[ds] || 'Holiday'}</span>}
               </div>
               {st && (

@@ -87,7 +87,7 @@ from datetime import datetime, timedelta, timezone
 from html import escape, unescape
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -850,17 +850,28 @@ def restore_note(note_id: str, user: dict = Depends(get_current_user), db: Sessi
 
 
 @router.delete("/{note_id}", status_code=204)
-def delete_note_forever(note_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_note_forever(note_id: str, background_tasks: BackgroundTasks,
+                        user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = _me(user)
     n, can = _get_or_404(db, note_id, me)
     if can != "owner":
         raise HTTPException(404, "Note not found")
     if not n.trashed_at:
         raise HTTPException(409, "Move the note to the Trash first - only the Trash deletes forever.")
+    # Forever means the files too (11/02/2026, note_media.py): what the note
+    # and its versions point at is read first, then removed from storage once
+    # the rows are gone - unless another note, attachment or record uses it.
+    versions = db.query(models.NexusNoteVersion).filter(models.NexusNoteVersion.note_id == n.id).all()
+    texts = [n.body, getattr(n, "scene", ""), getattr(n, "thumb_url", "")]
+    texts += [t for v in versions for t in (v.body, getattr(v, "scene", ""))]
+    note_id = n.id
     db.query(models.NexusNoteVersion).filter(models.NexusNoteVersion.note_id == n.id).delete()
     db.query(models.NexusNotePresence).filter(models.NexusNotePresence.note_id == n.id).delete()
     db.delete(n)
     db.commit()
+    # After the response, in the threadpool: the request never waits on storage.
+    import note_media
+    background_tasks.add_task(note_media.purge_later, note_id, texts)
 
 
 # ── sharing ────────────────────────────────────────────────────────────────

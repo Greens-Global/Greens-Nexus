@@ -304,9 +304,8 @@ def applicant_owner(db: Session, op: models.HrJobOpening) -> str:
     for email in ((op.hiring_owner_email or ""),):
         if _person(db, email):
             return email.strip().lower()
-    ent = db.query(models.HrEntity).filter(models.HrEntity.id == op.company).first()
-    hr = (ent.hr_contact_email or "").strip().lower() if ent else ""
-    return hr if hr and _person(db, hr) else ""
+    from hiring_screening import hr_contacts_here
+    return next(iter(hr_contacts_here(db, op.company)), "")
 
 
 def notify_new_applicant(db: Session, op: models.HrJobOpening) -> None:

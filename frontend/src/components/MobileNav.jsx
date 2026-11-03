@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
-  Package, User, ClipboardList, ShoppingCart, Users, FileText, History,
+  Package, User, ClipboardList, ShoppingCart, Users, FileText,
   Building2, Plug, ListChecks, FileCheck, Shield, ClipboardCheck, Folder,
-  MessageSquare, PackageSearch, Calendar, Circle, Camera,
+  MessageSquare, PackageSearch, Calendar, Circle,
   Home, CheckCircle2, FolderKanban, Briefcase,
   LayoutTemplate, FileSignature,
 } from 'lucide-react';
-import { useRole } from '../contexts/RoleContext';
 import { TASKS_PERSON_PAGE } from '../lib/personTasksNav';
 
 // Icons for broadcast (dynamic) actions, keyed by action id - keeps the bar
@@ -16,29 +15,15 @@ const DYN_ICONS = {
   documents: FileText, warranties: Shield, inspections: ClipboardCheck,
   workload: Users, projects: Folder, actions: MessageSquare,
   'who-has-what': PackageSearch, calendar: Calendar,
+  // Item Management's tabs (views/InventoryManagement.jsx broadcasts the ones
+  // this person has - Items redesign, 11/02/2026).
+  'items-mystuff': User, 'items-borrow': ShoppingCart, 'items-requests': ClipboardList, 'items-inventory': Package,
 };
 
 // Phone bottom bar (Visesh's design): ONLY the current screen's actions.
 // Menu lives top-left in the header; screens without registered actions
-// show no bar at all.
-const INVENTORY_MANAGER_ACTIONS = [
-  { sub: 'myitems',      label: 'My Items',  Icon: User },
-  { sub: 'catalog',      label: 'Catalog',   Icon: Package },
-  { sub: 'manage',       label: 'Manage',    Icon: ClipboardList },
-  { sub: 'checkouts',    label: 'Checkouts', Icon: ShoppingCart },
-  { sub: 'whohasit',     label: 'Who Has',   Icon: Users },
-  { sub: 'audit',        label: 'Log',       Icon: History },
-];
-const INVENTORY_EMPLOYEE_ACTIONS = [
-  { sub: 'catalog', label: 'Catalog',  Icon: Package },
-  { sub: 'myitems', label: 'My Items', Icon: User },
-];
-// Allocators (supervisors) also get a handover queue.
-const INVENTORY_ALLOCATOR_ACTIONS = [
-  { sub: 'catalog',  label: 'Catalog',   Icon: Package },
-  { sub: 'myitems',  label: 'My Items',  Icon: User },
-  { sub: 'handover', label: 'Hand Over', Icon: Camera },
-];
+// show no bar at all. Item Management broadcasts its own tabs (the ones the
+// person has), so the bar always matches the screen.
 // Task module's own module-tab strip (Home/Tasks/Projects/Portfolios/Teams,
 // views/Tasks.jsx MODULE_TABS) - Asana app style: icon-over-label, fixed to
 // the bottom instead of the swipeable top strip desktop uses.
@@ -62,15 +47,15 @@ const DOCUMENT_ACTIONS = [
 ];
 
 export default function MobileNav({ activeView, activeSub }) {
-  const { can } = useRole();
-  const isManager = can?.('manager');
-  const isAllocator = can?.('supervisor');
 
   // Views can broadcast their own action set (label + id + active) via
   // 'nexus:mobile-actions'; taps come back as 'nexus:mobile-action'. This is
   // how screens with internal tabs (PropertyAsset sections) populate the bar
   // without MobileNav knowing their internals.
-  const [dynActions, setDynActions] = useState(null);
+  // The last broadcast is kept on window too, so a screen that announced its
+  // actions before this bar mounted (Item Management on a fresh load) still
+  // shows them.
+  const [dynActions, setDynActions] = useState(() => (typeof window !== 'undefined' && window.__nexusMobileActions) || null);
   useEffect(() => {
     const h = e => setDynActions(e.detail?.actions || null);
     window.addEventListener('nexus:mobile-actions', h);
@@ -88,13 +73,7 @@ export default function MobileNav({ activeView, activeSub }) {
 
   let actions = null;
   let effSub = activeSub;
-  if (activeView === 'inventory') {
-    actions = isManager ? INVENTORY_MANAGER_ACTIONS : isAllocator ? INVENTORY_ALLOCATOR_ACTIONS : INVENTORY_EMPLOYEE_ACTIONS;
-    // The view opens on Catalog before any navigation sets a sub; deep-link
-    // subs (permanent / active-checkouts) land on the Checkouts screen.
-    if (!effSub) effSub = 'catalog';
-    else if (['permanent', 'active-checkouts', 'checkouts-completed'].includes(effSub)) effSub = 'checkouts';
-  } else if (activeView === 'tasks') {
+  if (activeView === 'tasks') {
     // Manage has its own internal tab strip (ManageView.jsx) - no bar there,
     // same as the desktop module-tab strip hiding on it (views/Tasks.jsx
     // `!onManage`). A drilled-into-project task list ('tasks') highlights

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 
-// Access > People > "Change role": a searchable popover instead of one flat
-// native <select> mixing a person's own company roles with every shared role
-// (Pranshu, Sep 28 - "make it more UI friendly").
+// Access > People (Neil, 11/03/2026): a person opens in a sheet holding the
+// one access editor (people/AccessTab.jsx). The job role changes ONLY through
+// Change Role (RoleChangeModal, a reason required) and the tier override is a
+// Super Administrator's alone.
 
 // jsdom has no scrollIntoView - selecting a person (setPerson) runs the
 // existing panel-into-view effect regardless of this test's own changes.
@@ -17,6 +18,7 @@ const roles = [
 const dir = [{ email: 'amy@example.com', display_name: 'Amy Poe', company: 'acme' }];
 const eff = { email: 'amy@example.com', tier: 'employee', job_role: null, extra_groups: [] };
 const assignJobRole = vi.fn(() => Promise.resolve({ assigned: true }));
+const changeRoleNow = vi.fn(() => Promise.resolve({ roleId: 'r-shared-2', roleName: 'Crew Member', warning: '' }));
 
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: dir }) }));
 vi.mock('../api', () => ({
@@ -26,6 +28,7 @@ vi.mock('../api', () => ({
       if (key === 'getEntities') return vi.fn(() => Promise.resolve([{ id: 'acme', name: 'Acme Co' }]));
       if (key === 'getEffectiveAccess') return vi.fn(() => Promise.resolve(eff));
       if (key === 'assignJobRole') return assignJobRole;
+      if (key === 'changeRoleNow') return changeRoleNow;
       if (key === 'getMyRole') return vi.fn(() => Promise.resolve(myRoleAnswer.value));
       return vi.fn(() => Promise.resolve([]));
     },
@@ -56,58 +59,38 @@ const { RoleProvider } = await import('../contexts/RoleContext');
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); viaProvider.on = false; });
 
-describe('Access > People > role picker', () => {
-  it('opens a popover, groups roles, filters by search, and assigns on pick', async () => {
+describe('Access > People > the access sheet', () => {
+  it('opens the person in a sheet; Set Job Role goes through Change Role with a reason', async () => {
     render(<RolesAccess embedded />);
     fireEvent.click(await screen.findByText('Amy Poe'));
+    expect(await screen.findByText('Access - Amy Poe')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Assign a role…/ })).not.toBeInTheDocument();   // no second picker
 
-    const trigger = await screen.findByRole('button', { name: /Assign a role…/ });
-    fireEvent.click(trigger);
-
-    expect(screen.getByPlaceholderText('Search roles')).toBeInTheDocument();
-    expect(screen.getByText('This Company')).toBeInTheDocument();
-    expect(screen.getByText('Acme Accountant')).toBeInTheDocument();
-    expect(screen.getByText('Shared Across Companies')).toBeInTheDocument();
-    expect(screen.getByText('Tester')).toBeInTheDocument();
-    expect(screen.getByText('Crew Member')).toBeInTheDocument();
-
-    fireEvent.change(screen.getByPlaceholderText('Search roles'), { target: { value: 'crew' } });
-    expect(screen.queryByText('Tester')).not.toBeInTheDocument();
-    expect(screen.getByText('Crew Member')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('Crew Member'));
-    await waitFor(() => expect(assignJobRole).toHaveBeenCalledWith('r-shared-2', 'amy@example.com'));
-    // Picking closes the panel.
-    expect(screen.queryByPlaceholderText('Search roles')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /Set Job Role/ }));
+    const pick = await screen.findByDisplayValue('- pick a role -');
+    const offered = [...pick.querySelectorAll('option')].map((o) => o.textContent).slice(1);
+    expect(offered).toEqual(expect.arrayContaining(['Acme Accountant', 'Tester', 'Crew Member']));
+    fireEvent.change(pick, { target: { value: 'r-shared-2' } });
+    const change = screen.getByRole('button', { name: /^Change Role$/ });
+    expect(change).toBeDisabled();                                  // the reason is required
+    fireEvent.change(screen.getByPlaceholderText(/Moving to the Accounting team/), { target: { value: 'Covers the crew' } });
+    fireEvent.click(change);
+    await waitFor(() => expect(changeRoleNow).toHaveBeenCalledWith('amy@example.com', { role_id: 'r-shared-2', reason: 'Covers the crew' }));
+    expect(assignJobRole).not.toHaveBeenCalled();
   });
 
-  it('closes on Escape and on an outside click', async () => {
+  it('a Super Administrator may override the tier', async () => {
     render(<RolesAccess embedded />);
     fireEvent.click(await screen.findByText('Amy Poe'));
-    fireEvent.click(await screen.findByRole('button', { name: /Assign a role…/ }));
-    expect(screen.getByPlaceholderText('Search roles')).toBeInTheDocument();
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByPlaceholderText('Search roles')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /Assign a role…/ }));
-    expect(screen.getByPlaceholderText('Search roles')).toBeInTheDocument();
-    // pointerdown, not mousedown: the panel is an AnchoredMenu, which closes
-    // on a tap as well as a click.
-    fireEvent.pointerDown(document.body);
-    expect(screen.queryByPlaceholderText('Search roles')).not.toBeInTheDocument();
+    expect(await screen.findByRole('combobox', { name: 'Override Tier' })).toBeInTheDocument();
   });
 
-  it('myLevel comes from the provider: an Administrator may hand out only the tiers below their own', async () => {
-    // Before 11/02/2026 the provider computed myLevel but never exposed it, so
-    // `level < undefined` was false and an Administrator saw NO tier to give.
-    // (A Manager cannot open Access at all - the screen is Administrator+.)
+  it('an Administrator sees the tier but cannot override it', async () => {
     viaProvider.on = true;
     myRoleAnswer.value = { role: 'administrator', level: 4, title: 'IT Lead', email: 'me@example.com' };
     render(<RoleProvider><RolesAccess embedded /></RoleProvider>);
     fireEvent.click(await screen.findByText('Amy Poe'));
-    const select = await screen.findByDisplayValue('Override tier for this person…');
-    const offered = [...select.querySelectorAll('option')].map((o) => o.textContent).filter(Boolean).slice(1);
-    expect(offered).toEqual(['Employee', 'Supervisor', 'Manager']);
+    await screen.findByRole('button', { name: /Set Job Role/ });
+    expect(screen.queryByRole('combobox', { name: 'Override Tier' })).not.toBeInTheDocument();
   });
 });

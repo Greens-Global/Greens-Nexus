@@ -50,7 +50,7 @@ function DocPreview({ eventId, doc, onClose, toastErr }) {
   const [url, setUrl] = useState('');
   useEffect(() => {
     let made = '';
-    api.packetDocumentPdf(eventId, doc.documentId)
+    (doc.load ? doc.load() : api.packetDocumentPdf(eventId, doc.documentId))
       .then(({ blob }) => { made = URL.createObjectURL(blob); setUrl(made); })
       .catch(e => { toastErr?.(e?.message || 'Could not open the document.'); onClose(); });
     return () => { if (made) URL.revokeObjectURL(made); };
@@ -205,6 +205,12 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
                   {doc.unresolved?.length > 0 && <Chip tone="orange">{doc.unresolved.length} Unfilled</Chip>}
                 </div>
               )}
+              {/* Not on the intake form: the new hire types these in the document while signing (Nov 3 2026). */}
+              {doc.atSigning?.length > 0 && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }} data-testid={`at-signing-${doc.documentId}`}>
+                  Filled by them while signing: {doc.atSigning.join(', ')}
+                </div>
+              )}
             </div>
             {doc.canOpen
               ? <button type="button" className="primary-btn" onClick={() => setPreview(doc)} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Eye size={13} /> Open</button>
@@ -271,7 +277,15 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
               {ev.kind === 'separation' && <Row k="Last Day" v={formatDate(o.lastDay)} />}
               <Row k="Pay" v={data.pay !== undefined ? data.payText : <Locked />} />
               <Row k="Timings" v={o.schedule || (o.workStart && o.workEnd ? `${formatHHMM(o.workStart)} - ${formatHHMM(o.workEnd)}` : '')} />
-              {isHire && o.jdName && <Row k="Job Description" v={o.jdName} />}
+              {isHire && (o.jdFile || o.jdName) && <Row k="Job Description" v={<>
+                {o.jdFile ? (
+                  <button type="button" onClick={() => setPreview({ documentId: 'jd-file', title: `Job Description - ${o.jdFile}`, load: () => api.offerJdFilePdf(eventId) })}
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 13, color: 'hsl(var(--color-blue))', textDecoration: 'underline', fontFamily: 'Inter,sans-serif', textAlign: 'left' }}>
+                    {o.jdFile}
+                  </button>
+                ) : o.jdName}
+                {o.jdInOffer && <div style={{ fontSize: 12, color: 'var(--muted)' }}>After the offer letter, with a box they tick to say they read it.</div>}
+              </>} />}
               {o.employeeCode && <Row k="Employee Number" v={o.employeeCode} />}
             </div>
             {(isHire || Object.keys(d).length > 0) && (

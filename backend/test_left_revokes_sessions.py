@@ -82,24 +82,36 @@ class LeftRevokesSessions(unittest.TestCase):
         finally:
             db.close()
 
-    def _leave(self, eid, **off):
-        # An offboarding always carries the termination date (Neil, 11/02/2026).
-        body = {"status": "offboarded", "reason": "Resigned", "effectiveDate": "2026-10-20",
-                "offboarding": off or None}
-        r = self.client.post(f"/hr/employees/{eid}/status", json=body)
-        self.assertEqual(r.status_code, 200, r.text)
-        return r.json()
+    def _leave(self, eid, effective="2026-10-20", **off):
+        # Left happens only through Offboard (Neil, 11/03/2026), which calls
+        # this same function - today, or on the last day. An offboarding
+        # always carries the termination date (Neil, 11/02/2026).
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.NexusEmployee).filter(models.NexusEmployee.id == eid).first()
+            return hr.apply_status_change(db, row, hr.StatusChangeIn(
+                status="offboarded", reason="Resigned", effectiveDate=effective, offboarding=off or None), HR)
+        finally:
+            db.close()
+
+    def test_status_route_refuses_left(self):
+        """One way to leave (Neil, 11/03/2026): the status pill never makes
+        anyone Left - it points to Offboard."""
+        r = self.client.post("/hr/employees/emp-leaver/status",
+                             json={"status": "offboarded", "reason": "Resigned", "effectiveDate": "2026-10-20"})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("Offboard", r.json()["detail"])
+        self.assertEqual(self._sessions(LEAVER), 2)          # nothing ran
 
     def test_offboarding_requires_the_termination_date(self):
-        """Neil (Teams, 11/02/2026): the status change to Left is refused
-        without the person's last day."""
-        r = self.client.post("/hr/employees/emp-leaver/status",
-                             json={"status": "offboarded", "reason": "Resigned"})
-        self.assertEqual(r.status_code, 400, r.text)
-        self.assertIn("termination date", r.json()["detail"])
-        r = self.client.post("/hr/employees/emp-leaver/status",
-                             json={"status": "offboarded", "reason": "Resigned", "effectiveDate": "not-a-date"})
-        self.assertEqual(r.status_code, 400, r.text)
+        """Neil (Teams, 11/02/2026): Left is refused without the person's
+        last day."""
+        from fastapi import HTTPException
+        for bad in ("", "not-a-date"):
+            with self.assertRaises(HTTPException) as ctx:
+                self._leave("emp-leaver", effective=bad)
+            self.assertEqual(ctx.exception.status_code, 400)
+            self.assertIn("termination date", ctx.exception.detail)
 
     def test_left_blocks_signin_ends_m365_and_nexus_sessions(self):
         out = self._leave("emp-leaver", mailboxAction="remove", freeUpLicense=True)

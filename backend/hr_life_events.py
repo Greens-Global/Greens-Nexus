@@ -418,8 +418,8 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
         import hr_packet_docs as hpd
         docs = hpd.ser_documents(db, s)
         flow = hpd.ser_flow(db, s)
-        snaps = hpd.load_snaps(db, list(s.doc_template_ids or []) + [t for t in hpd.all_block_ids(s)
-                                                                       if t not in (s.doc_template_ids or [])])[0]
+        snaps = hpd.with_sources(s, hpd.load_snaps(db, list(s.doc_template_ids or []) + [
+            t for t in hpd.all_block_ids(s) if t not in (s.doc_template_ids or [])])[0])
         return {"id": s.id, "engine": "documents", "entityId": s.entity_id or "", "event": s.event,
                 "workerType": s.worker_type, "country": s.country or "", "region": s.region or "",
                 "place": place_label(s.worker_type, s.country, s.region),
@@ -438,6 +438,9 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
                 # The Details Form and, for a company's packet, who signs once
                 # and whether they have (Oct 14).
                 "detailsForm": list(s.details_form or []),
+                # Who fills each variable, for this packet (Nov 3 2026).
+                "fieldSources": {k: {**c, "source": hpd._source_for(s, str(c.get("source") or ""))}
+                                 for k, c in (getattr(s, "field_sources", None) or {}).items() if isinstance(c, dict)},
                 # The federal forms sent after the documents (Neil, 11/02/2026).
                 "federalForms": list(getattr(s, "federal_forms", None) or []),
                 # What the documents themselves ask (Oct 14): the person's
@@ -534,14 +537,16 @@ def _role_named(db: Session, company: str, name: str):
 
 
 def role_paperwork(role) -> dict:
-    """{role_description, role_docs} - the duties a white-label Job Description
-    prints and the role's own documents, frozen into an offer's details."""
+    """{role_description, role_docs, role_jd_file} - the duties a white-label
+    Job Description prints, the role's own documents and its job description
+    file (Neil, 11/03/2026), frozen into an offer's details."""
     if role is None:
-        return {"role_description": "", "role_docs": []}
+        return {"role_description": "", "role_docs": [], "role_jd_file": {}}
     docs = [{"templateId": str(r.get("templateId") or ""), "replaces": str(r.get("replaces") or "")}
             for r in (getattr(role, "hiring_docs", None) or []) if isinstance(r, dict) and r.get("templateId")]
+    f = getattr(role, "jd_file", None) or {}
     return {"role_description": (getattr(role, "job_description", "") or role.description or "").strip(),
-            "role_docs": docs}
+            "role_docs": docs, "role_jd_file": dict(f) if isinstance(f, dict) and f.get("path") else {}}
 
 
 def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
@@ -584,6 +589,10 @@ def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
         # made (Neil, Oct 22): its duties text and its own documents.
         **role_paperwork(role),
     }
+    if role is None:
+        # A role made on the offer ("Other") brings the duties HR typed there.
+        d["role_description"] = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "",
+                                       str(inputs.get("new_role_duties") or "")).strip()[:20000]
     from routers.hr import _EMPLOYMENT_TYPES
     if not d["job_title"]:
         raise PacketError("Pick the job title - one of the company's roles, or Other.")
@@ -1147,9 +1156,8 @@ def offer_from_people(db: Session, company: str, department: str) -> dict:
         if want and name == want:
             head = lead
     if not hr:
-        ent = db.query(HrEntity).filter(HrEntity.id == company).first() if company else None
-        contact = ((ent.hr_contact_email if ent else "") or "").strip().lower()
-        hr = contact if _person(db, contact) else ""
+        from hiring_screening import hr_contacts_here
+        hr = next(iter(hr_contacts_here(db, company)), "")
     return {"hr": hr, "department_head": head}
 
 
@@ -1163,6 +1171,7 @@ def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", r
     import hr_packet_docs as hpd
     ids = hpd.template_ids_for(s, {"department": department, "role_id": role_id, "role_docs": role_docs or []}, kind)
     snaps, problems = hpd.load_snaps(db, ids)
+    snaps = hpd.with_sources(s, snaps)
     tokens = {t for snap in snaps for t in snap.tokens}
     return {"id": s.id, "name": s.name or "", "workerType": s.worker_type or "any", "country": s.country or "",
             "documents": [snap.name for snap in snaps], "problems": problems,
@@ -1262,7 +1271,7 @@ def plan_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
                              region=d.get("region", ""))
     # Never an offer with nothing to follow it (Neil, Oct 22): a hire who signs
     # and then waits on paperwork nobody set up is the failure to prevent.
-    if packet is None and not (inputs or {}).get("hire_packet_id"):
+    if packet is None:
         raise PacketError(_no_packet_text(d["worker_type"], d["country"], d.get("region", ""), company), 409)
     dp = hpd.plan(db, setting, ctx=hire_ctx(db, cand, d, entity, user["email"]),
                   overrides=hpd.event_values(db, "offer", d), pay=clean, can_see_pay=bool(clean),
@@ -1325,6 +1334,14 @@ def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[d
         raise PacketError("An offer letter or hiring packet is already open for this candidate - void it first.", 409)
     opts = four_options(inputs or {})
     _check_jd(db, opts["jd_template_id"])
+    # The job description goes out WITH the offer, after the letter, and the
+    # candidate ticks that they read it (Neil, 11/03/2026) - so never without one.
+    if not d.get("role_jd_file"):
+        if not opts["jd_template_id"]:
+            raise PacketError("Pick the Job Description document - it is printed after the offer letter.")
+        if not d.get("role_description"):
+            raise PacketError(f'{d["job_title"] or "This role"} has no job description yet - type its duties or upload '
+                              f"a file under Settings > People & Access > Roles, then make the offer.")
     person = clean_intake({"first_name": cand.first_name, "last_name": cand.last_name, "phone": cand.phone,
                            **{k: v for k, v in (details or {}).items() if str(v or "").strip()}})
     if not person.get("first_name") or not person.get("last_name"):
@@ -1334,9 +1351,13 @@ def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[d
         role = create_company_role(db, cand.company, d["new_role_name"], d["department"], user["email"],
                                    plan["subjectName"])
         d["role_id"] = role.id
+        if not (role.job_description or "").strip():
+            role.job_description = d["role_description"]
     extra = d.pop("merge", {}) or {}
     stored = {**d, **opts, "extra": extra, "verifier_role": setting.verify_role or "hr", "engine": "documents",
-              "hire_packet_id": packet.id if packet is not None else ""}
+              "hire_packet_id": packet.id if packet is not None else "",
+              # The job description rides with this offer, not the packet after it.
+              "jd_in_offer": True}
     _no_pay_in(offer_pay_snaps(db, setting, stored), extra)
     letter_snaps, _ = hpd.load_snaps(db, hpd.template_ids_for(setting, d, "offer"))
     packet_ids = hpd.template_ids_for(packet, {**d, **opts}, "hire") if packet is not None else []

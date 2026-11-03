@@ -130,6 +130,27 @@ describe('Workday Overview with the Time Clock', () => {
     expect(screen.queryByText("Today's Shift")).toBeNull();
   }, SLOW);
 
+  it("draws today's shift as a live track while clocked in, and none without a shift (Neil, 11/02/2026)", async () => {
+    const now = Date.now(), iso = (ms) => new Date(ms).toISOString();
+    const inAt = iso(now - 2 * 3600000).slice(0, 19);
+    globalThis.__answers.timeStatus = {
+      lastPunch: { kind: 'in', at: inAt }, allowed: ['out', 'break_start'],
+      days: {}, todayShift: { startUtc: iso(now - 2 * 3600000), endUtc: iso(now + 6 * 3600000 + 30000) },
+    };
+    await renderWorkday('overview');
+    const clock = await screen.findByRole('region', { name: 'Time Clock' });
+    const bar = await within(clock).findByRole('progressbar', { name: "Today's shift" });
+    expect(bar.closest('.nx-track').className).toContain('is-live');
+    expect(within(clock).getByText('6h 01m left')).toBeTruthy();
+    expect(clock.querySelector('.wd-shift-track .nx-track-marker')).toBeTruthy();
+    cleanup();
+    globalThis.__answers.timeStatus = { lastPunch: { kind: 'in', at: inAt }, allowed: ['out', 'break_start'], days: {}, todayShift: null };
+    await renderWorkday('overview');
+    const plain = await screen.findByRole('region', { name: 'Time Clock' });
+    await within(plain).findByText('Clocked In');
+    expect(within(plain).queryByRole('progressbar', { name: "Today's shift" })).toBeNull();
+  }, SLOW);
+
   it('shows hours in the clock card behind a Today / This Week / Pay Period switch', async () => {
     await renderWorkday('overview');
     await screen.findByText('Amy Test');

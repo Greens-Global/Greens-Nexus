@@ -170,8 +170,12 @@ class ReviewCase(unittest.TestCase):
         self.assertEqual(c.post(f"/esign/public/{party.token}/otp/request", json={"channel": "email"}).status_code, 200)
         r = c.post(f"/esign/public/{party.token}/otp/verify", json={"code": self.codes[party.email]})
         self.assertEqual(r.status_code, 200, r.text)
+        # Every tick box this signer owns is ticked - an offer's "I have read the job description" (Nov 3 2026).
+        req = self.db.query(models.HrSignRequest).filter_by(id=party.request_id).first()
+        ticks = {f["id"]: True for f in list(req.fields or []) + [g for d in (req.documents or []) for g in d.get("fields") or []]
+                 if f.get("type") == "check" and f.get("role") == party.role_key}
         r = c.post(f"/esign/public/{party.token}/sign", json={
-            "consent": True, "signature_kind": "typed", "signature_data": party.name,
+            "consent": True, "signature_kind": "typed", "signature_data": party.name, "field_values": ticks,
             "format_demonstrated": "pdf_rendered_in_session", "pages_viewed": 1, "pages_total": 1})
         self.assertEqual(r.status_code, 200, r.text)
 
@@ -295,7 +299,9 @@ class DynamicTests(ReviewCase):
         review = self._review(ev["id"])
         self.assertIn('Jane left Emergency Contact Name, Emergency Contact Phone empty, and "NDA - Jane Doe" prints '
                       'them - click Edit to fill them in.', review["problems"])
-        self.assertIn('"NDA - Jane Doe" still has unfilled details: probation.', review["problems"])
+        # Probation is asked nowhere: the new hire fills it while signing (Nov 3 2026) - not a problem.
+        self.assertFalse(any("probation" in x for x in review["problems"]))
+        self.assertEqual(next(d for d in review["documents"] if d["title"] == "NDA - Jane Doe")["atSigning"], ["Probation"])
         self.assertFalse(review["canVerify"])
 
     def test_a_publish_regenerates_and_a_stale_verify_is_refused(self):

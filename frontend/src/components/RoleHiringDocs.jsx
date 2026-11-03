@@ -7,22 +7,131 @@
 // documents it brings: each one either added to whatever packet the hire
 // gets, or replacing one of that packet's (the standard confidentiality
 // agreement).
-import { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Save, FileText } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Trash2, Save, FileText, Upload, Eye, EyeOff } from 'lucide-react';
 import { api } from '../api';
+import { formatDate } from '../lib/datetime';
+import { dialog } from '../ui/dialog';
 import { Spinner } from './AsyncState';
 
 const lbl = { display: 'block', fontSize: 12, fontWeight: 700, margin: '14px 0 6px' };
 const hint = { fontSize: 12, color: 'var(--muted)', lineHeight: 1.5, marginTop: 4 };
+const pill = (on) => ({ padding: '5px 14px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600,
+  cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: on ? 'var(--pine)' : 'var(--card)', color: on ? '#fff' : 'var(--ink)' });
+const iconBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 };
+
+// The role's job description as a FILE (Neil, 11/03/2026): a PDF, or a Word
+// file the server turns into one exactly as it looks. It goes out after the
+// offer letter, page for page, instead of the typed duties. Uploading or
+// removing saves at once - it is a file, not a typed field.
+function JdFile({ role, onSaved, toastOk, toastErr }) {
+  const f = role.jd_file || {};
+  const input = useRef(null);
+  const [busy, setBusy] = useState('');
+  const [preview, setPreview] = useState('');
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+
+  async function upload(file) {
+    if (input.current) input.current.value = '';
+    if (!file) return;
+    setBusy('upload');
+    try {
+      onSaved?.(await api.uploadRoleJdFile(role.id, file));
+      setPreview('');
+      toastOk(`Uploaded - ${role.name} offers now send this file after the offer letter.`);
+    } catch (e) { toastErr(e?.message || 'Could not upload the file.'); }
+    setBusy('');
+  }
+  async function remove() {
+    setBusy('remove');
+    try {
+      onSaved?.(await api.removeRoleJdFile(role.id));
+      setPreview('');
+      toastOk('Removed - offers for this role print the typed duties again.');
+    } catch (e) { toastErr(e?.message || 'Could not remove the file.'); }
+    setBusy('');
+  }
+  async function view() {
+    if (preview) { setPreview(''); return; }
+    setBusy('view');
+    try { setPreview(URL.createObjectURL((await api.roleJdFilePdf(role.id)).blob)); } catch (e) { toastErr(e?.message || 'Could not open the file.'); }
+    setBusy('');
+  }
+
+  const picker = (
+    <input ref={input} type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      style={{ display: 'none' }} aria-label="Job description file" onChange={e => upload(e.target.files?.[0])} />
+  );
+  if (!f.name) {
+    return (
+      <div style={{ border: '1px dashed var(--line)', borderRadius: 10, padding: 18, textAlign: 'center' }}>
+        {picker}
+        <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => input.current?.click()} style={iconBtn}>
+          {busy === 'upload' ? <Spinner size={13} /> : <Upload size={13} />} Choose A PDF Or Word File
+        </button>
+        <div style={hint}>A Word file is turned into a PDF exactly as it looks. Up to 15 MB.</div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
+      {picker}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+        <FileText size={18} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+        <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, wordBreak: 'break-word' }}>{f.name}</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {f.pages} {f.pages === 1 ? 'page' : 'pages'}{f.uploadedAt ? ` - uploaded ${formatDate(f.uploadedAt)}` : ''}
+          </div>
+        </div>
+        <button type="button" className="secondary-btn" disabled={!!busy} onClick={view} style={iconBtn}>
+          {busy === 'view' ? <Spinner size={13} /> : preview ? <EyeOff size={13} /> : <Eye size={13} />} {preview ? 'Hide' : 'View'}
+        </button>
+        <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => input.current?.click()} style={iconBtn}>
+          {busy === 'upload' ? <Spinner size={13} /> : <Upload size={13} />} Replace
+        </button>
+        <button type="button" className="secondary-btn" disabled={!!busy} onClick={remove} style={iconBtn} aria-label="Remove job description file">
+          {busy === 'remove' ? <Spinner size={13} /> : <Trash2 size={13} />} Remove
+        </button>
+      </div>
+      {preview && <iframe title={`${role.name} job description`} src={preview} style={{ width: '100%', height: 520, border: '1px solid var(--line)', borderRadius: 8, marginTop: 12 }} />}
+    </div>
+  );
+}
 
 export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
   const [duties, setDuties] = useState(role.job_description || '');
   const [docs, setDocs] = useState(() => (role.hiring_docs || []).map(d => ({ templateId: d.templateId, replaces: d.replaces || '' })));
   const [templates, setTemplates] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [jdMode, setJdMode] = useState(role.jd_file?.name ? 'file' : 'type');
+  const [sources, setSources] = useState([]);           // roles whose job description can be copied here
   useEffect(() => {
     api.getDocTemplates({ status: 'active' }).then(r => setTemplates(Array.isArray(r) ? r : (r?.templates || []))).catch(() => setTemplates([]));
+    api.getJdSources().then(r => setSources(Array.isArray(r) ? r : [])).catch(() => setSources([]));
   }, []);
+  // Copy From Another Role (Pranshu, 11/03/2026): the same role in another company comes first.
+  const sourceLabel = s => `${s.name} - ${s.companyName || 'Shared'}`;
+  const copyOptions = useMemo(() => {
+    const same = s => (s.name || '').trim().toLowerCase() === (role.name || '').trim().toLowerCase();
+    return sources.filter(s => s.id !== role.id).sort((a, b) => (same(b) - same(a)) || sourceLabel(a).localeCompare(sourceLabel(b)));
+  }, [sources, role.id, role.name]);
+  async function copyFrom(id) {
+    const src = copyOptions.find(s => s.id === id);
+    if (!src) return;
+    const has = duties.trim() || (role.job_description || '').trim() || role.jd_file?.name;
+    if (has && !await dialog.confirm(`Replace ${role.name}'s job description with the one from ${sourceLabel(src)}?`,
+      { title: 'Copy Job Description', confirmText: 'Replace' })) return;
+    setBusy(true);
+    try {
+      const saved = await api.copyRoleJd(role.id, id);
+      onSaved?.(saved);
+      setDuties(saved.job_description || '');
+      setJdMode(saved.jd_file?.name ? 'file' : 'type');
+      toastOk(`Copied the job description from ${sourceLabel(src)}.`);
+    } catch (e) { toastErr(e?.message || 'Could not copy the job description.'); }
+    setBusy(false);
+  }
   const byId = useMemo(() => Object.fromEntries((templates || []).map(t => [t.id, t])), [templates]);
   const dirty = duties !== (role.job_description || '')
     || JSON.stringify(docs) !== JSON.stringify((role.hiring_docs || []).map(d => ({ templateId: d.templateId, replaces: d.replaces || '' })));
@@ -42,11 +151,36 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
 
   return (
     <div style={{ marginTop: 6 }}>
-      <label style={lbl} htmlFor={`jd-${role.id}`}>Job Description (Duties)</label>
-      <textarea id={`jd-${role.id}`} className="form-input" rows={6} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
-        value={duties} onChange={e => setDuties(e.target.value)}
-        placeholder={`What a ${role.name} does - duties, responsibilities, requirements.`} />
-      <div style={hint}>Printed wherever a hiring document uses <b>Role Description</b>, so one Job Description document serves every role.</div>
+      <div style={lbl}>Job Description</div>
+      <div style={{ ...hint, marginTop: 0, marginBottom: 10 }}>
+        Goes out with every offer for this role, after the offer letter, with a box the candidate ticks to say they read it.
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <div role="radiogroup" aria-label="Job description" style={{ display: 'flex', gap: 6 }}>
+          <button type="button" role="radio" aria-checked={jdMode === 'type'} style={pill(jdMode === 'type')} onClick={() => setJdMode('type')}>Type It</button>
+          <button type="button" role="radio" aria-checked={jdMode === 'file'} style={pill(jdMode === 'file')} onClick={() => setJdMode('file')}>Upload A File</button>
+        </div>
+        {copyOptions.length > 0 && (
+          <select aria-label="Copy job description from" className="form-input" value="" disabled={busy}
+            onChange={e => copyFrom(e.target.value)} style={{ marginLeft: 'auto', flex: '0 1 300px', minWidth: 0, fontSize: 12.5 }}>
+            <option value="">Copy From Another Role</option>
+            {copyOptions.map(s => <option key={s.id} value={s.id}>{sourceLabel(s)}{s.file ? ` (${s.file})` : ''}</option>)}
+          </select>
+        )}
+      </div>
+      {jdMode === 'file' ? <JdFile role={role} onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} /> : (
+        <>
+          {role.jd_file?.name && (
+            <div style={{ ...hint, marginTop: 0, marginBottom: 8, color: 'hsl(var(--color-orange))' }}>
+              {role.jd_file.name} is attached and goes out instead of these duties - remove it under Upload A File to use them.
+            </div>
+          )}
+          <textarea id={`jd-${role.id}`} aria-label="Job Description (Duties)" className="form-input" rows={6} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+            value={duties} onChange={e => setDuties(e.target.value)}
+            placeholder={`What a ${role.name} does - duties, responsibilities, requirements.`} />
+          <div style={hint}>Printed by the Job Description document wherever it uses <b>Role Description</b>, so one document serves every role.</div>
+        </>
+      )}
 
       <div style={{ ...lbl, marginTop: 20 }}>Role Documents</div>
       <div style={hint}>
