@@ -33,6 +33,10 @@ vi.mock('../api', () => ({
     getToursSeen: () => Promise.resolve({ seen: { documents: '2026-10-01' } }),
     markTourSeen: () => Promise.resolve({}),
     updateDocument: () => Promise.resolve({}),
+    // Filing & Sorting (Nov 2026): unconfigured Egnyte is the first-class
+    // empty state the tab must render from.
+    filingStatus: () => Promise.resolve({ configured: false, scanRoots: [], templates: [], mayConfigure: false }),
+    filingActivity: () => Promise.resolve({ rows: [] }),
   },
 }));
 
@@ -71,12 +75,20 @@ beforeEach(() => {
 });
 
 describe('Documents module', () => {
-  it('opens on the library, with the five tabs (Neil, 10/31/2026; Forms 11/02/2026)', async () => {
+  it('opens on the library, with the six tabs (Neil, 10/31/2026; Forms 11/02/2026; Filing & Sorting 11/04/2026)', async () => {
     renderDocs('');
     // The module title band was removed (Sep 17) - the tab strip is the proof
     // that the shell rendered.
-    expect(publishedTabs()).toBe('Documents|Templates|Forms|Nexus Sign|PDF Tools');
+    expect(publishedTabs()).toBe('Documents|Templates|Forms|Filing & Sorting|Nexus Sign|PDF Tools');
     await waitFor(() => expect(getDocumentLibrary).toHaveBeenCalled());
+  });
+
+  it('renders Filing & Sorting, explaining itself when Egnyte is unconfigured', async () => {
+    render(<Documents activeSub="documents-filing" onSubChange={() => {}} />);
+    expect(await screen.findByText('Filing & Sorting')).toBeTruthy();
+    expect(await screen.findByText(/Egnyte is not connected yet/)).toBeTruthy();
+    // The scan is disabled with nothing to scan - the screen renders, never blank.
+    expect(screen.getByRole('button', { name: /Scan Now/ })).toBeTruthy();
   });
 
   it.each(['documents-not-a-real-tab', 'documents-dashboard', 'documents-hr-records'])('%s lands on the library', async (sub) => {

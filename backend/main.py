@@ -5411,6 +5411,8 @@ from routers import workforce_scorecard as workforce_scorecard_router  # noqa: E
 app.include_router(workforce_scorecard_router.router)  # Workforce Scorecard: weekly expected-vs-actual hours per manager (Neil, 10/10)
 app.include_router(shift_requests_router.router)  # Shift swap/offer/open-shift requests + manager inbox
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
+from routers import filing as filing_router  # noqa: E402
+app.include_router(filing_router.router)  # Documents > Filing & Sorting: rules-based Egnyte filing from #Unsorted (Nov 2026)
 from routers import client_errors          # noqa: E402
 app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs
 from routers import files as files_router  # noqa: E402

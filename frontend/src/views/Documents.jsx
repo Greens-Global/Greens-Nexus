@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { FileSignature, Folder, LayoutTemplate, FileText, ClipboardList } from 'lucide-react';
+import { FileSignature, Folder, LayoutTemplate, FileText, ClipboardList, FolderInput } from 'lucide-react';
 import { api } from '../api';
 import { useEntities } from '../lib/queries';
 import ESign from '../components/ESign';
@@ -19,6 +19,9 @@ import { ESIGN_PREFILL_PENDING } from '../lib/pdfToolsHandoff';
 // Forms (Neil, 11/02/2026): the builder, the entries table and the entry
 // panel, loaded when the tab is opened.
 const FormsTab = lazy(() => import('../forms/FormsTab'));
+// Filing & Sorting (Nov 2026): the Egnyte filing engine - scan #Unsorted,
+// propose per the naming SOPs, apply. Loaded when the tab is opened.
+const FilingTab = lazy(() => import('../filing/FilingTab'));
 
 // ── Documents module ─────────────────────────────────────────────────────────
 // E-Sign was carved out of HR into its own top-level module (Jul 2026), then
@@ -37,6 +40,7 @@ const TABS = [
   { key: 'documents-browse', label: 'Documents', Icon: Folder },
   { key: 'documents-templates', label: 'Templates', Icon: LayoutTemplate },
   { key: 'documents-forms', label: 'Forms', Icon: ClipboardList },
+  { key: 'documents-filing', label: 'Filing & Sorting', Icon: FolderInput },
   { key: 'documents-esign', label: 'Nexus Sign', Icon: FileSignature },
   { key: 'documents-pdf', label: 'PDF Tools', Icon: FileText },
 ];
@@ -203,6 +207,12 @@ export default function Documents({ activeSub, onSubChange }) {
       {sub === 'documents-forms' && (
         <Suspense fallback={<SkeletonBlocks count={6} height={44} />}>
           <FormsTab toastOk={toastOk} toastErr={toastErr} activeSub={activeSub} />
+        </Suspense>
+      )}
+
+      {sub === 'documents-filing' && (
+        <Suspense fallback={<SkeletonBlocks count={6} height={44} />}>
+          <FilingTab toastOk={toastOk} toastErr={toastErr} />
         </Suspense>
       )}
 

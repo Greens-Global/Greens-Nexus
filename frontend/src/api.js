@@ -3556,6 +3556,15 @@ api.getItemTags = (ids) => req('/items/tags', { method: 'POST', body: JSON.strin
 // slots and answers their ids, which the Undo hands back to put them on the person.
 api.setOnSchedule = (email, on) => req('/timeclock/schedule/on-schedule', { method: 'PUT', body: JSON.stringify({ email, on: !!on }) });
 api.undoOffSchedule = (email, shiftIds) => req('/timeclock/schedule/on-schedule/undo', { method: 'POST', body: JSON.stringify({ email, shiftIds: shiftIds || [] }) });
+// Documents > Filing & Sorting (Nov 2026, routers/filing.py): rules-based
+// Egnyte filing from the #Unsorted staging folders. Scan proposes a canonical
+// name + destination per the naming SOPs; a person applies; switching a doc
+// class to auto-file (config) is manager+. No AI anywhere in this path.
+api.filingStatus = () => req('/filing/status');
+api.filingScan = () => req('/filing/scan', { method: 'POST' });
+api.filingApply = (moves) => req('/filing/apply', { method: 'POST', body: JSON.stringify({ moves }) });
+api.filingConfig = (body) => req('/filing/config', { method: 'PUT', body: JSON.stringify(body) });
+api.filingActivity = () => req('/filing/activity');
 // Construction foundations (Neil, 11/03/2026; routers/construction.py): one
 // job (its health row, the project URL /construction/project:<id>), the Edit
 // Job sheet's save, the server's AI status (every AI chip hides while it is
