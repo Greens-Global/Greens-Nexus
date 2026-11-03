@@ -40,14 +40,19 @@ class OverlayTests(unittest.TestCase):
                         pan_number={"source": "hr"}, client_name={"source": "same", "value": "Acme"})
         form = hpd.FormView(p, [TEMPLATE]).details_form
         self.assertEqual([(f["key"], f["required"]) for f in form], [("probation_period", True)])
-        self.assertEqual([q["token"] for q in hpd.hr_questions(hpd.with_sources(p, [TEMPLATE]))], ["pan_number"])
+        # An old "HR At The Offer" choice reads as "the new hire fills it while signing" (Nov 3 2026):
+        # a hiring packet never asks HR at the offer.
+        self.assertEqual(p.field_sources["pan_number"]["source"], "signing")
+        self.assertEqual(hpd.hr_questions(hpd.with_sources(p, [TEMPLATE])), [])
         self.assertEqual(hpd.unfilled_variables(p, [TEMPLATE]), [])
         self.assertEqual(hpd.fixed_values(p), {"client_name": "Acme"})
         # The template itself is untouched - another packet still reads it as written.
         self.assertEqual([f["key"] for f in hpd.FormView(SimpleNamespace(details_form=[]), [TEMPLATE]).details_form],
                          ["pan_number"])
-        self.assertEqual([u["token"] for u in hpd.unfilled_variables(SimpleNamespace(details_form=[], field_sources={}),
-                                                                     [TEMPLATE])], ["client_name"])
+        # On a hiring packet nothing is left unfilled: what nobody fills, the new hire types while signing.
+        self.assertEqual(hpd.unfilled_variables(SimpleNamespace(details_form=[], field_sources={}), [TEMPLATE]), [])
+        letter = SimpleNamespace(details_form=[], field_sources={}, event="promotion")
+        self.assertEqual([u["token"] for u in hpd.unfilled_variables(letter, [TEMPLATE])], ["client_name"])
 
     def test_private_answers_stay_private(self):
         p = self.packet(probation_period={"source": "person", "sensitive": True})
@@ -74,7 +79,7 @@ class OverlayTests(unittest.TestCase):
         rows = {r["token"]: r for r in hpd.field_rows(hpd.with_sources(p, [TEMPLATE, other]), [], p.field_sources)}
         self.assertEqual({t: r["fill"] for t, r in rows.items()},
                          {"address": "standard", "client_name": "same", "full_name": "nexus", "pan_number": "person",
-                          "probation_period": "hr", "salary": "pay", "joining_bonus": "pay"})
+                          "probation_period": "signing", "salary": "pay", "joining_bonus": "pay"})
         self.assertEqual((rows["client_name"]["value"], rows["client_name"]["documents"], rows["client_name"]["packetChoice"]),
                          ("Acme", ["Agreement", "NDA"], True))
         self.assertFalse(rows["salary"]["editable"])

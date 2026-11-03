@@ -83,6 +83,23 @@ def _fill_text_tokens(text: str, merge: dict) -> str:
     return _TEXT_TOKEN_RE.sub(lambda m: str(merge.get(m.group(1), m.group(0))), text)
 
 
+def _fill_segments(text: str, merge: dict) -> list:
+    """[(text, fill_box)]: a typed {{token}} whose value is a blank the new hire
+    fills while signing (hr_packet_docs.FillBox) stays its own piece, so the PDF
+    can place a Nexus Sign box on it; everything else is filled as usual."""
+    if not text or "{{" not in text or not any(getattr(v, "fill_box", None) for v in merge.values()):
+        return [(_fill_text_tokens(text, merge), None)]
+    out, at = [], 0
+    for m in _TEXT_TOKEN_RE.finditer(text):
+        value = merge.get(m.group(1))
+        box = getattr(value, "fill_box", None)
+        if box:
+            out += [(_fill_text_tokens(text[at:m.start()], merge), None), (str(value), box)]
+            at = m.end()
+    out.append((_fill_text_tokens(text[at:], merge), None))
+    return [x for x in out if x[0]]
+
+
 # Markdown bold typed as ORDINARY TEXT ("a **b** c"): a template pasted or
 # imported from an AI draft or a .txt kept the asterisks, and packets printed
 # them (Neil, Oct 22). Only a pair on the same text node, hugging non-space
@@ -123,12 +140,19 @@ def _text_runs(nodes, merge: dict) -> list:
                    "color": style_attrs.get("color"), "fontFamily": style_attrs.get("fontFamily"),
                    "fontSize": style_attrs.get("fontSize"), "link": link_attrs.get("href")}
             # Filled first, so "**{{full_name}}**" prints the name in bold.
-            for seg, bold in split_md_bold(_fill_text_tokens(n.get("text") or "", merge)):
-                runs.append({**run, "text": seg, "bold": run["bold"] or bold})
+            for piece, box in _fill_segments(n.get("text") or "", merge):
+                if box:
+                    runs.append({**run, "text": piece, "fill": box})
+                    continue
+                for seg, bold in split_md_bold(piece):
+                    runs.append({**run, "text": seg, "bold": run["bold"] or bold})
         elif t == "mergeField":
             token = (n.get("attrs") or {}).get("token") or ""
             value = merge.get(token, "{{%s}}" % token)
-            runs.append({"text": value, "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE})
+            run = {"text": value, "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE}
+            if getattr(value, "fill_box", None):
+                run["fill"] = value.fill_box      # filled by the new hire while signing
+            runs.append(run)
         elif t == "hardBreak":
             runs.append({"text": "\n", "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE})
         elif t == "image":
@@ -458,6 +482,9 @@ def _runs_to_markup(runs: list) -> str:
             t = f"<font {' '.join(font_attrs)}>{t}</font>"
         if r.get("link"):
             t = f'<a href="{_esc(r["link"])}" color="blue">{t}</a>'
+        if r.get("fill"):
+            # render_pdf's nxFill callback records where this blank is drawn.
+            t = f'<onDraw name="nxFill" label="{_esc(r["fill"]["token"])}"/>{t}'
         parts.append(t)
     return "".join(parts)
 
@@ -802,7 +829,22 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
     header_text = _blocks_to_plaintext(header_blocks)[:180]
     footer_text = _blocks_to_plaintext(footer_blocks)[:180]
 
+    def fill_at(canv, _kind, token):
+        """<onDraw name="nxFill"> (a blank the new hire fills while signing):
+        where its line starts, for the Nexus Sign box (build_envelope)."""
+        if raw_anchors is None:
+            return
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        info = getattr(canv, "_curr_tx_info", None) or {}
+        tx = info.get("tx")
+        size = float(getattr(tx, "_fontsize", 10) or 10)
+        x, y = canv.absolutePosition(info.get("cur_x", 0), info.get("cur_y", 0))
+        w = stringWidth("_" * 16, getattr(tx, "_fontname", "Helvetica") or "Helvetica", size)
+        raw_anchors.append({"fill": str(token or ""), "page": canv.getPageNumber() - 1,
+                            "x0": x, "y0": y - size * 0.3, "w": w, "h": size * 1.4})
+
     def decorate(canvas, doc):
+        canvas.nxFill = fill_at                   # every page, before its paragraphs draw
         canvas.saveState()
         canvas.setFont("Helvetica", 9)
         canvas.setFillColor(colors.HexColor("#6b7280"))
@@ -867,6 +909,10 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
     if anchors is not None:
         pw, ph = pagesize
         for a in raw_anchors:
+            if a.get("fill"):
+                anchors.append({"fill": a["fill"], "page": a["page"], "x": a["x0"] / pw,
+                                "y": (ph - (a["y0"] + a["h"])) / ph, "w": a["w"] / pw, "h": a["h"] / ph})
+                continue
             anchors.append({"role": a["role"], "type": a["type"], "page": a["page"],
                             "x": a["x0"] / pw, "y": (ph - (a["y0"] + a["h"])) / ph,
                             "w": a["w"] / pw, "h": a["h"] / ph})

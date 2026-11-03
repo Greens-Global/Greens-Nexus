@@ -15,7 +15,7 @@ vi.mock('../api', () => ({
     saveDocumentsPacket: (...a) => save(...a),
     packetReadiness: () => Promise.resolve({ readiness: [] }),
     packetIntakePreview: () => Promise.resolve({ standard: [], form: [], hrAtOffer: [], problems: [],
-      fields: [{ token: 'pan_number', label: 'PAN Number', documents: ['NDA'], fill: 'none', editable: true }] }),
+      fields: [{ token: 'pan_number', label: 'PAN Number', documents: ['NDA'], fill: 'signing', editable: true }] }),
     getPeopleDirectory: () => Promise.resolve([]),
     signOnceStatus: () => Promise.resolve([{ key: 'company', roleLabel: 'HR', name: 'Charmi Shah', email: 'charmi@x.com', signed: false, isMe: true }]),
   },
@@ -48,8 +48,8 @@ describe('DocumentsPacketEditor', () => {
     expect(screen.getByText('Pay Shows In A Document')).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: /Documents/ }));
     // Every field the documents print, and who fills it - picked here, for this packet (Nov 3 2026).
-    await waitFor(() => expect(screen.getByLabelText('Who fills PAN Number')).toBeTruthy());
-    fireEvent.change(screen.getByLabelText('Who fills PAN Number'), { target: { value: 'person' } });
+    await waitFor(() => expect(screen.getByLabelText('PAN Number: Intake Form')).toBeTruthy());
+    fireEvent.click(screen.getByLabelText('PAN Number: Intake Form'));            // ticked: asked on the intake form
     fireEvent.click(screen.getByText('Add Field'));
     fireEvent.change(screen.getAllByLabelText('Field label')[0], { target: { value: 'IFSC Code' } });
     expect(screen.getByText('{{ifsc_code}}')).toBeTruthy();

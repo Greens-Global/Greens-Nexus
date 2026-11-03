@@ -56,6 +56,15 @@ describe('PacketReview', () => {
     expect(verify.mock.calls[0][1]).toEqual({ excluded_ack: true, seen: { d1: 1 } });
   });
 
+  it('names what the new hire fills while signing, without calling it unfilled', async () => {
+    review = { ...base, canVerify: true, isVerifier: true,
+               documents: [{ ...base.documents[0], atSigning: ['Nationality', 'WhatsApp Number'] }] };
+    render(<PacketReview eventId="ev1" onClose={noop} onChanged={noop} toastOk={noop} toastErr={noop} />);
+    await waitFor(() => expect(screen.getByTestId('at-signing-d1')).toBeTruthy());
+    expect(screen.getByTestId('at-signing-d1').textContent).toBe('Filled by them while signing: Nationality, WhatsApp Number');
+    expect(screen.queryByText(/Unfilled/)).toBeNull();
+  });
+
   it("shows the Details Form answers (Sensitive locked) and asks the new HR to sign once", async () => {
     review = { ...base, canVerify: false, isVerifier: true, packetId: 's1', entityId: 'co', companyName: 'Greens India',
       answers: [{ key: '', label: 'Bank Details', type: 'heading' },
