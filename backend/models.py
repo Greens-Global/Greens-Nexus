@@ -4776,6 +4776,8 @@ from construction_models import (  # noqa: E402,F401  (import for side effect: t
     ConstructionWeeklyReport, ConstructionMilestone, ConstructionRfi,
     ConstructionSubmittal, ConstructionActivity,
     ConstructionJobLink,
+    ConstructionPhotoPair, ConstructionPunchMeta, ConstructionFieldTicket,
+    ConstructionChangeOrder, ConstructionCloseoutRecord,
 )
 
 

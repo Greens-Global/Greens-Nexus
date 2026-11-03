@@ -87,8 +87,11 @@ def _file_one(db, media) -> None:
     project = (db.query(models.ConstructionProject)
                .filter(models.ConstructionProject.id == media.project_id).first())
     log = (db.query(models.ConstructionDailyLog)
-           .filter(models.ConstructionDailyLog.id == media.daily_log_id).first())
-    if not project or not log:
+           .filter(models.ConstructionDailyLog.id == media.daily_log_id).first()) if media.daily_log_id else None
+    # A job photo (no daily log - the photo timeline, a punch Done photo, an
+    # attached Mark Up; 11/03/2026) files under the day it was taken.
+    day = log.log_date if log else ((media.taken_at or media.uploaded_at or "")[:10])
+    if not project or (media.daily_log_id and not log) or not day:
         raise ValueError("media has no project or daily log")
     if not media.url:
         raise ValueError("media has no source URL to fetch")
@@ -113,7 +116,7 @@ def _file_one(db, media) -> None:
     if not raw:
         raise ValueError("source object is empty")
 
-    folder = storage.daily_log_folder(_project_folder(db, project), log.log_date)
+    folder = storage.daily_log_folder(_project_folder(db, project), day)
     name = storage.media_filename(
         uploaded_by=media.uploaded_by or "", taken_at=media.taken_at or "",
         uploaded_at=media.uploaded_at or "", kind=media.kind,

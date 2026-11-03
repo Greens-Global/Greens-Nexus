@@ -108,6 +108,14 @@ class ConstructionProject(Base):
     # value buys nothing. '' = none yet (stamped from the job type's
     # template the first time the job's schedule is opened or at create).
     task_project_id    = Column(String, default="", index=True)
+    # Field and Closeout (Neil, 11/03/2026, plan phase 3): the person who
+    # runs the site day to day - the morning "yesterday's log is missing"
+    # bell goes to them ('' = the job's managers).
+    superintendent_email = Column(String, default="")
+    # The job's closeout state, one JSON (construction_closeout.py):
+    # {closedOutAt, closedOutBy, signoff: {requestId, status, signerName,
+    # signerEmail, sentAt, signedAt}}. {} = not closed out.
+    closeout           = Column(JSON, default=dict)
 
 
 class ConstructionDailyLog(Base):
@@ -150,6 +158,19 @@ class ConstructionDailyLog(Base):
     # issue | weather. Replaces the AI's safety flags on every screen while AI
     # is off - a person said it, so it counts whether or not a model ran.
     tags           = Column(JSON, default=list)
+    # The self-drafting log (Neil, 11/03/2026, plan phase 3 - construction_field.py):
+    #   delays       [{cause, hours, note}] - one line per delay, so a weather
+    #                delay summary (the weekly report) adds hours, never guesses
+    #   prefill      what the screen drafted the log from when it opened -
+    #                {weather, crew, punchDone, punchVerified, forms, photos},
+    #                kept as the record of where each number came from
+    #   weather_source  forecast | typed ('' = older logs)
+    #   signed_name / signed_at  the typed-name signature on Submit
+    delays         = Column(JSON, default=list)
+    prefill        = Column(JSON, default=dict)
+    weather_source = Column(String, default="")
+    signed_name    = Column(String, default="")
+    signed_at      = Column(String, default="")
     # ── AI-derived (write-once) ──
     ai_summary        = Column(Text, default="")     # professional prose
     ai_work_completed = Column(JSON, default=list)   # [{activity, trade, location, confidence}]
@@ -256,6 +277,15 @@ class ConstructionMedia(Base):
     featured      = Column(Boolean, default=False)   # manager pinned it to the report
     sort_order    = Column(Integer, default=0)
     deleted_at    = Column(String, default="")
+    # The photo timeline (Neil, 11/03/2026, plan phase 3): the crew's own tags
+    # (before, after, punch, markup, or any word), where on the site it was
+    # taken in words, the photo a Mark Up was drawn on, and the punch item a
+    # Done photo proves. A row with no daily_log_id is a job photo (the
+    # timeline's Add Photos, a punch Done photo, an attached markup).
+    tags            = Column(JSON, default=list)
+    location_text   = Column(String, default="")
+    source_media_id = Column(String, default="", index=True)
+    task_id         = Column(String, default="", index=True)
 
 
 class ConstructionAIJob(Base):
@@ -365,6 +395,9 @@ class ConstructionWeeklyReport(Base):
     executive_summary = Column(Text, default="")
     pdf_url          = Column(String, default="")
     pdf_generated_at = Column(String, default="")
+    # Before and after pairs the manager kept on the report (11/03/2026,
+    # ConstructionPhotoPair ids) - printed side by side in the photo log.
+    pair_ids         = Column(JSON, default=list)
     generated_by     = Column(String, default="")  # who triggered the AI draft
     generated_at     = Column(String, default="")
     approved_by      = Column(String, default="")
@@ -499,3 +532,153 @@ class ConstructionJobLink(Base):
     created_at  = Column(String, default="")
     ended_at    = Column(String, default="")
     note        = Column(String, default="")
+
+
+# ── Field and Closeout (Neil, 11/03/2026, plan phase 3) ──────────────────────
+# Five construction-owned tables. Each has its RLS line in main.py's
+# Postgres list (see this module's docstring). Nothing here is ever
+# hard-deleted: `deleted_at` (a pair taken apart, a ticket voided) or a
+# status keeps the history.
+
+class ConstructionPhotoPair(Base):
+    """Before and after: two photos of the same spot, picked by a person and
+    shown side by side in the timeline, the photo report and the weekly
+    report. Two media ids, never copies of the files."""
+    __tablename__ = "construction_photo_pairs"
+    id              = Column(String, primary_key=True)
+    project_id      = Column(String, nullable=False, index=True)
+    before_media_id = Column(String, nullable=False, index=True)
+    after_media_id  = Column(String, nullable=False, index=True)
+    caption         = Column(String, default="")
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+    deleted_at      = Column(String, default="")
+
+
+class ConstructionPunchMeta(Base):
+    """What Construction knows about a punch item that a task does not hold:
+    its spot on the site (location text), the photo that proves Done, and
+    who verified it when. The item itself stays a task in the job's task
+    project (construction_tasks) - Tasks owns it; this side row is keyed on
+    the task id, so no Tasks column grows for construction."""
+    __tablename__ = "construction_punch_meta"
+    task_id        = Column(String, primary_key=True)
+    project_id     = Column(String, nullable=False, index=True)
+    location_text  = Column(String, default="")
+    done_media_id  = Column(String, default="")
+    done_photo_url = Column(String, default="")
+    done_by        = Column(String, default="")
+    done_at        = Column(String, default="")
+    verified_by    = Column(String, default="")
+    verified_at    = Column(String, default="")
+    modified_at    = Column(String, default="")
+
+
+class ConstructionFieldTicket(Base):
+    """Extra work signed on site - a time and material ticket (Neil,
+    11/03/2026). Quantities only (labor hours, materials), never prices: the
+    crew writes it and the customer signs it on the phone; a job manager
+    prices it as a change order (ConstructionChangeOrder.field_ticket_id).
+    `id` may be made by the phone (the offline outbox sends it).
+
+    status: open (written, not signed) | signed | priced (a change order was
+    made from it) | void."""
+    __tablename__ = "construction_field_tickets"
+    id             = Column(String, primary_key=True)
+    project_id     = Column(String, nullable=False, index=True)
+    number         = Column(String, default="")          # FT-001, per job
+    work_date      = Column(String, default="")          # YYYY-MM-DD, jobsite-local
+    description    = Column(Text, default="")
+    labor          = Column(JSON, default=list)          # [{email, name, hours}]
+    labor_hours    = Column(Float, default=0.0)
+    labor_from_punches = Column(Boolean, default=False)  # prefilled from the day's Time Clock punches
+    materials      = Column(JSON, default=list)          # [{description, quantity, unit}]
+    photo_urls     = Column(JSON, default=list)          # construction-media, this job's folder
+    customer_name  = Column(String, default="")
+    customer_email = Column(String, default="")
+    signature_url  = Column(String, default="")          # the drawn / typed signature PNG
+    signed_name    = Column(String, default="")
+    signed_at      = Column(String, default="")
+    status         = Column(String, default="open", index=True)
+    change_order_id = Column(String, default="", index=True)
+    created_by     = Column(String, default="", index=True)
+    created_at     = Column(String, default="")
+    modified_at    = Column(String, default="")
+    deleted_at     = Column(String, default="")
+
+
+class ConstructionChangeOrder(Base):
+    """A priced change to the job's contract (Neil, 11/03/2026). Made by a
+    job manager, often from a signed field ticket; approved by the owner or
+    client through Nexus Sign (HrSignRequest link_kind 'change_order',
+    link_id = this id - construction_changes.on_* via esign._link_hook).
+    Signing moves the job's contract value by `amount` and its target finish
+    by `schedule_impact_days`, once (`applied_at`; before / after kept).
+
+    status: draft | awaiting_approval (an internal approver named) | sent |
+    signed | declined | void."""
+    __tablename__ = "construction_change_orders"
+    id               = Column(String, primary_key=True)
+    project_id       = Column(String, nullable=False, index=True)
+    number           = Column(String, default="")        # CO-001, per job
+    title            = Column(String, default="")
+    reason           = Column(String, default="")        # owner_request | unforeseen | design | code | other
+    description      = Column(Text, default="")
+    amount           = Column(Float, default=0.0)        # + adds to the contract, - credits it
+    schedule_impact_days = Column(Integer, default=0)
+    field_ticket_id  = Column(String, default="", index=True)
+    status           = Column(String, default="draft", index=True)
+    approver_email   = Column(String, default="", index=True)   # internal approval first ('' = none)
+    approved_by      = Column(String, default="")
+    approved_at      = Column(String, default="")
+    signer_name      = Column(String, default="")
+    signer_email     = Column(String, default="")
+    esign_request_id = Column(String, default="", index=True)
+    sent_at          = Column(String, default="")
+    signed_at        = Column(String, default="")
+    declined_at      = Column(String, default="")
+    decline_reason   = Column(String, default="")
+    applied_at       = Column(String, default="")
+    contract_before  = Column(Float, default=0.0)
+    contract_after   = Column(Float, default=0.0)
+    finish_before    = Column(String, default="")
+    finish_after     = Column(String, default="")
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    modified_at      = Column(String, default="")
+    deleted_at       = Column(String, default="")
+
+
+class ConstructionCloseoutRecord(Base):
+    """What the job hands over (Neil, 11/03/2026): a warranty (item or
+    equipment, vendor, start, end, document), a permit or inspection (AHJ,
+    number, result, date) or an as-built / O&M document. Close Out writes each
+    one to the property in Asset Management through its own per-row API
+    (construction_closeout.write_back) and, for an equipment warranty, the
+    item's warranty in Items; `written` records where it landed, so a second
+    Close Out never writes it twice.
+
+    kind: warranty | permit | inspection | document."""
+    __tablename__ = "construction_closeout_records"
+    id          = Column(String, primary_key=True)
+    project_id  = Column(String, nullable=False, index=True)
+    kind        = Column(String, nullable=False, index=True)
+    title       = Column(String, default="")       # scope / item covered / document title
+    item_id     = Column(String, default="")       # Items: the equipment a warranty covers
+    serial      = Column(String, default="")       # the maker's serial, for the item
+    vendor      = Column(String, default="")       # warranty party
+    start_on    = Column(String, default="")
+    end_on      = Column(String, default="")       # warranty expiration
+    ahj         = Column(String, default="")       # permit / inspection authority
+    number      = Column(String, default="")       # permit number
+    result      = Column(String, default="")       # passed | failed | partial | pending
+    date_on     = Column(String, default="")       # issued / inspected / document date
+    category    = Column(String, default="")       # document: as_built | om_manual | certificate | other
+    doc_url     = Column(String, default="")       # construction-media, this job's folder
+    doc_name    = Column(String, default="")
+    notes       = Column(Text, default="")
+    written     = Column(JSON, default=dict)       # {asset: {collection, id, at, by}, item: {id, at, by}, error}
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    modified_at = Column(String, default="")
+    deleted_at  = Column(String, default="")

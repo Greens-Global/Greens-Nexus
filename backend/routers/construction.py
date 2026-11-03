@@ -202,6 +202,10 @@ def project_to_dict(p: models.ConstructionProject, *, with_cost: bool, db: Sessi
         "taskProjectId": _nz(getattr(p, "task_project_id", "")),
         # May the caller change this project (the Edit Job sheet)?
         "canEdit": bool(can_edit),
+        # Field and Closeout (11/03/2026): who runs the site (the missing-log
+        # bell) and the closeout state (construction_closeout).
+        "superintendentEmail": _nz(getattr(p, "superintendent_email", "")),
+        "closeout": dict(getattr(p, "closeout", None) or {}),
     }
     if db is not None:
         # The jobsite's own clock (construction_company): its zone, its today
@@ -251,6 +255,13 @@ def log_to_dict(l: models.ConstructionDailyLog, names: dict = None) -> dict:
         "aiProcessedAt": l.ai_processed_at or "",
         "reviewedBy": l.reviewed_by or "", "reviewNote": l.review_note or "",
         "submittedAt": l.submitted_at or "", "createdAt": l.created_at or "",
+        # The self-drafting log (11/03/2026, construction_field): delay lines,
+        # what it was drafted from, where the weather came from, the signature.
+        "delays": list(getattr(l, "delays", None) or []),
+        "prefill": dict(getattr(l, "prefill", None) or {}),
+        "weatherSource": getattr(l, "weather_source", "") or "",
+        "signedName": getattr(l, "signed_name", "") or "",
+        "signedAt": getattr(l, "signed_at", "") or "",
     }
 
 
@@ -268,6 +279,13 @@ def media_to_dict(m: models.ConstructionMedia) -> dict:
         # permissions, versions and sharing actually live (routers/egnyte.py).
         "egnyteWebUrl": m.egnyte_web_url or "", "egnyteStatus": m.egnyte_status or "",
         "featured": bool(m.featured),
+        # The photo timeline (11/03/2026): the crew's tags, the spot, the
+        # photo a markup was drawn on, the punch item it proves.
+        "tags": list(getattr(m, "tags", None) or []),
+        "locationText": getattr(m, "location_text", "") or "",
+        "sourceMediaId": _nz(getattr(m, "source_media_id", "")),
+        "taskId": _nz(getattr(m, "task_id", "")),
+        "gpsLatitude": m.gps_latitude or 0.0, "gpsLongitude": m.gps_longitude or 0.0,
     }
 
 
@@ -324,6 +342,8 @@ class ProjectBody(BaseModel):
     week_starts_on: Optional[int] = None
     report_day: Optional[int] = None
     archived: Optional[bool] = None
+    # Who runs the site day to day (11/03/2026) - the missing-log bell.
+    superintendent_email: Optional[str] = None
 
 
 PROJECT_STATUSES = ("active", "on_hold", "complete", "archived")
@@ -382,6 +402,14 @@ def _validate(db: Session, user: dict, p, data: dict) -> dict:
     for k in ("manager_emails", "worker_emails", "executive_emails"):
         if out.get(k) is not None:
             out[k] = _clean_emails(out[k], k)
+    if out.get("superintendent_email") is not None:
+        sup = (out["superintendent_email"] or "").strip().lower()
+        if sup:
+            if not _EMAIL.match(sup):
+                raise HTTPException(422, f"{sup!r} is not an email address")
+            if p is None or sup != (getattr(p, "superintendent_email", "") or "").lower():
+                _check_people(db, user, [sup])
+        out["superintendent_email"] = sup
     had = set() if p is None else (_emails(p.manager_emails) | _emails(p.worker_emails))
     _check_people(db, user, [e for k in ("manager_emails", "worker_emails")
                              for e in (out.get(k) or []) if e not in had])
@@ -570,6 +598,10 @@ def list_logs(project_id: str, date_from: str = "", date_to: str = "",
 
 
 class LogBody(BaseModel):
+    # Made on the phone (the offline outbox): a log started with no signal
+    # carries the id the phone gave it, so its photos can be queued against
+    # it before the server has seen it (docs/Offline.md).
+    id: Optional[str] = None
     log_date: Optional[str] = None
     notes_raw: Optional[str] = ""
     weather: Optional[str] = ""
@@ -580,6 +612,31 @@ class LogBody(BaseModel):
     gps_longitude: Optional[float] = None
     gps_accuracy_m: Optional[float] = None
     tags: Optional[list] = None
+    # The self-drafting log (11/03/2026, construction_field).
+    delays: Optional[list] = None
+    weather_source: Optional[str] = None
+    # A log started offline carries the prefill the phone drafted it from.
+    prefill: Optional[dict] = None
+
+
+_LOG_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{7,63}$")
+WEATHER_SOURCES = ("forecast", "typed", "")
+
+
+def _clean_log_fields(data: dict) -> dict:
+    """delays / weather_source / tags of a log body, cleaned (422 on a bad one)."""
+    import construction_field
+    if "delays" in data:
+        try:
+            data["delays"] = construction_field.clean_delays(data["delays"])
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+    if "weather_source" in data and data["weather_source"] is not None \
+            and data["weather_source"] not in WEATHER_SOURCES:
+        raise HTTPException(422, "weather_source is forecast or typed")
+    if "prefill" in data and data["prefill"] is not None and not isinstance(data["prefill"], dict):
+        raise HTTPException(422, "prefill must be an object")
+    return data
 
 
 @router.post("/projects/{project_id}/logs", status_code=201)
@@ -601,6 +658,18 @@ def create_log(project_id: str, body: LogBody, user: dict = Depends(get_current_
     log_date = (body.log_date or "").strip() or construction_company.local_today(db, p).isoformat()
     if not _DAY.match(log_date):
         raise HTTPException(422, "log_date must be a full date (YYYY-MM-DD, jobsite-local)")
+    cid = (body.id or "").strip()
+    if cid:
+        if not _LOG_ID.match(cid):
+            raise HTTPException(422, "A daily log id is 8 to 64 letters, digits, '.', '_', ':' or '-'.")
+        was = db.get(models.ConstructionDailyLog, cid)
+        if was is not None:
+            # A resend of a start that landed (its answer lost, the key expired):
+            # the same person's same log answers with itself.
+            if was.project_id != p.id or (was.author_email or "").lower() != _me(user) or was.deleted_at:
+                raise HTTPException(409, "That daily log id is taken.")
+            return log_to_dict(was)
+    data = _clean_log_fields(body.model_dump(exclude_unset=True))
     now = now_iso()
     # One draft per person per day. Tapping Start twice - which happens when the
     # app is backgrounded on site - must resume, not fork the day into two logs
@@ -618,7 +687,7 @@ def create_log(project_id: str, body: LogBody, user: dict = Depends(get_current_
             db.refresh(existing)
         return log_to_dict(existing)
     l = models.ConstructionDailyLog(
-        id=gen_id(), project_id=project_id, log_date=log_date,
+        id=cid or gen_id(), project_id=project_id, log_date=log_date,
         author_email=user["email"], status="draft",
         notes_raw=body.notes_raw or "", weather=body.weather or "",
         temperature_f=body.temperature_f or 0.0,
@@ -627,8 +696,18 @@ def create_log(project_id: str, body: LogBody, user: dict = Depends(get_current_
         gps_accuracy_m=body.gps_accuracy_m or 0.0,
         geofence_ok=_within_geofence(p, body.gps_latitude, body.gps_longitude),
         tags=_tags(body.tags),
+        delays=data.get("delays") or [], weather_source=data.get("weather_source") or "",
         created_at=now, modified_at=now,
     )
+    # The log drafts itself (11/03/2026, construction_field): an empty start
+    # is filled from the jobsite's forecast, the day's punches and a Weather
+    # Call; what the phone sent (offline, from its own copy) is kept as sent.
+    import construction_field
+    if data.get("prefill"):
+        l.prefill = {**data["prefill"], "from": "phone"}
+    else:
+        construction_field.apply_prefill(l, construction_field.prefill(db, user, p, log_date))
+    l.tags = _tags(construction_field.tags_with_delays(l.tags or [], l.delays or []))
     db.add(l)
     db.flush()
     idem.remember(db, user, log_to_dict(l), 201)
@@ -679,10 +758,16 @@ def update_log(log_id: str, body: LogBody, user: dict = Depends(get_current_user
         raise HTTPException(403, "You can only edit your own daily log.")
     if l.status not in ("draft", "needs_info"):
         raise HTTPException(409, "This log has been submitted and can no longer be edited.")
-    data = body.model_dump(exclude_unset=True)
+    data = _clean_log_fields(body.model_dump(exclude_unset=True))
+    data.pop("id", None)
+    data.pop("prefill", None)          # the record of the draft is written once, at start
     gps = {k: data.pop(k) for k in ("gps_latitude", "gps_longitude", "gps_accuracy_m") if k in data}
     if "tags" in data:
         data["tags"] = _tags(data["tags"])
+    if "delays" in data:
+        import construction_field
+        base = data.get("tags") if "tags" in data else list(l.tags or [])
+        data["tags"] = _tags(construction_field.tags_with_delays(base, data["delays"]))
     if "log_date" in data and data["log_date"] is not None and not _DAY.match(str(data["log_date"])):
         raise HTTPException(422, "log_date must be a full date (YYYY-MM-DD, jobsite-local)")
     for k, v in data.items():
@@ -729,9 +814,14 @@ def _claim(db: Session, l, allowed: tuple, **values) -> None:
     db.refresh(l)
 
 
+class SubmitBody(BaseModel):
+    # The typed-name signature (11/03/2026): the person's own name, typed.
+    signed_name: Optional[str] = ""
+
+
 @router.post("/logs/{log_id}/submit")
-def submit_log(log_id: str, user: dict = Depends(get_current_user),
-               db: Session = Depends(get_db)):
+def submit_log(log_id: str, body: Optional[SubmitBody] = None, user: dict = Depends(get_current_user),
+               db: Session = Depends(get_db), idem: Idem = Depends(idempotency)):
     """The worker's last action. Returns immediately.
 
     With AI on, the expensive part - captioning, summarization - is queued as
@@ -740,6 +830,9 @@ def submit_log(log_id: str, user: dict = Depends(get_current_user),
     the moment it lands (11/03/2026), never stuck "processing". The Egnyte
     record copy and thumbnails were queued at upload and do not wait on this."""
     import construction_ai
+    hit = idem.replay(db, user)
+    if hit is not None:
+        return hit
     l = _get_log(db, log_id, lock=True)
     p = _project(db, l.project_id, user)
     em = _me(user)
@@ -755,7 +848,9 @@ def submit_log(log_id: str, user: dict = Depends(get_current_user),
         raise HTTPException(422, "Add at least one photo, video, voice note or written note.")
 
     now = now_iso()
-    _claim(db, l, ("draft", "needs_info"), status="submitted", submitted_at=now, modified_at=now)
+    signed = " ".join(((body.signed_name if body else "") or "").split())[:120]
+    _claim(db, l, ("draft", "needs_info"), status="submitted", submitted_at=now, modified_at=now,
+           **({"signed_name": signed, "signed_at": now} if signed else {}))
 
     # Captions are an INPUT to the log summary, so the summary waits on them:
     # priority orders the queue and depends_on is the hard gate.
@@ -791,7 +886,15 @@ def submit_log(log_id: str, user: dict = Depends(get_current_user),
     # "submitted" while nobody was told is the state this workflow cannot have.
     construction_notify.log_submitted(db, p, l)
     _emit(db, "daily_log.submitted", l, user)
-    db.commit()
+    # The morning "log missing" bell for this day is answered (construction_field).
+    import construction_field
+    construction_field.close_reminder(db, p, l.log_date)
+    db.flush()
+    out = {**log_to_dict(l), "queuedJobs": queued}
+    idem.remember(db, user, out, 200)
+    lost = idem.commit(db, user)
+    if lost is not None:
+        return lost
     db.refresh(l)
     return {**log_to_dict(l), "queuedJobs": queued}
 
@@ -1566,7 +1669,8 @@ def report_pdf(report_id: str, user: dict = Depends(get_current_user),
 
     import construction_pdf
     try:
-        pdf = construction_pdf.build(r, p, media, logs)
+        import construction_report
+        pdf = construction_pdf.build(r, p, media, logs, pairs=construction_report.report_pairs(db, r))
     except Exception as e:
         raise HTTPException(502, f"Could not render the PDF: {str(e)[:200]}")
     safe = "".join(c for c in (r.title or "weekly-report") if c.isalnum() or c in " -_").strip() or "weekly-report"

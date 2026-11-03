@@ -374,6 +374,41 @@ def task_milestones(db: Session, job) -> list:
     return out
 
 
+RISK_DAYS = 7
+
+
+def risky_milestones(db: Session, jobs) -> list:
+    """[(job, task, 'missed' | 'at_risk')] - the open milestones of these jobs'
+    task projects that are past due (missed) or due within RISK_DAYS (at
+    risk), against each jobsite's own today. Insights' At-Risk Milestones
+    reads this - ONE source, the task project (Neil, 11/03/2026); the old
+    construction_milestones rows were moved in and are kept as the record."""
+    import construction_company
+    by_tp = {j.task_project_id: j for j in jobs if (getattr(j, "task_project_id", "") or "")}
+    if not by_tp:
+        return []
+    T = models.Task
+    out = []
+    today_of = {}
+    for t in db.query(T).filter(T.project_id.in_(sorted(by_tp)), T.is_milestone.is_(True)).all():
+        if t.completed or not (t.due_on or ""):
+            continue
+        job = by_tp[t.project_id]
+        if job.id not in today_of:
+            today_of[job.id] = construction_company.local_today(db, job)
+        today = today_of[job.id]
+        try:
+            due = date.fromisoformat((t.due_on or "")[:10])
+        except ValueError:
+            continue
+        if due < today:
+            out.append((job, t, "missed"))
+        elif (due - today).days <= RISK_DAYS:
+            out.append((job, t, "at_risk"))
+    out.sort(key=lambda x: (x[1].due_on or ""))
+    return out
+
+
 # ── The one-time milestone move ──────────────────────────────────────────────
 
 class _Now:

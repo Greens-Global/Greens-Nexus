@@ -595,9 +595,11 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
             pending_submittals = db.query(M.ConstructionSubmittal).filter(
                 M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "",
                 M.ConstructionSubmittal.project_id.in_(pids or [""])).count()
-            at_risk_milestones = db.query(M.ConstructionMilestone).filter(
-                M.ConstructionMilestone.status.in_(["at_risk", "missed"]), M.ConstructionMilestone.deleted_at == "",
-                M.ConstructionMilestone.project_id.in_(pids or [""])).count()
+            # One source (Neil, 11/03/2026): the jobs' task-project milestones
+            # past due or due within a week - construction_tasks.risky_milestones.
+            import construction_tasks
+            at_risk_milestones = len(construction_tasks.risky_milestones(
+                db, proj.filter(M.ConstructionProject.status.in_(["active", "on_hold"])).all()))
             return {
                 "stats": [
                     {"key": "active_projects", "label": "Active Projects", "value": active, "tone": "good"},
@@ -980,9 +982,13 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
             items = [(r.title or r.number, projects.get(r.project_id, '')) for r in rows]
             return _list(items, "Pending Submittals")
         if metric == "at_risk_milestones":
-            rows = db.query(M.ConstructionMilestone).filter(M.ConstructionMilestone.status.in_(["at_risk", "missed"]), M.ConstructionMilestone.deleted_at == "",
-                                                            M.ConstructionMilestone.project_id.in_(pids)).order_by(M.ConstructionMilestone.target_date).all()
-            items = [(r.name, f"{projects.get(r.project_id, '')} · {r.status}") for r in rows]
+            import construction_tasks
+            jobs = db.query(M.ConstructionProject).filter(M.ConstructionProject.id.in_(pids or [""]),
+                                                          M.ConstructionProject.deleted_at == "",
+                                                          M.ConstructionProject.status.in_(["active", "on_hold"])).all()
+            words = {"missed": "Missed", "at_risk": "At Risk"}
+            items = [(t.title or "Milestone", f"{job.name} · {words[state]} · due {_us(t.due_on)}")
+                     for job, t, state in construction_tasks.risky_milestones(db, jobs)]
             return _list(items, "At-Risk Milestones")
         raise HTTPException(404, "No breakdown for this metric")
 

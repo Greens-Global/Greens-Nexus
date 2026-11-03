@@ -1480,6 +1480,19 @@ def _run_migrations():
             "ALTER TABLE construction_submittals ADD COLUMN approver_email VARCHAR DEFAULT ''",
             "ALTER TABLE time_punches ADD COLUMN jobsite VARCHAR DEFAULT ''",
             "ALTER TABLE doc_form_entries ADD COLUMN linked_project_id VARCHAR DEFAULT ''",
+            # Field and Closeout (Neil, 11/03/2026, plan phase 3) - see the Postgres list.
+            "ALTER TABLE construction_projects ADD COLUMN superintendent_email VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN closeout JSON DEFAULT '{}'",
+            "ALTER TABLE construction_daily_logs ADD COLUMN delays JSON DEFAULT '[]'",
+            "ALTER TABLE construction_daily_logs ADD COLUMN prefill JSON DEFAULT '{}'",
+            "ALTER TABLE construction_daily_logs ADD COLUMN weather_source VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_daily_logs ADD COLUMN signed_name VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_daily_logs ADD COLUMN signed_at VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_media ADD COLUMN tags JSON DEFAULT '[]'",
+            "ALTER TABLE construction_media ADD COLUMN location_text VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_media ADD COLUMN source_media_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_media ADD COLUMN task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_weekly_reports ADD COLUMN pair_ids JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3561,6 +3574,32 @@ def _run_migrations():
         # Idempotency-Key the phone's outbox sends (backend/idempotency.py,
         # models.NexusIdempotencyKey; create_all makes the table). RLS per CLAUDE.md.
         "ALTER TABLE nexus_idempotency_keys ENABLE ROW LEVEL SECURITY",
+        # Field and Closeout (Neil, 11/03/2026, plan phase 3 - construction_field.py,
+        # construction_changes.py, construction_closeout.py): a job's
+        # superintendent (the missing-log bell) and closeout state; a daily
+        # log's delay lines, what it was drafted from, where its weather came
+        # from and its typed-name signature; a photo's own tags, spot, the
+        # photo a markup was drawn on and the punch item it proves; the
+        # before / after pairs a weekly report keeps. Five new tables (photo
+        # pairs, punch meta, field tickets, change orders, closeout records):
+        # create_all makes them, RLS here. models / construction_models.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS superintendent_email VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS closeout JSON DEFAULT '{}'",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS delays JSON DEFAULT '[]'",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS prefill JSON DEFAULT '{}'",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS weather_source VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS signed_name VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS signed_at VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_media ADD COLUMN IF NOT EXISTS tags JSON DEFAULT '[]'",
+        "ALTER TABLE construction_media ADD COLUMN IF NOT EXISTS location_text VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_media ADD COLUMN IF NOT EXISTS source_media_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_media ADD COLUMN IF NOT EXISTS task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_weekly_reports ADD COLUMN IF NOT EXISTS pair_ids JSON DEFAULT '[]'",
+        "ALTER TABLE construction_photo_pairs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_punch_meta ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_field_tickets ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_change_orders ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_closeout_records ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
