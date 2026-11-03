@@ -186,16 +186,48 @@ class CompanyWallTests(_Base):
         self.assertEqual(r.status_code, 422)
         self.assertIn(MGR_B, r.json()["detail"])
 
-    def test_backfill_places_jobs_by_creator_then_property(self):
-        self.db.add(self._project("old1", "Old By Creator", "", created_by=MGR_B))
+    def test_backfill_prefers_the_property_runs_once_and_logs_each_placement(self):
+        """Review M3: the property's entity wins over the creator's company; a
+        name two companies share places nothing; every placement is on the
+        job's activity log; the pass runs once; a dry run writes nothing."""
+        self.db.add(models.HrEntity(id="co-c", name="Shared Name"))
+        self.db.add(models.HrEntity(id="co-d", name="Other", legal_name="shared name"))
         self.db.add(models.PropertyAsset(id="prop1", name="Harbor", payload={"entity": "greens build"}))
-        self.db.add(self._project("old2", "Old By Property", "", property_id="prop1", created_by="system"))
+        self.db.add(models.PropertyAsset(id="prop2", name="Bay", payload={"entity": "Shared Name"}))
+        self.db.add(self._project("old1", "Old By Creator", "", created_by=MGR_B))
+        self.db.add(self._project("old2", "Property Beats Creator", "", property_id="prop1", created_by=MGR_B))
+        self.db.add(self._project("old3", "Ambiguous Entity", "", property_id="prop2", created_by="system"))
         self.db.commit()
-        n = construction_company.backfill(self.db)
-        self.assertEqual(n, 2)
+        plan = construction_company.dry_run(self.db)
+        self.assertEqual({i["projectId"]: (i["companyId"], i["source"]) for i in plan["place"]},
+                         {"old1": (B, "creator"), "old2": (A, "property")})
+        self.assertEqual(sorted(i["projectId"] for i in plan["unplaced"]), ["old3", "pz"])
+        self.assertEqual(self.db.get(models.ConstructionProject, "old1").company_id, "")   # dry run wrote nothing
+        self.assertEqual(construction_company.backfill(self.db), 2)
         got = {p.id: p.company_id for p in self.db.query(models.ConstructionProject).all()}
-        self.assertEqual((got["old1"], got["old2"], got["pz"]), (B, A, ""))
-        self.assertEqual(construction_company.backfill(self.db), 0)   # idempotent
+        self.assertEqual((got["old1"], got["old2"], got["old3"], got["pz"]), (B, A, "", ""))
+        acts = {a.project_id: a.detail for a in self.db.query(models.ConstructionActivity)
+                .filter(models.ConstructionActivity.type == "company_placed").all()}
+        self.assertEqual(acts["old2"], "placed in Greens Build (from the property)")
+        self.assertEqual(set(acts), {"old1", "old2"})
+        self.db.add(self._project("old4", "Later", "", created_by=MGR_A))
+        self.db.commit()
+        self.assertIsNone(construction_company.backfill(self.db))       # once - the mark
+        self.assertEqual(self.db.get(models.ConstructionProject, "old4").company_id, "")
+
+    def test_insights_are_cached_per_company_wall_never_shared(self):
+        """Review M1: the board's cache key was () for everyone, so the first
+        viewer's company counts leaked to the next for 20 s."""
+        self.db.add(self._project("pb2", "Job B2", B, managers=[MGR_B]))
+        self.db.commit()
+        cache.dashboard_insights.invalidate()
+
+        def active(who):
+            self._as(who)
+            mods = {m["id"]: m for m in self.client.get("/dashboards/insights").json()["modules"]}
+            return {s["key"]: s["value"] for s in mods["construction"]["stats"]}["active_projects"]
+        self.assertEqual((active(MGR_A), active(MGR_B), active(MGR_A)), (1, 2, 1))
+        cache.dashboard_insights.invalidate()
 
     def test_the_approvals_inbox_and_insights_respect_the_wall(self):
         import approvals_inbox
@@ -369,6 +401,126 @@ class ProjectEditTests(_Base):
         for bad in ({"status": "paused"}, {"percent_complete": 140}, {"start_on": "11/01/2026"},
                     {"start_on": "2026-12-20", "target_finish_on": "2026-12-01"}):
             self.assertEqual(self.client.patch("/construction/projects/pa", json=bad).status_code, 422, bad)
+
+
+class ReviewFollowUpTests(_Base):
+    """The code review of 11/03/2026 (M2, M4, M5, L6, L8, L9, L10)."""
+
+    def test_a_sent_back_log_keeps_its_photos_from_the_uploader(self):
+        """M2: approve -> Reopen -> Send Back must not let the uploader remove
+        evidence a reviewer already saw; a manager may, with a reason."""
+        self._log("l1", status="needs_info")
+        self.db.query(models.ConstructionDailyLog).filter(models.ConstructionDailyLog.id == "l1").update(
+            {"submitted_at": _iso()})
+        self.db.commit()
+        self._photo()
+        self._as(CREW)
+        self.assertEqual(self.client.delete("/construction/media/m1").status_code, 403)
+        self._as(MGR_A)
+        self.assertEqual(self.client.delete("/construction/media/m1").status_code, 422)
+        self.assertEqual(self.client.delete("/construction/media/m1", params={"reason": "Duplicate shot"}).status_code, 204)
+        # A draft that was submitted once and reopened to draft is the same.
+        self._log("l2", status="draft")
+        self.db.query(models.ConstructionDailyLog).filter(models.ConstructionDailyLog.id == "l2").update(
+            {"submitted_at": _iso()})
+        self.db.commit()
+        self._photo("m2", "l2")
+        self._as(CREW)
+        self.assertEqual(self.client.delete("/construction/media/m2").status_code, 403)
+
+    def test_a_decision_on_a_log_that_moved_meanwhile_is_refused(self):
+        """M4: the state check and the change are one conditional UPDATE - a
+        second manager acting on a stale copy gets 409, never a second decision."""
+        from fastapi import HTTPException
+        from routers import construction as C
+        self._log("l1", status="submitted")
+        stale = self.db.get(models.ConstructionDailyLog, "l1")
+        other = database.SessionLocal()
+        other.query(models.ConstructionDailyLog).filter(models.ConstructionDailyLog.id == "l1").update({"status": "approved"})
+        other.commit()
+        other.close()
+        with self.assertRaises(HTTPException) as e:
+            C._claim(self.db, stale, C.REVIEWABLE, status="needs_info")
+        self.assertEqual(e.exception.status_code, 409)
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.ConstructionDailyLog, "l1").status, "approved")
+
+    def test_a_report_only_keeps_and_prints_its_own_jobs_photos(self):
+        """M5: media ids from another job never get into a report."""
+        self._log("l1", status="approved")
+        self._photo("ma", "l1", "pa")
+        self._log("lb", "pb", author=MGR_B, status="approved")
+        self._photo("mb", "lb", "pb", by=MGR_B)
+        self.db.add(models.ConstructionWeeklyReport(id="r1", project_id="pa", week_start="2026-11-02", status="draft",
+                                                    version=1, media_ids=[], sections={}, section_order=[], deleted_at=""))
+        self.db.commit()
+        self._as(MGR_A)
+        r = self.client.patch("/construction/reports/r1", json={"media_ids": ["mb", "ma", "nope"]})
+        self.assertEqual(r.json()["mediaIds"], ["ma"])
+        # A row written before this (or by hand) still never prints another job's photo.
+        self.db.query(models.ConstructionWeeklyReport).filter(models.ConstructionWeeklyReport.id == "r1").update(
+            {"media_ids": ["ma", "mb"]}, synchronize_session=False)
+        self.db.commit()
+        import construction_pdf
+        seen = {}
+        with mock.patch.object(construction_pdf, "build", side_effect=lambda r, p, media, logs: seen.update(media) or b"%PDF"):
+            self.assertEqual(self.client.get("/construction/reports/r1/pdf").status_code, 200)
+        self.assertEqual(sorted(seen), ["ma"])
+
+    def test_an_executive_who_is_a_nexus_person_passes_the_wall_an_outsider_is_allowed(self):
+        """L6."""
+        self._as(MGR_A)
+        r = self.client.patch("/construction/projects/pa", json={"executive_emails": [EXEC, MGR_B]})
+        self.assertEqual(r.status_code, 422)
+        r = self.client.patch("/construction/projects/pa", json={"executive_emails": [EXEC, "owner@outside.example", MGR_A2]})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_a_project_with_no_week_start_keeps_the_schedulers_old_sunday(self):
+        """L8: NULL week_starts_on read as Sunday (0), as the scheduler always
+        did - never Monday, which would cut a second draft for the same days."""
+        p = self.db.get(models.ConstructionProject, "pa")
+        p.week_starts_on = None
+        now = datetime(2026, 11, 6, 20, 0, tzinfo=timezone.utc)   # Friday 11/06 on site
+        self.assertEqual(construction_company.current_week_start(self.db, p, now), date(2026, 11, 1))
+        import construction_worker as W
+        self.assertEqual(W.week_start_for(date(2026, 11, 6), construction_company.week_starts(p)), date(2026, 11, 1))
+
+    def test_one_report_per_project_week_and_version(self):
+        """L9: the unique index, and the next version passes removed rows."""
+        from sqlalchemy.exc import IntegrityError
+        self.db.add(models.ConstructionWeeklyReport(id="x1", project_id="pa", week_start="2026-10-26", version=1,
+                                                    status="draft", deleted_at=_iso()))
+        self.db.commit()
+        self.db.add(models.ConstructionWeeklyReport(id="x2", project_id="pa", week_start="2026-10-26", version=1,
+                                                    status="draft", deleted_at=""))
+        with self.assertRaises(IntegrityError):
+            self.db.commit()
+        self.db.rollback()
+        self._as(MGR_A)
+        r = self.client.post("/construction/projects/pa/reports/generate", json={"week_start": "2026-10-26"})
+        self.assertEqual((r.status_code, r.json()["version"]), (201, 2))
+
+    def test_the_scheduler_skips_a_week_another_worker_just_cut(self):
+        """L9: an IntegrityError from the unique index is someone else's draft."""
+        import construction_report
+        import construction_worker as W
+        from sqlalchemy.exc import IntegrityError
+
+        def racing(db, project, week_start, actor, **kw):
+            raise IntegrityError("insert", {}, Exception("duplicate"))
+        with mock.patch.object(construction_report, "generate", side_effect=racing):
+            counts = W.cut_due_drafts(today=date(2026, 11, 6))
+        self.assertEqual((counts["cut"], counts["failed"]), (0, 0))
+        self.assertGreaterEqual(counts["skipped"], 1)
+
+    def test_a_bell_fired_twice_for_one_workflow_is_one_row(self):
+        """L10 (the lock itself is Postgres-only; here the in-place rewrite)."""
+        for title in ("First", "Second"):
+            construction_notify.bell(self.db, kind="log_submitted", recipient=MGR_A, title=title, body="b",
+                                     ref_id="l9", family=construction_notify.LOG_KINDS)
+        self.db.commit()
+        rows = self.db.query(models.NexusNotification).filter(models.NexusNotification.ref_id == "l9").all()
+        self.assertEqual([r.title for r in rows], ["Second"])
 
 
 class GeofenceTests(_Base):

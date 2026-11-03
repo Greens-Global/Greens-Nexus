@@ -29,6 +29,9 @@ import { formatDate } from '../lib/datetime';
 import { useVoiceRecorder, clock, STOP_VOICE_FIRST } from '../lib/voice';
 import { useIsMobile } from '../lib/useIsMobile';
 import DictateButton from '../components/DictateButton';
+import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
+import { dialog } from '../ui/dialog';
+import { useRole } from '../contexts/RoleContext';
 import { LOG_TAGS, TAG_COLOR } from './ui';
 
 // Where the phone is, if the person allows it - one quick, low-power fix,
@@ -86,6 +89,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const fix = usePhoneLocation();
+  const { myEmail } = useRole() || {};
   const isMobile = useIsMobile();
   const toggleTag = (k) => setTags((t) => (t.includes(k) ? t.filter((x) => x !== k) : [...t, k]));
   const camRef = useRef(null);
@@ -159,16 +163,26 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   const stopVoice = voice.stop;
   const notesRef = useRef(null);
 
-  const remove = async (item) => {
-    // A photo already filed is evidence (11/03/2026): when the server keeps it
-    // (409 - a reported photo), it stays on the strip and the reason shows.
-    if (item.media) {
-      try { await api.deleteConstructionMedia(item.media.id); } catch (e) {
-        setError(e.message || 'Could not remove that file.');
-        return;
-      }
+  // A file not yet on the server just leaves the strip.
+  const drop = (item) => setItems((prev) => prev.filter((i) => i.key !== item.key));
+
+  // A file already filed is evidence (11/03/2026): it is removed by a press
+  // and hold (HoldButton), and someone else's only with a reason on the
+  // record - the server refuses one in front of a reviewer, and the refusal
+  // shows under the button.
+  const removeFiled = async (item) => {
+    const by = String(item.media?.uploadedBy || '').toLowerCase();
+    const mine = !myEmail || !by || by === String(myEmail).toLowerCase();
+    if (mine) {
+      await api.deleteConstructionMedia(item.media.id);
+    } else {
+      const reason = await dialog.prompt('Why is this file being removed? The reason goes on the record.', {
+        title: 'Remove a File', confirmText: 'Remove', required: true, placeholder: 'e.g. Wrong jobsite',
+      });
+      if (!reason) throw new Error('Not removed - a reason is needed.');
+      await api.removeConstructionMedia(item.media.id, reason);
     }
-    setItems((prev) => prev.filter((i) => i.key !== item.key));
+    drop(item);
   };
 
   const pending = items.filter((i) => i.status === 'uploading').length;
@@ -303,7 +317,8 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10 }}>
               {items.map((it) => (
-                <div key={it.key} style={{
+                <div key={it.key} data-capture-item={it.key} style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+                <div style={{
                   position: 'relative', aspectRatio: '1', borderRadius: 10, overflow: 'hidden',
                   border: `1px solid ${it.status === 'error' ? 'hsl(var(--color-red))' : 'var(--border-color)'}`,
                   backgroundColor: 'var(--bg-primary)', display: 'flex', alignItems: 'center',
@@ -335,10 +350,18 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
                   {it.status === 'done' && (
                     <CheckCircle2 size={14} style={{ position: 'absolute', top: 4, left: 4, color: 'hsl(var(--color-green))', backgroundColor: '#fff', borderRadius: '50%' }} />
                   )}
-                  <button type="button" onClick={() => remove(it)} title="Remove"
-                    style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,.55)', border: 'none', borderRadius: 6, color: '#fff', padding: 3, cursor: 'pointer', display: 'inline-flex' }}>
-                    <Trash2 size={12} />
-                  </button>
+                  {!it.media && (
+                    <button type="button" onClick={() => drop(it)} title="Remove" aria-label="Remove"
+                      style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,.55)', border: 'none', borderRadius: 6, color: '#fff', padding: 3, cursor: 'pointer', display: 'inline-flex' }}>
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+                {it.media && (
+                  <HoldButton label="Remove" doneLabel="Removed" holdMs={HOLD_RECORD_MS} size="sm"
+                    ariaLabel={`Remove this ${it.kind || 'file'}`} onConfirm={() => removeFiled(it)}
+                    fallbackMessage="Remove this file from the log?" style={{ width: '100%', justifyContent: 'center' }} />
+                )}
                 </div>
               ))}
             </div>

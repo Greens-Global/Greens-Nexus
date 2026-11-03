@@ -23,7 +23,7 @@ locks out is the public anon key. CLAUDE.md records this gap as recurring, so
 it is automated instead of documented. **A NEW TABLE ADDED HERE NEEDS ITS OWN
 LINE IN THAT LIST** - nothing enforces this for you.
 """
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, Float, Index, Integer, JSON, String, Text
 from database import Base
 
 
@@ -321,6 +321,11 @@ class ConstructionWeeklyReport(Base):
     `version` increments on publish. A published report is immutable; an edit
     produces v2, and the executive's link keeps resolving to the newest."""
     __tablename__ = "construction_weekly_reports"
+    # One row per project, week and version (11/03/2026): two workers cutting
+    # the same week, or two Generate clicks, cannot both write version 1 -
+    # the loser reads the winner's row. Also in main.py's migration lists.
+    __table_args__ = (Index("uq_construction_reports_week_version", "project_id", "week_start", "version",
+                            unique=True),)
     id              = Column(String, primary_key=True)
     project_id      = Column(String, nullable=False, index=True)
     week_start      = Column(String, nullable=False, index=True)   # YYYY-MM-DD

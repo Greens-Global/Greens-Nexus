@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within, act } from '@testing-library/react';
 
 // Construction phase 1 (Neil, 11/03/2026, plan
 // https://claude.ai/artifact/B5jm924fPPQ85AEDjBoSHr): the Edit Job sheet, AI
@@ -32,9 +32,14 @@ vi.mock('../api', () => ({ api: {
   updateConstructionReport: vi.fn(),
   getNotifications: vi.fn(),
   markNotifRead: vi.fn(),
+  deleteConstructionMedia: vi.fn(),
+  removeConstructionMedia: vi.fn(),
+  updateConstructionLog: vi.fn(),
+  submitConstructionLog: vi.fn(),
+  createConstructionMedia: vi.fn(),
 } }));
 vi.mock('../components/WorkSiteAddressMap', () => ({ default: () => null }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true, myEmail: 'marcus.reed@greensglobal.com' }) }));
 
 const { api } = await import('../api');
 const { resetConstructionMeta } = await import('./lib/meta');
@@ -49,6 +54,9 @@ const { parseConstructionSub } = await import('./lib/navigation');
 const { weekChoices } = await import('./lib/weeks');
 const { isOverdue, daysOpen } = await import('./lib/registers');
 const { uploadErrorWords, NO_BUCKET } = await import('./lib/upload');
+const { default: DailyLogCapture } = await import('./DailyLogCapture');
+const { dialog } = await import('../ui/dialog');
+const { HOLD_RECORD_MS } = await import('../ui/HoldButton');
 
 const health = {
   state: 'late', reasons: ['3 days past the target finish'], daysPastTarget: 3, overdueRfis: 1,
@@ -244,6 +252,39 @@ describe('Holds', () => {
     expect(within(container.querySelector('[data-register-row="m1"]')).getByText('Overdue')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Final Inspection'));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+describe('Removing a filed photo (review L7)', () => {
+  const draft = { id: 'l1', projectId: 'p1', logDate: '2026-11-03', status: 'draft', notes: '', tags: [] };
+  const filed = (uploadedBy) => [{ id: 'm1', kind: 'photo', url: '', thumbnailUrl: '', uploadedBy }];
+  const holdRemove = async () => {
+    const btn = await screen.findByRole('button', { name: /Remove this photo, press and hold/ });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(btn, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(HOLD_RECORD_MS + 50); });
+    } finally { vi.useRealTimers(); }
+  };
+
+  it('a manager removing someone else\'s photo holds, then gives a reason that is sent', async () => {
+    api.getConstructionMedia.mockResolvedValue(filed('ana.ruiz@greensglobal.com'));
+    api.removeConstructionMedia.mockResolvedValue(undefined);
+    const prompt = vi.spyOn(dialog, 'prompt').mockResolvedValue('Wrong jobsite');
+    render(<DailyLogCapture log={draft} project={project} onClose={() => {}} onSubmitted={() => {}} />);
+    await holdRemove();
+    await waitFor(() => expect(api.removeConstructionMedia).toHaveBeenCalledWith('m1', 'Wrong jobsite'));
+    expect(prompt).toHaveBeenCalled();
+    expect(api.deleteConstructionMedia).not.toHaveBeenCalled();
+    prompt.mockRestore();
+  });
+
+  it('the uploader removes their own with the hold alone', async () => {
+    api.getConstructionMedia.mockResolvedValue(filed('marcus.reed@greensglobal.com'));
+    api.deleteConstructionMedia.mockResolvedValue(undefined);
+    render(<DailyLogCapture log={draft} project={project} onClose={() => {}} onSubmitted={() => {}} />);
+    await holdRemove();
+    await waitFor(() => expect(api.deleteConstructionMedia).toHaveBeenCalledWith('m1'));
   });
 });
 

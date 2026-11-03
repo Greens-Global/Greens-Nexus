@@ -101,6 +101,11 @@ def bell(db, *, kind: str, recipient: str, title: str, body: str,
     kinds = [f"construction_{k}" for k in (family or (kind,))]
     row = None
     if ref_id:
+        # Two requests firing the same person's first bell for one workflow
+        # (a submit and a review a moment apart) would both find nothing and
+        # both insert: they queue on a transaction lock keyed on the pair
+        # instead (Postgres; SQLite has one writer anyway).
+        _lock_pair(db, recipient, ref_id)
         row = (db.query(models.NexusNotification)
                .filter(models.NexusNotification.recipient == recipient,
                        models.NexusNotification.ref_id == ref_id,
@@ -124,6 +129,22 @@ def bell(db, *, kind: str, recipient: str, title: str, body: str,
     # autoflush is off: a second bell for the same person and workflow in this
     # request must find this row, not add a twin.
     db.flush()
+
+
+_BELL_LOCK_SPACE = 815224907   # beside construction_worker's sweep lock key
+
+
+def _lock_pair(db, recipient: str, ref_id: str) -> None:
+    """Transaction-scoped Postgres advisory lock on (recipient, workflow)."""
+    try:
+        if db.bind.dialect.name != "postgresql":
+            return
+    except AttributeError:
+        return
+    import zlib
+    from sqlalchemy import text
+    db.execute(text("SELECT pg_advisory_xact_lock(:a, :b)"),
+               {"a": _BELL_LOCK_SPACE, "b": zlib.crc32(f"{recipient}|{ref_id}".encode()) & 0x7FFFFFFF})
 
 
 def close_bells(db, *, ref_id: str, family: tuple, kind: str, title: str, body: str,
@@ -369,6 +390,7 @@ def deliver_published_report(report_id: str) -> str:
             import construction_pdf
             media = {m.id: m for m in db.query(_models.ConstructionMedia)
                      .filter(_models.ConstructionMedia.id.in_(r.media_ids or [""]),
+                             _models.ConstructionMedia.project_id == r.project_id,
                              _models.ConstructionMedia.deleted_at == "").all()} \
                 if r.media_ids else {}
             logs = (db.query(_models.ConstructionDailyLog)

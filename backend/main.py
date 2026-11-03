@@ -1471,6 +1471,7 @@ def _run_migrations():
             "ALTER TABLE construction_projects ADD COLUMN company_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_projects ADD COLUMN time_zone VARCHAR DEFAULT ''",
             "ALTER TABLE construction_daily_logs ADD COLUMN tags JSON DEFAULT '[]'",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_construction_reports_week_version ON construction_weekly_reports (project_id, week_start, version)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3526,6 +3527,9 @@ def _run_migrations():
         "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS time_zone VARCHAR DEFAULT ''",
         "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS tags JSON DEFAULT '[]'",
+        # One weekly report per project, week and version - two workers (or two
+        # Generate clicks) never both write the same version (review, 11/03/2026).
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_construction_reports_week_version ON construction_weekly_reports (project_id, week_start, version)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4318,9 +4322,10 @@ def _startup_seeds():
     except Exception as e:
         print(f"[startup] weather department seed skipped: {e}")
     # Construction foundations (Neil, 11/03/2026): place every job without a
-    # company in one (its creator's, else its property's - the company wall),
-    # and, while AI is off, mark the AI jobs that can never run skipped
-    # (kept, never deleted). Both idempotent; one session, on every start.
+    # company in one, ONCE (its property's entity, else its creator's - the
+    # company wall; `python construction_company.py` is the read-only dry
+    # run), and, while AI is off, mark the AI jobs that can never run skipped
+    # (kept, never deleted).
     try:
         import construction_ai
         import construction_company
@@ -4328,9 +4333,9 @@ def _startup_seeds():
         from database import SessionLocal
         db = SessionLocal()
         try:
-            n = construction_company.backfill(db)
-            if n:
-                print(f"[startup] construction: placed {n} job(s) in their company")
+            n = construction_company.backfill(db)   # once (its nexus_settings mark)
+            if n is not None:
+                print(f"[startup] construction: placed {n} job(s) in their company (one-time pass)")
             if not construction_ai.configured():
                 k = construction_worker.skip_ai_jobs(db)
                 if k:

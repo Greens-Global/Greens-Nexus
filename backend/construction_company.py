@@ -33,20 +33,36 @@ def _key(s) -> str:
 
 
 # ── Company ──────────────────────────────────────────────────────────────────
+# One-time placement (review of 11/03/2026): run ONCE (BACKFILL_MARK in
+# nexus_settings, like the other one-time passes), the linked PROPERTY's
+# entity first - the property is the job's place, the creator only says who
+# typed it in - then the creator's company. A name two companies share
+# (name or legal name) places nothing: guessing would put a job behind the
+# wrong wall. Every placement is written to the job's activity log, and
+# `dry_run` lists what it would do, for Neil to read on prod before release:
+#     cd backend && python construction_company.py      (reads only)
+
+BACKFILL_MARK = "construction_company_backfill_2026_11_03"
+AMBIGUOUS = object()
+
 
 def _entity_ids_by_name(db: Session) -> dict:
-    """{name or legal name (lower): HrEntity id}."""
+    """{name or legal name (lower): HrEntity id, or AMBIGUOUS when two
+    companies answer to it}."""
     out = {}
     for e in db.query(models.HrEntity.id, models.HrEntity.name, models.HrEntity.legal_name).all():
-        for n in (e.name, e.legal_name):
-            if _key(n):
-                out.setdefault(_key(n), e.id)
+        for n in {_key(e.name), _key(e.legal_name)} - {""}:
+            if n in out and out[n] != e.id:
+                out[n] = AMBIGUOUS
+            else:
+                out[n] = e.id
     return out
 
 
 def company_from_property(db: Session, property_id: str, names: dict | None = None) -> str:
     """The company of an Asset Management property: its `entity` (a company
-    name) matched to an HrEntity. '' when the property names none we know."""
+    name) matched to exactly one HrEntity. '' when the property names none we
+    know, or a name more than one company carries."""
     pid = (property_id or "").strip()
     if not pid:
         return ""
@@ -57,36 +73,68 @@ def company_from_property(db: Session, property_id: str, names: dict | None = No
     if not entity:
         return ""
     names = names if names is not None else _entity_ids_by_name(db)
-    return names.get(entity, "")
+    hit = names.get(entity, "")
+    return "" if hit is AMBIGUOUS else hit
 
 
-def derive(db: Session, project, names: dict | None = None) -> str:
-    """The company a project belongs to: its creator's, else its property's."""
+def derive(db: Session, project, names: dict | None = None) -> tuple:
+    """(company id, source) for a project: its property's entity, else its
+    creator's company; ('', '') when neither places it."""
     from auth import company_of
+    by_property = company_from_property(db, project.property_id, names)
+    if by_property:
+        return by_property, "property"
     by_creator = company_of(project.created_by or "", db) if project.created_by and project.created_by != "system" else ""
-    return by_creator or company_from_property(db, project.property_id, names)
+    return (by_creator, "creator") if by_creator else ("", "")
 
 
-def backfill(db: Session) -> int:
-    """Stamp every project still without a company that can be placed.
-    Idempotent: a placed project is never touched again, an unplaceable one
-    stays '' and is tried again next startup. Commits. Returns how many."""
-    rows = (db.query(models.ConstructionProject)
+def _unplaced(db: Session) -> list:
+    return (db.query(models.ConstructionProject)
             .filter((models.ConstructionProject.company_id == "") | (models.ConstructionProject.company_id.is_(None)))
-            .all())
-    if not rows:
-        return 0
-    names = _entity_ids_by_name(db)
-    n = 0
-    for p in rows:
-        cid = derive(db, p, names)
-        if cid:
-            p.company_id = cid
-            n += 1
-    if n:
-        db.commit()
-    return n
+            .order_by(models.ConstructionProject.name).all())
 
+
+def dry_run(db: Session) -> dict:
+    """What `backfill` would do, without writing: {"place": [{projectId,
+    name, companyId, companyName, source}], "unplaced": [{projectId, name}]}."""
+    names = _entity_ids_by_name(db)
+    labels = {e.id: e.name for e in db.query(models.HrEntity.id, models.HrEntity.name).all()}
+    place, unplaced = [], []
+    for p in _unplaced(db):
+        cid, source = derive(db, p, names)
+        if cid:
+            place.append({"projectId": p.id, "name": p.name, "companyId": cid,
+                          "companyName": labels.get(cid, cid), "source": source})
+        else:
+            unplaced.append({"projectId": p.id, "name": p.name})
+    return {"place": place, "unplaced": unplaced}
+
+
+def backfill(db: Session):
+    """Place every job without a company, ONCE (the BACKFILL_MARK). Each
+    placement gets an activity row. A job nothing places stays '' (visible
+    only to unwalled callers). Commits. Returns how many were placed, or
+    None when it had already run."""
+    import uuid
+    from datetime import datetime, timezone
+    if db.query(models.NexusSetting).filter(models.NexusSetting.key == BACKFILL_MARK).first():
+        return None
+    plan = dry_run(db)
+    now = datetime.now(timezone.utc).isoformat()
+    rows = {p.id: p for p in _unplaced(db)}
+    for item in plan["place"]:
+        p = rows.get(item["projectId"])
+        if p is None:
+            continue
+        p.company_id = item["companyId"]
+        db.add(models.ConstructionActivity(
+            id=str(uuid.uuid4()), project_id=p.id, entity_kind="project", entity_id=p.id,
+            type="company_placed", actor_email="", at=now,
+            detail=f"placed in {item['companyName']} (from the {item['source']})"))
+    db.add(models.NexusSetting(key=BACKFILL_MARK, value=str(len(plan["place"])),
+                               updated_by="system", updated_at=now))
+    db.commit()
+    return len(plan["place"])
 
 # ── Clock ────────────────────────────────────────────────────────────────────
 
@@ -133,7 +181,14 @@ def week_start_for(d: date, week_starts_on: int) -> date:
 def current_week_start(db: Session, project, now: datetime | None = None) -> date:
     """THE week rule (11/03/2026): the project's week_starts_on, on the
     jobsite's own clock - the scheduler and the Generate button both use it."""
-    return week_start_for(local_today(db, project, now), project.week_starts_on if project.week_starts_on is not None else 1)
+    return week_start_for(local_today(db, project, now), week_starts(project))
+
+
+def week_starts(project) -> int:
+    """The project's first weekday (0=Sunday). A NULL keeps the scheduler's
+    old reading of it - Sunday - so no week is cut twice under two starts."""
+    v = getattr(project, "week_starts_on", None)
+    return 0 if v is None else int(v)
 
 
 def remember_zone(project, tz: str) -> bool:
@@ -160,3 +215,19 @@ def people_names(db: Session, emails) -> dict:
         if name:
             out[_key(row.work_email)] = name
     return out
+
+
+if __name__ == "__main__":
+    # Read-only: what the one-time placement would do on this database.
+    #   cd backend && python construction_company.py
+    from database import SessionLocal
+    _db = SessionLocal()
+    try:
+        _plan = dry_run(_db)
+        for _i in _plan["place"]:
+            print(f"PLACE  {_i['name']}  ->  {_i['companyName']}  (from the {_i['source']})")
+        for _i in _plan["unplaced"]:
+            print(f"LEAVE  {_i['name']}  (nothing places it - stays visible only to unwalled callers)")
+        print(f"{len(_plan['place'])} to place, {len(_plan['unplaced'])} left unplaced")
+    finally:
+        _db.close()

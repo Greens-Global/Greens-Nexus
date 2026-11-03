@@ -114,10 +114,11 @@ myhr_egnyte_docs = TTLCache("myhr_egnyte_docs", ttl=180)  # /myhr/egnyte-documen
 contact_directory = TTLCache("contact_directory", ttl=120)  # /directory roster (routers/directory.py) - per company-wall key;
                                                               # availability is computed per call on top, never cached
 teams_presence    = TTLCache("teams_presence",    ttl=30)   # /directory/presence - one Graph call per wall key per 30 s
-dashboard_insights = TTLCache("dashboard_insights", ttl=20)  # /dashboards/insights (BI board) - company-wide, so
-                                                              # ONE entry (key ()) serves every viewer, not per-email
-                                                              # like dashboard_kpis - a dozen managers open the BI
-                                                              # board without multiplying the query cost.
+dashboard_insights = TTLCache("dashboard_insights", ttl=20)  # /dashboards/insights (BI board) - one entry per company-wall
+                                                              # key (auth.scope_key) - viewers behind the same wall share
+                                                              # it, not per-email like dashboard_kpis, so a dozen managers
+                                                              # open the board without multiplying the query cost; never
+                                                              # one key for everyone (it leaked one company's counts).
 
 # Watched model -> caches to drop when a commit touches it. HrEntity feeds the
 # directory's company names; group/member rows feed the grant map; employees

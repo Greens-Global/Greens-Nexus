@@ -29,6 +29,7 @@ import os
 from datetime import date, datetime, timezone
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 
 import construction_ai
 import models
@@ -526,7 +527,11 @@ def cut_due_drafts(today: date = None, now: datetime = None) -> dict | None:
             day = today or construction_company.local_today(db, p, now)
             if _model_weekday(day) != (p.report_day if p.report_day is not None else 5):
                 continue
-            ws = week_start_for(day, p.week_starts_on if p.week_starts_on is not None else 1).isoformat()
+            ws = week_start_for(day, construction_company.week_starts(p)).isoformat()
+            # The lock is transaction-scoped and every project commits, so it
+            # is taken again for each one: two workers never both pass the
+            # existence check for the same project (review, 11/03/2026).
+            _acquire_sweep_lock(db)
             existing = (db.query(models.ConstructionWeeklyReport)
                         .filter(models.ConstructionWeeklyReport.project_id == p.id,
                                 models.ConstructionWeeklyReport.week_start == ws,
@@ -544,6 +549,11 @@ def cut_due_drafts(today: date = None, now: datetime = None) -> dict | None:
                 construction_notify.draft_cut(db, p, r)
                 db.commit()
                 counts["cut"] += 1
+            except IntegrityError:
+                # Another worker cut this week a moment ago (the unique
+                # project/week/version index): theirs stands.
+                db.rollback()
+                counts["skipped"] += 1
             except Exception as e:
                 db.rollback()
                 # A model outage must not stop the next project being drafted,

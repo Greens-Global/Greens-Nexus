@@ -381,11 +381,17 @@ def generate(db, project, week_start: str, actor_email: str, use_ai: bool = True
                 .order_by(models.ConstructionWeeklyReport.version.desc()).first())
 
     from routers.construction import gen_id
+    from sqlalchemy import func
     now = _now()
+    # A new row takes the next version past EVERY row of the week, removed
+    # ones included: (project, week, version) is unique (11/03/2026).
+    top = (db.query(func.max(models.ConstructionWeeklyReport.version))
+           .filter(models.ConstructionWeeklyReport.project_id == project.id,
+                   models.ConstructionWeeklyReport.week_start == start).scalar()) or 0
     if existing and existing.status in ("published", "superseded"):
         r = models.ConstructionWeeklyReport(
             id=gen_id(), project_id=project.id, week_start=start, week_end=end,
-            version=(existing.version or 1) + 1, supersedes_id=existing.id,
+            version=top + 1, supersedes_id=existing.id,
             created_at=now)
         db.add(r)
     elif existing:
@@ -393,7 +399,7 @@ def generate(db, project, week_start: str, actor_email: str, use_ai: bool = True
     else:
         r = models.ConstructionWeeklyReport(
             id=gen_id(), project_id=project.id, week_start=start, week_end=end,
-            version=1, created_at=now)
+            version=top + 1, created_at=now)
         db.add(r)
 
     r.title = ai.get("title") or f"Week of {_us(start)}"

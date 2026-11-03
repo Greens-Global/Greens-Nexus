@@ -367,6 +367,16 @@ def _validate(db: Session, user: dict, p, data: dict) -> dict:
     had = set() if p is None else (_emails(p.manager_emails) | _emails(p.worker_emails))
     _check_people(db, user, [e for k in ("manager_emails", "worker_emails")
                              for e in (out.get(k) or []) if e not in had])
+    # Executives: an outside address (an investor) is allowed - it only ever
+    # gets the published report by email - but one that is a Nexus person
+    # passes the same wall as the crew and the managers (review, 11/03/2026).
+    had_exec = set() if p is None else _emails(p.executive_emails)
+    new_exec = [e for e in (out.get("executive_emails") or []) if e not in had_exec]
+    if new_exec:
+        from sqlalchemy import func
+        people = {(r[0] or "").lower() for r in db.query(models.NexusEmployee.work_email)
+                  .filter(func.lower(models.NexusEmployee.work_email).in_(new_exec)).all()}
+        _check_people(db, user, [e for e in new_exec if e in people])
     if out.get("property_id"):
         import property_links
         property_links.require_linkable(db, out["property_id"], user)
@@ -615,13 +625,33 @@ def update_log(log_id: str, body: LogBody, user: dict = Depends(get_current_user
     return log_to_dict(l)
 
 
-def _get_log(db: Session, log_id: str) -> models.ConstructionDailyLog:
-    l = (db.query(models.ConstructionDailyLog)
+def _get_log(db: Session, log_id: str, lock: bool = False) -> models.ConstructionDailyLog:
+    """The live log, or 404. `lock` takes its row lock (Postgres FOR UPDATE)
+    for the state changes - submit, review, reopen, removing a photo - so two
+    people acting at once queue instead of both passing the state check."""
+    q = (db.query(models.ConstructionDailyLog)
          .filter(models.ConstructionDailyLog.id == log_id,
-                 models.ConstructionDailyLog.deleted_at == "").first())
+                 models.ConstructionDailyLog.deleted_at == ""))
+    l = (q.with_for_update() if lock else q).first()
     if not l:
         raise HTTPException(404, "Daily log not found")
     return l
+
+
+def _claim(db: Session, l, allowed: tuple, **values) -> None:
+    """Move a log on only if it is still in one of `allowed` states - one
+    conditional UPDATE whose row count says whether this request won. A
+    second manager deciding the same log a moment later gets a 409, never a
+    second decision (review, 11/03/2026). `l` is re-read afterwards."""
+    n = (db.query(models.ConstructionDailyLog)
+         .filter(models.ConstructionDailyLog.id == l.id,
+                 models.ConstructionDailyLog.status.in_(allowed),
+                 models.ConstructionDailyLog.deleted_at == "")
+         .update(values, synchronize_session=False))
+    if n != 1:
+        db.rollback()
+        raise HTTPException(409, "This log changed while you were looking at it - reload it and try again.")
+    db.refresh(l)
 
 
 @router.post("/logs/{log_id}/submit")
@@ -635,7 +665,7 @@ def submit_log(log_id: str, user: dict = Depends(get_current_user),
     the moment it lands (11/03/2026), never stuck "processing". The Egnyte
     record copy and thumbnails were queued at upload and do not wait on this."""
     import construction_ai
-    l = _get_log(db, log_id)
+    l = _get_log(db, log_id, lock=True)
     p = _project(db, l.project_id, user)
     em = _me(user)
     if (l.author_email or "").lower() != em and not (_level(user) >= 4 and _in_company(db, user, p)):
@@ -650,9 +680,7 @@ def submit_log(log_id: str, user: dict = Depends(get_current_user),
         raise HTTPException(422, "Add at least one photo, video, voice note or written note.")
 
     now = now_iso()
-    l.status = "submitted"
-    l.submitted_at = now
-    l.modified_at = now
+    _claim(db, l, ("draft", "needs_info"), status="submitted", submitted_at=now, modified_at=now)
 
     # Captions are an INPUT to the log summary, so the summary waits on them:
     # priority orders the queue and depends_on is the hard gate.
@@ -715,7 +743,7 @@ def review_log(log_id: str, body: dict, user: dict = Depends(get_current_user),
     The log's state decides (11/03/2026): only a submitted (or sent back)
     log is reviewed - never a draft, never an approved one (that takes an
     explicit Reopen, with a reason), and never by its own author."""
-    l = _get_log(db, log_id)
+    l = _get_log(db, log_id, lock=True)
     p = _project(db, l.project_id, user)
     if not _may_review(db, user, p):
         raise HTTPException(403, "Only a project manager can review daily logs.")
@@ -730,11 +758,10 @@ def review_log(log_id: str, body: dict, user: dict = Depends(get_current_user),
         raise HTTPException(409, "This log has not been submitted yet.")
     if decision == "needs_info" and not ((body or {}).get("note") or "").strip():
         raise HTTPException(422, "Say what the crew should add before sending the log back.")
-    l.status = "approved" if decision == "approve" else "needs_info"
-    l.reviewed_by = user["email"]
-    l.reviewed_at = now_iso()
-    l.review_note = ((body or {}).get("note") or "")[:2000]
-    l.modified_at = l.reviewed_at
+    at = now_iso()
+    _claim(db, l, REVIEWABLE, status="approved" if decision == "approve" else "needs_info",
+           reviewed_by=user["email"], reviewed_at=at, modified_at=at,
+           review_note=((body or {}).get("note") or "")[:2000])
     _log_activity(db, project_id=p.id, entity_kind="log", entity_id=l.id,
                   type=decision, actor_email=user["email"], detail=l.review_note)
     # The sent-back case is the whole reason this exists: review_note is a
@@ -752,7 +779,7 @@ def reopen_log(log_id: str, body: dict, user: dict = Depends(get_current_user),
     """The one way back from Approved (11/03/2026): a project reviewer, with a
     reason, on the record (the activity log and the author's bell). The log
     goes back into review; a published report keeps what it printed."""
-    l = _get_log(db, log_id)
+    l = _get_log(db, log_id, lock=True)
     p = _project(db, l.project_id, user)
     if not _may_review(db, user, p):
         raise HTTPException(403, "Only a project manager can reopen a daily log.")
@@ -761,8 +788,7 @@ def reopen_log(log_id: str, body: dict, user: dict = Depends(get_current_user),
         raise HTTPException(422, "Say why the log is being reopened.")
     if l.status != "approved":
         raise HTTPException(409, "Only an approved log can be reopened.")
-    l.status = "submitted"
-    l.modified_at = now_iso()
+    _claim(db, l, ("approved",), status="submitted", modified_at=now_iso())
     _log_activity(db, project_id=p.id, entity_kind="log", entity_id=l.id,
                   type="reopened", actor_email=user["email"], detail=reason)
     construction_notify.log_reopened(db, p, l, user["email"], reason)
@@ -885,28 +911,37 @@ def delete_media(media_id: str, reason: str = "", user: dict = Depends(get_curre
     """Soft delete, and only while the log is still being written (11/03/2026).
 
     A photo is evidence: once its log is submitted, approved or printed in a
-    published report it stays - nobody removes it, a manager included. While
-    the log is a draft (or sent back for more), its uploader may take a photo
-    out; a manager may too, with a reason that goes on the record. Nothing is
-    ever hard-deleted, and the Egnyte record copy is NOT removed - that file
-    is the project's record and lives under Egnyte's own retention."""
+    published report it stays - nobody removes it, a manager included. Its
+    uploader may take it out only while the log is a draft that was NEVER
+    submitted; once a log has been in front of a reviewer (sent back, or
+    approved and reopened and sent back) only a manager may, with a reason on
+    the record (review, 11/03/2026). Nothing is ever hard-deleted, and the
+    Egnyte record copy is NOT removed - that file is the project's record and
+    lives under Egnyte's own retention. The log's row is locked meanwhile, so
+    a Submit at the same moment cannot slip past the state check."""
     m = (db.query(models.ConstructionMedia)
          .filter(models.ConstructionMedia.id == media_id,
                  models.ConstructionMedia.deleted_at == "").first())
     if not m:
         raise HTTPException(404, "Media not found")
     p = _project(db, m.project_id, user)
-    log = (db.query(models.ConstructionDailyLog)
-           .filter(models.ConstructionDailyLog.id == m.daily_log_id).first()) if m.daily_log_id else None
+    log = _get_log(db, m.daily_log_id, lock=True) if m.daily_log_id else None
     if log is None or log.status not in ("draft", "needs_info") or _in_published_report(db, m):
         raise HTTPException(409, "This file is part of a submitted daily log and is kept as evidence.")
     mine = (m.uploaded_by or "").lower() == _me(user)
-    if not mine:
+    never_submitted = log.status == "draft" and not (log.submitted_at or "")
+    if not (mine and never_submitted):
         if not _may_review(db, user, p):
-            raise HTTPException(403, "You can only remove media you uploaded.")
+            raise HTTPException(403, "This file was already in front of a reviewer - a manager has to remove it."
+                                if mine else "You can only remove media you uploaded.")
         if not (reason or "").strip():
-            raise HTTPException(422, "Say why you are removing someone else's file.")
-    m.deleted_at = now_iso()
+            raise HTTPException(422, "Say why this file is being removed.")
+    n = (db.query(models.ConstructionMedia)
+         .filter(models.ConstructionMedia.id == m.id, models.ConstructionMedia.deleted_at == "")
+         .update({"deleted_at": now_iso()}, synchronize_session=False))
+    if n != 1:
+        db.rollback()
+        raise HTTPException(404, "Media not found")
     _log_activity(db, project_id=p.id, entity_kind="media", entity_id=m.id,
                   type="deleted", actor_email=user["email"],
                   detail=(reason or "").strip()[:500] or "removed by the uploader")
@@ -1215,7 +1250,7 @@ def generate_report(project_id: str, body: dict,
         if day > construction_company.local_today(db, p):
             raise HTTPException(422, "That week has not started yet on site.")
         week_start = construction_company.week_start_for(
-            day, p.week_starts_on if p.week_starts_on is not None else 1).isoformat()
+            day, construction_company.week_starts(p)).isoformat()
     else:
         week_start = construction_company.current_week_start(db, p).isoformat()
     import construction_report
@@ -1230,7 +1265,21 @@ def generate_report(project_id: str, body: dict,
     _log_activity(db, project_id=p.id, entity_kind="report", entity_id=r.id,
                   type="generated", actor_email=user["email"],
                   detail=f"week of {week_start}")
-    db.commit()
+    from sqlalchemy.exc import IntegrityError
+    try:
+        db.commit()
+    except IntegrityError:
+        # Someone (the scheduler, a second click) wrote this week's version a
+        # moment ago - the unique project/week/version index. Theirs stands.
+        db.rollback()
+        r = (db.query(models.ConstructionWeeklyReport)
+             .filter(models.ConstructionWeeklyReport.project_id == p.id,
+                     models.ConstructionWeeklyReport.week_start == week_start,
+                     models.ConstructionWeeklyReport.deleted_at == "")
+             .order_by(models.ConstructionWeeklyReport.version.desc()).first())
+        if r is None:
+            raise HTTPException(409, "This week's report changed while it was drafting - try again.")
+        return report_to_dict(r)
     db.refresh(r)
     return report_to_dict(r)
 
@@ -1269,9 +1318,18 @@ def update_report(report_id: str, body: dict, user: dict = Depends(get_current_u
                        ("executive_summary", "executive_summary")):
         if field in (body or {}):
             setattr(r, col, body[field])
-    for field in ("risks", "recommendations", "cost_exposure", "media_ids", "section_order"):
+    for field in ("risks", "recommendations", "cost_exposure", "section_order"):
         if field in (body or {}):
             setattr(r, field, body[field])
+    if "media_ids" in (body or {}):
+        # Only this job's own, live photos (11/03/2026): the report is printed
+        # and emailed, so an id from another job never gets into it.
+        wanted = [i for i in (body.get("media_ids") or []) if isinstance(i, str)]
+        mine = {m.id for m in db.query(models.ConstructionMedia.id)
+                .filter(models.ConstructionMedia.id.in_(wanted or [""]),
+                        models.ConstructionMedia.project_id == r.project_id,
+                        models.ConstructionMedia.deleted_at == "").all()}
+        r.media_ids = [i for i in wanted if i in mine]
     r.modified_at = now
     _log_activity(db, project_id=p.id, entity_kind="report", entity_id=r.id,
                   type="edited", actor_email=user["email"],
@@ -1335,9 +1393,10 @@ def report_pdf(report_id: str, user: dict = Depends(get_current_user),
     if r.status != "published" and not _may_review(db, user, p):
         raise HTTPException(403, "This report has not been published yet.")
 
-    # A removed photo never prints (11/03/2026).
+    # A removed photo, or another job's, never prints (11/03/2026).
     media = {m.id: m for m in db.query(models.ConstructionMedia)
              .filter(models.ConstructionMedia.id.in_(r.media_ids or [""]),
+                     models.ConstructionMedia.project_id == r.project_id,
                      models.ConstructionMedia.deleted_at == "").all()} if r.media_ids else {}
     logs = (db.query(models.ConstructionDailyLog)
             .filter(models.ConstructionDailyLog.id.in_(r.daily_log_ids or [""]))

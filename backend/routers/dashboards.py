@@ -739,7 +739,12 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
                 s["drill"] = s["key"] in DRILLABLE.get(m["id"], ())
         return {"modules": [m for m in modules if m["stats"] or m["breakdown"] or m.get("table") or m.get("trend") or m.get("funnel")]}
 
-    out = cache.dashboard_insights.get_or_load((), _compute)
+    # Keyed on the viewer's company wall (11/03/2026): every walled block
+    # (tasks, tickets, requisitions, inventory, forms, construction) reads
+    # auth.company_scope, so viewers with the same scope share one entry and a
+    # viewer in another company never gets the first loader's numbers.
+    key = (auth.scope_key(auth.company_scope(user, db)),)
+    out = cache.dashboard_insights.get_or_load(key, _compute)
     return {**out, "at": _now()}
 
 
