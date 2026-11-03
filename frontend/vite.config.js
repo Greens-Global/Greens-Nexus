@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
+import { isDeepStrictEqual } from 'node:util'
 import { nxSrcVitePlugin } from './scripts/nxsrc-plugin.mjs'
 import { stampHtml } from './scripts/stamp-assets.mjs'
 
@@ -84,6 +85,51 @@ function mammothXmlWriterStub() {
     load(id) {
       if (id !== XMLBUILDER_STUB) return null;
       return 'export function create() { throw new Error("Writing Word files is not available in Nexus (mammoth.embedStyleMap)."); }\nexport default { create };';
+    },
+  };
+}
+
+// mammoth's symbol-font table, written compactly (11/03/2026, bundle headroom).
+// dingbat-to-unicode (how mammoth turns a Wingdings / Symbol character in a
+// Word file into Unicode) ships its 1,061-row table as objects that repeat
+// five long key names on every row: ~90 KB minified. On a production build
+// its dingbats.js is rewritten as runs of numbers that expand, when the
+// module loads, into the very same array of the very same objects. The
+// expansion is run here and compared with the original row by row; if it is
+// not identical (a new version of the package, a row that does not follow
+// the pattern) the original file is used untouched.
+function compactDingbats() {
+  const TABLE = /[\\/]node_modules[\\/]dingbat-to-unicode[\\/]dist[\\/]dingbats\.js$/;
+  return {
+    name: 'nexus-compact-dingbats',
+    apply: 'build',
+    enforce: 'pre',
+    load(id) {
+      if (!TABLE.test(id)) return null;
+      const evalCjs = (code) => { const module = { exports: {} }; new Function('exports', 'module', code)(module.exports, module); return module.exports.default; };
+      const rows = evalCjs(readFileSync(id, 'utf8'));
+      if (!Array.isArray(rows)) return null;
+      const runs = [];
+      for (const r of rows) {
+        const last = runs[runs.length - 1];
+        const pair = [Number(r['Dingbat dec']), Number(r['Unicode dec'])];
+        if (last && last[0] === r['Typeface name']) last[1].push(...pair);
+        else runs.push([r['Typeface name'], pair]);
+      }
+      const code = [
+        '"use strict";',
+        'Object.defineProperty(exports, "__esModule", { value: true });',
+        `var runs = ${JSON.stringify(runs)};`,
+        'var dingbats = [];',
+        'var hex = function (n) { return n.toString(16).toUpperCase(); };',
+        'for (var r = 0; r < runs.length; r++) {',
+        '  for (var i = 0, a = runs[r][1]; i < a.length; i += 2) {',
+        '    dingbats.push({ "Typeface name": runs[r][0], "Dingbat dec": String(a[i]), "Dingbat hex": hex(a[i]), "Unicode dec": String(a[i + 1]), "Unicode hex": hex(a[i + 1]) });',
+        '  }',
+        '}',
+        'exports.default = dingbats;',
+      ].join('\n');
+      return isDeepStrictEqual(evalCjs(code), rows) ? code : null;
     },
   };
 }
@@ -228,7 +274,7 @@ export default defineConfig(({ command }) => ({
     ...((NX_SRC || command === 'serve') && !process.env.VITEST
       // Dev serve stamps every element - size is irrelevant locally.
       ? [nxSrcVitePlugin({ root: FRONTEND_ROOT, only: command === 'serve' || process.env.VITE_NX_SRC === 'all' ? undefined : process.env.VITE_NX_SRC === 'interactive' ? 'interactive' : 'handlers' })] : []),
-    react(), versionManifest(), stampUnhashedAssets(), excalidrawLocaleStub(), pdfLibSharesPako(), mammothXmlWriterStub(),
+    react(), versionManifest(), stampUnhashedAssets(), excalidrawLocaleStub(), pdfLibSharesPako(), mammothXmlWriterStub(), compactDingbats(),
   ],
   base: '/',
   // Build Mode's local preview / e2e runs share the main checkout's node_modules
