@@ -31,7 +31,8 @@ Mock: https://claude.ai/artifact/PwncxMck8YaSkFkQ8hmTHE. **Green stays the brand
 means "in progress / now" and nothing else.**
 
 - Tokens (style.css "Live accent" block, contrast ratios in its comment):
-  `--wk-live` bars, outlines, icons, the now line (light `#ee6a24`, dark `#ff7a33`,
+  `--wk-live` bars, outlines, icons, the now line (light `#ed631a` - the mock's `#ee6a24`
+  one step darker so it clears 3:1 on the canvas too - dark `#ff7a33`,
   Warm sand `#d9581a`) · `--wk-live-ink` the only orange allowed for text (`#b8480f` /
   `#ff9a5c` / `#a8400c`) · `--wk-live-tint` a soft wash (`#fdeee5` /
   `rgba(255,122,51,.14)` / `#fbe4d5`) · `--wk-live-line` an outline around a tint ·
