@@ -576,12 +576,16 @@ def _people_and_rates() -> tuple[dict, dict]:
     try:
         companies = {c.id: c.name or "" for c in db.query(models.HrEntity).all()}
         people, ids, by_name = {}, {}, {}
-        # An active record wins over an old one with the same code.
-        for e in sorted(db.query(models.NexusEmployee).all(), key=lambda e: e.status == "active"):
+        # An active record wins over an old one with the same code. Removed
+        # people count too (11/05/2026: Anthony Bell and Ricky Cotton were
+        # removed from People but still on the ledger) - as inactive, so
+        # Show Inactive Employees decides whether they show.
+        everyone = db.query(models.NexusEmployee).execution_options(include_deleted=True).all()
+        for e in sorted(everyone, key=lambda e: (e.status == "active" and not (e.deleted_at or ""))):
             info = {"name": (e.display_name or f"{e.first_name or ''} {e.last_name or ''}").strip(), "email": (e.work_email or "").lower(),
                     "company": e.company or "", "companyName": companies.get(e.company or "", ""),
                     "department": e.department or "", "title": e.job_title or e.designation or "",
-                    "active": (e.status or "active") == "active"}
+                    "active": (e.status or "active") == "active" and not (e.deleted_at or "")}
             for k in {_name_key(info["name"]), _name_key(f"{e.first_name or ''} {e.last_name or ''}")} - {""}:
                 by_name.setdefault(k, []).append(info)
             code = (e.employee_code or "").strip().upper()
