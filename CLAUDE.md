@@ -899,6 +899,13 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   only the fallback). Administrators SEE every company's assets - never add
   a company wall to the asset reads. Only ASSIGNING a company is limited to
   the companies the saver may use (`_check_company`, refused per row).
+- **A property may pin its Egnyte folder** (Neil, 11/03/2026): `egnyteFolder`
+  on the asset (Details > Egnyte Folder, Find Folder lists name candidates
+  from `GET /property-assets/{id}/egnyte-folders`), checked on the row save
+  (`_check_egnyte_folder`: inside the property roots, normalized, no '..').
+  Construction files go to the pinned folder FIRST; a pinned folder Egnyte
+  says is missing never falls back to a name match or the root - the sweep
+  HOLDS the files (`egnyte_status='held'`) until it is back or re-pinned.
 - **Files are URLs**: photos and documents go browser -> the PRIVATE
   `asset-files` bucket (`lib/upload.js`) and the record keeps the canonical
   URL; the save refuses a new data: URL. `asset_files_migrate.py` moves the

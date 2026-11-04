@@ -13,6 +13,8 @@ import { PropertyMapLink } from './PropertyMapLink.jsx';
 import { PhotoGallery } from './PhotoGallery.jsx';
 import { SiteModelSection } from './SiteModelSection.jsx';
 import { companyIdOf, companyName, companyOptions } from '../../lib/companies.js';
+import { egnyteFolderOf } from '../../lib/egnyteFolder.js';
+import { EgnyteFolderInput } from './EgnyteFolderField.jsx';
 
 const FLAG_REASONS = ['Appears Incorrect', 'Needs Verification', 'Outdated', 'Missing Info', 'Other'];
 
@@ -154,7 +156,9 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
         {options.map((o) => <option key={o.v || 'none'} value={o.v}>{o.l}</option>)}
       </select>
     );
-  })() : f.unitLabel ? (
+  })() : f.t === 'egnyte' ? (
+    <EgnyteFolderInput assetId={asset.id} value={draft[f.l] ?? ''} onChange={(v) => setField(f.l, v)} />
+  ) : f.unitLabel ? (
     <div style={{ display: 'flex', gap: 6 }}>
       <input className="form-input" type="text" value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={{ ...inputStyle, flex: 1 }} />
       <select className="form-input" value={draft[f.unitLabel] ?? 'Acres'} onChange={(e) => setField(f.unitLabel, e.target.value)} style={{ ...inputStyle, width: 84, flexShrink: 0 }}>
@@ -250,8 +254,9 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
           const filled = all.filter(hasValue).length;
           // Read mode: the filled fields, plus any empty one that is flagged or deep-linked.
           const open = editing || !!showEmpty[sec.title];
-          // Company always shows, a dash when none is set (Needs a Company), so it is never hidden.
-          const rows = open ? all : all.filter((f) => hasValue(f) || f.t === 'company' || (onFlag && flagMap.has(f.flagKey)) || revealed.has(String(f.l).toLowerCase()) || (highlightField && String(f.l).toLowerCase() === highlightField));
+          // Company always shows, a dash when none is set (Needs a Company), so it is never hidden;
+          // so does the Egnyte Folder (blank = not pinned, matched by name).
+          const rows = open ? all : all.filter((f) => hasValue(f) || f.t === 'company' || f.t === 'egnyte' || (onFlag && flagMap.has(f.flagKey)) || revealed.has(String(f.l).toLowerCase()) || (highlightField && String(f.l).toLowerCase() === highlightField));
           const hidden = all.length - rows.length;
           return (
           <section key={'sec' + si} id={'gt-sec' + si} style={sectionCardStyle}>
@@ -289,6 +294,10 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
                     <span style={labelStyle}>{label}</span>
 
                     {editing ? renderEditInput(f)
+                      : f.t === 'egnyte'
+                        ? <span style={{ fontSize: '0.85rem', fontWeight: (value ?? '') === '' ? 500 : 600, color: (value ?? '') === '' ? 'var(--text-muted)' : 'var(--text-primary)', wordBreak: 'break-word' }}>
+                          {(value ?? '') === '' ? 'Not pinned - matched by name' : value}
+                        </span>
                       : f.contact && String(value ?? '').trim()
                         ? <ContactCell name={value} label={f.l} contacts={asset.contacts} onSave={onSaveContact} />
                         : <span style={{ fontSize: '0.85rem', fontWeight: 600, color: (value ?? '') === '' ? 'var(--text-muted)' : 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>
@@ -298,8 +307,8 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
                     {/* The flag: a quiet icon that shows on hover (always on a touch
                         screen, always once flagged - asset-styles .gt-flag). A click
                         opens the reasons; a flagged one clears on click. */}
-                    {/* Company is a picker, not text: nothing to flag or push a fix for. */}
-                    {onFlag && f.t !== 'company' ? (
+                    {/* Company is a picker, not text, and the Egnyte Folder a pin: nothing to flag or push a fix for. */}
+                    {onFlag && f.t !== 'company' && f.t !== 'egnyte' ? (
                       <button
                         type="button"
                         ref={menuOpen ? flagBtnRef : undefined}
@@ -417,6 +426,7 @@ function buildSections(asset, isProperty, editing) {
   const resolveValue = (field) => {
     if (field.type === 'stage') return asset.devStage || snapshotValues[normLabel(field.label)] || '';
     if (field.type === 'company') return companyIdOf(asset);
+    if (field.type === 'egnyte') return egnyteFolderOf(asset);
     if (field.key && asset[field.key] != null && String(asset[field.key]).trim() !== '') return String(asset[field.key]);
     const v = snapshotValues[normLabel(field.label)];
     return v !== undefined && v !== '' ? v : '';
@@ -441,6 +451,7 @@ function buildSections(asset, isProperty, editing) {
       { label: 'State', key: 'state' },
       { label: 'Zip', key: 'zip' },
       { label: 'APN', key: 'apn' },
+      { label: 'Egnyte Folder', key: 'egnyteFolder', type: 'egnyte' },
       { label: 'Lot Size (SF / Acres)', key: 'acreage', unitKey: 'acreageUnit', unitLabel: 'Lot Size Unit' },
       { label: 'Acquisition Price', type: 'money' },
       { label: 'Acquisition Date', type: 'date' },

@@ -40,6 +40,10 @@ export const PT = [
       { label: 'Zip', key: 'zip' },
       { label: 'Country', key: 'country' },
       { label: 'APN', key: 'apn' },
+      // The property's PINNED Egnyte folder (Neil, 11/03/2026) - a path on the
+      // row (`egnyteFolder`), never a snapshot value; lib/egnyteFolder.js.
+      // Construction files go there before any match by name.
+      { label: 'Egnyte Folder', key: 'egnyteFolder', type: 'egnyte' },
       { label: 'Google Maps Link', key: 'mapUrl' },
       { label: 'Legal Description' },
       { label: 'Current Use' },

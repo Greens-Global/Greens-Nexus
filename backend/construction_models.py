@@ -235,7 +235,8 @@ class ConstructionMedia(Base):
     egnyte_path    = Column(String, default="", index=True)   # authoritative location
     egnyte_web_url = Column(String, default="")               # deep link into Egnyte's own UI
     egnyte_status  = Column(String, default="pending", index=True)
-    # pending | uploaded | failed | skipped(too_large) - drives the retry sweep
+    # pending | uploaded | failed | skipped(too_large) - drives the retry sweep;
+    # held = waiting on the property's missing PINNED Egnyte folder (11/03/2026)
     egnyte_error   = Column(String, default="")
     egnyte_synced_at = Column(String, default="")
     # ── Supabase: derivatives, rebuildable ──

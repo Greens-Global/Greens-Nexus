@@ -82,25 +82,57 @@ def _root_folder(project) -> str:
     return egnyte_svc.norm(f"{_construction_root()}/{project.name}")
 
 
+class PinnedFolderMissing(RuntimeError):
+    """The job's property has a PINNED Egnyte folder that Egnyte says is not
+    there. Never a name guess and never the construction root: the row is
+    HELD (sweep_once) until the folder is back or the pin changes."""
+
+
+def pinned_folder(prop) -> str:
+    """The Egnyte folder pinned on an Asset Management asset (its
+    `egnyteFolder`, set on the asset's Details, checked by the row save) -
+    '' when none is."""
+    raw = str(((getattr(prop, "payload", None) or {}) if prop is not None else {}).get("egnyteFolder") or "").strip()
+    return egnyte_svc.norm(raw) if raw else ""
+
+
+# The answers that HOLD a file instead of filing it: a folder was pinned, so
+# neither a name match nor the construction root may stand in for it.
+_HOLD_REASONS = ("pinned_missing", "pinned_invalid")
+
+
+def _pin_ok(path: str) -> bool:
+    try:
+        return bool(egnyte_svc.normalize_pinned_folder(path))
+    except ValueError:
+        return False
+
+
 def property_folder(db, project, memo: dict | None = None) -> tuple[str, str]:
     """(the property's Egnyte folder, why) for a job attached to a property.
 
-    Where the folder comes from: Nexus stores no Egnyte folder on a property
-    (the Asset Management record has none, and the wiring registry has no
-    per-property slot), so a property's folder is the one the Egnyte module
-    finds over the `property.roots` wiring (#Entities, then --Asset
-    Management) by the Asset Management property's name - through
-    `services/egnyte.find_property_folder`, the UNATTENDED form of the
-    resolver: an exact or site-key match, or a substring match only when it
-    is the one candidate across every root. It only ever answers a folder
-    that EXISTS; it never makes one up.
+    Where the folder comes from (Neil, 11/03/2026: a property may pin its
+    exact folder instead of matching by name):
+      1. the folder PINNED on the Asset Management asset (`egnyteFolder`),
+         when one is - why 'pinned' while Egnyte lists it. A pinned folder
+         Egnyte answers 404 for is 'pinned_missing' with no folder, and it
+         never falls back to a name match: someone chose that folder, so a
+         file never lands in a guessed place (media_folder refuses to file);
+      2. else the one the Egnyte module finds over the `property.roots`
+         wiring (#Entities, then --Asset Management) by the Asset
+         Management property's name - through
+         `services/egnyte.find_property_folder`, the UNATTENDED form of the
+         resolver: an exact or site-key match, or a substring match only
+         when it is the one candidate across every root. It only ever
+         answers a folder that EXISTS; it never makes one up.
 
-    `why` is 'matched' with a folder, else the reason it is '' -
-    'no_property', 'property_missing', 'property_unnamed', 'ambiguous' or
-    'no_egnyte_folder' - and the file goes to the construction root (today's
-    behavior), logged. Egnyte not answering raises (and keeps raising for
-    the rest of the tick), so the row is retried rather than filed at the
-    root for good.
+    `why` is 'pinned' or 'matched' with a folder, else the reason it is '' -
+    'no_property', 'property_missing', 'property_unnamed', 'pinned_missing',
+    'pinned_invalid' (a pin outside the roots), 'ambiguous' or
+    'no_egnyte_folder' - and, except for the two pinned ones (_HOLD_REASONS),
+    the file goes to the construction root (today's behavior), logged.
+    Egnyte not answering raises (and keeps raising for the rest of the
+    tick), so the row is retried rather than filed at the root for good.
 
     (Until 11/03/2026 this read `models.Property`, which does not exist, so
     every file went to the construction root.)"""
@@ -116,8 +148,17 @@ def property_folder(db, project, memo: dict | None = None) -> tuple[str, str]:
         return got
     prop = db.get(models.PropertyAsset, pid)
     name = (getattr(prop, "name", "") or "").strip() if prop else ""
+    pinned = pinned_folder(prop)
     if prop is None:
         out = ("", "property_missing")
+    elif pinned and not _pin_ok(pinned):
+        out = ("", "pinned_invalid")   # saved before the roots moved, or seeded - still never a guess
+    elif pinned:
+        try:
+            out = (pinned, "pinned") if egnyte_svc.folder_exists(pinned) else ("", "pinned_missing")
+        except Exception as e:
+            memo[key] = e
+            raise
     elif not name:
         out = ("", "property_unnamed")
     else:
@@ -165,10 +206,17 @@ def media_folder(db, project, day: str, memo: dict | None = None) -> str:
     YYYY-MM/YYYY-MM-DD` (Neil, 11/03/2026). Without one, or when the
     property's folder cannot be found: `<construction root>/<job name>/
     Construction/Daily Logs/YYYY-MM/YYYY-MM-DD`, as every file has gone
-    since August."""
+    since August. A property whose PINNED folder is missing raises
+    PinnedFolderMissing - nothing is filed anywhere for it."""
     folder, why = property_folder(db, project, memo)
     if folder:
         return storage.property_job_log_folder(folder, job_folder_name(db, project, folder, memo), day)
+    if why in _HOLD_REASONS:
+        prop = db.get(models.PropertyAsset, project.property_id)
+        raise PinnedFolderMissing(
+            f"The property's pinned Egnyte folder {pinned_folder(prop)} "
+            + ("is not in Egnyte" if why == "pinned_missing" else "is not inside the property folder roots")
+            + " - waiting for it to be back or for a new folder to be pinned on the asset")
     if why != "no_property":
         print(f"[construction] job {project.id} ({project.name}): property "
               f"{project.property_id} has no Egnyte folder ({why}) - filing at the construction root")
@@ -205,6 +253,10 @@ def _file_one(db, media) -> None:
         media.egnyte_synced_at = _now()
         return
 
+    # Where it goes first: a property whose pinned folder is missing holds the
+    # file (PinnedFolderMissing) before any bytes are pulled.
+    folder = media_folder(db, project, day)
+
     # The bytes live in Supabase. Pull them back rather than asking the phone to
     # upload twice - the worker has bandwidth, the jobsite does not.
     # storage.fetch_url refuses anything that is not this job's own object in
@@ -217,7 +269,6 @@ def _file_one(db, media) -> None:
     if not raw:
         raise ValueError("source object is empty")
 
-    folder = media_folder(db, project, day)
     name = storage.media_filename(
         uploaded_by=media.uploaded_by or "", taken_at=media.taken_at or "",
         uploaded_at=media.uploaded_at or "", kind=media.kind,
@@ -239,11 +290,16 @@ def _file_one(db, media) -> None:
 
 
 # ── Files filed at the root before 11/03/2026 (read only) ──────────────────
+# How the property's folder was found, in the report's words.
+_SOURCE_WORDS = {"pinned": "Pinned", "matched": "Matched by Name"}
+
 _REASON_WORDS = {
     "property_missing": "The job's property is not in Asset Management.",
     "property_unnamed": "The job's property has no name to find its folder by.",
     "no_egnyte_folder": "No Egnyte folder was found for the property.",
     "ambiguous": "More than one Egnyte folder could be the property's - none was picked.",
+    "pinned_missing": "The Egnyte folder pinned on the property is not in Egnyte - its files wait, nothing is filed by name.",
+    "pinned_invalid": "The Egnyte folder pinned on the property is outside the property folder roots - its files wait.",
     "egnyte_unreachable": "Egnyte did not answer while looking for the property's folder.",
     "egnyte_not_connected": "Egnyte is not connected on this server.",
 }
@@ -261,7 +317,10 @@ def root_filed_report(db, projects, user: dict, limit: int = 2000) -> dict:
     went to the root because its property's folder cannot be found (no
     match, more than one candidate, a renamed folder) is listed with an
     empty destination and the reason - those are the ones the sweep is
-    STILL filing at the root.
+    STILL filing at the root. Each destination says how the property's
+    folder was found (`folderSource`: Pinned or Matched by Name); a pinned
+    folder that is missing gives no destination and its reason, and `held`
+    counts the files waiting on one.
 
     Left out: deleted jobs and deleted media, and media on a draft log the
     caller did not write (a draft is private to its author). A PRIVATE
@@ -274,7 +333,7 @@ def root_filed_report(db, projects, user: dict, limit: int = 2000) -> dict:
     me = ((user or {}).get("email") or "").strip().lower()
     memo: dict = {}
     ready = storage.egnyte_ready()
-    rows, total = [], 0
+    rows, total, held = [], 0, 0
     for p in projects:
         if not (p.property_id or "").strip() or p.deleted_at:
             continue
@@ -326,8 +385,16 @@ def root_filed_report(db, projects, user: dict, limit: int = 2000) -> dict:
                 "destinationFolder": dest_folder,
                 "destinationPath": f"{dest_folder}/{name}" if dest_folder and name else "",
                 "reason": "" if folder or not shown else _REASON_WORDS.get(why, why),
+                # 'Pinned' (the asset's own Egnyte Folder) or 'Matched by Name'.
+                "folderSource": _SOURCE_WORDS.get(why, "") if folder and shown else "",
             })
+        held += (db.query(models.ConstructionMedia)
+                 .filter(models.ConstructionMedia.project_id == p.id,
+                         models.ConstructionMedia.deleted_at == "",
+                         models.ConstructionMedia.egnyte_status == "held").count())
     return {"rows": rows, "total": total, "truncated": total > len(rows),
+            # Files not yet in Egnyte at all: waiting on a missing pinned folder.
+            "held": held,
             "egnyteConfigured": ready,
             "note": "Read only - nothing has been moved, copied or deleted."}
 
@@ -421,11 +488,45 @@ def _derive_thumbnail(db, media) -> None:
     media.thumbnail_url = _supabase_put(path, buf.getvalue(), "image/jpeg")
 
 
+def _release_held(db) -> int:
+    """Rows HELD because their property's pinned Egnyte folder was missing
+    (or outside the roots) go back to the queue once property_folder answers
+    anything else - the folder is back, the pin changed, or it was cleared
+    (then the name match decides, as for any property). One answer per
+    property per tick (the memo); Egnyte not answering leaves them held for
+    the next tick. Held rows are out of the pending queue, so a property
+    waiting on its folder never blocks another job's files."""
+    held = (db.query(models.ConstructionMedia.project_id)
+            .filter(models.ConstructionMedia.egnyte_status == "held",
+                    models.ConstructionMedia.deleted_at == "")
+            .distinct().all())
+    released = 0
+    for (pid,) in held:
+        project = (db.query(models.ConstructionProject)
+                   .filter(models.ConstructionProject.id == pid).first())
+        if project is None:
+            continue
+        try:
+            _folder, why = property_folder(db, project)
+        except Exception as e:
+            print(f"[construction] held files of job {pid}: Egnyte did not answer ({e}) - still held")
+            continue
+        if why in _HOLD_REASONS:
+            continue
+        released += (db.query(models.ConstructionMedia)
+                     .filter(models.ConstructionMedia.project_id == pid,
+                             models.ConstructionMedia.egnyte_status == "held")
+                     .update({models.ConstructionMedia.egnyte_status: "pending",
+                              models.ConstructionMedia.egnyte_error: ""},
+                             synchronize_session=False))
+    return released
+
+
 def sweep_once() -> dict:
     """One tick. Synchronous by design - the caller runs it in a thread."""
     if job_switch.off("construction_sweep"):   # Workflows > Automations switch
-        return {"filed": 0, "failed": 0, "dead": 0, "skipped": 0}
-    counts = {"filed": 0, "failed": 0, "dead": 0, "skipped": 0}
+        return {"filed": 0, "failed": 0, "dead": 0, "skipped": 0, "held": 0, "released": 0}
+    counts = {"filed": 0, "failed": 0, "dead": 0, "skipped": 0, "held": 0, "released": 0}
     if not storage.egnyte_ready():
         # Unconfigured is a first-class state, not an error: rows stay pending
         # and file themselves once EGNYTE_DOMAIN/EGNYTE_TOKEN exist. Failing them
@@ -437,6 +538,8 @@ def sweep_once() -> dict:
     db = SessionLocal()
     try:
         _acquire_sweep_lock(db)
+        # Inside the lock's transaction; committed with the rows below.
+        counts["released"] = _release_held(db)
         rows = (db.query(models.ConstructionMedia)
                 .filter(models.ConstructionMedia.egnyte_status == "pending",
                         models.ConstructionMedia.deleted_at == "")
@@ -453,6 +556,13 @@ def sweep_once() -> dict:
                 if job:
                     job.status, job.finished_at, job.attempts = "done", _now(), attempts
                 counts["filed"] += 1
+            except PinnedFolderMissing as e:
+                # Not an attempt: nothing is wrong with the file. It waits,
+                # out of the queue, until _release_held sees the pinned
+                # folder back or the pin changed.
+                m.egnyte_status = "held"
+                m.egnyte_error = str(e)[:500]
+                counts["held"] += 1
             except Exception as e:
                 status = getattr(e, "status", None)
                 permanent = status in _PERMANENT
@@ -468,6 +578,7 @@ def sweep_once() -> dict:
                 if job:
                     job.attempts, job.heartbeat_at = attempts, _now()
             db.commit()
+        db.commit()   # the releases, when no row was swept
     except Exception as e:
         db.rollback()
         print(f"[construction] sweep failed: {e}")

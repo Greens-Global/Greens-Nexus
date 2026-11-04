@@ -425,6 +425,45 @@ def _check_company(db: Session, scope: "_Scope", existing, payload: Dict[str, An
     return None
 
 
+# ── Egnyte Folder (Neil, 11/03/2026) ─────────────────────────────────────────
+# "Should a property be able to pin its exact Egnyte folder instead of matching
+# by name?" - yes. The pin is the payload's `egnyteFolder`; the construction
+# filer uses it before any name match and never guesses when it is missing
+# (construction_worker.property_folder). Set by whoever may edit the asset (the
+# same row save and guard as every other field; a private asset stays an
+# officer's). A CHANGED value is checked and stored normalized
+# (services/egnyte.normalize_pinned_folder: inside the property roots, no '..');
+# blank unpins. Makes no Egnyte call, so it saves with Egnyte not set up. As
+# with the company, a row saved without the key keeps its pin, and an
+# unchanged value is never re-checked (roots moved since stay the filer's
+# business - it holds the files rather than guess).
+
+_EGNYTE_KEY = "egnyteFolder"
+
+
+def _check_egnyte_folder(existing, payload: Dict[str, Any]):
+    """None when the row's Egnyte Folder may be saved as it stands, else the
+    refusal (status, message) - per row, like _check_company."""
+    from services import egnyte as egnyte_svc
+    had = str(((existing.payload or {}) if existing is not None else {}).get(_EGNYTE_KEY) or "").strip()
+    if _EGNYTE_KEY not in payload:
+        if had:
+            payload[_EGNYTE_KEY] = had
+        return None
+    raw = payload.get(_EGNYTE_KEY)
+    if raw is not None and not isinstance(raw, str):
+        return 400, "The Egnyte folder must be a folder path"
+    new = (raw or "").strip()
+    if new == had:
+        payload[_EGNYTE_KEY] = had
+        return None
+    try:
+        payload[_EGNYTE_KEY] = egnyte_svc.normalize_pinned_folder(new)
+    except ValueError as e:
+        return 400, str(e)
+    return None
+
+
 class _FillRevs:
     """What the one-time Company fill did to each row (asset_company_fill),
     read once per batch and only when a stale row needs it."""
@@ -482,6 +521,56 @@ def get_companies(db: Session = Depends(get_db), user=Depends(require_asset_read
     import auth
     return {"companies": assignable_companies(db, user),
             "canClear": auth.company_scope(user or {}, db) is None}
+
+
+_FIND_WORDS = {
+    "matched": "",
+    "ambiguous": "More than one Egnyte folder could be this property's - pick the right one.",
+    "no_match": "No Egnyte folder matched this name - paste the folder's path, or search another name.",
+}
+
+
+@router.get("/property-assets/{pid}/egnyte-folders")
+def find_egnyte_folders(pid: str, q: str = "", db: Session = Depends(get_db), user=Depends(require_asset_write)):
+    """Find Folder on an asset's Egnyte Folder field: the Egnyte folders
+    whose name could be this asset's (or `q`'s), best first, with the one the
+    name match would pick - for the person to choose; nothing is pinned or
+    written here (the pick saves through the row save). Read only. Editors
+    of the asset only, inside its privacy and scope (404 otherwise, as if it
+    were not there).
+
+    With Egnyte not set up it answers `configured: false` and says so; the
+    field still takes a pasted path. A sync route on purpose - it lists
+    Egnyte, so FastAPI runs it in its thread pool, off the event loop."""
+    from services import egnyte as egnyte_svc
+    prop = db.get(PropertyAsset, pid)
+    if prop is None or pid not in _visible_ids(db, user):
+        raise HTTPException(status_code=404, detail="That asset is not here.")
+    site = (q or "").strip()[:200] or (prop.name or "").strip()
+    pinned = str((prop.payload or {}).get(_EGNYTE_KEY) or "").strip()
+    out = {"configured": False, "site": site, "roots": egnyte_svc.pin_roots(), "pinned": pinned,
+           "pinnedFound": None, "match": None, "why": "", "candidates": [], "message": "", "error": ""}
+    if not egnyte_svc.configured():
+        out["message"] = "Egnyte is not set up on this server - paste the folder's path instead."
+        return out
+    out["configured"] = True
+    try:
+        found = egnyte_svc.property_folder_candidates(site) if site else {"match": None, "why": "no_match", "candidates": []}
+        if pinned:
+            try:
+                ok = bool(egnyte_svc.normalize_pinned_folder(pinned))
+            except ValueError:
+                ok = False      # outside the roots now - the filer holds its files
+            out["pinnedFound"] = egnyte_svc.folder_exists(pinned) if ok else False
+    except Exception as e:   # EgnyteError, or httpx giving up on the connection
+        # A 200 with `error`, not a 5xx: Egnyte being down is not Nexus being
+        # down (api.js would show the reconnecting banner and retry).
+        print(f"[property-assets] Find Folder for {pid}: {e}")
+        out["error"] = "Egnyte did not answer - try again in a minute."
+        return out
+    out.update(match=found["match"], why=found["why"], candidates=found["candidates"],
+               message=_FIND_WORDS.get(found["why"], ""))
+    return out
 
 
 @router.post("/property-assets/changes")
@@ -555,7 +644,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             if not str(row.get(_COMPANY_KEY) or "").strip():
                 row[_COMPANY_KEY] = filled
         payload = _strip_rev(row)
-        why = _check_company(db, company_scope, existing, payload)
+        why = _check_company(db, company_scope, existing, payload) or _check_egnyte_folder(existing, payload)
         if why:
             refused.append({"id": pid, "status": why[0], "message": why[1]})
             if existing is None:
