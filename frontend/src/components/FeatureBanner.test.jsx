@@ -75,6 +75,27 @@ describe('the weekly New in Nexus bar', () => {
     }
   });
 
+  it('Reload on the weekly bar counts as seeing it - the reloaded page does not bring it back (11/05/2026)', async () => {
+    // Urmi pressed Reload for ten minutes: the server still said "show", so
+    // the bar returned on every load and read as "the update did not install".
+    const reload = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...original, reload } });
+    let landed;
+    api.dismissFeatureBanner.mockImplementationOnce(() => new Promise((r) => { landed = r; }));
+    try {
+      render(<FeatureBanner activeView="tasks" onNavigate={() => {}} />);
+      await screen.findByRole('region', { name: 'New in Nexus' });
+      fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+      expect(api.dismissFeatureBanner).toHaveBeenCalledTimes(1);
+      expect(reload).not.toHaveBeenCalled();          // waits for the dismissal to land
+      await act(async () => { landed({ ok: true }); });
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
+  });
+
   it("reaching What's New another way closes it for the week", async () => {
     const onNavigate = vi.fn();
     const { rerender } = render(<FeatureBanner activeView="tasks" onNavigate={onNavigate} />);
