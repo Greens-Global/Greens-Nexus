@@ -23,8 +23,8 @@ import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import { slugifyToken, variableFromDrop, VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
 import { extractVariables, mergeFieldDefs, sharedDefs, tokensInDoc } from '../lib/extractVariables';
-import { Pagination, paginationKey, planBreaks } from '../lib/docBuilderPagination';
-import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, marginsOf, pageCanvasStyle, textFlowPx, textColumnPx, sheetPadding, sheetsFor, scrollableAncestor, measureHtmlHeight } from '../lib/pageSetup';
+import { Pagination, paginationKey, planBreaks, measureLines, posAtLineStart, SHEET_SPACE_PX } from '../lib/docBuilderPagination';
+import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, marginsOf, pageCanvasStyle, textFlowPx, sheetPadding, scrollableAncestor } from '../lib/pageSetup';
 import { useIsMobile } from '../lib/useIsMobile';
 import EgnyteBrowser from './EgnyteBrowser';
 import DefineMergeFieldModal from './DefineMergeFieldModal';
@@ -158,7 +158,9 @@ function stripToFormat(nodes) {
 // build one from scratch). A hook can't be called conditionally/dynamically
 // inside the parent's render, so each page is its own component instance -
 // that's the actual reason this is split out, not just organization.
-function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, compact, zoom, firstSheetPx, showMarks, onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
+function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, compact, zoom, firstSheetPx, showMarks,
+  bandInfo, sheetBase = 0, onSheets, topSlot, headerSlot, footerSlot,
+  onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
   const editor = useEditor({
     extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination],
     content: initialJson || null,
@@ -174,41 +176,81 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   }, [editor]);
   useEffect(() => { editor?.setEditable(editable); }, [editable, editor]);
 
-  // ── Lay the blocks out onto sheets ────────────────────────────────────────
-  // Measure the top-level blocks as they actually sit, work out which ones
-  // straddle a sheet boundary, and push those onto the next sheet. The
-  // measurement subtracts the gap a block is already carrying, or every pass
-  // would add another one and the document would walk down the screen.
-  const sheetPx = compact ? 0 : textFlowPx(pageSetup);
+  // The page's own geometry, in layout px: the margins the gutter bands and
+  // the margin-dwelling header/footer are drawn in.
+  const m = marginsOf(pageSetup);
+  const geometry = useMemo(() => ({
+    mt: Math.round(m.top * 96), mb: Math.round(m.bottom * 96), pl: Math.round(m.left * 96), pr: Math.round(m.right * 96),
+    pageColor: pageSetup.pageColor || '#fff',
+  }), [m.top, m.bottom, m.left, m.right, pageSetup.pageColor]);
+  // What every gutter band shows: header/footer HTML and the page total, plus
+  // where this page's sheets start in the whole document.
+  const revRef = useRef(0);
+  const info = useMemo(() => ({ ...(bandInfo || {}), geometry, base: sheetBase, rev: ++revRef.current }),
+    [bandInfo, geometry, sheetBase]);
+  const infoRef = useRef(info);
+  useEffect(() => {
+    infoRef.current = info;
+    if (!editor || editor.isDestroyed) return;
+    editor.view.dispatch(editor.state.tr.setMeta(paginationKey, { info }));
+  }, [info, editor]);
+  const [sheets, setSheets] = useState(1);
+
+  // ── Lay the content out onto sheets ───────────────────────────────────────
+  // Measure the top-level blocks as they actually sit, work out where each
+  // sheet runs out, and lay a gutter in there - between two blocks, or
+  // between two lines of a paragraph. The measurement subtracts the gutters
+  // already laid in, or every pass would add another one and the document
+  // would walk down the screen. Phones and multi-column pages flow freely.
+  const sheetPx = compact || pageSetup.columns > 1 ? 0 : textFlowPx(pageSetup);
   const repaginate = useCallback(() => {
     if (!editor || editor.isDestroyed || !sheetPx) return;
     const dom = editor.view.dom;
-    const kids = Array.from(dom.children);
+    const children = Array.from(dom.children);
+    const kids = children.filter((el) => !el.classList.contains('doc-sheet-gutter'));
     if (!kids.length) return;
     const z = zoom || 1;
     const prev = paginationKey.getState(editor.state)?.breaks || [];
-    const gapAt = new Map(prev.map((b) => [b.index, b.gap]));
+
+    // Gutter height already laid in, by the block whose span holds it: one
+    // between blocks sits in the span of the block above it, one inside a
+    // paragraph sits in that paragraph's own span.
+    const laidIn = new Map();
+    let blockIdx = -1;
+    const add = (i, el) => laidIn.set(i, (laidIn.get(i) || 0) + el.getBoundingClientRect().height / z);
+    for (const el of children) {
+      if (el.classList.contains('doc-sheet-gutter')) { if (blockIdx >= 0) add(blockIdx, el); continue; }
+      blockIdx += 1;
+      for (const g of el.querySelectorAll('.doc-sheet-gutter')) add(blockIdx, g);
+    }
 
     const originTop = dom.getBoundingClientRect().top;
     const tops = kids.map((el) => (el.getBoundingClientRect().top - originTop) / z);
     const total = dom.getBoundingClientRect().height / z;
     const heights = kids.map((_, i) => {
       const next = i + 1 < tops.length ? tops[i + 1] : total;
-      return Math.max(0, next - tops[i] - (gapAt.get(i + 1) || 0));
+      return Math.max(0, next - tops[i] - (laidIn.get(i) || 0));
     });
 
-    // index -> document position, so a decoration can name the block.
+    // index -> document position, so a gutter can be placed before the block.
     const posByIndex = [];
     editor.state.doc.forEach((_node, offset) => { posByIndex.push(offset); });
-    const next = planBreaks(heights, sheetPx, firstSheetPx)
-      .filter((b) => posByIndex[b.index] !== undefined)
-      .map((b) => ({ ...b, pos: posByIndex[b.index] }));
+    const next = [];
+    for (const b of planBreaks(heights, sheetPx, firstSheetPx, (i) => measureLines(kids[i], z))) {
+      if (posByIndex[b.index] === undefined) continue;
+      if (!b.line) { next.push({ index: b.index, gap: b.gap, pos: posByIndex[b.index] }); continue; }
+      const pos = posAtLineStart(editor.view, kids[b.index], b.line);
+      if (pos == null) continue;   // nothing to anchor to: the paragraph runs across, as before
+      next.push({ index: b.index, gap: b.gap, pos, line: true });
+    }
 
     const same = next.length === prev.length
       && next.every((b, i) => prev[i] && prev[i].pos === b.pos && Math.abs(prev[i].gap - b.gap) < 1);
     if (same) return;   // nothing to do - and dispatching anyway would loop
-    editor.view.dispatch(editor.state.tr.setMeta(paginationKey, { breaks: next }));
-  }, [editor, sheetPx, firstSheetPx, zoom]);
+    editor.view.dispatch(editor.state.tr.setMeta(paginationKey, { breaks: next, info: infoRef.current }));
+    setSheets(next.length + 1);
+    onSheets?.(pageId, next.length + 1);
+  }, [editor, sheetPx, firstSheetPx, zoom, onSheets, pageId]);
 
   // Re-lay out after content, geometry or zoom changes. rAF lets the browser
   // finish the layout we are about to measure.
@@ -226,6 +268,13 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   }, [editor, repaginate]);
 
   const border = pageSetup.pageBorder;
+  const g = geometry;
+  // The text frame is always whole sheets tall, so the last sheet is a full
+  // page with its footer in the bottom margin, never a page cut off under
+  // the last line.
+  const frameMin = sheetPx ? (firstSheetPx || sheetPx) + (sheets - 1) * (sheetPx + g.mb + SHEET_SPACE_PX + g.mt) : undefined;
+  const total = bandInfo?.total || pageCount;
+  const staticBand = (html) => <div className="doc-sheet-head-text" dangerouslySetInnerHTML={{ __html: html || '' }} />;
   return (
     <div className={`doc-page${pageSetup.lineNumbers ? ' doc-line-numbers' : ''}`}
       style={{
@@ -239,24 +288,35 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
         if (link) { e.preventDefault(); onTocClick(link.getAttribute('href')); return; }
         onActivity(pageId);
       }}>
-      <div style={{ flex: 1, columnCount: pageSetup.columns > 1 ? pageSetup.columns : undefined, columnGap: pageSetup.columns > 1 ? 32 : undefined }}>
+      {compact ? (headerSlot && <div style={{ marginBottom: 8 }}>{headerSlot}</div>) : (
+        <div className="doc-page-margin-head" style={{ left: g.pl, right: g.pr, top: Math.round(g.mt * 0.38) }}>
+          {headerSlot ?? staticBand(bandInfo?.headerHtml)}
+        </div>
+      )}
+      {topSlot}
+      <div style={{ flex: 1, minHeight: frameMin, columnCount: pageSetup.columns > 1 ? pageSetup.columns : undefined, columnGap: pageSetup.columns > 1 ? 32 : undefined }}>
         <EditorContent editor={editor} className={`doc-editor${showMarks ? ' show-marks' : ''}`}
           onPaste={(e) => onPaste(pageId, e)}
           // dragOver must be cancelled or the browser refuses the drop.
           onDragOver={(e) => { if (editable) e.preventDefault(); }}
           onDrop={(e) => { if (editable) onVariableDrop(pageId, e); }} />
       </div>
-      {/* A running footer on every page, on by default - title left, page
-          number right, the standard document-footer layout. Purely a
-          display row (not part of the editable doc/TipTap content) - each
-          page's own index/count IS the real page number now that pages are
-          true independent units, no separate counter to keep in sync, and
-          the title is plain text (not an editor), so unlike the optional
-          custom footer below, this CAN genuinely repeat on every page. */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, fontSize: 10.5, color: '#9ca3af', marginTop: 10, paddingTop: 8, borderTop: '1px solid #eceef1', userSelect: 'none' }}>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{docTitle}</span>
-        <span style={{ flex: '0 0 auto' }}>Page {pageNumber} of {pageCount}</span>
-      </div>
+      {compact ? (
+        <>
+          {footerSlot && <div style={{ marginTop: 8 }}>{footerSlot}</div>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, fontSize: 10.5, color: '#9ca3af', marginTop: 10, paddingTop: 8, borderTop: '1px solid #eceef1', userSelect: 'none' }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{docTitle}</span>
+            <span style={{ flex: '0 0 auto' }}>Page {pageNumber} of {pageCount}</span>
+          </div>
+        </>
+      ) : (
+        /* The last sheet's footer, in the bottom margin like every other
+           sheet's (the gutter bands draw the ones in between). */
+        <div className="doc-page-margin-foot" style={{ left: g.pl, right: g.pr, bottom: Math.round(g.mb * 0.38), display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 }}>
+          <div style={{ flex: '1 1 auto', minWidth: 0 }}>{footerSlot ?? staticBand(bandInfo?.footerHtml)}</div>
+          <span style={{ flex: '0 0 auto', whiteSpace: 'nowrap', userSelect: 'none' }}>Page {sheetBase + sheets} of {total}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -504,7 +564,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     // CSS `zoom` scales the rendered box getBoundingClientRect reports, while
     // textFlowPx is in unzoomed layout pixels - without this, page 5 at 150%
     // lands around page 3.
-    const offset = slice * textFlowPx(pageSetupRef.current) * (zoomRef.current || 1);
+    // One sheet's stride: its text frame, both margins and the gray gap.
+    const ps = pageSetupRef.current;
+    const mg = marginsOf(ps);
+    const stride = textFlowPx(ps) + Math.round((mg.top + mg.bottom) * 96) + SHEET_SPACE_PX;
+    const offset = slice * stride * (zoomRef.current || 1);
     const isDoc = scroller === document.scrollingElement || scroller === document.documentElement;
     const scrollerTop = isDoc ? 0 : scroller.getBoundingClientRect().top;
     const delta = pageEl.getBoundingClientRect().top - scrollerTop;
@@ -522,7 +586,6 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     });
   }, []);
   const registerPageEditor = useCallback((pageId, editor) => {
-    if (editor) scheduleMeasureSpansRef.current?.();
     if (editor) {
       editorsRef.current.set(pageId, editor);
       scheduleUsedScan();
@@ -558,11 +621,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // How many SHEETS each editor page's content actually fills.
   //
   // Sagar, Sep 17, twice: "it's a 6 page document but the left panel shows only
-  // one page". The rail used to draw one thumbnail per editor page - the sheets
-  // you add with Add page - and a page's overflow was simply clipped, so a
-  // document that ran to six sheets still showed one. Now the live editor DOM
-  // is measured against the height of one sheet and the rail draws one
-  // thumbnail per sheetful, each showing its own slice.
+  // one page". Each page's live pagination (DocPage) reports how many sheets
+  // it laid out, and the rail draws one thumbnail per sheet.
   //
   // This is the BROWSER's reckoning of where the pages fall. The exported PDF
   // is laid out by reportlab, a different engine with its own metrics, so the
@@ -574,39 +634,18 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const letterheadRef = useRef(null);
   const [letterheadPx, setLetterheadPx] = useState(0);
   const [pageSpans, setPageSpans] = useState({});
-  const spanTimerRef = useRef(null);
-  const measureSpans = useCallback(() => {
-    // Measure at the REAL text-column width, not by reading the live editor
-    // DOM: the editor wraps text in a 624px column now, but the measurement
-    // must also be immune to the canvas zoom, and measureHtmlHeight returns a
-    // plain number so the read can never be deferred past the probe's life.
-    const width = textColumnPx(pageSetup);
-    const next = {};
-    for (const p of pagesRef.current || []) {
-      const ed = editorsRef.current.get(p.id);
-      const json = ed ? ed.getJSON() : p.json;
-      let html = '';
-      try { html = json ? generateHTML(json, BODY_EXTENSIONS) : ''; } catch { html = ''; }
-      const isFirstPage = (pagesRef.current || [])[0]?.id === p.id;
-      next[p.id] = sheetsFor(measureHtmlHeight(html, width), pageSetup,
-                             isFirstPage ? firstSheetPxRef.current : undefined);
-    }
-    setPageSpans(next);
-  }, [pageSetup]);
-  const scheduleMeasureSpansRef = useRef(null);
-  const firstSheetPxRef = useRef(0);
-  const scheduleMeasureSpans = useCallback(() => {
-    if (spanTimerRef.current) clearTimeout(spanTimerRef.current);
-    spanTimerRef.current = setTimeout(() => { spanTimerRef.current = null; measureSpans(); }, 350);
-  }, [measureSpans]);
-
-  useEffect(() => { scheduleMeasureSpansRef.current = scheduleMeasureSpans; }, [scheduleMeasureSpans]);
+  const onSheets = useCallback((pageId, n) => {
+    setPageSpans((prev) => (prev[pageId] === n ? prev : { ...prev, [pageId]: n }));
+  }, []);
+  // The header and footer every sheet repeats: the gutter bands and the page
+  // margins draw them as static HTML, the editors themselves live on the
+  // first and last page.
+  const [bandHtml, setBandHtml] = useState({ headerHtml: '', footerHtml: '' });
 
 
   const onPageUpdate = useCallback((pageId) => {
     scheduleSaveRef.current?.();
     setSelectionTick((t) => t + 1);
-    scheduleMeasureSpans();
     scheduleUsedScan();
     if (!pageId) return;
     // Debounced: the scan reads the page's text, which is not free on a long
@@ -618,18 +657,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       if (!ed || !TOKEN_IN_PAGE_RE.test(ed.state.doc.textContent)) return;
       detectRef.current?.(pageId, { quiet: true });
     }, 600);
-  }, [scheduleMeasureSpans, scheduleUsedScan]);
+  }, [scheduleUsedScan]);
   useEffect(() => () => { if (detectTimerRef.current) clearTimeout(detectTimerRef.current); }, []);
-  useEffect(() => () => { if (spanTimerRef.current) clearTimeout(spanTimerRef.current); }, []);
-  // Re-measure when the page geometry changes (size/orientation/margins), when
-  // pages are added or removed, and once the editors have mounted their content.
-  // `preview` is in here deliberately. Leaving Preview unmounts and remounts
-  // every page editor, so the spans measured before it are stale - and because
-  // the new editors mount empty for a frame, the measurement has to wait for
-  // them (scheduleMeasureSpans is debounced, and re-runs as content arrives via
-  // onPageUpdate). Without this the rail came back from Preview showing one
-  // page. Sagar, Sep 18.
-  useEffect(() => { scheduleMeasureSpans(); }, [pages, pageSetup, zoom, preview, scheduleMeasureSpans]);
   const onPageActivity = useCallback((pageId) => {
     setActivePageId(pageId);
     setSelectionTick((t) => t + 1);
@@ -666,6 +695,22 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     content: null,
     onUpdate: () => { if (hydratedRef.current) scheduleSave(); scheduleUsedScan(); },
   });
+
+  // The static copies every sheet band shows. `pages` is a dependency on
+  // purpose: a load or an import sets the editors' content without an update
+  // event, and changes the page list at the same time.
+  useEffect(() => {
+    if (!headerEditor || !footerEditor) return undefined;
+    const refresh = () => setBandHtml({
+      headerHtml: headerVisible ? headerEditor.getHTML() : '',
+      footerHtml: footerVisible ? footerEditor.getHTML() : '',
+    });
+    refresh();
+    headerEditor.on('update', refresh);
+    footerEditor.on('update', refresh);
+    return () => { headerEditor.off('update', refresh); footerEditor.off('update', refresh); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerEditor, footerEditor, headerVisible, footerVisible, pages]);
 
   // Every merge field on the pages (in page order), the header and the footer,
   // counted. Kept as the same array when nothing changed so the rail does not
@@ -932,10 +977,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   // The first sheet is shorter by the letterhead band; later sheets are full.
   const firstSheetPx = Math.max(1, textFlowPx(pageSetup) - (letterheadPx || 0));
-  useEffect(() => {
-    firstSheetPxRef.current = firstSheetPx;
-    scheduleMeasureSpansRef.current?.();
-  }, [firstSheetPx]);
+  // Where each page's sheets start in the whole document, and the total -
+  // what every band's "Page 3 of 9" is counted from.
+  const sheetStarts = [];
+  let totalSheets = 0;
+  for (const p of pages) { sheetStarts.push(totalSheets); totalSheets += Math.max(1, pageSpans[p.id] || 1); }
+  const bandInfo = useMemo(() => ({ ...bandHtml, total: totalSheets }), [bandHtml, totalSheets]);
 
   const changeEmployee = (id) => {
     setEmployeeId(id);
@@ -2832,74 +2879,54 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         overflowX: zoom > 1 ? 'auto' : 'visible' }}>
       <div style={zoom === 1 ? undefined : { zoom }}>
 
-      {!preview && !headerVisible && (
-        <button onClick={() => setHeaderVisible(true)}
-          style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', marginBottom: 6 }}>+ Add header</button>
-      )}
-      {/* Letterhead (logo/name, read-only) and header (editable) sit in the
-          SAME row, aligned with each other - not one stacked above the
-          other, which read as two unrelated bands. Shown once (not
-          per-page): the letterhead used to repeat on every sheet, but
-          header/footer can't (TipTap can't mount one editor instance twice),
-          and having the letterhead repeat while its aligned header didn't
-          made the misalignment worse, not better - consistent beats
-          "technically repeats" here. */}
-      {(activeLetterhead || headerVisible) && (
-        <div ref={letterheadRef} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup, { compact: isMobile }).maxWidth, margin: '0 auto 16px', paddingBottom: 12, borderBottom: '2px solid #111827' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            {activeLetterhead?.logoPath && <img src={activeLetterhead.logoPath} alt={activeLetterhead.name} style={{ height: 34, maxWidth: 140, objectFit: 'contain', flex: '0 0 auto' }} />}
-            {activeLetterhead && (
-              <div style={{ minWidth: 0 }}>
-                <div className="doc-letterhead-name" style={{ whiteSpace: 'nowrap' }}>{activeLetterhead.name}</div>
-                {activeLetterhead.address && <div className="doc-letterhead-address">{activeLetterhead.address}</div>}
-              </div>
-            )}
+      {/* Each page is its own bounded sheet. The letterhead sits at the top of
+          page 1's text frame (the exporter reserves the same band); the header
+          and footer EDITORS live in page 1's top margin and the last page's
+          bottom margin, and every sheet in between repeats them as static
+          bands (DocPage draws those). TipTap cannot mount one editor twice,
+          which is why the editable copy exists once. */}
+      {pages.map((p, i) => {
+        const isFirst = i === 0;
+        const isLast = i === pages.length - 1;
+        const smallBtn = (label, onClick, extra = {}) => (preview ? null : (
+          <button type="button" onClick={onClick}
+            style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 10.5, fontWeight: 600, cursor: 'pointer', padding: 0, ...extra }}>{label}</button>
+        ));
+        const headerSlot = !isFirst ? undefined : headerVisible ? (
+          <div>
+            {smallBtn('Remove header', () => { setHeaderVisible(false); headerEditor?.commands.clearContent(); scheduleSave(); }, { float: 'right', marginLeft: 8 })}
+            <EditorContent editor={headerEditor} className="doc-editor doc-inline-editor" />
           </div>
-          {headerVisible && (
-            <div style={{ flex: '1 1 auto', maxWidth: activeLetterhead ? 340 : undefined, textAlign: activeLetterhead ? 'right' : 'left' }}>
-              {!preview && (
-                <button onClick={() => { setHeaderVisible(false); headerEditor?.commands.clearContent(); scheduleSave(); }}
-                  style={{ float: 'right', background: 'none', border: 'none', color: 'var(--muted)', fontSize: 10.5, cursor: 'pointer', marginBottom: 2 }}>Remove header</button>
-              )}
-              <div style={{ clear: 'both' }}><EditorContent editor={headerEditor} className="doc-editor doc-inline-editor" /></div>
+        ) : (smallBtn('+ Add header', () => setHeaderVisible(true)) ?? <span />);
+        const footerSlot = !isLast ? undefined : (
+          <div>
+            {activeLetterhead?.footerJson?.text && <div className="doc-letterhead-tagline" style={{ margin: 0 }}>{activeLetterhead.footerJson.text}</div>}
+            {footerVisible ? (
+              <>
+                {smallBtn('Remove footer', () => { setFooterVisible(false); footerEditor?.commands.clearContent(); scheduleSave(); }, { float: 'right', marginLeft: 8 })}
+                <EditorContent editor={footerEditor} className="doc-editor doc-inline-editor" />
+              </>
+            ) : smallBtn('+ Add footer', () => setFooterVisible(true))}
+          </div>
+        );
+        const topSlot = isFirst && activeLetterhead ? (
+          <div ref={letterheadRef} style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, marginBottom: 16, paddingBottom: 12, borderBottom: '2px solid #111827' }}>
+            {activeLetterhead.logoPath && <img src={activeLetterhead.logoPath} alt={activeLetterhead.name} style={{ height: 34, maxWidth: 140, objectFit: 'contain', flex: '0 0 auto' }} />}
+            <div style={{ minWidth: 0 }}>
+              <div className="doc-letterhead-name" style={{ whiteSpace: 'nowrap' }}>{activeLetterhead.name}</div>
+              {activeLetterhead.address && <div className="doc-letterhead-address">{activeLetterhead.address}</div>}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Each page is its own bounded sheet with real separation between them
-          (the CSS gap/shadow doing double duty as both "this looks like
-          stacked paper" AND the actual boundary between two independent
-          editors) - not one continuous scroll with a dashed-line marker. */}
-      {pages.map((p, i) => (
-        <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
-          firstSheetPx={i === 0 ? firstSheetPx : undefined} showMarks={showMarks}
-          onReady={registerPageEditor} onUpdate={onPageUpdate}
-          onActivity={onPageActivity} onPaste={onBodyPaste} onVariableDrop={onVariableDrop} onTocClick={goToTocLink} />
-      ))}
-
-      {/* Same alignment fix at the bottom: the letterhead's own footer
-          tagline (if it has one) and the document's footer editor share one
-          row instead of stacking. */}
-      {(activeLetterhead?.footerJson?.text || footerVisible) && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup, { compact: isMobile }).maxWidth, margin: '16px auto 0', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-          {activeLetterhead?.footerJson?.text && <div className="doc-letterhead-tagline" style={{ margin: 0 }}>{activeLetterhead.footerJson.text}</div>}
-          {footerVisible && (
-            <div style={{ flex: '1 1 auto', maxWidth: activeLetterhead?.footerJson?.text ? 340 : undefined, marginLeft: 'auto', textAlign: activeLetterhead?.footerJson?.text ? 'right' : 'left' }}>
-              {!preview && (
-                <button onClick={() => { setFooterVisible(false); footerEditor?.commands.clearContent(); scheduleSave(); }}
-                  style={{ float: 'right', background: 'none', border: 'none', color: 'var(--muted)', fontSize: 10.5, cursor: 'pointer', marginBottom: 2 }}>Remove footer</button>
-              )}
-              <div style={{ clear: 'both' }}><EditorContent editor={footerEditor} className="doc-editor doc-inline-editor" /></div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {!preview && !footerVisible && (
-        <button onClick={() => setFooterVisible(true)}
-          style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', marginTop: 6 }}>+ Add footer</button>
-      )}
+          </div>
+        ) : null;
+        return (
+          <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
+            firstSheetPx={isFirst ? firstSheetPx : undefined} showMarks={showMarks}
+            bandInfo={bandInfo} sheetBase={sheetStarts[i]} onSheets={onSheets}
+            topSlot={topSlot} headerSlot={headerSlot} footerSlot={footerSlot}
+            onReady={registerPageEditor} onUpdate={onPageUpdate}
+            onActivity={onPageActivity} onPaste={onBodyPaste} onVariableDrop={onVariableDrop} onTocClick={goToTocLink} />
+        );
+      })}
       </div>
       </div>
       {/* Variables Used - the third column of the pages row, sticky under the

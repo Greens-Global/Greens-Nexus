@@ -64,7 +64,9 @@ describe('DocumentBuilder variables rail', () => {
   it('lists every variable placed in the document with how many places it is used', async () => {
     await mountTemplate();
     await vi.advanceTimersByTimeAsync(400);
-    const row = await waitFor(() => rail().querySelector('.nx-docb-var'));
+    // waitFor only waits while the callback THROWS; a null return resolved at
+    // once and the row happened to be there before the editor paginated.
+    const row = await waitFor(() => { const r = rail().querySelector('.nx-docb-var'); expect(r).toBeTruthy(); return r; });
     expect(row.textContent).toContain('loan.amount');
     expect(row.textContent).toContain('1 place');
     expect(rail().textContent).toContain('1'); // the count in the head
@@ -73,7 +75,7 @@ describe('DocumentBuilder variables rail', () => {
   it('places the variable again at the cursor on a click, and the count follows', async () => {
     const editor = await mountTemplate();
     await vi.advanceTimersByTimeAsync(400);
-    const row = await waitFor(() => rail().querySelector('.nx-docb-var'));
+    const row = await waitFor(() => { const r = rail().querySelector('.nx-docb-var'); expect(r).toBeTruthy(); return r; });
     editor.commands.focus('end');
     fireEvent.click(row);
     await waitFor(() => expect(countFields(editor.getJSON())).toBe(2));

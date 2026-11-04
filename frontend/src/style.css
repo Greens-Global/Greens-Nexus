@@ -3684,22 +3684,30 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .show-marks .ProseMirror li::after {
   content: '¶'; color: #9ca3af; margin-left: 3px; font-weight: 400; user-select: none;
 }
-/* A block pushed onto the next sheet (docBuilderPagination.js). The margin
-   that moves it is set per-block as an inline decoration style; this paints
-   the space it leaves so it reads as the gutter between two sheets rather
-   than as an accidental blank gap. The rule sits at the TOP of the margin box,
-   where the previous sheet ends. */
-.doc-sheet-start { position: relative; }
-.doc-sheet-start::before {
-  content: '';
-  position: absolute; left: -96px; right: -96px;
-  top: calc(-1 * var(--doc-sheet-gap, 0px));
-  height: var(--doc-sheet-gap, 0px);
-  background: var(--mist);
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  pointer-events: none;
+/* The gutter between two sheets (docBuilderPagination.js): a widget laid into
+   the flow - between blocks, or between two lines of one paragraph - as tall
+   as the room left on the sheet plus both margins and the gray gap. The
+   gutter itself is an invisible block that pushes the text down; the band
+   inside it is positioned against .doc-page (position:relative, and
+   left/right 0 reach its padding edges) so it spans the full page width
+   wherever the gutter sits - in a list item, an indented paragraph, a cell. */
+.doc-sheet-gutter { display: block; position: static; margin: 0; padding: 0; pointer-events: none; user-select: none; }
+.doc-sheet-band { position: absolute; left: 0; right: 0; pointer-events: none; }
+.doc-sheet-foot, .doc-sheet-head {
+  display: flex; justify-content: space-between; gap: 12px; box-sizing: border-box;
+  font-size: 10.5px; line-height: 1.4; color: #6b7280; overflow: hidden;
 }
+.doc-sheet-foot { align-items: flex-end; }
+.doc-sheet-head { align-items: flex-start; }
+.doc-sheet-foot-text, .doc-sheet-head-text { flex: 1 1 auto; min-width: 0; }
+.doc-sheet-foot-text p, .doc-sheet-head-text p { margin: 0; }
+.doc-sheet-pageno { flex: 0 0 auto; white-space: nowrap; }
+.doc-sheet-space { background: var(--mist); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+/* The header and footer editors live in the page's own margins, like Word's. */
+.doc-page-margin-head, .doc-page-margin-foot { position: absolute; font-size: 10.5px; color: #6b7280; }
+.doc-page-margin-head .ProseMirror, .doc-page-margin-foot .ProseMirror { min-height: 18px; font-size: 10.5px; line-height: 1.4; }
+.doc-page-margin-head .ProseMirror p, .doc-page-margin-foot .ProseMirror p { margin: 0; }
+@media print { .doc-sheet-gutter { display: none; } }
 
 .doc-pagebreak {
   display: flex; align-items: center; gap: 10px; margin: 18px 0;
