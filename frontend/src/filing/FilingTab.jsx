@@ -20,6 +20,8 @@ const CHIP = {
   skip:   { bg: 'hsla(220, 9%, 46%, 0.12)',        fg: 'hsl(220, 9%, 40%)',       label: 'Skipped' },
   done:   { bg: 'hsl(var(--color-green))',          fg: '#fff',                    label: 'Filed' },
   failed: { bg: 'hsla(var(--color-red), 0.12)',     fg: 'hsl(var(--color-red))',   label: 'Failed' },
+  labeled:   { bg: 'hsla(var(--color-green), 0.12)', fg: 'hsl(var(--color-green))', label: 'Labeled' },
+  unlabeled: { bg: 'hsla(45, 93%, 47%, 0.14)',       fg: 'hsl(35, 90%, 34%)',       label: 'Unlabeled' },
 };
 
 function StatusChip({ status }) {
@@ -46,6 +48,7 @@ export default function FilingTab({ toastOk, toastErr }) {
   const [selected, setSelected] = useState(() => new Set());
   const [results, setResults] = useState({});     // sourcePath -> {ok, error, to}
   const [filter, setFilter] = useState('all');
+  const [view, setView] = useState('queue');      // queue = work the moves; names = what every file should be called
   const [rulesOpen, setRulesOpen] = useState(false);
   const [activity, setActivity] = useState(null);
 
@@ -138,6 +141,29 @@ export default function FilingTab({ toastOk, toastErr }) {
 
       {scan && !scanning && (
         <>
+          {/* Totals: how much of the staging pile is already named right */}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {[['Total Files', scan.totals?.files ?? 0, null],
+              ['Labeled', scan.totals?.labeled ?? 0, 'hsl(var(--color-green))'],
+              ['Unlabeled', scan.totals?.unlabeled ?? 0, 'hsl(35, 90%, 34%)']].map(([label, n, color]) => (
+              <div key={label} style={{ flex: '0 0 auto', minWidth: 130, padding: '10px 16px', border: '1px solid var(--border-color)', borderRadius: 12 }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: color || 'inherit' }}>{n}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Filing Queue works the moves; Proposed Names shows what every file should be called */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className={view === 'queue' ? 'secondary-btn' : 'btn-sm'} onClick={() => setView('queue')} style={{ fontSize: 12.5, padding: '4px 12px' }}>Filing Queue</button>
+            <button className={view === 'names' ? 'secondary-btn' : 'btn-sm'} onClick={() => setView('names')} style={{ fontSize: 12.5, padding: '4px 12px' }}>
+              Proposed Names{scan.totals?.unlabeled ? ` (${scan.totals.unlabeled})` : ''}
+            </button>
+          </div>
+
+          {view === 'names' && <NamesTable proposals={scan.proposals} />}
+
+          {view === 'queue' && (<>
           {/* Counts + filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {FILTERS.map(f => (
@@ -229,6 +255,7 @@ export default function FilingTab({ toastOk, toastErr }) {
               </tbody>
             </table>
           </div>
+          </>)}
         </>
       )}
 
@@ -251,6 +278,57 @@ export default function FilingTab({ toastOk, toastErr }) {
           onSaved={(data) => setStatus(s => ({ ...s, templates: data.templates, scanRoots: data.scanRoots }))}
           toastOk={toastOk} toastErr={toastErr} />
       )}
+    </div>
+  );
+}
+
+// Every scanned file beside the name the rulebook would give it - the reading
+// view for "what should these be called". Unlabeled files sort first; a file
+// whose name is already canonical says so instead of repeating itself.
+function NamesTable({ proposals }) {
+  const sorted = useMemo(() => {
+    const files = proposals.filter(p => p.status !== 'skip');
+    return [...files].sort((a, b) => (a.labeled === b.labeled ? 0 : a.labeled ? 1 : -1));
+  }, [proposals]);
+  return (
+    <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 12 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr style={{ textAlign: 'left', background: 'var(--bg-secondary)' }}>
+            <th style={{ padding: '8px 10px' }}>Current Name</th>
+            <th style={{ padding: '8px 10px' }}>Should Be</th>
+            <th style={{ padding: '8px 10px' }}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.length === 0 && (
+            <tr><td colSpan={3} style={{ padding: 18, textAlign: 'center', color: 'var(--text-secondary)' }}>
+              Nothing here - the staging folders are clean.
+            </td></tr>
+          )}
+          {sorted.map((p) => {
+            const shouldBe = p.newName || p.canonicalName;
+            return (
+              <tr key={p.sourcePath} style={{ borderTop: '1px solid var(--border-color)', verticalAlign: 'top' }}>
+                <td style={{ padding: '8px 10px', maxWidth: 380 }}>
+                  <div style={{ wordBreak: 'break-word' }}>{p.currentName}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+                    {p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/'))}
+                  </div>
+                </td>
+                <td style={{ padding: '8px 10px', maxWidth: 380, wordBreak: 'break-word' }}>
+                  {p.labeled
+                    ? <span style={{ color: 'var(--text-secondary)' }}>Already right</span>
+                    : (shouldBe || <span style={{ color: 'var(--text-secondary)' }}>No date in the name - a person names it</span>)}
+                </td>
+                <td style={{ padding: '8px 10px' }}>
+                  <StatusChip status={p.labeled ? 'labeled' : 'unlabeled'} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

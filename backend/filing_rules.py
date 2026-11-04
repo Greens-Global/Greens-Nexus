@@ -460,6 +460,11 @@ def propose(file_name: str, source_folder: str, root_ctx: dict,
         "sourcePath": f"{source_folder.rstrip('/')}/{file_name}",
         "currentName": file_name, "status": "review", "docType": "",
         "destFolder": "", "newName": "", "rule": "", "reasons": [],
+        # What the file SHOULD be called per the grammar alone - filled even
+        # when the destination is unknown, so the Proposed Names view can show
+        # a rename for every file the grammar can read. labeled = the current
+        # name already is the canonical one (nothing to fix).
+        "canonicalName": "", "labeled": False,
     }
     ext = os.path.splitext(file_name)[1].lower()
     if ext in (ignore_exts or {".egnyte_d"}):
@@ -471,6 +476,10 @@ def propose(file_name: str, source_folder: str, root_ctx: dict,
 
     parsed = parse_name(file_name)
     out["reasons"].extend(parsed.warnings)
+    if parsed.year:
+        prefix = "#" if parsed.final else ""
+        out["canonicalName"] = f"{prefix}{parsed.date_str()} - {parsed.rest or 'Document'}{parsed.ext}"
+        out["labeled"] = out["canonicalName"] == file_name
 
     hit = classify(parsed)
     if hit is None:
@@ -518,6 +527,9 @@ def propose(file_name: str, source_folder: str, root_ctx: dict,
     }
     out["destFolder"] = template["dest"].format(**values)
     out["newName"] = template["name"].format(**values)
+    # Classes with a fixed name pattern (ST, Final Tax Return) rename past the
+    # bare canonical - the class's own name is what "labeled" means for them.
+    out["labeled"] = out["newName"] == file_name
 
     if not confirmed.get(route_key, False):
         out["reasons"].append("this document class is not switched on for auto-filing yet (Rules)")

@@ -204,9 +204,15 @@ def scan(user: dict = Depends(require_writer), db: Session = Depends(get_db)):
             break
 
     counts = {"auto": 0, "review": 0, "skip": 0}
+    # Labeled = the current name already is the one the rulebook would give it;
+    # skipped rows (subfolders, placeholders) are not files to label.
+    totals = {"files": 0, "labeled": 0, "unlabeled": 0}
     for p in proposals:
         counts[p["status"]] = counts.get(p["status"], 0) + 1
-    return {"proposals": proposals, "counts": counts,
+        if p["status"] != "skip":
+            totals["files"] += 1
+            totals["labeled" if p.get("labeled") else "unlabeled"] += 1
+    return {"proposals": proposals, "counts": counts, "totals": totals,
             "scannedRoots": scanned, "missingRoots": missing,
             "truncated": len(proposals) >= MAX_SCAN_FILES}
 

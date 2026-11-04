@@ -143,6 +143,25 @@ class TestPropose(unittest.TestCase):
         self.assertEqual(out["status"], "review")
         self.assertTrue(any("archive" in r for r in out["reasons"]))
 
+    def test_canonical_name_without_destination(self):
+        # Even with no doc-type match the grammar still says what the name
+        # should be - the Proposed Names view shows this for every file.
+        out = fr.propose("Statement - 2023-01-15 - XYZ BOA - Loan Statement.pdf",
+                         "/Shared/#Unsorted", {}, _maps(), {})
+        self.assertEqual(out["canonicalName"], "2023-01-15 - XYZ BOA - Loan Statement.pdf")
+        self.assertFalse(out["labeled"])
+        undated = fr.propose("scan0001.pdf", "/Shared/#Unsorted", {}, _maps(), {})
+        self.assertEqual(undated["canonicalName"], "")   # no date = no guess
+
+    def test_labeled_when_already_canonical(self):
+        out = fr.propose("2019-09-07 - Sterling Ethanol Dividend.pdf",
+                         "/Shared/#Unsorted", {}, _maps(), {})
+        self.assertTrue(out["labeled"])                   # named right, just unrouted
+        out2 = fr.propose("2023-01-14 - ST.pdf",
+                          "/Shared/#Entities/Greens Global, Inc/#Unsorted",
+                          {"entity": "Greens Global, Inc"}, _maps(), {"bank_statement": True})
+        self.assertTrue(out2["labeled"])                  # matches the class's fixed pattern
+
     def test_facility_sop_spelling(self):
         out = fr.propose("2024-01-05 - Incident Report - Murietta Gate.pdf",
                          "/Shared/#Unsorted", {}, _maps(), {"incident": True})
