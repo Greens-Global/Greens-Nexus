@@ -1,8 +1,9 @@
 ﻿// Workday's My Tickets tile (Construction plan phase 5, Neil 11/03/2026;
 // "My Work" until 11/04/2026, when Neil made it a full-size tile in the stat
 // row, left of the compact Ask HR / Reimbursements rows, beside Time With
-// Us). Shows only when there is maintenance work for the person (GET
-// /maintenance/my-work), like Fill a Form; the list itself is the lazy sheet.
+// Us). Shows when there is maintenance work for the person (GET
+// /maintenance/my-work), and always - at 0, "Nothing open" - for someone on a
+// maintenance team (`onTeam`, Neil 11/04/2026); the list is the lazy sheet.
 // The page reads the work once through useMyMaintenanceWork, so its grid
 // knows whether to make room for the tile.
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
@@ -21,17 +22,19 @@ export function useMyMaintenanceWork() {
     return () => { live = false; };
   }, [tick]);
   const reload = useCallback(() => setTick((t) => t + 1), []);
-  return { work, count: work?.tickets?.length || 0, reload };
+  const count = work?.tickets?.length || 0;
+  return { work, count, show: count > 0 || !!work?.onTeam, reload };
 }
 
-export default function MyWorkTile({ work, count = 0, reload }) {
+export default function MyWorkTile({ work, count = 0, show = count > 0, reload }) {
   const [open, setOpen] = useState(false);
-  if (!count && !open) return null;
-  const sub = work?.overdue ? `${work.overdue} overdue` : work?.preventive ? `${work.preventive} preventive` : 'Assigned to you';
+  if (!show && !open) return null;
+  const sub = work?.overdue ? `${work.overdue} overdue` : work?.preventive ? `${work.preventive} preventive`
+    : count ? 'Assigned to you' : 'Nothing open';
   const close = () => { setOpen(false); reload?.(); };
   return (
     <>
-      {count > 0 && (
+      {show && (
         <button type="button" data-my-tickets className="dk-stat wd-stat" onClick={() => setOpen(true)}
           title="The maintenance tickets assigned to you, preventive first. Opens My Tickets."
           aria-label={`My Tickets, ${count} open${work?.overdue ? `, ${work.overdue} overdue` : ''}`}>

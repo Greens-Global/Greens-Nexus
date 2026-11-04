@@ -343,7 +343,15 @@ const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE
 // a phone without BarcodeDetector - iPhone Safari). Every byte is lazy: first
 // paint is unchanged (2,806 KB, FIRST_PAINT_KB below guards it). Measured with
 // the CI's build values: 19,292 KB. Raised with Neil's "merge all" OK.
-const TOTAL_KB     = 19600 + (NX_SRC_ON ? 350 : 0);
+// Nov 4, 2026: 19600 -> 20400. Every dev Cloudflare Pages build since #999
+// (the Shift Planner pass) failed on this cap and left dev serving the
+// 11/04 morning frontend while its API moved on: a stamped dev build reads
+// 19878 KB locally against 19950, and Cloudflare's clean install runs
+// ~200 KB above a local build. #999, #992 and #1002 are all lazy app code;
+// first paint is unchanged at ~1.6 MB. 800 KB of headroom so the next few
+// features do not silently break the dev deploy again (Neil, 11/04/2026:
+// raise it when needed).
+const TOTAL_KB     = 20400 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

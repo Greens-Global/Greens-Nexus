@@ -538,7 +538,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
           {/* One row (Pranshu, Oct 15 2026): this week's hours, time off, time
               with us, and Ask HR at the right edge. Today's shift left the hero
               - your week is the My Schedule card below. */}
-          <div className={`wd-statgrid${hoursExempt ? ' wd-statgrid--nohours' : ''}${myWork.count ? ' wd-statgrid--tickets' : ''}`}>
+          <div className={`wd-statgrid${hoursExempt ? ' wd-statgrid--nohours' : ''}${myWork.show ? ' wd-statgrid--tickets' : ''}`}>
             {!hoursExempt ? (
               /* The hours open the Time Sheet. */
               <div className="dk-stat dk-stat--hero wd-stat wd-hero" style={{ cursor: 'default' }}>

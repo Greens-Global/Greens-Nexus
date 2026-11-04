@@ -5045,8 +5045,11 @@ def append_rate_history(db: Session, emp: NexusEmployee, effective_date: str, by
     rows = _rate_history_rows(db, em)
     same = next((r for r in rows if (r.effective_date or "") == eff), None)
     if same is not None:
-        for k, v in vals.items():
-            setattr(same, k, v)
+        if any(getattr(same, k) != v for k, v in vals.items()):
+            # The correction is the latest change: Changed By names who made it (11/04/2026).
+            for k, v in vals.items():
+                setattr(same, k, v)
+            same.created_by, same.created_at = by, datetime.now(timezone.utc).isoformat()
         return
     if rows:
         last = rows[-1]

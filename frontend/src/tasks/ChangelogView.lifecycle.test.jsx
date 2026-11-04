@@ -200,7 +200,7 @@ describe('Attachments and tours', () => {
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByPlaceholderText(/Fixed leave balance/), { target: { value: 'New Filter' } });
     fireEvent.change(within(dialog).getByPlaceholderText(/What changed, and why/), { target: { value: 'Filter by site.' } });
-    fireEvent.change(within(dialog).getByPlaceholderText(/HR, Dashboard, Tasks/), { target: { value: 'Tickets' } });
+    fireEvent.change(within(dialog).getByPlaceholderText(/Workday - Time Sheet/), { target: { value: 'Tickets' } });
     fireEvent.change(within(dialog).getByPlaceholderText('e.g. v2.8.1'), { target: { value: 'v1.0.1' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add Step' }));
     fireEvent.change(within(dialog).getByLabelText('Step 1 title'), { target: { value: 'Open Filters' } });
