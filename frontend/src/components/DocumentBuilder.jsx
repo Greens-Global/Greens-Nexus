@@ -30,6 +30,7 @@ import { useDocComments } from './docComments/useDocComments';
 import { commentAnchorEl } from '../lib/docCommentMark';
 import { useRole } from '../contexts/RoleContext';
 import { canDictate, useDictation, spokenAfter } from '../lib/voice';
+import { DictationLive, showDictationLive } from '../lib/docDictationLive';
 import FullScreenButton, { useFullScreen } from './FullScreenButton';
 import { api } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
@@ -178,7 +179,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   bandInfo, sheetBase = 0, onSheets, topSlot, headerSlot, footerSlot, paginate = true,
   onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
   const editor = useEditor({
-    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination],
+    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination, DictationLive],
     content: initialJson || null,
     editable,
     onUpdate: () => onUpdate(pageId),
@@ -583,8 +584,14 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (!ed) return;
     const { from } = ed.state.selection;
     const before = ed.state.doc.textBetween(Math.max(0, from - 2), from, ' ');
+    showDictationLive(ed, '');
     ed.chain().focus().insertContent(spokenAfter(before, said)).run();
   });
+  // The phrase still being recognized shows in gray at the cursor as it is
+  // spoken; the real text lands when the browser finishes it.
+  useEffect(() => {
+    showDictationLive(activeEditorRef.current, dictation.listening ? dictation.interim : '');
+  }, [dictation.interim, dictation.listening]);
   // Pages (each a real independent editor instance - see DocPage above).
   // `pages` only tracks existence/order/the seed content a freshly
   // added/duplicated page mounts with; once a page's DocPage has mounted,
@@ -1320,12 +1327,14 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (!ed) return;
     goToPage(h.pageId, h.pos + 1);
   };
+  // Word's Header & Footer opens the header for editing; it never removes
+  // one (that is the Remove header / Remove footer button in the margin).
+  // It used to clear both on a second click - an imported header gone in one
+  // click, with no confirm.
   const toggleHeaderFooter = () => {
-    const on = !(headerVisible || footerVisible);
-    if (on) { setHeaderVisible(true); setFooterVisible(true); return; }
-    setHeaderVisible(false); headerEditor?.commands.clearContent();
-    setFooterVisible(false); footerEditor?.commands.clearContent();
-    scheduleSave();
+    if (!headerVisible) setHeaderVisible(true);
+    if (!footerVisible) setFooterVisible(true);
+    requestAnimationFrame(() => headerEditor?.commands.focus('end'));
   };
   const openHelp = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'support', sub: 'documentation' } }));
 
@@ -2549,10 +2558,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                   { label: '1.0', onClick: () => setLineHeight('1.2'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '1.2' },
                   { label: '1.15', onClick: () => setLineHeight('1.38'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '1.38' },
                   { label: '1.5', onClick: () => setLineHeight('1.8'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '1.8' },
-                  { label: '2.0', onClick: () => setLineHeight('2.4'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '2.4' }, '-',
-                  { label: 'Add Space Before Paragraph', onClick: () => setParaAttr({ spacingBefore: 12 }) },
-                  { label: 'Add Space After Paragraph', onClick: () => setParaAttr({ spacingAfter: 12 }) },
-                  { label: 'Remove Extra Space', onClick: () => setParaAttr({ spacingBefore: null, spacingAfter: null, lineHeight: null }) }]} />
+                  { label: '2.0', onClick: () => setLineHeight('2.4'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '2.4' },
+                  { label: '2.5', onClick: () => setLineHeight('3'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '3' },
+                  { label: '3.0', onClick: () => setLineHeight('3.6'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '3.6' }, '-',
+                  // Word swaps Add for Remove once the space is there.
+                  ...(activeEditor.getAttributes(currentBlockType()).spacingBefore
+                    ? [{ label: 'Remove Space Before Paragraph', onClick: () => setParaAttr({ spacingBefore: null }) }]
+                    : [{ label: 'Add Space Before Paragraph', onClick: () => setParaAttr({ spacingBefore: 12 }) }]),
+                  ...(activeEditor.getAttributes(currentBlockType()).spacingAfter
+                    ? [{ label: 'Remove Space After Paragraph', onClick: () => setParaAttr({ spacingAfter: null }) }]
+                    : [{ label: 'Add Space After Paragraph', onClick: () => setParaAttr({ spacingAfter: 12 }) }]),
+                  { label: 'Line Spacing Options…', title: 'Exact values on the Layout tab', onClick: () => setRibbonTab('layout') }]} />
                 <Menu icon={PaintBucket} title="Shading" width={260}>
                   <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]} current={activeEditor.getAttributes(currentBlockType()).backgroundColor}
                     onPick={hex => setParagraphShading(hex)} onNone={() => setParagraphShading(null)} />

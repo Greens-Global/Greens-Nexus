@@ -9231,3 +9231,6 @@ body:has(.apv-phone) { overflow-x: clip; }
 .doc-comment-hint { font-size: 10.5px; color: var(--muted); margin-left: auto; }
 .doc-comment-err { font-size: 11.5px; color: hsl(var(--color-red)); }
 @media (max-width: 640px) { .doc-comments-pane { width: 100%; flex-basis: auto; position: static; max-height: none; } }
+
+/* Dictation as you speak: the phrase still being recognized, at the cursor. */
+.doc-dictation-live { color: #6b7280; font-style: italic; background: rgba(250, 204, 21, 0.18); border-radius: 3px; pointer-events: none; }

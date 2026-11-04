@@ -24,9 +24,17 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
-from models import DocComment
+from models import DocComment, NexusEmployee
 from routers import documents as docs
 from routers.hr import _hr_notify
+
+
+def _display_name(db: Session, email: str) -> str:
+    """The person's name from Nexus People, else a readable form of the email."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+    if emp and (emp.first_name or emp.last_name):
+        return f"{emp.first_name or ''} {emp.last_name or ''}".strip()
+    return email.split("@")[0].replace(".", " ").title()
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -102,7 +110,7 @@ def _create(db: Session, kind: str, tid: str, data: CommentIn, user: dict) -> di
     me = user["email"].lower()
     now = _now()
     c = DocComment(id=str(uuid.uuid4()), doc_kind=kind, doc_id=tid, parent_id=parent.id if parent else "",
-                   author_email=me, author_name=user.get("name") or me,
+                   author_email=me, author_name=_display_name(db, me),
                    body=body, quote=(str(data.quote or "").strip()[:MAX_QUOTE] if not parent else ""),
                    created_at=now, updated_at=now)
     db.add(c)
