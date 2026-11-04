@@ -54,6 +54,7 @@ class TestFilingRetry(unittest.TestCase):
             return {"files": [], "folders": []}
 
         with mock.patch.object(filing, "_call", fake_call), \
+                mock.patch.object(filing, "_pace", lambda token: None), \
                 mock.patch("time.sleep") as slept:
             out = filing._egnyte(None, svc.list_folder, "/Shared/x")
         self.assertEqual(out, {"files": [], "folders": []})
@@ -66,7 +67,8 @@ class TestFilingRetry(unittest.TestCase):
         def always_busy(fn, *args, **kwargs):
             raise HTTPException(429, "busy")
 
-        with mock.patch.object(filing, "_call", always_busy), mock.patch("time.sleep"):
+        with mock.patch.object(filing, "_call", always_busy), \
+                mock.patch.object(filing, "_pace", lambda token: None), mock.patch("time.sleep"):
             with self.assertRaises(HTTPException) as cm:
                 filing._egnyte(None, svc.list_folder, "/Shared/x")
         self.assertEqual(cm.exception.status_code, 429)
@@ -86,6 +88,30 @@ class TestFilingRetry(unittest.TestCase):
         self.assertEqual(cm.exception.status_code, 401)
         self.assertEqual(calls["n"], 1)
         self.assertIn("Connect", cm.exception.detail)
+
+
+class TestPacing(unittest.TestCase):
+    def test_calls_for_one_identity_are_spaced(self):
+        from routers import filing
+        filing._pace_last.clear()
+        waits = []
+        with mock.patch("time.sleep", side_effect=waits.append):
+            for _ in range(3):
+                filing._pace("tok-a")
+        # First call goes straight through; the next two wait about _PACE_SEC
+        # and twice that (the slots are reserved back to back).
+        self.assertEqual(len(waits), 2)
+        self.assertGreater(waits[0], filing._PACE_SEC * 0.8)
+        self.assertGreater(waits[1], filing._PACE_SEC * 1.8)
+
+    def test_identities_do_not_wait_on_each_other(self):
+        from routers import filing
+        filing._pace_last.clear()
+        waits = []
+        with mock.patch("time.sleep", side_effect=waits.append):
+            filing._pace("tok-a")
+            filing._pace("tok-b")
+        self.assertEqual(waits, [])
 
 
 if __name__ == "__main__":

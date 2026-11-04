@@ -22,6 +22,8 @@ All Egnyte I/O goes through services/egnyte.py - the ONE client.
 """
 import json
 import re
+import threading
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -52,6 +54,12 @@ DEFAULT_SCAN_ROOTS = ["/Shared/#Unsorted", "/Shared/#Entities/#Unsorted"]
 SKIP_SUBFOLDERS = {"kyle's old computer", "kyle - pc - documents"}
 MAX_SCAN_FILES = 500
 MAX_APPLY = 200
+# A walked scan sends up to MAX_SCAN_PATHS folders per call and the server
+# lists them until SCAN_BUDGET_SEC has passed, handing the rest back as
+# `deferred` - so the fixed per-request cost (auth, settings, history) is
+# paid once per many folders, and no call can near the browser's 18 s limit.
+MAX_SCAN_PATHS = 20
+SCAN_BUDGET_SEC = 8.0
 _OPS_FACILITY = re.compile(r"^\d\d - (.+)$")
 
 
@@ -143,15 +151,36 @@ def put_config(body: ConfigBody, user: dict = Depends(require_config),
 _RETRY_STATUSES = (429, 502, 504)
 _RETRY_WAITS = (0.8, 1.6, 3.2)
 
+# Pacing beats retrying: Egnyte's default per-user allowance is about two
+# calls a second, and a walk that bursts past it pays 0.8-3.2 s back-offs on
+# every throttled call (measured 11/04: ~4 s a folder). Spacing this
+# process's calls for one Egnyte identity at least _PACE_SEC apart keeps a
+# walk under the limit, so it runs at the limit instead of far below it.
+# Per process (each worker paces itself); the client sends one scan at a time.
+_PACE_SEC = 0.5
+_pace_lock = threading.Lock()
+_pace_last: dict = {}
+
+
+def _pace(token) -> None:
+    key = token or "service"
+    with _pace_lock:
+        now = time.monotonic()
+        wait = _pace_last.get(key, 0.0) + _PACE_SEC - now
+        _pace_last[key] = max(now, _pace_last.get(key, 0.0) + _PACE_SEC)
+    if wait > 0:
+        time.sleep(wait)
+
 
 def _egnyte(token, fn, *args):
     """_call, with Egnyte's raw 401 fault turned into words a person can act
-    on, and throttling waited out. With per-user OAuth there is no refresh
-    (egnyte_oauth stores only the access token, which Egnyte expires after
-    ~30 days), so an invalid token means one thing: reconnect."""
-    import time
+    on, calls paced under the per-user rate limit, and throttling that still
+    happens waited out. With per-user OAuth there is no refresh (egnyte_oauth
+    stores only the access token, which Egnyte expires after ~30 days), so an
+    invalid token means one thing: reconnect."""
     for attempt in range(len(_RETRY_WAITS) + 1):
         try:
+            _pace(token)
             return _call(fn, *args, token)
         except HTTPException as exc:
             if exc.status_code == 401:
@@ -183,7 +212,6 @@ _maps_cache: dict = {"at": 0.0, "maps": None}
 def _live_maps(token: str | None) -> filing_rules.Maps:
     """The entity / facility / project maps, read from the live tree at scan
     time - never hardcoded, so an Egnyte re-org does not need a deploy."""
-    import time
     if _maps_cache["maps"] is not None and time.monotonic() - _maps_cache["at"] < _MAPS_TTL_SEC:
         return _maps_cache["maps"]
     maps = filing_rules.Maps()
@@ -204,7 +232,6 @@ def _live_maps(token: str | None) -> filing_rules.Maps:
             maps.projects[f["name"]] = f["path"]
     except HTTPException:
         pass
-    import time
     _maps_cache["at"], _maps_cache["maps"] = time.monotonic(), maps
     return maps
 
@@ -243,25 +270,46 @@ def _filing_history(db: Session, limit: int = 2000) -> list[tuple[set, str, str]
     return out
 
 
+# The history only grows when someone files, and a walk calls /scan many
+# times a minute - one read a minute is plenty, and a minute-old memory of
+# where things went suggests just as well.
+_HISTORY_TTL_SEC = 60
+_history_cache: dict = {"at": 0.0, "rows": None}
+
+
+def _filing_history_cached(db: Session) -> list[tuple[set, str, str]]:
+    if _history_cache["rows"] is not None and time.monotonic() - _history_cache["at"] < _HISTORY_TTL_SEC:
+        return _history_cache["rows"]
+    rows = _filing_history(db)
+    _history_cache["at"], _history_cache["rows"] = time.monotonic(), rows
+    return rows
+
+
 @router.post("/scan")
 def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
          db: Session = Depends(get_db)):
+    started = time.monotonic()
     token = _browse_token(user, db)
     cfg = _load_config(db)
     maps = _live_maps(token)
-    history = _filing_history(db)
+    history = _filing_history_cached(db)
 
     picked = [svc.norm(p) for p in ((body.paths if body else None) or []) if (p or "").strip()]
-    if len(picked) > 10:
-        raise HTTPException(400, "At most 10 folders per scan call")
+    if len(picked) > MAX_SCAN_PATHS:
+        raise HTTPException(400, f"At most {MAX_SCAN_PATHS} folders per scan call")
     for p in picked:
         if not p.startswith("/Shared"):
             raise HTTPException(400, "Folders to scan must be under /Shared")
     roots = picked or cfg["scanRoots"]
 
     proposals: list[dict] = []
-    scanned, missing, subfolders, failed = [], [], [], []
-    for root in roots:
+    scanned, missing, subfolders, failed, deferred = [], [], [], [], []
+    for i, root in enumerate(roots):
+        # Out of time for this call: the rest go back to the caller's queue.
+        # At least one folder is always listed, so a walk always progresses.
+        if picked and i > 0 and time.monotonic() - started > SCAN_BUDGET_SEC:
+            deferred.extend(roots[i:])
+            break
         try:
             listing = _egnyte(token, svc.list_folder, root)
         except HTTPException as exc:
@@ -323,7 +371,7 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
             totals["labeled" if p.get("labeled") else "unlabeled"] += 1
     return {"proposals": proposals, "counts": counts, "totals": totals,
             "scannedRoots": scanned, "missingRoots": missing,
-            "subfolders": subfolders, "failedRoots": failed,
+            "subfolders": subfolders, "failedRoots": failed, "deferred": deferred,
             "truncated": len(proposals) >= MAX_SCAN_FILES}
 
 

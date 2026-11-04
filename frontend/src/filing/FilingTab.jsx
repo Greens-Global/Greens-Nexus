@@ -146,21 +146,25 @@ export default function FilingTab({ toastOk, toastErr }) {
           try { return await api.filingScan({ paths }); }
           catch (e2) {
             if (e2?.status === 401) throw e2;
-            return { proposals: [], scannedRoots: [], missingRoots: [], subfolders: [], failedRoots: paths };
+            return { proposals: [], scannedRoots: [], missingRoots: [], subfolders: [], failedRoots: paths, deferred: [] };
           }
         }
       };
       while (queue.length && !cancelRef.current) {
         if (folders >= WALK_FOLDER_CAP || all.length >= WALK_FILE_CAP) { truncated = true; break; }
-        // One batch in flight: Egnyte allows a per-user key only a few calls
-        // a second, and two in flight (round 6) mostly bought throttling.
+        // One request in flight carrying up to 20 folders: the server paces
+        // its Egnyte calls under the per-user limit and lists until its time
+        // budget is spent, handing the rest back as `deferred` - which go to
+        // the FRONT of the queue so the walk keeps its order.
         const batch = [];
-        while (batch.length < 5 && queue.length) {
+        while (batch.length < 20 && queue.length) {
           const p = queue.shift();
           if (!seen.has(p)) { seen.add(p); batch.push(p); }
         }
         if (!batch.length) continue;
         const r = await scanBatch(batch);
+        for (const d of (r.deferred || [])) seen.delete(d);
+        queue.unshift(...(r.deferred || []));
         if (r.truncated) truncated = true;   // one folder past the server's per-call cap
         folders += (r.scannedRoots || []).length;
         missing.push(...(r.missingRoots || []));
@@ -409,8 +413,11 @@ export default function FilingTab({ toastOk, toastErr }) {
       )}
 
       {scanning && (
-        <LoadingState size="section" label={progress
-          ? `Scanned ${progress.folders} folder${progress.folders === 1 ? '' : 's'} - ${progress.files} file${progress.files === 1 ? '' : 's'} so far`
+        // A deep walk legitimately runs for minutes, so the loader's generic
+        // "taking longer than usual" line would only alarm; the live counter
+        // is the progress signal.
+        <LoadingState size="section" slowAfter={600000} minHeight={90} label={progress
+          ? `Scanned ${progress.folders.toLocaleString('en-US')} folder${progress.folders === 1 ? '' : 's'} - ${progress.files.toLocaleString('en-US')} file${progress.files === 1 ? '' : 's'} so far`
           : 'Reading the folders'} />
       )}
 
