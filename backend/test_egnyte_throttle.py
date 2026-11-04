@@ -90,6 +90,38 @@ class TestFilingRetry(unittest.TestCase):
         self.assertIn("Connect", cm.exception.detail)
 
 
+class TestLanes(unittest.TestCase):
+    def test_a_lane_reports_its_own_egnyte_cost(self):
+        from routers import filing
+
+        def fake_egnyte(token, fn, root):
+            filing._meter_add(calls=1, waited=0.25)
+            return {"files": [], "folders": []}
+
+        with mock.patch.object(filing, "_egnyte", fake_egnyte):
+            root, outcome, calls, waited, throttled = filing._list_lane("tok", "/Shared/x")
+        self.assertEqual((root, calls, waited, throttled), ("/Shared/x", 1, 0.25, 0))
+        self.assertEqual(outcome, {"files": [], "folders": []})
+
+    def test_a_failed_lane_is_a_result_not_an_exception(self):
+        from routers import filing
+
+        def nope(token, fn, root):
+            raise HTTPException(404, "gone")
+
+        with mock.patch.object(filing, "_egnyte", nope):
+            _, outcome, *_ = filing._list_lane("tok", "/Shared/x")
+        self.assertIsInstance(outcome, HTTPException)
+        self.assertEqual(outcome.status_code, 404)
+
+    def test_lanes_keep_the_folders_in_order(self):
+        from routers import filing
+        roots = [f"/Shared/{i}" for i in range(7)]
+        with mock.patch.object(filing, "_egnyte", lambda t, fn, r: {"files": [], "folders": [], "r": r}):
+            got = [o["r"] for _, o, *_ in filing._lane_pool.map(lambda r: filing._list_lane("t", r), roots)]
+        self.assertEqual(got, roots)
+
+
 class TestPacing(unittest.TestCase):
     def test_calls_for_one_identity_are_spaced(self):
         from routers import filing
