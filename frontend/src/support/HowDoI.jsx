@@ -1,20 +1,22 @@
 // "How Do I..." (Help Center, Neil, 11/02/2026): the short answers to the
-// things people come to the Help Center to do. Replaced the "I Need To..."
-// strip of seven small cards ("the UI looks shitty with so many sections")
-// with ONE tile that sits in the Help Center grid beside Submit a Ticket, Ask
-// Nexus, Documentation and Knowledge Base & Training, spanning the full
-// width: a question per row, a dropdown with a two or three sentence answer
-// and the one button that does it - straight to the real screen, never a
-// ticket asking someone else to do it. Request Access and Report a Bug ARE
-// tickets (that is the real flow for both), opened on the right type.
+// things people come to the Help Center to do, each with the one button that
+// does it - straight to the real screen, never a ticket asking someone else
+// to do it. Request Access and Report a Bug ARE tickets (that is the real
+// flow for both), opened on the right type.
+//
+// A TILE in the row (Neil, 11/04/2026: "condense and redesign this ... where
+// it fits into a tile here"): the fifth card beside Submit a Ticket, Ask
+// Nexus, Documentation and Knowledge Base & Training, filling the space the
+// full-width strip left empty at the end of that row. The tile lists the
+// questions as compact rows; a row opens its answer IN the tile (the list
+// steps aside, Back or Escape brings it back and focus returns to the row),
+// so the tile keeps its place and nothing below it moves.
 //
 // Each question is shown only to people who can open what is behind it -
 // the left menu's own rule (Sidebar's isNavItemVisible) for the module it
 // lands in, and the Time Sheet one only for people whose time is tracked.
-// One row open at a time; the open row's answer slides down (grid-rows,
-// --dur-md / --ease-out, nothing under reduced motion).
-import { useState } from 'react';
-import { CalendarClock, Receipt, ShoppingCart, Timer, Contact, KeyRound, Bug, ChevronDown, CircleHelp } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { CalendarClock, Receipt, ShoppingCart, Timer, Contact, KeyRound, Bug, ChevronRight, ChevronLeft, CircleHelp } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { NAV, isNavItemVisible } from '../components/Sidebar';
 
@@ -65,40 +67,52 @@ export default function HowDoI({ onTicket }) {
   const role = useRole() || {};
   const items = visibleQuestions(role);
   const [open, setOpen] = useState('');
+  const backRef = useRef(null);
+  const rowRefs = useRef({});
+  const last = useRef('');
+  // Opening an answer moves focus to its Back; closing returns it to the row.
+  useEffect(() => {
+    if (open) { backRef.current?.focus(); last.current = open; return; }
+    if (last.current) { rowRefs.current[last.current]?.focus(); last.current = ''; }
+  }, [open]);
   if (!items.length) return null;
   const act = (n) => (n.ticket ? onTicket?.({ type: n.ticket }) : n.run());
+  const cur = items.find((n) => n.key === open) || null;
   return (
-    <section className="support-card how-do-i" aria-label="How Do I" data-tour="support-how-do-i">
-      <div className="how-do-i-head">
-        <div className="support-icon"><CircleHelp size={20} /></div>
-        <div style={{ minWidth: 0 }}>
-          <div className="support-card-title" style={{ marginBottom: 2 }}>How Do I...</div>
-          <p className="support-card-desc" style={{ margin: 0 }}>Short answers to the things people come here to do, each with the button that does it.</p>
+    <section className={`support-card how-do-i${cur ? ' is-answer' : ''}`} aria-label="How Do I" data-tour="support-how-do-i"
+      onKeyDown={(e) => { if (e.key === 'Escape' && cur) { e.stopPropagation(); setOpen(''); } }}>
+      {!cur ? (
+        <div className="how-do-i-view" key="list">
+          <div className="how-do-i-head">
+            <div className="support-icon"><CircleHelp size={18} /></div>
+            <div className="support-card-title">How Do I...</div>
+          </div>
+          <ul className="how-do-i-list">
+            {items.map((n) => (
+              <li key={n.key} className="how-do-i-row">
+                <button type="button" className="how-do-i-q" aria-expanded={false}
+                  ref={(el) => { rowRefs.current[n.key] = el; }} onClick={() => setOpen(n.key)}>
+                  <span className="how-do-i-ico"><n.Icon size={15} /></span>
+                  <span className="how-do-i-label">{n.q}</span>
+                  <ChevronRight size={15} className="how-do-i-chev" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
-      </div>
-      <ul className="how-do-i-list">
-        {items.map((n) => {
-          const isOpen = open === n.key;
-          const panelId = `how-do-i-${n.key}`;
-          return (
-            <li key={n.key} className={`how-do-i-row${isOpen ? ' is-open' : ''}`}>
-              <button type="button" className="how-do-i-q" aria-expanded={isOpen} aria-controls={panelId}
-                onClick={() => setOpen(isOpen ? '' : n.key)}>
-                <span className="how-do-i-ico"><n.Icon size={16} /></span>
-                <span className="how-do-i-label">{n.q}</span>
-                <ChevronDown size={16} className="how-do-i-chev" aria-hidden="true" />
-              </button>
-              <div id={panelId} className="how-do-i-panel" role="region" aria-label={`${n.q} answer`}
-                aria-hidden={!isOpen} inert={!isOpen}>
-                <div className="how-do-i-panel-in">
-                  <p className="how-do-i-answer">{n.answer}</p>
-                  <button type="button" className="how-do-i-act" onClick={() => act(n)}>{n.action}</button>
-                </div>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      ) : (
+        <div className="how-do-i-view how-do-i-answer-view" key={cur.key} role="region" aria-label={`${cur.q} answer`}>
+          <div className="how-do-i-answer-head">
+            <button type="button" ref={backRef} className="how-do-i-back" onClick={() => setOpen('')} aria-label="Back to How Do I">
+              <ChevronLeft size={16} />
+            </button>
+            <span className="how-do-i-ico"><cur.Icon size={15} /></span>
+            <span className="how-do-i-answer-title">{cur.q}</span>
+          </div>
+          <p className="how-do-i-answer">{cur.answer}</p>
+          <button type="button" className="how-do-i-act" onClick={() => act(cur)}>{cur.action}<ChevronRight size={14} aria-hidden="true" /></button>
+        </div>
+      )}
     </section>
   );
 }
