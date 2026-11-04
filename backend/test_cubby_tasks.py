@@ -507,7 +507,7 @@ def test_a_warehouse_without_updated_at_is_read_again_by_created_at(monkeypatch)
 
     monkeypatch.setattr(cubby_warehouse, "_run", run)
     rows = cubby_warehouse.task_rows(None)
-    assert len(asked) == 2 and "updated_at" not in asked[1] and "created_at >= @since" in asked[1]
+    assert len(asked) == 2 and "updated_at" not in asked[1] and "CAST(created_at AS TIMESTAMP) >= @since" in asked[1]
     assert rows[0]["assigned_managers"] == ["Pat Lee"] and rows[0]["updated_at"] == ""
     assert "updated_at" in cubby_warehouse.tasks_sql() and "ORDER BY updated_at" in cubby_warehouse.tasks_sql()
 
@@ -521,3 +521,15 @@ def test_any_other_warehouse_error_still_raises(monkeypatch):
     monkeypatch.setattr(cubby_warehouse, "_run", run)
     with pytest.raises(cubby_warehouse.WarehouseError):
         cubby_warehouse.task_rows(None)
+
+
+def test_the_warehouse_window_compares_timestamps_whatever_the_column_type():
+    """The warehouse's created_at / updated_at are DATETIME and the window
+    parameter is a TIMESTAMP; BigQuery will not compare the two as they are
+    (prod, 11/04/2026: the retry on created_at landed and the assignees were
+    still not read). Every window casts the column."""
+    import cubby_warehouse
+    assert "CAST(updated_at AS TIMESTAMP) >= @since" in cubby_warehouse.tasks_sql()
+    assert "CAST(created_at AS TIMESTAMP) >= @since" in cubby_warehouse.tasks_sql("created_at")
+    assert "CAST(created_at AS TIMESTAMP) >= @since" in cubby_warehouse.notes_sql()
+    assert "ORDER BY updated_at DESC" in cubby_warehouse.tasks_sql()

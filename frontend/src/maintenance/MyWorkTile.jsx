@@ -1,43 +1,56 @@
-// Workday's My Work tile (Construction plan phase 5, Neil 11/03/2026): where
-// field staff already go. Shows only when there is maintenance work for the
-// person (GET /maintenance/my-work), like Fill a Form; the list itself is the
-// lazy My Work sheet.
-import { Suspense, lazy, useEffect, useState } from 'react';
+﻿// Workday's My Tickets tile (Construction plan phase 5, Neil 11/03/2026;
+// "My Work" until 11/04/2026, when Neil made it a full-size tile in the stat
+// row, left of the compact Ask HR / Reimbursements rows, beside Time With
+// Us). Shows when there is maintenance work for the person (GET
+// /maintenance/my-work), and always - at 0, "Nothing open" - for someone on a
+// maintenance team (`onTeam`, Neil 11/04/2026); the list is the lazy sheet.
+// The page reads the work once through useMyMaintenanceWork, so its grid
+// knows whether to make room for the tile.
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { ArrowRight, Wrench } from 'lucide-react';
 import { api } from '../api';
 import SheetGuard from './SheetGuard';
 
 const MyWorkSheet = lazy(() => import('./MyWorkSheet'));
 
-export default function MyWorkTile() {
+export function useMyMaintenanceWork() {
   const [work, setWork] = useState(null);
-  const [open, setOpen] = useState(false);
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     let live = true;
-    api.getMyMaintenanceWork().then((d) => { if (live) setWork(d); }).catch(() => { if (live) setWork(null); });
+    api.getMyMaintenanceWork().then((d) => { if (live) setWork(d || null); }).catch(() => { if (live) setWork(null); });
     return () => { live = false; };
-  }, [open]);
+  }, [tick]);
+  const reload = useCallback(() => setTick((t) => t + 1), []);
   const count = work?.tickets?.length || 0;
-  if (!count && !open) return null;
-  const sub = work?.overdue ? `${count} open · ${work.overdue} overdue` : `${count} open${work?.preventive ? ` · ${work.preventive} preventive` : ''}`;
+  return { work, count, show: count > 0 || !!work?.onTeam, reload };
+}
+
+export default function MyWorkTile({ work, count = 0, show = count > 0, reload }) {
+  const [open, setOpen] = useState(false);
+  if (!show && !open) return null;
+  const sub = work?.overdue ? `${work.overdue} overdue` : work?.preventive ? `${work.preventive} preventive`
+    : count ? 'Assigned to you' : 'Nothing open';
+  const close = () => { setOpen(false); reload?.(); };
   return (
     <>
-      {count > 0 && (
-        <button type="button" className="dk-stat wd-stat wd-askhr wd-forms" onClick={() => setOpen(true)}
-          aria-label={`My Work, ${sub}`}>
-          <span className="wd-askhr-badge" aria-hidden="true"><Wrench size={18} /></span>
+      {show && (
+        <button type="button" data-my-tickets className="dk-stat wd-stat" onClick={() => setOpen(true)}
+          title="The maintenance tickets assigned to you, preventive first. Opens My Tickets."
+          aria-label={`My Tickets, ${count} open${work?.overdue ? `, ${work.overdue} overdue` : ''}`}>
+          <span className="dk-chip dk-chip--blue"><Wrench /></span>
           <span className="wd-stat-text">
-            <span className="wd-askhr-title">My Work</span>
-            <span className={`wd-askhr-sub${work?.overdue ? ' wd-askhr-sub--new' : ''}`}>{sub}</span>
+            <span className="dk-stat-num">{count}</span>
+            <span className="dk-stat-label">My Tickets</span>
+            <span className="dk-stat-sub" style={work?.overdue ? { color: 'hsl(var(--color-red))', fontWeight: 700 } : undefined}>{sub}</span>
           </span>
-          <span className="wd-askhr-cta" aria-hidden="true">Open <ArrowRight size={13} /></span>
-          <ArrowRight className="wd-askhr-go" size={15} aria-hidden="true" />
+          <ArrowRight size={16} className="dk-stat-arrow" aria-hidden="true" />
         </button>
       )}
       {open && (
-        <SheetGuard onClose={() => setOpen(false)}>
+        <SheetGuard onClose={close}>
           <Suspense fallback={null}>
-            <MyWorkSheet initial={work} onClose={() => setOpen(false)} />
+            <MyWorkSheet initial={work} onClose={close} />
           </Suspense>
         </SheetGuard>
       )}

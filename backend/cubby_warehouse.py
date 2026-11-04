@@ -207,8 +207,19 @@ def tasks_sql(stamp: str = "updated_at") -> str:
     # every task came in unassigned) - task_rows falls back by itself.
     cols = ", ".join(c for c in TASK_COLUMNS if c != "updated_at" or stamp == "updated_at")
     return (f"SELECT {cols} FROM `{TASKS_TABLE}` "
-            f"WHERE status = 'OPEN' OR {stamp} >= @since "
+            f"WHERE status = 'OPEN' OR {_since(stamp)} "
             f"ORDER BY {stamp} DESC LIMIT {TASK_MAX_ROWS}")
+
+
+def _since(column: str) -> str:
+    # The warehouse's `created_at` / `updated_at` are DATETIME (no zone; the
+    # Postgres mirror shows them as "timestamp without time zone") and the
+    # parameter is a TIMESTAMP - BigQuery refuses to compare the two ("No
+    # matching signature for operator >="), and prod's tasks query only
+    # reached that check once the missing-column retry landed (11/04/2026:
+    # the assignees were still not read). Casting the column makes the
+    # comparison work whichever of the two types the column really is.
+    return f"CAST({column} AS TIMESTAMP) >= @since"
 
 
 def _missing_updated_at(err: Exception) -> bool:
@@ -217,7 +228,7 @@ def _missing_updated_at(err: Exception) -> bool:
 
 def notes_sql() -> str:
     return (f"SELECT {', '.join(NOTE_COLUMNS)} FROM `{NOTES_TABLE}` "
-            "WHERE task_id IS NOT NULL AND task_id != '' AND created_at >= @since "
+            f"WHERE task_id IS NOT NULL AND task_id != '' AND {_since('created_at')} "
             f"ORDER BY created_at LIMIT {NOTE_MAX_ROWS}")
 
 

@@ -2,6 +2,15 @@
 import { FolderInput, RefreshCw, SlidersHorizontal, Square, X } from 'lucide-react';
 import { api } from '../api';
 import EgnyteTree from '../egnyte/EgnyteTree';
+import EgnytePreview from '../egnyte/EgnytePreview';
+
+// A file name opens the document right on the page (Visesh, 11/04: "a
+// preview right here") in the Files module's own viewer - PDF, image,
+// spreadsheet, text - with the arrow keys stepping through the list it came
+// from. A modified click (Ctrl / Cmd / Shift / middle) keeps the link's plain
+// behaviour: Egnyte's viewer in a new tab.
+const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+const asPreviewFile = (p) => ({ path: p.sourcePath, name: p.currentName, size: p.size || 0, webUrl: p.previewUrl || '' });
 import { Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
 import { ErrorBanner, LoadingState, SkeletonBlocks } from '../components/AsyncState';
@@ -61,12 +70,30 @@ export default function FilingTab({ toastOk, toastErr }) {
   // the queue by default (Visesh, 11/04: ignore the correctly labeled files).
   const [hideLabeled, setHideLabeled] = useState(true);
   const [fileIt, setFileIt] = useState(null);     // the row being filed by hand
+  const ROW_PAGE = 200;
+  const [shown, setShown] = useState(ROW_PAGE);   // rows rendered; Show More adds a page
+  const [query, setQuery] = useState('');         // narrows the rows by name or folder
+  const [preview, setPreview] = useState(null);   // {list, index} while the viewer is open
+  const openPreview = (list, index) => setPreview({ list, index });
   const [rulesOpen, setRulesOpen] = useState(false);
   const [activity, setActivity] = useState(null);
   // The tree's ticks: which folders the next scan covers. Empty = the
-  // configured #Unsorted staging folders (the server default).
-  const [pickedFolders, setPickedFolders] = useState(() => new Set());
-  const [includeSub, setIncludeSub] = useState(true);
+  // configured #Unsorted staging folders (the server default). Selection and
+  // toggles are per-viewer conveniences, so localStorage is the right home -
+  // wrapped, because private windows and blocked site data throw.
+  const [pickedFolders, setPickedFolders] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('filing-picked') || '[]')); }
+    catch { return new Set(); }
+  });
+  const [includeSub, setIncludeSub] = useState(() => {
+    try { return localStorage.getItem('filing-include-sub') !== '0'; } catch { return true; }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('filing-picked', JSON.stringify([...pickedFolders]));
+      localStorage.setItem('filing-include-sub', includeSub ? '1' : '0');
+    } catch { /* per-viewer convenience only */ }
+  }, [pickedFolders, includeSub]);
   const [progress, setProgress] = useState(null);   // {folders, files} while a walk runs
   const cancelRef = useRef(false);
 
@@ -76,64 +103,91 @@ export default function FilingTab({ toastOk, toastErr }) {
 
   // Counts and totals are recomputed here because a walked scan arrives in
   // pieces - the server's per-call numbers only cover that call.
-  const assemble = (proposals, missingRoots, truncated) => {
+  const assemble = (proposals, missingRoots, truncated, failedRoots = []) => {
     const counts = { auto: 0, review: 0, skip: 0 };
     const totals = { files: 0, labeled: 0, unlabeled: 0 };
     for (const p of proposals) {
       counts[p.status] = (counts[p.status] || 0) + 1;
       if (p.status !== 'skip') { totals.files += 1; totals[p.labeled ? 'labeled' : 'unlabeled'] += 1; }
     }
-    return { proposals, counts, totals, missingRoots, truncated };
+    return { proposals, counts, totals, missingRoots, truncated, failedRoots };
   };
 
   // Ticked folders are walked CLIENT-side, a few folders per request, so no
   // single call can outlive the 18-second request limit however deep the
   // tree goes - and the table fills while the walk runs, with a Stop that
   // keeps what is already found.
-  const WALK_FOLDER_CAP = 300;
-  const WALK_FILE_CAP = 2000;
-  const runScan = async () => {
-    setScanning(true); setResults({}); setSelected(new Set());
+  // Escondido's #Unsorted alone has a child with 178 subfolders (11/04), so
+  // the caps sit well above a real entity tree; the table renders in pages
+  // (ROW_PAGE) so a large result never freezes the browser.
+  const WALK_FOLDER_CAP = 2000;
+  const WALK_FILE_CAP = 10000;
+  // `roots` = the folders to walk; `merge` = add to the scan on screen (the
+  // Try Again pass over folders Egnyte would not list) instead of starting over.
+  const runScan = async ({ roots = null, merge = false } = {}) => {
+    setScanning(true); setShown(ROW_PAGE);
+    if (!merge) { setResults({}); setSelected(new Set()); }
     cancelRef.current = false;
     try {
-      if (!pickedFolders.size) {
+      const startFrom = roots || [...pickedFolders];
+      if (!startFrom.length) {
         const data = await api.filingScan();
-        setScan(data);
-        setSelected(new Set(data.proposals.filter(p => p.status === 'auto').map(p => p.sourcePath)));
+        setScan(assemble(data.proposals || [], data.missingRoots || [], !!data.truncated, data.failedRoots || []));
+        setSelected(new Set((data.proposals || []).filter(p => p.status === 'auto').map(p => p.sourcePath)));
         return;
       }
       const seen = new Set();
-      const queue = [...pickedFolders];
-      const missing = [];
-      let all = [];
+      const queue = [...startFrom];
+      const prior = merge ? (scan?.proposals || []) : [];
+      const known = new Set(prior.map(p => p.sourcePath));
+      const missing = merge ? [...(scan?.missingRoots || [])] : [];
+      const failed = [];
+      let all = [...prior];
       let folders = 0;
       let truncated = false;
+      // A throttled or failed batch must never sink the walk (Nov 4: Egnyte
+      // throttles a per-user key, and the error used to end the whole scan at
+      // the root's 35 files). The server already waits throttling out; here a
+      // batch gets one more try, then its folders are set aside by path and
+      // the walk carries on - the person can Try Again on just those.
+      const scanBatch = async (paths) => {
+        try { return await api.filingScan({ paths }); }
+        catch (e1) {
+          if (e1?.status === 401) throw e1;
+          try { return await api.filingScan({ paths }); }
+          catch (e2) {
+            if (e2?.status === 401) throw e2;
+            return { proposals: [], scannedRoots: [], missingRoots: [], subfolders: [], failedRoots: paths, deferred: [] };
+          }
+        }
+      };
       while (queue.length && !cancelRef.current) {
         if (folders >= WALK_FOLDER_CAP || all.length >= WALK_FILE_CAP) { truncated = true; break; }
+        // One request in flight carrying up to 20 folders: the server paces
+        // its Egnyte calls under the per-user limit and lists until its time
+        // budget is spent, handing the rest back as `deferred` - which go to
+        // the FRONT of the queue so the walk keeps its order.
         const batch = [];
-        while (batch.length < 5 && queue.length) {
+        while (batch.length < 20 && queue.length) {
           const p = queue.shift();
           if (!seen.has(p)) { seen.add(p); batch.push(p); }
         }
         if (!batch.length) continue;
-        let r;
-        try {
-          r = await api.filingScan({ paths: batch });
-        } catch {
-          // One lone failed request (a worker blip, the 11/04 502) must not
-          // kill a long walk - try that batch once more before giving up.
-          r = await api.filingScan({ paths: batch });
-        }
+        const r = await scanBatch(batch);
+        for (const d of (r.deferred || [])) seen.delete(d);
+        queue.unshift(...(r.deferred || []));
+        if (r.truncated) truncated = true;   // one folder past the server's per-call cap
         folders += (r.scannedRoots || []).length;
         missing.push(...(r.missingRoots || []));
-        all = all.concat(r.proposals || []);
+        failed.push(...(r.failedRoots || []));
+        all = all.concat((r.proposals || []).filter(p => !known.has(p.sourcePath)));
         if (includeSub) queue.push(...(r.subfolders || []));
-        setProgress({ folders, files: all.filter(p => p.status !== 'skip').length });
-        setScan(assemble(all, missing, truncated));
+        setProgress({ folders, files: all.filter(p => p.status !== 'skip').length, waiting: queue.length });
+        setScan(assemble(all, missing, truncated, failed));
       }
       const stopped = cancelRef.current && queue.length > 0;
-      setScan(assemble(all, missing, truncated || stopped));
-      setSelected(new Set(all.filter(p => p.status === 'auto').map(p => p.sourcePath)));
+      setScan(assemble(all, missing, truncated || stopped, failed));
+      if (!merge) setSelected(new Set(all.filter(p => p.status === 'auto').map(p => p.sourcePath)));
       if (stopped) toastOk?.('Scan stopped - keeping what was found');
     } catch (e) {
       toastErr?.(e.message || 'The scan failed');
@@ -170,6 +224,38 @@ export default function FilingTab({ toastOk, toastErr }) {
       && (p.newName || p.canonicalName) && (p.newName || p.canonicalName) !== p.currentName),
     [scan, results]);
 
+  // Every bulk action goes through here. Each move is a paced Egnyte call or
+  // two (about a second), so moves travel 10 to a request, the server hands
+  // back as `deferred` whatever its time budget did not reach, and those go
+  // out again - no request nears the browser's 18 s limit, and the person
+  // watches a counter instead of a frozen button. Results land on the rows
+  // as each chunk returns.
+  const [applyProgress, setApplyProgress] = useState(null);   // {done, total}
+  const applyChunked = async (moves, { renamed = false } = {}) => {
+    let done = 0, moved = 0, failed = 0;
+    let queue = [...moves];
+    const bySource = new Map(moves.map(m => [m.sourcePath, m]));
+    setApplyProgress({ done: 0, total: moves.length });
+    while (queue.length) {
+      const chunk = queue.slice(0, 10);
+      queue = queue.slice(10);
+      const out = await api.filingApply(chunk);
+      const back = (out.deferred || []).map(s => bySource.get(s)).filter(Boolean);
+      queue = [...back, ...queue];
+      setResults(prev => {
+        const next = { ...prev };
+        for (const r of out.results || []) next[r.sourcePath] = (r.ok && renamed) ? { ...r, renamed: true } : r;
+        return next;
+      });
+      moved += out.moved || 0; failed += out.failed || 0;
+      done += (out.results || []).length;
+      setApplyProgress({ done, total: moves.length });
+    }
+    setApplyProgress(null);
+    api.filingActivity().then(d => setActivity(d.rows)).catch(() => {});
+    return { moved, failed };
+  };
+
   const fixAllNames = async () => {
     const ok = await dialog.confirm(
       `Rename ${fixable.length} file${fixable.length === 1 ? '' : 's'} in place to their SOP names? Folders stay as they are; every rename is in the Audit Log.`,
@@ -177,27 +263,19 @@ export default function FilingTab({ toastOk, toastErr }) {
     if (!ok) return;
     setApplying(true);
     try {
-      let renamed = 0, failed = 0;
-      const next = { ...results };
-      for (let i = 0; i < fixable.length; i += 50) {
-        const batch = fixable.slice(i, i + 50).map(p => ({
-          sourcePath: p.sourcePath,
-          destFolder: p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/')),
-          newName: p.newName || p.canonicalName,
-          docType: p.docType || 'Rename', rule: 'rename',
-        }));
-        const out = await api.filingApply(batch);
-        for (const r of out.results) next[r.sourcePath] = r.ok ? { ...r, renamed: true } : r;
-        renamed += out.moved; failed += out.failed;
-      }
-      setResults(next);
-      if (renamed) toastOk?.(`Renamed ${renamed} file${renamed === 1 ? '' : 's'}`);
+      const { moved, failed } = await applyChunked(fixable.map(p => ({
+        sourcePath: p.sourcePath,
+        destFolder: p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/')),
+        newName: p.newName || p.canonicalName,
+        docType: p.docType || 'Rename', rule: 'rename',
+      })), { renamed: true });
+      if (moved) toastOk?.(`Renamed ${moved} file${moved === 1 ? '' : 's'}`);
       if (failed) toastErr?.(`${failed} could not be renamed - see the rows for why`);
-      api.filingActivity().then(d => setActivity(d.rows)).catch(() => {});
     } catch (e) {
-      toastErr?.(e.message || 'Could not rename the files');
+      toastErr?.(e.message || 'Could not rename the files - the ones already done are marked');
     } finally {
       setApplying(false);
+      setApplyProgress(null);
     }
   };
 
@@ -233,26 +311,47 @@ export default function FilingTab({ toastOk, toastErr }) {
     if (!ok) return;
     setApplying(true);
     try {
-      const out = await api.filingApply(moves);
-      const next = { ...results };
-      for (const r of out.results) next[r.sourcePath] = r;
-      setResults(next);
-      if (out.moved) toastOk?.(`Filed ${out.moved} document${out.moved === 1 ? '' : 's'}`);
-      if (out.failed) toastErr?.(`${out.failed} could not be moved - see the rows for why`);
-      api.filingActivity().then(d => setActivity(d.rows)).catch(() => {});
+      const { moved, failed } = await applyChunked(moves);
+      if (moved) toastOk?.(`Filed ${moved} document${moved === 1 ? '' : 's'}`);
+      if (failed) toastErr?.(`${failed} could not be moved - see the rows for why`);
     } catch (e) {
-      toastErr?.(e.message || 'Could not apply the moves');
+      toastErr?.(e.message || 'Could not apply the moves - the ones already done are marked');
     } finally {
       setApplying(false);
+      setApplyProgress(null);
     }
   };
 
   const rows = useMemo(() => {
     const all = scan?.proposals || [];
-    const base = hideLabeled ? all.filter(p => !(p.status === 'review' && p.labeled)) : all;
+    let base = hideLabeled ? all.filter(p => !(p.status === 'review' && p.labeled)) : all;
+    const q = query.trim().toLowerCase();
+    if (q) base = base.filter(p => p.sourcePath.toLowerCase().includes(q));
     if (filter === 'all') return base;
     return base.filter(p => p.status === filter);
-  }, [scan, filter, hideLabeled]);
+  }, [scan, filter, hideLabeled, query]);
+
+  // The scan as a report - a spreadsheet the labeling team or a reviewer can
+  // work from. Built in the browser from what is on screen; nothing is sent.
+  const exportCsv = () => {
+    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const head = ['Status', 'Labeled', 'Current Name', 'Folder', 'Doc Type', 'Suggested Name', 'Files To', 'Learned Folder', 'Why'];
+    const lines = [head.map(cell).join(',')];
+    for (const p of (scan?.proposals || [])) {
+      if (p.status === 'skip') continue;
+      lines.push([
+        p.status === 'auto' ? 'Ready' : 'Needs Review', p.labeled ? 'Yes' : 'No',
+        p.currentName, p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/')), p.docType,
+        p.newName || p.canonicalName, p.destFolder, p.learnedDest || '', (p.reasons || []).join('; '),
+      ].map(cell).join(','));
+    }
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'filing-scan.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
 
   const hiddenLabeled = useMemo(
     () => (scan?.proposals || []).filter(p => p.status === 'review' && p.labeled).length,
@@ -288,7 +387,7 @@ export default function FilingTab({ toastOk, toastErr }) {
               <Square size={13} /> Stop
             </button>
           ) : (
-            <button className="primary-btn" onClick={runScan} disabled={!status.configured} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button className="primary-btn" onClick={() => runScan()} disabled={!status.configured} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <RefreshCw size={15} />
               Scan Now{pickedFolders.size ? ` (${pickedFolders.size} Folder${pickedFolders.size === 1 ? '' : 's'})` : ''}
             </button>
@@ -332,23 +431,46 @@ export default function FilingTab({ toastOk, toastErr }) {
       )}
       <div style={{ flex: 1, minWidth: 360, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
+      {!scan && !scanning && status.configured && (
+        <div style={{ border: '1px dashed var(--border-color)', borderRadius: 12, padding: '18px 20px', fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>How It Works</div>
+          <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--text-secondary)' }}>
+            <li>Tick one or more folders on the left (or click one). Include Subfolders reaches every file inside, however deep.</li>
+            <li>Press Scan Now. Each file gets the name the naming SOPs give it; files already named right are counted and hidden.</li>
+            <li>Only labeling? Press Fix All Names - every wrong name is corrected in place and nothing moves.</li>
+            <li>Filing too? Open a file with its name to check it, then File It (pick the folder) or File to Learned (where the team filed similar files before).</li>
+          </ol>
+          <div style={{ marginTop: 8, color: 'var(--text-secondary)' }}>Every rename and move is in the Audit Log, and nothing is ever overwritten.</div>
+        </div>
+      )}
+
       {scanning && (
-        <LoadingState size="section" label={progress
-          ? `Scanned ${progress.folders} folder${progress.folders === 1 ? '' : 's'} - ${progress.files} file${progress.files === 1 ? '' : 's'} so far`
+        // A deep walk legitimately runs for minutes, so the loader's generic
+        // "taking longer than usual" line would only alarm; the live counter
+        // is the progress signal.
+        <LoadingState size="section" slowAfter={600000} minHeight={90} label={progress
+          ? `Scanned ${progress.folders.toLocaleString('en-US')} folder${progress.folders === 1 ? '' : 's'} - ${progress.files.toLocaleString('en-US')} file${progress.files === 1 ? '' : 's'} so far`
+            + (progress.waiting ? ` - ${progress.waiting.toLocaleString('en-US')} more found to read` : '')
           : 'Reading the folders'} />
       )}
 
       {scan && (
         <>
-          {/* Totals: how much of the staging pile is already named right */}
+          {/* Totals: how much of the pile is named right. Each tile opens its
+              slice - the number you want to act on is one click away. */}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {[['Total Files', scan.totals?.files ?? 0, null],
-              ['Labeled', scan.totals?.labeled ?? 0, 'hsl(var(--color-green))'],
-              ['Unlabeled', scan.totals?.unlabeled ?? 0, 'hsl(35, 90%, 34%)']].map(([label, n, color]) => (
-              <div key={label} style={{ flex: '0 0 auto', minWidth: 130, padding: '10px 16px', border: '1px solid var(--border-color)', borderRadius: 12 }}>
+            {[['Total Files', scan.totals?.files ?? 0, null, 'Every scanned file',
+               () => { setView('queue'); setFilter('all'); setHideLabeled(false); }],
+              ['Labeled', scan.totals?.labeled ?? 0, 'hsl(var(--color-green))', 'Already named right - the Proposed Names view',
+               () => setView('names')],
+              ['Unlabeled', scan.totals?.unlabeled ?? 0, 'hsl(35, 90%, 34%)', 'The files that need work',
+               () => { setView('queue'); setFilter('review'); setHideLabeled(true); }]]
+              .map(([label, n, color, hint, go]) => (
+              <button key={label} type="button" onClick={go} title={hint}
+                style={{ flex: '0 0 auto', minWidth: 130, padding: '10px 16px', border: '1px solid var(--border-color)', borderRadius: 12, background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
                 <div style={{ fontSize: 22, fontWeight: 700, color: color || 'inherit' }}>{n}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{label}</div>
-              </div>
+              </button>
             ))}
           </div>
 
@@ -360,13 +482,13 @@ export default function FilingTab({ toastOk, toastErr }) {
             </button>
           </div>
 
-          {view === 'names' && <NamesTable proposals={scan.proposals} />}
+          {view === 'names' && <NamesTable proposals={scan.proposals} results={results} onFixName={fixName} onOpen={openPreview} />}
 
           {view === 'queue' && (<>
           {/* Counts + filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {FILTERS.map(f => (
-              <button key={f.key} onClick={() => setFilter(f.key)}
+              <button key={f.key} onClick={() => { setFilter(f.key); setShown(ROW_PAGE); }}
                 className={filter === f.key ? 'secondary-btn' : 'btn-sm'}
                 style={{ fontSize: 12.5, padding: '4px 12px' }}>
                 {f.label}{f.key !== 'all' ? ` (${scan.counts[f.key] || 0})` : ` (${scan.proposals.length})`}
@@ -378,15 +500,28 @@ export default function FilingTab({ toastOk, toastErr }) {
                 Hide Correctly Labeled ({hiddenLabeled})
               </label>
             )}
+            <input value={query} onChange={e => { setQuery(e.target.value); setShown(ROW_PAGE); }}
+              placeholder="Find a file or folder" aria-label="Find a file or folder in the results"
+              style={{ fontSize: 12.5, padding: '5px 10px', border: '1px solid var(--border-color)', borderRadius: 8, minWidth: 200 }} />
             <div style={{ flex: 1 }} />
-            {fixable.length > 0 && !scanning && (
-              <button className="secondary-btn" onClick={fixAllNames} disabled={applying}>
+            {!scanning && (
+              <button className="btn-sm" onClick={exportCsv} title="Download this scan as a spreadsheet">
+                Export CSV
+              </button>
+            )}
+            {applyProgress && (
+              <span role="status" style={{ fontSize: 12.5, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                Working: {applyProgress.done} of {applyProgress.total} done
+              </span>
+            )}
+            {fixable.length > 0 && !scanning && !applying && (
+              <button className="secondary-btn" onClick={fixAllNames}>
                 Fix All Names ({fixable.length})
               </button>
             )}
-            {readyLeft > 0 && !scanning && (
-              <button className="primary-btn" onClick={applySelected} disabled={applying}>
-                {applying ? 'Moving...' : `Move ${readyLeft} File${readyLeft === 1 ? '' : 's'}`}
+            {readyLeft > 0 && !scanning && !applying && (
+              <button className="primary-btn" onClick={applySelected}>
+                {`Move ${readyLeft} File${readyLeft === 1 ? '' : 's'}`}
               </button>
             )}
           </div>
@@ -395,27 +530,36 @@ export default function FilingTab({ toastOk, toastErr }) {
             Ready rows move together with the Move button. A Needs Review row is filed by hand: press File It, adjust the name, pick the folder.
           </div>
 
+          {scan.failedRoots?.length > 0 && !scanning && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5, padding: '8px 12px', borderRadius: 10, background: 'hsla(45, 93%, 47%, 0.12)' }}>
+              <span>
+                {scan.failedRoots.length} folder{scan.failedRoots.length === 1 ? '' : 's'} could not be read just now - Egnyte was busy. The files above are complete for every other folder.
+              </span>
+              <button className="secondary-btn" style={{ fontSize: 12.5 }}
+                onClick={() => runScan({ roots: scan.failedRoots, merge: true })}>
+                Try Those Again
+              </button>
+            </div>
+          )}
           {scan.missingRoots?.length > 0 && (
             <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
               Not scanned (no access or missing): {scan.missingRoots.join(', ')}
             </div>
           )}
-          {scan.truncated && (
+          {scan.truncated && !scanning && (
             <div style={{ fontSize: 12.5, color: 'hsl(35, 90%, 34%)' }}>
-              Showing the first 500 items - file some and scan again for the rest.
+              The scan stopped before reaching every folder (stopped by hand, or past {WALK_FOLDER_CAP.toLocaleString('en-US')} folders / {WALK_FILE_CAP.toLocaleString('en-US')} files). Tick a smaller folder to see the rest.
             </div>
           )}
 
-          {/* Proposals table */}
-          <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 12 }}>
+          {/* Proposals table - header stays put while a 500-row scan scrolls */}
+          <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '65vh', border: '1px solid var(--border-color)', borderRadius: 12 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ textAlign: 'left', background: 'var(--bg-secondary)' }}>
-                  <th style={{ padding: '8px 10px', width: 30 }}></th>
-                  <th style={{ padding: '8px 10px' }}>File</th>
-                  <th style={{ padding: '8px 10px' }}>Doc Type</th>
-                  <th style={{ padding: '8px 10px' }}>Files To</th>
-                  <th style={{ padding: '8px 10px' }}>Status</th>
+                <tr style={{ textAlign: 'left' }}>
+                  {['', 'File', 'Doc Type', 'Files To', 'Status'].map((h, i) => (
+                    <th key={h || 'tick'} style={{ padding: '8px 10px', width: i === 0 ? 30 : undefined, position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-secondary)' }}>{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -424,7 +568,7 @@ export default function FilingTab({ toastOk, toastErr }) {
                     Nothing here - the staging folders are clean.
                   </td></tr>
                 )}
-                {rows.map((p) => {
+                {rows.slice(0, shown).map((p) => {
                   const r = results[p.sourcePath];
                   const effective = r ? (r.ok ? (r.renamed ? 'renamed' : 'done') : 'failed') : p.status;
                   return (
@@ -440,8 +584,15 @@ export default function FilingTab({ toastOk, toastErr }) {
                         )}
                       </td>
                       <td style={{ padding: '8px 10px', maxWidth: 340 }}>
-                        {p.previewUrl ? (
-                          <a href={p.previewUrl} target="_blank" rel="noreferrer" title="Open the file in Egnyte's viewer"
+                        {p.status !== 'skip' ? (
+                          <a href={p.previewUrl || '#'} target="_blank" rel="noreferrer"
+                            title="Preview the file here (Ctrl-click opens it in Egnyte)"
+                            onClick={(e) => {
+                              if (!plainClick(e)) return;
+                              e.preventDefault();
+                              const files = rows.filter(x => x.status !== 'skip');
+                              openPreview(files, files.indexOf(p));
+                            }}
                             style={{ fontWeight: 600, wordBreak: 'break-word', color: 'inherit' }}>
                             {p.currentName}
                           </a>
@@ -509,6 +660,14 @@ export default function FilingTab({ toastOk, toastErr }) {
               </tbody>
             </table>
           </div>
+          {rows.length > shown && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--text-secondary)' }}>
+              Showing {shown.toLocaleString('en-US')} of {rows.length.toLocaleString('en-US')}
+              <button className="secondary-btn" onClick={() => setShown(s => s + ROW_PAGE)} style={{ fontSize: 12.5 }}>
+                Show {Math.min(ROW_PAGE, rows.length - shown)} More
+              </button>
+            </div>
+          )}
           </>)}
         </>
       )}
@@ -529,6 +688,16 @@ export default function FilingTab({ toastOk, toastErr }) {
 
       </div>
       </div>
+
+      {preview && preview.list[preview.index] && (
+        <EgnytePreview
+          file={asPreviewFile(preview.list[preview.index])}
+          onClose={() => setPreview(null)}
+          onNav={(d) => setPreview(pv => ({ ...pv, index: Math.max(0, Math.min(pv.list.length - 1, pv.index + d)) }))}
+          navIndex={preview.index}
+          navCount={preview.list.length}
+        />
+      )}
 
       {fileIt && (
         <FileItSheet proposal={fileIt} onClose={() => setFileIt(null)}
@@ -552,19 +721,25 @@ export default function FilingTab({ toastOk, toastErr }) {
 // Every scanned file beside the name the rulebook would give it - the reading
 // view for "what should these be called". Unlabeled files sort first; a file
 // whose name is already canonical says so instead of repeating itself.
-function NamesTable({ proposals }) {
+// The same row tools as the queue (Visesh, 11/04: names and previews in one
+// place) - open the file, Fix Name in place - and the same paging, so a
+// 10,000-file tree never renders all at once.
+function NamesTable({ proposals, results = {}, onFixName, onOpen }) {
+  const PAGE = 200;
+  const [shown, setShown] = useState(PAGE);
   const sorted = useMemo(() => {
     const files = proposals.filter(p => p.status !== 'skip');
     return [...files].sort((a, b) => (a.labeled === b.labeled ? 0 : a.labeled ? 1 : -1));
   }, [proposals]);
   return (
-    <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 12 }}>
+    <>
+    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '65vh', border: '1px solid var(--border-color)', borderRadius: 12 }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
-          <tr style={{ textAlign: 'left', background: 'var(--bg-secondary)' }}>
-            <th style={{ padding: '8px 10px' }}>Current Name</th>
-            <th style={{ padding: '8px 10px' }}>Should Be</th>
-            <th style={{ padding: '8px 10px' }}>Status</th>
+          <tr style={{ textAlign: 'left' }}>
+            {['Current Name', 'Should Be', 'Status'].map(h => (
+              <th key={h} style={{ padding: '8px 10px', position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-secondary)' }}>{h}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -573,12 +748,23 @@ function NamesTable({ proposals }) {
               Nothing here - the staging folders are clean.
             </td></tr>
           )}
-          {sorted.map((p) => {
+          {sorted.slice(0, shown).map((p) => {
             const shouldBe = p.newName || p.canonicalName;
+            const r = results[p.sourcePath];
+            const canFix = !p.labeled && shouldBe && shouldBe !== p.currentName && !r?.ok && onFixName;
             return (
               <tr key={p.sourcePath} style={{ borderTop: '1px solid var(--border-color)', verticalAlign: 'top' }}>
                 <td style={{ padding: '8px 10px', maxWidth: 380 }}>
-                  <div style={{ wordBreak: 'break-word' }}>{p.currentName}</div>
+                  {(p.previewUrl || onOpen) ? (
+                    <a href={p.previewUrl || '#'} target="_blank" rel="noreferrer"
+                      title="Preview the file here (Ctrl-click opens it in Egnyte)"
+                      onClick={(e) => {
+                        if (!onOpen || !plainClick(e)) return;
+                        e.preventDefault();
+                        onOpen(sorted, sorted.indexOf(p));
+                      }}
+                      style={{ wordBreak: 'break-word', color: 'inherit' }}>{p.currentName}</a>
+                  ) : <div style={{ wordBreak: 'break-word' }}>{p.currentName}</div>}
                   <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
                     {p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/'))}
                   </div>
@@ -587,9 +773,21 @@ function NamesTable({ proposals }) {
                   {p.labeled
                     ? <span style={{ color: 'var(--text-secondary)' }}>Already right</span>
                     : (shouldBe || <span style={{ color: 'var(--text-secondary)' }}>No date in the name - a person names it</span>)}
+                  {!p.labeled && spacingOnly(p.currentName, shouldBe) && (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>differs only in spacing</div>
+                  )}
                 </td>
                 <td style={{ padding: '8px 10px' }}>
-                  <StatusChip status={p.labeled ? 'labeled' : 'unlabeled'} />
+                  <StatusChip status={r?.ok ? 'renamed' : r ? 'failed' : (p.labeled ? 'labeled' : 'unlabeled')} />
+                  {r && !r.ok && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', marginTop: 4 }}>{r.error}</div>}
+                  {canFix && (
+                    <div style={{ marginTop: 6 }}>
+                      <button className="btn-sm" onClick={() => onFixName(p)} style={{ fontSize: 12 }}
+                        title="Rename in place to the suggested name - the file stays where it is">
+                        Fix Name
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             );
@@ -597,6 +795,15 @@ function NamesTable({ proposals }) {
         </tbody>
       </table>
     </div>
+    {sorted.length > shown && (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--text-secondary)' }}>
+        Showing {shown.toLocaleString('en-US')} of {sorted.length.toLocaleString('en-US')}
+        <button className="secondary-btn" onClick={() => setShown(s => s + PAGE)} style={{ fontSize: 12.5 }}>
+          Show {Math.min(PAGE, sorted.length - shown)} More
+        </button>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -685,7 +892,10 @@ function RulesSheet({ status, onClose, onSaved, toastOk, toastErr }) {
         </div>
 
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Scanned Folders</div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>Default Folders</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            Scanned when nothing is ticked in the tree - the staging folders new files land in.
+          </div>
           {status.scanRoots.map((root) => (
             <div key={root} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-color)', fontSize: 12.5 }}>
               <span style={{ flex: 1, wordBreak: 'break-all' }}>{root}</span>

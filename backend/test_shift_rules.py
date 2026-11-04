@@ -300,6 +300,36 @@ class RuleWarningsTests(_Case):
         self._company_setting(ruleDailyOtHours=0)
         self.assertEqual(shift_rules.rule_warnings(self.db, [AMY, BOB], MON, MON), {})
 
+    def test_a_salaried_person_gets_no_hourly_warnings(self):
+        # Neil, 11/04/2026: leadership is on fixed monthly pay with the rate
+        # row's default 'ca' rule, and was told "over 40h is overtime".
+        self.db.add(models.PayrollRate(employee_email=AMY, pay_type="fixed", overtime_rule="ca"))
+        self.db.commit()
+        for i, d in enumerate([MON, TUE, "2026-10-14", "2026-10-15", FRI]):
+            self._shift(AMY, d, "06:00", "20:00", id=f"long-{i}")         # 14h days, 70h week
+        self._shift(AMY, "2026-10-17", "06:00", "20:00", id="long-sat")
+        self._shift(AMY, "2026-10-18", "02:00", "12:00", id="long-sun")  # short rest, 7 days in a row
+        self._company_setting(ruleMinRestHours=10, ruleMaxDaysInRow=6, ruleDailyOtHours=8, ruleWeeklyOtHours=40, ruleMaxWeekHours=50)
+        self.assertEqual(shift_rules.rule_warnings(self.db, [AMY], MON, "2026-10-18"), {})
+        self.assertEqual(shift_rules.config_for(self.db, [AMY])[AMY][1], "none")
+        self.assertIn(AMY, shift_rules.salaried_emails(self.db))
+        # Hourly again: every rule is back.
+        self.db.query(models.PayrollRate).filter(models.PayrollRate.employee_email == AMY).first().pay_type = "hourly"
+        self.db.commit()
+        out = shift_rules.rule_warnings(self.db, [AMY], MON, "2026-10-18")
+        text = " ".join(t for ws in out.values() for t in ws)
+        for bit in ("over 8h is overtime", "over 40h is overtime", "day in a row", "rest before", "50h is the most"):
+            self.assertIn(bit, text)
+
+    def test_a_salaried_persons_own_cap_still_warns(self):
+        self.db.add(models.PayrollRate(employee_email=AMY, pay_type="fixed"))
+        self.db.add(models.ShiftAvailabilityPref(employee_email=AMY, max_hours_week=20))
+        self.db.commit()
+        for i, d in enumerate([MON, TUE, "2026-10-14"]):
+            self._shift(AMY, d, "08:00", "16:00", id=f"own-{i}")
+        out = shift_rules.rule_warnings(self.db, [AMY], MON, FRI)
+        self.assertEqual(out, {"own-2": ["24h 00m scheduled this week (they asked for at most 20h)."]})
+
     def test_the_grid_shows_a_rule_warning_in_conflicts(self):
         self._shift(AMY, MON, "14:00", "22:00")
         sid = self._shift(AMY, TUE, "06:00", "14:00")

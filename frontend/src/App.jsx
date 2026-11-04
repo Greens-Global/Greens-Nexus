@@ -463,6 +463,8 @@ function parsePath() {
   // and navigates there once the pin is fetched. Dashboard in the meantime.
   if (raw === 'dev-notes') return { view: 'dashboard', sub: null };
   const view = PATH_TO_VIEW[raw] || raw;
+  // Team > Requests moved into Dashboard > Approvals (Neil, 11/04/2026).
+  if (view === 'shifts' && segs[1] === 'requests') return { view: 'dashboard', sub: 'approvals:shifts' };
   const workforce = workforceRedirect(view, segs[1] || null);
   if (workforce) return workforce;
   // Purchase Requisition moved to Workday (Neil, Oct 22 2026): the old
@@ -743,6 +745,8 @@ function MainApp() {
     if (view === 'external-links' || view === 'links') { view = 'dashboard'; sub = 'links'; }
     // Approvals -> Dashboard > Approvals (Oct 30 2026); bells and old links keep working.
     if (view === 'approvals') { view = 'dashboard'; sub = sub ? `approvals:${sub}` : 'approvals'; }
+    // Team > Requests -> Dashboard > Approvals, Shifts (Neil, 11/04/2026; see parsePath).
+    if (view === 'shifts' && sub === 'requests') { view = 'dashboard'; sub = 'approvals:shifts'; }
     if (view === 'dashboard' && sub === 'external-links') sub = 'links';
     // Retired Nexus Access Manager -> Settings > Access (see parsePath).
     if (view === 'admin') { view = 'admin-console'; sub = 'access'; }

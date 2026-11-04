@@ -6380,6 +6380,31 @@ class ShiftIn(BaseModel):
     # company). None = leave as is on an edit; on create, a company-limited
     # caller's own company, '' for company-wide access (Shifts Phase 0).
     company_id: Optional[str] = None
+    # The teams this type is for (11/04/2026); [] = every team. None = leave
+    # as is on an edit.
+    group_ids: Optional[List[str]] = None
+
+
+def _shift_group_ids(s) -> list:
+    """A shift type's teams (Shift.group_ids); [] = every team."""
+    try:
+        v = json.loads(getattr(s, "group_ids", "") or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [str(x) for x in v if str(x).strip()] if isinstance(v, list) else []
+
+
+def _clean_shift_groups(db: Session, ids) -> str:
+    """The stored form of a picked team list: known team ids only, in order."""
+    known = {g.id for g in db.query(ShiftGroup.id).all()}
+    out = []
+    for gid in ids or []:
+        gid = str(gid or "").strip()
+        if gid and gid not in out:
+            if gid not in known:
+                raise HTTPException(400, "Team not found.")
+            out.append(gid)
+    return json.dumps(out) if out else ""
 
 
 _BREAK_MAX_MIN = 480
@@ -6494,7 +6519,7 @@ def _shift_dict(s: Shift) -> dict:
     return {"id": s.id, "name": s.name, "code": s.code or "", "start": s.start_hhmm,
             "end": s.end_hhmm, "days": s.days, "graceMin": s.grace_min, "color": s.color,
             "timezone": s.timezone or "America/Los_Angeles", "breakMin": int(getattr(s, "break_min", 0) or 0),
-            "companyId": getattr(s, "company_id", "") or ""}
+            "companyId": getattr(s, "company_id", "") or "", "groupIds": _shift_group_ids(s)}
 
 
 @router.get("/shifts")
@@ -6541,6 +6566,7 @@ def create_shift(body: ShiftIn, user: dict = Depends(require_shift_manage), db: 
               days=body.days[:40], grace_min=max(0, int(body.grace_min or 0)),
               color=(body.color or "#2563eb")[:9], timezone=_valid_tz(body.timezone),
               break_min=_clamp_break(body.break_min), company_id=company_id,
+              group_ids=_clean_shift_groups(db, body.group_ids),
               created_by=user["email"], created_at=_now_iso())
     db.add(s)
     db.commit()
@@ -6568,6 +6594,8 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shif
     s.color = (body.color or "#2563eb")[:9]
     s.timezone = _valid_tz(body.timezone)
     s.break_min = _clamp_break(body.break_min)   # new placements only; placed shifts keep theirs
+    if body.group_ids is not None:
+        s.group_ids = _clean_shift_groups(db, body.group_ids)
     db.commit()
     return _shift_dict(s)
 
@@ -7511,6 +7539,47 @@ def _timeoff_dict(t, priv: "_TimeoffPrivacy" = None) -> dict:
     return out
 
 
+def _schedule_read_scope(db: Session, user: dict, write_scope, all_groups=None, member_rows=None):
+    """Who the shift planner SHOWS this caller (Neil, 11/04/2026: a manager
+    sees their own teams, not every team in the company). None = everyone.
+
+      - Administrator and up: their `write_scope` as is - a Super
+        Administrator (or a member of a global-admin group) everyone, an
+        Administrator their companies' people (always company-walled).
+      - An unrestricted People grant (HR's own office, write_scope None):
+        everyone, as before - HR reads the whole schedule.
+      - Everyone else (managers, group schedulers, a company-limited People
+        grant): the members of the teams (shift groups) they are ON, are
+        named scheduler of, or have one of their own people in - plus
+        everyone they may change (their direct reports, backups, grant
+        scope) and themself. Before 11/04/2026 every manager read the whole
+        company's planner.
+
+    Only what is SHOWN narrows here; `write_scope` still decides what may be
+    changed and every write route keeps enforcing it. `all_groups` /
+    `member_rows` (ShiftGroup rows, ShiftGroupMember rows) are the caller's
+    one read of them, so the planner does not ask the database twice."""
+    if write_scope is None or int(user.get("level", 0) or 0) >= 4:
+        return write_scope
+    me = (user.get("email") or "").lower()
+    # write_scope below level 4 already holds the caller, their direct
+    # reports and the people they are Backup Manager for (_visible_emails).
+    mine = set(write_scope) | {me}
+    # A live approver delegation: the stand-in sees the people whose time
+    # off they now decide (approval_delegation.py), never changes them.
+    import approval_delegation
+    mine |= {(e or "").lower() for e in approval_delegation.delegated_people(db, user.get("email") or "")}
+    if all_groups is None:
+        all_groups = db.query(ShiftGroup).all()
+    if member_rows is None:
+        member_rows = db.query(ShiftGroupMember).all()
+    rows = [((m.group_id or ""), (m.employee_email or "").lower()) for m in member_rows if m.employee_email]
+    team_ids = {gid for gid, em in rows if em in mine}
+    team_ids |= {g.id for g in all_groups if me in _schedulers(g)}
+    team_ids &= {g.id for g in all_groups if not int(getattr(g, "archived", 0) or 0)}
+    return mine | {em for gid, em in rows if gid in team_ids}
+
+
 def _can_write_schedule(user: dict, db: Session) -> bool:
     """True if the caller can BUILD schedules - the audience that sees
     unpublished DRAFT shifts and can publish them. Everyone else reading the
@@ -7544,16 +7613,33 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     """Everything the grid needs for a date range: visible employees (scoped),
     shift presets, groups, the placed shifts, and time off to overlay. Drafts
     (unpublished shifts) are returned only to schedulers who can publish them."""
-    # See everyone, change only your own (Neil, Sep 30: "I should be able to
-    # see everybody, but I should only be able to manage my construction
-    # team"). A manager reads the whole schedule; `write_scope` - their
-    # direct reports plus the teams they are named scheduler of - is what they
-    # may change, and each row / shift says so (canEdit). The write routes
-    # keep enforcing write_scope; this only widens what is shown.
+    # Your own teams only (Neil, 11/04/2026: managers on the Operations Team
+    # were seeing every other team's planner - "a lot of bloat and it's
+    # unneeded"). This replaces the Sep 30 "a manager reads the whole
+    # schedule": what a caller READS is `_schedule_read_scope` - a Super
+    # Administrator everyone, an Administrator their companies, everyone
+    # else the teams they are on, schedule or have reports in. `write_scope`
+    # - their direct reports plus the teams they are named scheduler of - is
+    # still what they may change (canEdit), and the write routes keep
+    # enforcing it.
     write_scope = _visible_emails(db, user)
-    everyone = can_manage_shifts(user) and not user.get("_group_scheduler")
-    scope = None if everyone else write_scope
+    # The teams and their members, read ONCE for the whole call (11/04/2026,
+    # "the shifts module needs to be very snappy": this read used to ask for
+    # the groups and the caller's scope again for every team on screen).
+    all_groups = _ordered_groups(db)
+    member_rows = db.query(ShiftGroupMember).all()
+    scope = _schedule_read_scope(db, user, write_scope, all_groups, member_rows)
     can_write = _can_write_schedule(user, db)
+    me_email = (user.get("email") or "").lower()
+    # _group_editable's rule, worked out once: a manager whose own scope
+    # (without the group-scheduler extra) is the whole company, or a
+    # manager named that team's scheduler.
+    if not can_manage_shifts(user):
+        wide_editor = False
+    elif "_sched_extra" in user or "_group_scheduler" in user:
+        wide_editor = _visible_emails(db, {k: v for k, v in user.items() if k not in ("_sched_extra", "_group_scheduler")}) is None
+    else:
+        wide_editor = write_scope is None
     # One read of People: rows are ACTIVE, not-deleted employees only (Oct 2,
     # Shifts QA B2-10); names still resolve for anyone a shift points at.
     all_people = {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all() if e.work_email}
@@ -7583,17 +7669,27 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     cfg = _sr_settings(db)
     team_tz = cfg.get("timeZone") or _DEFAULT_TEAM_TZ
     members = {}
-    for m in db.query(ShiftGroupMember).all():
+    for m in member_rows:
         em = (m.employee_email or "").lower()
         if em in people and (scope is None or em in scope):
             members.setdefault(m.group_id, []).append(em)
     sites = _site_map(db)
     groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                "archived": bool(getattr(g, "archived", 0)), "sortOrder": int(getattr(g, "sort_order", 0) or 0),
-               "canEdit": _group_editable(db, user, g), **_group_weather(g, sites), **_group_flags(g)}
-              for g in _ordered_groups(db)]
-    if user.get("_group_scheduler"):
-        groups = [g for g in groups if g["members"]]   # only the groups they schedule
+               "canEdit": wide_editor or (can_manage_shifts(user) and me_email in _schedulers(g)),
+               **_group_weather(g, sites), **_group_flags(g)}
+              for g in all_groups]
+    if scope is not None:
+        # Only the caller's own teams: one with someone they may see on it,
+        # or one they are named scheduler of (an empty team they run).
+        # An Administrator also keeps the (still empty) teams of their own
+        # companies, so a team they just made is there to fill.
+        mine = {g.id for g in all_groups if me_email in _schedulers(g)}
+        if int(user.get("level", 0) or 0) >= 4:
+            from auth import company_scope
+            cscope = company_scope(user, db) or set()
+            mine |= {g.id for g in all_groups if (g.company_id or "") in cscope or not (g.company_id or "")}
+        groups = [g for g in groups if g["members"] or g["id"] in mine]
     group_ids = [g["id"] for g in groups]
     # Weather by department (10/29/2026): on the schedule, weatherAlerts says
     # whether the weather applies to the group at all - its own switch AND a
@@ -7607,10 +7703,13 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     q = (db.query(ScheduledShift)
          .filter(ScheduledShift.work_date >= start, ScheduledShift.work_date <= end))
     if scope is not None:
-        # Assigned shifts for the caller's team PLUS team-wide OPEN shifts
-        # (unassigned slots, employee_email == '').
+        # Assigned shifts for the caller's people PLUS the OPEN shifts
+        # (unassigned slots, employee_email == '') of their own teams, or
+        # ones they made - never another team's slots (11/04/2026).
+        me = (user.get("email") or "").lower()
         q = q.filter((ScheduledShift.employee_email.in_(list(scope))) |
-                     (ScheduledShift.employee_email == ""))
+                     ((ScheduledShift.employee_email == "") &
+                      (ScheduledShift.group_id.in_(group_ids) | (func.lower(ScheduledShift.created_by) == me))))
     if not can_write:
         q = q.filter(ScheduledShift.published == 1)   # staff see only SHARED shifts
     rows = [r for r in q.all() if not r.employee_email or (r.employee_email or "").lower() in people]
@@ -7703,7 +7802,7 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     cat = jobsites.Catalog(db)
     jobsite_list = cat.options(user) if can_write or any(s.get("jobsite") for s in scheduled) else []
     if any(s.get("jobsite") for s in scheduled):
-        site_of = {g.id: g.work_site_id or "" for g in db.query(ShiftGroup).all()}
+        site_of = {g.id: g.work_site_id or "" for g in all_groups}
         bands = {(w["groupId"], w["date"], w["place"]): w for w in weather if w.get("place")}
         for s in scheduled:
             if not s.get("jobsite"):
@@ -9521,7 +9620,9 @@ class PublishScheduleIn(BaseModel):
     group_id: Optional[str] = ""           # optional: publish just one group's shifts
     emails: List[str] = []                 # optional: publish just these people's shifts
     notify: str = "changed"                # changed = only people whose shifts changed | team = everyone
+                                           # | none = Save Without Sharing (11/04/2026, minor updates)
     reason: Optional[str] = ""             # why share over warnings (Phase 2; required when the review says so)
+    confirm_major: bool = False            # notify=none over changes that are not minor ("are you sure?")
 
 
 @router.post("/schedule/publish")
@@ -9559,7 +9660,20 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
     review = _publish_review(db, user, d0, d1, body.group_id, body.emails, rows=rows)
     if review["reasonRequired"] and not reason:
         raise HTTPException(400, "A reason is needed to share a schedule with warnings.")
+    quiet = body.notify == "none"
+    if quiet and review["major"] and not body.confirm_major:
+        n = len(review["major"])
+        raise HTTPException(400, f"{n} of these changes {'is' if n == 1 else 'are'} not minor and should be shared "
+                                 "with the team. Share them, or confirm saving without telling anyone.")
     publish_id = str(uuid.uuid4())
+    # A quiet save says so on every shift's history row, and whether the
+    # manager confirmed it past the minor rule.
+    quiet_note = (("Saved without notifying the team (confirmed over major changes)." if review["major"] else
+                   "Saved without notifying the team (minor update).") if quiet else "")
+
+    def _why(rid: str) -> str:
+        bits = [quiet_note, reason if rid in warned else ""]
+        return " ".join(b for b in bits if b)[:300]
     # The reason belongs to the shifts the review warned about (hardening
     # pass, Oct 15): their 'shared' rows carry it and the warning sentences;
     # every other row of the publish carries the publish id only.
@@ -9577,7 +9691,7 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
             changes.append(shift_notify.change("removed", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label))
             touched.append(r.id)
             shift_log.record(db, "shared", r, user["email"], before=shift_log.snapshot(r),
-                             reason=reason if r.id in warned else "", publish_id=publish_id)
+                             reason=_why(r.id), publish_id=publish_id)
             db.delete(r)
             removed += 1
             continue
@@ -9606,7 +9720,7 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
         r.published, r.pending_json = 1, ""
         after = shift_log.snapshot(r, **({"warnings": warned[r.id]} if r.id in warned else {}))
         shift_log.record(db, "shared", r, user["email"], before=before, after=after,
-                         reason=reason if r.id in warned else "", publish_id=publish_id)
+                         reason=_why(r.id), publish_id=publish_id)
     # A swap / offer / open-shift request about a shift that just changed or
     # went away no longer describes the schedule (Oct 2, B2-5).
     cancelled = cancel_requests_for_shifts(db, touched, user["email"]) if touched else 0
@@ -9622,9 +9736,15 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
             shift_calendar.enqueue_delete(db, c["shift_id"], c["email"])
     if added + updated + removed:
         _remember_publish(db, user["email"], d0, d1, reason=reason, publish_id=publish_id)
-        shift_confirm.record_publish(db, publish_id, user["email"], d0, d1, group_id=(body.group_id or "").strip(),
-                                     reason=reason, changes=added + updated + removed)
+        if not quiet:   # a quiet save asks nobody to confirm what nobody was told
+            shift_confirm.record_publish(db, publish_id, user["email"], d0, d1, group_id=(body.group_id or "").strip(),
+                                         reason=reason, changes=added + updated + removed)
     db.commit()
+    if quiet:
+        return {"published": added + updated + removed, "added": added, "updated": updated, "edited": updated,
+                "removed": removed, "notified": 0, "quiet": True, "requestsCancelled": cancelled,
+                "lastPublishedAt": _last_publish(db).get("at") or "", "publishId": publish_id,
+                "warnings": len(review["warnings"])}
     # Tell the people affected - one bell + one email each (Sep 28, QA item 2),
     # asking them to confirm when their company says so (Phase 3a).
     notified = shift_notify.notify_published(db, changes, user["email"], d0, d1, bt, publish_id=publish_id)
@@ -14745,9 +14865,11 @@ def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "
             kind, was = "changed", {"start": r.start_hhmm, "end": r.end_hhmm, "label": r.label or ""}
         else:
             kind, was = "added", None
-        changes.append({"email": em, "name": names.get(em, em) if em else "Open shift", "kind": kind,
+        who = names.get(em, em) if em else "Open shift"
+        minor, why = _quiet_minor(kind, r, eff, who)
+        changes.append({"email": em, "name": who, "kind": kind,
                         "date": r.work_date, "start": eff["start"], "end": eff["end"], "label": eff["label"] or "",
-                        "shiftId": r.id, "was": was})
+                        "shiftId": r.id, "was": was, "minor": minor, "why": why})
         if not r.pending_delete and em:
             shared.append((eff, r))
     people = {c["email"] for c in changes if c["email"]}
@@ -14812,7 +14934,53 @@ def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "
             if asks[cid]:
                 required = True
                 break
-    return {"changes": changes, "people": len(people), "warnings": warnings, "reasonRequired": required}
+    return {"changes": changes, "people": len(people), "warnings": warnings, "reasonRequired": required,
+            # Save Without Sharing (11/04/2026): allowed as is only when every
+            # change is minor; the rest are listed with why they should be shared.
+            "quietOk": all(c["minor"] for c in changes),
+            "major": [c for c in changes if not c["minor"]]}
+
+
+# Save Without Sharing (Neil, 11/04/2026): a manager or HR+ may apply an
+# update to the team's schedule WITHOUT telling anyone - no bell, no email,
+# no confirm-my-schedule ask (the Outlook event still follows) - for MINOR
+# updates only: the same person, the same day, the start and the end each
+# moved by at most QUIET_MINOR_MIN minutes, or only the label, note, color,
+# break, activities or shift type changed. Anything else is MAJOR - a new
+# shift, a removed one, a bigger time change, a change in open slots - and
+# needs an "are you sure?" that says why it should be shared
+# (`confirm_major` on the publish); the server refuses it without one.
+QUIET_MINOR_MIN = 30
+
+
+def _hhmm_to_min(v: str) -> int:
+    try:
+        h, m = (v or "")[:5].split(":")
+        return int(h) * 60 + int(m)
+    except (ValueError, AttributeError):
+        return 0
+
+
+def _quiet_minor(kind: str, row, eff: dict, who: str) -> tuple:
+    """(minor, why) for one unshared change. `why` says, for a major one,
+    in plain words, why the person should be told."""
+    day = _us_day(row.work_date)
+    if kind == "removed":
+        return False, (f"Removes {who}'s shift on {day} - they would still expect to work it." if row.employee_email
+                       else f"Removes an open shift on {day} - people may already be counting on it.")
+    if kind == "added":
+        return False, (f"A new shift for {who} on {day} - they would not know to come in." if row.employee_email
+                       else f"A new open shift on {day} - nobody can pick it up unless it is shared.")
+    moved = [abs(_hhmm_to_min(eff["start"]) - _hhmm_to_min(row.start_hhmm)),
+             abs(_hhmm_to_min(eff["end"]) - _hhmm_to_min(row.end_hhmm))]
+    moved = [min(m, 24 * 60 - m) for m in moved]   # 11:45p -> 12:10a is 25 minutes, not a day
+    if max(moved) > QUIET_MINOR_MIN:
+        part = "start" if moved[0] >= moved[1] else "end"
+        return False, (f"Moves the {part} of {who}'s shift on {day} by {max(moved)} minutes - "
+                       f"more than {QUIET_MINOR_MIN}, so they need to know.")
+    if int(eff.get("openSlots") or 0) != int(getattr(row, "open_slots", 0) or 0):
+        return False, f"Changes how many people the open shift on {day} needs - the team should see it."
+    return True, ""
 
 
 def _soft_conflict(text: str) -> bool:

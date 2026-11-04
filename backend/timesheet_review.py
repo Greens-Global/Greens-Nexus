@@ -1732,8 +1732,15 @@ def egnyte_folder(db: Session, req) -> str:
         subs = [s.strip().strip("/") for s in (raw or "").split(",") if s.strip().strip("/")]
         if not subs:
             return base
-        have = {n.lower(): n for n in (egnyte_wiring._list_children(base) or [])}
-        sub = next((have[s.lower()] for s in subs if s.lower() in have), subs[0])
+        # Matched ignoring a leading number (11/04/2026): the person's own
+        # "3. Timesheets & Attendance" IS the folder - never make a second one
+        # beside it - and wins over a plain one Nexus made there before.
+        have: dict = {}
+        for n in egnyte_wiring._list_children(base) or []:
+            k = egnyte_wiring._fold_loose(n)
+            if k not in have or (egnyte_wiring._fold(have[k]) == k and egnyte_wiring._fold(n) != k):
+                have[k] = n
+        sub = next((have[k] for k in map(egnyte_wiring._fold_loose, subs) if k in have), subs[0])
         return f"{base.rstrip('/')}/{sub}"
     except Exception as e:      # filing must never block sealing
         print(f"[timesheet-review] no Egnyte folder for {getattr(req, 'id', '')}: {type(e).__name__}: {e}")

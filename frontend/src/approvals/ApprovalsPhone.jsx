@@ -49,6 +49,7 @@ export default function ApprovalsPhone({
   tab, setTab, rows, ownRows, hiddenKeys, groupLabels, counts, chipCounts = counts, kind, setKind,
   filters, setFilters, clearFilters, filtering, groupBy, setGroupBy, sortKey, setSortKey,
   deptCounts, companyCounts, seesAll, onAct, DetailView, loading, error, onRetry, errors = [], onReload, canApprove, history,
+  footer = null,   // under the list: the Shifts filter's Waiting On A Teammate / Recently Decided (ShiftsAlso)
 }) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [asking, setAsking] = useState(null);        // { row, action } waiting on its note
@@ -208,6 +209,7 @@ export default function ApprovalsPhone({
           {ghostEls}
         </div>
       </AsyncSection>
+      {footer}
       {filterOpen && (
         <FilterSheet filters={filters} setFilters={setFilters} clearFilters={clearFilters} onClose={() => setFilterOpen(false)}
           sortKey={sortKey} setSortKey={setSortKey} groupBy={groupBy} setGroupBy={setGroupBy}

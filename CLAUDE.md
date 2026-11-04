@@ -894,6 +894,23 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   `property_links.can_see_private`; `nexus_access_scopes` rows for
   `property-asset` narrow the rest) and every row write is checked the same
   way. Only an officer sets or clears Private.
+- **Company is a field, not a wall** (Neil, 11/03/2026): every asset carries
+  `companyId` (`property_links.property_company` reads it; the old guess is
+  only the fallback). Administrators SEE every company's assets - never add
+  a company wall to the asset reads. Only ASSIGNING a company is limited to
+  the companies the saver may use (`_check_company`, refused per row).
+  A ticket on a property files under the property's company (Neil,
+  11/03/2026) - ONE rule, `ticket_property_company.resolve`, called by
+  `file_ticket`, Batch Create and the re-point on edit; a blank company or
+  a filer / requester / assignee who could not see that company keeps
+  today's company; preventive `trusted_company` still wins.
+- **A property may pin its Egnyte folder** (Neil, 11/03/2026): `egnyteFolder`
+  on the asset (Details > Egnyte Folder, Find Folder lists name candidates
+  from `GET /property-assets/{id}/egnyte-folders`), checked on the row save
+  (`_check_egnyte_folder`: inside the property roots, normalized, no '..').
+  Construction files go to the pinned folder FIRST; a pinned folder Egnyte
+  says is missing never falls back to a name match or the root - the sweep
+  HOLDS the files (`egnyte_status='held'`) until it is back or re-pinned.
 - **Files are URLs**: photos and documents go browser -> the PRIVATE
   `asset-files` bucket (`lib/upload.js`) and the record keeps the canonical
   URL; the save refuses a new data: URL. `asset_files_migrate.py` moves the

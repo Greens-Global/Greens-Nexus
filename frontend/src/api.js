@@ -908,6 +908,11 @@ export const api = {
   saveAssetChanges:      (ops) => req("/property-assets/changes", { method: "POST", body: JSON.stringify(ops), timeoutMs: 60_000 }),
   // Per-asset tile numbers: { id: { occupancy, units, percentComplete } } for the assets the caller may see.
   getAssetMetrics:       ()    => req("/property-assets/metrics"),
+  // The Company picker (11/03/2026): { companies: [{ id, name, assignable }], canClear }.
+  getAssetCompanies:     ()    => cachedGet("/property-assets/companies", 120_000),
+  // Find Folder on an asset's Egnyte Folder (11/03/2026): the folders whose name could be
+  // the asset's (or `q`'s) - { configured, site, roots, pinned, pinnedFound, match, why, candidates, message }.
+  findAssetEgnyteFolders: (id, q = "") => req(`/property-assets/${encodeURIComponent(id)}/egnyte-folders${q ? `?q=${encodeURIComponent(q)}` : ""}`, { timeoutMs: 45_000 }),
 
   // External Links
   getExternalLinks: () => req("/external-links"),
@@ -1648,7 +1653,7 @@ export const api = {
   timePunchEditDecide:    (id, data) => req(`/timeclock/punch-edits/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   // Timesheet review before signing in Nexus Sign (Sep 2026) - timesheet_review.py.
   timesheetReviewSubmit:   (start, note = '') => req('/timesheet-review/submit', { method: 'POST', body: JSON.stringify({ start: start || '', note }) }),
-  timesheetReviewWaiting:  ()                 => req('/timesheet-review/waiting'),   // submitted to me, not decided yet (Sep 29)
+  timesheetReviewWaiting:  (params)           => req('/timesheet-review/waiting' + (params ? `?${new URLSearchParams(params)}` : '')),   // submitted to me, not decided yet (Sep 29); { only: 'sign' } / { fresh: 1 } (11/04)
   timesheetReviewSendBack: (id, note)         => req(`/timesheet-review/${id}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeCancelPunchRequest:  (id) => req(`/timeclock/punch-requests/${id}/cancel`, { method: 'POST' }),

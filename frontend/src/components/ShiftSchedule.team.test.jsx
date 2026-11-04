@@ -63,17 +63,13 @@ beforeEach(() => {
 });
 
 describe('Team switcher', () => {
-  it('opens on All Teams the first time, every team stacked and folded until opened (Neil, Oct 28; Oct 29 2026)', async () => {
+  it('opens on your own team the first time (Neil, 11/04/2026 - it was All Teams)', async () => {
     role.current = { myEmail: C };
     api.timeSchedule.mockResolvedValue(data([shift({ id: 'c1', email: C }), shift({ id: 'c2', email: C, date: plusDays(monday, 1) }), shift({ id: 'a1' })]));
     render(<ShiftSchedule />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Expand Back' }));
-    expect(screen.getByText('Cat Cole')).toBeTruthy();
-    expect(teamButton().textContent).toContain('All Teams');
-    expect(screen.queryByText('Amy Adams')).toBeNull();                     // Front stays folded
-    expect([...document.querySelectorAll('[data-team]')].map((r) => r.getAttribute('data-team'))).toEqual(['g1', 'g2']);
-    expect(screen.getByText('Everyone Else')).toBeTruthy();
-    expect(screen.queryByText('Dan Dye')).toBeNull();                       // folded until opened
+    await screen.findByText('Cat Cole');
+    expect(teamButton().textContent).toContain('Back');
+    expect(screen.queryByText('Amy Adams')).toBeNull();                     // another team is not on screen
     fireEvent.click(teamButton());
     const opts = screen.getAllByRole('option').map((o) => o.textContent);
     expect(opts[0]).toMatch(/^All Teams/);                                   // first in the list
@@ -83,11 +79,23 @@ describe('Team switcher', () => {
     expect(back.textContent).toContain('16 Hrs');
   });
 
-  it('remembers the choice per person', async () => {
+  it('opens a manager who is on no team on the team of the people they manage', async () => {
+    role.current = { myEmail: 'boss@x.com' };
+    api.timeSchedule.mockResolvedValue(data([shift()], {
+      employees: [{ email: A, name: 'Amy Adams', canEdit: false }, { email: B, name: 'Bob Brown', canEdit: false },
+        { email: C, name: 'Cat Cole', canEdit: true }, { email: D, name: 'Dan Dye', canEdit: false }],
+    }));
+    render(<ShiftSchedule />);
+    await screen.findByText('Cat Cole');
+    expect(teamButton().textContent).toContain('Back');
+  });
+
+  it('remembers the choice per person, over their own team', async () => {
     role.current = { myEmail: A };
     api.timeSchedule.mockResolvedValue(data([shift()]));
     const { unmount } = render(<ShiftSchedule />);
-    await screen.findByRole('button', { name: 'Expand Front' });
+    await screen.findByText('Amy Adams');
+    expect(teamButton().textContent).toContain('Front');                   // their own team first
     pickTeam('Back');
     expect(screen.queryByText('Amy Adams')).toBeNull();
     expect(localStorage.getItem(`nexus.shifts.team.${A}`)).toBe('g2');

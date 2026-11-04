@@ -22,7 +22,7 @@ import { FILLED_WHEN } from '../lib/mergeFieldTypes';
 import { BODY_EXTENSIONS, repairDocJson } from '../lib/docBuilderSchema';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
-import { slugifyToken, variableFromDrop } from '../lib/mergeFieldTypes';
+import { slugifyToken, variableFromDrop, VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
 import { extractVariables, mergeFieldDefs, sharedDefs, tokensInDoc } from '../lib/extractVariables';
 import { Pagination, paginationKey, planBreaks } from '../lib/docBuilderPagination';
 import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanvasStyle, textFlowPx, textColumnPx, sheetPadding, sheetsFor, scrollableAncestor, measureHtmlHeight } from '../lib/pageSetup';
@@ -166,6 +166,25 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
     editable,
     onUpdate: () => onUpdate(pageId),
     onSelectionUpdate: () => onActivity(pageId),
+    editorProps: {
+      // A variable dragged in (from the library or the Variables Used rail)
+      // is placed here, as a chip, and ProseMirror is told the drop is
+      // handled - left to itself it ALSO pastes the drag's plain-text
+      // "{{token}}" fallback, which the detector then turns into a second
+      // chip (Sagar, 11/04/2026: "it's coming two variables"). The page's
+      // onDrop below sees the mark and leaves a handled drop alone.
+      handleDrop: (view, event) => {
+        const token = variableFromDrop(event);
+        if (!token || !view.editable) return false;
+        event.preventDefault();
+        event.nxVariableHandled = true;
+        const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
+        const pos = at ? at.pos : view.state.selection.from;
+        view.dispatch(view.state.tr.insert(pos, view.state.schema.nodes.mergeField.create({ token })));
+        onActivity(pageId);
+        return true;
+      },
+    },
   });
   useEffect(() => {
     if (!editor) return;
@@ -411,6 +430,23 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [fieldsPanel, setFieldsPanel] = useState(null);   // null | { newTokens: [] }
   const [mergeFieldModal, setMergeFieldModal] = useState(null); // null | { range?: {from,to}, existingDef?: object, initialLabel?: string }
   const [variableLibraryOpen, setVariableLibraryOpen] = useState(false);
+  // The variables placed in THIS document, in page order, each with how many
+  // places it is used (Sagar, 11/04/2026: "whatever variable is used in that
+  // particular document it should be listed at right side so we can reuse the
+  // same variable wherever we want"). The rail beside the pages lists them;
+  // scanUsedVars (below the header and footer editors) fills it, debounced,
+  // because it reads every page's JSON.
+  const [usedVars, setUsedVars] = useState([]);
+  const usedTimerRef = useRef(null);
+  const scanUsedVarsRef = useRef(null);
+  const scheduleUsedScan = useCallback(() => {
+    if (usedTimerRef.current) clearTimeout(usedTimerRef.current);
+    usedTimerRef.current = setTimeout(() => { usedTimerRef.current = null; scanUsedVarsRef.current?.(); }, 300);
+  }, []);
+  useEffect(() => () => { if (usedTimerRef.current) clearTimeout(usedTimerRef.current); }, []);
+  // The Make Variable bubble: where the current text selection starts on
+  // screen while a template page has one (a double-click selects the word).
+  const [selBubble, setSelBubble] = useState(null);
   // /documents/variables: every built-in (with WHEN Nexus fills it) and every
   // custom field the other templates define - the insert picker's groups, the
   // Template Fields panel's Filled By Nexus rows and its shared definitions.
@@ -460,7 +496,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // toolbars and the Pages panel (which read the active editor's state at
   // render time) actually re-render - TipTap's own state changes don't
   // trigger a React re-render on their own.
-  const [, setSelectionTick] = useState(0);
+  const [selectionTick, setSelectionTick] = useState(0);
 
   // Native scrollIntoView on the page's own sheet, not TipTap's
   // scrollIntoView option - that one asks ProseMirror to walk up looking for
@@ -509,6 +545,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (editor) scheduleMeasureSpansRef.current?.();
     if (editor) {
       editorsRef.current.set(pageId, editor);
+      scheduleUsedScan();
       if (pendingFocusId.current === pageId) {
         pendingFocusId.current = '';
         goToPage(pageId, 'end');
@@ -517,7 +554,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       editorsRef.current.delete(pageId);
     }
     setSelectionTick((t) => t + 1);
-  }, [goToPage]);
+  }, [goToPage, scheduleUsedScan]);
   // Every page edit routes its autosave through this ref, NOT through a
   // captured scheduleSave. It used to close over the first render's
   // scheduleSave -> doSave -> currentContent, whose `pages` was still the
@@ -590,6 +627,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     scheduleSaveRef.current?.();
     setSelectionTick((t) => t + 1);
     scheduleMeasureSpans();
+    scheduleUsedScan();
     if (!pageId) return;
     // Debounced: the scan reads the page's text, which is not free on a long
     // document, and nobody wants a chip appearing mid-word.
@@ -600,7 +638,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       if (!ed || !TOKEN_IN_PAGE_RE.test(ed.state.doc.textContent)) return;
       detectRef.current?.(pageId, { quiet: true });
     }, 600);
-  }, [scheduleMeasureSpans]);
+  }, [scheduleMeasureSpans, scheduleUsedScan]);
   useEffect(() => () => { if (detectTimerRef.current) clearTimeout(detectTimerRef.current); }, []);
   useEffect(() => () => { if (spanTimerRef.current) clearTimeout(spanTimerRef.current); }, []);
   // Re-measure when the page geometry changes (size/orientation/margins), when
@@ -638,14 +676,34 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const headerEditor = useEditor({
     extensions: [StarterKit, Placeholder.configure({ placeholder: 'Header text…' })],
     content: null,
-    onUpdate: () => { if (hydratedRef.current) scheduleSave(); },
+    onUpdate: () => { if (hydratedRef.current) scheduleSave(); scheduleUsedScan(); },
   });
 
   const footerEditor = useEditor({
     extensions: [StarterKit, Placeholder.configure({ placeholder: 'Footer text…' })],
     content: null,
-    onUpdate: () => { if (hydratedRef.current) scheduleSave(); },
+    onUpdate: () => { if (hydratedRef.current) scheduleSave(); scheduleUsedScan(); },
   });
+
+  // Every merge field on the pages (in page order), the header and the footer,
+  // counted. Kept as the same array when nothing changed so the rail does not
+  // re-render on every keystroke.
+  const scanUsedVars = useCallback(() => {
+    const counts = new Map();
+    const walk = (json) => {
+      if (!json || typeof json !== 'object') return;
+      if (json.type === 'mergeField' && json.attrs?.token) counts.set(json.attrs.token, (counts.get(json.attrs.token) || 0) + 1);
+      for (const c of json.content || []) walk(c);
+    };
+    for (const p of pages) walk(editorsRef.current.get(p.id)?.getJSON());
+    walk(headerEditor?.getJSON());
+    walk(footerEditor?.getJSON());
+    const next = [...counts].map(([token, count]) => ({ token, count }));
+    setUsedVars((prev) => (prev.length === next.length && prev.every((v, i) => v.token === next[i].token && v.count === next[i].count)) ? prev : next);
+  }, [pages, headerEditor, footerEditor]);
+  useEffect(() => { scanUsedVarsRef.current = scanUsedVars; }, [scanUsedVars]);
+  // A page added, removed or restored, or Preview remounting every editor.
+  useEffect(() => { scheduleUsedScan(); }, [pages, preview, scheduleUsedScan]);
 
   // Pushes a { pages, header, footer } content object into place - shared by
   // the initial load below AND by History's "Restore", so hydration only has
@@ -1565,6 +1623,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     const token = variableFromDrop(e);
     if (!token) return;                       // some other drag (a file, text) - leave it alone
     e.preventDefault();
+    if (e.nativeEvent?.nxVariableHandled) return;   // the page editor placed it (handleDrop above)
     const ed = editorsRef.current.get(pageId);
     if (!ed) return;
     const at = ed.view.posAtCoords({ left: e.clientX, top: e.clientY });
@@ -1607,6 +1666,50 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     return () => dom.removeEventListener('dblclick', onDblClick);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeEditor, kind, fieldDefs, builtinSet, shared]);
+
+  // Open a placed variable's field for editing - the rail's double-click and
+  // the chip's double-click above do the same thing.
+  const editVariable = (token) => {
+    if (builtinSet.has(token) && !fieldDefs.some((f) => f.token === token)) { openFieldsPanel(); return; }
+    const start = shared[token] ? mergeFieldDefs([], [token], { shared }).added[0] : {};
+    const existingDef = fieldDefs.find((f) => f.token === token)
+      || { token, label: FRIENDLY_MERGE[token] || token, type: 'text', required: false, validation: {}, ...start };
+    setMergeFieldModal({ existingDef });
+  };
+
+  // The Make Variable bubble (Sagar, 11/04/2026: "if we double click on any
+  // text it should show us the option to make that as a variable"). A
+  // double-click selects the word and a drag selects a phrase; either way a
+  // non-empty text selection on an editable template page shows one button
+  // over where it starts, and that button is Convert to Merge Field for
+  // exactly that range. It follows the selection through scrolls and goes
+  // away when the selection collapses or the page loses focus.
+  useEffect(() => {
+    if (!activeEditor || kind !== 'template' || preview || isLocked) { setSelBubble(null); return undefined; }
+    const place = () => {
+      const { from, to, empty } = activeEditor.state.selection;
+      if (empty || !activeEditor.isFocused) { setSelBubble(null); return; }
+      const text = activeEditor.state.doc.textBetween(from, to, ' ').trim();
+      if (!text) { setSelBubble(null); return; }
+      try {
+        const at = activeEditor.view.coordsAtPos(from);
+        setSelBubble({ left: at.left, top: at.top, text });
+      } catch { setSelBubble(null); }
+    };
+    const hide = () => setSelBubble(null);
+    place();
+    activeEditor.on('blur', hide);
+    activeEditor.on('focus', place);
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      activeEditor.off('blur', hide);
+      activeEditor.off('focus', place);
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+    // selectionTick: every selection change and every edit bumps it.
+  }, [activeEditor, kind, preview, isLocked, selectionTick]);
 
   const saveFieldDefs = (next) => {
     setFieldDefs(next);
@@ -1786,7 +1889,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   );
 
   return (
-    <div style={previewPull ? { marginTop: -previewPull } : undefined}>
+    <div className="nx-docb" style={previewPull ? { marginTop: -previewPull } : undefined}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: preview ? 6 : 8, flexWrap: 'wrap' }}>
         <button onClick={close} title="Close"
           style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
@@ -2793,8 +2896,55 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       )}
       </div>
       </div>
+      {/* Variables Used - the third column of the pages row, sticky under the
+          top header (style.css ".nx-docb-vars") so it stays while the pages
+          scroll. Click inserts the variable at the cursor, drag drops it
+          where it lands, double-click edits its field (templates). */}
+      {!preview && !isMobile && (
+        <aside className="nx-docb-vars" aria-label="Variables used in this document">
+          <div className="nx-docb-vars-head">
+            <Variable size={13} /> Variables Used
+            <span className="nx-docb-vars-n">{usedVars.length}</span>
+          </div>
+          {usedVars.length === 0 ? (
+            <p className="nx-docb-vars-empty">
+              {kind === 'template'
+                ? 'None yet. Select any text and click Make Variable, or drag one in from the Variable Library.'
+                : 'None yet. Drag one in from the Variable Library.'}
+            </p>
+          ) : usedVars.map((v) => {
+            const def = fieldDefs.find((f) => f.token === v.token);
+            const label = def?.label || varLabel[v.token] || FRIENDLY_MERGE[v.token] || v.token;
+            const meta = builtinSet.has(v.token) && !def ? 'Filled By Nexus' : (def?.type || 'text');
+            return (
+              <button key={v.token} type="button" className="nx-docb-var" draggable
+                title={`Insert {{${v.token}}} at the cursor${kind === 'template' ? '. Double-click to edit the field.' : ''}`}
+                onClick={() => insertVariable(v.token)}
+                onDoubleClick={kind === 'template' ? () => editVariable(v.token) : undefined}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(VARIABLE_DRAG_TYPE, v.token);
+                  e.dataTransfer.setData('text/plain', `{{${v.token}}}`);
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}>
+                <span className="nx-docb-var-label">{label}</span>
+                <span className="nx-docb-var-meta">{meta} · {v.count === 1 ? '1 place' : `${v.count} places`}</span>
+              </button>
+            );
+          })}
+          <button type="button" className="nx-docb-vars-lib" onClick={() => setVariableLibraryOpen(true)}>Variable Library</button>
+        </aside>
+      )}
       </div>
       </>
+      )}
+
+      {selBubble && (
+        <div className="nx-docb-bubble" style={{ left: selBubble.left, top: selBubble.top }} role="toolbar" aria-label="Selected text">
+          <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={openConvertToMergeField}
+            title={`Make "${selBubble.text.slice(0, 40)}" a variable`}>
+            <Sparkles size={12} /> Make Variable
+          </button>
+        </div>
       )}
 
       {!preview && (

@@ -221,7 +221,7 @@ describe('ShareDialog hardening (Oct 15)', () => {
     fireEvent.click(within(d).getByText('The whole team'));
     fireEvent.change(await within(d).findByLabelText('Reason for sharing with warnings'), { target: { value: 'Overtime approved' } });
     fireEvent.click(within(d.querySelector('[data-review-warnings]')).getAllByRole('button', { name: 'Show On Schedule' })[1]);
-    expect(onMemo).toHaveBeenCalledWith({ from: '2026-10-19', to: '2026-10-25', notify: 'team', groupId: '', reason: 'Overtime approved', review: REVIEW });
+    expect(onMemo).toHaveBeenCalledWith({ from: '2026-10-19', to: '2026-10-25', notify: 'team', groupId: '', reason: 'Overtime approved', review: expect.objectContaining(REVIEW) });
     expect(onJump).toHaveBeenCalledWith('bob@x.com', '2026-10-21', 's3');
     unmount();
     // Reopened with the memo: the same review, no second fetch, the reason kept.

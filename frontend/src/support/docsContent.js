@@ -499,8 +499,8 @@ export const DOCS = [
   {
     id: 'shifts', name: 'Team', group: 'My Desk', icon: 'Handshake', view: 'shifts',
     tagline: 'Reach anyone in the company and see your group\'s shifts; managers build and share the schedule.',
-    where: 'Left menu > Team (managers: Schedule and Requests tabs)',
-    access: 'Everyone sees Shifts and the Directory. Managers and above also get Schedule (the grid) and Requests (the inbox); department heads (and their backups) get Role Checklists, and managers and HR get Headcount when their company has Headcount Requests turned on (Settings > Hiring & Onboarding; off by default). Your own shifts are in Workday > My Schedule. Shift types and groups are in Settings > Shifts & Scheduling; staff ask for swaps, offers, releases and open shifts in Workday > Time Off once their company turns those on (they are off by default).',
+    where: 'Left menu > Team (managers: the Shift Planner tab); requests are decided in Dashboard > Approvals',
+    access: 'Everyone sees Shifts and the Directory. Managers and above also get the Shift Planner (the grid) and decide requests in Dashboard > Approvals; department heads (and their backups) get Role Checklists, and managers and HR get Headcount when their company has Headcount Requests turned on (Settings > Hiring & Onboarding; off by default). Your own shifts are in Workday > My Schedule. Shift types and groups are in Settings > Shifts & Scheduling; staff ask for swaps, offers, releases and open shifts in Workday > Time Off once their company turns those on (they are off by default).',
     purpose: 'Team is everything about the people you work with. The Directory: find anyone, see who is on shift or off today, and reach them on Teams, by phone or by email. Shifts is your group\'s week, with you pinned at the top. Managers open Schedule to place shifts on a weekly grid, fill a whole group from a shift type in one go, post open shifts and Share when it is ready. Share lists every change and any rule warnings first, and once a day has started the grid shows who was on time, late, left early or did not show. Nothing reaches the team until it is shared.',
     gains: [
       'Find and reach anyone in the company, with who is in and who is off today.',
@@ -599,9 +599,9 @@ export const DOCS = [
       {
         title: 'Handle a Shift Request',
         steps: [
-          'Click Requests. The number shows how many are waiting on you.',
-          'Read the request: time off, a swap, an offer, an open shift or a release.',
-          'Click Approve or Decline, with a note if you like.',
+          'Open Dashboard > Approvals and pick Shifts or Time Off. The number shows how many are waiting on you. On the Shift Planner, a line above the grid names the requests on the dates on screen - click one to open it in Approvals.',
+          'Click Review to read the request: time off, a swap, an offer, an open shift or a release, with who else is off, who is on and the shifts it touches.',
+          'Click Approve, or Decline with a note saying why. Time off with shared shifts inside it also offers Approve And Remove Shifts.',
         ],
       },
       {
@@ -636,7 +636,7 @@ export const DOCS = [
       { name: 'Clear Week', desc: 'Under the ... menu: remove every shift in a date range. Drafts are deleted; shared shifts are marked for removal until you share.' },
       { name: 'Import', desc: 'A button on the Shift Planner toolbar: Download Template gives an Excel file with the columns to fill (Date, Employee or Email, Start, End and optional ones); choosing it back adds the shifts as drafts.' },
       { name: 'Customize', desc: 'Under the ... menu on the Shift Planner toolbar: search people, rows by group or location, a shift type filter, and what shows - groups, open shifts, conflicts, availability, pictures, Sunday, actuals, coverage, people without shifts, your shifts only and two weeks at a time.' },
-      { name: 'Requests', desc: 'The manager\'s inbox: Time Off, Swaps, Offers and Open Shifts tabs (and Releases when releasing is on), with what still waits on a teammate. A time-off request shows the shared shifts inside it, with Approve And Remove Shifts.' },
+      { name: 'Requests', desc: 'Decided in Dashboard > Approvals (moved from Team > Requests on 11/04/2026): the Time Off and Shifts filters show each request with its schedule - who else is off, who is on, the shared shifts inside a leave (Approve And Remove Shifts) and both shifts of a swap - plus what still waits on a teammate and what your team decided lately. On the Shift Planner a line above the grid names the requests on the dates on screen.' },
       { name: 'Role Checklists', desc: 'Only for the head (or backup) of a department, and HR. Pick one of your department\'s roles, then Onboarding, Promotion, Offboarding or Leave or Suspension, and add the extra steps that role needs - its training, its tools (for example Intacct Training for an accounting role). They are added after the company\'s own steps whenever someone in that role starts one of those checklists. Above the role\'s steps, Baseline (folded) lists the steps every hire at the company gets first - read-only, with where they are edited - so a role only adds what it needs on top; a role step with the same title as a baseline step is flagged in orange. Copy From… copies another role\'s steps in while you build: pick the role, which checklists, and Add (a step with the same title is skipped) or Replace. Remove All Steps takes them off again. Changes reach checklists already open too, and their tasks: a new step is added (with its subtask), a changed step that is still open takes the new title, owner, timing and conditions (an owner or date someone set by hand stays), and a step taken out is marked N/A with the note Removed from the template on its date - never deleted. Steps already done stay as they were. The save says how many open checklists it updated.' },
       { name: 'Headcount', desc: 'Off by default - a company turns it on in Settings > Hiring & Onboarding > Headcount Requests. Ask to hire before there is a candidate: New Headcount Request (company, department, role - or Other for a new role - number of openings, employment type, target start date, work site and a justification; a salary range is optional and only Pay & Benefits holders see it). Save Draft or Send For Approval. The head of the department\'s line approves it, then HR; approved, it becomes a Draft job opening in People > Hiring > Openings. Requests waiting on you are listed here too, with Approve and Decline Request.' },
       { name: 'Save & Share', desc: 'Share drafts, edits and removals in a date range with the team, and choose who is told. Review lists every change and warning per person first, and Recent Shares shows earlier shares made over warnings, with their reason. Until then the team keeps seeing the last shared version.' },
@@ -652,14 +652,14 @@ export const DOCS = [
       { name: 'Discard', desc: 'Beside Save & Share, once there is something not shared yet: throw away every change not shared yet, in every week - new drafts are removed, and edited or removed shifts go back to what the team sees.' },
       { name: 'Print and Export', desc: 'Print is a button on the Shift Planner toolbar; Export to Excel and Import are under the ... menu. Both use what is on screen.' },
       { name: 'Day Note', desc: 'A note on a day for everyone, e.g. "Inventory day - all hands".' },
-      { name: 'Add Time Off', desc: 'Add time off for a person straight from the grid, approved now or left for Requests.' },
+      { name: 'Add Time Off', desc: 'Add time off for a person straight from the grid, approved now or left for Approvals.' },
       { name: 'Shift Types and Groups', desc: 'Settings > Shifts & Scheduling: shift types (time, unpaid break, grace, days, color, code, time zone), groups of people in the order they appear on the grid, a Work Site and Weather Deciders per group, and the shift settings: what staff may request and see, the team time zone, week start, Default Grace, attendance alerts, rules, sharing and time-off reasons. A company can have its own shift settings: pick it in the Applies To box, and Use the Defaults drops them.' },
     ],
     manager: {
       title: 'Who Can Do What',
       points: [
         'Everyone sees their own shifts (Workday > My Schedule) and their group\'s (Team > Shifts). The schedule itself is read-only for them.',
-        'Managers and above see Schedule and Requests, and build and share schedules there.',
+        'Managers and above see the Shift Planner and build and share schedules there; they decide requests in Dashboard > Approvals.',
         'Settings > Shifts & Scheduling > Requests & Visibility (per company) decides whether staff can request open shifts, swap, offer or release shifts and request time off, and what they see of teammates. Open shifts, swaps, offers, releases and cross-team open shifts stay off until turned on.',
         'On the grid, managers see what the clock recorded; anyone else sees only the status (On Time, Late, Left Early, No-Show).',
         'Shift types, groups and shift settings are changed by administrators; an administrator limited to one company changes only that company\'s own.',

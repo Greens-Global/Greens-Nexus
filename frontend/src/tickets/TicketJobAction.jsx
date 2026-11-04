@@ -15,23 +15,37 @@ import { dialog as appDialog } from '../ui/dialog';
 
 const openJob = (id) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'ops', sub: `project:${id}` } }));
 
-export default function TicketJobAction({ ticketId, onOpen }) {
-  const [state, setState] = useState(null);   // { jobs, canStart } | null while loading / unavailable
-  const [busy, setBusy] = useState(false);
+// The ticket's job, and whether this person may start one: { jobs, canStart }
+// | null while loading / unavailable. `ticketId` null reads nothing.
+export function useTicketJobState(ticketId) {
+  const [state, setState] = useState(null);
   useEffect(() => {
+    if (!ticketId) return undefined;
     let live = true;
     Promise.resolve().then(() => api.getTicketJobs?.(ticketId))
       .then((r) => { if (live) setState(r || null); })
       .catch(() => { if (live) setState(null); });
     return () => { live = false; };
   }, [ticketId]);
+  return state;
+}
+// Whether TicketJobAction draws a button for this state.
+export const jobActionShown = (state) => !!state && (!!(state.jobs || [])[0] || !!state.canStart);
+
+// `state` (optional): the caller already holds useTicketJobState's answer (the
+// phone card, which must know whether its More sheet has a job row) - no
+// second read. `style`: the button's look there (a sheet row).
+export default function TicketJobAction({ ticketId, onOpen, state: given, style = null, iconSize = 14 }) {
+  const own = useTicketJobState(given === undefined ? ticketId : null);
+  const state = given === undefined ? own : given;
+  const [busy, setBusy] = useState(false);
   if (!state) return null;
   const job = (state.jobs || [])[0];
   if (job) {
     return (
-      <button type="button" style={btn('outline')} data-ticket-job={job.id} title={`Open the job ${job.name}`}
+      <button type="button" style={style || btn('outline')} data-ticket-job={job.id} title={`Open the job ${job.name}`}
         onClick={() => { onOpen?.(); openJob(job.id); }}>
-        <HardHat size={14} /> Open Job
+        <HardHat size={iconSize} /> Open Job
       </button>
     );
   }
@@ -50,9 +64,9 @@ export default function TicketJobAction({ ticketId, onOpen }) {
     setBusy(false);
   };
   return (
-    <button type="button" style={btn('outline')} disabled={busy} onClick={start} data-start-job=""
+    <button type="button" style={style || btn('outline')} disabled={busy} onClick={start} data-start-job=""
       title="This needs a crew, materials or more than a day - give it a Job">
-      <HardHat size={14} /> {busy ? 'Starting…' : 'Start Job'}
+      <HardHat size={iconSize} /> {busy ? 'Starting…' : 'Start Job'}
     </button>
   );
 }

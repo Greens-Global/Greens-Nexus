@@ -186,6 +186,62 @@ class ShiftPublishTests(unittest.TestCase):
         got = self._mine(VIEWER)
         self.assertEqual([(x["start"], x["end"], x["label"]) for x in got], [("10:00", "18:00", "Front desk")])
 
+    # ── Save Without Sharing (Neil, 11/04/2026) ─────────────────────────────
+    def _bells_for_a(self):
+        db = database.SessionLocal()
+        try:
+            return db.query(models.NexusNotification).filter(models.NexusNotification.recipient == A).count()
+        finally:
+            db.close()
+
+    def test_a_minor_update_saves_without_telling_anyone(self):
+        sid = self._published_shift()
+        bells = self._bells_for_a()
+        self._edit(sid, start_hhmm="09:15", end_hhmm="17:30", label="Front desk")    # 15 / 30 minutes: minor
+        self._as(ADMIN)
+        review = self.client.get(f"/timeclock/schedule/publish/review?start={DATE}&end={DATE}").json()
+        self.assertTrue(review["quietOk"])
+        self.assertEqual(review["major"], [])
+        r = self.client.post("/timeclock/schedule/publish", json={"start_date": DATE, "end_date": DATE, "notify": "none"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["updated"], r.json()["notified"], r.json()["quiet"]), (1, 0, True))
+        # Live for the team, and nobody was belled.
+        self.assertEqual([(x["start"], x["end"]) for x in self._mine(VIEWER)], [("09:15", "17:30")])
+        self.assertEqual(self._bells_for_a(), bells)
+        # The shift's history says how it got there.
+        self._as(ADMIN)
+        hist = self.client.get(f"/timeclock/schedule/{sid}/history").json()
+        rows = hist.get("entries", hist) if isinstance(hist, dict) else hist
+        self.assertTrue(any("without notifying" in (e.get("reason") or "") for e in rows))
+
+    def test_a_major_update_needs_the_are_you_sure(self):
+        sid = self._published_shift()
+        self._edit(sid, start_hhmm="11:00")                                          # two hours: major
+        self._as(ADMIN)
+        review = self.client.get(f"/timeclock/schedule/publish/review?start={DATE}&end={DATE}").json()
+        self.assertFalse(review["quietOk"])
+        self.assertEqual(len(review["major"]), 1)
+        self.assertIn("by 120 minutes", review["major"][0]["why"])
+        self.assertIn("09/14/2026", review["major"][0]["why"])                       # US dates in the words
+        r = self.client.post("/timeclock/schedule/publish", json={"start_date": DATE, "end_date": DATE, "notify": "none"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("not minor", r.json()["detail"])
+        self.assertEqual([x["start"] for x in self._mine(VIEWER)], ["09:00"])        # nothing applied
+        bells = self._bells_for_a()
+        self._as(ADMIN)
+        r = self.client.post("/timeclock/schedule/publish", json={"start_date": DATE, "end_date": DATE, "notify": "none",
+                                                                  "confirm_major": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([x["start"] for x in self._mine(VIEWER)], ["11:00"])
+        self.assertEqual(self._bells_for_a(), bells)
+
+    def test_new_and_removed_shifts_are_never_minor(self):
+        self._as(ADMIN)
+        self.client.post("/timeclock/schedule", json={"employee_email": A, "work_date": DATE, "shift_id": SHIFT})
+        review = self.client.get(f"/timeclock/schedule/publish/review?start={DATE}&end={DATE}").json()
+        self.assertEqual([c["kind"] for c in review["major"]], ["added"])
+        self.assertIn("would not know to come in", review["major"][0]["why"])
+
     def test_the_employee_keeps_seeing_their_published_shift_during_an_edit(self):
         sid = self._published_shift()
         self._edit(sid, start_hhmm="11:00")

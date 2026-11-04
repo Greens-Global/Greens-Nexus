@@ -50,6 +50,7 @@ from sqlalchemy.orm import Session
 import code_sequence
 import models
 import property_links
+import ticket_property_company
 import ticket_sla
 import ticket_taxonomy
 from auth import get_current_user
@@ -319,6 +320,12 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
         n_bad = len({e["index"] for e in errors})
         raise HTTPException(422, {"message": f"{n_bad} line{'s' if n_bad > 1 else ''} need attention - "
                                              "nothing was filed yet.", "lines": errors})
+    if prop is not None:
+        # Filed under the property's company with its team of the same name,
+        # when the walker, requester and every line's assignee stay inside
+        # its wall - the rule file_ticket applies (ticket_property_company).
+        company_id, dept_id = ticket_property_company.resolve(
+            db, user, prop, company_id, dept_id, people=[requester] + [c["assignee"] for c in clean])
     now = now_iso()
     prop_id = prop.id if prop is not None else ""
     prop_name = property_links.display_name(prop) if prop is not None else ""
