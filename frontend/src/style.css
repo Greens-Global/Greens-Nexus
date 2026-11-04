@@ -8719,7 +8719,9 @@ body:has(.apv-phone) { overflow-x: clip; }
   .viewport:has(.nx-dl) { overflow: visible; }
   body:has(.nx-dl) { overflow-x: clip; }
   .nx-dl { --nx-dl-top: calc(var(--nx-announce-h, 0px) + 64px); }
-  .nx-dl-tools { position: sticky; top: var(--nx-dl-top); z-index: 5; background: var(--wk-bg, var(--paper)); padding: 10px 0 12px; margin: -10px 0 12px; }
+  /* A solid surface: the page behind is a gradient, so a tint-colored band
+     read as see-through once rows scrolled under it (Sagar, 11/04/2026). */
+  .nx-dl-tools { position: sticky; top: var(--nx-dl-top); z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); box-shadow: 0 8px 14px -12px rgba(15, 23, 42, .35); padding: 10px 0 12px; margin: -10px 0 12px; }
   .nx-dl-rail { top: calc(var(--nx-dl-top) + 12px); }
   .nx-dl-panel { top: calc(var(--nx-dl-top) + 12px); max-height: calc(100vh - var(--nx-dl-top) - 28px); }
 }
