@@ -8,7 +8,7 @@
 // gets, or replacing one of that packet's (the standard confidentiality
 // agreement).
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Save, FileText, Upload, Eye, EyeOff } from 'lucide-react';
+import { Plus, Trash2, Save, FileText, Upload, Eye, EyeOff, ExternalLink, AlertTriangle } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
@@ -99,12 +99,58 @@ function JdFile({ role, onSaved, toastOk, toastErr }) {
   );
 }
 
+// The role's job description kept in Documents (Pranshu, 11/04/2026): "whatever
+// change we do in the document ... should automatically get updated over here".
+// A link, not a copy - every offer prints the template's published wording as
+// it stands that day. A select saves on change (Settings saves one way).
+const openTemplate = (id) => window.open(`/documents/documents-templates${id ? `?template=${encodeURIComponent(id)}` : ''}`, '_blank', 'noopener');
+
+function JdFromDocuments({ role, templates, onSaved, toastOk, toastErr }) {
+  const [busy, setBusy] = useState(false);
+  const linked = role.jd_template || {};
+  const jds = (templates || []).filter(t => (t.category || '') === 'job_description');
+  async function link(id) {
+    setBusy(true);
+    try {
+      onSaved?.(await api.updateJobRole(role.id, { jd_template_id: id }));
+      toastOk(id ? `Linked - ${role.name} offers now print this job description from Documents.` : 'Unlinked - offers print the typed duties or the file again.');
+    } catch (e) { toastErr(e?.message || 'Could not save.'); }
+    setBusy(false);
+  }
+  if (templates === null) return <Spinner size={16} />;
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <select aria-label="Job description from Documents" className="form-input" style={{ flex: '1 1 260px', minWidth: 0 }}
+          value={linked.id || ''} disabled={busy} onChange={e => link(e.target.value)}>
+          <option value="">{jds.length ? '- pick a job description -' : 'No job descriptions in Documents yet'}</option>
+          {jds.map(t => <option key={t.id} value={t.id}>{t.name}{t.publishedVersion ? '' : ' (Not Published)'}</option>)}
+          {linked.id && !jds.some(t => t.id === linked.id) && <option value={linked.id}>{linked.name || 'A template that is not active'}</option>}
+        </select>
+        {busy && <Spinner size={14} />}
+        {linked.id && <button type="button" className="secondary-btn" onClick={() => openTemplate(linked.id)} style={iconBtn}><ExternalLink size={13} /> Open In Documents</button>}
+        <button type="button" className="secondary-btn" onClick={() => openTemplate('')} style={iconBtn}><Plus size={13} /> New In Documents</button>
+      </div>
+      <div style={hint}>
+        Linked, not copied: each new offer prints the template&apos;s published wording as it stands that day - change it in Documents and publish,
+        and the next offer has it. Offers already made keep what they were sent with. In Documents give it the category Job Description.
+      </div>
+      {(linked.missing || linked.active === false) && (
+        <div style={{ ...hint, display: 'flex', gap: 6 }}><AlertTriangle size={13} style={{ color: 'hsl(var(--color-yellow))' }} /> This template is archived or gone - pick another.</div>
+      )}
+      {linked.id && linked.publishedVersion === 0 && (
+        <div style={{ ...hint, display: 'flex', gap: 6 }}><AlertTriangle size={13} style={{ color: 'hsl(var(--color-yellow))' }} /> Not published yet - publish it in Documents before an offer can use it.</div>
+      )}
+    </div>
+  );
+}
+
 export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
   const [duties, setDuties] = useState(role.job_description || '');
   const [docs, setDocs] = useState(() => (role.hiring_docs || []).map(d => ({ templateId: d.templateId, replaces: d.replaces || '' })));
   const [templates, setTemplates] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [jdMode, setJdMode] = useState(role.jd_file?.name ? 'file' : 'type');
+  const [jdMode, setJdMode] = useState(role.jd_template?.id ? 'docs' : role.jd_file?.name ? 'file' : 'type');
   const [sources, setSources] = useState([]);           // roles whose job description can be copied here
   useEffect(() => {
     api.getDocTemplates({ status: 'active' }).then(r => setTemplates(Array.isArray(r) ? r : (r?.templates || []))).catch(() => setTemplates([]));
@@ -127,7 +173,7 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
       const saved = await api.copyRoleJd(role.id, id);
       onSaved?.(saved);
       setDuties(saved.job_description || '');
-      setJdMode(saved.jd_file?.name ? 'file' : 'type');
+      setJdMode(saved.jd_template?.id ? 'docs' : saved.jd_file?.name ? 'file' : 'type');
       toastOk(`Copied the job description from ${sourceLabel(src)}.`);
     } catch (e) { toastErr(e?.message || 'Could not copy the job description.'); }
     setBusy(false);
@@ -159,6 +205,7 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
         <div role="radiogroup" aria-label="Job description" style={{ display: 'flex', gap: 6 }}>
           <button type="button" role="radio" aria-checked={jdMode === 'type'} style={pill(jdMode === 'type')} onClick={() => setJdMode('type')}>Type It</button>
           <button type="button" role="radio" aria-checked={jdMode === 'file'} style={pill(jdMode === 'file')} onClick={() => setJdMode('file')}>Upload A File</button>
+          <button type="button" role="radio" aria-checked={jdMode === 'docs'} style={pill(jdMode === 'docs')} onClick={() => setJdMode('docs')}>Pick From Documents</button>
         </div>
         {copyOptions.length > 0 && (
           <select aria-label="Copy job description from" className="form-input" value="" disabled={busy}
@@ -168,11 +215,15 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
           </select>
         )}
       </div>
-      {jdMode === 'file' ? <JdFile role={role} onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} /> : (
+      {jdMode === 'docs' ? <JdFromDocuments role={role} templates={templates} onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} />
+        : jdMode === 'file' ? <JdFile role={role} onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} /> : (
         <>
-          {role.jd_file?.name && (
-            <div style={{ ...hint, marginTop: 0, marginBottom: 8, color: 'hsl(var(--color-orange))' }}>
-              {role.jd_file.name} is attached and goes out instead of these duties - remove it under Upload A File to use them.
+          {(role.jd_file?.name || role.jd_template?.id) && (
+            <div style={{ ...hint, marginTop: 0, marginBottom: 8, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+              <AlertTriangle size={13} style={{ color: 'hsl(var(--color-yellow))', flexShrink: 0, marginTop: 2 }} />
+              <span>{role.jd_file?.name
+                ? `${role.jd_file.name} is attached and goes out instead of these duties - remove it under Upload A File to use them.`
+                : `${role.jd_template.name || 'A Documents template'} goes out instead of these duties - unlink it under Pick From Documents to use them.`}</span>
             </div>
           )}
           <textarea id={`jd-${role.id}`} aria-label="Job Description (Duties)" className="form-input" rows={6} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}

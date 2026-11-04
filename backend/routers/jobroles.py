@@ -100,6 +100,7 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
         "job_description": getattr(jr, "job_description", "") or "",
         "hiring_docs": _ser_hiring_docs(db, getattr(jr, "hiring_docs", None) or []),
         "jd_file": _ser_jd_file(getattr(jr, "jd_file", None)),
+        "jd_template": _ser_jd_template(db, getattr(jr, "jd_template_id", "") or ""),
         "teams": _teams_target(jr),
         "company_id": (jr.company_id or ""),
         "created_by": jr.created_by,
@@ -203,6 +204,7 @@ class JobRoleUpdate(BaseModel):
     default_manager_email: Optional[str] = None
     job_description: Optional[str] = None
     hiring_docs: Optional[list] = None
+    jd_template_id: Optional[str] = None      # a Documents template; '' unlinks (11/04/2026)
     company_id: Optional[str] = None
     teams: Optional[TeamsTarget] = None       # BOD/EOD destination; {id: ''} clears it
 
@@ -347,6 +349,30 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
     return _serialize(jr, db)
 
 
+def _ser_jd_template(db: Session, tid: str) -> dict:
+    """The Documents template the role's job description is (11/04/2026)."""
+    if not tid:
+        return {}
+    from models import DocTemplate
+    t = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
+    if t is None:
+        return {"id": tid, "name": "", "missing": True}
+    return {"id": t.id, "name": t.name or "", "publishedVersion": t.published_version or 0,
+            "active": (t.status or "") == "active"}
+
+
+def _clean_jd_template(db: Session, tid: str) -> str:
+    """A Job Description template from Documents, or '' to unlink."""
+    tid = (tid or "").strip()
+    if not tid:
+        return ""
+    from models import DocTemplate
+    t = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
+    if t is None or (t.category or "") != "job_description" or (t.status or "") != "active":
+        raise HTTPException(400, "Pick a Job Description from Documents > Templates (category Job Description).")
+    return t.id
+
+
 def _ser_jd_file(f) -> dict:
     """What a screen may know of the role's job description file - never the path."""
     f = f if isinstance(f, dict) else {}
@@ -404,7 +430,7 @@ def _role_for_edit(db: Session, user: dict, jr_id: str) -> NexusGroup:
 
 
 def _has_jd(r: NexusGroup) -> bool:
-    return bool((r.job_description or "").strip() or (r.jd_file or {}).get("path"))
+    return bool((r.job_description or "").strip() or (r.jd_file or {}).get("path") or (r.jd_template_id or ""))
 
 
 @router.get("/jd-sources")
@@ -446,6 +472,7 @@ def copy_jd(jr_id: str, body: JdCopyIn, user: dict = Depends(require_administrat
     f = src.jd_file or {}
     jr.job_description = src.job_description or ""
     jr.jd_file = dict(f) if f.get("path") else {}
+    jr.jd_template_id = src.jd_template_id or ""
     db.commit()
     return _serialize(jr, db)
 
@@ -467,6 +494,7 @@ def upload_jd_file(jr_id: str, file: UploadFile = File(...), user: dict = Depend
         raise HTTPException(502, "Could not store the file - try again in a minute.")
     jr.jd_file = {"path": path, "name": name, "pages": pages, "size": len(pdf),
                   "uploadedAt": datetime.now(timezone.utc).isoformat(), "uploadedBy": (user.get("email") or "").lower()}
+    jr.jd_template_id = ""                      # a file replaces a linked Documents template
     db.commit()
     return _serialize(jr, db)
 
@@ -527,6 +555,11 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         jr.job_description = body.job_description.strip()[:20000]
     if body.hiring_docs is not None:
         jr.hiring_docs = _clean_hiring_docs(db, body.hiring_docs)
+    if body.jd_template_id is not None:
+        # One job description at a time: picking a Documents template lets go of the file.
+        jr.jd_template_id = _clean_jd_template(db, body.jd_template_id)
+        if jr.jd_template_id:
+            jr.jd_file = {}
     if body.teams is not None:
         _apply_teams(jr, body.teams)
 

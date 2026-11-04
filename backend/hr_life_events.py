@@ -541,12 +541,14 @@ def role_paperwork(role) -> dict:
     Job Description prints, the role's own documents and its job description
     file (Neil, 11/03/2026), frozen into an offer's details."""
     if role is None:
-        return {"role_description": "", "role_docs": [], "role_jd_file": {}}
+        return {"role_description": "", "role_docs": [], "role_jd_file": {}, "role_jd_template": ""}
     docs = [{"templateId": str(r.get("templateId") or ""), "replaces": str(r.get("replaces") or "")}
             for r in (getattr(role, "hiring_docs", None) or []) if isinstance(r, dict) and r.get("templateId")]
     f = getattr(role, "jd_file", None) or {}
     return {"role_description": (getattr(role, "job_description", "") or role.description or "").strip(),
-            "role_docs": docs, "role_jd_file": dict(f) if isinstance(f, dict) and f.get("path") else {}}
+            "role_docs": docs, "role_jd_file": dict(f) if isinstance(f, dict) and f.get("path") else {},
+            # A job description kept in Documents (11/04/2026): its published wording, live.
+            "role_jd_template": (getattr(role, "jd_template_id", "") or "") if not (isinstance(f, dict) and f.get("path")) else ""}
 
 
 def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
@@ -1382,10 +1384,18 @@ def _build_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[
     if active_hire_event(db, cand.id):
         raise PacketError("An offer letter or hiring packet is already open for this candidate - void it first.", 409)
     opts = four_options(inputs or {})
+    # The role's job description kept in Documents wins over a pick (11/04/2026).
+    if d.get("role_jd_template") and not d.get("role_jd_file"):
+        opts["jd_template_id"] = d["role_jd_template"]
+        try:
+            _check_jd(db, opts["jd_template_id"])
+        except PacketError:
+            raise PacketError(f'{d["job_title"] or "This role"}\'s job description in Documents is archived or gone - '
+                              f"pick another under Settings > People & Access > Roles > Job Description / Documents.") from None
     _check_jd(db, opts["jd_template_id"])
     # The job description goes out WITH the offer, after the letter, and the
     # candidate ticks that they read it (Neil, 11/03/2026) - so never without one.
-    if not d.get("role_jd_file"):
+    if not d.get("role_jd_file") and not d.get("role_jd_template"):
         if not opts["jd_template_id"]:
             raise PacketError("Pick the Job Description document - it is printed after the offer letter.")
         if not d.get("role_description"):

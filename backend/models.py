@@ -759,6 +759,11 @@ class NexusGroup(Base):
     # in place of the typed duties. {path (in the HR documents bucket), name,
     # pages, size, uploadedAt, uploadedBy}; {} = the typed duties are used.
     jd_file         = Column(JSON, default=dict)
+    # Or the job description is a Documents template (Pranshu, 11/04/2026:
+    # "whatever change we do in the document ... should automatically get
+    # updated"): its PUBLISHED wording prints after the offer letter, read
+    # when each offer is made. '' = the typed duties or the file.
+    jd_template_id  = Column(String, default="")
 
 
 class NexusGroupMember(Base):

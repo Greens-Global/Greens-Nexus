@@ -509,5 +509,25 @@ class InPersonTests(OfferCase):
         self.assertEqual(self.client.get(f"/hr/life-events/{eid}/print").status_code, 409)
 
 
+
+class RoleJdFromDocumentsTests(OfferCase):
+    """A role's job description kept in Documents (Pranshu, 11/04/2026): linked,
+    so the offer prints that template's published wording - no duties typed,
+    nothing picked on Make An Offer."""
+
+    def test_the_roles_documents_template_goes_after_the_letter(self):
+        db = database.SessionLocal()
+        _tpl(db, "t-jd-admin", "Admin Associate JD", _doc(_p("Admin duties from Documents.")), category="job_description")
+        db.add(models.NexusGroup(id="jr-admin", name="Analyst", is_job_role=1, company_id=CO, department="Accounting",
+                                 job_description="", jd_template_id="t-jd-admin"))
+        db.commit()
+        db.close()
+        r = self._offer(role_id="jr-admin", jd_template_id="", new_role_duties="")
+        self.assertEqual(r.status_code, 200, r.text)
+        ev = self._ev(r.json()["id"])
+        self.assertEqual(ev.inputs["jd_template_id"], "t-jd-admin")
+        self.assertIn("t-jd-admin", [d["templateId"] for d in ev.documents])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -826,6 +826,8 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
                                                or next(iter(by_key.get(_dept_key(r.department)) or []), "")),
                        # What goes after the offer letter (Neil, 11/03/2026): the role's file, else its duties.
                        "jdFile": ((r.jd_file or {}).get("name") or "") if (r.jd_file or {}).get("path") else "",
+                       # Or a Documents template, live (11/04/2026).
+                       "jdTemplateId": r.jd_template_id or "",
                        "hasDuties": bool((r.job_description or r.description or "").strip())}
                       for r in roles],
             "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES)}
