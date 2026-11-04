@@ -108,7 +108,7 @@ describe('Team module', () => {
 
     role.level = 3; role.grants = new Set(['employee-tracking']);
     const g = render(<Shifts activeSub={null} onSubChange={vi.fn()} />);
-    expect(tabNames()).toEqual(['Shifts', 'Shift Planner', 'Workforce Analytics', 'Directory']);
+    expect(tabNames()).toEqual(['Shifts', 'Shift Planner', 'Directory', 'Workforce Analytics']);
     g.unmount();
 
     role.level = ADMIN; role.grants = new Set();
