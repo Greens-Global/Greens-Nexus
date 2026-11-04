@@ -894,6 +894,11 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   `property_links.can_see_private`; `nexus_access_scopes` rows for
   `property-asset` narrow the rest) and every row write is checked the same
   way. Only an officer sets or clears Private.
+- **Company is a field, not a wall** (Neil, 11/03/2026): every asset carries
+  `companyId` (`property_links.property_company` reads it; the old guess is
+  only the fallback). Administrators SEE every company's assets - never add
+  a company wall to the asset reads. Only ASSIGNING a company is limited to
+  the companies the saver may use (`_check_company`, refused per row).
 - **Files are URLs**: photos and documents go browser -> the PRIVATE
   `asset-files` bucket (`lib/upload.js`) and the record keeps the canonical
   URL; the save refuses a new data: URL. `asset_files_migrate.py` moves the
