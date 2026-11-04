@@ -119,12 +119,18 @@ dashboard_insights = TTLCache("dashboard_insights", ttl=20)  # /dashboards/insig
                                                               # it, not per-email like dashboard_kpis, so a dozen managers
                                                               # open the board without multiplying the query cost; never
                                                               # one key for everyone (it leaked one company's counts).
+timesheet_waiting = TTLCache("timesheet_waiting", ttl=60)  # /timesheet-review/waiting - per email. For a Super
+                                                              # Administrator it builds every reviewable time sheet
+                                                              # (3 periods x people, hundreds of queries); on prod
+                                                              # 11/04 those held the pooler's connections for up to a
+                                                              # minute and every other save timed out. The screen asks
+                                                              # with fresh=1 after its own Approve / Send Back.
 
 # Watched model -> caches to drop when a commit touches it. HrEntity feeds the
 # directory's company names; group/member rows feed the grant map; employees
 # also feed the approver/allocator lists (filtered against nexus_employees).
 _WATCHED = {
-    "NexusEmployee":    (people_directory, role_holders, dashboard_birthdays, contact_directory),
+    "NexusEmployee":    (people_directory, role_holders, dashboard_birthdays, contact_directory, timesheet_waiting),
     "HrEntity":         (people_directory, contact_directory),
     "HrDepartment":     (contact_directory,),
     "NexusGroup":       (module_grants,),
@@ -133,14 +139,14 @@ _WATCHED = {
     "EgnyteWiring":     (egnyte_wirings,),
     "EgnyteFolderGroup": (egnyte_wirings,),
     "ItemType":         (item_types,),
-    "NexusRole":        (role_holders,),
+    "NexusRole":        (role_holders, timesheet_waiting),
     "Task":             (dashboard_insights,),
     "TaskTicket":       (dashboard_insights,),
-    "TimePunch":        (dashboard_insights,),
+    "TimePunch":        (dashboard_insights, timesheet_waiting),
     "AgentDevice":      (dashboard_insights,),
     "KbDocument":       (dashboard_insights,),
     "Document":         (dashboard_insights,),
-    "HrSignRequest":    (dashboard_insights,),
+    "HrSignRequest":    (dashboard_insights, timesheet_waiting),
     "Website":          (dashboard_insights,),
     "HardwareAsset":    (dashboard_insights,),
     "ConstructionProject":   (dashboard_insights,),
@@ -156,6 +162,10 @@ _WATCHED = {
     "VaultCredential":  (dashboard_insights,),
     "VaultShareRequest": (dashboard_insights,),
     "DocFormEntry":     (dashboard_insights,),
+    "TimesheetReview":  (timesheet_waiting,),
+    "HrSignParty":      (timesheet_waiting,),
+    "TimeApproval":     (timesheet_waiting,),
+    "ApprovalDelegation": (timesheet_waiting,),
 }
 
 

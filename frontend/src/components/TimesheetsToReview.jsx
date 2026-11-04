@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ClipboardCheck, CheckCircle, CheckCheck, FileSignature, Undo2, ChevronRight, PenLine } from 'lucide-react';
 import { api } from '../api';
@@ -71,19 +71,29 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
   const openBulk = () => { setTicked(new Set()); setBulkOpen(true); };
   const toggleTicked = (k) => setTicked(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
-  const load = useCallback(() => {
-    api.timesheetReviewWaiting().then(r => {
+  // onCount is read through a ref (11/04/2026): People > Time passes a new
+  // arrow on every render, and when it sat in load's dependencies each render
+  // of that screen fetched the whole review list again - for a Super
+  // Administrator one of the heaviest calls in Nexus.
+  const onCountRef = useRef(onCount);
+  useEffect(() => { onCountRef.current = onCount; }, [onCount]);
+  // signOnly asks only for the envelopes; a reload after a decision asks for
+  // a fresh list (the server keeps it a minute otherwise).
+  const load = useCallback((fresh) => {
+    const params = signOnly ? { only: 'sign' } : fresh === true ? { fresh: 1 } : undefined;
+    api.timesheetReviewWaiting(params).then(r => {
       const list = !signOnly && Array.isArray(r?.reviews) ? r.reviews : [];
       const sign = Array.isArray(r?.toSign) ? r.toSign : [];
       setRows(list);
       setToSign(sign);
-      onCount?.(list.length + sign.length);
-    }).catch(() => onCount?.(null));
-  }, [onCount, signOnly]);
+      onCountRef.current?.(list.length + sign.length);
+    }).catch(() => onCountRef.current?.(null));
+  }, [signOnly]);
   useEffect(() => {
     load();
-    window.addEventListener('nexus:timesheet-review-changed', load);
-    return () => window.removeEventListener('nexus:timesheet-review-changed', load);
+    const onChanged = () => load(true);
+    window.addEventListener('nexus:timesheet-review-changed', onChanged);
+    return () => window.removeEventListener('nexus:timesheet-review-changed', onChanged);
   }, [load]);
 
   async function run(r, call, done) {
