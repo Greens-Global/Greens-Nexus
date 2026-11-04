@@ -150,7 +150,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
   const card = { marginBottom: 16, border: '1px solid var(--wk-line2)', background: 'var(--card)', borderRadius: 12, padding: '10px 16px', boxShadow: 'var(--wk-shadow)' };
   const signPortal = signing && createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
-      <SignModal partyId={signing} onClose={() => setSigning(null)}
+      <SignModal partyId={signing} layer={3000} onClose={() => setSigning(null)}
         onDone={() => { setSigning(null); window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed')); }}
         toastOk={toastOk || (() => {})} toastErr={toastErr || (() => {})} />
     </div>, document.body);
