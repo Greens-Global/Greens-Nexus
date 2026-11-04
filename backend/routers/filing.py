@@ -187,12 +187,37 @@ class ScanBody(BaseModel):
     paths: list[str] | None = None
 
 
+def _filing_history(db: Session, limit: int = 2000) -> list[tuple[set, str, str]]:
+    """What people actually filed, from the audit rows apply() writes -
+    (name tokens, context subtree, destination folder) per past move.
+    Renames teach names, not destinations, so they are left out."""
+    rows = (db.query(AuditLog).filter(AuditLog.resource_type == "filing")
+            .order_by(AuditLog.id.desc()).limit(limit).all())
+    out = []
+    for r in rows:
+        try:
+            d = json.loads(r.details or "{}")
+        except ValueError:
+            continue
+        src, dest = d.get("from") or "", d.get("to") or ""
+        if not src or not dest or "/" not in src or "/" not in dest:
+            continue
+        src_folder, src_name = src.rsplit("/", 1)
+        dest_folder = dest.rsplit("/", 1)[0]
+        if dest_folder == src_folder:
+            continue
+        out.append((filing_rules.name_tokens(src_name),
+                    filing_rules.context_key(src_folder), dest_folder))
+    return out
+
+
 @router.post("/scan")
 def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
          db: Session = Depends(get_db)):
     token = _browse_token(user, db)
     cfg = _load_config(db)
     maps = _live_maps(token)
+    history = _filing_history(db)
 
     picked = [svc.norm(p) for p in ((body.paths if body else None) or []) if (p or "").strip()]
     if len(picked) > 10:
@@ -236,6 +261,13 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
             # A fast look at the file itself (Visesh, 11/04: "if somebody is
             # confused") - Egnyte's own full-screen viewer, keyed on group_id.
             prop["previewUrl"] = svc.file_web_url(f.get("groupId") or "")
+            # Learned route: where similar files from this subtree were
+            # actually filed before (pattern memory, not AI - see
+            # filing_rules.suggest_learned).
+            if prop["status"] == "review" and not prop["destFolder"] and history:
+                hit = filing_rules.suggest_learned(f["name"], root, history)
+                if hit:
+                    prop["learnedDest"], prop["learnedCount"] = hit
             proposals.append(prop)
             if len(proposals) >= MAX_SCAN_FILES:
                 break

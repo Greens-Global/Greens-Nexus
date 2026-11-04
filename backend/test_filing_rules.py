@@ -89,6 +89,36 @@ class TestMonthYearAndPathContext(unittest.TestCase):
         self.assertEqual(fr.path_context(maps, "/Shared/#Unsorted"), {})
 
 
+class TestLearnedRoutes(unittest.TestCase):
+    ESC = "/Shared/#Entities/Greens Escondido, LLC/#Unsorted"
+    TEM = "/Shared/#Entities/Greens Temecula, LLC/#Unsorted"
+
+    def test_learns_from_similar_filings_in_same_subtree(self):
+        history = [
+            (fr.name_tokens("2020-10-19 - GeoSoils Field Testing Report - GeoSoils.pdf"),
+             fr.context_key(self.ESC), "/Shared/#Entities/Greens Escondido, LLC/Properties"),
+            (fr.name_tokens("2020-10-20 - GeoSoils Field Testing Report - GeoSoils.pdf"),
+             fr.context_key(self.ESC), "/Shared/#Entities/Greens Escondido, LLC/Properties"),
+        ]
+        hit = fr.suggest_learned("2020-08-13 - Field Testing Report - Slope Repair.pdf",
+                                 self.ESC, history)
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit[0], "/Shared/#Entities/Greens Escondido, LLC/Properties")
+        self.assertEqual(hit[1], 2)
+
+    def test_never_learns_across_subtrees(self):
+        history = [(fr.name_tokens("2020-10-19 - Field Testing Report.pdf"),
+                    fr.context_key(self.TEM), "/somewhere/else")]
+        self.assertIsNone(fr.suggest_learned("2020-08-13 - Field Testing Report.pdf",
+                                             self.ESC, history))
+
+    def test_dissimilar_names_do_not_vote(self):
+        history = [(fr.name_tokens("2023-01-01 - U-Haul Contract - John Doe.pdf"),
+                    fr.context_key(self.ESC), "/uhaul/home")]
+        self.assertIsNone(fr.suggest_learned("2020-08-13 - Field Testing Report.pdf",
+                                             self.ESC, history))
+
+
 class TestClassify(unittest.TestCase):
     def test_sop_examples(self):
         cases = [

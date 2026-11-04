@@ -485,6 +485,57 @@ def path_context(maps: Maps, folder: str) -> dict:
     return ctx
 
 
+# ---------------------------------------------------------------------------
+# Learned routes (Visesh, 11/04/2026): the engine remembers where people
+# actually filed things and suggests the same home for similar files. This is
+# pattern MEMORY over the filing audit trail - frequency counting on name
+# tokens within the same context subtree - NOT an AI model: no key is spent,
+# nothing reads file contents, and the AI switch stays untouched. A content-
+# reading brain stays behind Neil's sign-off.
+# ---------------------------------------------------------------------------
+
+_STOP_TOKENS = {"the", "and", "for", "with", "from", "sheet", "sheets",
+                "final", "approved", "copy", "new", "pdf", "docx", "xlsx"}
+
+
+def name_tokens(file_name: str) -> set[str]:
+    """The words that identify what a file IS, dates and noise removed."""
+    p = parse_name(file_name)
+    return {t for t in re.findall(r"[a-z&]{3,}", p.rest.lower())
+            if t not in _STOP_TOKENS}
+
+
+def context_key(folder: str) -> str:
+    """The subtree a filing habit belongs to - the first three path segments
+    (/Shared/#Entities/<Entity>, /Shared/--Operations/<Facility>, ...), so
+    Escondido's habits never leak into Temecula's."""
+    parts = [s for s in folder.split("/") if s]
+    return "/" + "/".join(parts[:3]) if len(parts) >= 3 else folder.rstrip("/")
+
+
+def suggest_learned(file_name: str, source_folder: str,
+                    history: list[tuple[set, str, str]]) -> tuple[str, int] | None:
+    """history: (tokens, context_key, dest_folder) per past filing.
+    Returns (dest_folder, how_many_similar_filings) or None. A destination is
+    suggested only from the SAME context subtree, for files whose token
+    overlap is substantial (Jaccard >= 0.34)."""
+    toks = name_tokens(file_name)
+    if not toks:
+        return None
+    ctx = context_key(source_folder)
+    votes: dict[str, int] = {}
+    for h_toks, h_ctx, dest in history:
+        if h_ctx != ctx or not h_toks:
+            continue
+        union = toks | h_toks
+        if union and len(toks & h_toks) / len(union) >= 0.34:
+            votes[dest] = votes.get(dest, 0) + 1
+    if not votes:
+        return None
+    dest = max(votes, key=lambda d: votes[d])
+    return dest, votes[dest]
+
+
 _PRECISION = {"none": 0, "year": 1, "month": 2, "day": 3}
 
 
