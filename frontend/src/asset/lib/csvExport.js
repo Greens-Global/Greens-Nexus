@@ -65,8 +65,17 @@ const EXPORT_COLLECTIONS = [
 // `extra.ticketMaintenance` (Property Tickets, Oct 2026): closed tickets as
 // maintenance-log rows (lib/propertyTickets.js ticketMaintenanceRows), or null
 // when they could not be loaded. Omitted = the old behavior.
-export function exportAssetCsv(asset, store, extra = null) {
+// `extra.companies` (Neil, 11/03/2026): the company list (lib/companies.js) -
+// the asset's Company goes in as its NAME, the way the import reads it back;
+// an id the list does not name goes in as the id, which the import also takes.
+export function assetCsvRows(asset, store, extra = null) {
   const rows = [['Section', 'Group', 'Field', 'Value']];
+
+  if (extra && Array.isArray(extra.companies)) {
+    const id = String(asset.companyId || '').trim();
+    const hit = id ? extra.companies.find((c) => c.id === id) : null;
+    rows.push(['Overview', 'Company', 'Company', hit ? hit.name : id]);
+  }
 
   // Overview: the free-text snapshot groups (Project Details, Financial & Investment, etc).
   (asset.snapshot || []).forEach((group) => {
@@ -119,7 +128,11 @@ export function exportAssetCsv(asset, store, extra = null) {
   (asset.timeline || []).forEach((r, i) => {
     Object.keys(r).forEach((k) => rows.push(['Timeline', 'Record ' + (i + 1), k, r[k] == null ? '' : String(r[k])]));
   });
+  return rows;
+}
 
+export function exportAssetCsv(asset, store, extra = null) {
+  const rows = assetCsvRows(asset, store, extra);
   const csv = rows.map((r) => r.map(nexusCsvEsc).join(',')).join('\n');
   try {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });

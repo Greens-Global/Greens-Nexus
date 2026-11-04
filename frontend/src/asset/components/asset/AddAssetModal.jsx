@@ -5,7 +5,9 @@
 // property under another one is behind "Advanced".
 //
 // `mode="import"` (the portfolio's "Import From a Spreadsheet") is the bulk CSV
-// path: the class picker, the template download and the file picker, no form.
+// path: the class picker, the template download and the file picker, no form,
+// then a preview of every row (its Company matched, problems named) before
+// anything is created.
 //
 // Editing an existing asset no longer goes through this modal - the spec sheet
 // and the Overview edit in place.
@@ -22,7 +24,7 @@ import { pushToast } from '../shared/ToastHost.jsx';
 import { PROPERTY_WIZARD_FIELDS, ASSET_TYPE_OPTIONS, DEV_STAGE_OPTIONS } from '../../lib/propertyFields.js';
 import { VEHICLE_FIELDS, EQUIPMENT_FIELDS, ASSET_SCHEMAS, inferAssetKind, buildAssetSnapshot } from '../../lib/vehicleFields.js';
 import { nexusCsvEsc, nexusCsvParse } from '../../lib/csvExport.js';
-import { normLabel } from '../../lib/format.js';
+import { readImportRows, COMPANY_COLUMN } from '../../lib/assetImport.js';
 import { splitAddress } from '../../lib/dataNormalization.js';
 
 // Full ASSET_SCHEMAS lookup including the property wizard schema - vehicleFields.js's
@@ -133,12 +135,18 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
   };
 
   // ---- CSV bulk import (mode="import") ----------------------------------------------------
+  // The file is read into a preview first (lib/assetImport.js): every row with
+  // its Company matched, the rows with a problem named and left out. Import
+  // creates the rest - each one through the per-row save, so the server still
+  // checks its company.
+
+  const [preview, setPreview] = useState(null);
 
   const downloadTemplate = () => {
     const fields = schema.filter((f) => !f.sec);
-    const csv = fields.map((f) => nexusCsvEsc(f.label)).join(',') + '\r\n';
+    const csv = [...fields.map((f) => f.label), COMPANY_COLUMN].map(nexusCsvEsc).join(',') + '\r\n';
     // Leading BOM so Excel opens the template as UTF-8 instead of guessing a legacy codepage.
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -149,56 +157,49 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   };
 
-  const importCsv = (e) => {
-    const file = e.target.files && e.target.files[0];
+  const readCsv = (e) => {
+    const input = e.target;
+    const file = input.files && input.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
+      input.value = '';
       try {
         const rows = nexusCsvParse(String(reader.result || ''));
         if (rows.length < 2) {
           pushToast?.('No data rows found. Put one asset per row under the header line.', 'bad');
           return;
         }
-        const headerLabels = rows[0].map((h) => normLabel(h));
-        const fields = schema.filter((f) => !f.sec);
-        // Map each field's key to the CSV column index whose header matches its label.
-        const fieldToColumn = {};
-        fields.forEach((f) => {
-          const idx = headerLabels.indexOf(normLabel(f.label));
-          if (idx >= 0) fieldToColumn[f.k] = idx;
-        });
-
-        let created = 0;
-        let skipped = 0;
-        for (let r = 1; r < rows.length; r++) {
-          const row = rows[r];
-          const rowValues = { image: '' };
-          fields.forEach((f) => {
-            const ci = fieldToColumn[f.k];
-            rowValues[f.k] = ci != null && row[ci] != null ? String(row[ci]).trim() : '';
-          });
-          if (!String(rowValues.name || '').trim()) { skipped++; continue; }
-
-          const payload = { ...rowValues, kind };
-          if (isNonPropertyAsset) payload.assetType = kind === 'vehicle' ? 'Vehicle' : 'Heavy Equipment';
-          payload.snapshot = buildAssetSnapshot(schema, rowValues);
-          onSave(kind === 'property' ? splitAddress(payload) : payload, undefined, undefined);
-          created++;
-        }
-
-        e.target.value = '';
-        pushToast?.(
-          `${created} asset${created === 1 ? '' : 's'} imported` +
-          (skipped ? `, ${skipped} row(s) skipped (missing name)` : '') + '.', 'ok'
-        );
-        onClose();
+        setPreview({ fileName: file.name, kind, rows });
       } catch {
-        e.target.value = '';
         pushToast?.('Could not read that file. Use the downloaded template and keep the header row.', 'bad');
       }
     };
     reader.readAsText(file);
+  };
+
+  // Matched at render time, not when the file was read, so a company list that
+  // finished loading after the file was picked still names its rows.
+  const previewFields = preview ? (WIZARD_SCHEMAS[preview.kind] || PROPERTY_WIZARD_FIELDS) : null;
+  const previewItems = preview ? readImportRows(preview.rows, previewFields.filter((f) => !f.sec), companies).items : [];
+
+  const importPreview = () => {
+    if (!preview) return;
+    const ready = previewItems.filter((it) => !it.problems.length);
+    ready.forEach((it) => {
+      const payload = { image: '', ...it.values, kind: preview.kind };
+      // Blank = no company: the key is left off, never sent as a clear.
+      if (it.companyId) payload.companyId = it.companyId;
+      if (preview.kind !== 'property') payload.assetType = preview.kind === 'vehicle' ? 'Vehicle' : 'Heavy Equipment';
+      payload.snapshot = buildAssetSnapshot(previewFields, it.values);
+      onSave(preview.kind === 'property' ? splitAddress(payload) : payload, undefined, undefined);
+    });
+    const left = previewItems.length - ready.length;
+    pushToast?.(
+      `${ready.length} asset${ready.length === 1 ? '' : 's'} imported` +
+      (left ? `, ${left} row${left === 1 ? '' : 's'} with a problem left out` : '') + '.', 'ok'
+    );
+    onClose();
   };
 
   // ---- render -----------------------------------------------------------------------------
@@ -236,6 +237,62 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
     </div>
   );
 
+  if (importing && preview) {
+    const ready = previewItems.filter((it) => !it.problems.length).length;
+    const nameOf = (id) => (companies || []).find((c) => c.id === id)?.name || '';
+    return (
+      <Modal
+        title="Import From a Spreadsheet"
+        onClose={onClose}
+        footer={
+          <>
+            <button className="secondary-btn" onClick={() => setPreview(null)}>Choose Another File</button>
+            <button className="primary-btn" onClick={importPreview} disabled={!ready}>
+              {`Import ${ready} Asset${ready === 1 ? '' : 's'}`}
+            </button>
+          </>
+        }
+      >
+        <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
+          {preview.fileName ? <strong style={{ color: 'var(--text-primary)' }}>{preview.fileName}</strong> : null}
+          {preview.fileName ? ' - ' : ''}
+          {ready} of {previewItems.length} row{previewItems.length === 1 ? '' : 's'} ready.
+          {ready < previewItems.length ? ' Rows with a problem are left out - fix them in the file and import it again.' : ''}
+          {' '}A blank Company leaves the asset under Needs a Company.
+        </div>
+        <div className="nx-fill" style={{ overflow: 'auto', border: '1px solid var(--border-color)', borderRadius: 10 }}>
+          <table data-testid="asset-import-preview" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: 'var(--text-secondary)' }}>
+                <th style={{ padding: '8px 10px' }}>Row</th>
+                <th style={{ padding: '8px 10px' }}>Name</th>
+                <th style={{ padding: '8px 10px' }}>Company</th>
+                <th style={{ padding: '8px 10px' }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {previewItems.map((it) => (
+                <tr key={it.line} data-line={it.line} style={{ borderTop: '1px solid var(--border-color)', verticalAlign: 'top' }}>
+                  <td style={{ padding: '8px 10px', color: 'var(--text-secondary)' }}>{it.line}</td>
+                  <td style={{ padding: '8px 10px' }}>{it.name || '-'}</td>
+                  <td style={{ padding: '8px 10px' }}>{it.companyId ? nameOf(it.companyId) : (it.companyText || <span style={{ color: 'var(--text-secondary)' }}>No Company</span>)}</td>
+                  <td style={{ padding: '8px 10px' }}>
+                    {it.problems.length ? it.problems.map((pr) => (
+                      <div key={pr.label} style={{ marginBottom: 4 }}>
+                        <div style={{ fontWeight: 700, color: 'hsl(var(--color-red))' }}>{pr.label}</div>
+                        <div style={{ color: 'var(--text-secondary)' }}>{pr.hint}</div>
+                      </div>
+                    )) : <span style={{ fontWeight: 600, color: 'var(--pine)' }}>Ready</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
+    );
+  }
+
   if (importing) {
     return (
       <Modal
@@ -245,12 +302,12 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
       >
         {classPicker}
         <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 14 }}>
-          Download the template for this asset class, fill one row per asset, then import it. Rows without a name are skipped.
+          Download the template for this asset class, fill one row per asset, then import it. The Company column takes a company's name or id; leave it blank to set it later. You see every row before anything is saved.
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" className="secondary-btn" onClick={downloadTemplate}>Download CSV Template</button>
           <button type="button" className="primary-btn" onClick={() => importInputRef.current && importInputRef.current.click()}>Import CSV</button>
-          <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importCsv} style={{ display: 'none' }} />
+          <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={readCsv} style={{ display: 'none' }} data-testid="asset-import-file" />
         </div>
       </Modal>
     );
