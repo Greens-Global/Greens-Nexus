@@ -171,7 +171,7 @@ export default function FilingTab({ toastOk, toastErr }) {
         failed.push(...(r.failedRoots || []));
         all = all.concat((r.proposals || []).filter(p => !known.has(p.sourcePath)));
         if (includeSub) queue.push(...(r.subfolders || []));
-        setProgress({ folders, files: all.filter(p => p.status !== 'skip').length });
+        setProgress({ folders, files: all.filter(p => p.status !== 'skip').length, waiting: queue.length });
         setScan(assemble(all, missing, truncated, failed));
       }
       const stopped = cancelRef.current && queue.length > 0;
@@ -213,6 +213,38 @@ export default function FilingTab({ toastOk, toastErr }) {
       && (p.newName || p.canonicalName) && (p.newName || p.canonicalName) !== p.currentName),
     [scan, results]);
 
+  // Every bulk action goes through here. Each move is a paced Egnyte call or
+  // two (about a second), so moves travel 10 to a request, the server hands
+  // back as `deferred` whatever its time budget did not reach, and those go
+  // out again - no request nears the browser's 18 s limit, and the person
+  // watches a counter instead of a frozen button. Results land on the rows
+  // as each chunk returns.
+  const [applyProgress, setApplyProgress] = useState(null);   // {done, total}
+  const applyChunked = async (moves, { renamed = false } = {}) => {
+    let done = 0, moved = 0, failed = 0;
+    let queue = [...moves];
+    const bySource = new Map(moves.map(m => [m.sourcePath, m]));
+    setApplyProgress({ done: 0, total: moves.length });
+    while (queue.length) {
+      const chunk = queue.slice(0, 10);
+      queue = queue.slice(10);
+      const out = await api.filingApply(chunk);
+      const back = (out.deferred || []).map(s => bySource.get(s)).filter(Boolean);
+      queue = [...back, ...queue];
+      setResults(prev => {
+        const next = { ...prev };
+        for (const r of out.results || []) next[r.sourcePath] = (r.ok && renamed) ? { ...r, renamed: true } : r;
+        return next;
+      });
+      moved += out.moved || 0; failed += out.failed || 0;
+      done += (out.results || []).length;
+      setApplyProgress({ done, total: moves.length });
+    }
+    setApplyProgress(null);
+    api.filingActivity().then(d => setActivity(d.rows)).catch(() => {});
+    return { moved, failed };
+  };
+
   const fixAllNames = async () => {
     const ok = await dialog.confirm(
       `Rename ${fixable.length} file${fixable.length === 1 ? '' : 's'} in place to their SOP names? Folders stay as they are; every rename is in the Audit Log.`,
@@ -220,27 +252,19 @@ export default function FilingTab({ toastOk, toastErr }) {
     if (!ok) return;
     setApplying(true);
     try {
-      let renamed = 0, failed = 0;
-      const next = { ...results };
-      for (let i = 0; i < fixable.length; i += 50) {
-        const batch = fixable.slice(i, i + 50).map(p => ({
-          sourcePath: p.sourcePath,
-          destFolder: p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/')),
-          newName: p.newName || p.canonicalName,
-          docType: p.docType || 'Rename', rule: 'rename',
-        }));
-        const out = await api.filingApply(batch);
-        for (const r of out.results) next[r.sourcePath] = r.ok ? { ...r, renamed: true } : r;
-        renamed += out.moved; failed += out.failed;
-      }
-      setResults(next);
-      if (renamed) toastOk?.(`Renamed ${renamed} file${renamed === 1 ? '' : 's'}`);
+      const { moved, failed } = await applyChunked(fixable.map(p => ({
+        sourcePath: p.sourcePath,
+        destFolder: p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/')),
+        newName: p.newName || p.canonicalName,
+        docType: p.docType || 'Rename', rule: 'rename',
+      })), { renamed: true });
+      if (moved) toastOk?.(`Renamed ${moved} file${moved === 1 ? '' : 's'}`);
       if (failed) toastErr?.(`${failed} could not be renamed - see the rows for why`);
-      api.filingActivity().then(d => setActivity(d.rows)).catch(() => {});
     } catch (e) {
-      toastErr?.(e.message || 'Could not rename the files');
+      toastErr?.(e.message || 'Could not rename the files - the ones already done are marked');
     } finally {
       setApplying(false);
+      setApplyProgress(null);
     }
   };
 
@@ -276,17 +300,14 @@ export default function FilingTab({ toastOk, toastErr }) {
     if (!ok) return;
     setApplying(true);
     try {
-      const out = await api.filingApply(moves);
-      const next = { ...results };
-      for (const r of out.results) next[r.sourcePath] = r;
-      setResults(next);
-      if (out.moved) toastOk?.(`Filed ${out.moved} document${out.moved === 1 ? '' : 's'}`);
-      if (out.failed) toastErr?.(`${out.failed} could not be moved - see the rows for why`);
-      api.filingActivity().then(d => setActivity(d.rows)).catch(() => {});
+      const { moved, failed } = await applyChunked(moves);
+      if (moved) toastOk?.(`Filed ${moved} document${moved === 1 ? '' : 's'}`);
+      if (failed) toastErr?.(`${failed} could not be moved - see the rows for why`);
     } catch (e) {
-      toastErr?.(e.message || 'Could not apply the moves');
+      toastErr?.(e.message || 'Could not apply the moves - the ones already done are marked');
     } finally {
       setApplying(false);
+      setApplyProgress(null);
     }
   };
 
@@ -418,6 +439,7 @@ export default function FilingTab({ toastOk, toastErr }) {
         // is the progress signal.
         <LoadingState size="section" slowAfter={600000} minHeight={90} label={progress
           ? `Scanned ${progress.folders.toLocaleString('en-US')} folder${progress.folders === 1 ? '' : 's'} - ${progress.files.toLocaleString('en-US')} file${progress.files === 1 ? '' : 's'} so far`
+            + (progress.waiting ? ` - ${progress.waiting.toLocaleString('en-US')} more found to read` : '')
           : 'Reading the folders'} />
       )}
 
@@ -476,14 +498,19 @@ export default function FilingTab({ toastOk, toastErr }) {
                 Export CSV
               </button>
             )}
-            {fixable.length > 0 && !scanning && (
-              <button className="secondary-btn" onClick={fixAllNames} disabled={applying}>
+            {applyProgress && (
+              <span role="status" style={{ fontSize: 12.5, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                Working: {applyProgress.done} of {applyProgress.total} done
+              </span>
+            )}
+            {fixable.length > 0 && !scanning && !applying && (
+              <button className="secondary-btn" onClick={fixAllNames}>
                 Fix All Names ({fixable.length})
               </button>
             )}
-            {readyLeft > 0 && !scanning && (
-              <button className="primary-btn" onClick={applySelected} disabled={applying}>
-                {applying ? 'Moving...' : `Move ${readyLeft} File${readyLeft === 1 ? '' : 's'}`}
+            {readyLeft > 0 && !scanning && !applying && (
+              <button className="primary-btn" onClick={applySelected}>
+                {`Move ${readyLeft} File${readyLeft === 1 ? '' : 's'}`}
               </button>
             )}
           </div>
