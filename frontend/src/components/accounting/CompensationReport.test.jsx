@@ -230,7 +230,7 @@ describe('CompensationReport', () => {
   it('from the person\'s report, a figure opens its lines with a way back; the health split asks for one side only', async () => {
     render(<CompensationReport />);
     fireEvent.click(await screen.findByTitle("Open Valinda Cranfill's compensation report"));
-    fireEvent.click(within(panel()).getByRole('button', { name: /^Health Insurance \(Employee\) for Valinda Cranfill, Year Ending 12\/31\/2026/ }));
+    fireEvent.click(within(panel()).getByRole('button', { name: /^Health Insurance \(Employee Deduction\) for Valinda Cranfill, Year Ending 12\/31\/2026/ }));
     await waitFor(() => expect(api.getCompensationLines).toHaveBeenCalledWith(expect.objectContaining({ accounts: ['61903:c'] })));
     fireEvent.click(within(panel()).getByRole('button', { name: "Back to Valinda Cranfill's report" }));
     expect(within(panel()).getByRole('table', { name: /Employee Compensation Report/ })).toBeTruthy();

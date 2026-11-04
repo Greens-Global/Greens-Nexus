@@ -48,12 +48,12 @@ describe('compensationModel', () => {
   it('lays out Intacct\'s report lines, the totals made of their parts', () => {
     expect(LINES.map((l) => l.label)).toEqual(expect.arrayContaining(['Bonus', 'Salaried / Hourly Payroll', 'Total Payroll Expenses', '401(k) Contribution (Company)', 'Health Insurance (Company)',
       'Other Benefits', 'Total Benefits', 'FUTA', 'Medicare', 'Social Security', 'SUTA', 'CA Employment Training Tax', "Workers' Comp", 'Total Employer Expenses',
-      'Health Insurance (Employee)', 'Federal Withholding', 'Medicare (Employee)', 'Social Security (Employee)', 'SDI', 'State Withholding', 'Employee Net Pay']));
-    expect(leafLines('totalPayroll')).toEqual(['bonus', 'payroll']);
+      'Health Insurance (Employee Deduction)', '401(k) (Employee Deduction)', 'Overtime Payroll', 'Federal Withholding', 'Medicare (Employee)', 'Social Security (Employee)', 'SDI', 'State Withholding', 'Employee Net Pay']));
+    expect(leafLines('totalPayroll')).toEqual(['bonus', 'payroll', 'overtime']);
     // Intacct: Other Benefits is outside Total Benefits, inside Total Employer Expenses.
     expect(leafLines('totalBenefits')).toEqual(['k401', 'health']);
     expect(leafLines('totalEmployer')).toEqual(expect.arrayContaining(['otherBenefits', 'workersComp', 'k401', 'futa']));
-    expect(leafLines('netPay')).toEqual(['bonus', 'payroll', 'dedHealth', 'ded401k', 'dedOther', 'fedWh', 'medicareWh', 'socsecWh', 'sdi', 'stateWh']);
+    expect(leafLines('netPay')).toEqual(['bonus', 'payroll', 'overtime', 'dedHealth', 'ded401k', 'dedOther', 'fedWh', 'medicareWh', 'socsecWh', 'sdi', 'stateWh']);
   });
 
   it('puts Time Clock hours beside each person by employee ID, and names Time Clock people missing from the ledger', () => {
