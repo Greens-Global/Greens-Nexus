@@ -62,7 +62,7 @@ const buildExtensions = (placeholder) => [
   Placeholder.configure({ placeholder }),
 ];
 
-function Btn({ icon: Icon, label, active, disabled, onClick, danger }) {
+function Btn({ icon: Icon, label, active, disabled, onClick, danger, big = false }) {
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled}
       // Out of the Tab order: the toolbar's ~16 buttons were each a Tab stop,
@@ -76,7 +76,7 @@ function Btn({ icon: Icon, label, active, disabled, onClick, danger }) {
       onMouseDown={(e) => { e.preventDefault(); if (!disabled) onClick(); }}
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: 28, height: 28, borderRadius: 6, border: 'none', flexShrink: 0,
+        width: big ? 36 : 28, height: big ? 36 : 28, borderRadius: big ? 18 : 6, border: 'none', flexShrink: 0,
         background: active ? (danger ? NX.red : NX.border2) : 'transparent',
         color: disabled ? NX.faint : (active ? (danger ? '#fff' : NX.ink) : NX.dim),
         cursor: disabled ? 'default' : 'pointer',
@@ -105,6 +105,11 @@ export default function RichDescription({
   onRecordingChange,
   placeholder = 'Add more detail…',
   toolbar = true,
+  // A one-line composer pinned to the bottom of a phone screen (the ticket
+  // card's reply box, 11/03/2026): no toolbar, the Dictate mic inside the box
+  // on the right, the text scrolls past `compact` px and the @mention list
+  // opens upward - there is no room under a box at the screen's foot.
+  compact = 0,
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [ai, setAi] = useState(null);   // { busy, error, suggestion, original }
@@ -322,12 +327,15 @@ export default function RichDescription({
 
   return (
     <div style={wrap}>
-      <div className="nx-rich" style={{ padding: '10px 12px', minHeight, cursor: 'text', position: 'relative' }}
+      <div style={compact ? { display: 'flex', alignItems: 'flex-end' } : undefined}>
+      <div className="nx-rich" style={{ padding: compact ? '9px 4px 9px 12px' : '10px 12px', minHeight, cursor: 'text', position: 'relative', ...(compact ? { flex: 1, minWidth: 0 } : null) }}
         onClick={() => editor.chain().focus().run()} onDoubleClick={zoomImage}>
-        <EditorContent editor={editor} />
+        {compact ? (
+          <div className="nx-scroll" style={{ maxHeight: compact, overflowY: 'auto', overscrollBehavior: 'contain' }}><EditorContent editor={editor} /></div>
+        ) : <EditorContent editor={editor} />}
         {zoomViewer}
         {mention && matches.length > 0 && (
-          <div style={{ position: 'absolute', left: 8, bottom: -6, transform: 'translateY(100%)', zIndex: 70,
+          <div style={{ position: 'absolute', left: 8, zIndex: 70, ...(compact ? { top: -6, transform: 'translateY(-100%)' } : { bottom: -6, transform: 'translateY(100%)' }),
                         minWidth: 240, background: NX.surface, border: `1px solid ${NX.border}`,
                         borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
             {matches.map((p, i) => (
@@ -342,6 +350,17 @@ export default function RichDescription({
             ))}
           </div>
         )}
+      </div>
+      {compact && dictateOk ? (
+        <span style={{ padding: '0 4px 4px 0', flexShrink: 0 }}>
+          <Btn icon={Mic} big label={dictation.listening ? 'Stop Dictating' : 'Dictate - type what you say'} active={dictation.listening} danger
+            onClick={() => {
+              if (dictation.listening) { dictation.stop(); return; }
+              if (!editor.isFocused) editor.view.dispatch(editor.state.tr.setSelection(Selection.atEnd(editor.state.doc)));
+              dictation.start();
+            }} />
+        </span>
+      ) : null}
       </div>
 
       {ai?.suggestion && (
@@ -395,7 +414,7 @@ export default function RichDescription({
         </div>
       )}
 
-      {toolbar && (
+      {toolbar && !compact && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', padding: '5px 8px', borderTop: `1px solid ${NX.border2}` }}>
         {/* First in the row, so on a phone (where the row wraps) the mic is
             the first thing under the thumb. */}

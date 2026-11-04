@@ -4465,6 +4465,28 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] weather department seed skipped: {e}")
+    # Asset Management Company field (Neil, 11/03/2026): every asset without a
+    # companyId gets a STRONG answer (its Operating Entity or its lead property;
+    # an asset-manager guess is left blank for review) ONCE (its
+    # nexus_settings mark; Activity Log entry + _rev bump per row; never
+    # overwrites one already set). Before the construction pass below, which
+    # reads it. Deployed API or a laptop's own SQLite only (should_run);
+    # `python asset_company_fill.py` is the read-only dry run.
+    try:
+        import asset_company_fill
+        if asset_company_fill.should_run(DATABASE_URL):
+            from database import SessionLocal
+            db = SessionLocal()
+            try:
+                n = asset_company_fill.fill(db)   # once (its nexus_settings mark)
+                if n is not None:
+                    print(f"[startup] asset management: set the company on {n} asset(s) (one-time pass)")
+            finally:
+                db.close()
+        else:
+            print("[startup] asset company fill skipped - a laptop on the shared database leaves it to the deployed API")
+    except Exception as e:
+        print(f"[startup] asset company fill skipped: {e}")
     # Construction foundations (Neil, 11/03/2026): place every job without a
     # company in one, ONCE (its property's entity, else its creator's - the
     # company wall; `python construction_company.py` is the read-only dry

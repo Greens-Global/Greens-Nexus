@@ -703,10 +703,16 @@ def schedule_options(property_id: str, user: dict = Depends(require_asset_read),
     prop = _require_manage(db, user, property_id)
     scope = auth.company_scope(user, db)
     ents = {e.id: e.name for e in db.query(models.HrEntity).all()}
+    # Only the property's own company's teams (its Company field, 11/03/2026) -
+    # the same rule the schedule save enforces (maintenance_services), so the
+    # picker never offers a team the save would refuse.
+    owner = property_links.property_company(db, prop)
     depts = [{"id": d.id, "name": d.name or "", "companyId": d.company_id or "",
               "companyName": ents.get(d.company_id or "", "")}
              for d in db.query(models.HrDepartment).all()
-             if auth.company_ok(d.company_id or "", scope) and property_links.department_takes_property(db, d.id)]
+             if auth.company_ok(d.company_id or "", scope)
+             and (not owner or not d.company_id or d.company_id == owner)
+             and property_links.department_takes_property(db, d.id)]
     topics, seen = [], set()
     for g in ticket_taxonomy.get_config(db).get("helpTopics") or []:
         for tp in g.get("topics") or []:
@@ -727,7 +733,7 @@ def schedule_options(property_id: str, user: dict = Depends(require_asset_read),
         equipment.append({"id": a.id, "name": property_links.display_name(a), "kind": kind, "meterField": field,
                           "reading": reading,
                           "readingLabel": maintenance_services.meter_label(field, reading) if reading is not None else ""})
-    return {"property": {"id": prop.id, "name": property_links.display_name(prop)},
+    return {"property": {"id": prop.id, "name": property_links.display_name(prop), "companyId": owner},
             "departments": sorted(depts, key=lambda d: (d["companyName"].lower(), d["name"].lower())),
             "topics": topics, "equipment": sorted(equipment, key=lambda e: e["name"].lower()),
             "units": ticket_property_link.unit_options(db, prop),

@@ -368,12 +368,221 @@ def _strip_rev(row: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in row.items() if k != "_rev"}
 
 
+# ── Company (Neil, 11/03/2026) ───────────────────────────────────────────────
+# An asset's company is its payload's `companyId` (an HrEntity id) - the field
+# property_links.property_company reads before any inference. A save that
+# CHANGES it is checked here: the new value must be a company in Nexus that the
+# saver may assign (auth.company_scope - a Super Administrator or an unwalled
+# caller any, a walled Administrator / walled person only their companies),
+# the asset must not be leaving a company outside the saver's reach, and only
+# an unwalled caller may clear it. An unchanged value is never re-checked (a
+# walled editor still saves the rest of a row placed elsewhere), and a row
+# saved without the key keeps the company it has (a tab that never read the
+# field cannot erase it - nothing is deleted by code). A refused row is
+# reported in `refused` and the rest of the batch still saves.
+
+_COMPANY_KEY = "companyId"
+
+
+class _Scope:
+    """The saver's company scope, read once per batch and only when needed."""
+    def __init__(self, db: Session, user):
+        self.db, self.user, self._v, self._read = db, user, None, False
+
+    def get(self):
+        if not self._read:
+            import auth
+            self._v, self._read = auth.company_scope(self.user or {}, self.db), True
+        return self._v
+
+
+def _check_company(db: Session, scope: "_Scope", existing, payload: Dict[str, Any]):
+    """None when the row's company may be saved as it stands, else the
+    refusal (status, message). A refusal is per ROW (review, 11/03/2026):
+    post_changes reports it in `refused` and saves the rest of the batch."""
+    import auth
+    from models import HrEntity
+    had = str(((existing.payload or {}) if existing is not None else {}).get(_COMPANY_KEY) or "").strip()
+    if _COMPANY_KEY not in payload:
+        if had:
+            payload[_COMPANY_KEY] = had
+        return None
+    new = str(payload.get(_COMPANY_KEY) or "").strip()
+    payload[_COMPANY_KEY] = new
+    if new == had:
+        return None
+    reach = scope.get()
+    if had and reach is not None and db.get(HrEntity, had) is not None and had not in reach:
+        return 403, "This asset belongs to a company outside yours - a Super Administrator can move it."
+    if not new:
+        if reach is not None:
+            return 403, "Only a Super Administrator can clear an asset's company - pick another company instead."
+        return None
+    if db.get(HrEntity, new) is None:
+        return 400, "That company is not in Nexus - pick one from the list."
+    if not auth.company_ok(new, reach):
+        return 403, "You can put an asset only in a company you manage."
+    return None
+
+
+# ── Egnyte Folder (Neil, 11/03/2026) ─────────────────────────────────────────
+# "Should a property be able to pin its exact Egnyte folder instead of matching
+# by name?" - yes. The pin is the payload's `egnyteFolder`; the construction
+# filer uses it before any name match and never guesses when it is missing
+# (construction_worker.property_folder). Set by whoever may edit the asset (the
+# same row save and guard as every other field; a private asset stays an
+# officer's). A CHANGED value is checked and stored normalized
+# (services/egnyte.normalize_pinned_folder: inside the property roots, no '..');
+# blank unpins. Makes no Egnyte call, so it saves with Egnyte not set up. As
+# with the company, a row saved without the key keeps its pin, and an
+# unchanged value is never re-checked (roots moved since stay the filer's
+# business - it holds the files rather than guess).
+
+_EGNYTE_KEY = "egnyteFolder"
+
+
+def _check_egnyte_folder(existing, payload: Dict[str, Any]):
+    """None when the row's Egnyte Folder may be saved as it stands, else the
+    refusal (status, message) - per row, like _check_company."""
+    from services import egnyte as egnyte_svc
+    had = str(((existing.payload or {}) if existing is not None else {}).get(_EGNYTE_KEY) or "").strip()
+    if _EGNYTE_KEY not in payload:
+        if had:
+            payload[_EGNYTE_KEY] = had
+        return None
+    raw = payload.get(_EGNYTE_KEY)
+    if raw is not None and not isinstance(raw, str):
+        return 400, "The Egnyte folder must be a folder path"
+    new = (raw or "").strip()
+    if new == had:
+        payload[_EGNYTE_KEY] = had
+        return None
+    try:
+        payload[_EGNYTE_KEY] = egnyte_svc.normalize_pinned_folder(new)
+    except ValueError as e:
+        return 400, str(e)
+    return None
+
+
+class _FillRevs:
+    """What the one-time Company fill did to each row (asset_company_fill),
+    read once per batch and only when a stale row needs it."""
+    def __init__(self, db: Session):
+        self.db, self._v = db, None
+
+    def get(self) -> dict:
+        if self._v is None:
+            import asset_company_fill
+            self._v = asset_company_fill.filled_revs(self.db)
+        return self._v
+
+
+def _filled_since(fill: "_FillRevs", existing, rev) -> str:
+    """The company the one-time fill set on this row when the fill is the ONLY
+    change since the tab read it (its rev is the pre-fill one and the row
+    still carries the fill's stamp) - '' otherwise. A save a tab queued over
+    the deploy window is then not a conflict: it is taken, and the row keeps
+    the filled company (review, 11/03/2026). A row stamped by anyone after
+    the fill is an ordinary conflict again."""
+    if existing is None:
+        return ""
+    entry = fill.get().get(existing.id) or {}
+    if not entry or existing.updated_at != entry.get("to"):
+        return ""
+    before = entry.get("from") or ""
+    # An unstamped row took any save before the fill (_stale), so it still does.
+    if before and str(rev or "") != before:
+        return ""
+    return str(entry.get("companyId") or "")
+
+
+def assignable_companies(db: Session, user) -> List[Dict[str, Any]]:
+    """The companies the Company picker offers this caller: every company they
+    may assign (their company scope), plus - named, not assignable - any other
+    company an asset they can see already sits in, so the screen can show it."""
+    import auth
+    from models import HrEntity
+    reach = auth.company_scope(user or {}, db)
+    visible = _visible_ids(db, user)
+    used = {str((p.payload or {}).get(_COMPANY_KEY) or "").strip()
+            for p in db.query(PropertyAsset).all() if p.id in visible}
+    out = []
+    for e in db.query(HrEntity).order_by(HrEntity.name).all():
+        ok = auth.company_ok(e.id, reach)
+        if ok or e.id in used:
+            out.append({"id": e.id, "name": e.name or "", "assignable": ok})
+    return out
+
+
+@router.get("/property-assets/companies")
+def get_companies(db: Session = Depends(get_db), user=Depends(require_asset_read)):
+    """The Company picker's list (see assignable_companies) and whether this
+    caller may leave an asset with no company (only an unwalled one)."""
+    import auth
+    return {"companies": assignable_companies(db, user),
+            "canClear": auth.company_scope(user or {}, db) is None}
+
+
+_FIND_WORDS = {
+    "matched": "",
+    "ambiguous": "More than one Egnyte folder could be this property's - pick the right one.",
+    "no_match": "No Egnyte folder matched this name - paste the folder's path, or search another name.",
+}
+
+
+@router.get("/property-assets/{pid}/egnyte-folders")
+def find_egnyte_folders(pid: str, q: str = "", db: Session = Depends(get_db), user=Depends(require_asset_write)):
+    """Find Folder on an asset's Egnyte Folder field: the Egnyte folders
+    whose name could be this asset's (or `q`'s), best first, with the one the
+    name match would pick - for the person to choose; nothing is pinned or
+    written here (the pick saves through the row save). Read only. Editors
+    of the asset only, inside its privacy and scope (404 otherwise, as if it
+    were not there).
+
+    With Egnyte not set up it answers `configured: false` and says so; the
+    field still takes a pasted path. A sync route on purpose - it lists
+    Egnyte, so FastAPI runs it in its thread pool, off the event loop."""
+    from services import egnyte as egnyte_svc
+    prop = db.get(PropertyAsset, pid)
+    if prop is None or pid not in _visible_ids(db, user):
+        raise HTTPException(status_code=404, detail="That asset is not here.")
+    site = (q or "").strip()[:200] or (prop.name or "").strip()
+    pinned = str((prop.payload or {}).get(_EGNYTE_KEY) or "").strip()
+    out = {"configured": False, "site": site, "roots": egnyte_svc.pin_roots(), "pinned": pinned,
+           "pinnedFound": None, "match": None, "why": "", "candidates": [], "message": "", "error": ""}
+    if not egnyte_svc.configured():
+        out["message"] = "Egnyte is not set up on this server - paste the folder's path instead."
+        return out
+    out["configured"] = True
+    try:
+        found = egnyte_svc.property_folder_candidates(site) if site else {"match": None, "why": "no_match", "candidates": []}
+        if pinned:
+            try:
+                ok = bool(egnyte_svc.normalize_pinned_folder(pinned))
+            except ValueError:
+                ok = False      # outside the roots now - the filer holds its files
+            out["pinnedFound"] = egnyte_svc.folder_exists(pinned) if ok else False
+    except Exception as e:   # EgnyteError, or httpx giving up on the connection
+        # A 200 with `error`, not a 5xx: Egnyte being down is not Nexus being
+        # down (api.js would show the reconnecting banner and retry).
+        print(f"[property-assets] Find Folder for {pid}: {e}")
+        out["error"] = "Egnyte did not answer - try again in a minute."
+        return out
+    out.update(match=found["match"], why=found["why"], candidates=found["candidates"],
+               message=_FIND_WORDS.get(found["why"], ""))
+    return out
+
+
 @router.post("/property-assets/changes")
 def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(require_asset_write)):
     now = _now()
     email = (user or {}).get("email", "")
     sees_private, allowed = _reach(db, user)
+    company_scope = _Scope(db, user)
+    fill = _FillRevs(db)
     conflicts: List[str] = []
+    refused: List[Dict[str, Any]] = []   # rows the server would not take: {id, status, message}
+    refused_new: set = set()             # new assets refused - their records in this batch wait with them
     trashed: List[str] = []        # live assets a Delete Forever only moved to the Trash
     revs: Dict[str, str] = {}      # id -> the updated_at every written row now carries
 
@@ -426,9 +635,21 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
         existing = db.get(PropertyAsset, pid)
         guard(pid, existing, row)
         if _stale(existing, row.get("_rev")):
-            conflicts.append(pid)
-            continue
+            filled = _filled_since(fill, existing, row.get("_rev"))
+            if not filled:
+                conflicts.append(pid)
+                continue
+            # Queued before the one-time fill: taken, keeping the filled company
+            # unless the person picked one themselves.
+            if not str(row.get(_COMPANY_KEY) or "").strip():
+                row[_COMPANY_KEY] = filled
         payload = _strip_rev(row)
+        why = _check_company(db, company_scope, existing, payload) or _check_egnyte_folder(existing, payload)
+        if why:
+            refused.append({"id": pid, "status": why[0], "message": why[1]})
+            if existing is None:
+                refused_new.add(pid)
+            continue
         revs[pid] = now
         if existing is None:
             db.add(PropertyAsset(id=pid, name=str(payload.get("name") or ""), manager=str(payload.get("manager") or ""),
@@ -447,7 +668,8 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
         if existing is None:
             continue
         guard(existing.id, existing)
-        if _stale(existing, ch.properties.deleteRevs.get(str(pid))):
+        if (_stale(existing, ch.properties.deleteRevs.get(str(pid)))
+                and not _filled_since(fill, existing, ch.properties.deleteRevs.get(str(pid)))):
             conflicts.append(existing.id)
             continue
         # Delete Forever is only for an asset already in the Trash; a live one
@@ -470,6 +692,9 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             if not rid:
                 continue
             pid = str(row.get("propertyId") or "")
+            if pid in refused_new:
+                refused.append({"id": rid, "status": 409, "message": "Its asset was not saved."})
+                continue
             guard(pid, db.get(PropertyAsset, pid) if pid else None)
             existing = db.get(PropertyRecord, rid)
             # Moving a record also needs reach over the asset it is leaving.
@@ -497,7 +722,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
                 continue
             db.delete(existing)
 
-    lost = set(conflicts)
+    lost = set(conflicts) | {r["id"] for r in refused}
     for entry in ch.logs.append:
         lid = str(entry.get("id") or "").strip()
         if not lid or db.get(PropertyActivityLog, lid) is not None:
@@ -519,7 +744,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
     meta.updated_by = email
     meta.updated_at = now
     db.commit()
-    return {"ok": True, "_ts": ts_ms, "conflicts": conflicts, "trashed": trashed, "revs": revs}
+    return {"ok": True, "_ts": ts_ms, "conflicts": conflicts, "trashed": trashed, "revs": revs, "refused": refused}
 
 
 @router.get("/property-assets/metrics")

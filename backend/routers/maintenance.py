@@ -40,6 +40,7 @@ import auth
 import maintenance_services as MS
 import models
 import property_links
+import ticket_property_company
 import ticket_roles
 import ticket_taxonomy
 from auth import get_current_user
@@ -177,12 +178,23 @@ def _place_or_404(db: Session, user: dict, property_id: str, asset_id: str = "")
     return prop, asset
 
 
-def report_options(db: Session, user: dict) -> list:
+def report_options(db: Session, user: dict, prop=None) -> list:
     """The topics a problem at a property can be reported under, each with the
-    caller's company's team that takes it: help topics about a place
+    team that takes it: help topics about a place
     (property_links.PROPERTY_AREAS), from the groups whose departments exist
-    in that company and may link a property."""
-    company = T.company_for(db, _me(user))
+    in that company and may link a property. The company is the PROPERTY's
+    (Neil, 11/03/2026 - the ticket files under it) when the caller may open
+    its tickets and it has such a team; else the caller's own, as before."""
+    mine = T.company_for(db, _me(user))
+    owner = ticket_property_company.company_of(db, prop)
+    if owner and owner != mine and ticket_property_company.reachable(db, user, owner):
+        out = _report_options_in(db, owner)
+        if out:
+            return out
+    return _report_options_in(db, mine)
+
+
+def _report_options_in(db: Session, company: str) -> list:
     depts = (db.query(models.HrDepartment).filter(models.HrDepartment.company_id == company).all()
              if company else [])
     by_name = {(d.name or "").strip().lower(): d for d in depts}
@@ -243,7 +255,7 @@ def place(property_id: str, asset: str = "", user: dict = Depends(get_current_us
                          "city": str((prop.payload or {}).get("city") or "")},
             "asset": ({"id": eq.id, "name": property_links.display_name(eq),
                        "kind": property_links.asset_kind(eq)} if eq is not None else None),
-            "tickets": out, "topics": report_options(db, user), "units": units,
+            "tickets": out, "topics": report_options(db, user, prop), "units": units,
             "canStart": ticket_roles.can_work_queue(user, db)}
 
 
@@ -261,7 +273,7 @@ class ReportBody(BaseModel):
 def report_problem(property_id: str, body: ReportBody, background_tasks: BackgroundTasks,
                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     prop, eq = _place_or_404(db, user, property_id, body.asset_id or "")
-    opt = next((o for o in report_options(db, user) if o["topic"].lower() == (body.topic or "").strip().lower()),
+    opt = next((o for o in report_options(db, user, prop) if o["topic"].lower() == (body.topic or "").strip().lower()),
                None)
     if opt is None:
         raise HTTPException(400, "Pick what the problem is about.")
@@ -440,8 +452,12 @@ def place_tags(body: TagsBody, user: dict = Depends(get_current_user), db: Sessi
     eq_ids = {s.asset_id for s in svc if s.asset_id} | {
         r[0] for r in db.query(T_.equipment_asset_id).filter(T_.property_asset_id.in_(ids),
                                                               T_.equipment_asset_id != "").all()}
+    # The tag names the PROPERTY's company (its Company field - Neil,
+    # 11/03/2026); a property with none yet: its schedules' team company,
+    # else the printer's own.
     companies = [(s.template or {}).get("company_id") for s in svc if (s.template or {}).get("company_id")]
-    company_id = companies[0] if companies else T.company_for(db, _me(user))
+    company_id = (property_links.property_company(db, prop)
+                  or (companies[0] if companies else T.company_for(db, _me(user))))
     ent = db.get(models.HrEntity, company_id) if company_id else None
     company = (ent.name if ent is not None else "") or ""
     name = property_links.display_name(prop)

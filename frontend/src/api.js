@@ -908,6 +908,11 @@ export const api = {
   saveAssetChanges:      (ops) => req("/property-assets/changes", { method: "POST", body: JSON.stringify(ops), timeoutMs: 60_000 }),
   // Per-asset tile numbers: { id: { occupancy, units, percentComplete } } for the assets the caller may see.
   getAssetMetrics:       ()    => req("/property-assets/metrics"),
+  // The Company picker (11/03/2026): { companies: [{ id, name, assignable }], canClear }.
+  getAssetCompanies:     ()    => cachedGet("/property-assets/companies", 120_000),
+  // Find Folder on an asset's Egnyte Folder (11/03/2026): the folders whose name could be
+  // the asset's (or `q`'s) - { configured, site, roots, pinned, pinnedFound, match, why, candidates, message }.
+  findAssetEgnyteFolders: (id, q = "") => req(`/property-assets/${encodeURIComponent(id)}/egnyte-folders${q ? `?q=${encodeURIComponent(q)}` : ""}`, { timeoutMs: 45_000 }),
 
   // External Links
   getExternalLinks: () => req("/external-links"),
