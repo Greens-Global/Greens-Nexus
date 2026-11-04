@@ -584,7 +584,7 @@ def folder_for_property(site: str) -> str:
     return norm(f"{create_root()}/{site}")
 
 
-def resolve_property_folder(site: str) -> str | None:
+def resolve_property_folder(site: str, *, strict: bool = False) -> str | None:
     """Find a property's real folder by listing each root and matching.
 
     Matching is exact-name, then site-key, then substring - all within one root
@@ -593,15 +593,25 @@ def resolve_property_folder(site: str) -> str | None:
 
     Returns None when nothing matches anywhere - the caller reports `missing`
     and offers to create, which is correct for a genuinely new property.
+
+    `strict` (the construction filing sweep, 11/03/2026): when NO root could be
+    listed and at least one failure was not a plain 404, raise instead of
+    answering None - "Egnyte did not answer" must not read as "this property
+    has no folder", or a background filer would put a file in the wrong place
+    for good. Roots that are simply missing (every one a 404) still answer None.
     """
     want = (site or "").strip().lower()
     if not want:
         return None
+    listed_any, failure = False, None
     for root in property_roots():
         try:
             names = [f["name"] for f in list_folder(root)["folders"]]
-        except EgnyteError:
+        except EgnyteError as e:
+            if e.status != 404:
+                failure = e
             continue        # a missing/forbidden root must not hide the others
+        listed_any = True
         for matches in (
             lambda n: n.lower() == want,
             lambda n: _site_key(n) == want,
@@ -610,6 +620,8 @@ def resolve_property_folder(site: str) -> str | None:
             for n in names:
                 if matches(n):
                     return norm(f"{root}/{n}")
+    if strict and not listed_any and failure is not None:
+        raise EgnyteError(f"Could not list any property folder root: {failure}", 502)
     return None
 
 

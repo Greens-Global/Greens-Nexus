@@ -13,6 +13,13 @@ Folder layout (Neil, Aug 4):
     <property folder>/Construction/Daily Logs/2026-08/2026-08-04/
         sagar.shoundik-0913-formwork.jpg
 
+A job attached to a property (Neil, 11/03/2026) files under that property's
+own Egnyte folder, one folder per job inside its Construction folder, the
+dated layout unchanged beneath it (`property_job_log_folder`):
+    <property folder>/Construction/<job>/Daily Logs/2026-08/2026-08-04/
+A job with no property keeps the construction root (`daily_log_folder` with
+`<construction root>/<job name>` as the base), exactly as before.
+
 Dated folders rather than one flat directory per project: a 14-month job puts
 thousands of files in that tree, and Egnyte's own UI is where people browse it.
 The month level exists so a year of work is 14 folders instead of 400.
@@ -113,6 +120,37 @@ def daily_log_folder(property_folder: str, log_date: str) -> str:
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         raise ValueError(f"log_date must be YYYY-MM-DD, got {log_date!r}")
     return f"{base}/Construction/Daily Logs/{date[:7]}/{date}"
+
+
+# The folder inside a property's Egnyte folder that holds its construction
+# jobs (Neil's Aug 4 layout: "<property folder>/Construction/...").
+PROPERTY_SUBFOLDER = "Construction"
+
+
+def job_segment(name: str, code: str = "", job_id: str = "") -> str:
+    """The job's own folder name inside the property's Construction folder:
+    its name, made safe for one Egnyte path segment (a "/" in a job name
+    would otherwise nest folders). The code, then the id, when the name has
+    nothing left."""
+    for cand in (name, code, job_id):
+        seg = re.sub(r"\s+", " ", _UNSAFE.sub(" ", cand or "")).strip(" .")
+        if seg:
+            return seg[:120]
+    return "Job"
+
+
+def property_job_log_folder(property_folder: str, job: str, log_date: str) -> str:
+    """<property folder>/Construction/<job>/Daily Logs/YYYY-MM/YYYY-MM-DD
+
+    The same dated layout as daily_log_folder, under the job's folder inside
+    the property's Construction folder (11/03/2026)."""
+    base = (property_folder or "").rstrip("/")
+    if not base:
+        raise ValueError("property_folder is required")
+    date = (log_date or "")[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise ValueError(f"log_date must be YYYY-MM-DD, got {log_date!r}")
+    return f"{base}/{PROPERTY_SUBFOLDER}/{job}/Daily Logs/{date[:7]}/{date}"
 
 
 def media_filename(*, uploaded_by: str, taken_at: str, uploaded_at: str,
