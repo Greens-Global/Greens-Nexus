@@ -2,6 +2,15 @@
 import { FolderInput, RefreshCw, SlidersHorizontal, Square, X } from 'lucide-react';
 import { api } from '../api';
 import EgnyteTree from '../egnyte/EgnyteTree';
+import EgnytePreview from '../egnyte/EgnytePreview';
+
+// A file name opens the document right on the page (Visesh, 11/04: "a
+// preview right here") in the Files module's own viewer - PDF, image,
+// spreadsheet, text - with the arrow keys stepping through the list it came
+// from. A modified click (Ctrl / Cmd / Shift / middle) keeps the link's plain
+// behaviour: Egnyte's viewer in a new tab.
+const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+const asPreviewFile = (p) => ({ path: p.sourcePath, name: p.currentName, size: p.size || 0, webUrl: p.previewUrl || '' });
 import { Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
 import { ErrorBanner, LoadingState, SkeletonBlocks } from '../components/AsyncState';
@@ -64,6 +73,8 @@ export default function FilingTab({ toastOk, toastErr }) {
   const ROW_PAGE = 200;
   const [shown, setShown] = useState(ROW_PAGE);   // rows rendered; Show More adds a page
   const [query, setQuery] = useState('');         // narrows the rows by name or folder
+  const [preview, setPreview] = useState(null);   // {list, index} while the viewer is open
+  const openPreview = (list, index) => setPreview({ list, index });
   const [rulesOpen, setRulesOpen] = useState(false);
   const [activity, setActivity] = useState(null);
   // The tree's ticks: which folders the next scan covers. Empty = the
@@ -471,7 +482,7 @@ export default function FilingTab({ toastOk, toastErr }) {
             </button>
           </div>
 
-          {view === 'names' && <NamesTable proposals={scan.proposals} results={results} onFixName={fixName} />}
+          {view === 'names' && <NamesTable proposals={scan.proposals} results={results} onFixName={fixName} onOpen={openPreview} />}
 
           {view === 'queue' && (<>
           {/* Counts + filter */}
@@ -573,8 +584,15 @@ export default function FilingTab({ toastOk, toastErr }) {
                         )}
                       </td>
                       <td style={{ padding: '8px 10px', maxWidth: 340 }}>
-                        {p.previewUrl ? (
-                          <a href={p.previewUrl} target="_blank" rel="noreferrer" title="Open the file in Egnyte's viewer"
+                        {p.status !== 'skip' ? (
+                          <a href={p.previewUrl || '#'} target="_blank" rel="noreferrer"
+                            title="Preview the file here (Ctrl-click opens it in Egnyte)"
+                            onClick={(e) => {
+                              if (!plainClick(e)) return;
+                              e.preventDefault();
+                              const files = rows.filter(x => x.status !== 'skip');
+                              openPreview(files, files.indexOf(p));
+                            }}
                             style={{ fontWeight: 600, wordBreak: 'break-word', color: 'inherit' }}>
                             {p.currentName}
                           </a>
@@ -671,6 +689,16 @@ export default function FilingTab({ toastOk, toastErr }) {
       </div>
       </div>
 
+      {preview && preview.list[preview.index] && (
+        <EgnytePreview
+          file={asPreviewFile(preview.list[preview.index])}
+          onClose={() => setPreview(null)}
+          onNav={(d) => setPreview(pv => ({ ...pv, index: Math.max(0, Math.min(pv.list.length - 1, pv.index + d)) }))}
+          navIndex={preview.index}
+          navCount={preview.list.length}
+        />
+      )}
+
       {fileIt && (
         <FileItSheet proposal={fileIt} onClose={() => setFileIt(null)}
           onFiled={(r) => {
@@ -696,7 +724,7 @@ export default function FilingTab({ toastOk, toastErr }) {
 // The same row tools as the queue (Visesh, 11/04: names and previews in one
 // place) - open the file, Fix Name in place - and the same paging, so a
 // 10,000-file tree never renders all at once.
-function NamesTable({ proposals, results = {}, onFixName }) {
+function NamesTable({ proposals, results = {}, onFixName, onOpen }) {
   const PAGE = 200;
   const [shown, setShown] = useState(PAGE);
   const sorted = useMemo(() => {
@@ -727,8 +755,14 @@ function NamesTable({ proposals, results = {}, onFixName }) {
             return (
               <tr key={p.sourcePath} style={{ borderTop: '1px solid var(--border-color)', verticalAlign: 'top' }}>
                 <td style={{ padding: '8px 10px', maxWidth: 380 }}>
-                  {p.previewUrl ? (
-                    <a href={p.previewUrl} target="_blank" rel="noreferrer" title="Open the file in Egnyte's viewer"
+                  {(p.previewUrl || onOpen) ? (
+                    <a href={p.previewUrl || '#'} target="_blank" rel="noreferrer"
+                      title="Preview the file here (Ctrl-click opens it in Egnyte)"
+                      onClick={(e) => {
+                        if (!onOpen || !plainClick(e)) return;
+                        e.preventDefault();
+                        onOpen(sorted, sorted.indexOf(p));
+                      }}
                       style={{ wordBreak: 'break-word', color: 'inherit' }}>{p.currentName}</a>
                   ) : <div style={{ wordBreak: 'break-word' }}>{p.currentName}</div>}
                   <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
