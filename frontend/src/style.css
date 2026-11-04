@@ -8692,6 +8692,25 @@ body:has(.apv-phone) { overflow-x: clip; }
 .nx-dl-cards { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .nx-dl-card { display: flex; flex-direction: column; gap: 4px; padding: 12px 2px; background: none; border: none; border-bottom: 1px solid var(--line); text-align: left; font: 13px Inter, sans-serif; color: var(--ink); cursor: pointer; min-height: 44px; }
 .nx-dl-card-foot { display: flex; justify-content: space-between; gap: 10px; }
+/* The toolbar stays put (Sagar, 11/04/2026: "make this header static like in
+   other modules, so it can't be scrolled"): on a computer the search / filter
+   / New row of the Documents, Templates and Forms lists pins under the top
+   header while the list scrolls, as the Tasks and Tickets chrome does.
+   .viewport is overflow-y: auto but never scrolls itself (the page does), and
+   body's overflow-x: hidden makes it a non-scrolling scroll container -
+   either stops position: sticky; the same fix as Documentation and Settings,
+   only while a library shows. The rail and the side panel were sticky at 12px
+   since 10/31 but never pinned for that reason; now that they do, they sit
+   under the header too. Phones and narrow windows keep the plain flow (the
+   1180px block below wins there: static rail, fixed panel). */
+@media (min-width: 901px) {
+  .viewport:has(.nx-dl) { overflow: visible; }
+  body:has(.nx-dl) { overflow-x: clip; }
+  .nx-dl { --nx-dl-top: calc(var(--nx-announce-h, 0px) + 64px); }
+  .nx-dl-tools { position: sticky; top: var(--nx-dl-top); z-index: 5; background: var(--wk-bg, var(--paper)); padding: 10px 0 12px; margin: -10px 0 12px; }
+  .nx-dl-rail { top: calc(var(--nx-dl-top) + 12px); }
+  .nx-dl-panel { top: calc(var(--nx-dl-top) + 12px); max-height: calc(100vh - var(--nx-dl-top) - 28px); }
+}
 @media (max-width: 1180px) {
   .nx-dl, .nx-dl.nx-dl-open, .nx-dl.nx-dl-norail, .nx-dl.nx-dl-norail.nx-dl-open { grid-template-columns: minmax(0, 1fr); }
   .nx-dl-rail { position: static; flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 2px; border-bottom: 1px solid var(--line); }
@@ -8707,6 +8726,28 @@ body:has(.apv-phone) { overflow-x: clip; }
 @media (max-width: 640px) {
   .nx-dl-panel { width: 100vw; border-left: none; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
 }
+/* The Document Builder's Variables Used rail and Make Variable bubble
+   (Sagar, 11/04/2026): the rail is the third column of the pages row, sticky
+   under the top header on a computer and scrolling inside itself when the
+   list is long; the bubble sits over the first line of the selected text.
+   The same .viewport fix as the library above, only while the builder shows. */
+@media (min-width: 901px) {
+  .viewport:has(.nx-docb) { overflow: visible; }
+  body:has(.nx-docb) { overflow-x: clip; }
+}
+.nx-docb-vars { flex: 0 0 216px; position: sticky; top: calc(var(--nx-announce-h, 0px) + 64px + 12px); max-height: calc(100vh - var(--nx-announce-h, 0px) - 64px - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 6px; background: var(--mist); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.nx-docb-vars-head { display: flex; align-items: center; gap: 6px; font: 650 12px Inter, sans-serif; color: var(--ink); margin-bottom: 2px; }
+.nx-docb-vars-n { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nx-docb-vars-empty { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+.nx-docb-var { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 7px 9px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; text-align: left; cursor: grab; font-family: Inter, sans-serif; }
+.nx-docb-var:hover { border-color: var(--pine); }
+.nx-docb-var:active { cursor: grabbing; }
+.nx-docb-var-label { font-size: 12.5px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.nx-docb-var-meta { font-size: 11px; color: var(--muted); }
+.nx-docb-vars-lib { margin-top: 4px; padding: 7px 9px; background: none; border: 1px dashed var(--line); border-radius: 8px; font: 600 11.5px Inter, sans-serif; color: var(--muted); cursor: pointer; }
+.nx-docb-vars-lib:hover { color: var(--ink); border-color: var(--ink); }
+.nx-docb-bubble { position: fixed; z-index: 60; transform: translateY(calc(-100% - 8px)); }
+.nx-docb-bubble button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; background: var(--ink); color: var(--paper); border: none; border-radius: 7px; font: 600 11.5px Inter, sans-serif; cursor: pointer; box-shadow: var(--shadow-lg); }
 /* the Undo toast after a hold (ui/dialog.jsx dialog.undo) */
 .nx-undo {
   position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 100001;
