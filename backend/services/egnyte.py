@@ -503,7 +503,7 @@ def web_url(path: str) -> str:
     offer this - Nexus shows the folder, Egnyte remains where people manage
     permissions, versions and sharing."""
     base, _ = _auth()
-    return f"{base}/app/index.do#storage/files/1{norm(path)}"
+    return f"{base}/app/index.do#storage/files/1{_url_path(path)}"
 
 
 def file_web_url(group_id: str) -> str:

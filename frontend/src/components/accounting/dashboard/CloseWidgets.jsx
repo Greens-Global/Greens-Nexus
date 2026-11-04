@@ -131,7 +131,13 @@ export function ReconWidget({ compact, onNavigate }) {
                       </button>
                     ) : m(r.book, { cents: true })}</td>
                     <td style={{ ...num, color: Math.abs(r.diff) >= 0.005 ? (r.source === 'intacct' ? 'var(--text-muted)' : BAD) : undefined }} title={r.source === 'intacct' && Math.abs(r.diff) >= 0.005 ? 'Book balance less the statement balance Intacct reconciled to - outstanding items' : undefined}>{Math.abs(r.diff) >= 0.005 ? m(r.diff, { cents: true }) : '-'}</td>
-                    <td>{r.status === 'Reconciled' ? <Chip tone="ok">Reconciled</Chip> : <Chip tone={r.status === 'Difference' || r.status === 'Behind' ? 'bad' : 'wait'}>{r.status}</Chip>}</td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {r.status === 'Reconciled' ? <Chip tone="ok">Reconciled</Chip> : <Chip tone={r.status === 'Difference' || r.status === 'Behind' ? 'bad' : 'wait'}>{r.status}</Chip>}
+                        {/* Charmi, Teams 11/05/2026 ("Not able to see any option under close to reconcile the mortgage account"): said on the row, not only behind the name. */}
+                        {r.liability ? <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '2px 10px' }} onClick={() => setOpenKey(r.key)}>Reconcile</button> : null}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </GroupRows>
@@ -139,6 +145,9 @@ export function ReconWidget({ compact, onNavigate }) {
           </tbody>
         </table>
       </div>
+      {!rows.some((r) => r.liability) ? (
+        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>No mortgages, loans or credit lines to reconcile in this scope. They come from Financing &gt; Loans: an active loan with its GL account set shows here with a Reconcile button.</div>
+      ) : null}
       {open ? (
         <ReconPanel key={`${open.key}@${period}`} row={open} entityName={entityOf(open)} fullLink={linkOf(open)} onNavigate={onNavigate}
           canEdit={can('editor')} canManage={can('full')} onSaved={() => invalidate?.('liability-recons')} onClose={() => setOpenKey(null)} />
