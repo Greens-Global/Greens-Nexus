@@ -916,7 +916,8 @@ export default function TicketsView() {
       {namingView && <SaveViewDialog onSave={saveTicketView} onClose={() => setNamingView(false)} />}
       {openId && !pane && (
         <TicketDrawer key={openId} ticketId={openId} initialTab={openTab} dirtyRef={drawerDirtyRef}
-          onPrev={onPrev} onNext={onNext} onClose={closeTicket} />
+          onPrev={onPrev} onNext={onNext} onClose={closeTicket}
+          navPosition={openIdx >= 0 ? { index: openIdx + 1, total: allVisibleIds.length } : null} />
       )}
       {resolveReq && (
         <TicketActionDialog mode={resolveReq.mode || 'resolve'} targetStatus={resolveReq.status}

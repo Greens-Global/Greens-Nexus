@@ -162,7 +162,12 @@ export function useEscapeLayer(onEscape, active = true) {
 // `footer` may be a function `(close) => node`: `close(...args)` plays the
 // same exit the X does, then calls onClose(...args) - for a footer button
 // (Done, Cancel, a submit) that should leave the way the X leaves.
-export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000, backToClose = true }) {
+// `header(titleId, requestClose)` / `bodyStyle` / `footerStyle` (11/03/2026,
+// the phone ticket card): a caller that needs its own header row (one with
+// Previous / Next beside Close) draws it - it must put `titleId` on its title
+// and close through `requestClose` - and may adjust the body's and footer's
+// padding. Unset, the Modal looks exactly as before.
+export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000, backToClose = true, header = null, bodyStyle = null, footerStyle = null }) {
   // Phones get a full-screen sheet, the shape the task drawer already uses
   // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
   // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
@@ -266,19 +271,22 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
           // 86vh as before; pinned to the visual viewport it is what fits.
           : { width: `max(60vw, ${typeof width === 'number' ? `${width}px` : width})`, minWidth: 'min(420px, 100%)', maxWidth: '100%', maxHeight: vv ? '100%' : '86vh', borderRadius: 16, ...(minHeight ? { minHeight: `min(${minHeight}, 100%)` } : null) }),
       }}>
+        {header ? header(titleId, requestClose) : (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${NX.border2}`, flexShrink: 0 }}>
           <div id={titleId} style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{title}</div>
           <button onClick={requestClose} style={{ ...btn('ghost'), padding: 6, borderRadius: 8 }} aria-label="Close"><X size={18} /></button>
         </div>
+        )}
         {/* flex:1 + minHeight:0 is what makes THIS the part that scrolls; without
             it a tall body pushes the footer past the panel's clipped edge.
             overscrollBehavior: a swipe past its end stays in the sheet. */}
-        <div className={sheet ? 'nx-scroll nx-cascade' : 'nx-scroll'} style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(followViewport ? { overscrollBehavior: 'contain' } : null) }}>{children}</div>
+        <div className={sheet ? 'nx-scroll nx-cascade' : 'nx-scroll'} style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(followViewport ? { overscrollBehavior: 'contain' } : null), ...bodyStyle }}>{children}</div>
         {/* The action row never scrolls away, and clears the home indicator. */}
         {footer && <div style={{
           padding: isMobile ? '12px 16px calc(12px + env(safe-area-inset-bottom))' : '12px 20px',
           borderTop: `1px solid ${NX.border2}`, background: NX.surface2, flexShrink: 0,
           display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+          ...footerStyle,
         }}>{typeof footer === 'function' ? footer(exit) : footer}</div>}
       </div>
       {confirmClose && (

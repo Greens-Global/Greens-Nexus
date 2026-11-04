@@ -18,7 +18,7 @@ import { dialog as appDialog } from '../ui/dialog';
 import {
   fmtDate, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS,
   TICKET_RESOLUTION, TICKET_STATUS_META, CLOSED_STATES,
-  slaState, fmtDueAt, isBlankFieldValue,
+  slaState, fmtDueAt, isBlankFieldValue, nextClock,
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
   label, field, resolutionLabel,
   ticketNo,
@@ -57,6 +57,7 @@ import { STOP_VOICE_FIRST } from '../lib/voice';
 import { TicketAttachments } from './TicketAttachments';
 import { TicketActivity } from './TicketActivity';
 import TicketJobAction from './TicketJobAction';
+import TicketPhoneCard from './TicketPhoneCard';
 
 // The drawer's Help With field: a pick saves at once, a typed "Other" answer
 // saves when the field loses focus - never one save per keystroke (each save
@@ -127,8 +128,12 @@ function DrawerShell({ inline, title, nav, onClose, footer, children }) {
 // `onNext`: when either is given (null = nothing to step to) the header shows
 // Previous / Next, and the [ and ] keys step while nobody is typing; the
 // caller decides the order (the list's) and asks about unsaved edits first.
+// `navPosition` ({ index, total }, optional): where this ticket sits in the
+// caller's order - the phone card says "3 of 12" beside Previous / Next.
+// On a phone (and not the pane) the drawer is drawn by TicketPhoneCard.jsx:
+// the same rules, values and saves below, a layout made for a thumb.
 export function TicketDrawer({ ticketId, onClose, startEditing = false, initialTab = null, dirtyRef = null,
-  inline = false, onPrev = undefined, onNext = undefined }) {
+  inline = false, onPrev = undefined, onNext = undefined, navPosition = null }) {
   const { tickets, ticketsLoaded, tasks, projects = [], loading: tasksLoading,
     addTicketLink, removeTicketLink, escalateTicket, createTaskFromTicket, myEmail, nameOf, updateTicket, deleteTicket,
     reloadTickets } = useTasks();
@@ -146,7 +151,12 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // notes and deleting follow it, not the raw module grants.
   const deskAccess = useTicketAccess();
   // initialTab: the list's Latest Comment cell lands on the Conversation.
-  const [tab, setTab] = useState(initialTab || 'overview');
+  // A phone opens on the Conversation - what the requester and the agent
+  // came for (11/03/2026); Overview is its Details tab there.
+  const phone = isMobile && !inline;
+  const [tab, setTab] = useState(initialTab || (phone ? 'conversation' : 'overview'));
+  // The phone card sends a reply without closing; this re-reads the thread.
+  const [threadKey, setThreadKey] = useState(0);
   // In the side pane the drawer stays mounted while the SAME ticket's Latest
   // Comment cell is clicked again: the caller changes initialTab, and that
   // must still land on the Conversation (Neil, Oct 1) without a remount that
@@ -591,85 +601,24 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
       { title: 'Delete Ticket', confirmText: 'Delete', danger: true }))) return;
     deleteTicket(t.id).then(onClose).catch((e) => appDialog.alert(`Could not delete ticket: ${e.message || e}`));
   };
+  // The phone card's Send / Save Changes: the same one save as Done, but the
+  // ticket stays open so the reply lands in the thread in front of you. A
+  // requester confirming a resolution still goes through the rating first.
+  const send = async () => {
+    if (saving || voiceRec) return;
+    if (confirmingClose) { setDialog({ mode: 'confirm', viaDone: true }); return; }
+    if (!dirty) return;
+    setSaving(true);
+    try {
+      if (await commit()) setThreadKey((k) => k + 1);
+    } catch (e) { appDialog.alert(`Could not update ticket: ${e.message || e}`); }
+    setSaving(false);
+  };
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
-  const navButton = { ...btn('outline'), padding: '5px 10px', fontSize: 12.5, gap: 4 };
-  const nav = hasNav ? (
-    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-      <button type="button" style={{ ...navButton, opacity: onPrev ? 1 : 0.5 }} disabled={!onPrev} onClick={() => onPrev?.()}
-        title="Previous ticket - press ["><ChevronLeft size={14} /> Previous</button>
-      <button type="button" style={{ ...navButton, opacity: onNext ? 1 : 0.5 }} disabled={!onNext} onClick={() => onNext?.()}
-        title="Next ticket - press ]">Next <ChevronRight size={14} /></button>
-    </div>
-  ) : null;
-  return (
-    <>
-    {/* No width override - the Modal default (clamp(520px, 60vw, 980px)) is
-        the shared "big form" sizing used across the app; the fixed 620px this
-        used to pass read as a cramped tab next to that (Pranshu, Sept 8 2026). */}
-    {/* While a linked task is open on top, Escape (which Modal also listens
-        for) closes the task first rather than the ticket underneath it. */}
-    <DrawerShell inline={inline} nav={nav} title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? closeTask() : closeDrawer())} footer={
-      <>
-        {canDelete && (
-          <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
-        )}
-        {canEscalate && (
-          <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate} title="Alert the department head this ticket needs instant care"><ArrowUp size={14} /> Escalate</button>
-        )}
-        {/* Start Job / Open Job (Neil, 11/03/2026): a ticket that needs a crew,
-            materials or more than a day gets a construction Job. Never on Ask HR. */}
-        {!confidential && <TicketJobAction ticketId={t.id} onOpen={inline ? undefined : closeDrawer} />}
-        {!CLOSED_STATES.includes(t.status) ? (
-          // canEditStatus, not canWorking - Mark Resolved is the same "raw
-          // status jump" the requester is carved out of above; their only
-          // status moves are Confirm Resolution / Reopen below, once there
-          // actually is a resolution to confirm or reopen.
-          // The one exception (Neil, Oct 1): the requester may mark their own
-          // ticket Resolved - "a colleague helped me" - with an optional
-          // comment instead of the desk's written resolution.
-          (canEditStatus || ownRequester) && !CLOSED_STATES.includes(v.status) && (
-            <button style={{ ...btn('outline'), color: NX.green }}
-              onClick={() => setDialog({ mode: ownRequester ? 'self_resolve' : 'resolve', targetStatus: 'resolved' })}>
-              <CheckCircle2 size={14} /> Mark Resolved
-            </button>
-          )
-        ) : (
-          <>
-            {/* The requester confirms with a rating; the desk just closes it
-                out (the resolution was written when it was resolved). */}
-            {t.status === 'resolved' && (
-              <button style={{ ...btn(v.status === 'closed' ? 'primary' : 'outline'), ...(v.status === 'closed' ? { background: NX.green, borderColor: NX.green } : { color: NX.green }) }}
-                aria-pressed={v.status === 'closed'}
-                onClick={() => stage({ status: v.status === 'closed' ? t.status : 'closed' })}
-                title={v.status === 'closed' ? 'Click Done to finish - or click again to undo'
-                  : 'Close this ticket now instead of waiting for it to auto-close'}>
-                <CheckCircle2 size={14} /> {v.status === 'closed' ? 'Resolution Confirmed' : 'Confirm Resolution'}
-              </button>
-            )}
-            {/* Reopen while it is Resolved (Oct 1). A closed ticket is closed
-                for the requester - the desk can still reopen one. */}
-            {(t.status === 'resolved' || canEditStatus) ? (
-              <button style={btn('outline')} onClick={reopen}>Reopen</button>
-            ) : (
-              <span style={{ fontSize: 12, color: NX.faint }}>Closed - if the problem is back, submit a new ticket.</span>
-            )}
-          </>
-        )}
-        {dirty && (
-          <span style={{ fontSize: 12, color: NX.amber, fontWeight: 600 }} title="Nothing is saved or sent to the requester until you click Done">
-            Unsaved Changes
-          </span>
-        )}
-        {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red }}>{STOP_VOICE_FIRST}</span>}
-        <button style={{ ...btn('primary'), opacity: saving || voiceRec ? 0.6 : 1 }} onClick={done} disabled={saving || voiceRec}
-          title={voiceRec ? STOP_VOICE_FIRST : dirty ? 'Save every change and send one update to the requester' : undefined}>
-          {saving ? 'Saving…' : 'Done'}
-        </button>
-      </>
-    }>
-      <div style={{ marginBottom: 6 }}>
-        {editing && canEditText ? (
+  // The title / description editor - the desktop's header and the phone
+  // card's title spot draw the same one.
+  const editorBlock = (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <input autoFocus value={(draft ?? { subject: v.subject }).subject ?? ''} placeholder="Title"
               onChange={(e) => setDraft((d) => ({ ...(d || { description: v.description || '' }), subject: e.target.value }))}
@@ -684,98 +633,17 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
               <button style={btn('primary')} onClick={saveEdit} title="Saved with everything else when you click Done">Apply</button>
             </div>
           </div>
-        ) : (<>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>
-              {v.subject}
-              {/* Raised by email (ticket_inbound.py) - a quiet note, not a chip. */}
-              {t.source === 'email' && (
-                <span title="Raised by an email to the support mailbox"
-                  style={{ marginLeft: 8, fontSize: 11.5, fontWeight: 500, color: NX.faint, whiteSpace: 'nowrap' }}>
-                  Via Email
-                </span>
-              )}
-            </div>
-            {canEditText && (
-              <button type="button" onClick={startEdit} title="Edit title and description" aria-label="Edit title and description"
-                style={{ ...btn('ghost'), padding: 5, color: NX.dim, flexShrink: 0 }}><Pencil size={15} /></button>
-            )}
-          </div>
-          {/* Rich text since Oct 1: richBodyHtml sanitizes it, and wraps an
-              older plain-text description in paragraphs so both read alike. */}
-          {hasRichText(v.description)
-            ? <div className="nx-rich-body" style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim }}
-                dangerouslySetInnerHTML={{ __html: richBodyHtml(v.description, nameOf) }} />
-            : canEditText && (
-              <button type="button" onClick={startEdit} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 4, fontSize: 12.5, color: NX.blue, fontWeight: 600 }}>
-                <Plus size={13} /> Add a Description
-              </button>
-            )}
-        </>)}
-        {(t.images || []).length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-            {t.images.map((url, i) => (
-              <a key={i} href={url} target="_blank" rel="noreferrer" title="Open full size" style={{ display: 'block', width: 72, height: 72, borderRadius: 8, overflow: 'hidden', border: `1px solid ${NX.border}` }}>
-                <img src={url} alt={`Screenshot ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {confidential && (
-        <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: NX.ink, background: 'rgba(124,58,237,0.08)',
-          border: '1px solid rgba(124,58,237,0.28)', borderRadius: 8, padding: '7px 11px', marginTop: 12 }}>
-          <Lock size={14} style={{ color: NX.purple, flexShrink: 0 }} />
-          <span><b>Confidential HR Request.</b> Only the person who asked, the people on it and HR can see it.</span>
-        </div>
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '12px 0 16px' }}>
-        <TicketStatusChip status={v.status} />
-        <PriorityChip priority={v.priority} />
-        <ApprovalChip ticket={t} />
-        {t.resolvedAt && <span style={{ fontSize: 12, color: NX.green, display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={13} /> Resolved {fmtDate(t.resolvedAt)}{t.resolution ? ` · ${resolutionLabel(t.resolution)}` : ''}</span>}
-      </div>
-      {t.resolutionNote && CLOSED_STATES.includes(t.status) && (
-        <div style={{ fontSize: 13, color: NX.ink, background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.30)', borderRadius: 8, padding: '8px 11px', margin: '-4px 0 14px', whiteSpace: 'pre-wrap' }}>
-          <b>Resolution:</b> {t.resolutionNote}
-        </div>
-      )}
-
-      {/* Mark an Issue on the Map (Oct 20 2026): where it is, with the photo and Open on Map. */}
-      <TicketMapSpotCard ticketId={t.id} propertyId={t.propertyAssetId} onOpenMap={onClose} />
-
-      {/* Approval gate - the decision blocks triage, so it leads the drawer,
-          always visible regardless of which tab is open. */}
-      <ApprovalPanel ticket={t} myEmail={myEmail} nameOf={nameOf} onDecided={onDecided} />
-
-      {/* AI Summary - desk agents only, hidden when AI is off (TicketAi.jsx). */}
-      <TicketAiSummary ticketId={t.id} canWorkQueue={deskAccess.canWorkQueue && !confidential} />
-
-      {/* Overview · Conversation · Attachments · Activity - a real tab strip up
-          top so Conversation/Attachments/Activity are one click away instead of
-          buried under the whole field list (people kept missing them). */}
-      <div style={{ borderTop: `1px solid ${NX.border}`, marginTop: 12, paddingTop: 12 }}>
-        {/* Segmented control - same mode-switch grammar as the rest of the module */}
-        <div className="scroll-tabs" style={{ display: 'inline-flex', gap: 2, marginBottom: 16, background: NX.border2, borderRadius: 9, padding: 2, maxWidth: '100%', overflowX: 'auto' }}>
-          {[['overview', 'Overview', ClipboardList], ['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
-            <button key={k} onClick={() => { setTab(k); if (k === 'conversation') setNewReplies(0); }} style={{
-              ...btn('ghost'), gap: 6, fontSize: 12.5, fontWeight: 600, padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap', flexShrink: 0,
-              background: tab === k ? NX.surface : 'transparent', color: tab === k ? NX.ink : NX.dim,
-              boxShadow: tab === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-            }}><Icon size={14} />{lab}
-              {k === 'conversation' && newReplies > 0 && (
-                <span title={`${newReplies} new repl${newReplies === 1 ? 'y' : 'ies'}`}
-                  style={{ minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: NX.red, color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'inline-grid', placeItems: 'center' }}>{newReplies}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'overview' && (<>
+  );
+  // The Overview tab's fields. `onPhone`: the phone card's Details tab, which
+  // leaves out what its header already shows.
+  const overviewBody = (onPhone) => (<>
+      {onPhone && <TicketMapSpotCard ticketId={t.id} propertyId={t.propertyAssetId} onOpenMap={onClose} />}
       {(t.csatRating || 0) > 0 && <SatisfactionCard ticket={t} nameOf={nameOf} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+        {/* Type, Status, Priority, Requester and Assign To are the phone
+            card's chips and people rows - never drawn twice there. */}
+        {!onPhone && (<>
         <div style={field}>
           <label style={label}>Type</label>
           <TicketSelect value={v.type || 'request'} onChange={(val) => stage({ type: val })}
@@ -849,6 +717,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             </div>
           </div>
         )}
+        </>)}
         {t.assignedById && (
           <div style={field}>
             <label style={label}>Assigned By</label>
@@ -975,6 +844,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             To a desk decision, not the requester's to make or see while a
             ticket is still Open, but the due date itself is informational
             for everyone regardless of who's viewing or what state it's in. */}
+        {!(onPhone && nextClock(t).kind !== 'none') && (
         <div style={field}>
           <label style={label}>SLA Due Date</label>
           {/* Read-only always (Pranshu, Sep 17 2026) - it follows Priority
@@ -998,6 +868,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             </div>
           )}
         </div>
+        )}
         {CLOSED_STATES.includes(v.status) && (
           <div style={field}>
             <label style={label}>Resolution</label>
@@ -1072,24 +943,33 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         </div>
       )}
 
-        </>)}
-        {tab === 'conversation' && (
-          <TicketConversation ticketId={t.id} ticketType={t.type} nameOf={nameOf} newSince={meIsRequester ? seenBefore : undefined}
-            reply={reply} onReplyChange={setReply} onDone={done} onVoiceRecordingChange={setVoiceRec}
-            // The public-reply / internal-note switch is the desk's. The person
-            // who raised the ticket just replies (Neil, Sep 30: "they should
-            // not see public reply versus an internal note").
-            canInternal={confidential ? (!!t.hrCanWork && !isRequester) : ((privileged || isAssignee || !isRequester) && deskAccess.canReadInternal)}
-            canDelete={deskAccess.canDelete && !confidential}
-            // Saved Replies are the desk's (Oct 2026) - never the requester view.
-            savedReplies={deskAccess.canWorkQueue && (privileged || isAssignee || !isRequester)}
-            ticket={t} myEmail={myEmail} />
-        )}
-        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete && !confidential}
-          markupSource={{ kind: 'ticket', id: t.id, label: [ticketNo(t.code), t.subject].filter(Boolean).join(' ').slice(0, 200) || 'Ticket', url: `/tickets?ticket=${encodeURIComponent(t.id)}` }} />}
-        {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
-      </div>
-    </DrawerShell>
+  </>);
+  // The public-reply / internal-note switch is the desk's. The person
+  // who raised the ticket just replies (Neil, Sep 30: "they should
+  // not see public reply versus an internal note").
+  const canInternal = confidential ? (!!t.hrCanWork && !isRequester) : ((privileged || isAssignee || !isRequester) && deskAccess.canReadInternal);
+  const conversationProps = {
+    ticketId: t.id, ticketType: t.type, nameOf, newSince: meIsRequester ? seenBefore : undefined,
+    reply, onReplyChange: setReply, onDone: done, onVoiceRecordingChange: setVoiceRec,
+    canInternal,
+    canDelete: deskAccess.canDelete && !confidential,
+    // Saved Replies are the desk's (Oct 2026) - never the requester view.
+    savedReplies: deskAccess.canWorkQueue && (privileged || isAssignee || !isRequester),
+    ticket: t, myEmail,
+  };
+  const attachmentsBody = <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete && !confidential}
+    markupSource={{ kind: 'ticket', id: t.id, label: [ticketNo(t.code), t.subject].filter(Boolean).join(' ').slice(0, 200) || 'Ticket', url: `/tickets?ticket=${encodeURIComponent(t.id)}` }} />;
+  const activityBody = <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />;
+  const navButton = { ...btn('outline'), padding: '5px 10px', fontSize: 12.5, gap: 4 };
+  const nav = hasNav ? (
+    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+      <button type="button" style={{ ...navButton, opacity: onPrev ? 1 : 0.5 }} disabled={!onPrev} onClick={() => onPrev?.()}
+        title="Previous ticket - press ["><ChevronLeft size={14} /> Previous</button>
+      <button type="button" style={{ ...navButton, opacity: onNext ? 1 : 0.5 }} disabled={!onNext} onClick={() => onNext?.()}
+        title="Next ticket - press ]">Next <ChevronRight size={14} /></button>
+    </div>
+  ) : null;
+  const overlays = (<>
     {openTaskId && <TaskDetailDrawer taskId={openTaskId} onClose={closeTask} onBackToTicket={closeTask} zIndex={4100} />}
     {dialog && (
       <TicketActionDialog mode={dialog.mode} targetStatus={dialog.targetStatus} ticket={v}
@@ -1104,6 +984,201 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     {requestingControl && (
       <LiveView assist email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />
     )}
+  </>);
+  if (phone) {
+    return (
+      <>
+        <TicketPhoneCard
+          t={t} v={v} nameOf={nameOf} myEmail={myEmail} personById={personById} people={people}
+          hasNav={hasNav} onPrev={onPrev} onNext={onNext} navPosition={navPosition}
+          onRequestClose={() => (openTaskId ? closeTask() : closeDrawer())}
+          titleBlock={editorBlock} editing={editing && canEditText} canEditText={canEditText} startEdit={startEdit} confidential={confidential}
+          overviewBody={overviewBody(true)} attachmentsBody={attachmentsBody} activityBody={activityBody}
+          conversationProps={{ ...conversationProps,
+            render: ({ lead }) => <TicketConversation {...conversationProps} onDone={send} composer={false} lead={lead} reloadKey={threadKey} /> }}
+          approvalPanel={<ApprovalPanel ticket={t} myEmail={myEmail} nameOf={nameOf} onDecided={onDecided} />}
+          aiSummary={<TicketAiSummary ticketId={t.id} canWorkQueue={deskAccess.canWorkQueue && !confidential} />}
+          tab={tab} setTab={setTab} newReplies={newReplies} clearNewReplies={() => setNewReplies(0)}
+          canWorking={canWorking} canEditStatus={canEditStatus} canSeeAssignSla={canSeeAssignSla} ownRequester={ownRequester}
+          canEscalate={canEscalate} canDelete={canDelete} canRequestControl={canRequestControl}
+          stage={stage} setStatus={setStatus} statusOpts={statusOptions()} priorityOpts={priorityOptions()}
+          typeOpts={TICKET_TYPE_ORDER.includes(v.type) ? typeIntakeOptions() : [...typeIntakeOptions(), { id: v.type, label: TICKET_TYPE_META[v.type]?.label || v.type }]}
+          pending={pending} reply={reply} setReply={setReply} hasReply={hasReply} saving={saving}
+          voiceRec={voiceRec} setVoiceRec={setVoiceRec} send={send} done={done}
+          openResolve={() => setDialog({ mode: ownRequester ? 'self_resolve' : 'resolve', targetStatus: 'resolved' })}
+          openConfirm={() => setDialog({ mode: 'confirm', viaDone: true })}
+          reopen={reopen} escalate={escalate} requestControl={() => setRequestingControl(true)}
+          // Delete is a hold on the phone (ui/HoldButton): the hold IS the
+          // confirmation, so no second question.
+          removeTicket={() => deleteTicket(t.id)} afterDelete={onClose} />
+        {overlays}
+      </>
+    );
+  }
+  return (
+    <>
+    {/* No width override - the Modal default (clamp(520px, 60vw, 980px)) is
+        the shared "big form" sizing used across the app; the fixed 620px this
+        used to pass read as a cramped tab next to that (Pranshu, Sept 8 2026). */}
+    {/* While a linked task is open on top, Escape (which Modal also listens
+        for) closes the task first rather than the ticket underneath it. */}
+    <DrawerShell inline={inline} nav={nav} title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? closeTask() : closeDrawer())} footer={
+      <>
+        {canDelete && (
+          <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
+        )}
+        {canEscalate && (
+          <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate} title="Alert the department head this ticket needs instant care"><ArrowUp size={14} /> Escalate</button>
+        )}
+        {/* Start Job / Open Job (Neil, 11/03/2026): a ticket that needs a crew,
+            materials or more than a day gets a construction Job. Never on Ask HR. */}
+        {!confidential && <TicketJobAction ticketId={t.id} onOpen={inline ? undefined : closeDrawer} />}
+        {!CLOSED_STATES.includes(t.status) ? (
+          // canEditStatus, not canWorking - Mark Resolved is the same "raw
+          // status jump" the requester is carved out of above; their only
+          // status moves are Confirm Resolution / Reopen below, once there
+          // actually is a resolution to confirm or reopen.
+          // The one exception (Neil, Oct 1): the requester may mark their own
+          // ticket Resolved - "a colleague helped me" - with an optional
+          // comment instead of the desk's written resolution.
+          (canEditStatus || ownRequester) && !CLOSED_STATES.includes(v.status) && (
+            <button style={{ ...btn('outline'), color: NX.green }}
+              onClick={() => setDialog({ mode: ownRequester ? 'self_resolve' : 'resolve', targetStatus: 'resolved' })}>
+              <CheckCircle2 size={14} /> Mark Resolved
+            </button>
+          )
+        ) : (
+          <>
+            {/* The requester confirms with a rating; the desk just closes it
+                out (the resolution was written when it was resolved). */}
+            {t.status === 'resolved' && (
+              <button style={{ ...btn(v.status === 'closed' ? 'primary' : 'outline'), ...(v.status === 'closed' ? { background: NX.green, borderColor: NX.green } : { color: NX.green }) }}
+                aria-pressed={v.status === 'closed'}
+                onClick={() => stage({ status: v.status === 'closed' ? t.status : 'closed' })}
+                title={v.status === 'closed' ? 'Click Done to finish - or click again to undo'
+                  : 'Close this ticket now instead of waiting for it to auto-close'}>
+                <CheckCircle2 size={14} /> {v.status === 'closed' ? 'Resolution Confirmed' : 'Confirm Resolution'}
+              </button>
+            )}
+            {/* Reopen while it is Resolved (Oct 1). A closed ticket is closed
+                for the requester - the desk can still reopen one. */}
+            {(t.status === 'resolved' || canEditStatus) ? (
+              <button style={btn('outline')} onClick={reopen}>Reopen</button>
+            ) : (
+              <span style={{ fontSize: 12, color: NX.faint }}>Closed - if the problem is back, submit a new ticket.</span>
+            )}
+          </>
+        )}
+        {dirty && (
+          <span style={{ fontSize: 12, color: NX.amber, fontWeight: 600 }} title="Nothing is saved or sent to the requester until you click Done">
+            Unsaved Changes
+          </span>
+        )}
+        {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red }}>{STOP_VOICE_FIRST}</span>}
+        <button style={{ ...btn('primary'), opacity: saving || voiceRec ? 0.6 : 1 }} onClick={done} disabled={saving || voiceRec}
+          title={voiceRec ? STOP_VOICE_FIRST : dirty ? 'Save every change and send one update to the requester' : undefined}>
+          {saving ? 'Saving…' : 'Done'}
+        </button>
+      </>
+    }>
+      <div style={{ marginBottom: 6 }}>
+        {editing && canEditText ? editorBlock : (<>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>
+              {v.subject}
+              {/* Raised by email (ticket_inbound.py) - a quiet note, not a chip. */}
+              {t.source === 'email' && (
+                <span title="Raised by an email to the support mailbox"
+                  style={{ marginLeft: 8, fontSize: 11.5, fontWeight: 500, color: NX.faint, whiteSpace: 'nowrap' }}>
+                  Via Email
+                </span>
+              )}
+            </div>
+            {canEditText && (
+              <button type="button" onClick={startEdit} title="Edit title and description" aria-label="Edit title and description"
+                style={{ ...btn('ghost'), padding: 5, color: NX.dim, flexShrink: 0 }}><Pencil size={15} /></button>
+            )}
+          </div>
+          {/* Rich text since Oct 1: richBodyHtml sanitizes it, and wraps an
+              older plain-text description in paragraphs so both read alike. */}
+          {hasRichText(v.description)
+            ? <div className="nx-rich-body" style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim }}
+                dangerouslySetInnerHTML={{ __html: richBodyHtml(v.description, nameOf) }} />
+            : canEditText && (
+              <button type="button" onClick={startEdit} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 4, fontSize: 12.5, color: NX.blue, fontWeight: 600 }}>
+                <Plus size={13} /> Add a Description
+              </button>
+            )}
+        </>)}
+        {(t.images || []).length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+            {t.images.map((url, i) => (
+              <a key={i} href={url} target="_blank" rel="noreferrer" title="Open full size" style={{ display: 'block', width: 72, height: 72, borderRadius: 8, overflow: 'hidden', border: `1px solid ${NX.border}` }}>
+                <img src={url} alt={`Screenshot ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {confidential && (
+        <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: NX.ink, background: 'rgba(124,58,237,0.08)',
+          border: '1px solid rgba(124,58,237,0.28)', borderRadius: 8, padding: '7px 11px', marginTop: 12 }}>
+          <Lock size={14} style={{ color: NX.purple, flexShrink: 0 }} />
+          <span><b>Confidential HR Request.</b> Only the person who asked, the people on it and HR can see it.</span>
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '12px 0 16px' }}>
+        <TicketStatusChip status={v.status} />
+        <PriorityChip priority={v.priority} />
+        <ApprovalChip ticket={t} />
+        {t.resolvedAt && <span style={{ fontSize: 12, color: NX.green, display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={13} /> Resolved {fmtDate(t.resolvedAt)}{t.resolution ? ` · ${resolutionLabel(t.resolution)}` : ''}</span>}
+      </div>
+      {t.resolutionNote && CLOSED_STATES.includes(t.status) && (
+        <div style={{ fontSize: 13, color: NX.ink, background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.30)', borderRadius: 8, padding: '8px 11px', margin: '-4px 0 14px', whiteSpace: 'pre-wrap' }}>
+          <b>Resolution:</b> {t.resolutionNote}
+        </div>
+      )}
+
+      {/* Mark an Issue on the Map (Oct 20 2026): where it is, with the photo and Open on Map. */}
+      <TicketMapSpotCard ticketId={t.id} propertyId={t.propertyAssetId} onOpenMap={onClose} />
+
+      {/* Approval gate - the decision blocks triage, so it leads the drawer,
+          always visible regardless of which tab is open. */}
+      <ApprovalPanel ticket={t} myEmail={myEmail} nameOf={nameOf} onDecided={onDecided} />
+
+      {/* AI Summary - desk agents only, hidden when AI is off (TicketAi.jsx). */}
+      <TicketAiSummary ticketId={t.id} canWorkQueue={deskAccess.canWorkQueue && !confidential} />
+
+      {/* Overview · Conversation · Attachments · Activity - a real tab strip up
+          top so Conversation/Attachments/Activity are one click away instead of
+          buried under the whole field list (people kept missing them). */}
+      <div style={{ borderTop: `1px solid ${NX.border}`, marginTop: 12, paddingTop: 12 }}>
+        {/* Segmented control - same mode-switch grammar as the rest of the module */}
+        <div className="scroll-tabs" style={{ display: 'inline-flex', gap: 2, marginBottom: 16, background: NX.border2, borderRadius: 9, padding: 2, maxWidth: '100%', overflowX: 'auto' }}>
+          {[['overview', 'Overview', ClipboardList], ['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
+            <button key={k} onClick={() => { setTab(k); if (k === 'conversation') setNewReplies(0); }} style={{
+              ...btn('ghost'), gap: 6, fontSize: 12.5, fontWeight: 600, padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap', flexShrink: 0,
+              background: tab === k ? NX.surface : 'transparent', color: tab === k ? NX.ink : NX.dim,
+              boxShadow: tab === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+            }}><Icon size={14} />{lab}
+              {k === 'conversation' && newReplies > 0 && (
+                <span title={`${newReplies} new repl${newReplies === 1 ? 'y' : 'ies'}`}
+                  style={{ minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: NX.red, color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'inline-grid', placeItems: 'center' }}>{newReplies}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'overview' && overviewBody(false)}
+        {tab === 'conversation' && (
+          <TicketConversation {...conversationProps} />
+        )}
+        {tab === 'attachments' && attachmentsBody}
+        {tab === 'activity' && activityBody}
+      </div>
+    </DrawerShell>
+    {overlays}
     </>
   );
 }
