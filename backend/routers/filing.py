@@ -160,6 +160,20 @@ _RETRY_WAITS = (0.8, 1.6, 3.2)
 _PACE_SEC = 0.5
 _pace_lock = threading.Lock()
 _pace_last: dict = {}
+# What this request spent on Egnyte - calls made and seconds spent waiting
+# (pacing plus back-offs). Answered by /scan so a slow walk can be read, not
+# guessed at. Thread-local: the sync endpoints each run in their own thread.
+_meter = threading.local()
+
+
+def _meter_reset() -> None:
+    _meter.calls, _meter.waited, _meter.throttled = 0, 0.0, 0
+
+
+def _meter_add(calls: int = 0, waited: float = 0.0, throttled: int = 0) -> None:
+    _meter.calls = getattr(_meter, "calls", 0) + calls
+    _meter.waited = getattr(_meter, "waited", 0.0) + waited
+    _meter.throttled = getattr(_meter, "throttled", 0) + throttled
 
 
 def _pace(token) -> None:
@@ -169,6 +183,7 @@ def _pace(token) -> None:
         wait = _pace_last.get(key, 0.0) + _PACE_SEC - now
         _pace_last[key] = max(now, _pace_last.get(key, 0.0) + _PACE_SEC)
     if wait > 0:
+        _meter_add(waited=wait)
         time.sleep(wait)
 
 
@@ -181,6 +196,7 @@ def _egnyte(token, fn, *args):
     for attempt in range(len(_RETRY_WAITS) + 1):
         try:
             _pace(token)
+            _meter_add(calls=1)
             return _call(fn, *args, token)
         except HTTPException as exc:
             if exc.status_code == 401:
@@ -190,6 +206,7 @@ def _egnyte(token, fn, *args):
                     if token is not None else
                     "Egnyte rejected Nexus's connection. Check the Egnyte module's status screen."))
             if exc.status_code in _RETRY_STATUSES and attempt < len(_RETRY_WAITS):
+                _meter_add(waited=_RETRY_WAITS[attempt], throttled=1 if exc.status_code == 429 else 0)
                 time.sleep(_RETRY_WAITS[attempt])
                 continue
             if exc.status_code == 429:
@@ -197,42 +214,81 @@ def _egnyte(token, fn, *args):
             raise
 
 
-# The maps change when someone reorganizes Egnyte, which is rare; a walked
-# scan calls /filing/scan dozens of times in a minute and each call was
-# re-listing the three index folders (3 Egnyte round trips) before its real
-# work. One shared 5-minute cache cuts every walk call's latency by more
-# than half. Shared across callers deliberately: the maps only steer which
-# CONTEXT a suggestion gets, folder names of entities and facilities are not
-# secrets to the supervisor+ users this router admits, and every actual move
-# still runs under the caller's own Egnyte permissions.
-_MAPS_TTL_SEC = 300
+# The maps change when someone reorganizes Egnyte, which is rare. Each one
+# costs three Egnyte listings, and a per-process cache was not enough: the
+# API runs several workers on two instances, a walk's calls land on any of
+# them, and every cold worker re-listed the three index folders in a burst
+# that tripped Egnyte's per-user throttle (measured 11/04: 1.2-3.7 s for a
+# single small folder). So the maps live in the database for every worker,
+# rebuilt at most every _MAPS_TTL_SEC by whichever worker finds them stale,
+# with the in-process copy as a first, free layer. Shared across callers
+# deliberately: the maps only steer which CONTEXT a suggestion gets, folder
+# names of entities and facilities are not secrets to the supervisor+ users
+# this router admits, and every actual move still runs under the caller's
+# own Egnyte permissions. Only a complete rebuild is shared - a caller who
+# cannot see one of the roots never narrows the maps for everyone else.
+_MAPS_TTL_SEC = 600
+_MAPS_KEY = "filing.maps_cache"
 _maps_cache: dict = {"at": 0.0, "maps": None}
 
 
-def _live_maps(token: str | None) -> filing_rules.Maps:
-    """The entity / facility / project maps, read from the live tree at scan
-    time - never hardcoded, so an Egnyte re-org does not need a deploy."""
+def _maps_from(data: dict) -> filing_rules.Maps:
+    maps = filing_rules.Maps()
+    maps.entities = list(data.get("entities") or [])
+    maps.facilities = dict(data.get("facilities") or {})
+    maps.projects = dict(data.get("projects") or {})
+    return maps
+
+
+def _live_maps(token: str | None, db: Session | None = None) -> filing_rules.Maps:
+    """The entity / facility / project maps, read from the live tree - never
+    hardcoded, so an Egnyte re-org does not need a deploy."""
     if _maps_cache["maps"] is not None and time.monotonic() - _maps_cache["at"] < _MAPS_TTL_SEC:
         return _maps_cache["maps"]
+    if db is not None:
+        row = db.query(NexusSetting).filter(NexusSetting.key == _MAPS_KEY).first()
+        if row and row.value:
+            try:
+                data = json.loads(row.value)
+                if time.time() - float(data.get("at") or 0) < _MAPS_TTL_SEC:
+                    maps = _maps_from(data)
+                    _maps_cache["at"], _maps_cache["maps"] = time.monotonic(), maps
+                    return maps
+            except (ValueError, TypeError):
+                pass
     maps = filing_rules.Maps()
+    complete = True
     try:
-        folders = _call(svc.list_folder, maps.entities_root, token)["folders"]
+        folders = _egnyte(token, svc.list_folder, maps.entities_root)["folders"]
         maps.entities = [f["name"] for f in folders if not f["name"].startswith("#")]
     except HTTPException:
-        pass  # a root the caller cannot see narrows matching, never breaks the scan
+        complete = False   # a root the caller cannot see narrows matching, never breaks the scan
     try:
-        for f in _call(svc.list_folder, "/Shared/--Operations", token)["folders"]:
+        for f in _egnyte(token, svc.list_folder, "/Shared/--Operations")["folders"]:
             m = _OPS_FACILITY.match(f["name"])
             if m:
                 maps.facilities[m.group(1)] = f["path"]
     except HTTPException:
-        pass
+        complete = False
     try:
-        for f in _call(svc.list_folder, "/Shared/--Development/Projects", token)["folders"]:
+        for f in _egnyte(token, svc.list_folder, "/Shared/--Development/Projects")["folders"]:
             maps.projects[f["name"]] = f["path"]
     except HTTPException:
-        pass
+        complete = False
     _maps_cache["at"], _maps_cache["maps"] = time.monotonic(), maps
+    if complete and db is not None:
+        value = json.dumps({"at": time.time(), "entities": maps.entities,
+                            "facilities": maps.facilities, "projects": maps.projects})
+        try:
+            row = db.query(NexusSetting).filter(NexusSetting.key == _MAPS_KEY).first()
+            now = datetime.now(timezone.utc).isoformat()
+            if row:
+                row.value, row.updated_by, row.updated_at = value, "filing-maps", now
+            else:
+                db.add(NexusSetting(key=_MAPS_KEY, value=value, updated_by="filing-maps", updated_at=now))
+            db.commit()
+        except Exception:  # noqa: BLE001 - a cache write must never fail a scan
+            db.rollback()
     return maps
 
 
@@ -289,9 +345,10 @@ def _filing_history_cached(db: Session) -> list[tuple[set, str, str]]:
 def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
          db: Session = Depends(get_db)):
     started = time.monotonic()
+    _meter_reset()
     token = _browse_token(user, db)
     cfg = _load_config(db)
-    maps = _live_maps(token)
+    maps = _live_maps(token, db)
     history = _filing_history_cached(db)
 
     picked = [svc.norm(p) for p in ((body.paths if body else None) or []) if (p or "").strip()]
@@ -372,6 +429,10 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
     return {"proposals": proposals, "counts": counts, "totals": totals,
             "scannedRoots": scanned, "missingRoots": missing,
             "subfolders": subfolders, "failedRoots": failed, "deferred": deferred,
+            "egnyte": {"calls": getattr(_meter, "calls", 0),
+                       "waitedSec": round(getattr(_meter, "waited", 0.0), 2),
+                       "throttled": getattr(_meter, "throttled", 0),
+                       "tookSec": round(time.monotonic() - started, 2)},
             "truncated": len(proposals) >= MAX_SCAN_FILES}
 
 
