@@ -1283,6 +1283,59 @@ def verify_and_send(db: Session, ev, user: dict, *, seen: dict, excluded_ack: bo
     db.commit()
 
 
+def release_after_intake(db: Session, ev, setting: HrPacketSetting, p: dict) -> bool:
+    """Submit And Continue (Pranshu, 11/04/2026): the hiring packet after a
+    signed offer opens for signing the moment the new hire sends their
+    details - one flow, no second email. HR checked the offer, and the
+    company still countersigns after the person. Anything the verifier would
+    have stopped on - a detail still missing, a Signs Once not adopted, a
+    document that will not render - leaves it for HR's review exactly as
+    before. True when it opened. The caller has committed the details first:
+    Nexus Sign commits the envelope, and a failure here rolls back to them."""
+    import hr_life_events as hle
+    from datetime import datetime, timezone
+    if ev.kind != "hire" or not (ev.inputs or {}).get("after_offer") or setting.verify_distinct:
+        return False
+    if list(p["problems"]) + _hire_problems(db, ev):
+        return False
+    # HR may have pressed Verify And Send meanwhile (the details were committed
+    # and the lock let go): lock the row again and go on only if it still waits.
+    db.refresh(ev, with_for_update=True)
+    if ev.status != "review" or ev.sign_request_id:
+        return False
+    offer = db.query(hle.HrLifeEvent).filter(hle.HrLifeEvent.id == (ev.inputs or {}).get("offer_event_id")).first()
+    checker = ((offer.verified_by if offer is not None else "") or ev.created_by or "").lower()
+    try:
+        hle.refresh_due(ev)
+        out = build_envelope(db, ev, setting, {"email": checker}, p, excluded_ack=True, in_flow=True)
+    except Exception as e:   # noqa: BLE001 - HR's review takes it from here, as before
+        db.rollback()
+        print(f"[life-events] packet {ev.id} not opened after the details form: {type(e).__name__}: {e}")
+        return False
+    now = datetime.now(timezone.utc).isoformat()
+    ev.sign_request_id = out["id"]
+    ev.status = status_at_send(p["parties"], ev.subject_email)
+    ev.verified_by, ev.verified_at, ev.updated_at = "", now, now
+    hle._stage_note(db, ev, f"Details received - the hiring packet opened for {ev.subject_name} to sign straight away, "
+                            f"with no separate check (the offer was checked by {name_of(db, checker) or 'HR'})",
+                    by="candidate")
+    return True
+
+
+def subject_sign_link(db: Session, ev) -> str:
+    """The new hire's own signing link while it is their turn, else ''."""
+    from models import HrSignParty, HrSignRequest
+    from routers import esign
+    if not ev.sign_request_id or ev.status not in ("sent", "awaiting_sender") or (ev.inputs or {}).get("in_person"):
+        return ""
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == ev.sign_request_id).first()
+    party = (db.query(HrSignParty).filter(HrSignParty.request_id == ev.sign_request_id,
+                                          HrSignParty.email == (ev.subject_email or "").lower()).first())
+    if req is None or party is None or party.status == "signed" or req.status != "pending":
+        return ""
+    return esign._sign_link(party, req)
+
+
 # ── the job description under the offer letter (Neil, 11/03/2026) ──────────
 # One offer letter per kind of hire; the role brings its job description -
 # its typed duties printed by the Job Description document, or its own file
@@ -1370,7 +1423,8 @@ def offer_with_jd(ev, rendered: list, *, signer: str) -> list:
 
 
 def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dict, *,
-                   excluded_ack: bool, ip: str = "", user_agent: str = "", in_person: bool = False) -> dict:
+                   excluded_ack: bool, ip: str = "", user_agent: str = "", in_person: bool = False,
+                   in_flow: bool = False) -> dict:
     """Render every document with pay, refuse anything still showing a
     {{variable}}, upload the PDFs, place every signer's fields on the lines
     the templates drew, and hand Nexus Sign one envelope."""
@@ -1467,7 +1521,7 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
                         if ev.kind in CANDIDATE_KINDS else ""),
             ip=ip, user_agent=user_agent, excluded_ack=excluded_ack, document_class="employment",
             link_kind="life_event", link_id=ev.id, sender_signs_first=sender_first,
-            prints_pay=p["printsPay"] or private_blank, saved=saved, in_person=in_person)
+            prints_pay=p["printsPay"] or private_blank, saved=saved, in_person=in_person, in_flow=in_flow)
     except HTTPException as ex:
         federal_discard(docs)
         raise hle.PacketError(str(ex.detail), ex.status_code)

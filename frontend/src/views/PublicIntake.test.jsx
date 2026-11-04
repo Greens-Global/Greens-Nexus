@@ -64,10 +64,34 @@ describe('PublicIntake', () => {
     expect(screen.queryByLabelText('Permanent Address')).toBeNull();          // "the same" is ticked
     fireEvent.change(screen.getByLabelText('Phone *'), { target: { value: '555-0100' } });
     fireEvent.change(screen.getByLabelText('PAN Number *'), { target: { value: 'ABCDE1234F' } });
-    fireEvent.click(screen.getByText('Send - Prepare My Documents'));
-    await waitFor(() => expect(screen.getByText(/no account or password needed/)).toBeTruthy());
+    fireEvent.click(screen.getByText('Submit And Continue'));
+    await waitFor(() => expect(screen.getByText(/no account or password needed/)).toBeTruthy());   // HR's check, then an email
     expect(submit.mock.calls[0][1]).toMatchObject({ address: '12 Pine St', permanent_address: '12 Pine St',
       answers: { pan_number: 'ABCDE1234F' } });
+  });
+
+  // Pranshu, 11/04/2026: the hiring packet opens in the same flow - no second email.
+  it('Submit And Continue goes straight to signing the hiring packet', async () => {
+    page = { ...page, state: 'open', afterOffer: true, prefill: { address: '12 Pine St' }, form: [] };
+    submit.mockImplementationOnce(() => Promise.resolve({ ok: true, signUrl: 'https://nexus.test/sign/abc' }));
+    const assign = vi.fn();
+    const real = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...real, assign } });
+    try {
+      render(<PublicIntake token="tok" />);
+      await waitFor(() => expect(screen.getByText('Submit And Continue')).toBeTruthy());
+      fireEvent.change(screen.getByLabelText('Phone *'), { target: { value: '555-0100' } });
+      fireEvent.click(screen.getByText('Submit And Continue'));
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('https://nexus.test/sign/abc'));
+    } finally { Object.defineProperty(window, 'location', { configurable: true, value: real }); }
+  });
+
+  it('back on the link before signing, it offers Continue To Sign', async () => {
+    page = { ...page, state: 'submitted', afterOffer: true, signUrl: 'https://nexus.test/sign/abc' };
+    render(<PublicIntake token="tok" />);
+    const go = await screen.findByText('Continue To Sign');
+    expect(go.closest('a').getAttribute('href')).toBe('https://nexus.test/sign/abc');
+    page = { ...page, signUrl: '' };
   });
 
   it('a promotion or separation page names its own documents', async () => {

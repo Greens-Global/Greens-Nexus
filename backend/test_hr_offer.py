@@ -232,8 +232,17 @@ class JourneyTests(OfferCase):
             "first_name": "Jane", "last_name": "Doe", "phone": "555-0100", "address": "12 Pine St",
             "answers": {"pan_number": "ABCDE1234F"}}})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(self._ev(packet.id).status, "review")
-        self._send_and_sign(packet.id)
+        # Submit And Continue (Pranshu, 11/04/2026): the packet opens for signing at once - no HR
+        # stop, no second email - and the page carries them straight to it.
+        self.invited.clear()
+        ev = self._ev(packet.id)
+        self.assertEqual(ev.status, "sent")
+        self.assertIn("/sign/", r.json()["signUrl"])
+        self.assertNotIn(CAND, self.invited)
+        self.assertEqual(self.client.get(f"/hr/intake/public/{token}").json()["signUrl"], r.json()["signUrl"])   # back on the link
+        self._sign(self._party(ev.sign_request_id, CAND))
+        self._sign(self._party(ev.sign_request_id, HR))          # the company countersigns after them
+        self.assertEqual(self.client.get(f"/hr/intake/public/{token}").json()["signUrl"], "")    # nothing left to sign
         packet = self._ev(packet.id)
         self.assertEqual(packet.status, "completed", packet.apply_note)
         # the checklist ticks itself: offer signed, then the pre-boarding packet
@@ -508,6 +517,31 @@ class InPersonTests(OfferCase):
         self.assertIn(CAND, self.invited)
         self.assertEqual(self.client.get(f"/hr/life-events/{eid}/print").status_code, 409)
 
+
+
+class SubmitAndContinueTests(OfferCase):
+    """Submit And Continue (Pranshu, 11/04/2026) never skips what HR's check
+    would stop on: a Signs Once nobody adopted keeps the packet for review."""
+
+    def test_a_packet_hr_must_still_finish_waits_for_review(self):
+        db = database.SessionLocal()
+        db.query(models.HrPacketSetting).filter_by(id="s-hire").update({"flow": [
+            {"key": "company", "role": "hr", "action": "sign", "once": True},
+            {"key": "employee", "role": "employee", "action": "sign"}]})
+        db.commit()
+        db.close()
+        offer = self._offer().json()
+        self._send_and_sign(offer["id"])
+        html = self._wait_for_mail()[2]
+        token = re.search(r"/intake/([A-Za-z0-9_\-]+)", html).group(1)
+        r = self.client.post(f"/hr/intake/public/{token}", json={"values": {
+            "first_name": "Jane", "last_name": "Doe", "phone": "555-0100", "address": "12 Pine St",
+            "answers": {"pan_number": "ABCDE1234F"}}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["signUrl"], "")
+        packet = self.db.query(models.HrLifeEvent).filter_by(candidate_id="cand-1", kind="hire").one()
+        self.assertEqual(self._ev(packet.id).status, "review")
+        self.assertTrue(self._ev(packet.id).intake.get("first_name"))         # their details are kept
 
 
 class RoleJdFromDocumentsTests(OfferCase):

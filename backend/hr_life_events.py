@@ -1604,6 +1604,8 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
             "phone": (cand.phone if cand else "") or "", "role": (ev.inputs or {}).get("job_title", ""),
             "expiresOn": ev.intake_expires_on or "", "prefill": known,
             "afterOffer": bool((ev.inputs or {}).get("after_offer")), "kind": ev.kind or "",
+            # Submit And Continue (11/04/2026): back on this link, they carry on signing.
+            "signUrl": hpd.subject_sign_link(db, ev) if ev.intake_submitted_at else "",
             # An employee's name and address are on People already - only the documents' questions.
             "fields": intake_standard_fields(view.tokens) if ev.kind in CANDIDATE_KINDS else [],
             # The packet's own Details Form (Oct 14) - any country, any field.
@@ -1642,7 +1644,11 @@ def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
         try:
             p = hpd.event_plan(db, ev, setting, sender=ev.created_by, can_see_pay=True)
             hpd.sync_documents(db, ev, setting, p, ev.created_by)
-            _ask_verifier(db, ev, p)
+            db.commit()                  # their details and the documents are kept whatever comes next
+            # Submit And Continue (11/04/2026): straight on to signing, else HR's review as before.
+            if not hpd.release_after_intake(db, ev, setting, hpd.event_plan(db, ev, setting, sender=ev.created_by,
+                                                                            can_see_pay=True)):
+                _ask_verifier(db, ev, p)
         except Exception as e:   # noqa: BLE001 - the details are kept; HR sees the problem on review
             print(f"[life-events] intake {ev.id}: documents not generated: {type(e).__name__}: {e}")
             _notify(db, ev.created_by, f"Details Received - {ev.subject_name}",
