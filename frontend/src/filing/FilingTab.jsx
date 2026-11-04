@@ -163,6 +163,65 @@ export default function FilingTab({ toastOk, toastErr }) {
     }
   };
 
+  // The rename-only workflow (Visesh, 11/04: "what if somebody just wants to
+  // label files"): every wrong name fixed in place, folders untouched.
+  const fixable = useMemo(
+    () => (scan?.proposals || []).filter(p => p.status === 'review' && !results[p.sourcePath]?.ok
+      && (p.newName || p.canonicalName) && (p.newName || p.canonicalName) !== p.currentName),
+    [scan, results]);
+
+  const fixAllNames = async () => {
+    const ok = await dialog.confirm(
+      `Rename ${fixable.length} file${fixable.length === 1 ? '' : 's'} in place to their SOP names? Folders stay as they are; every rename is in the Audit Log.`,
+      { title: 'Fix All Names', confirmText: `Rename ${fixable.length}` });
+    if (!ok) return;
+    setApplying(true);
+    try {
+      let renamed = 0, failed = 0;
+      const next = { ...results };
+      for (let i = 0; i < fixable.length; i += 50) {
+        const batch = fixable.slice(i, i + 50).map(p => ({
+          sourcePath: p.sourcePath,
+          destFolder: p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/')),
+          newName: p.newName || p.canonicalName,
+          docType: p.docType || 'Rename', rule: 'rename',
+        }));
+        const out = await api.filingApply(batch);
+        for (const r of out.results) next[r.sourcePath] = r.ok ? { ...r, renamed: true } : r;
+        renamed += out.moved; failed += out.failed;
+      }
+      setResults(next);
+      if (renamed) toastOk?.(`Renamed ${renamed} file${renamed === 1 ? '' : 's'}`);
+      if (failed) toastErr?.(`${failed} could not be renamed - see the rows for why`);
+      api.filingActivity().then(d => setActivity(d.rows)).catch(() => {});
+    } catch (e) {
+      toastErr?.(e.message || 'Could not rename the files');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  // One click to the destination the team's own history points at.
+  const fileToLearned = async (p) => {
+    try {
+      const out = await api.filingApply([{
+        sourcePath: p.sourcePath, destFolder: p.learnedDest,
+        newName: p.newName || p.canonicalName || p.currentName,
+        docType: p.docType || 'Learned', rule: 'learned',
+      }]);
+      const r = out.results?.[0];
+      if (r?.ok) {
+        toastOk?.(`Filed to ${p.learnedDest}`);
+        setResults(prev => ({ ...prev, [p.sourcePath]: r }));
+        api.filingActivity().then(d => setActivity(d.rows)).catch(() => {});
+      } else {
+        toastErr?.(r?.error || 'Could not move the file');
+      }
+    } catch (e) {
+      toastErr?.(e.message || 'Could not move the file');
+    }
+  };
+
   const applySelected = async () => {
     const moves = (scan?.proposals || [])
       .filter(p => p.status === 'auto' && selected.has(p.sourcePath) && !results[p.sourcePath]?.ok)
@@ -320,6 +379,11 @@ export default function FilingTab({ toastOk, toastErr }) {
               </label>
             )}
             <div style={{ flex: 1 }} />
+            {fixable.length > 0 && !scanning && (
+              <button className="secondary-btn" onClick={fixAllNames} disabled={applying}>
+                Fix All Names ({fixable.length})
+              </button>
+            )}
             {readyLeft > 0 && !scanning && (
               <button className="primary-btn" onClick={applySelected} disabled={applying}>
                 {applying ? 'Moving...' : `Move ${readyLeft} File${readyLeft === 1 ? '' : 's'}`}
@@ -403,6 +467,11 @@ export default function FilingTab({ toastOk, toastErr }) {
                                 ? 'differs only in spacing - Fix Name puts it right'
                                 : 'no folder yet - use File It'}
                             </div>
+                            {p.learnedDest && !r?.ok && (
+                              <div style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', wordBreak: 'break-all' }}>
+                                Learned: usually filed to {p.learnedDest} ({p.learnedCount}x)
+                              </div>
+                            )}
                           </>
                         ) : <span style={{ color: 'var(--text-secondary)' }}>-</span>}
                       </td>
@@ -423,6 +492,12 @@ export default function FilingTab({ toastOk, toastErr }) {
                               <button className="btn-sm" onClick={() => fixName(p)} style={{ fontSize: 12 }}
                                 title="Rename in place to the suggested name - the file stays where it is">
                                 Fix Name
+                              </button>
+                            )}
+                            {p.learnedDest && (
+                              <button className="btn-sm" onClick={() => fileToLearned(p)} style={{ fontSize: 12 }}
+                                title={`Move to ${p.learnedDest} - where ${p.learnedCount} similar file${p.learnedCount === 1 ? ' was' : 's were'} filed before`}>
+                                File to Learned
                               </button>
                             )}
                           </div>
@@ -533,7 +608,9 @@ function NamesTable({ proposals }) {
 function FileItSheet({ proposal, onClose, onFiled, toastOk, toastErr }) {
   const suggested = proposal.newName || proposal.canonicalName || proposal.currentName;
   const [name, setName] = useState(suggested);
-  const [dest, setDest] = useState(proposal.destFolder || '');
+  // The learned route (where the team filed similar files before) is the
+  // best opening guess for the destination.
+  const [dest, setDest] = useState(proposal.destFolder || proposal.learnedDest || '');
   const [busy, setBusy] = useState(false);
   const move = async () => {
     setBusy(true);
