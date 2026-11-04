@@ -75,7 +75,7 @@ class InboxCase(unittest.TestCase):
                   models.NexusAccessScope, models.VaultShareRequest, models.VaultCredential, models.KbDocument,
                   models.KbRevision, models.KbCollection, models.ConstructionProject, models.ConstructionDailyLog,
                   models.HrLifeEvent, models.HrPacketSetting, models.NexusGroupMember, models.NexusGroup,
-                  models.ApprovalDecision):
+                  models.ApprovalDecision, models.ScheduledShift):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=ENTITY, name="Greens Test", hr_contact_email=HRC))
         for em, first, mgr in ((EMP, "Erin", MGR), (MGR, "Max", ""), (MATE, "Mia", MGR),
@@ -209,10 +209,11 @@ class InboxCase(unittest.TestCase):
         claim = next(r for r in out["rows"] if r["kind"] == "reimbursement")
         self.assertEqual(claim["title"], "Reimbursement - $142.50")
         self.assertEqual([a["note"] for a in claim["actions"]], ["none", "required"])   # Send Back needs a reason
-        # The nav reads the same registry: Team > Requests and People > Time
-        # carry the time off, People > Time the punch fix; Approvals the total.
+        # The nav reads the same registry: People > Time carries the time off
+        # and the punch fix; Approvals the total. Team no longer counts them
+        # (Team > Requests moved into Approvals, 11/04/2026).
         nav = self._counts(MGR)
-        self.assertEqual(nav["shifts"]["requests"], 1)
+        self.assertNotIn("requests", nav.get("shifts", {}))
         self.assertEqual(nav["hr"]["hr-time"], 2)
         self.assertEqual(nav["approvals"]["inbox"], 3)
 
@@ -237,7 +238,7 @@ class InboxCase(unittest.TestCase):
             out = self._inbox(MGR)
             self.assertEqual(out["errors"], [{"source": "reimbursement", "label": "Reimbursements"}])
             self.assertEqual([r["kind"] for r in out["rows"]], ["time_off"])   # the rest still show
-            self.assertEqual(self._counts(MGR)["shifts"]["requests"], 1)       # and the nav still counts
+            self.assertEqual(self._counts(MGR)["approvals"]["inbox"], 1)       # and the nav still counts
         finally:
             for s in approvals_inbox.SOURCES:
                 s.fn = real[s.key]
@@ -346,6 +347,56 @@ class InboxCase(unittest.TestCase):
         self.assertIn("for your", rows[0]["title"])
         self.assertEqual(self._counts(EMP)["myhr"]["timeoff"], 1)
         self.assertEqual(self._inbox(MATE)["rows"], [])
+
+    # ── Team > Requests moved into Approvals (11/04/2026) ───────────────────
+
+    def test_time_off_says_what_it_lands_on_and_can_remove_the_shifts(self):
+        self._time_off("t1", EMP)
+        self._time_off("t2", MATE)
+        self.db.flush()
+        self.db.query(models.TimeOffRequest).filter(models.TimeOffRequest.id == "t1").update({"note": "Family trip"})
+        later = (date.today() + timedelta(days=4)).isoformat()
+        self.db.add(models.ScheduledShift(id="ss1", employee_email=EMP, work_date=later, start_hhmm="09:00", end_hhmm="17:00", published=1))
+        self.db.add(models.ScheduledShift(id="ss2", employee_email=EMP, work_date=later, start_hhmm="18:00", end_hhmm="20:00", published=0))   # a draft: not shared
+        self.db.add(models.ScheduledShift(id="ss3", employee_email=EMP, work_date=TODAY, start_hhmm="09:00", end_hhmm="17:00", published=1))   # outside the leave
+        self.db.commit()
+        rows = {r["key"]: r for r in self._inbox(MGR)["rows"]}
+        one, two = rows["time_off:t1"], rows["time_off:t2"]
+        self.assertEqual([(a["key"], a["label"], a["note"]) for a in one["actions"]],
+                         [("approve", "Approve", "none"), ("approve_remove", "Approve And Remove Shifts", "none"), ("reject", "Decline", "required")])
+        self.assertEqual([a["key"] for a in two["actions"]], ["approve", "reject"])        # nothing inside: no remove
+        facts = {f["label"]: f["value"] for f in one["facts"]}
+        us = date.fromisoformat(later).strftime("%m/%d/%Y")
+        self.assertEqual(facts["Shared Shifts Inside"], f"{date.fromisoformat(later).strftime('%a')} {us} 9:00 AM - 5:00 PM")
+        self.assertEqual(facts["Reason"], "Family trip")
+        self.assertEqual({f["label"]: f["value"] for f in two["facts"]}["Reason"], "None given")
+        self.assertIn("1 shared shift inside", one["detail"])
+        self.assertEqual(one["context"], {"email": EMP, "from": SOON, "to": (date.today() + timedelta(days=5)).isoformat()})
+
+    def test_a_shift_request_carries_both_shifts_the_notes_and_the_planner_day(self):
+        self.db.add(models.ScheduledShift(id="mine", employee_email=MATE, work_date=SOON, start_hhmm="09:00", end_hhmm="17:00", published=1))
+        self.db.add(models.ShiftRequest(id="s1", kind="swap", requester_email=MATE, target_email=EMP, status="pending_manager",
+                                        shift_id="mine", shift_date=SOON, shift_start="09:00", shift_end="17:00",
+                                        target_shift_id="gone", target_date=SOON, target_start="12:00", target_end="20:00",
+                                        note="Doctor visit", peer_note="Happy to", created_at="2026-10-20T08:00:00+00:00"))
+        self.db.add(models.ShiftRequest(id="s2", kind="release", requester_email=EMP, status="pending_manager",
+                                        shift_id="", shift_date=SOON, shift_start="07:00", shift_end="15:00",
+                                        created_at="2026-10-21T08:00:00+00:00"))
+        self.db.commit()
+        rows = {r["key"]: r for r in self._inbox(MGR)["rows"]}
+        swap, rel = rows["shift_request:s1"], rows["shift_request:s2"]
+        self.assertEqual([(a["key"], a["note"]) for a in swap["actions"]], [("approve", "none"), ("decline", "required")])
+        f = {x["label"]: x["value"] for x in swap["facts"]}
+        us = date.fromisoformat(SOON).strftime("%m/%d/%Y")
+        self.assertEqual(f["Request"], "Swap")
+        self.assertEqual(f["Shift"], f"{us} 9:00 AM - 5:00 PM")
+        self.assertEqual(f["Teammate's Shift"], f"{us} 12:00 PM - 8:00 PM - no longer on the schedule")
+        self.assertEqual((f["Mia Test's Note"], f["Erin Test's Note"]), ("Doctor visit", "Happy to"))
+        self.assertEqual(swap["link"], {"view": "shifts", "sub": f"schedule:{SOON}"})
+        self.assertEqual(swap["context"]["email"], MATE)
+        self.assertEqual(rel["detail"], f"Erin Test wants to release {us} 7:00 AM - 3:00 PM to the open pool")
+        self.assertTrue({x["label"]: x["value"] for x in rel["facts"]}["Shift"].endswith("no longer on the schedule"))
+        self.assertEqual(rel["context"]["email"], "")                                        # nobody takes a release
 
     def test_a_hiring_vote_waits_until_the_person_votes(self):
         self.db.add(models.HrCandidate(id="c1", first_name="Jordan", last_name="Lee", role_title="Sr. Tech",

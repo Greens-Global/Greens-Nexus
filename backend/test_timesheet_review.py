@@ -872,7 +872,33 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["title"], "Review Erin Test's Time Sheet")
         self.assertIn(f"{tsr.us_date(self.start)} - {tsr.us_date(self.end)} - 7h 00m", rows[0]["detail"])
-        self.assertTrue(rows[0]["url"].endswith("/hr/hr-time"))   # People > Time (Oct 22)
+        # That person's card on that period (11/05/2026: the bare /hr/hr-time
+        # link opened Payroll on whoever sorted first).
+        from urllib.parse import urlsplit, parse_qs
+        link = urlsplit(rows[0]["url"])
+        self.assertTrue(link.path.endswith("/hr/hr-time"))
+        q = parse_qs(link.query)
+        self.assertEqual(q["timecard"], [EMP])
+        self.assertEqual(q["start"], [str(self.start)])
+        self.assertIn("type", q)
+
+
+class BriefingSignLinkTests(ReviewCase):
+    def test_sign_your_updated_time_sheet_opens_that_period(self):
+        """11/05/2026: the row linked the employee's CURRENT Time Sheet; it
+        opens the changed period (?start=&type=, read by PayrollTimecard)."""
+        import daily_briefing
+        import uuid
+        from urllib.parse import urlsplit, parse_qs
+        self.db.add(models.TimesheetReview(id=str(uuid.uuid4()), employee_email=EMP, period_start=str(self.start),
+                                           period_end=str(self.end), pay_type="hourly", status="approved",
+                                           manager_email=MGR))
+        self.db.commit()
+        [row] = [r for r in daily_briefing._timesheet_review_rows(self.db, EMP)
+                 if r["title"] == "Sign Your Updated Time Sheet"]
+        link = urlsplit(row["url"])
+        self.assertTrue(link.path.endswith("/timeclock/timesheet"))
+        self.assertEqual(parse_qs(link.query), {"start": [str(self.start)], "type": ["hourly"]})
 
 
 class StaleReviewTests(ReviewCase):

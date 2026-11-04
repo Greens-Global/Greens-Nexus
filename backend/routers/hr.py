@@ -826,9 +826,19 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
                                                or next(iter(by_key.get(_dept_key(r.department)) or []), "")),
                        # What goes after the offer letter (Neil, 11/03/2026): the role's file, else its duties.
                        "jdFile": ((r.jd_file or {}).get("name") or "") if (r.jd_file or {}).get("path") else "",
+                       # Or a Documents template, live (11/04/2026).
+                       "jdTemplateId": r.jd_template_id or "",
+                       # What goes with the offer letter, in order (11/04/2026) - its names for the offer form.
+                       "offerDocs": _offer_docs_of(db, r),
                        "hasDuties": bool((r.job_description or r.description or "").strip())}
                       for r in roles],
             "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES)}
+
+
+def _offer_docs_of(db: Session, role) -> list:
+    """[{kind, templateId, name}] the role sends with its offer, in order (11/04/2026)."""
+    from routers.jobroles import _ser_offer_docs
+    return _ser_offer_docs(db, getattr(role, "offer_docs", None) or [])
 
 
 def _cand_in_scope(c: Optional[HrCandidate], scope) -> HrCandidate:
@@ -2893,6 +2903,7 @@ class EntityIn(BaseModel):
     manager_email:      Optional[str] = ""   # legacy mirror - kept for callers still reading the single field
     manager_emails:     Optional[list] = None   # company manager(s) (Nexus people or external users, Sep 29) - source of truth
     hr_contact_email:   Optional[str] = ""      # signs + finalizes timesheets (timesheet_review.py)
+    it_contact_email:   Optional[str] = ""      # named in the new-hire welcome email (11/04/2026)
     signatory_email:    Optional[str] = ""      # the authorized signatory as a Nexus person (HR packets, Oct 14)
     invoice_recipients: Optional[list] = None   # who gets a contractor's approved invoice by email (Oct 21)
 
@@ -2921,6 +2932,7 @@ class EntityUpdate(BaseModel):
     manager_email:      Optional[str] = None
     manager_emails:     Optional[list] = None
     hr_contact_email:   Optional[str] = None
+    it_contact_email:   Optional[str] = None
     signatory_email:    Optional[str] = None
     invoice_recipients: Optional[list] = None
 
@@ -2981,6 +2993,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "managerEmail": e.manager_email or "",
         "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
         "hrContactEmail": e.hr_contact_email or "",
+        "itContactEmail": e.it_contact_email or "",
         "signatoryEmail": getattr(e, "signatory_email", "") or "",
         "invoiceRecipients": e.invoice_recipients or [],
         "createdAt": e.created_at, "updatedAt": e.updated_at,
@@ -3024,6 +3037,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         domains=_norm_domains(body.domains or ""),
         manager_email=mgr_email, manager_emails=mgr_emails,
         hr_contact_email=(body.hr_contact_email or "").strip().lower(),
+        it_contact_email=(body.it_contact_email or "").strip().lower(),
         signatory_email=_check_signatory_email(db, body.signatory_email or ""),
         invoice_recipients=_norm_emails(body.invoice_recipients),
         created_by=user["email"], created_at=now, updated_at=now,
@@ -3068,7 +3082,7 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             continue
         if key == "domains":
             value = _norm_domains(value)
-        elif key in ("manager_email", "hr_contact_email"):
+        elif key in ("manager_email", "hr_contact_email", "it_contact_email"):
             value = value.strip().lower()
         elif key == "signatory_email":
             value = _check_signatory_email(db, value)
@@ -5045,8 +5059,11 @@ def append_rate_history(db: Session, emp: NexusEmployee, effective_date: str, by
     rows = _rate_history_rows(db, em)
     same = next((r for r in rows if (r.effective_date or "") == eff), None)
     if same is not None:
-        for k, v in vals.items():
-            setattr(same, k, v)
+        if any(getattr(same, k) != v for k, v in vals.items()):
+            # The correction is the latest change: Changed By names who made it (11/04/2026).
+            for k, v in vals.items():
+                setattr(same, k, v)
+            same.created_by, same.created_at = by, datetime.now(timezone.utc).isoformat()
         return
     if rows:
         last = rows[-1]

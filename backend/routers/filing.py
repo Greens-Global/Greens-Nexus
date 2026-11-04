@@ -24,6 +24,7 @@ import json
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -174,6 +175,24 @@ def _meter_add(calls: int = 0, waited: float = 0.0, throttled: int = 0) -> None:
     _meter.calls = getattr(_meter, "calls", 0) + calls
     _meter.waited = getattr(_meter, "waited", 0.0) + waited
     _meter.throttled = getattr(_meter, "throttled", 0) + throttled
+
+
+# Folders a scan lists at once, and the shared threads they run on. The
+# endpoints are sync (already off the event loop); these are short Egnyte
+# HTTP calls, so a small pool is plenty for every request together.
+_LANES = 2
+_lane_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="filing-lane")
+
+
+def _list_lane(token, root: str):
+    """List one folder on a pool thread. The meter is thread-local, so this
+    lane's own counts come back with the result for the request to add up."""
+    _meter_reset()
+    try:
+        outcome = _egnyte(token, svc.list_folder, root)
+    except HTTPException as exc:
+        outcome = exc
+    return root, outcome, _meter.calls, _meter.waited, _meter.throttled
 
 
 def _pace(token) -> None:
@@ -361,25 +380,41 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
 
     proposals: list[dict] = []
     scanned, missing, subfolders, failed, deferred = [], [], [], [], []
-    for i, root in enumerate(roots):
-        # Out of time for this call: the rest go back to the caller's queue.
-        # At least one folder is always listed, so a walk always progresses.
-        if picked and i > 0 and time.monotonic() - started > SCAN_BUDGET_SEC:
-            deferred.extend(roots[i:])
-            break
-        try:
-            listing = _egnyte(token, svc.list_folder, root)
-        except HTTPException as exc:
+
+    def listed_in_lanes():
+        """(root, listing or HTTPException) in order, _LANES folders listed at
+        once. Measured 11/04: with throttling gone a listing is ~0.85 s of
+        pure Egnyte latency, so serial calls started only ~1.2 a second
+        while the pacer allows 2 - two lanes close that gap, and the shared
+        pacer still spaces every call's START at least _PACE_SEC apart."""
+        i = 0
+        while i < len(roots):
+            # Out of time for this call: the rest go back to the caller's
+            # queue. The first lane always runs, so a walk always progresses.
+            if picked and i > 0 and time.monotonic() - started > SCAN_BUDGET_SEC:
+                deferred.extend(roots[i:])
+                return
+            lane = roots[i:i + _LANES]
+            i += len(lane)
+            for root, outcome, calls, waited, throttled in _lane_pool.map(
+                    lambda r: _list_lane(token, r), lane):
+                _meter_add(calls, waited, throttled)
+                yield root, outcome
+
+    for root, outcome in listed_in_lanes():
+        if isinstance(outcome, HTTPException):
+            exc = outcome
             if exc.status_code in (403, 404):
                 missing.append(root)
                 continue
             if exc.status_code == 401:
-                raise
+                raise exc
             # One folder Egnyte would not list even after the retries must
             # not sink its siblings - it is answered as failed, by path, and
             # the caller offers to try just those again.
             failed.append(root)
             continue
+        listing = outcome
         scanned.append(root)
         # The folder's own path says whose files these are (an entity's
         # subtree, a facility's, a project's) - never guessed from words.
@@ -503,14 +538,22 @@ def apply(body: ApplyBody, request: Request, user: dict = Depends(require_writer
                     # idempotent per level (an existing folder answers 403/405,
                     # which the service reads as "it exists", not an error).
                     parts = [p for p in dest.split("/") if p]
-                    for i in range(2, len(parts) + 1):
-                        _egnyte(token, svc.create_folder, "/" + "/".join(parts[:i]))
+                    for depth in range(2, len(parts) + 1):
+                        _egnyte(token, svc.create_folder, "/" + "/".join(parts[:depth]))
                     listed[dest] = set()
-            if name.lower() in listed[dest]:
+            src_folder, src_name = src.rsplit("/", 1)
+            in_place = src_folder == dest
+            # A rename in place that only changes letter case would otherwise
+            # collide with the file itself - the one name that is "taken" by
+            # the very file being renamed.
+            self_hit = in_place and name.lower() == src_name.lower()
+            if name.lower() in listed[dest] and not self_hit:
                 results.append({"sourcePath": src, "ok": False,
                                 "error": "a file with that name is already there"})
                 continue
             _egnyte(token, svc.move_item, src, f"{dest}/{name}")
+            if in_place:
+                listed[dest].discard(src_name.lower())   # the old name is free again
             listed[dest].add(name.lower())
         except HTTPException as exc:
             results.append({"sourcePath": src, "ok": False, "error": str(exc.detail)})

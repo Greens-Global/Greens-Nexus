@@ -56,6 +56,8 @@ export const candName = c => [c.firstName, c.lastName].filter(Boolean).join(' ')
 // that follows it - it goes out by itself once the candidate has signed. The
 // candidate is the offer's only signer (Neil, Oct 22 2026); a company step
 // shows only on an offer sent before that, where HR signed too.
+// Hiring Progress (Neil, 11/04/2026): every step to come is listed from the
+// start, grey until it is done - through the hiring packet to the end.
 export function offerSteps(events, firstName = '') {
   const all = events || [];
   const offers = all.filter(e => e.kind === 'offer');
@@ -83,17 +85,38 @@ export function offerSteps(events, firstName = '') {
     !companyFirst && companyStep,
     { key: 'packet', label: hire ? 'Hiring packet sent' : stuck ? `Hiring packet did not start - ${stuck.message}` : `Hiring packet - goes out by itself once ${who === 'The candidate' ? 'they have' : `${who} has`} signed`,
       done: !!hire, error: !hire && !!stuck, at: when(hire?.createdAt) },
+    ...packetSteps(hire, who),
   ].filter(Boolean);
   const ended = ['declined', 'expired'].includes(ev.status) ? ev.status : '';
   return { steps, ended, declineReason: ev.declineReason || '' };
+}
+
+// The hiring packet's own steps - listed (not done) before it exists.
+function packetSteps(hire, who) {
+  const parties = hire?.parties || [];
+  const cand = parties.find(p => p.isSubject);
+  const company = parties.filter(p => !p.isSubject && ['signer', 'countersigner', 'witness'].includes(p.partyRole || 'signer'));
+  const finished = hire?.status === 'completed';
+  const filled = !!hire && hire.status !== 'intake';
+  const signed = finished || !!cand?.signedAt;
+  const countersigned = finished || (company.length > 0 && company.every(p => p.signedAt));
+  const when = (iso) => (iso ? formatDateTime(iso) : '');
+  return [
+    { key: 'details', label: filled ? `Details filled in by ${who}` : `Waiting for ${who} to fill in their details`, done: filled },
+    { key: 'packetSigned', label: signed ? `Hiring packet signed by ${who}` : `Waiting for ${who} to sign the hiring packet`,
+      done: signed, at: when(cand?.signedAt) },
+    company.length > 0 && { key: 'countersigned', label: countersigned ? 'Countersigned by the company' : 'Waiting for the company to countersign',
+      done: countersigned, at: when(company.map(p => p.signedAt).filter(Boolean).sort().pop()) },
+    { key: 'complete', label: finished ? 'Hiring complete' : 'Hiring complete - once every document is signed', done: finished, at: when(hire?.completedAt) },
+  ];
 }
 
 function OfferProgress({ events, firstName }) {
   const st = offerSteps(events, firstName);
   if (!st) return null;
   return (
-    <div role="list" aria-label="Offer progress" style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 12, display: 'grid', gap: 8 }}>
-      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Offer Progress</div>
+    <div role="list" aria-label="Hiring progress" style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 12, display: 'grid', gap: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Hiring Progress</div>
       {st.ended && (
         <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', fontWeight: 600 }}>
           The offer was {st.ended}{st.declineReason ? ` - ${st.declineReason}` : ''}. Make the offer again to continue.

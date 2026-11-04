@@ -477,6 +477,12 @@ class CompensationSaveTests(unittest.TestCase):
             self._save(db, HOURLY, {"base": 26, "payBasis": "hourly", "currency": "USD", "effectiveDate": "2026-10-15"})
             rows = hr._rate_history_rows(db, HOURLY)
             self.assertEqual([(r.effective_date, r.hourly_rate) for r in rows], [("", 20.0), ("2026-10-15", 26.0)])
+            # 11/04/2026: a correction by someone else names them, not the row's first author.
+            self._save(db, HOURLY, {"base": 27, "payBasis": "hourly", "currency": "USD", "effectiveDate": "2026-10-15"},
+                       by="other.hr@greensglobal.com")
+            self.assertEqual(hr._rate_history_rows(db, HOURLY)[-1].created_by, "other.hr@greensglobal.com")
+            self._save(db, HOURLY, {"base": 26, "payBasis": "hourly", "currency": "USD", "effectiveDate": "2026-10-15"})
+            rows = hr._rate_history_rows(db, HOURLY)
             # Benefits-only save (pay unchanged): nothing appended.
             self._save(db, HOURLY, {"base": 26, "payBasis": "hourly", "currency": "USD", "effectiveDate": "2026-11-01"})
             self.assertEqual(len(hr._rate_history_rows(db, HOURLY)), 2)

@@ -7,7 +7,7 @@ one wall the rest of Nexus uses (auth.company_scope / company_ok): a
 manager in one company never sees, reviews or publishes another company's
 job. A new job is stamped with its creator's company; older jobs are filled
 once at startup by `backfill` - from the creator's company, else from the
-linked Asset Management property's entity (matched to a company by name).
+linked Asset Management property's company (its Company field - property_links.property_company).
 A job nothing can place keeps '' and is visible only to callers the walls
 do not confine (company_ok's default for an untagged record).
 
@@ -60,25 +60,19 @@ def _entity_ids_by_name(db: Session) -> dict:
 
 
 def company_from_property(db: Session, property_id: str, names: dict | None = None) -> str:
-    """The company of an Asset Management property: its `entity` (a company
-    name) matched to exactly one HrEntity. '' when the property names none we
-    know, or a name more than one company carries."""
+    """The company of an Asset Management property - its Company field, the
+    ONE answer (property_links.property_company, Neil 11/03/2026), which
+    falls back to the old inference only while the field is blank. '' when
+    nothing places it. `names` is kept for older callers and not needed."""
     pid = (property_id or "").strip()
     if not pid:
         return ""
-    prop = db.get(models.PropertyAsset, pid)
-    if prop is None:
-        return ""
-    entity = _key((prop.payload or {}).get("entity"))
-    if not entity:
-        return ""
-    names = names if names is not None else _entity_ids_by_name(db)
-    hit = names.get(entity, "")
-    return "" if hit is AMBIGUOUS else hit
+    import property_links
+    return property_links.property_company(db, db.get(models.PropertyAsset, pid))
 
 
 def derive(db: Session, project, names: dict | None = None) -> tuple:
-    """(company id, source) for a project: its property's entity, else its
+    """(company id, source) for a project: its property's company, else its
     creator's company; ('', '') when neither places it."""
     from auth import company_of
     by_property = company_from_property(db, project.property_id, names)

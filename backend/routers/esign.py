@@ -1880,7 +1880,7 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                     document_class: str = "", governing_law: str = "",
                     link_kind: str = "", link_id: str = "",
                     sender_signs_first: bool = False, prints_pay: bool = False,
-                    saved: Optional[dict] = None) -> dict:
+                    saved: Optional[dict] = None, in_person: bool = False, in_flow: bool = False) -> dict:
     # Server-side, at the one point BOTH send paths reach: a guardrail that
     # lives only in the wizard is not a guardrail - the API is reachable
     # without it, and this is the check that keeps a will or an eviction
@@ -1971,6 +1971,17 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
         # the send screen takes them straight to the signing view.
         if sender_signs_first and r.kind == "internal" and r.email == (user["email"] or "").lower():
             _log(db, req.id, "sent", f"{r.name} signs at send (sender)", party_id=r.id)
+            continue
+        # Signed in person (Pranshu / Neil, 11/04/2026): HR prints it and
+        # records the wet signature - the first signer is not emailed, and
+        # (no "sent" event) the automatic chase never emails them either.
+        if in_person:
+            _log(db, req.id, "in_person", f"{r.name} signs in person on paper - not emailed", party_id=r.id)
+            continue
+        # Straight on from their details form (Pranshu, 11/04/2026: "I don't
+        # want that candidate should get another email for the hiring packet").
+        if in_flow:
+            _log(db, req.id, "in_flow", f"{r.name} signs straight after their details form - not emailed", party_id=r.id)
             continue
         _notify_party(db, r, req, sender_name)
     db.commit()
@@ -2085,7 +2096,7 @@ def envelope_from_documents(db: Session, user: dict, *, documents: list, parties
                             document_class: str = "employment", link_kind: str = "",
                             link_id: str = "", sender_signs_first: bool = False,
                             prints_pay: bool = False, saved: Optional[dict] = None,
-                            egnyte_folder: str = "") -> dict:
+                            egnyte_folder: str = "", in_person: bool = False, in_flow: bool = False) -> dict:
     """Server-rendered documents - HR packets built from the Documents module
     (Oct 14). Each {name, path, fields} is a PDF already in _DOC_BUCKET with its
     fields placed from the template's signature blocks. The first is the
@@ -2104,7 +2115,7 @@ def envelope_from_documents(db: Session, user: dict, *, documents: list, parties
                            user_agent=user_agent, documents=rest, routing="sequential",
                            egnyte_folder=egnyte_folder or "", excluded_ack=excluded_ack, document_class=document_class,
                            link_kind=link_kind, link_id=link_id, sender_signs_first=sender_signs_first,
-                           prints_pay=prints_pay, saved=saved)
+                           prints_pay=prints_pay, saved=saved, in_person=in_person, in_flow=in_flow)
 
 
 @router.post("/requests")
@@ -4027,6 +4038,19 @@ PAPER_FIELD_ID = "__paper_return__"
 
 def _apply_paper_return(db: Session, req: HrSignRequest, party: HrSignParty,
                         upload: UploadFile, ip: str, ua: str) -> dict:
+    _paper_checks(db, req, party)
+    # Consent still comes first - agreeing to transact electronically covers
+    # receiving the document and returning it through this service, and the
+    # disclosure is where the right to a paper copy is stated in the first
+    # place. The one-time code is NOT required here: the wet signature on the
+    # page is the authentication, and demanding a code from someone who has
+    # just told us they would rather not do this online defeats the option.
+    _require_consented(db, req, party)
+    return _record_paper(db, req, party, upload, ip, ua,
+                         how="returned a signed paper copy", check="verified by the document itself rather than a one-time code")
+
+
+def _paper_checks(db: Session, req: HrSignRequest, party: HrSignParty) -> None:
     _check_expiry(db, req)
     if req.status != "pending":
         raise HTTPException(409, f"This document is {req.status}")
@@ -4036,14 +4060,20 @@ def _apply_paper_return(db: Session, req: HrSignRequest, party: HrSignParty,
         raise HTTPException(409, "You have already signed this document.")
     if not _its_their_turn(req, party):
         raise HTTPException(409, "It is not your turn to sign yet.")
-    # Consent still comes first - agreeing to transact electronically covers
-    # receiving the document and returning it through this service, and the
-    # disclosure is where the right to a paper copy is stated in the first
-    # place. The one-time code is NOT required here: the wet signature on the
-    # page is the authentication, and demanding a code from someone who has
-    # just told us they would rather not do this online defeats the option.
-    _require_consented(db, req, party)
 
+
+def record_in_person(db: Session, req: HrSignRequest, party: HrSignParty, upload: UploadFile,
+                     by_name: str, ip: str, ua: str) -> dict:
+    """HR records a signature made face to face on paper (11/04/2026): the
+    person never transacted electronically, so no consent is asked of them -
+    the scan is the evidence and the log names who received it."""
+    _paper_checks(db, req, party)
+    return _record_paper(db, req, party, upload, ip, ua, how="signed on paper in person",
+                         check=f"the scan received and uploaded by {by_name}")
+
+
+def _record_paper(db: Session, req: HrSignRequest, party: HrSignParty, upload: UploadFile,
+                  ip: str, ua: str, *, how: str, check: str) -> dict:
     blob = upload.file.read()
     clean, ctype = sign_uploads.check(upload.filename or "signed.pdf", blob)
     path = f"esign/{req.id}/paper/{party.id}-{uuid.uuid4()}-{clean}"
@@ -4070,9 +4100,8 @@ def _apply_paper_return(db: Session, req: HrSignRequest, party: HrSignParty,
     party.status = "signed"
     party.ip, party.user_agent = ip, ua
     _log(db, req.id, "signed",
-         f'{party.name} returned a signed paper copy ("{clean}", sha256 '
-         f'{party.signature_digest[:16]}...) - wet signature, verified by the '
-         f'document itself rather than a one-time code',
+         f'{party.name} {how} ("{clean}", sha256 '
+         f'{party.signature_digest[:16]}...) - wet signature, {check}',
          party_id=party.id, ip=ip, user_agent=ua)
     remaining = _advance_or_finalize(db, req)
     db.commit()
@@ -4096,6 +4125,8 @@ def _apply_paper_return(db: Session, req: HrSignRequest, party: HrSignParty,
 _HISTORY_LABELS = {
     "created":      "Envelope created",
     "sent":         "Invitation sent",
+    "in_person":    "To be signed in person",
+    "in_flow":      "Opened from the details form",
     "viewed":       "Document viewed",
     "consented":    "Electronic records disclosure accepted",
     "otp_sent":     "Verification code sent",

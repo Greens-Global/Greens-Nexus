@@ -150,6 +150,22 @@ class SinceOnRowsTests(_Case):
         self.assertEqual(row["since"], T1)
         self.assertTrue(_parses(row["since"]))
 
+    def test_declined_and_completed_rows_open_their_own_envelope(self):
+        """11/05/2026: both rows linked the bare signatures page; each opens
+        its envelope (?request=<id>, the link Nexus Sign's own email uses)."""
+        done, declined = gen_id(), gen_id()
+        self.db.add(models.HrSignRequest(id=done, title="Lease", status="completed", routing="sequential",
+                                         created_by=ME, created_at=T1, completed_at="2026-10-20T00:00:00"))
+        self.db.add(models.HrSignRequest(id=declined, title="Offer", status="declined", routing="sequential",
+                                         created_by=ME, created_at=T1))
+        self.db.add(models.HrSignEvent(id=gen_id(), request_id=declined, type="declined", at="2026-10-20T00:00:00"))
+        self.db.commit()
+        since = "2026-10-19T00:00:00"
+        [row] = daily_briefing._esign_completed_rows(self.db, ME, since)
+        self.assertTrue(row["url"].endswith(f"/documents/documents-esign-requests?request={done}"))
+        [row] = daily_briefing._esign_needs_to_know_rows(self.db, ME, since)
+        self.assertTrue(row["url"].endswith(f"/documents/documents-esign-requests?request={declined}"))
+
     def test_a_row_with_no_source_timestamp_has_no_since(self):
         t = self._approval(created_at="")
         row = next(r for r in self._red() if r.get("task_id") == t.id)

@@ -345,6 +345,15 @@ function TemplatePanel({ template: t, onClose, onEdit, onUse, onDepartment, onCh
   );
 }
 
+function templateFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get('template');
+    if (id) { url.searchParams.delete('template'); window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash); }
+    return id || null;
+  } catch { return null; }
+}
+
 export default function DocumentTemplates({ employees = [], entities = [], toastOk, toastErr }) {
   const isMobile = useIsMobile();
   const [category, setCategory] = useState('');
@@ -356,7 +365,8 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
   const [createOpen, setCreateOpen] = useState(false);
   const [wordOpen, setWordOpen] = useState(false);       // New template from a Word file (Oct 14)
   // Open In Documents from an HR packet (Oct 14) lands straight in the editor.
-  const [editingId, setEditingId] = useState(() => takePendingOpen('doc-template'));
+  // ?template=<id> opens one in a new tab (Make An Offer's Preview, Neil 11/04/2026).
+  const [editingId, setEditingId] = useState(() => takePendingOpen('doc-template') || templateFromUrl());
   const [selectedId, setSelectedId] = useState('');
   const [useId, setUseId] = useState('');
   const [departmentOf, setDepartmentOf] = useState(null);

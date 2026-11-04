@@ -908,6 +908,11 @@ export const api = {
   saveAssetChanges:      (ops) => req("/property-assets/changes", { method: "POST", body: JSON.stringify(ops), timeoutMs: 60_000 }),
   // Per-asset tile numbers: { id: { occupancy, units, percentComplete } } for the assets the caller may see.
   getAssetMetrics:       ()    => req("/property-assets/metrics"),
+  // The Company picker (11/03/2026): { companies: [{ id, name, assignable }], canClear }.
+  getAssetCompanies:     ()    => cachedGet("/property-assets/companies", 120_000),
+  // Find Folder on an asset's Egnyte Folder (11/03/2026): the folders whose name could be
+  // the asset's (or `q`'s) - { configured, site, roots, pinned, pinnedFound, match, why, candidates, message }.
+  findAssetEgnyteFolders: (id, q = "") => req(`/property-assets/${encodeURIComponent(id)}/egnyte-folders${q ? `?q=${encodeURIComponent(q)}` : ""}`, { timeoutMs: 45_000 }),
 
   // External Links
   getExternalLinks: () => req("/external-links"),
@@ -2550,6 +2555,9 @@ export const api = {
   patchPacketValues:   (eid, data) => req(`/hr/life-events/${eid}/values`, { method: 'PATCH', body: JSON.stringify(data) }),
   regeneratePacket:    (eid) => req(`/hr/life-events/${eid}/regenerate`, { method: 'POST' }),
   packetDocumentPdf:   (eid, did) => reqBlob(`/hr/life-events/${eid}/documents/${did}/pdf`),
+  // Print And Send (11/04/2026): signed in person - print it, then upload the signed copy.
+  printInPerson:       (eid)      => reqBlob(`/hr/life-events/${eid}/print`),
+  uploadSignedInPerson: (eid, file) => { const fd = new FormData(); fd.append('file', file); return req(`/hr/life-events/${eid}/signed-in-person`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
   offerJdFilePdf:      (eid)      => reqBlob(`/hr/life-events/${eid}/jd-file`),
   verifyAndSendPacket: (eid, data) => req(`/hr/life-events/${eid}/verify-and-send`, { method: 'POST', body: JSON.stringify(data) }),
   // Ask the candidate for their details again - a fresh link, the old one dead.
@@ -2648,6 +2656,8 @@ export const api = {
   // sent to the verifier; after-offer: start the packet when it could not start itself.
   offerOptions:        (cid, params = {}) => req(`/hr/candidates/${cid}/offer/options?${new URLSearchParams(params)}`),
   startOffer:          (cid, data) => req(`/hr/candidates/${cid}/offer/start`, { method: 'POST', body: JSON.stringify(data) }),
+  // Preview before Create (Neil, 11/04/2026): the letter + job description as Create would make them; nothing is saved.
+  previewOffer:        (cid, data) => req(`/hr/candidates/${cid}/offer/preview`, { method: 'POST', body: JSON.stringify(data) }),
   startPacketAfterOffer: (cid) => req(`/hr/candidates/${cid}/hiring-packet/after-offer`, { method: 'POST' }),
   // File Manually (Oct 15 2026): automatic Egnyte filing failed - HR names the folder.
   fileLifeEventManually: (eid, folder) => req(`/hr/life-events/${eid}/file-manually`, { method: 'POST', body: JSON.stringify({ folder }) }),

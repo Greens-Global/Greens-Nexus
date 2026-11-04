@@ -16,22 +16,31 @@
 //     hired, and the hiring packet starts by itself.
 // Problems show only when Continue is pressed, on the step they belong to.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info } from 'lucide-react';
+import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info, RefreshCw, ExternalLink } from 'lucide-react';
 import { api } from '../api';
 import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { DateField } from '../tasks/components';
-import { US_STATE_NAMES } from '../lib/usStates';
+import { worksInLabel } from '../lib/usStates';
+import WorksInSelect from './WorksInSelect';
 import { leadsFor } from './HiringSchedule';
 
 const OTHER_ROLE = '__other__';
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
 const COUNTRY_NAMES = { US: 'United States', IN: 'India', CA: 'Canada', GB: 'United Kingdom', AE: 'United Arab Emirates', PH: 'Philippines', MX: 'Mexico', AU: 'Australia' };
 const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
-const SCHEDULE = ['work_schedule', 'work_hours', 'work_days'];
-const STEPS = [['who', 'Who You Are Hiring'], ['offer', 'The Offer'], ['questions', 'Questions']];
+// Preview before Create (Neil, 11/04/2026): the letter and job description as they will go, with Back to fix.
+const STEPS = [['who', 'Who You Are Hiring'], ['offer', 'The Offer'], ['questions', 'Questions'], ['preview', 'Preview']];
+// What follows the letter, in the role's order (Pranshu, 11/04/2026): "offer letter, NDA then Job description".
+const offerAfter = (role, jdFile) => {
+  const order = role?.offerDocs?.length ? role.offerDocs : [{ kind: 'jd' }];
+  return order.map(d => (d.kind === 'jd' ? (jdFile ? `the job description (${jdFile})` : 'the job description') : d.name || 'a role document'))
+    .join(', then ');
+};
+// A template opens in Documents in its own browser tab, so this offer keeps everything typed.
+const openTemplate = (id) => window.open(`/documents/documents-templates?template=${encodeURIComponent(id)}`, '_blank', 'noopener');
 
 const lbl = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '18px 0 6px' };
 const hint = { fontSize: 12.5, color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 };
@@ -72,7 +81,8 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const [step, setStep] = useState('who');
   const [tried, setTried] = useState(false);
   // Where they work picks the paperwork - country AND state (Neil, Oct 22).
-  const [who, setWho] = useState({ worker_type: '', employment_type: 'full_time', country: '', region: '' });
+  // Works In defaults to United States - CA (Neil, 11/04/2026).
+  const [who, setWho] = useState({ worker_type: '', employment_type: 'full_time', country: 'US', region: 'CA' });
   const [f, setF] = useState(() => ({
     role_id: c.roleId || (c.roleTitle ? OTHER_ROLE : ''), new_role_name: c.roleId ? '' : (c.roleTitle || ''),
     department: c.department || '', start_date: (c.expectedStart || '').slice(0, 10),
@@ -93,6 +103,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const [chosenId, setChosenId] = useState('');         // HR picked another offer letter by hand
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pv, setPv] = useState(null);           // the preview: {loading} | {url, unfilled} | {error}
   const autoMgr = useRef('');                          // the supervisor Nexus filled in, not HR
 
   useEffect(() => {
@@ -118,7 +129,10 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   // role's own file when it has one, else its duties printed by the Job Description document.
   const pickedRole = roles.roles.find(r => r.id === roleId);
   const jdFile = pickedRole?.jdFile || '';
-  const noDuties = isOther ? !newDuties.trim() : !!pickedRole && !pickedRole.hasDuties;
+  // A role whose job description lives in Documents brings that template, live (11/04/2026).
+  const roleJd = !jdFile && pickedRole?.jdTemplateId ? pickedRole.jdTemplateId : '';
+  useEffect(() => { if (roleJd) setJdId(roleJd); }, [roleJd]);
+  const noDuties = isOther ? !newDuties.trim() : !!pickedRole && !pickedRole.hasDuties && !roleJd;
   // Which letter - re-read whenever HR changes who they are hiring or where.
   useEffect(() => {
     let alive = true;
@@ -148,7 +162,6 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   // A role whose department has no head: back to Head of HR, never a refused send.
   useEffect(() => { if (opts && !opts.offerFrom?.department_head?.email) setF(p => (p.offer_from === 'hr' ? p : { ...p, offer_from: 'hr' })); }, [opts]);
   const contractor = who.worker_type === 'contractor';
-  const countries = useMemo(() => [...new Set([opts?.companyCountry, 'US', 'IN', who.country].filter(Boolean))], [opts, who.country]);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   // Supervisor = the role's default, else the department head (Neil, Oct 22). One Nexus
   // filled in follows a role or department change; one HR picked by hand is kept.
@@ -182,31 +195,50 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
       !jdFile && noDuties && (isOther ? 'Type the new role\'s duties.' : `${pickedRole?.name || 'This role'} has no job description yet - add it under Settings > People & Access > Roles.`),
     ],
     questions: questions.filter(q => q.required && !(q.pay && !canSeePay) && !String(answers[q.token] || '').trim()).map(q => `Answer ${q.label}.`),
+    preview: [],
   };
   const stepProblems = (k) => problemsFor[k].filter(Boolean);
   const stepIndex = STEPS.findIndex(([k]) => k === step);
   const goTo = (k) => { setStep(k); setTried(false); };
   const next = () => {
     if (stepProblems(step).length) { setTried(true); return; }
-    goTo(STEPS[stepIndex + 1][0]);
+    const to = STEPS[stepIndex + 1][0];
+    goTo(to);
+    if (to === 'preview') loadPreview();
   };
+
+  // What Preview and Create both send - the preview is the letter Create makes.
+  const offerBody = () => {
+    const plain = Object.fromEntries(questions.filter(q => !q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v));
+    const payQs = canSeePay ? Object.fromEntries(questions.filter(q => q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v)) : {};
+    return {
+      inputs: { ...f, ...who, role_id: roleId, new_role_name: isOther ? f.new_role_name.trim() : '',
+                ...timing,
+                jd_template_id: jdFile ? '' : jdId, new_role_duties: isOther ? newDuties.trim() : '',
+                packet_id: chosenId, merge: plain },
+      pay: canSeePay && String(pay.base).trim() ? { ...pay, base: Number(pay.base) } : null,
+      pay_values: Object.keys(payQs).length ? payQs : null,
+      details: { first_name: person.first_name.trim(), last_name: person.last_name.trim(), ...(prints.has('address') ? { address: person.address.trim() } : {}) },
+    };
+  };
+
+  async function loadPreview() {
+    setPv({ loading: true });
+    try {
+      const out = await api.previewOffer(c.id, offerBody());
+      const bytes = Uint8Array.from(atob(out.pdf || ''), ch => ch.charCodeAt(0));
+      setPv({ url: URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })), unfilled: out.unfilled || [] });
+    } catch (e) { setPv({ error: e?.message || 'Could not build the preview.' }); }
+  }
+  // Each preview's file is let go when the next one replaces it, or on close.
+  useEffect(() => () => { if (pv?.url) URL.revokeObjectURL(pv.url); }, [pv]);
 
   async function create() {
     const bad = STEPS.find(([k]) => stepProblems(k).length);
     if (bad) { setStep(bad[0]); setTried(true); return; }
     setBusy(true);
     try {
-      const plain = Object.fromEntries(questions.filter(q => !q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v));
-      const payQs = canSeePay ? Object.fromEntries(questions.filter(q => q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v)) : {};
-      const ev = await api.startOffer(c.id, {
-        inputs: { ...f, ...who, role_id: roleId, new_role_name: isOther ? f.new_role_name.trim() : '',
-                  ...(SCHEDULE.some(k => prints.has(k)) ? timing : {}),
-                  jd_template_id: jdFile ? '' : jdId, new_role_duties: isOther ? newDuties.trim() : '',
-                  packet_id: chosenId, merge: plain },
-        pay: canSeePay && String(pay.base).trim() ? { ...pay, base: Number(pay.base) } : null,
-        pay_values: Object.keys(payQs).length ? payQs : null,
-        details: { first_name: person.first_name.trim(), last_name: person.last_name.trim(), ...(prints.has('address') ? { address: person.address.trim() } : {}) },
-      });
+      const ev = await api.startOffer(c.id, offerBody());
       onStarted(ev);
     } catch (e) { toastErr?.(e?.message || 'Could not make the offer.'); setBusy(false); }
   }
@@ -233,16 +265,8 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             </select></div>
         )}
         <div><label style={lbl} htmlFor="of-country">Works In</label>
-          <select id="of-country" className="form-input" style={{ width: '100%' }} value={who.country} onChange={e => setWho(w => ({ ...w, country: e.target.value, region: '' }))}>
-            {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
-          </select></div>
-        {who.country === 'US' && (
-          <div><label style={lbl} htmlFor="of-region">State</label>
-            <select id="of-region" className="form-input" style={{ width: '100%' }} value={who.region} onChange={e => setWho(w => ({ ...w, region: e.target.value }))}>
-              <option value="">- pick the state -</option>
-              {Object.entries(US_STATE_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
-            </select></div>
-        )}
+          <WorksInSelect id="of-country" country={who.country} region={who.region} countryNames={COUNTRY_NAMES}
+            onChange={place => setWho(w => ({ ...w, ...place }))} /></div>
         <div><label style={lbl} htmlFor="of-role">Role</label>
           <select id="of-role" className="form-input" style={{ width: '100%' }} value={f.role_id} onChange={e => pickRole(e.target.value)}>
             <option value="">- pick the role -</option>
@@ -268,7 +292,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             <>
               <div><CheckCircle size={14} style={{ verticalAlign: 'middle', color: 'hsl(var(--color-green))', marginRight: 6 }} /><b>Offer letter:</b> {letter.name}</div>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                After the letter: {jdFile ? `the role's job description file (${jdFile})` : 'the role\'s job description'}, with a box {first} ticks to say they read it.
+                After the letter: {offerAfter(pickedRole, jdFile)}, with a box {first} ticks to say they read the job description.
               </div>
               <div style={{ marginTop: 4 }}>
                 {packet ? <>
@@ -300,7 +324,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
               <label style={{ ...lbl, margin: '0 0 6px' }} htmlFor="of-letter">Use A Different Offer Letter</label>
               <select id="of-letter" className="form-input" style={{ width: '100%' }} value={chosenId} onChange={e => setChosenId(e.target.value)}>
                 <option value="">The one Nexus picks for this hire</option>
-                {opts.choices.map(x => <option key={x.id} value={x.id}>{x.name}{x.workerType !== 'any' ? ` - ${x.workerType === 'contractor' ? 'Contractors' : 'Employees'}` : ''}{x.country ? ` (${COUNTRY_NAMES[x.country] || x.country})` : ''}</option>)}
+                {opts.choices.map(x => <option key={x.id} value={x.id}>{x.name}{x.workerType !== 'any' ? ` - ${x.workerType === 'contractor' ? 'Contractors' : 'Employees'}` : ''}{x.country ? ` (${worksInLabel(x.country, x.region, COUNTRY_NAMES)})` : ''}</option>)}
               </select>
             </div>
           )}
@@ -385,9 +409,9 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
         </div>
       ) : <div style={hint}>Pay &amp; Benefits access is needed to enter pay - whoever checks the offer adds it before sending.</div>}
 
-      {SCHEDULE.some(k => prints.has(k)) && (
-        <>
-          <label style={{ ...lbl, marginTop: 26 }}>Work Hours And Days</label>
+      {/* Always asked (Neil, 11/04/2026: "I didn't see that as an option") - it shows under Check What Is Printed. */}
+      <>
+          <label style={{ ...lbl, marginTop: 26 }}>Timings</label>
           <div style={{ ...grid, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
             <div><label style={{ ...hint, marginTop: 0, marginBottom: 4, display: 'block' }} htmlFor="of-from">From</label>
               <input id="of-from" type="time" className="form-input" style={{ width: '100%' }} value={timing.work_start} onChange={e => setTiming(t => ({ ...t, work_start: e.target.value }))} /></div>
@@ -402,8 +426,10 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
                   background: on ? 'var(--pine)' : 'var(--card)', color: on ? '#fff' : 'var(--ink)' }}>{l}</button>;
             })}
           </div>
-        </>
-      )}
+          <label style={{ ...hint, marginTop: 10, marginBottom: 4, display: 'block' }} htmlFor="of-timings">Or Describe The Timings</label>
+          <input id="of-timings" className="form-input" style={{ width: '100%' }} value={timing.timings_text}
+            onChange={e => setTiming(t => ({ ...t, timings_text: e.target.value }))} placeholder="e.g. Rotating shifts, 40 hours a week" />
+      </>
 
       {jdFile ? (
         <div><div style={{ ...lbl, marginTop: 26 }}>Job Description</div>
@@ -411,11 +437,13 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           <div style={hint}>{pickedRole.name}&apos;s own file - sent after the offer letter exactly as uploaded, with a box {first} ticks to say they read it.</div></div>
       ) : (
         <div><label style={{ ...lbl, marginTop: 26 }} htmlFor="of-jd">Job Description</label>
-          <select id="of-jd" className="form-input" style={{ width: '100%', maxWidth: 420 }} value={jdId} onChange={e => setJdId(e.target.value)}>
+          <select id="of-jd" className="form-input" style={{ width: '100%', maxWidth: 420 }} value={jdId} onChange={e => setJdId(e.target.value)} disabled={!!roleJd}>
             <option value="">- pick the document -</option>
             {jds.map(t => <option key={t.id} value={t.id}>{t.name}{t.publishedVersion ? '' : ' (Not Published)'}</option>)}
           </select>
-          <div style={hint}>Prints the role&apos;s duties after the offer letter, with a box {first} ticks to say they read it.</div>
+          <div style={hint}>{roleJd
+            ? <>{pickedRole.name}&apos;s job description from Documents - its published wording goes after the offer letter, with a box {first} ticks to say they read it.</>
+            : <>Prints the role&apos;s duties after the offer letter, with a box {first} ticks to say they read it.</>}</div>
           {isOther && (
             <>
               <label style={{ ...lbl, marginTop: 14 }} htmlFor="of-duties">Duties For {f.new_role_name.trim() || 'The New Role'}</label>
@@ -424,7 +452,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
               <div style={hint}>Saved on the new role too, so the next offer for it has them.</div>
             </>
           )}
-          {!isOther && pickedRole && !pickedRole.hasDuties && (
+          {!isOther && pickedRole && !pickedRole.hasDuties && !roleJd && (
             <Warn>{pickedRole.name} has no job description yet - type its duties or upload a file under Settings &gt; People &amp; Access &gt; Roles.</Warn>
           )}</div>
       )}
@@ -469,8 +497,32 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
     </>
   );
 
-  const body = { who: whoStep, offer: offerStep, questions: questionsStep }[step];
-  const last = step === 'questions';
+  // ── step 4: preview ──
+  const letterTpl = (letter?.templateIds || [])[0] || '';
+  const previewStep = (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+      <h2 style={h2}>Check the offer before it is made</h2>
+      <p style={lead}>The offer letter and the job description exactly as {first} will get them. Nothing is saved yet - go Back to change an answer,
+        or open a document in Documents to change its wording, then Refresh.</p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+        <button type="button" className="secondary-btn" onClick={loadPreview} disabled={!!pv?.loading} style={smallBtn}>
+          {pv?.loading ? <Spinner size={13} /> : <RefreshCw size={13} />} Refresh
+        </button>
+        {letterTpl && <button type="button" className="secondary-btn" onClick={() => openTemplate(letterTpl)} style={smallBtn}><ExternalLink size={13} /> Edit Offer Letter In Documents</button>}
+        {!jdFile && jdId && <button type="button" className="secondary-btn" onClick={() => openTemplate(jdId)} style={smallBtn}><ExternalLink size={13} /> Edit Job Description In Documents</button>}
+      </div>
+      {jdFile && <div style={hint}>The job description is {pickedRole?.name || 'the role'}&apos;s own file - change it under Settings &gt; People &amp; Access &gt; Roles &gt; Job Description.</div>}
+      {pv?.unfilled?.length > 0 && <Warn>These print blank: {pv.unfilled.join(', ')}. Go Back and fill them, or fix the template.</Warn>}
+      {pv?.error && <Warn>{pv.error}</Warn>}
+      <div className="nx-fill" style={{ flex: 1, minHeight: 420, marginTop: 12, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden', display: 'flex' }}>
+        {pv?.url ? <iframe title="Offer letter preview" src={pv.url} style={{ flex: 1, border: 'none' }} />
+          : <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{pv?.loading ? <Spinner size="section" /> : null}</div>}
+      </div>
+    </div>
+  );
+
+  const body = { who: whoStep, offer: offerStep, questions: questionsStep, preview: previewStep }[step];
+  const last = step === 'preview';
 
   return (
     <div onClick={e => e.target === e.currentTarget && !busy && onClose()}

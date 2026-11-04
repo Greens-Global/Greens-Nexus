@@ -43,7 +43,6 @@ import { useIsMobile } from '../lib/useIsMobile';
 // To..."), Known Issues and "Expect a reply by" - each its own file in support/.
 import HelpCenterSearch from '../support/HelpCenterSearch';
 import HowDoI from '../support/HowDoI';
-import KnownIssuesBanner from '../support/KnownIssues';
 import ExpectReply from '../support/ExpectReply';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
@@ -596,7 +595,6 @@ export default function Support({ activeSub, onSubChange }) {
         </div>
       </div>
 
-      <KnownIssuesBanner />
       <HelpCenterSearch onFileTicket={(seed) => setSubmitting(seed || true)} />
 
       <div className="support-grid" data-tour="support-options">
@@ -616,10 +614,9 @@ export default function Support({ activeSub, onSubChange }) {
             <p className="support-card-desc">{o.desc}</p>
           </button>
         ))}
-        {/* "How Do I..." (Neil, 11/02/2026): the old "I Need To..." strip of
-            seven small cards, now ONE tile in this grid spanning its full
-            width - a question per row, the answer and its button on a
-            dropdown. On phones it renders after the tickets (below). */}
+        {/* "How Do I..." (Neil, 11/02/2026; a tile in this row since
+            11/04/2026): the questions as compact rows, an answer opening
+            inside the tile. On phones it renders after the tickets (below). */}
         {!isPhone && <HowDoI onTicket={(seed) => setSubmitting(seed || true)} />}
       </div>
 

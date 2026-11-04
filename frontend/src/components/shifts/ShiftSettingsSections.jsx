@@ -678,6 +678,16 @@ export function ShiftTypesPanel({ toastOk, toastErr, company: scoped }) {
   // Whether the API lets this viewer add / edit / delete shift types at all
   // (a plain manager cannot since Phase 0); an older API says nothing = yes.
   const [canManage, setCanManage] = useState(true);
+  // The teams a type is for (11/04/2026): the planner offers a type only on
+  // these teams' rows; none picked = every team. A failed load hides the
+  // picker and the save leaves the teams as they are.
+  const [teams, setTeams] = useState(null);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(api.timeShiftGroups?.()).then((r) => { if (live) setTeams(orderGroups(r?.groups || []).filter((g) => !g.archived)); }).catch(() => { if (live) setTeams(null); });
+    return () => { live = false; };
+  }, []);
+  const teamName = (id) => teams?.find((g) => g.id === id)?.name || '';
   const failed = useRef('');
   useEffect(() => {
     let live = true;
@@ -702,6 +712,7 @@ export function ShiftTypesPanel({ toastOk, toastErr, company: scoped }) {
     setBusy(true);
     try {
       const payload = { ...form, company_id: form.company_id || '' };
+      if (teams) payload.group_ids = form.group_ids || []; else delete payload.group_ids;
       if (form.id) await api.timeShiftUpdate(form.id, payload); else await api.timeShiftCreate(payload);
       toastOk?.('Shift type saved.'); setForm(null); reload();
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
@@ -740,12 +751,13 @@ export function ShiftTypesPanel({ toastOk, toastErr, company: scoped }) {
                 {s.code && <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--ink)', background: alpha(s.color || DEFAULT_SHIFT_COLOR, 0.14), borderRadius: 5, padding: '2px 6px', flexShrink: 0 }}>{s.code}</span>}
                 {!s.code && <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: '50%', background: s.color || DEFAULT_SHIFT_COLOR, flexShrink: 0 }} />}
                 <span style={{ fontSize: 13, fontWeight: 800, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
-                {canManage && <button type="button" onClick={() => setForm({ ...s, start_hhmm: s.start, end_hhmm: s.end, grace_min: s.graceMin, break_min: s.breakMin || 0, company_id: s.companyId || '' })} aria-label={`Edit shift type ${s.name}`} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><Pencil size={12} /></button>}
+                {canManage && <button type="button" onClick={() => setForm({ ...s, start_hhmm: s.start, end_hhmm: s.end, grace_min: s.graceMin, break_min: s.breakMin || 0, company_id: s.companyId || '', group_ids: s.groupIds || [] })} aria-label={`Edit shift type ${s.name}`} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><Pencil size={12} /></button>}
                 {canManage && <button type="button" onClick={() => remove(s)} aria-label={`Delete shift type ${s.name}`} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex' }}><Trash2 size={12} /></button>}
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>{formatHHMM(s.start)} - {formatHHMM(s.end)} · {daysLabel(s.days)}</div>
               <div data-paid-hours style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 700, marginTop: 2 }}>{paidHoursText(s.start, s.end, s.breakMin)}</div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.graceMin}m grace{s.breakMin ? ` · ${s.breakMin}m unpaid break` : ''} · {zoneOptionLabel(s.timezone || 'America/Los_Angeles')}</div>
+              {teams && <div data-type-teams style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{(s.groupIds || []).length ? `For ${(s.groupIds || []).map(teamName).filter(Boolean).join(', ') || 'a removed team'}` : 'For every team'}</div>}
               {(canPick || s.companyId) && <div style={{ marginTop: 6 }}><CompanyTag id={s.companyId} companies={companies} /></div>}
             </div>
           ))}
@@ -787,6 +799,19 @@ export function ShiftTypesPanel({ toastOk, toastErr, company: scoped }) {
                   <span style={{ fontSize: 10.5, fontWeight: 400 }}>Start and end above are this zone's local time - the daily briefing and Late status fire against it.</span>
                 </label>
                 {canPick && <CompanySelect label="Shift type company" value={form.company_id} onChange={(v) => setForm({ ...form, company_id: v })} companies={companies} />}
+                {teams && teams.length > 0 && (
+                  <div data-type-team-pick>
+                    <div style={LBL}>Teams</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {teams.map((g) => {
+                        const set = new Set(form.group_ids || []);
+                        const on = set.has(g.id);
+                        return <button key={g.id} type="button" aria-pressed={on} style={chip(on)} onClick={() => { if (on) set.delete(g.id); else set.add(g.id); setForm({ ...form, group_ids: teams.map((t) => t.id).filter((id) => set.has(id)) }); }}>{g.name}</button>;
+                      })}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>The planner offers this type only on these teams' rows. None picked = every team.</div>
+                  </div>
+                )}
                 <div>
                   <div style={LBL}>Days</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

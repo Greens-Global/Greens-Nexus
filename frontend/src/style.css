@@ -1787,35 +1787,51 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
    the Help Center grid, a question per row, the answer dropping down with the
    one button that does it. A <section>, not a button, so the tile's own hover
    lift and arrow do not apply; the rows carry the hover tint instead. */
-.how-do-i { grid-column: 1 / -1; position: relative; cursor: default; }
+/* "How Do I..." is a tile in the row (Neil, 11/04/2026), not a full-width
+   strip: the grid fits its tiles (auto-fit, so the five tiles share the row
+   and no empty track is left at its end), the tile lists the questions as
+   compact rows, and an answer opens inside the tile. */
+.support-grid:has(> .how-do-i) { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.how-do-i { position: relative; cursor: default; display: flex; flex-direction: column; padding: 14px 12px 10px; }
 .how-do-i:hover { background: var(--card); outline: none; transform: none; box-shadow: var(--shadow-md); }
 .how-do-i:hover .support-icon { background: var(--mist); color: var(--fern); }
-.how-do-i-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
-.how-do-i-head .support-icon { margin-bottom: 0; flex-shrink: 0; }
-.how-do-i-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 0 24px; }
-.how-do-i-row { border-top: 1px solid var(--line); min-width: 0; }
+.how-do-i-view { display: flex; flex-direction: column; flex: 1; min-height: 0; animation: how-do-i-in var(--dur-md) var(--ease-out); }
+.how-do-i-stack { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* The list sets the tile's height and stays put under an open answer, so the
+   row (and the tickets below it) never move; the answer covers it. */
+.how-do-i-view.is-hidden { visibility: hidden; animation: none; }
+.how-do-i-answer-view { position: absolute; inset: 0; }
+@keyframes how-do-i-in { from { opacity: 0; transform: translateX(6px); } to { opacity: 1; transform: none; } }
+.how-do-i-head { display: flex; align-items: center; gap: 10px; margin: 0 4px 6px; }
+.how-do-i-head .support-icon { margin-bottom: 0; flex-shrink: 0; width: 32px; height: 32px; }
+.how-do-i-head .support-card-title { margin: 0; }
+.how-do-i-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.how-do-i-row { min-width: 0; }
+.how-do-i-row + .how-do-i-row { border-top: 1px solid var(--line); }
 .how-do-i-q {
-  display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 4px;
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px;
   background: none; border: none; cursor: pointer; text-align: left; font-family: inherit; color: var(--ink);
-  font-size: 13.5px; font-weight: 600; border-radius: 8px;
+  font-size: 13px; font-weight: 600; border-radius: 7px;
   transition: background var(--dur-sm) var(--ease-out), color var(--dur-sm) var(--ease-out);
 }
 .how-do-i-q:hover { background: color-mix(in srgb, var(--wk-brand) 8%, transparent); }
-.how-do-i-q:focus-visible { outline: 2px solid var(--fern); outline-offset: -2px; }
-.how-do-i-ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; background: var(--mist); color: var(--fern); }
-.how-do-i-row.is-open .how-do-i-ico, .how-do-i-q:hover .how-do-i-ico { background: color-mix(in srgb, var(--wk-brand) 16%, var(--card)); color: var(--wk-brand); }
-.how-do-i-label { flex: 1; min-width: 0; }
-.how-do-i-chev { color: var(--muted); flex-shrink: 0; transition: transform var(--dur-md) var(--ease-out); }
-.how-do-i-row.is-open .how-do-i-chev { transform: rotate(180deg); color: var(--wk-brand); }
-/* The answer slides down: grid-rows 0fr -> 1fr is the one height animation
-   that costs no layout thrash and needs no measured height. */
-.how-do-i-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-md) var(--ease-out); }
-.how-do-i-row.is-open .how-do-i-panel { grid-template-rows: 1fr; }
-.how-do-i-panel-in { overflow: hidden; min-height: 0; padding: 0 4px 0 44px; }
-.how-do-i-row.is-open .how-do-i-panel-in { padding-bottom: 14px; }
-.how-do-i-answer { margin: 2px 0 10px; font-size: 13px; line-height: 1.55; color: var(--muted); max-width: 68ch; }
+.how-do-i-q:focus-visible, .how-do-i-back:focus-visible { outline: 2px solid var(--fern); outline-offset: -2px; }
+.how-do-i-ico { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; flex-shrink: 0; background: var(--mist); color: var(--fern); }
+.how-do-i-q:hover .how-do-i-ico, .how-do-i-answer-view .how-do-i-ico { background: color-mix(in srgb, var(--wk-brand) 16%, var(--card)); color: var(--wk-brand); }
+.how-do-i-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.how-do-i-chev { color: var(--muted); flex-shrink: 0; transition: transform var(--dur-sm) var(--ease-out), color var(--dur-sm) var(--ease-out); }
+.how-do-i-q:hover .how-do-i-chev { color: var(--wk-brand); transform: translateX(2px); }
+.how-do-i-answer-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.how-do-i-back {
+  width: 32px; height: 32px; flex-shrink: 0; display: grid; place-items: center; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer;
+  transition: background var(--dur-sm) var(--ease-out);
+}
+.how-do-i-back:hover { background: color-mix(in srgb, var(--wk-brand) 8%, var(--card)); }
+.how-do-i-answer-title { font-size: 14px; font-weight: 700; color: var(--ink); min-width: 0; line-height: 1.3; }
+.how-do-i-answer { flex: 1; min-height: 0; overflow-y: auto; margin: 0 2px 12px; font-size: 13px; line-height: 1.55; color: var(--muted); }
 .how-do-i-act {
-  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 9px;
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 7px 12px; border-radius: 9px;
   border: 1px solid color-mix(in srgb, var(--wk-brand) 40%, transparent); background: color-mix(in srgb, var(--wk-brand) 10%, var(--card));
   color: var(--wk-brand); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
   transition: background var(--dur-sm) var(--ease-out), transform var(--dur-xs) var(--ease-out);
@@ -1824,7 +1840,9 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .how-do-i-act:active { transform: translateY(1px); }
 .how-do-i-act:focus-visible { outline: 2px solid var(--fern); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
-  .how-do-i-panel, .how-do-i-chev, .how-do-i-q, .how-do-i-act { transition: none; }
+  .how-do-i-view { animation: none; }
+  .how-do-i-chev, .how-do-i-q, .how-do-i-act, .how-do-i-back { transition: none; }
+  .how-do-i-q:hover .how-do-i-chev { transform: none; }
 }
 .link-btn { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-weight: 600; font-size: 12.5px; background: none; border: none; cursor: pointer; font-family: inherit; margin-top: 10px; transition: color var(--transition-fast); }
 .link-btn:hover { color: var(--ink); }
@@ -6702,6 +6720,18 @@ body:has(.docs-root) { overflow-x: clip; }
 .m-roll-down > span { animation: m-roll-down var(--m-base) var(--m-ease) both; }
 .sched-chip { transition: transform var(--m-fast) var(--m-ease), box-shadow var(--m-fast) var(--m-ease); }
 .sched-chip[role="button"]:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(15, 23, 42, .12); }
+/* Stretch to copy (11/04/2026, WeekGrid grips): a thin grip on each side
+   edge of a shift, shown on hover; pull it across the next days. */
+.sched-stretch { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 1; opacity: 0;
+  transition: opacity var(--m-fast) ease-out; touch-action: none; }
+.sched-stretch[data-stretch="left"] { left: 0; }
+.sched-stretch[data-stretch="right"] { right: 0; }
+.sched-stretch::after { content: ""; position: absolute; top: 25%; bottom: 25%; width: 3px; border-radius: 2px; background: var(--wk-brand); }
+.sched-stretch[data-stretch="left"]::after { left: 2px; }
+.sched-stretch[data-stretch="right"]::after { right: 2px; }
+.sched-chip:hover .sched-stretch, body.sched-stretching .sched-stretch { opacity: 1; }
+body.sched-stretching, body.sched-stretching * { cursor: ew-resize !important; user-select: none; }
+@media (pointer: coarse) { .sched-stretch { display: none; } }
 .sched-arrow { transition: background var(--m-fast) ease-out, transform var(--m-fast) var(--m-ease); }
 .sched-arrow:hover { background: var(--bg) !important; }
 .sched-arrow:active { transform: scale(.94); }
@@ -8111,7 +8141,6 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .hc-page--phone .how-do-i { grid-column: 1 / -1; min-height: 0; padding: 14px; display: block; }
   .hc-page--phone .how-do-i .support-card-desc { display: block; }
   .hc-page--phone .how-do-i-head { margin-bottom: 8px; }
-  .hc-page--phone .how-do-i-list { grid-template-columns: 1fr; }
   .hc-page--phone .how-do-i-q { padding: 13px 2px; min-height: 48px; font-size: 15px; }
   .hc-page--phone .how-do-i-panel-in { padding-left: 42px; }
   .hc-page--phone .how-do-i-act { min-height: 40px; }
@@ -8409,6 +8438,11 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .apv-facts > div:nth-child(odd) { color: var(--muted); padding-right: 12px; }
 .apv-facts > div:nth-child(even) { color: var(--ink); font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; }
 .apv-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; padding-top: 4px; }
+/* A time-off or shift request's week (approvals/ScheduleContext.jsx, 11/04/2026): a hairline block above the facts. */
+.apv-sched { border-top: 1px solid var(--line); padding-top: 8px; }
+.apv-sched-h { font-size: 12px; font-weight: 700; color: var(--muted); }
+/* The Shifts filter's Waiting On A Teammate / Recently Decided (approvals/ShiftsAlso.jsx). */
+.apv-also { margin-top: 14px; }
 .apv-detail-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 40px 20px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; font-size: 13.5px; }
 .apv-detail-empty small { font-size: 12px; line-height: 1.5; }
 .apv-keys { display: grid; gap: 8px; font-size: 13.5px; }
@@ -8708,6 +8742,27 @@ body:has(.apv-phone) { overflow-x: clip; }
 .nx-dl-cards { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .nx-dl-card { display: flex; flex-direction: column; gap: 4px; padding: 12px 2px; background: none; border: none; border-bottom: 1px solid var(--line); text-align: left; font: 13px Inter, sans-serif; color: var(--ink); cursor: pointer; min-height: 44px; }
 .nx-dl-card-foot { display: flex; justify-content: space-between; gap: 10px; }
+/* The toolbar stays put (Sagar, 11/04/2026: "make this header static like in
+   other modules, so it can't be scrolled"): on a computer the search / filter
+   / New row of the Documents, Templates and Forms lists pins under the top
+   header while the list scrolls, as the Tasks and Tickets chrome does.
+   .viewport is overflow-y: auto but never scrolls itself (the page does), and
+   body's overflow-x: hidden makes it a non-scrolling scroll container -
+   either stops position: sticky; the same fix as Documentation and Settings,
+   only while a library shows. The rail and the side panel were sticky at 12px
+   since 10/31 but never pinned for that reason; now that they do, they sit
+   under the header too. Phones and narrow windows keep the plain flow (the
+   1180px block below wins there: static rail, fixed panel). */
+@media (min-width: 901px) {
+  .viewport:has(.nx-dl) { overflow: visible; }
+  body:has(.nx-dl) { overflow-x: clip; }
+  .nx-dl { --nx-dl-top: calc(var(--nx-announce-h, 0px) + 64px); }
+  /* A solid surface: the page behind is a gradient, so a tint-colored band
+     read as see-through once rows scrolled under it (Sagar, 11/04/2026). */
+  .nx-dl-tools { position: sticky; top: var(--nx-dl-top); z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); box-shadow: 0 8px 14px -12px rgba(15, 23, 42, .35); padding: 10px 0 12px; margin: -10px 0 12px; }
+  .nx-dl-rail { top: calc(var(--nx-dl-top) + 12px); }
+  .nx-dl-panel { top: calc(var(--nx-dl-top) + 12px); max-height: calc(100vh - var(--nx-dl-top) - 28px); }
+}
 @media (max-width: 1180px) {
   .nx-dl, .nx-dl.nx-dl-open, .nx-dl.nx-dl-norail, .nx-dl.nx-dl-norail.nx-dl-open { grid-template-columns: minmax(0, 1fr); }
   .nx-dl-rail { position: static; flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 2px; border-bottom: 1px solid var(--line); }
@@ -8723,6 +8778,28 @@ body:has(.apv-phone) { overflow-x: clip; }
 @media (max-width: 640px) {
   .nx-dl-panel { width: 100vw; border-left: none; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
 }
+/* The Document Builder's Variables Used rail and Make Variable bubble
+   (Sagar, 11/04/2026): the rail is the third column of the pages row, sticky
+   under the top header on a computer and scrolling inside itself when the
+   list is long; the bubble sits over the first line of the selected text.
+   The same .viewport fix as the library above, only while the builder shows. */
+@media (min-width: 901px) {
+  .viewport:has(.nx-docb) { overflow: visible; }
+  body:has(.nx-docb) { overflow-x: clip; }
+}
+.nx-docb-vars { flex: 0 0 216px; position: sticky; top: calc(var(--nx-announce-h, 0px) + 64px + 12px); max-height: calc(100vh - var(--nx-announce-h, 0px) - 64px - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 6px; background: var(--mist); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.nx-docb-vars-head { display: flex; align-items: center; gap: 6px; font: 650 12px Inter, sans-serif; color: var(--ink); margin-bottom: 2px; }
+.nx-docb-vars-n { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nx-docb-vars-empty { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+.nx-docb-var { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 7px 9px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; text-align: left; cursor: grab; font-family: Inter, sans-serif; }
+.nx-docb-var:hover { border-color: var(--pine); }
+.nx-docb-var:active { cursor: grabbing; }
+.nx-docb-var-label { font-size: 12.5px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.nx-docb-var-meta { font-size: 11px; color: var(--muted); }
+.nx-docb-vars-lib { margin-top: 4px; padding: 7px 9px; background: none; border: 1px dashed var(--line); border-radius: 8px; font: 600 11.5px Inter, sans-serif; color: var(--muted); cursor: pointer; }
+.nx-docb-vars-lib:hover { color: var(--ink); border-color: var(--ink); }
+.nx-docb-bubble { position: fixed; z-index: 60; transform: translateY(calc(-100% - 8px)); }
+.nx-docb-bubble button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; background: var(--ink); color: var(--paper); border: none; border-radius: 7px; font: 600 11.5px Inter, sans-serif; cursor: pointer; box-shadow: var(--shadow-lg); }
 /* the Undo toast after a hold (ui/dialog.jsx dialog.undo) */
 .nx-undo {
   position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 100001;
@@ -9022,4 +9099,45 @@ body:has(.apv-phone) { overflow-x: clip; }
   .it-cartbar { gap: 10px; padding: 10px 10px 10px 12px; }
   .it-cartbar-ico { display: none; }
   .it-cartbar .primary-btn { padding: 9px 12px; font-size: 13px; }
+}
+
+/* What's New Timeline: the bar between the list and the detail (Neil,
+   11/04/2026). A faint grip shows it can be moved; it turns the brand color
+   while hovered, dragged or focused. ChangelogView.jsx PaneDivider. */
+.nx-pane-divider {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+  align-self: stretch;
+  border-radius: 6px;
+}
+.nx-pane-divider::before {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: transparent;
+  transition: background-color .12s ease-out;
+}
+.nx-pane-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 4px; height: 32px;
+  transform: translate(-50%, -50%);
+  border-radius: 4px;
+  background: var(--nx-border);
+  transition: background-color .12s ease-out;
+}
+.nx-pane-divider:hover::before,
+.nx-pane-divider.is-dragging::before,
+.nx-pane-divider:focus-visible::before { background: var(--wk-brand); }
+.nx-pane-divider:hover::after,
+.nx-pane-divider.is-dragging::after,
+.nx-pane-divider:focus-visible::after { background: var(--wk-brand); }
+.nx-pane-divider:focus-visible { outline: none; }
+@media (prefers-reduced-motion: reduce) {
+  .nx-pane-divider::before, .nx-pane-divider::after { transition: none; }
 }

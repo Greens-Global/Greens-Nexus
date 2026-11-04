@@ -29,6 +29,9 @@ export const PT = [
     group: 'Project Details',
     fields: [
       { label: 'Project Name', key: 'name' },
+      // The HR company the asset belongs to (Neil, 11/03/2026) - an id on the
+      // row (`companyId`), never a snapshot value; lib/companies.js names it.
+      { label: 'Company', key: 'companyId', type: 'company' },
       { label: 'Property Address', key: 'address' },
       { label: 'Ownership Entity', key: 'entity' },
       { label: 'City', key: 'city' },
@@ -37,6 +40,10 @@ export const PT = [
       { label: 'Zip', key: 'zip' },
       { label: 'Country', key: 'country' },
       { label: 'APN', key: 'apn' },
+      // The property's PINNED Egnyte folder (Neil, 11/03/2026) - a path on the
+      // row (`egnyteFolder`), never a snapshot value; lib/egnyteFolder.js.
+      // Construction files go there before any match by name.
+      { label: 'Egnyte Folder', key: 'egnyteFolder', type: 'egnyte' },
       { label: 'Google Maps Link', key: 'mapUrl' },
       { label: 'Legal Description' },
       { label: 'Current Use' },

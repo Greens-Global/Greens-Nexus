@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 // Team module (Neil, Oct 13 2026; was Shifts): Contact (the directory) and
-// Shifts (the group's week) for everyone; Schedule and Requests - the
-// manager's inbox, with a badge for what waits - for managers and above.
+// Shifts (the group's week) for everyone; the Shift Planner for managers
+// and above. Requests moved into Dashboard > Approvals (Neil, 11/04/2026) -
+// Team has no Requests tab and fetches no manager inbox.
 // Your own week is Workday > My Shifts. No Presets & Teams tab (that is
 // Settings > Global Settings > Shifts) and no employee New Request here
 // (that is Workday > Time Off).
@@ -23,7 +24,6 @@ vi.mock('../api', () => ({ api: { shiftRequestsInbox: (...a) => shiftRequestsInb
 vi.mock('../components/MyShifts', () => ({ default: ({ part }) => <div>{part === 'team' ? 'Group week' : 'My week'}</div> }));
 vi.mock('./Directory', () => ({ default: ({ embedded }) => <div>Directory{embedded ? ' (embedded)' : ''}</div> }));
 vi.mock('../components/ShiftSchedule', () => ({ default: ({ focus }) => <div>Schedule grid{focus ? ` at ${focus.date} for ${focus.groupId || 'all'}` : ''}</div> }));
-vi.mock('../components/ShiftRequestsPage', () => ({ default: ({ inbox, timeoff, error }) => <div>Requests page ({error ? 'error' : inbox ? `${inbox.pending.length} + ${timeoff.length}` : 'loading'})</div> }));
 
 const Shifts = (await import('./Shifts')).default;
 const tabNames = () => screen.getAllByRole('tab').map((t) => t.textContent.trim());
@@ -48,7 +48,7 @@ describe('Team module', () => {
     rerender(<Shifts activeSub="schedule" onSubChange={onSubChange} />);
     expect(screen.queryByText('Schedule grid')).toBeNull();
     rerender(<Shifts activeSub="requests" onSubChange={onSubChange} />);
-    expect(screen.queryByText(/Requests page/)).toBeNull();
+    expect(screen.getByText('Group week')).toBeTruthy();
     expect(shiftRequestsInbox).not.toHaveBeenCalled();   // nothing of a manager's is fetched
   });
 
@@ -65,28 +65,21 @@ describe('Team module', () => {
     expect(screen.getByText('Group week')).toBeTruthy();
   });
 
-  it('gives a manager four tabs, with what waits counted on Requests', async () => {
+  it('gives a manager three tabs - no Requests tab, requests are in Approvals', async () => {
     role.level = 3;
     const onSubChange = vi.fn();
     const { rerender } = render(<Shifts activeSub="shifts" onSubChange={onSubChange} />);
-    expect(tabNames().map((t) => t.replace(/\d+$/, '').trim())).toEqual(['Shifts', 'Shift Planner', 'Requests', 'Directory']);
+    expect(tabNames()).toEqual(['Shifts', 'Shift Planner', 'Directory']);
     expect(screen.queryByText(/Presets/)).toBeNull();
-    // One pending swap + one decidable time-off request = 2 (the one that is not theirs to decide is not counted).
-    expect(await screen.findByRole('tab', { name: 'Requests, 2 waiting' })).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: /Shift Planner/ }));
     expect(onSubChange).toHaveBeenCalledWith('schedule');
     rerender(<Shifts activeSub="schedule" onSubChange={onSubChange} />);
     expect(screen.getByText('Schedule grid')).toBeTruthy();
+    // An old 'requests' address that reaches the module anyway opens its first tab.
     rerender(<Shifts activeSub="requests" onSubChange={onSubChange} />);
-    expect(await screen.findByText('Requests page (1 + 2)')).toBeTruthy();   // the same data as the badge
-    expect(shiftRequestsInbox).toHaveBeenCalledTimes(1);                    // fetched once for both
-  });
-
-  it('shows the Requests page an error, not a skeleton forever, when the inbox fails', async () => {
-    role.level = 3;
-    shiftRequestsInbox.mockRejectedValue(new Error('API error 500'));
-    render(<Shifts activeSub="requests" onSubChange={() => {}} />);
-    expect(await screen.findByText('Requests page (error)')).toBeTruthy();
+    expect(screen.getByText('Group week')).toBeTruthy();
+    expect(shiftRequestsInbox).not.toHaveBeenCalled();
+    expect(timeOffList).not.toHaveBeenCalled();
   });
   // Workforce Analytics moved into Team (Neil, Oct 29 2026). Team is
   // everyone's, so the tab is only for administrators and the people given
@@ -115,7 +108,7 @@ describe('Team module', () => {
 
     role.level = 3; role.grants = new Set(['employee-tracking']);
     const g = render(<Shifts activeSub={null} onSubChange={vi.fn()} />);
-    expect(tabNames()).toEqual(['Shifts', 'Shift Planner', 'Requests', 'Workforce Analytics', 'Directory']);
+    expect(tabNames()).toEqual(['Shifts', 'Shift Planner', 'Directory', 'Workforce Analytics']);
     g.unmount();
 
     role.level = ADMIN; role.grants = new Set();
@@ -133,6 +126,6 @@ describe('Team module', () => {
     role.grants = new Set();   // a guest without it: no tab, no content, no manager page
     render(<Shifts activeSub="requests" onSubChange={vi.fn()} />);
     expect(screen.queryAllByRole('tab')).toEqual([]);
-    expect(screen.queryByText(/Requests page|Group week|Workforce Analytics on/)).toBeNull();
+    expect(screen.queryByText(/Group week|Workforce Analytics on/)).toBeNull();
   });
 });

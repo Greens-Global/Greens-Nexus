@@ -48,6 +48,10 @@ vi.spyOn(console, 'error').mockImplementation(() => {});
 import { afterEach } from 'vitest';
 import { queryClient } from './src/lib/queryClient';
 afterEach(() => { queryClient.clear(); });
+// The planner's in-memory week cache (components/shifts/weekCache.js) must
+// not carry one test's schedule into the next.
+import { clearWeeks } from './src/components/shifts/weekCache';
+afterEach(() => { clearWeeks(); });
 
 // The Excalidraw engine (Notes boards, Neil 11/02/2026) cannot run under
 // jsdom (canvas, ResizeObserver, pointer events) and its dev build imports

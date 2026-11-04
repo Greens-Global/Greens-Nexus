@@ -177,7 +177,7 @@ describe('Manage', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Add New Update' }));
     fireEvent.change(screen.getByPlaceholderText('e.g. Fixed leave balance calculation'), { target: { value: 'Coming Soon' } });
     fireEvent.change(screen.getByPlaceholderText('What changed, and why it matters to the people using it.'), { target: { value: '**Big** news' } });
-    fireEvent.change(screen.getByPlaceholderText('e.g. HR, Dashboard, Tasks'), { target: { value: 'Tickets' } });
+    fireEvent.change(screen.getByPlaceholderText('e.g. Workday - Time Sheet'), { target: { value: 'Tickets' } });
     fireEvent.click(screen.getByRole('button', { name: /Minor v2\.1\.0/ }));      // after v2.0.0
     fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'Scheduled' } });
     // A date box and a 12-hour time box (never a native datetime-local):

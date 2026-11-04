@@ -157,6 +157,15 @@ class FolderAndNameTests(ReviewCase):
         self.tree[ERIN] += ["Timesheets", "timesheets & attendance"]
         self.assertEqual(tsr.egnyte_folder(self.db, self._req()), f"{ERIN}/timesheets & attendance")
 
+    def test_a_numbered_folder_is_the_folder(self):
+        # 11/04/2026: Amy Bolanos's "3. Timesheets & Attendance" got a plain twin.
+        self.tree[ERIN].append("3. Timesheets & Attendance")
+        self.assertEqual(tsr.egnyte_folder(self.db, self._req()), f"{ERIN}/3. Timesheets & Attendance")
+
+    def test_the_numbered_folder_wins_over_the_plain_one_made_beside_it(self):
+        self.tree[ERIN] += ["Timesheets & Attendance", "3. Timesheets & Attendance"]
+        self.assertEqual(tsr.egnyte_folder(self.db, self._req()), f"{ERIN}/3. Timesheets & Attendance")
+
     def test_the_file_name(self):
         req = self._req()
         name = tsr.egnyte_filename(self.db, req)

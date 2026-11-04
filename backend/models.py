@@ -759,6 +759,16 @@ class NexusGroup(Base):
     # in place of the typed duties. {path (in the HR documents bucket), name,
     # pages, size, uploadedAt, uploadedBy}; {} = the typed duties are used.
     jd_file         = Column(JSON, default=dict)
+    # Or the job description is a Documents template (Pranshu, 11/04/2026:
+    # "whatever change we do in the document ... should automatically get
+    # updated"): its PUBLISHED wording prints after the offer letter, read
+    # when each offer is made. '' = the typed duties or the file.
+    jd_template_id  = Column(String, default="")
+    # What goes WITH the offer letter, in order (Pranshu, 11/04/2026: "if we
+    # put NDA at 1st order then in offer letter candidate will see offer
+    # letter, NDA then Job description"): [{"kind": "jd"} | {"kind": "doc",
+    # "templateId"}]. The job description is one item, once; [] = it alone.
+    offer_docs      = Column(JSON, default=list)
 
 
 class NexusGroupMember(Base):
@@ -1557,6 +1567,10 @@ class HrEntity(Base):
     # single column keeps working.
     manager_email      = Column(String, default="")
     manager_emails     = Column(JSON, default=list)
+    # The company's IT Support Contact (Pranshu, 11/04/2026): named in the
+    # welcome email a new hire gets once their hiring packet is signed, beside
+    # their manager and HR. A Nexus person's email ('' = none named).
+    it_contact_email   = Column(String, default="")
     # The company's HR contact (a Nexus person): signs every employee's
     # timesheet last and finalizes it for payroll (timesheet_review.py).
     hr_contact_email   = Column(String, default="")
@@ -2657,6 +2671,12 @@ class Shift(Base):
     # People admin manages only their own company's types; shared ones
     # take company-wide access (timeclock._require_company_manage).
     company_id = Column(String, default="")
+    # The teams (ShiftGroup ids, JSON list) this shift type is for (Neil,
+    # 11/04/2026: "it's weird to see IT Support Team available for
+    # operations"); '' / [] = every team. The planner offers a type only on
+    # its teams' rows; shift_type_teams.py filled it once from what each
+    # team already used.
+    group_ids  = Column(String, default="")
 
 
 class ScheduledShift(Base):

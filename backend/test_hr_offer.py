@@ -232,8 +232,17 @@ class JourneyTests(OfferCase):
             "first_name": "Jane", "last_name": "Doe", "phone": "555-0100", "address": "12 Pine St",
             "answers": {"pan_number": "ABCDE1234F"}}})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(self._ev(packet.id).status, "review")
-        self._send_and_sign(packet.id)
+        # Submit And Continue (Pranshu, 11/04/2026): the packet opens for signing at once - no HR
+        # stop, no second email - and the page carries them straight to it.
+        self.invited.clear()
+        ev = self._ev(packet.id)
+        self.assertEqual(ev.status, "sent")
+        self.assertIn("/sign/", r.json()["signUrl"])
+        self.assertNotIn(CAND, self.invited)
+        self.assertEqual(self.client.get(f"/hr/intake/public/{token}").json()["signUrl"], r.json()["signUrl"])   # back on the link
+        self._sign(self._party(ev.sign_request_id, CAND))
+        self._sign(self._party(ev.sign_request_id, HR))          # the company countersigns after them
+        self.assertEqual(self.client.get(f"/hr/intake/public/{token}").json()["signUrl"], "")    # nothing left to sign
         packet = self._ev(packet.id)
         self.assertEqual(packet.status, "completed", packet.apply_note)
         # the checklist ticks itself: offer signed, then the pre-boarding packet
@@ -424,6 +433,172 @@ class BuildingBlockTests(OfferCase):
         self.assertEqual(r.status_code, 200, r.text)
         titles = sorted(d.title for d in self.db.query(models.Document).filter_by(life_event_id=packet.id))
         self.assertEqual(titles, ["Accounting CA - Jane Doe", "Onboarding Requirements - Jane Doe"])
+
+
+
+class PreviewTests(OfferCase):
+    """Preview before Create (Neil, 11/04/2026): the letter and its job
+    description as Create would make them - and nothing is kept."""
+
+    def _preview(self):
+        body = {"inputs": {"worker_type": "employee", "employment_type": "full_time", "job_title": "Analyst",
+                           "start_date": "2030-11-02", "offer_expires": "2030-10-28", "manager_email": MGR,
+                           "work_location": "Irvine, CA", "merge": {"probation_period": "90 days"},
+                           "jd_template_id": "t-jd", "new_role_duties": "Reconciles accounts.",
+                           "work_start": "09:00", "work_end": "17:00"},
+                "pay": {"base": 85000, "payBasis": "salary", "frequency": "annual", "currency": "USD"}}
+        return self.client.post("/hr/candidates/cand-1/offer/preview", json=body)
+
+    def test_preview_is_the_letter_then_the_job_description_and_saves_nothing(self):
+        import base64
+        import io
+        from pypdf import PdfReader
+        r = self._preview()
+        self.assertEqual(r.status_code, 200, r.text)
+        pdf = base64.b64decode(r.json()["pdf"])
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        text = "".join(pg.extract_text() or "" for pg in PdfReader(io.BytesIO(pdf)).pages)
+        self.assertIn("Analyst", text)                            # the letter, filled in
+        self.assertIn("Reconciles accounts", text)                # the job description follows the letter
+        self.assertIn("Job Description Acknowledgment", text)     # then its read-it page
+        self.assertEqual(r.json()["unfilled"], [])
+        db = database.SessionLocal()
+        try:
+            self.assertEqual(db.query(models.HrLifeEvent).filter_by(candidate_id="cand-1").count(), 0)
+            self.assertEqual(db.query(models.Document).filter(models.Document.candidate_id == "cand-1").count(), 0)
+            self.assertEqual(db.query(models.HrCandidate).filter_by(id="cand-1").one().stage, "interview")
+            self.assertEqual(db.query(models.NexusNotification).count(), self._bells_before)
+        finally:
+            db.close()
+        self.assertEqual(self._offer().status_code, 200)          # Create still works after a preview
+
+    def setUp(self):
+        super().setUp()
+        db = database.SessionLocal()
+        self._bells_before = db.query(models.NexusNotification).count()
+        db.close()
+
+
+
+class InPersonTests(OfferCase):
+    """Print And Send (Pranshu / Neil, 11/04/2026): "I'm hiring that employee
+    manually, like face to face, not through the electronic signature"."""
+
+    def test_print_and_send_emails_nobody_and_the_uploaded_copy_hires_them(self):
+        r = self._offer()
+        self.assertEqual(r.status_code, 200, r.text)
+        eid = r.json()["id"]
+        self.invited.clear()
+        r = self._verify(eid, self._review(eid), in_person=True)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn(CAND, self.invited)                         # not emailed
+        ev = self._ev(eid)
+        self.assertTrue(ev.inputs.get("in_person"))
+        log = self.db.query(models.HrSignEvent).filter_by(request_id=ev.sign_request_id).all()
+        self.assertFalse([e for e in log if e.type == "sent"])       # so the automatic chase never emails them
+        printed = self.client.get(f"/hr/life-events/{eid}/print")
+        self.assertEqual(printed.status_code, 200, printed.text)
+        self.assertTrue(printed.content.startswith(b"%PDF"))
+        up = self.client.post(f"/hr/life-events/{eid}/signed-in-person",
+                              files={"file": ("signed.pdf", printed.content, "application/pdf")})
+        self.assertEqual(up.status_code, 200, up.text)
+        ev = self._ev(eid)
+        self.assertEqual(ev.status, "completed")
+        self.assertTrue(ev.employee_id)                              # hired, the same as an e-signed offer
+        party = self._party(ev.sign_request_id, CAND)
+        self.assertEqual((party.status, party.signature_kind), ("signed", "paper"))
+        again = self.client.post(f"/hr/life-events/{eid}/signed-in-person",
+                                 files={"file": ("signed.pdf", printed.content, "application/pdf")})
+        self.assertEqual(again.status_code, 409)
+
+    def test_an_electronic_offer_has_nothing_to_print(self):
+        eid = self._offer().json()["id"]
+        self.assertEqual(self._verify(eid, self._review(eid)).status_code, 200)
+        self.assertIn(CAND, self.invited)
+        self.assertEqual(self.client.get(f"/hr/life-events/{eid}/print").status_code, 409)
+
+
+
+class SubmitAndContinueTests(OfferCase):
+    """Submit And Continue (Pranshu, 11/04/2026) never skips what HR's check
+    would stop on: a Signs Once nobody adopted keeps the packet for review."""
+
+    def test_a_packet_hr_must_still_finish_waits_for_review(self):
+        db = database.SessionLocal()
+        db.query(models.HrPacketSetting).filter_by(id="s-hire").update({"flow": [
+            {"key": "company", "role": "hr", "action": "sign", "once": True},
+            {"key": "employee", "role": "employee", "action": "sign"}]})
+        db.commit()
+        db.close()
+        offer = self._offer().json()
+        self._send_and_sign(offer["id"])
+        html = self._wait_for_mail()[2]
+        token = re.search(r"/intake/([A-Za-z0-9_\-]+)", html).group(1)
+        r = self.client.post(f"/hr/intake/public/{token}", json={"values": {
+            "first_name": "Jane", "last_name": "Doe", "phone": "555-0100", "address": "12 Pine St",
+            "answers": {"pan_number": "ABCDE1234F"}}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["signUrl"], "")
+        packet = self.db.query(models.HrLifeEvent).filter_by(candidate_id="cand-1", kind="hire").one()
+        self.assertEqual(self._ev(packet.id).status, "review")
+        self.assertTrue(self._ev(packet.id).intake.get("first_name"))         # their details are kept
+
+
+class WelcomeEmailTests(OfferCase):
+    """Welcome aboard (Pranshu, 11/04/2026): once the hiring packet is signed
+    the new hire's email names their manager, HR and IT, with how to reach them."""
+
+    def test_the_welcome_names_manager_hr_and_it_support(self):
+        import types
+        import hr_life_email as hm
+        IT = "ivy.it@greensglobal.com"
+        self.db.add(models.NexusEmployee(id="e-ivy", work_email=IT, first_name="Ivy", last_name="Tech", company=CO,
+                                         status="active", job_title="IT Administrator", phone="555-0199"))
+        self.db.query(models.NexusEmployee).filter_by(work_email=MGR).update({"phone": "555-0111"})
+        self.db.query(models.HrEntity).filter_by(id=CO).update({"it_contact_email": IT})
+        self.db.commit()
+        ev = types.SimpleNamespace(inputs={"manager_email": MGR, "job_title": "Analyst", "start_date": "2030-11-02"},
+                                   employee_id="", entity_id=CO, subject_email=CAND, kind="hire")
+        contacts = hm.welcome_contacts(self.db, ev)
+        self.assertEqual([(c["kind"], c["email"]) for c in contacts], [("manager", MGR), ("hr", HR), ("it", IT)])
+        self.assertEqual((contacts[0]["name"], contacts[0]["phone"], contacts[0]["title"]), ("Max Mgr", "555-0111", "Max Title"))
+        subject, html = hm.compose("hire", stage="completed", role="subject", first_name="Jane", company="Greens Test, LLC",
+                                   location="", inputs=ev.inputs, pay={}, manager="Max Mgr", note="", docs=[], link="",
+                                   sender={"name": "Charmi Shah", "email": HR}, contacts=contacts,
+                                   party=types.SimpleNamespace(email=CAND, name="Jane Doe"),
+                                   req=types.SimpleNamespace(id="req-1", title="Hiring Packet - Jane Doe", created_at="2030-10-20"))
+        self.assertIn("Welcome to the team, Jane", subject)
+        for text in ("Your Manager", "Human Resources", "IT Support", "Ivy Tech", "mailto:ivy.it@greensglobal.com",
+                     "tel:555-0111", "no question is too small"):
+            self.assertIn(text, html)
+        self.assertNotIn("—", html)                   # never an em dash in copy
+
+    def test_someone_who_left_is_never_named(self):
+        import types
+        import hr_life_email as hm
+        self.db.query(models.NexusEmployee).filter_by(work_email=MGR).update({"status": "offboarded"})
+        self.db.commit()
+        ev = types.SimpleNamespace(inputs={"manager_email": MGR}, employee_id="", entity_id=CO, subject_email=CAND, kind="hire")
+        self.assertEqual([c["kind"] for c in hm.welcome_contacts(self.db, ev)], ["hr"])
+
+
+class RoleJdFromDocumentsTests(OfferCase):
+    """A role's job description kept in Documents (Pranshu, 11/04/2026): linked,
+    so the offer prints that template's published wording - no duties typed,
+    nothing picked on Make An Offer."""
+
+    def test_the_roles_documents_template_goes_after_the_letter(self):
+        db = database.SessionLocal()
+        _tpl(db, "t-jd-admin", "Admin Associate JD", _doc(_p("Admin duties from Documents.")), category="job_description")
+        db.add(models.NexusGroup(id="jr-admin", name="Analyst", is_job_role=1, company_id=CO, department="Accounting",
+                                 job_description="", jd_template_id="t-jd-admin"))
+        db.commit()
+        db.close()
+        r = self._offer(role_id="jr-admin", jd_template_id="", new_role_duties="")
+        self.assertEqual(r.status_code, 200, r.text)
+        ev = self._ev(r.json()["id"])
+        self.assertEqual(ev.inputs["jd_template_id"], "t-jd-admin")
+        self.assertIn("t-jd-admin", [d["templateId"] for d in ev.documents])
 
 
 if __name__ == "__main__":

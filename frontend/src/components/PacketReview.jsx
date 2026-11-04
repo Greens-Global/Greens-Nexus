@@ -13,13 +13,28 @@
 // template was published meanwhile) this screen asks for one regenerate and
 // reloads - it never treats the read as a writer.
 import { useEffect, useRef, useState } from 'react';
-import { X, FileText, Eye, Send, Ban, CheckCircle, AlertTriangle, Pencil, Lock, RefreshCw, Copy, Mail, PenTool, Info } from 'lucide-react';
+import { X, FileText, Eye, Send, Ban, CheckCircle, AlertTriangle, Pencil, Lock, RefreshCw, Copy, Mail, PenTool, Info, Printer } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatHHMM } from '../lib/datetime';
 import { Spinner } from './AsyncState';
 import DetailsFormFields from './DetailsFormFields';
 import SignOnceModal from './SignOnceModal';
 import { REPORTS_TO } from './OfferModal';
+import { DateField } from '../tasks/components';
+
+// What is printed shows the date as the document prints it - MM/DD/YYYY -
+// whatever the reader's own Profile > Date Format (Neil, 11/04/2026).
+const printed = (iso) => formatDate(iso, '', undefined, 'MM/DD/YYYY');
+
+// Print And Send (11/04/2026): the documents to sign in person, saved as a PDF to print.
+export async function savePrintCopy(eventId) {
+  const { blob, filename } = await api.printInPerson(eventId);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename || 'To Sign.pdf';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
 
 const lbl = { fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '0 0 5px' };
 const h3 = { fontSize: 15, fontWeight: 800, margin: '24px 0 10px', color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 10 };
@@ -77,7 +92,8 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
   const [editing, setEditing] = useState(false);       // everything printed, edited together
   const [form, setForm] = useState({});
   const [checked, setChecked] = useState(false);
-  const [ack, setAck] = useState(false);
+  // Optional (Pranshu, 11/04/2026): signed in person on paper instead of electronically.
+  const [inPerson, setInPerson] = useState(false);
   const [signing, setSigning] = useState(null);        // a Signs Once step being signed (Oct 14)
   const regenerated = useRef(false);
 
@@ -134,12 +150,18 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
   async function send() {
     setBusy('send');
     try {
-      const out = await api.verifyAndSendPacket(eventId, { excluded_ack: ack, seen: data.seen });
+      // Hiring documents are employment records - never a record excluded from
+      // electronic signature - so Nexus confirms that itself (excluded_ack).
+      const out = await api.verifyAndSendPacket(eventId, { excluded_ack: true, seen: data.seen, ...(inPerson ? { in_person: true } : {}) });
+      if (inPerson) {
+        try { await savePrintCopy(eventId); } catch (e) { toastErr?.(e?.message || 'Verified - print it from the card.'); }
+      }
       onChanged?.();
       onClose();
       // Verify is a check, never a signature: the person signs first and the
       // company countersigns after them (Neil, Oct 22 2026).
-      toastOk?.(out.status === 'sent' ? `Sent - ${ev.subjectName} has been emailed the documents to sign.` : 'Sent for signature.');
+      toastOk?.(inPerson ? `Verified - print it, have ${ev.subjectName} sign it in person, then click Upload Signed Copy on their card.`
+        : out.status === 'sent' ? `Sent - ${ev.subjectName} has been emailed the documents to sign.` : 'Sent for signature.');
     } catch (e) {
       toastErr?.(e?.message || 'Could not send the packet.');
       load();
@@ -166,6 +188,10 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
   const field = (label, key, props = {}) => (
     <div><label style={lbl} htmlFor={`rv-${key}`}>{label}</label>
       <input id={`rv-${key}`} className="form-input" style={{ width: '100%' }} value={form[key] || ''} onChange={e => set(key, e.target.value)} {...props} /></div>
+  );
+  const dateBox = (label, key) => (
+    <div><label style={lbl}>{label}</label>
+      <DateField value={form[key] || ''} onChange={x => set(key, x || '')} placeholder="MM/DD/YYYY" title={label} style={{ width: '100%' }} /></div>
   );
   const todo = ev.status === 'intake' ? `Waiting for ${first} to fill in their details - the documents are generated the moment they do.`
     : inReview && data.isVerifier ? 'Read each document, check what is printed in it, then confirm and send.'
@@ -227,8 +253,8 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
         {editing ? (
           <div style={card}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-              {isHire && field('Start Date', 'start_date', { type: 'date' })}
-              {isHire && field('Offer Expires', 'offer_expires', { type: 'date' })}
+              {isHire && dateBox('Start Date', 'start_date')}
+              {isHire && dateBox('Offer Expires', 'offer_expires')}
               {field('Legal First Name', 'first_name')}
               {field('Legal Last Name', 'last_name')}
               {field('Preferred Name', 'preferred_name')}
@@ -269,12 +295,12 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
           <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '4px 28px' }}>
             <div>
               {isHire && <Row k="Role" v={o.jobTitle && `${o.jobTitle}${o.department ? ` - ${o.department}` : ''}`} />}
-              {isHire && <Row k="Start Date" v={formatDate(o.startDate)} />}
-              {isHire && <Row k="Offer Expires" v={formatDate(o.offerExpires)} />}
+              {isHire && <Row k="Start Date" v={printed(o.startDate)} />}
+              {isHire && <Row k="Offer Expires" v={printed(o.offerExpires)} />}
               {isHire && <Row k={<span title={REPORTS_TO} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Supervisor <Info size={12} aria-label={REPORTS_TO} style={{ cursor: 'help' }} /></span>} v={o.managerName} />}
               {ev.kind === 'promotion' && <Row k="New Role" v={o.jobTitle} />}
-              {ev.kind === 'promotion' && <Row k="Effective" v={formatDate(o.effectiveDate)} />}
-              {ev.kind === 'separation' && <Row k="Last Day" v={formatDate(o.lastDay)} />}
+              {ev.kind === 'promotion' && <Row k="Effective" v={printed(o.effectiveDate)} />}
+              {ev.kind === 'separation' && <Row k="Last Day" v={printed(o.lastDay)} />}
               <Row k="Pay" v={data.pay !== undefined ? data.payText : <Locked />} />
               <Row k="Timings" v={o.schedule || (o.workStart && o.workEnd ? `${formatHHMM(o.workStart)} - ${formatHHMM(o.workEnd)}` : '')} />
               {isHire && (o.jdFile || o.jdName) && <Row k="Job Description" v={<>
@@ -349,8 +375,8 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
               I checked every document - the names, dates, pay and wording are right.
             </label>
             <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', fontSize: 13.5 }}>
-              <input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} style={{ marginTop: 3, width: 16, height: 16, accentColor: 'var(--pine)' }} />
-              This is not a record that cannot be signed electronically.
+              <input type="checkbox" checked={inPerson} onChange={e => setInPerson(e.target.checked)} style={{ marginTop: 3, width: 16, height: 16, accentColor: 'var(--pine)' }} />
+              <span>Sign in person, not electronically <span style={{ color: 'var(--muted)' }}>(optional) - print it, have {first} sign it face to face, then upload the signed copy.</span></span>
             </label>
           </div>
         )}
@@ -366,10 +392,10 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
         )}
         <button className="secondary-btn" onClick={onClose} disabled={busy === 'send'}>Close</button>
         {inReview && data.isVerifier && (
-          <button className="primary-btn" onClick={send} disabled={!!busy || !data.canVerify || !checked || !ack || !!editing}
-            title={!data.canVerify ? 'Fix the problems listed first' : !checked || !ack ? 'Tick both boxes first' : ''}
+          <button className="primary-btn" onClick={send} disabled={!!busy || !data.canVerify || !checked || !!editing}
+            title={!data.canVerify ? 'Fix the problems listed first' : !checked ? 'Tick that you checked every document first' : ''}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy === 'send' ? <Spinner size={13} /> : <Send size={13} />} Verify And Send
+            {busy === 'send' ? <Spinner size={13} /> : inPerson ? <Printer size={13} /> : <Send size={13} />} {inPerson ? 'Print And Send' : 'Verify And Send'}
           </button>
         )}
       </div>

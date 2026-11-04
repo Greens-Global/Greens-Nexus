@@ -40,6 +40,7 @@ import { canEditWhatsNew } from '../lib/whatsNewAccess';
 import { NX, FONT, chip, card, btn, input as inputStyle } from './theme';
 import { Avatar, Modal, usePeople, PersonSelect, useClickOutside, useIsMobile, DateField, TimeField, localTodayISO } from './components';
 import { MODULES } from '../contexts/RoleContext';
+import { placeOf, placeOptions, placeKeyFor, inPlace, placeLabel, allPlaceLabels } from '../lib/changelogPlaces';
 import {
   RichText, VideoEmbed, ActionRequired, CopyLinkButton, CommentThread, FeedbackRow, RelatedUpdates, RELATION_LABELS,
   HistoryList, FollowDialog, FollowButton, AudiencePicker, InsightsPanel, FeedbackList, ExportButtons, exportCsv, buildPrintReport, nextVersions, plural,
@@ -48,6 +49,7 @@ import {
   MyRequestsDialog, IssueChip, IssueBanner, IssueDialog, issueOf, DeprecationChip, DeprecationNotice, StageChip, stageOf,
   AttentionStrip, MediaEditor, AttachmentList, TourEditor, TakeTourButton, uploadWhatsNewFile, readAsDataUrl as readFileAsDataUrl,
 } from './changelogLifecycle';
+import KnownIssuesBanner from '../support/KnownIssues';
 
 // ── Change-type / environment / status metadata (ported from changelogMeta.ts) ──
 const CHANGE_TYPE_META = {
@@ -597,7 +599,10 @@ function WhatsNewTab({ entries: allPublished, nameOf, myEmail, isAdmin, onSetSta
     onEdit={isAdmin ? () => onEdit(e) : undefined} />;
   return (
     <div style={{ padding: isMobile ? '14px 12px' : '16px 16px 20px' }}>
-      {/* Open known issues and coming removals, whatever their day (Oct 18 2026). */}
+      {/* What is broken right now (Neil, 11/04/2026: moved here from the
+          Help Center), then open known issues and coming removals on
+          updates, whatever their day (Oct 18 2026). */}
+      <KnownIssuesBanner />
       <AttentionStrip entries={allPublished} onOpen={openEntry} />
       <div role="group" aria-label="Show" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
         <button type="button" aria-pressed={mineOnly} onClick={() => { setMineOnly((v) => !v); writeQuery({ for: mineOnly ? '' : 'me' }); }} style={toggle(mineOnly)}>
@@ -726,7 +731,7 @@ function EntryCard({ entry, nameOf, onViewDetails, onEdit }) {
         <div style={{ minWidth: 0, flex: '1 1 320px' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <span style={chip(meta.color, meta.tint)}><Icon size={12} />{meta.label}</span>
-            {entry.module && <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{entry.module}</span>}
+            <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{placeOf(entry).label}</span>
             {entry.breaking && <span style={chip('#b91c1c', 'rgba(220,38,38,0.12)')}><AlertTriangle size={12} />Breaking Change</span>}
             <IssueChip entry={entry} />
             <DeprecationChip entry={entry} />
@@ -865,6 +870,80 @@ function useLinkedState(key, fallback = ALL) {
   return [v, (next) => { set(next); writeQuery({ [key]: next }); }];
 }
 
+// How much of the Timeline the list takes beside the detail, in percent -
+// remembered per browser. Storage can be blocked (private windows), so every
+// read and write is guarded and the default stands in.
+const SPLIT_KEY = 'nexus.whatsNew.timelineSplit';
+const SPLIT_MIN = 25;
+const SPLIT_MAX = 75;
+const SPLIT_DEFAULT = 50;
+const clampSplit = (n) => Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, Math.round(n)));
+function useTimelineSplit() {
+  const [split, setSplitState] = useState(() => {
+    try {
+      const n = Number(window.localStorage.getItem(SPLIT_KEY));
+      return n ? clampSplit(n) : SPLIT_DEFAULT;
+    } catch { return SPLIT_DEFAULT; }
+  });
+  const setSplit = (n) => {
+    const v = clampSplit(n);
+    setSplitState(v);
+    try { window.localStorage.setItem(SPLIT_KEY, String(v)); } catch { /* storage blocked - the split lasts this visit */ }
+  };
+  return [split, setSplit];
+}
+
+// The bar between the list and the detail: drag it, or focus it and use the
+// arrow keys (Home / End for the limits); a double click puts it back in the
+// middle. A window splitter in the ARIA sense, so a screen reader says where
+// it stands.
+function PaneDivider({ value, onChange, containerRef }) {
+  const [drag, setDrag] = useState(false);
+  const start = (e) => {
+    if (e.button !== 0) return;
+    const box = containerRef.current?.getBoundingClientRect();
+    if (!box || !box.width) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setDrag(true);
+    const move = (ev) => onChange(((ev.clientX - box.left) / box.width) * 100);
+    const end = () => {
+      setDrag(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+  };
+  const key = (e) => {
+    const step = e.shiftKey ? 10 : 2;
+    const next = { ArrowLeft: value - step, ArrowRight: value + step, Home: SPLIT_MIN, End: SPLIT_MAX }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    onChange(next);
+  };
+  return (
+    <div className={`nx-pane-divider${drag ? ' is-dragging' : ''}`} role="separator" aria-orientation="vertical"
+      aria-label="Resize the timeline and the details" aria-valuenow={value} aria-valuemin={SPLIT_MIN} aria-valuemax={SPLIT_MAX}
+      aria-valuetext={`Timeline ${value} percent`} tabIndex={0} title="Drag to resize. Double-click to reset."
+      onPointerDown={start} onKeyDown={key} onDoubleClick={() => onChange(SPLIT_DEFAULT)} />
+  );
+}
+
+// The Module filter's options: every section of the site that has updates,
+// each followed by its pages ("Workday", then "Workday - Time Sheet"), in the
+// left navigation's order, with how many updates each holds.
+function PlaceOptions({ places }) {
+  return (<>
+    <option value={ALL}>All Modules</option>
+    {places.map((p) => (
+      <option key={p.key} value={p.key}>{p.depth ? ' ' : ''}{p.label} ({p.count})</option>
+    ))}
+  </>);
+}
+
 function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, loading = false }) {
   const { forYou, flash } = useContext(ChangelogActions);
   // Every filter starts from the address bar and writes back to it, so a
@@ -889,7 +968,12 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
   const [selectedId, setSelectedId] = useState(entries[0]?.id || null);
   const [expanded, setExpanded] = useState(false);
 
-  const modules = useMemo(() => Array.from(new Set(entries.map((e) => e.module).filter(Boolean))).sort(), [entries]);
+  // The Module filter follows the site's navigation (Neil, 11/04/2026): a
+  // section ("Workday") takes in its pages ("Workday - Time Sheet"), in the
+  // left navigation's order, with counts - lib/changelogPlaces.js. An old
+  // link that still carries a raw module name lands on its place.
+  const modules = useMemo(() => placeOptions(entries), [entries]);
+  const placeKey = moduleFilter === ALL ? ALL : placeKeyFor(moduleFilter);
   // Newest release first, as Version History listed them.
   const versions = useMemo(() => Array.from(new Set(entries.map((e) => e.version).filter(Boolean))), [entries]);
   // When each version went out: its latest update's release time.
@@ -902,11 +986,11 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return entries.filter((e) => {
-      if (moduleFilter !== ALL && e.module !== moduleFilter) return false;
+      if (placeKey !== ALL && !inPlace(placeOf(e), placeKey)) return false;
       if (typeFilter !== ALL && e.type !== typeFilter) return false;
       if (envFilter !== ALL && stageOf(e)?.key !== envFilter) return false;
       if (versionFilter !== ALL && e.version !== versionFilter) return false;
-      if (q && !`${e.title} ${e.description} ${e.ticketRef || ''} ${e.version || ''}`.toLowerCase().includes(q)) return false;
+      if (q && !`${e.title} ${e.description} ${e.ticketRef || ''} ${e.prRef || ''} ${e.version || ''} ${placeOf(e).label}`.toLowerCase().includes(q)) return false;
       const day = localDayKey(releasedKey(e));
       if (fromDate && day < fromDate) return false;
       if (toDate && day > toDate) return false;
@@ -920,7 +1004,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries, query, moduleFilter, typeFilter, envFilter, versionFilter, fromDate, toDate, comparing, compareFrom, compareTo, breakingOnly, mineOnly, versionAt]);
+  }, [entries, query, placeKey, typeFilter, envFilter, versionFilter, fromDate, toDate, comparing, compareFrom, compareTo, breakingOnly, mineOnly, versionAt]);
   const anyFilter = query || moduleFilter !== ALL || typeFilter !== ALL || envFilter !== ALL || versionFilter !== ALL
     || fromDate || toDate || (comparing && (compareFrom || compareTo)) || breakingOnly || mineOnly;
   const clearAll = () => {
@@ -956,6 +1040,8 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
   const selStyle = { ...inputStyle, width: 'auto', minWidth: isMobile ? 0 : 150, cursor: 'pointer', flexShrink: 0 };
   const narrow = useIsMobile('(max-width: 1023px)');
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const splitRef = useRef(null);
+  const [split, setSplit] = useTimelineSplit();
 
   // Phones and tablets (Neil, Oct 28 2026: "the mobile UI and UX on that
   // sucks"). Below 1024px the Timeline is ONE column: a search box and a
@@ -969,7 +1055,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
     const chips = [
       mineOnly && { key: 'for', label: 'For You', clear: () => setMineOnly('') },
       breakingOnly && { key: 'breaking', label: 'Breaking / Action Required', clear: () => setBreakingOnly('') },
-      moduleFilter !== ALL && { key: 'module', label: moduleFilter, clear: () => setModuleFilter(ALL) },
+      moduleFilter !== ALL && { key: 'module', label: placeLabel(placeKey), clear: () => setModuleFilter(ALL) },
       typeFilter !== ALL && { key: 'category', label: typeMeta(typeFilter).label, clear: () => setTypeFilter(ALL) },
       envFilter !== ALL && { key: 'env', label: envLabel(envFilter), clear: () => setEnvFilter(ALL) },
       versionFilter !== ALL && { key: 'version', label: `Version ${versionFilter}`, clear: () => setVersionFilter(ALL) },
@@ -982,7 +1068,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
       },
     ].filter(Boolean);
     const filterState = {
-      modules, versions, moduleFilter, setModuleFilter, typeFilter, setTypeFilter, envFilter, setEnvFilter,
+      modules, versions, moduleFilter: placeKey, setModuleFilter, typeFilter, setTypeFilter, envFilter, setEnvFilter,
       versionFilter, setVersionFilter, fromDate, setFromDate, toDate, setToDate, comparing, setComparing,
       compareFrom, setCompareFrom, compareTo, setCompareTo, breakingOnly, setBreakingOnly, mineOnly, setMineOnly,
     };
@@ -1102,9 +1188,8 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
         </div>
         {/* Phones: the three filters share one row that swipes sideways. */}
         <div className={isMobile ? 'scroll-tabs' : undefined} style={isMobile ? { display: 'flex', gap: 8, overflowX: 'auto', width: '100%' } : { display: 'contents' }}>
-          <select value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} style={selStyle} aria-label="Module">
-            <option value={ALL}>All Modules</option>
-            {modules.map((m) => <option key={m} value={m}>{m}</option>)}
+          <select value={placeKey} onChange={(e) => setModuleFilter(e.target.value)} style={selStyle} aria-label="Module">
+            <PlaceOptions places={modules} />
           </select>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={selStyle} aria-label="Category">
             <option value={ALL}>All Categories</option>
@@ -1166,7 +1251,9 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
         <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{plural(filtered.length, 'entry', 'entries')}</span>
       </div>
 
-      <div style={isMobile ? undefined : { display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', minHeight: 0, flex: 1 }}>
+      {/* The list and the detail, with a bar between them to drag (Neil,
+          11/04/2026): each person's split is kept in this browser. */}
+      <div ref={splitRef} data-timeline-split style={isMobile ? undefined : { display: 'grid', columnGap: 4, gridTemplateColumns: `minmax(0, ${split}fr) 12px minmax(0, ${100 - split}fr)`, minHeight: 0, flex: 1 }}>
         {/* Master list */}
         <div className="nx-scroll" style={isMobile
           ? { display: 'flex', flexDirection: 'column', gap: 16 }
@@ -1188,6 +1275,8 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
             </div>
           )}
         </div>
+
+        {!isMobile && <PaneDivider value={split} onChange={setSplit} containerRef={splitRef} />}
 
         {/* Detail pane (wider screens; a phone opens the sheet below) */}
         {!isMobile && <div style={{ minHeight: 0 }}>
@@ -1220,6 +1309,21 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
       )}
     </div>
   );
+}
+
+// The pull request an update came from (Neil, 11/04/2026: "make sure the PR
+// number is listed"): "#1002" on every Timeline row and in the detail, where
+// it links to the pull request. Inside a row (itself a button) it is text.
+function PrRef({ entry, link = false, size = 12 }) {
+  const body = (<><GitPullRequest size={size} style={{ color: NX.faint, flexShrink: 0 }} />{entry.prRef}</>);
+  const style = { display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0, fontVariantNumeric: 'tabular-nums' };
+  if (link && entry.prUrl && /^https:\/\/github\.com\//.test(entry.prUrl)) {
+    return (
+      <a href={entry.prUrl} target="_blank" rel="noopener noreferrer" title={`Open pull request ${entry.prRef}`}
+        style={{ ...style, color: NX.blue, textDecoration: 'none' }}>{body}</a>
+    );
+  }
+  return <span style={style} title={`Pull request ${entry.prRef}`}>{body}</span>;
 }
 
 // A Timeline row's reactions and comments, at a glance (Pranshu, Oct 16 2026).
@@ -1257,7 +1361,8 @@ function TimelineRow({ entry, selected, onClick, compact = false }) {
           <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
             <span style={{ ...chip(meta.color, meta.tint), fontSize: 11 }}><Icon size={11} />{meta.label}</span>
             <IssueChip entry={entry} />
-            {entry.module && <span>{entry.module}</span>}
+            <span>{placeOf(entry).label}</span>
+            {entry.prRef && <PrRef entry={entry} />}
             <span style={{ color: NX.faint }}>{formatTime(releasedKey(entry))}</span>
             <RowResponse entry={entry} />
           </div>
@@ -1281,9 +1386,9 @@ function TimelineRow({ entry, selected, onClick, compact = false }) {
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14, fontWeight: 700, color: NX.ink }}>{entry.title}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.module}</span>
-          <span>·</span>
-          <span style={{ fontFamily: 'monospace', flexShrink: 0 }}>{entry.version}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{placeOf(entry).label}</span>
+          {entry.version && (<><span>·</span><span style={{ fontFamily: 'monospace', flexShrink: 0 }}>{entry.version}</span></>)}
+          {entry.prRef && (<><span>·</span><PrRef entry={entry} /></>)}
           {stageOf(entry) && (<><span>·</span><StageChip entry={entry} /></>)}
           <RowResponse entry={entry} />
         </div>
@@ -1392,10 +1497,7 @@ function TimelineFilterSheet({ f, count, anyFilter, onClearAll, onClose, flash }
       </div>
       <div style={field}>
         <span style={lab}>Module</span>
-        {pick(f.moduleFilter, f.setModuleFilter, 'Module', <>
-          <option value={ALL}>All Modules</option>
-          {f.modules.map((m) => <option key={m} value={m}>{m}</option>)}
-        </>)}
+        {pick(f.moduleFilter, f.setModuleFilter, 'Module', <PlaceOptions places={f.modules} />)}
       </div>
       <div style={field}>
         <span style={lab}>Category</span>
@@ -1913,8 +2015,9 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
         )}
         <h2 style={{ margin: 0, fontSize: isMobile ? 21 : 22, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title}</h2>
         <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: isMobile ? '6px 12px' : 12, fontSize: 13, color: NX.dim }}>
-          {entry.module && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Layers size={13} style={{ color: NX.faint }} />{entry.module}</span>}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title={entry.module && entry.module !== placeOf(entry).label ? `Filed as ${entry.module}` : undefined}><Layers size={13} style={{ color: NX.faint }} />{placeOf(entry).label}</span>
           {entry.version && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><GitBranch size={13} style={{ color: NX.faint }} /><span style={{ fontFamily: 'monospace' }}>{entry.version}</span></span>}
+          {entry.prRef && <PrRef entry={entry} link size={13} />}
           <StageChip entry={entry} />
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CalendarDays size={13} style={{ color: NX.faint }} />{formatDateTime(releasedKey(entry))}</span>
           {entry.republishedAt && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><RefreshCw size={12} style={{ color: NX.faint }} />Re-published</span>}
@@ -2448,7 +2551,10 @@ function AddUpdateModal({ entry, submitLabel, publishLabel, myEmail, onClose, on
           </select>
         </Field>
         <Field label="Module">
-          <input value={module} onChange={(e) => setModule(e.target.value)} placeholder="e.g. HR, Dashboard, Tasks" style={inputStyle} />
+          {/* Suggests the site's own places ("Workday - Time Sheet"), the
+              words the Timeline's Module filter groups by; free text still works. */}
+          <input value={module} onChange={(e) => setModule(e.target.value)} placeholder="e.g. Workday - Time Sheet" list="nx-whats-new-places" style={inputStyle} />
+          <datalist id="nx-whats-new-places">{allPlaceLabels().map((l) => <option key={l} value={l} />)}</datalist>
         </Field>
         <Field label="Version">
           <input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="e.g. v2.8.1" style={inputStyle} />

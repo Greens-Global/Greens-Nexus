@@ -394,17 +394,63 @@ def _time_off(db: Session, user: dict, ctx: dict) -> list:
     the same call and rule the nav count and Team > Requests use."""
     from routers.timeclock import _TIMEOFF_LIST_LIMIT, list_timeoff
     u = _approver(db, user, ctx)
-    out = []
-    for t in list_timeoff(status="pending", from_="", to="", limit=_TIMEOFF_LIST_LIMIT, user=u, db=db):
-        # A request the manager already approved that now waits for HR
-        # (Second Approval By HR) is the time_off_hr source's row - each once.
-        if t.get("canDecide") is False or t.get("awaitingHr"):
-            continue
-        out.append(_time_off_row("time_off", t))
+    mine = [t for t in list_timeoff(status="pending", from_="", to="", limit=_TIMEOFF_LIST_LIMIT, user=u, db=db)
+            # A request the manager already approved that now waits for HR
+            # (Second Approval By HR) is the time_off_hr source's row - each once.
+            if t.get("canDecide") is not False and not t.get("awaitingHr")]
+    inside = _shared_shifts_inside(db, mine)
+    return [_time_off_row("time_off", t, inside.get(t["id"], [])) for t in mine]
+
+
+def _shared_shifts_inside(db: Session, reqs: list) -> dict:
+    """{time-off id: [ScheduledShift]} - the person's PUBLISHED shifts inside
+    each pending leave, by the same rule as timeclock._timeoff_shift_conflicts
+    (whole days, or for part of a day only the shifts those hours overlap),
+    in ONE query for every request (Team > Requests moved here, 11/04/2026:
+    the approver sees them and may approve and remove them in one click)."""
+    if not reqs:
+        return {}
+    from routers.timeclock import _interval
+    S = models.ScheduledShift
+    emails = sorted({(t.get("email") or "").lower() for t in reqs if t.get("email")})
+    lo = min(t["startDate"][:10] for t in reqs)
+    hi = max((t.get("endDate") or t["startDate"])[:10] for t in reqs)
+    by_person: dict = {}
+    for s in (db.query(S).filter(func.lower(S.employee_email).in_(emails), S.published == 1, S.pending_delete == 0,
+                                 S.work_date >= lo, S.work_date <= hi)
+              .order_by(S.work_date, S.start_hhmm).all()):
+        by_person.setdefault((s.employee_email or "").lower(), []).append(s)
+    out = {}
+    for t in reqs:
+        a, b = t["startDate"][:10], (t.get("endDate") or t["startDate"])[:10]
+        rows = [s for s in by_person.get((t.get("email") or "").lower(), []) if a <= s.work_date <= b]
+        st, et = t.get("startTime") or "", t.get("endTime") or ""
+        if st and et and rows:
+            off = _interval(a, st, et)
+            rows = [s for s in rows if off and (iv := _interval(s.work_date, s.start_hhmm, s.end_hhmm))
+                    and iv[0] < off[1] and off[0] < iv[1]]
+        if rows:
+            out[t["id"]] = rows
     return out
 
 
-def _time_off_row(kind_key: str, t: dict) -> dict:
+def _shift_line(s) -> str:
+    """'Mon 11/09/2026 9:00 AM - 5:00 PM' for one placed shift."""
+    from routers.shift_requests import _when
+    try:
+        day = date.fromisoformat(s.work_date[:10]).strftime("%a ")
+    except (TypeError, ValueError):
+        day = ""
+    return day + _when(s.work_date, s.start_hhmm, s.end_hhmm)
+
+
+A_APPROVE_REMOVE = {"key": "approve_remove", "label": "Approve And Remove Shifts", "tone": "plain", "note": "none"}
+# Declining time off always says why (the Team > Requests rule, Oct 30 2026,
+# kept when it moved here 11/04/2026): the employee reads the note.
+A_REJECT_TIMEOFF = {"key": "reject", "label": "Decline", "tone": "plain", "note": "required"}
+
+
+def _time_off_row(kind_key: str, t: dict, inside: list = ()) -> dict:
     from routers.timeclock import _timeoff_window
     span = _span(t["startDate"], t["endDate"]) + _timeoff_window(t.get("startTime") or "", t.get("endTime") or "")
     try:
@@ -415,19 +461,35 @@ def _time_off_row(kind_key: str, t: dict) -> dict:
     kind = (t.get("type") or "time off").replace("_", " ").title()
     note = "" if t.get("redacted") else _short(t.get("note") or "")
     detail = f"{kind}{' - ' + note if note else ''}"
+    if inside:
+        detail = f"{detail} - {_plural(len(inside), 'shared shift')} inside"
     if kind_key == "time_off_hr":
         first = t.get("firstApproverName") or t.get("firstApprover") or "the manager"
         detail = f"{detail} - approved by {first}, waiting for HR"
     hr = kind_key == "time_off_hr"
+    # A manager's decision (Team > Requests moved here, 11/04/2026): Approve
+    # (one click, the bulk action), Approve And Remove Shifts when the leave
+    # lands on shared shifts, and Decline with a reason. HR's second approval
+    # keeps its own pair.
+    actions = (A_APPROVE, A_REJECT) if hr else ((A_APPROVE,) + ((A_APPROVE_REMOVE,) if inside else ()) + (A_REJECT_TIMEOFF,))
+    reason = "" if t.get("redacted") else (t.get("note") or "None given")
     out = row(kind_key, t["id"], person_email=t["email"], person_name=t.get("name") or "",
                title=title, detail=detail,
                # HR's wait starts when the manager said yes.
                created_at=(t.get("firstDecidedAt") if hr else "") or t.get("createdAt"),
-               actions=(A_APPROVE, A_REJECT), link={"view": "hr", "sub": "hr-time-off" if hr else "hr-time"},
+               actions=actions, link={"view": "hr", "sub": "hr-time-off" if hr else "hr-time"},
                for_name=t.get("forName") or "", due=t.get("startDate") or "",
                facts=(("Type", kind), ("Dates", span), ("Days", str(days) if days else ""),
-                      ("Note", "" if t.get("redacted") else t.get("note") or ""),
+                      ("Confidential", "Yes - the reason is seen only by the employee and their approver" if t.get("confidential") else ""),
+                      ("Reason", reason),
+                      ("Shared Shifts Inside", "; ".join(_shift_line(s) for s in inside)),
                       ("First Approval", (t.get("firstApproverName") or t.get("firstApprover") or "") if hr else "")))
+    # What the leave lands on - the person's shifts, their team on those days
+    # and who else is off - is read by the Review panel when it opens
+    # (approvals/ScheduleContext.jsx, one schedule read for that row), never
+    # on the minute poll the nav counts share.
+    out["context"] = {"email": (t.get("email") or "").lower(), "from": t["startDate"][:10],
+                      "to": (t.get("endDate") or t["startDate"])[:10]}
     # Time-off recommendation (Neil, 11/02/2026): the serializer's hint for
     # the decider - a soft chip on the row, never a decision; the actions
     # above are exactly what they were.
@@ -679,22 +741,48 @@ def _shift_title(db: Session, ctx: dict, r: models.ShiftRequest, *, mine: bool =
 def _shift_requests(db: Session, user: dict, ctx: dict) -> list:
     """The Team > Requests inbox's `pending` rule (shift_requests.inbox /
     _decidable), never a request the caller is part of."""
-    from routers.shift_requests import _decidable
+    from routers.shift_requests import _decidable, _live_dicts, _team_names, _when
     from routers.timeclock import _visible_emails, require_schedule_write
     u = require_schedule_write(user={**user}, db=db)
     scope, me, cache = _visible_emails(db, u), u["email"].lower(), {}
+    mine = [r for r in (db.query(models.ShiftRequest).filter(models.ShiftRequest.status == "pending_manager")
+                        .order_by(models.ShiftRequest.created_at).all())
+            if me not in (r.requester_email, r.target_email) and _decidable(db, r, scope, me, cache)]
+    # The live shifts behind every request in one read (shift_requests'
+    # own), so the decider sees whether each is still on the schedule.
+    live = _live_dicts(db, mine) if mine else {}
+    teams = _team_names(db) if mine else {}
     out = []
-    for r in (db.query(models.ShiftRequest).filter(models.ShiftRequest.status == "pending_manager")
-              .order_by(models.ShiftRequest.created_at).all()):
-        if me in (r.requester_email, r.target_email) or not _decidable(db, r, scope, me, cache):
-            continue
-        out.append(row("shift_request", r.id, person_email=r.requester_email, person_name=_name(db, ctx, r.requester_email),
-                       title=_shift_title(db, ctx, r), detail=_short(r.note or ""),
-                       created_at=r.peer_decided_at or r.created_at, actions=(A_APPROVE, A_DECLINE),
-                       link={"view": "shifts", "sub": "requests"},
-                       facts=(("Request", _shift_title(db, ctx, r)),
-                              ("Teammate", _name(db, ctx, r.target_email) if r.target_email else ""),
-                              ("Note", r.note or ""))))
+    for r in mine:
+        who = _name(db, ctx, r.requester_email)
+        mate = _name(db, ctx, r.target_email) if r.target_email else ""
+        when = _when(r.shift_date, r.shift_start, r.shift_end)
+        gone = " - no longer on the schedule"
+        shift = live.get(r.shift_id)
+        summary = {"open": f"{who} asked for the open shift {when}",
+                   "release": f"{who} wants to release {when} to the open pool",
+                   "swap": f"{who} wants to swap {when} for {mate}'s {_when(r.target_date, r.target_start, r.target_end)}",
+                   }.get(r.kind, f"{who} offered {when} to {mate}")
+        # Who would work the shift if it is approved - their week is what
+        # the Review panel reads (approvals/ScheduleContext.jsx).
+        taker = r.target_email if r.kind == "offer" else r.requester_email
+        o = row("shift_request", r.id, person_email=r.requester_email, person_name=who,
+                title=_shift_title(db, ctx, r), detail=summary,
+                created_at=r.peer_decided_at or r.created_at, actions=(A_APPROVE, A_DECLINE_WHY),
+                # The day on the Shift Planner (Team > Shift Planner, focused).
+                link={"view": "shifts", "sub": f"schedule:{(r.shift_date or '')[:10]}"} if r.shift_date else {"view": "shifts", "sub": "schedule"},
+                due=r.shift_date or "",
+                facts=(("Request", {"open": "Open Shift", "release": "Release", "swap": "Swap", "offer": "Offer"}.get(r.kind, r.kind.title())),
+                       ("Shift", when + ("" if shift else gone)),
+                       ("Teammate", mate),
+                       ("Teammate's Shift", (_when(r.target_date, r.target_start, r.target_end)
+                                             + ("" if live.get(r.target_shift_id) else gone)) if r.kind == "swap" and r.target_shift_id else ""),
+                       ("Team", teams.get((shift or {}).get("groupId") or "", "")),
+                       (f"{who}'s Note", r.note or ""),
+                       (f"{mate}'s Note" if mate else "Teammate's Note", r.peer_note or "")))
+        o["context"] = {"email": "" if r.kind == "release" else (taker or "").lower(), "team": (r.requester_email or "").lower(),
+                        "from": (r.shift_date or "")[:10], "to": (r.shift_date or "")[:10], "skip": r.shift_id or ""}
+        out.append(o)
     return out
 
 

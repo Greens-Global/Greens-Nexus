@@ -7,6 +7,7 @@ import { PortfolioMap } from './PortfolioMap.jsx';
 import { TileCard } from './TileCard.jsx';
 import { ListTable } from './ListTable.jsx';
 import { fleetFactsFor } from '../../lib/fleetCards.js';
+import { NO_COMPANY, companyIdOf, companyName } from '../../lib/companies.js';
 // NOTE: ListRow/ListGroupRow (from ./ListRow.jsx) are NOT used below. In the original app, List
 // view always renders ListTable (see the `viewMode === 'list'` branch), and the card-row variant
 // (ListRow/ListGroupRow) is only reachable from a code path that's unconditionally shadowed by
@@ -59,7 +60,7 @@ const VIEW_TABS = [
  * intentional (lets you see full-portfolio breakdowns while narrowing your view) rather than a
  * bug, but flagging it here since it's easy to "fix" by accident while touching this code.
  */
-export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serverOk, metrics = {}, store = null, selectedId = null }) {
+export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serverOk, metrics = {}, store = null, selectedId = null, companies = [], companyFilter = '', setCompanyFilter = null }) {
   const [stageFilter, setStageFilter] = useState('');
   const [regionFilter, setRegionFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -100,10 +101,12 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
   if (stageFilter) filtered = filtered.filter((a) => baseStage(a.devStage) === stageFilter);
   if (typeFilter) filtered = filtered.filter((a) => deriveType(a) === typeFilter);
   if (regionFilter) filtered = filtered.filter((a) => stateAbbrev(a) === regionFilter);
+  // Company (11/03/2026): one company, or NO_COMPANY = Needs a Company (no company set).
+  if (companyFilter) filtered = filtered.filter((a) => companyIdOf(a) === (companyFilter === NO_COMPANY ? '' : companyFilter));
   if (search.trim()) {
     const needle = search.trim().toLowerCase();
     filtered = filtered.filter((a) =>
-      [a.name, a.entity, a.manager, cityRegion(a), typeLabel(a), a.address, stateSearchHaystack(a)]
+      [a.name, a.entity, companyName(companies, companyIdOf(a)), a.manager, cityRegion(a), typeLabel(a), a.address, stateSearchHaystack(a)]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
@@ -124,15 +127,21 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
   all.forEach((a) => { const r = stateAbbrev(a); if (r) regionCounts[r] = (regionCounts[r] || 0) + 1; });
   const availableRegions = Object.keys(regionCounts).sort();
 
+  const companyCounts = {};
+  all.forEach((a) => { const c = companyIdOf(a) || NO_COMPANY; companyCounts[c] = (companyCounts[c] || 0) + 1; });
+  const availableCompanies = Object.keys(companyCounts).filter((c) => c !== NO_COMPANY)
+    .map((id) => ({ id, name: companyName(companies, id) })).sort((x, y) => x.name.localeCompare(y.name));
+
   const isTopLevel = (a) => !a.parentId;
   const childrenOf = (id) => all.filter((a) => a.parentId === id);
   // Only top-level (non-linked-child) assets are ever shown as their own row/tile/pin - linked
   // secondaries are reachable through their lead's group card/row instead, never listed
   // separately. Re-sorted by assetRank since the filter above doesn't preserve any particular
   // order.
-  const topLevelAssets = filtered.filter(isTopLevel).sort((a, b) => assetRank(a) - assetRank(b));
+  // Needs a Company lists every asset with none, a linked parcel included - each is set on its own.
+  const topLevelAssets = filtered.filter((a) => isTopLevel(a) || companyFilter === NO_COMPANY).sort((a, b) => assetRank(a) - assetRank(b));
 
-  const hasAnyFilter = categoryFilter || stageFilter || typeFilter || regionFilter || search;
+  const hasAnyFilter = categoryFilter || stageFilter || typeFilter || regionFilter || companyFilter || search;
   const showFilterRow = hasAnyFilter || (viewMode === 'list' && sortCol != null);
 
   const clearFilters = () => {
@@ -140,6 +149,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
     setStageFilter('');
     setTypeFilter && setTypeFilter('');
     setRegionFilter('');
+    setCompanyFilter && setCompanyFilter('');
     setSearch('');
   };
 
@@ -218,6 +228,16 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
             {availableRegions.map((region) => (
               <option key={region} value={region}>{`${region} (${regionCounts[region]})`}</option>
             ))}
+          </select>
+
+          <select value={companyFilter} onChange={(e) => setCompanyFilter && setCompanyFilter(e.target.value)} aria-label="Company" className="form-input" style={{ ...selectStyle, maxWidth: 210, whiteSpace: 'nowrap', textOverflow: 'ellipsis', borderColor: companyFilter ? 'var(--pine)' : undefined }}>
+            <option value="">All Companies</option>
+            {availableCompanies.map((c) => (
+              <option key={c.id} value={c.id}>{`${c.name} (${companyCounts[c.id]})`}</option>
+            ))}
+            {(companyCounts[NO_COMPANY] || companyFilter === NO_COMPANY) && (
+              <option value={NO_COMPANY}>{`Needs a Company (${companyCounts[NO_COMPANY] || 0})`}</option>
+            )}
           </select>
         </div>
 

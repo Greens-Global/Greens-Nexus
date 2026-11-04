@@ -564,6 +564,8 @@ def run_daily_scan() -> int:
             wk_start = y_dt - timedelta(days=(y_dt.weekday() + 1) % 7)
             wk_end = wk_start + timedelta(days=6)
             tc_act = {"view": "timeclock"}
+            import shift_rules
+            salaried = shift_rules.salaried_emails(db)
 
             for e in employees:
                 # One employee's bad data must never sink the whole scan (which would
@@ -598,7 +600,10 @@ def run_daily_scan() -> int:
 
                     # 7b. Overtime - over 40h in the current (Sunday-anchored) week.
                     # One ping per person per week, to the manager, when OT first appears.
-                    if mgr:
+                    # Never for a salaried person (Neil, 11/04/2026: fixed monthly
+                    # pay or exempt from time tracking - leadership works long days
+                    # and has nothing to do with overtime): shift_rules.salaried_emails.
+                    if mgr and (e.work_email or "").lower() not in salaried:
                         ot = _compute_timecard(
                             db,
                             e.work_email,
@@ -609,7 +614,7 @@ def run_daily_scan() -> int:
                         if ot > 0 and not _ever_sent(db, "time_overtime", wk_ref, mgr):
                             msg = (
                                 f"{name} is into overtime this week - {ot // 60}h {ot % 60:02d}m "
-                                f"over 40h so far (week of {wk_start.strftime('%Y-%m-%d')})."
+                                f"over 40h so far (week of {_us_day(wk_start.strftime('%Y-%m-%d'))})."
                             )
                             sent += _notify(
                                 db,

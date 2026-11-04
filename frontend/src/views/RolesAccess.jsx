@@ -178,6 +178,7 @@ export default function RolesAccess({ embedded = false }) {
   const [editGroup, setEditGroup] = useState(undefined);
   const [assignFor, setAssignFor] = useState(null);
   const [selId, setSelId] = useState(null);          // selected job role
+  const [roleTab, setRoleTab] = useState('access');  // the selected role's section: 'access' | 'jd'
   const [person, setPerson] = useState(null);        // selected person email
   const [toast, setToast] = useState(null);
   const [tour, setTour] = useState(false);
@@ -576,6 +577,27 @@ export default function RolesAccess({ embedded = false }) {
                       {selected.teams.type === 'channel' ? <Hash size={12} /> : <MessageSquare size={12} />} Day messages post to {teamsTargetLabel(selected.teams)}
                     </div>
                   )}
+                  {/* One section at a time (Neil, 11/04/2026: "if you keep on scrolling down ... you'll miss it"). */}
+                  {embedded && (
+                    <div role="tablist" aria-label="Role sections" className="scroll-tabs"
+                      style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', margin: '14px 0 0' }}>
+                      {[['access', 'Access & People'], ['jd', 'Job Description / Documents']].map(([key, label]) => {
+                        const on = roleTab === key;
+                        return (
+                          <button key={key} type="button" role="tab" aria-selected={on} onClick={() => setRoleTab(key)}
+                            style={{ ...roleTabBtn, color: on ? 'var(--wk-brand)' : 'var(--muted)', borderBottom: `2px solid ${on ? 'var(--wk-brand)' : 'transparent'}` }}>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {embedded && roleTab === 'jd' ? (
+                    <div role="tabpanel">
+                      <RoleHiringDocs key={selected.id} role={selected} toastOk={toastOk} toastErr={toastErr}
+                        onSaved={saved => setJobRoles(list => (list || []).map(x => (x.id === saved.id ? { ...x, ...saved } : x)))} />
+                    </div>
+                  ) : (<>
                   {['owner', 'full', 'editor', 'viewer'].map(lvl => {
                     const mods = (selected.allowed_modules || []).filter(g => g.level === lvl);
                     if (!mods.length) return null;
@@ -597,11 +619,6 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={sectLabel}>Time Sheet approver (default manager)</div>
                   <ApproverPicker role={selected} people={people} nameOf={nameOf}
                     onSaved={loadRoles} toastOk={toastOk} toastErr={toastErr} />
-                  {/* A shared role's job description goes with its offers in every company (Pranshu, 11/03/2026). */}
-                  {embedded && !selected.company_id && (
-                    <RoleHiringDocs key={selected.id} role={selected} toastOk={toastOk} toastErr={toastErr}
-                      onSaved={saved => setJobRoles(list => (list || []).map(x => (x.id === saved.id ? { ...x, ...saved } : x)))} />
-                  )}
                   <div style={sectLabel}>People with this role · {filterOn
                     ? `${(selected.members || []).filter(inFilter).length} of ${selected.member_count}`
                     : selected.member_count}</div>
@@ -645,6 +662,7 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={{ marginTop: 14, background: 'hsla(var(--color-blue),0.08)', border: '1px solid hsla(var(--color-blue),0.2)', borderRadius: 10, padding: '10px 12px', fontSize: 12.5, color: 'var(--ink)' }}>
                     Editing the bundle applies to all {selected.member_count} people who hold this role. Extra groups layer on top.
                   </div>
+                  </>)}
                 </>
               )}
             </div>
@@ -1629,6 +1647,7 @@ const thCorner = { position: 'sticky', left: 0, top: 0, zIndex: 3, background: '
 const thCol = { position: 'sticky', top: 0, zIndex: 2, background: 'var(--card)', padding: '9px 10px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', borderBottom: '1.5px solid var(--line)', minWidth: 92, textAlign: 'center', verticalAlign: 'bottom' };
 const thRow = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--card)', textAlign: 'left', padding: '10px 14px', borderRight: '1px solid var(--line)', borderBottom: '1px solid var(--line)', minWidth: 190 };
 const tdCell = { padding: '8px 10px', textAlign: 'center', borderBottom: '1px solid var(--line)' };
+const roleTabBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', whiteSpace: 'nowrap', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, marginBottom: -1 };
 const sectLabel = { fontSize: 10.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)', margin: '20px 0 10px' };
 const fieldLabel = { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' };
 const input = { padding: '9px 11px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--paper)', color: 'var(--ink)', fontSize: 13, fontFamily: 'Inter,sans-serif', width: '100%' };

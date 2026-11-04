@@ -3,7 +3,9 @@
 // (title, a short note, Info / Warning / Outage, an optional last day); one
 // whose Until day has passed hides by itself.
 //
-//   KnownIssuesBanner  top of the Help Center page; administrators manage here
+//   KnownIssuesBanner  top of What's New (moved off the Help Center, Neil,
+//                      11/04/2026); administrators manage here. Flat rows on
+//                      hairlines - no tinted box, no colored edge, no pill.
 //   KnownIssuesNotice  one line each, for the Help panel and the ticket form
 import { useState } from 'react';
 import { Info, AlertTriangle, OctagonAlert, Plus, Trash2, Megaphone } from 'lucide-react';
@@ -76,7 +78,7 @@ function IssueEditor({ issues, onClose }) {
       )}>
       <div className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Shown at the top of the Help Center, in the Help panel and on the ticket form, so people know it is being handled.
+          Shown at the top of What's New, in the Help panel and on the ticket form, so people know it is being handled.
           An issue with an Until day disappears after that day.
         </p>
         {rows.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>No known issues right now.</div>}
@@ -127,17 +129,17 @@ export default function KnownIssuesBanner() {
   const shown = live(issues);
   if (!shown.length && !canEdit) return null;
   return (
-    <section aria-label="Known Issues" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {shown.map((i) => {
+    <section aria-label="Known Issues" style={{ display: 'flex', flexDirection: 'column', marginBottom: 14 }}>
+      {shown.map((i, idx) => {
         const m = meta(i.severity);
         return (
-          <div key={i.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 14px', borderRadius: 12,
-            background: m.tint, border: '1px solid var(--line)', borderLeft: `4px solid ${m.color}` }}>
-            <m.Icon size={18} style={{ color: m.color, flexShrink: 0, marginTop: 1 }} />
+          <div key={i.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 0',
+            borderTop: idx ? '1px solid var(--line)' : 'none' }}>
+            <m.Icon size={16} style={{ color: m.color, flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>{i.title}</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: m.color, border: `1px solid ${m.color}`, borderRadius: 999, padding: '0 7px' }}>{m.label}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: m.color }}>{m.label}</span>
               </div>
               {i.note && <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, marginTop: 2 }}>{i.note}</div>}
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>

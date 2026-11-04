@@ -33,9 +33,40 @@ import { RecordUploadButtons } from './TicketEvidence';
 // its own - see TicketDrawer's `commit`.
 // onVoiceRecordingChange(bool): a voice note is recording under the reply - the
 // drawer's Done waits for Stop.
-function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone, onVoiceRecordingChange, savedReplies = false, ticket = null, myEmail = '' }) {
-  const [rows, setRows] = useState(null);
+// Record / attach from the conversation (Pranshu, Oct 6: "if the same issue
+// happens again there's no option to add a recording again"). The file goes
+// to the ticket's Attachments straight away, and a link to it is added to
+// the reply being written, so it is sent with the message on Done.
+// Shared by the desktop composer below and the phone card's
+// (TicketPhoneCard.jsx) - one way to attach, two layouts.
+export function useReplyAttach(ticketId, onReplyChange) {
   const [attaching, setAttaching] = useState(false);
+  const attach = async (f) => {
+    setAttaching(true);
+    const kind = attachmentKindOf(f);
+    let url = '';
+    try { url = await uploadTicketEvidence(f, kind); } catch (e) {
+      appDialog.alert(`"${f.name}" couldn't be stored: ${e?.message || 'upload failed'}.`);
+    }
+    await api.addTicketAttachment(ticketId, { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind, url }).catch(attachFailed(f.name));
+    setAttaching(false);
+    if (!url) return;
+    const recording = kind === 'video' && /^ticket-recording-/.test(f.name);
+    const text = recording ? 'Screen recording' : kind === 'audio' ? 'Voice note' : f.name;
+    const what = recording ? 'Attached a screen recording' : kind === 'audio' ? 'Attached a voice note' : 'Attached';
+    const link = `<p>${what}: <a href="${escapeHtml(url)}">${escapeHtml(text)}</a></p>`;
+    onReplyChange((r) => ({ ...r, body: isEmptyDoc(r.body) ? link : `${r.body || ''}${link}` }));
+  };
+  return { attaching, attach };
+}
+
+// `composer={false}` (the phone card): the thread only - the card pins its own
+// reply box to the bottom of the screen. `lead`: drawn above the first
+// comment (the phone card puts the description there). `reloadKey`: a change
+// re-reads the thread (the phone card sends a reply without closing).
+function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone, onVoiceRecordingChange, savedReplies = false, ticket = null, myEmail = '', composer = true, lead = null, reloadKey = 0 }) {
+  const [rows, setRows] = useState(null);
+  const { attaching, attach } = useReplyAttach(ticketId, onReplyChange);
   const [pickingReply, setPickingReply] = useState(false);
   // A saved reply lands in the composer, filled in, for editing - added after
   // whatever is already written, never sent on its own.
@@ -56,7 +87,7 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
   // value.
   const { reloadTickets } = useTasks();
   const reload = () => api.getTicketComments(ticketId).then(setRows).catch(() => setRows([]));
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId, reloadKey]);
 
   const del = async (c) => {
     const ok = await appDialog.confirm(`Delete this ${c.internal ? 'internal note' : 'comment'}? It cannot be brought back. Pictures it showed are kept with the ticket's records.`,
@@ -67,39 +98,19 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
     await Promise.all([reload(), reloadTickets?.()]);
   };
 
-  // Record / attach from the conversation (Pranshu, Oct 6: "if the same issue
-  // happens again there's no option to add a recording again"). The file goes
-  // to the ticket's Attachments straight away, and a link to it is added to
-  // the reply being written, so it is sent with the message on Done.
-  const attach = async (f) => {
-    setAttaching(true);
-    const kind = attachmentKindOf(f);
-    let url = '';
-    try { url = await uploadTicketEvidence(f, kind); } catch (e) {
-      appDialog.alert(`"${f.name}" couldn't be stored: ${e?.message || 'upload failed'}.`);
-    }
-    await api.addTicketAttachment(ticketId, { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind, url }).catch(attachFailed(f.name));
-    setAttaching(false);
-    if (!url) return;
-    const recording = kind === 'video' && /^ticket-recording-/.test(f.name);
-    const text = recording ? 'Screen recording' : kind === 'audio' ? 'Voice note' : f.name;
-    const what = recording ? 'Attached a screen recording' : kind === 'audio' ? 'Attached a voice note' : 'Attached';
-    const link = `<p>${what}: <a href="${escapeHtml(url)}">${escapeHtml(text)}</a></p>`;
-    onReplyChange((r) => ({ ...r, body: isEmptyDoc(r.body) ? link : `${r.body || ''}${link}` }));
-  };
-
   return (
     <div>
       {zoomViewer}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+        {lead}
         {rows === null ? <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>
-          : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No comments yet.</div>
+          : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>{lead ? 'No replies yet.' : 'No comments yet.'}</div>
             : rows.map((c) => (
               <div key={c.id} style={{ display: 'flex', gap: 8, ...(c.internal ? { background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 10, padding: 8 } : {}),
                 ...(newSince !== undefined && (c.createdAt || '') > newSince && !c.internal ? { background: 'rgba(37,99,235,0.06)', borderRadius: 10, padding: 8 } : {}) }}>
                 <Avatar email={c.authorId} name={nameOf(c.authorId)} size={26} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', rowGap: 2 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{nameOf(c.authorId) || c.authorId}</span>
                     {c.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3 }}><Lock size={10} /> Internal Note</span>}
                     {newSince !== undefined && (c.createdAt || '') > newSince && (
@@ -119,6 +130,7 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
               </div>
             ))}
       </div>
+      {composer && (<>
       {/* Public reply vs internal note toggle - the desk's only. */}
       {canInternal && <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
         {[['reply', 'Public Reply', false], ['note', 'Internal Note', true]].map(([k, lab, isInt]) => (
@@ -162,6 +174,7 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
           </span>
         )}
       </div>
+      </>)}
       {pickingReply && (
         <SavedReplyPicker ticket={ticket} agentEmail={myEmail} nameOf={nameOf}
           onInsert={insertSaved} onClose={() => setPickingReply(false)} />

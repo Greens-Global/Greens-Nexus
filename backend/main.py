@@ -1560,6 +1560,13 @@ def _run_migrations():
             "ALTER TABLE construction_media ADD COLUMN source_media_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_media ADD COLUMN task_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_weekly_reports ADD COLUMN pair_ids JSON DEFAULT '[]'",
+            "ALTER TABLE shifts ADD COLUMN group_ids VARCHAR DEFAULT ''",
+            # A role's job description from Documents (Nov 4 2026) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN jd_template_id VARCHAR DEFAULT ''",
+            # A company's IT Support Contact (Nov 4 2026) - see the Postgres list.
+            "ALTER TABLE hr_entities ADD COLUMN it_contact_email VARCHAR DEFAULT ''",
+            # A role's documents sent with the offer, in order (Nov 4 2026) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN offer_docs JSON DEFAULT '[]'",
             # MRI lease documents folder (Urmi, 11/03/2026) - see the Postgres list.
             "ALTER TABLE leases ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
             # Workers' comp class (11/05/2026) - see the Postgres list.
@@ -3717,6 +3724,13 @@ def _run_migrations():
         "ALTER TABLE construction_field_tickets ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_change_orders ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_closeout_records ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS group_ids VARCHAR DEFAULT ''",
+        # A role's job description from Documents (Nov 4 2026): models.NexusGroup.jd_template_id.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS jd_template_id VARCHAR DEFAULT ''",
+        # A company's IT Support Contact (Nov 4 2026): models.HrEntity.it_contact_email.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS it_contact_email VARCHAR DEFAULT ''",
+        # A role's documents sent with the offer letter, in order (Nov 4 2026): models.NexusGroup.offer_docs.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS offer_docs JSONB DEFAULT '[]'::jsonb",
         # MRI lease documents folder (Urmi, 11/03/2026, Teams Nexus -
         # Accounting): the lease's Egnyte folder, like MRE's per-vendor one.
         # models.Lease.egnyte_folder.
@@ -4501,6 +4515,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] probation seeds skipped: {e}")
+    # Shift types belong to teams (Neil, 11/04/2026): once, each existing
+    # type is linked to the teams that already use it (shift_type_teams.py).
+    try:
+        import shift_type_teams
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            linked = shift_type_teams.apply_once(db)
+            if linked:
+                print("[startup] shift types linked to their teams: "
+                      + "; ".join(f"{k} -> {', '.join(v)}" for k, v in linked.items()))
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] shift type teams skipped: {e}")
     # Tiers (Neil, 11/02/2026): the Super Administrators set and the tier
     # words cleared run from _tier_seeds on EVERY boot, not here.
     # Presidents' Day (Neil, Oct 29 2026: "it's not showing Presidents' Day").
@@ -4537,6 +4566,28 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] weather department seed skipped: {e}")
+    # Asset Management Company field (Neil, 11/03/2026): every asset without a
+    # companyId gets a STRONG answer (its Operating Entity or its lead property;
+    # an asset-manager guess is left blank for review) ONCE (its
+    # nexus_settings mark; Activity Log entry + _rev bump per row; never
+    # overwrites one already set). Before the construction pass below, which
+    # reads it. Deployed API or a laptop's own SQLite only (should_run);
+    # `python asset_company_fill.py` is the read-only dry run.
+    try:
+        import asset_company_fill
+        if asset_company_fill.should_run(DATABASE_URL):
+            from database import SessionLocal
+            db = SessionLocal()
+            try:
+                n = asset_company_fill.fill(db)   # once (its nexus_settings mark)
+                if n is not None:
+                    print(f"[startup] asset management: set the company on {n} asset(s) (one-time pass)")
+            finally:
+                db.close()
+        else:
+            print("[startup] asset company fill skipped - a laptop on the shared database leaves it to the deployed API")
+    except Exception as e:
+        print(f"[startup] asset company fill skipped: {e}")
     # Construction foundations (Neil, 11/03/2026): place every job without a
     # company in one, ONCE (its property's entity, else its creator's - the
     # company wall; `python construction_company.py` is the read-only dry
