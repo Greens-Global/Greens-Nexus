@@ -198,18 +198,23 @@ def infer_company(db, prop, names=None, _lead: bool = True, strong: bool = False
     return "", ""
 
 
-def property_company(db, prop) -> str:
+def property_company(db, prop, strong: bool = False) -> str:
     """THE company (HrEntity id) an Asset Management asset belongs to: its
     Company field; only while that is blank, the inference (logged once per
     asset per process, so a fallback still in use shows in the log). '' =
     unknown. A preventive schedule's team, a construction job's company and
-    the tag sheet's company name all read this - never a second rule."""
+    the tag sheet's company name all read this - never a second rule.
+
+    `strong=True` falls back only to the STRONG inference (infer_company's
+    strong mode - never the asset manager's company): what a property ticket
+    files under (ticket_property_company), so a row still under "Needs a
+    Company" changes nothing about where its tickets go."""
     if prop is None:
         return ""
     cid = stored_company(db, prop)
     if cid:
         return cid
-    cid, how = infer_company(db, prop)
+    cid, how = infer_company(db, prop, strong=strong)
     if cid and prop.id not in _FALLBACK_LOGGED:
         _FALLBACK_LOGGED.add(prop.id)
         print(f"[property-company] {prop.id}: no Company set - inferred from {how} ({cid})")
