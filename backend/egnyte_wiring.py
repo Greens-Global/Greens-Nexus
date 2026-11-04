@@ -105,7 +105,9 @@ KNOWN_SLOTS = [
         "group": "Construction",
         "label": "Construction fallback root",
         "description": "Where a construction project's daily-log media lands when the project "
-                       "has no linked property. The project name is appended.",
+                       "has no linked property, or its property has no Egnyte folder. The project "
+                       "name is appended. A job with a property files under the property's own "
+                       "folder, in Construction/<job>.",
         "kind": "path",
         "placeholders": [],
         "env": ["EGNYTE_CONSTRUCTION_ROOT"],

@@ -613,6 +613,50 @@ def resolve_property_folder(site: str) -> str | None:
     return None
 
 
+def find_property_folder(site: str) -> tuple[str | None, str]:
+    """resolve_property_folder for a filer that runs UNATTENDED (the
+    construction Egnyte sweep, 11/03/2026) - nobody is looking at the answer
+    before a file lands in it, so a loose guess is not acceptable.
+
+    Returns (folder, why), why = 'matched' | 'ambiguous' | 'no_match':
+      - an exact name, or a site-key match (`_site_key` of the folder equals
+        the site or its own site key), root by root in priority order;
+      - else a substring match ONLY when it is the one such folder across
+        every root - two candidates is 'ambiguous', never a pick;
+      - nothing is 'no_match'.
+    Raises EgnyteError(502) when a root that could change the answer (one
+    before the match, or any root for a substring answer) failed with
+    anything but a 404: a partial outage must be retried, never read as
+    "no folder" or let a lower-priority root win. A missing root (404) is
+    skipped, as resolve_property_folder skips it."""
+    want = (site or "").strip().lower()
+    if not want:
+        return None, "no_match"
+    keys = {want, _site_key(want)}
+    failure = None
+    listings = []
+    for root in property_roots():
+        try:
+            names = [f["name"] for f in list_folder(root)["folders"]]
+        except EgnyteError as e:
+            if e.status != 404 and failure is None:
+                failure = e
+            continue
+        for matches in (lambda n: n.lower() == want, lambda n: _site_key(n) in keys):
+            for n in names:
+                if matches(n):
+                    if failure is not None:
+                        raise EgnyteError(f"Could not list a property folder root: {failure}", 502)
+                    return norm(f"{root}/{n}"), "matched"
+        listings.append((root, names))
+    if failure is not None:
+        raise EgnyteError(f"Could not list a property folder root: {failure}", 502)
+    hits = [norm(f"{root}/{n}") for root, names in listings for n in names if want in n.lower()]
+    if len(hits) == 1:
+        return hits[0], "matched"
+    return None, ("ambiguous" if hits else "no_match")
+
+
 def plans_folder(site_folder: str, child_names: list[str] | None = None) -> str:
     """The documents subfolder inside a resolved property folder.
 
