@@ -136,21 +136,36 @@ def put_config(body: ConfigBody, user: dict = Depends(require_config),
             "templates": _template_rows(cfg["confirmed"])}
 
 
+# Egnyte throttles a per-user OAuth key past a few calls a second (Nov 4: a
+# walked scan of a 178-subfolder tree hit it). A throttled or hiccupping call
+# is waited out and retried; this router's endpoints are sync, so the sleep
+# runs in the worker thread, never on the event loop.
+_RETRY_STATUSES = (429, 502, 504)
+_RETRY_WAITS = (0.8, 1.6, 3.2)
+
+
 def _egnyte(token, fn, *args):
     """_call, with Egnyte's raw 401 fault turned into words a person can act
-    on. With per-user OAuth there is no refresh (egnyte_oauth stores only the
-    access token, which Egnyte expires after ~30 days), so an invalid token
-    means one thing: reconnect."""
-    try:
-        return _call(fn, *args, token)
-    except HTTPException as exc:
-        if exc.status_code == 401:
-            raise HTTPException(401, (
-                "Your Egnyte connection has expired. Open the Egnyte module, "
-                "press Connect, then come back and scan again."
-                if token is not None else
-                "Egnyte rejected Nexus's connection. Check the Egnyte module's status screen."))
-        raise
+    on, and throttling waited out. With per-user OAuth there is no refresh
+    (egnyte_oauth stores only the access token, which Egnyte expires after
+    ~30 days), so an invalid token means one thing: reconnect."""
+    import time
+    for attempt in range(len(_RETRY_WAITS) + 1):
+        try:
+            return _call(fn, *args, token)
+        except HTTPException as exc:
+            if exc.status_code == 401:
+                raise HTTPException(401, (
+                    "Your Egnyte connection has expired. Open the Egnyte module, "
+                    "press Connect, then come back and scan again."
+                    if token is not None else
+                    "Egnyte rejected Nexus's connection. Check the Egnyte module's status screen."))
+            if exc.status_code in _RETRY_STATUSES and attempt < len(_RETRY_WAITS):
+                time.sleep(_RETRY_WAITS[attempt])
+                continue
+            if exc.status_code == 429:
+                raise HTTPException(429, "Egnyte is busy with this many requests - wait a moment and try again.")
+            raise
 
 
 # The maps change when someone reorganizes Egnyte, which is rare; a walked
@@ -245,7 +260,7 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
     roots = picked or cfg["scanRoots"]
 
     proposals: list[dict] = []
-    scanned, missing, subfolders = [], [], []
+    scanned, missing, subfolders, failed = [], [], [], []
     for root in roots:
         try:
             listing = _egnyte(token, svc.list_folder, root)
@@ -253,7 +268,13 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
             if exc.status_code in (403, 404):
                 missing.append(root)
                 continue
-            raise
+            if exc.status_code == 401:
+                raise
+            # One folder Egnyte would not list even after the retries must
+            # not sink its siblings - it is answered as failed, by path, and
+            # the caller offers to try just those again.
+            failed.append(root)
+            continue
         scanned.append(root)
         # The folder's own path says whose files these are (an entity's
         # subtree, a facility's, a project's) - never guessed from words.
@@ -302,7 +323,7 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
             totals["labeled" if p.get("labeled") else "unlabeled"] += 1
     return {"proposals": proposals, "counts": counts, "totals": totals,
             "scannedRoots": scanned, "missingRoots": missing,
-            "subfolders": subfolders,
+            "subfolders": subfolders, "failedRoots": failed,
             "truncated": len(proposals) >= MAX_SCAN_FILES}
 
 

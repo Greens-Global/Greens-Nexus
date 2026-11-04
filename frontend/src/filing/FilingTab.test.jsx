@@ -101,6 +101,30 @@ describe('Filing & Sorting tab', () => {
     expect(await screen.findByText('File 249.pdf')).toBeTruthy();
   });
 
+  it('a folder Egnyte will not list never sinks the walk - Try Those Again', async () => {
+    try { localStorage.setItem('filing-picked', JSON.stringify(['/Shared/A'])); } catch { /* jsdom */ }
+    let deepCalls = 0;
+    filingScan.mockImplementation(({ paths } = {}) => {
+      if (paths?.[0] === '/Shared/A') {
+        return Promise.resolve(scanOf([row('Top.pdf', { sourcePath: '/Shared/A/Top.pdf', labeled: false, canonicalName: '' })],
+          { subfolders: ['/Shared/A/Busy'], scannedRoots: ['/Shared/A'] }));
+      }
+      deepCalls += 1;
+      if (deepCalls <= 2) return Promise.reject(Object.assign(new Error('busy'), { status: 429 }));
+      return Promise.resolve(scanOf([row('Busy.pdf', { sourcePath: '/Shared/A/Busy/Busy.pdf', labeled: false, canonicalName: '' })],
+        { scannedRoots: ['/Shared/A/Busy'] }));
+    });
+    render(<FilingTab />);
+    fireEvent.click(await screen.findByRole('button', { name: /Scan Now \(1 Folder\)/ }));
+    // The walk keeps what it found and names what it could not read.
+    expect(await screen.findByText(/1 folder could not be read just now/)).toBeTruthy();
+    expect(screen.getByText('Top.pdf')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Try Those Again' }));
+    expect(await screen.findByText('Busy.pdf')).toBeTruthy();
+    expect(screen.getByText('Top.pdf')).toBeTruthy();   // merged, not replaced
+    await waitFor(() => expect(screen.queryByText(/could not be read just now/)).toBeNull());
+  });
+
   it('walks ticked folders and their subfolders, a few per request', async () => {
     try { localStorage.setItem('filing-picked', JSON.stringify(['/Shared/A'])); } catch { /* jsdom */ }
     filingScan.mockImplementation(({ paths } = {}) => {
