@@ -709,7 +709,6 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     headerEditor.on('update', refresh);
     footerEditor.on('update', refresh);
     return () => { headerEditor.off('update', refresh); footerEditor.off('update', refresh); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headerEditor, footerEditor, headerVisible, footerVisible, pages]);
 
   // Every merge field on the pages (in page order), the header and the footer,
