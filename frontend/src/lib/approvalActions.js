@@ -22,6 +22,10 @@ export const APPROVAL_ACTIONS = {
   // Team > Requests / People > Time (routers/timeclock.py decide_timeoff).
   time_off: {
     approve: (r) => api.timeOffDecide(r.id, { status: 'approved', note: '' }),
+    // Approve And Remove Shifts (Team > Requests, moved here 11/04/2026):
+    // the same decision, with the shared shifts inside the leave marked for
+    // removal in the same transaction.
+    approve_remove: (r) => api.timeOffDecide(r.id, { status: 'approved', note: '', remove_shifts: true }),
     reject: (r, note) => api.timeOffDecide(r.id, { status: 'rejected', note }),
   },
   // Second Approval By HR (leave depth, Oct 27 2026): HR's own door,

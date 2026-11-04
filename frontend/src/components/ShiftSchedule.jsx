@@ -13,6 +13,7 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { ShiftTypeWeek, ImportModal, ShiftMenu, PersonMenu, ShiftDetails } from './ShiftScheduleExtras';
 import { printSchedule, DEFAULT_VIEW_PREFS } from './shiftScheduleLib';
+import RequestsStrip from './shifts/RequestsStrip';
 import { AddMembersModal, ReorderTeamsModal, TeamMenu } from './ShiftTeams';
 import { ScheduleToolbar, ConfirmChip, ShareDialog, DayNoteDialog, ViewOptionsDialog, MODAL_BACK, MODAL_CARD, DialogHead } from './shifts/ScheduleToolbar';
 import TeamPicker, { ALL_TEAMS, NO_TEAM } from './shifts/TeamPicker';
@@ -710,7 +711,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   const setUsual = (email, shiftId) => run(() => api.timeShiftAssign({ shift_id: shiftId || '', emails: [email] }),
     { ok: shiftId ? `${names[email]} is on ${presets.find((p) => p.id === shiftId)?.name || 'that shift type'} as their usual hours.` : `${names[email]} has no usual hours now.`, fail: 'Could not change the usual hours.' });
   const saveTimeOff = (payload, approve) => run(async () => { const r = await api.timeOffOnBehalf(payload); if (approve) await api.timeOffDecide(r.id, { status: 'approved', note: '' }); return r; },
-    { ok: approve ? `Time off added for ${names[payload.employee_email] || nameOf(payload.employee_email)}.` : `Time-off request added for ${names[payload.employee_email] || nameOf(payload.employee_email)} - decide it in Requests.`, fail: 'Could not add the time off.', after: () => setPanel(null) });
+    { ok: approve ? `Time off added for ${names[payload.employee_email] || nameOf(payload.employee_email)}.` : `Time-off request added for ${names[payload.employee_email] || nameOf(payload.employee_email)} - decide it in Approvals.`, fail: 'Could not add the time off.', after: () => setPanel(null) });
   const saveDayNote = (date, note, groupId) => run(() => api.timeSchedDayNote({ work_date: date, note, ...(groupId ? { group_id: groupId } : {}) }),
     { ok: note.trim() ? 'Day note saved.' : 'Day note removed.', fail: 'Could not save the note.', after: () => setOpen('') });
   const importRows = async (rows) => {
@@ -725,7 +726,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       if (r.skipped) bits.push(`kept ${r.skipped} existing`);
       if (r.timeoffSkipped) bits.push(`skipped ${r.timeoffSkipped} on time off`);
       if (r.holidaySkipped) bits.push(`skipped ${r.holidaySkipped} on company holidays`);
-      if (r.timeoffCopied) bits.push(`${r.timeoffCopied} time-off request${r.timeoffCopied !== 1 ? 's' : ''} to approve in Requests`);
+      if (r.timeoffCopied) bits.push(`${r.timeoffCopied} time-off request${r.timeoffCopied !== 1 ? 's' : ''} to approve in Approvals`);
       return `${bits.join(' · ')}. Share to send them.`;
     }, fail: 'Could not copy the schedule.', after: () => setOpen('') });
   const clearSchedule = (payload) => run(() => api.timeSchedClear(payload), {
@@ -1389,6 +1390,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
           )}
         </section>
       )}
+      {managing && <RequestsStrip start={start} end={end} />}
       {error ? (
         <ErrorBanner message={`The schedule could not be loaded - ${error}`} onRetry={load} />
       ) : data === null ? (

@@ -34,18 +34,15 @@ vi.mock('../api', () => {
 
 beforeEach(() => { for (const k of Object.keys(calls)) delete calls[k]; globalThis.__apiAnswers = {}; });
 
-describe('manager inbox', () => {
-  it('shows a confidential request with its type, no note, and who decides it', async () => {
-    // The inbox takes its data from the module (Shifts.jsx, useManagerInbox) since Oct 2026.
-    const Inbox = (await import('./ShiftRequestsInbox')).default;
-    render(<Inbox inbox={{ pending: [], recent: [], waitingOnPeer: [] }} timeoff={[REDACTED, PLAIN]} loading={false} error={null} onRetry={() => {}} />);
-    expect(await screen.findByText('Valinda Test decides this request.')).toBeTruthy();
-    expect(screen.getAllByText('Confidential').length).toBe(1);
-    expect(screen.getByText(/Time Off · Sick/)).toBeTruthy();
-    // The plain request keeps its type, note and buttons.
-    expect(screen.getByText(/Time Off · Vacation/)).toBeTruthy();
-    expect(screen.getByText('Beach week')).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Approve' }).length).toBe(1);
+describe('planner requests line', () => {
+  // Team > Requests moved into Approvals (11/04/2026): a request someone else
+  // decides is named on the planner with who decides it, never a decision;
+  // its note never travels (Approvals itself only lists what is yours).
+  it('names a confidential request with who decides it and no note', async () => {
+    const { requestsInRange } = await import('./shifts/RequestsStrip');
+    const items = requestsInRange({ pending: [], waitingOnPeer: [] }, [REDACTED, PLAIN], '2026-11-15', '2026-11-21');
+    expect(items.map((i) => [i.key, i.wait])).toEqual([['time_off:t2', ''], ['time_off:t1', 'Waiting On Valinda Test']]);
+    expect(JSON.stringify(items)).not.toContain('Beach week');
   });
 });
 

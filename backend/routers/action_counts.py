@@ -168,8 +168,8 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
         db.rollback()
         inbox = {"counts": {}, "total": 0}
     a = inbox["counts"].get
-    # Team > Requests and People > Time both list it; HR's second level of
-    # Second Approval By HR (leave depth, Oct 27 2026) counts with it, once.
+    # People > Time lists it; HR's second level of Second Approval By HR
+    # (leave depth, Oct 27 2026) counts with it, once.
     time_off = a("time_off", 0) + a("time_off_hr", 0)
     counts = {
         "myhr": {
@@ -183,7 +183,8 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
             "performance": a("perf_review", 0) + a("perf_goal", 0),
         },
         "shifts": {
-            "requests": a("shift_request", 0) + time_off,
+            # Team > Requests moved into Approvals (Neil, 11/04/2026): shift
+            # requests and time off count on Approvals' badge, not Team's.
             "headcount": a("headcount", 0),   # Team > Headcount (Oct 27 2026)
         },
         "hr": {
