@@ -1258,6 +1258,14 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .nx-overlay.is-closing > .nx-panel { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
 .nx-overlay.is-closing > .nx-modal-sheet { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
 
+/* Compensation report rows (Charmi, 10/30: "needs banding and hover
+   highlight"). Solid backgrounds on EVERY cell - the name column is pinned
+   (position: sticky), so a transparent row would let the amounts scroll
+   through it; painting the whole row keeps the pin opaque in both themes. */
+.acct-comp tbody td, .acct-comp tfoot td { background: var(--bg-card); }
+.acct-comp tbody tr:nth-child(even) td { background: var(--bg-secondary); }
+.acct-comp tbody tr:hover td { background: var(--wk-hover, var(--mist)); }
+
 /* ── Sheets (Neil, 11/01/2026) ─────────────────────────────────────────────
    A desktop popup that is a record, a form or a workspace is a SHEET: docked
    to the right edge, full height, the width it already had (the 60% rule's

@@ -90,8 +90,11 @@ function compColumns(grouping) {
 // Employee box also finds the employee ID shown under the name.
 const compFilterColumns = (columns) => filterColumnsOf(columns, { instead: { name: (r) => `${r.name || ''} ${r.code || ''}` } });
 // The first column (the name) stays put while the amounts scroll sideways.
+// Its background comes from the .acct-comp row rules in style.css (banding
+// and hover, Charmi 10/30), which paint every cell solid so the amounts
+// scroll UNDER the pinned name rather than through it.
 const PINNED = new Set(['name', 'label']);
-const pin = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-card)' };
+const pin = { position: 'sticky', left: 0, zIndex: 1 };
 const filterCell = (col) => filterCellOf(PINNED.has(col.key) ? col.key : '')(col);
 
 /** Item 18: "just like dot dot dot that is loading" - never the pale blocks, never a blank screen. */
@@ -163,7 +166,14 @@ export default function CompensationReport() {
   const sync = useTableSync(useCallback(() => Promise.all([loadReport(asked, true), loadHours(asked, true)]), [asked, loadReport, loadHours]));
   const reloadAll = () => { loadReport(asked); loadHours(asked); };
 
-  const run = () => { if (!rangeError) setAsked([from, to]); };
+  // 10/30 (Neil: "What does this RUN REPORT do? If nothing then please take
+  // it out"): no button - a valid range runs itself after a beat, so picking
+  // both months costs one read, not two.
+  useEffect(() => {
+    if (rangeError || (from === asked[0] && to === asked[1])) return undefined;
+    const t = setTimeout(() => setAsked([from, to]), 600);
+    return () => clearTimeout(t);
+  }, [from, to, rangeError, asked]);
   const periods = report ? { cur: { from: report.from, to: report.to }, prior: report.prior || { from: '', to: '' } } : null;
   const curLabel = report ? periodLabel(report.from, report.to) : '';
   const priorLabel = report?.prior ? periodLabel(report.prior.from, report.prior.to) : '';
@@ -229,7 +239,6 @@ export default function CompensationReport() {
           to
           <input type="month" value={to} onChange={(e) => setRange([from, e.target.value])} style={control} aria-label="To Month" title="To Month" />
         </span>
-        <button type="button" className="primary-btn" onClick={run} disabled={!!rangeError || state.loading} style={{ height: 30, fontSize: '0.78rem' }}>Run Report</button>
         <BarMore level={1} active={view !== 'people' ? 1 : 0}>
         <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="View">
           {VIEWS.map((v) => <button key={v.key} type="button" style={seg(view === v.key)} aria-pressed={view === v.key} onClick={() => pickView(v.key)}>{v.label}</button>)}

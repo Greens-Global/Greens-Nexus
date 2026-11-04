@@ -33,6 +33,17 @@ const ScheduleCMapping = lazy(() => import('./ScheduleCMapping'));
 // 10/27 item 17: Spend by Vendor's own Vendors button - the Filters vendor list on its own.
 const VENDOR_KINDS = POPOVER_DIMS.filter((k) => k.key === 'vendor');
 
+// 10/30 (Charmi: "While selecting Income St by Customer, I do not see the
+// ability to select a specific customer"; Neil: the filters must be VISIBLE
+// on the screens, not only behind the Filters funnel): a report whose
+// columns are a dimension carries that dimension's own picker on the bar,
+// named for it - the same narrowing Filters does, one click closer.
+const DIM_COL_KINDS = Object.fromEntries(
+  [['customer', 'Customers'], ['project', 'Jobs'], ['department', 'Departments'],
+    ['vendor', 'Vendors'], ['employee', 'Employees'], ['item', 'Items']]
+    .map(([kind, label]) => [kind, { label, kinds: POPOVER_DIMS.filter((k) => k.kind === kind) }]),
+);
+
 // Accounting -> Reports. Pull any statement for any entity straight from the
 // ledger without opening Nexus Accounting: Income Statement, Balance Sheet,
 // Trial Balance, Cash Position. Read-only, served by the accounting app's
@@ -682,6 +693,13 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         {/* Item 17 (Charmi, 10/26): pull the report by vendor name - type a name or number, tick several. */}
         {config.report === 'vendor-spend' && (
           <FiltersButton dims={config.dims} onNames={onNames} showHistorical={!!prefs.showHistoricalAccounts} kinds={VENDOR_KINDS} label="Vendors" onChange={(dims) => patch({ dims })} />
+        )}
+        {/* 10/30: Income Statement by Customer (or any by-dimension columns)
+            shows that dimension's picker right on the bar. Vendor Spend
+            already carries its own above. */}
+        {config.report !== 'vendor-spend' && canUseDims(config) && DIM_COL_KINDS[cols] && (
+          <FiltersButton dims={config.dims} onNames={onNames} showHistorical={!!prefs.showHistoricalAccounts}
+            kinds={DIM_COL_KINDS[cols].kinds} label={DIM_COL_KINDS[cols].label} onChange={(dims) => patch({ dims })} />
         )}
         {/* Item 18: which Schedule C line each account adds into. */}
         {config.report === 'schedule-c' && (

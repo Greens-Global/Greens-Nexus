@@ -256,6 +256,11 @@ const reportOf = (key) => {
 };
 const viewOf = (key) => (REPORT_VIEWS[rptKey(key)] ? rptKey(key) : null);
 const DASH_SUBS = ['overview', 'cash', 'performance', 'close'];
+/** The bar tab the open page belongs to - its word is the page heading (Neil,
+ *  10/30: "If we are on dashboard it should say Dashboard here, not
+ *  accounting. This wiring is wrong or incomplete"). Unknown subs keep the
+ *  module's name. */
+const headingFor = (sub) => TABS.find((t) => leafKeys([t]).includes(menuKey(sub)))?.label || 'Accounting';
 
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
@@ -417,7 +422,10 @@ export default function Accounting({ activeSub, onSubChange }) {
           last. One line, one height, everywhere. */}
       <div className="view-header acct-header">
         <div className="acct-header-title">
-          <h2>Accounting</h2>
+          {/* The heading is the bar tab the page belongs to (Neil, 10/30):
+              Dashboard on the dashboards, Reports on a statement, and so on -
+              the sidebar already says Accounting. */}
+          <h2>{headingFor(sub)}</h2>
           <p title={subtitle}>{subtitle}</p>
         </div>
         {/* Oct 7 (Neil, comment 6: "Remove Nexus Accounting"): the "Open Nexus
