@@ -1788,6 +1788,11 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .how-do-i:hover { background: var(--card); outline: none; transform: none; box-shadow: var(--shadow-md); }
 .how-do-i:hover .support-icon { background: var(--mist); color: var(--fern); }
 .how-do-i-view { display: flex; flex-direction: column; flex: 1; min-height: 0; animation: how-do-i-in var(--dur-md) var(--ease-out); }
+.how-do-i-stack { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* The list sets the tile's height and stays put under an open answer, so the
+   row (and the tickets below it) never move; the answer covers it. */
+.how-do-i-view.is-hidden { visibility: hidden; animation: none; }
+.how-do-i-answer-view { position: absolute; inset: 0; }
 @keyframes how-do-i-in { from { opacity: 0; transform: translateX(6px); } to { opacity: 1; transform: none; } }
 .how-do-i-head { display: flex; align-items: center; gap: 10px; margin: 0 4px 6px; }
 .how-do-i-head .support-icon { margin-bottom: 0; flex-shrink: 0; width: 32px; height: 32px; }
