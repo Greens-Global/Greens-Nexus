@@ -455,12 +455,22 @@ def apply(body: ApplyBody, request: Request, user: dict = Depends(require_writer
         raise HTTPException(400, "Nothing to move")
     if len(body.moves) > MAX_APPLY:
         raise HTTPException(400, f"At most {MAX_APPLY} moves per batch")
+    started = time.monotonic()
+    _meter_reset()
     token = _browse_token(user, db)
     cfg = _load_config(db)
 
     results = []
+    deferred: list[str] = []
     listed: dict[str, set[str]] = {}   # destFolder -> existing names (one list per folder)
-    for mv in body.moves:
+    for i, mv in enumerate(body.moves):
+        # Each move is a paced Egnyte call or two, so a long list would run
+        # past the browser's 18 s limit: past the budget the rest go back
+        # untouched as `deferred` and the caller sends them again. At least
+        # one move is always made, so a batch always progresses.
+        if i > 0 and time.monotonic() - started > SCAN_BUDGET_SEC:
+            deferred.extend(svc.norm(m.sourcePath) for m in body.moves[i:])
+            break
         src, dest = svc.norm(mv.sourcePath), svc.norm(mv.destFolder)
         name = mv.newName.strip()
         # Scans now reach any folder the person ticked, so the old staging-only
@@ -520,7 +530,12 @@ def apply(body: ApplyBody, request: Request, user: dict = Depends(require_writer
         ))
     db.commit()
     moved = sum(1 for r in results if r["ok"])
-    return {"results": results, "moved": moved, "failed": len(results) - moved}
+    return {"results": results, "moved": moved, "failed": len(results) - moved,
+            "deferred": deferred,
+            "egnyte": {"calls": getattr(_meter, "calls", 0),
+                       "waitedSec": round(getattr(_meter, "waited", 0.0), 2),
+                       "throttled": getattr(_meter, "throttled", 0),
+                       "tookSec": round(time.monotonic() - started, 2)}}
 
 
 @router.get("/activity")
