@@ -38,7 +38,7 @@ export function visibleSubs(view, role) {
 
 export const SUBMENUS = {
   // Team (Neil, Oct 13 2026): Contact and the group's Shifts for everyone;
-  // managers add the Schedule and the Requests inbox (Charmi, 09/30). Your
+  // managers add the Schedule (requests are in Approvals, 11/04/2026). Your
   // own week is Workday > My Shifts.
   // Workforce Analytics (Oct 29 2026) carries `grants`: shown only to the
   // people lib/workforceAccess.js names, whichever list it is in.
@@ -46,7 +46,6 @@ export const SUBMENUS = {
     manager: [
       { sub: 'shifts', label: 'Shifts' },
       { sub: 'schedule', label: 'Shift Planner' },
-      { sub: 'requests', label: 'Requests' },
       { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
       { sub: 'contact', label: 'Directory' },
     ],

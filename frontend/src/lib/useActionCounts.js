@@ -63,7 +63,7 @@ export const countText = (n) => (n > 99 ? '99+' : String(n));
 // (routers/action_counts.py); a tab not listed here just adds to the total.
 const TAB_NAMES = {
   myhr: { timesheet: 'Time Sheet', overview: 'Overview', timeoff: 'Time Off' },
-  shifts: { requests: 'Requests' },
+  shifts: { headcount: 'Headcount' },
   hr: { 'hr-time': 'Time', 'hr-people': 'People' },
   accounting: { partners: 'Partners' },
   support: { kb: 'Knowledge Base', open: 'My Tickets' },

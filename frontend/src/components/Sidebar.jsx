@@ -90,9 +90,8 @@ export const NAV = [
     sub: [
       { subview: "shifts",   label: "Shifts",           icon: CalendarClock },
       { subview: "schedule", label: "Shift Planner",    icon: Calendar,      minRole: 'manager' },
-      // Requests = the manager's inbox (Charmi, 09/30); staff ask in Workday >
-      // Time Off, and shift types / groups live in Settings > Global Settings.
-      { subview: "requests", label: "Requests",         icon: ClipboardList, minRole: 'manager' },
+      // Requests moved into Dashboard > Approvals (Neil, 11/04/2026); staff
+      // ask in Workday > Time Off.
       { subview: "contact",  label: "Directory", icon: Contact },
     ],
   },

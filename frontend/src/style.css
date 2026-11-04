@@ -8405,6 +8405,11 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .apv-facts > div:nth-child(odd) { color: var(--muted); padding-right: 12px; }
 .apv-facts > div:nth-child(even) { color: var(--ink); font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; }
 .apv-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; padding-top: 4px; }
+/* A time-off or shift request's week (approvals/ScheduleContext.jsx, 11/04/2026): a hairline block above the facts. */
+.apv-sched { border-top: 1px solid var(--line); padding-top: 8px; }
+.apv-sched-h { font-size: 12px; font-weight: 700; color: var(--muted); }
+/* The Shifts filter's Waiting On A Teammate / Recently Decided (approvals/ShiftsAlso.jsx). */
+.apv-also { margin-top: 14px; }
 .apv-detail-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 40px 20px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; font-size: 13.5px; }
 .apv-detail-empty small { font-size: 12px; line-height: 1.5; }
 .apv-keys { display: grid; gap: 8px; font-size: 13.5px; }

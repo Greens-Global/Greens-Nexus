@@ -111,11 +111,13 @@ class ActionCountsCase(unittest.TestCase):
                                           end_date=SOON, status="pending", created_at="2026-10-18T00:00:00"))
         self.db.commit()
         mgr = self._counts(MGR)
-        self.assertEqual(mgr["shifts"]["requests"], 1)
+        self.assertEqual(mgr["approvals"]["inbox"], 1)
         self.assertEqual(mgr["hr"]["hr-time"], 1)
+        # Team > Requests moved into Approvals (11/04/2026): Team never counts it.
+        self.assertNotIn("requests", mgr.get("shifts", {}))
         # The requester has nothing to do; nor does a teammate.
-        self.assertNotIn("shifts", self._counts(EMP))
-        self.assertNotIn("shifts", self._counts(MATE))
+        self.assertNotIn("approvals", self._counts(EMP))
+        self.assertNotIn("approvals", self._counts(MATE))
 
     def test_what_waits_on_an_employee(self):
         # A teammate's swap waiting for my yes (a past one no longer counts).
