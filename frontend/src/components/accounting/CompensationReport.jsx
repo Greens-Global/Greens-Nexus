@@ -501,7 +501,7 @@ function WorkersCompNote({ subject, period = 'cur' }) {
       <strong>Workers&apos; Comp</strong>
       {parts.map((w, i) => (
         <span key={`${w.name || ''}-${w.year}-${i}`}>
-          {w.name && subject.codes?.length > 1 ? `${w.name}: ` : ''}{w.year}: {pct(w.ratePct)} of {formatAmount(w.gross)} gross wages = {formatAmount(w.amount)}{w.rateYear !== w.year ? ` (the rate set for ${w.rateYear})` : ''}
+          {w.name && subject.codes?.length > 1 ? `${w.name}: ` : ''}{w.year}: {pct(w.ratePct)}{w.classCode ? ` (Class ${w.classCode})` : ''} of {formatAmount(w.gross)} gross wages = {formatAmount(w.amount)}{w.rateYear !== w.year ? ` (the rate set for ${w.rateYear})` : ''}
         </span>
       ))}
     </div>

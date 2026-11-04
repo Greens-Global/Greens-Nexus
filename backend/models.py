@@ -9249,6 +9249,13 @@ class WorkersCompRate(Base):
     note           = Column(String, default="")
     set_by         = Column(String, default="")
     set_at         = Column(String, default="")                       # ISO timestamp, UTC
+    # The insurer's class (Charmi / Neil, 11/05/2026, Teams Nexus - Accounting):
+    # "State | Class Code | Description | Rate Per $100 of Remuneration", e.g.
+    # CA 8810 "CLERICAL OFFICE EMPLOYEES-NOC" 0.84. rate_pct above IS the rate
+    # per $100 (a percent of wages), so stored rates keep their meaning.
+    class_code     = Column(String, default="")                       # e.g. "8810", "9015-1"
+    state          = Column(String, default="")                       # 2-letter, '' = not given
+    description    = Column(String, default="")                       # the insurer's class description
 
 
 # ─────────────────────────────────────────────────────────────────────────────
