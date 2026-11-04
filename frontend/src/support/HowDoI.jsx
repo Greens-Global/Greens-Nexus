@@ -1,8 +1,8 @@
 // "How Do I..." (Help Center, Neil, 11/02/2026): the short answers to the
 // things people come to the Help Center to do, each with the one button that
 // does it - straight to the real screen, never a ticket asking someone else
-// to do it. Request Access and Report a Bug ARE tickets (that is the real
-// flow for both), opened on the right type.
+// to do it. Ask HR, Request Access and Report a Bug were taken out (Neil,
+// 11/04/2026): Submit a Ticket and Ask HR already sit one tile away.
 //
 // A TILE in the row (Neil, 11/04/2026: "condense and redesign this ... where
 // it fits into a tile here"): the fifth card beside Submit a Ticket, Ask
@@ -18,7 +18,7 @@
 // the left menu's own rule (Sidebar's isNavItemVisible) for the module it
 // lands in, and the Time Sheet one only for people whose time is tracked.
 import { useEffect, useRef, useState } from 'react';
-import { CalendarClock, Receipt, ShoppingCart, Timer, Contact, KeyRound, Bug, ChevronRight, ChevronLeft, CircleHelp } from 'lucide-react';
+import { CalendarClock, Receipt, ShoppingCart, Timer, ChevronRight, ChevronLeft, CircleHelp } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { NAV, isNavItemVisible } from '../components/Sidebar';
 
@@ -41,15 +41,6 @@ export const HOW_DO_I = [
   { key: 'fix-time', q: 'Fix My Time Sheet', Icon: Timer, module: 'myhr', timeTracked: true,
     answer: 'Open your Time Sheet, find the day and use Edit on that row to ask for the right in, out or break time with a note. Your manager approves it and the day updates when they do.',
     action: 'Open My Time Sheet', run: () => go('timeclock', 'timesheet') },
-  { key: 'ask-hr', q: 'Ask HR Something Private', Icon: Contact, module: 'myhr',
-    answer: 'Ask HR is private: only HR for your company - the HR contact and administrators - sees it, never your manager or your team. Use it for pay, benefits, letters, documents and anything personal. You get a bell when HR answers.',
-    action: 'Open Ask HR', run: () => go('myhr', 'ask-hr') },
-  { key: 'access', q: 'Request Access to Something', Icon: KeyRound, ticket: 'access_request',
-    answer: 'File an Access Request ticket with the module or system you need and why. IT and the owner of that module approve it, and you are told on the ticket when it is in place.',
-    action: 'File an Access Request' },
-  { key: 'bug', q: 'Report a Bug', Icon: Bug, ticket: 'bug',
-    answer: 'File a Bug Report ticket: what you were doing, what happened and a screenshot if you have one (Ctrl+V pastes it). The team replies on the ticket and you get a bell on every update.',
-    action: 'File a Bug Report' },
 ];
 
 /** The questions this person can act on. */

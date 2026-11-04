@@ -35,16 +35,17 @@ const HeadcountRequests = lazy(() => import('../components/hiring/HeadcountReque
 // anyone else.
 const WorkforceAnalytics = lazy(() => import('../components/TimeTrackingAdmin'));
 
-// Contact last (Pranshu, Oct 15 2026); Team opens on Shifts.
+// Directory right after Shift Planner (Neil, 11/04/2026 - it was last,
+// Pranshu, Oct 15 2026); Team opens on Shifts.
 const TABS = [
   ['shifts', 'Shifts', CalendarClock, false],
   ['schedule', 'Shift Planner', CalendarDays, true],
+  ['contact', 'Directory', Contact, false],
   ['analytics', 'Workforce Analytics', MonitorDot, false],
   // A role's own checklist steps, for department heads (Neil, Oct 19) - only
   // shown to someone who keeps at least one role.
   ['role-checklists', 'Role Checklists', ListChecks, false],
   ['headcount', 'Headcount', UserPlus, false],
-  ['contact', 'Directory', Contact, false],
 ];
 const SUBTITLE = {
   contact: 'Find and reach anyone in the company',

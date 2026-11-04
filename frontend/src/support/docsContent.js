@@ -2192,8 +2192,8 @@ export const DOCS = [
       { name: 'Search Bar', desc: 'At the top of Help Center: one search across this guide, the Knowledge Base and your courses, with Ask Nexus for a written answer.' },
       { name: 'Ask Nexus', desc: 'The Ask Nexus card (it takes you to the search bar), and the answers in the search bar and the ? Help panel. Nexus answers only from this guide and the Knowledge Base pages you can read, cites its sources, and offers File a Ticket with your question filled in when it cannot help. It never reads tickets or anyone\'s records.' },
       { name: 'Was This Helpful?', desc: 'Yes or No under every guide article and every Ask Nexus answer. The team sees what did not help and fixes the guide.' },
-      { name: 'How Do I...', desc: 'Short answers to the common things, each with the button that does it: Request Time Off, Reimbursement, Purchase Request, a Time Sheet fix, Ask HR, Request Access and Report a Bug.' },
-      { name: 'Known Issues', desc: 'When something in Nexus is broken or slow, administrators post a Known Issues banner. It shows on Help Center, in the ? Help panel and on the ticket form, so you know before you file a ticket about it.' },
+      { name: 'How Do I...', desc: 'Short answers to the common things, each with the button that does it: Request Time Off, Reimbursement, Purchase Request and a Time Sheet fix.' },
+      { name: 'Known Issues', desc: 'When something in Nexus is broken or slow, administrators post a Known Issues banner. It shows at the top of What\'s New, in the ? Help panel and on the ticket form, so you know before you file a ticket about it.' },
       { name: 'Submit a Ticket', desc: 'The same form the Tickets module uses, with routing and due dates set automatically, and Suggested Articles that may answer it first.' },
       { name: 'Bug Report', desc: 'A ticket type in Submit a Ticket, for anything broken in Nexus itself.' },
       { name: 'On Behalf Of', desc: 'Raise a ticket for a colleague by picking them as the Requester. They get the updates; you can still see it under Tickets I\'m Following.' },
@@ -2210,7 +2210,7 @@ export const DOCS = [
       title: 'Note',
       points: [
         'Ticket agents work the queue from the Tickets module. Help Center is the requester\'s side.',
-        'Administrators post and clear the Known Issues banner from Help Center.',
+        'Administrators post and clear the Known Issues banner from What\'s New.',
       ],
     },
     tips: [

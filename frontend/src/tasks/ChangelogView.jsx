@@ -49,6 +49,7 @@ import {
   MyRequestsDialog, IssueChip, IssueBanner, IssueDialog, issueOf, DeprecationChip, DeprecationNotice, StageChip, stageOf,
   AttentionStrip, MediaEditor, AttachmentList, TourEditor, TakeTourButton, uploadWhatsNewFile, readAsDataUrl as readFileAsDataUrl,
 } from './changelogLifecycle';
+import KnownIssuesBanner from '../support/KnownIssues';
 
 // ── Change-type / environment / status metadata (ported from changelogMeta.ts) ──
 const CHANGE_TYPE_META = {
@@ -598,7 +599,10 @@ function WhatsNewTab({ entries: allPublished, nameOf, myEmail, isAdmin, onSetSta
     onEdit={isAdmin ? () => onEdit(e) : undefined} />;
   return (
     <div style={{ padding: isMobile ? '14px 12px' : '16px 16px 20px' }}>
-      {/* Open known issues and coming removals, whatever their day (Oct 18 2026). */}
+      {/* What is broken right now (Neil, 11/04/2026: moved here from the
+          Help Center), then open known issues and coming removals on
+          updates, whatever their day (Oct 18 2026). */}
+      <KnownIssuesBanner />
       <AttentionStrip entries={allPublished} onOpen={openEntry} />
       <div role="group" aria-label="Show" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
         <button type="button" aria-pressed={mineOnly} onClick={() => { setMineOnly((v) => !v); writeQuery({ for: mineOnly ? '' : 'me' }); }} style={toggle(mineOnly)}>
