@@ -224,7 +224,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     let ticketMaintenance = null;
     try { ticketMaintenance = ticketMaintenanceRows(await api.getPropertyTickets(asset.id), asset); }
     catch { /* exported with a "Not included" row */ }
-    exportAssetCsvAsFile(asset, store, { ticketMaintenance });
+    exportAssetCsvAsFile(asset, store, { ticketMaintenance, companies: companyList.companies });
   };
 
   /** All navigation goes through this - it's what enforces the unsaved-changes guard. */
