@@ -136,6 +136,23 @@ def put_config(body: ConfigBody, user: dict = Depends(require_config),
             "templates": _template_rows(cfg["confirmed"])}
 
 
+def _egnyte(token, fn, *args):
+    """_call, with Egnyte's raw 401 fault turned into words a person can act
+    on. With per-user OAuth there is no refresh (egnyte_oauth stores only the
+    access token, which Egnyte expires after ~30 days), so an invalid token
+    means one thing: reconnect."""
+    try:
+        return _call(fn, *args, token)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            raise HTTPException(401, (
+                "Your Egnyte connection has expired. Open the Egnyte module, "
+                "press Connect, then come back and scan again."
+                if token is not None else
+                "Egnyte rejected Nexus's connection. Check the Egnyte module's status screen."))
+        raise
+
+
 def _live_maps(token: str | None) -> filing_rules.Maps:
     """The entity / facility / project maps, read from the live tree at scan
     time - never hardcoded, so an Egnyte re-org does not need a deploy."""
@@ -180,7 +197,7 @@ def scan(user: dict = Depends(require_writer), db: Session = Depends(get_db)):
     scanned, missing = [], []
     for root in cfg["scanRoots"]:
         try:
-            listing = _call(svc.list_folder, root, token)
+            listing = _egnyte(token, svc.list_folder, root)
         except HTTPException as exc:
             if exc.status_code in (403, 404):
                 missing.append(root)
@@ -259,7 +276,7 @@ def apply(body: ApplyBody, request: Request, user: dict = Depends(require_writer
         try:
             if dest not in listed:
                 try:
-                    existing = _call(svc.list_folder, dest, token)
+                    existing = _egnyte(token, svc.list_folder, dest)
                     listed[dest] = {f["name"].lower() for f in existing["files"]}
                 except HTTPException as exc:
                     if exc.status_code != 404:
@@ -269,13 +286,13 @@ def apply(body: ApplyBody, request: Request, user: dict = Depends(require_writer
                     # which the service reads as "it exists", not an error).
                     parts = [p for p in dest.split("/") if p]
                     for i in range(2, len(parts) + 1):
-                        _call(svc.create_folder, "/" + "/".join(parts[:i]), token)
+                        _egnyte(token, svc.create_folder, "/" + "/".join(parts[:i]))
                     listed[dest] = set()
             if name.lower() in listed[dest]:
                 results.append({"sourcePath": src, "ok": False,
                                 "error": "a file with that name is already there"})
                 continue
-            _call(svc.move_item, src, f"{dest}/{name}", token)
+            _egnyte(token, svc.move_item, src, f"{dest}/{name}")
             listed[dest].add(name.lower())
         except HTTPException as exc:
             results.append({"sourcePath": src, "ok": False, "error": str(exc.detail)})
@@ -312,6 +329,12 @@ def activity(user: dict = Depends(require_writer), db: Session = Depends(get_db)
             details = json.loads(r.details or "{}")
         except ValueError:
             details = {}
+        # Only rows apply() wrote carry from/to. Generic middleware rows for
+        # /filing POSTs (from before /filing/apply joined audit.py's skip
+        # list, or denied-request security rows) have neither - they are not
+        # filings and must not render as empty "filed" lines.
+        if not details.get("to"):
+            continue
         out.append({"at": r.timestamp, "by": r.user_email,
                     "from": details.get("from", ""), "to": details.get("to", ""),
                     "docType": details.get("doc_type", "")})

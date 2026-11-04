@@ -559,7 +559,10 @@ class AuditMiddleware(BaseHTTPMiddleware):
             # change + marking the original undone) - let it, don't double-log the
             # POST here (the generic describer would mislabel it "Added item").
             # PDF Tools events are the same: routers/pdf_tools.py writes the one row.
-            if path in ("/items/audit-undo", "/pdf-tools/events"):
+            # Filing & Sorting's apply writes one canonical row per moved file
+            # (routers/filing.py) - a generic row here would also pollute the
+            # tab's Recent Filings, which reads resource_type='filing'.
+            if path in ("/items/audit-undo", "/pdf-tools/events", "/filing/apply"):
                 return response
 
             # The write (and the session / Act As lookups that feed it) is blocking
