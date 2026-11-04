@@ -461,12 +461,12 @@ def with_totals(lines: dict, workers_comp: float = 0.0) -> dict:
 def rate_in_force(entries: list[tuple], year: int) -> Optional[tuple]:
     """(rate %, the year it is from) for `year` - the latest year on or before
     it, the newest entry for that year - or None. `entries` = [(effective_year,
-    rate_pct, set_at)]. Pure."""
+    rate_pct, set_at[, class_code])] - a class code rides along as a third item. Pure."""
     best = None
-    for y, rate, at in entries or []:
+    for y, rate, at, *rest in entries or []:
         if y <= year and (best is None or (y, at or "") > (best[0], best[2] or "")):
-            best = (y, rate, at)
-    return (best[1], best[0]) if best else None
+            best = (y, rate, at, *rest)
+    return (best[1], best[0], *best[3:]) if best else None
 
 
 def year_slices(months: list[str]) -> list[tuple[int, str, str]]:
@@ -503,7 +503,8 @@ def build_report(slices: list[tuple[str, int, dict]], rates: dict, people: dict)
             gross = _r2(sum(p["lines"].get(k, 0) for k in PAYROLL_LINES))
             hit = rate_in_force(rates.get(code.upper()) or [], year)
             if hit and gross:
-                t["wc"].append({"year": year, "ratePct": hit[0], "rateYear": hit[1], "gross": gross, "amount": _r2(gross * hit[0] / 100)})
+                t["wc"].append({"year": year, "ratePct": hit[0], "rateYear": hit[1], "gross": gross, "amount": _r2(gross * hit[0] / 100),
+                                **({"classCode": hit[2]} if len(hit) > 2 and hit[2] else {})})
     rows = []
     for code_u, e in per.items():
         cur = with_totals(e["cur"]["lines"], sum(w["amount"] for w in e["cur"]["wc"]))
@@ -593,7 +594,7 @@ def _people_and_rates() -> tuple[dict, dict]:
         for r in db.query(models.WorkersCompRate).all():
             code = ids.get(r.employee_id)
             if code and r.rate_pct is not None:
-                rates.setdefault(code, []).append((int(r.effective_year), float(r.rate_pct), r.set_at or ""))
+                rates.setdefault(code, []).append((int(r.effective_year), float(r.rate_pct), r.set_at or "", r.class_code or ""))
         return people, rates
     finally:
         db.close()
