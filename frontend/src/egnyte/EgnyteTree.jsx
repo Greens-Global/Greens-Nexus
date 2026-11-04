@@ -55,7 +55,10 @@ function TreeRow({ depth, active, hasChildren, expanded, loading, label, icon, o
   );
 }
 
-export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, rootLabel = 'All files', bookmarks = [], onRemoveBookmark, onNodeMenu }) {
+// `selected` + `onToggleSelect` (Filing & Sorting, 11/04/2026): when given,
+// every folder row carries a checkbox so several folders can be ticked for a
+// scan. Absent (the Files module), nothing changes.
+export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, rootLabel = 'All files', bookmarks = [], onRemoveBookmark, onNodeMenu, selected = null, onToggleSelect = null }) {
   // Right-click on a folder node opens the same actions menu the listing rows
   // use, at the cursor.
   const contextFor = (node) => onNodeMenu && ((e) => {
@@ -187,6 +190,16 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
             onSelect={() => onSelect?.(node.path, node.webUrl)}
             onHover={() => prefetchFolder(node.path)}
             onContext={contextFor(node)}
+            trailing={onToggleSelect && (
+              <input
+                type="checkbox"
+                aria-label={`Select ${node.name} for the scan`}
+                checked={!!selected?.has(node.path)}
+                onClick={e => e.stopPropagation()}
+                onChange={() => onToggleSelect(node.path)}
+                style={{ marginRight: 6, flexShrink: 0, cursor: 'pointer' }}
+              />
+            )}
           />
           {open && <div className="egx-tree-kids">{renderLevel(node.path, depth + 1)}</div>}
         </div>

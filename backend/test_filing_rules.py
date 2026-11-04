@@ -63,6 +63,32 @@ class TestParse(unittest.TestCase):
             self.assertEqual(fr.parse_name(name).date_str(), expected, name)
 
 
+class TestMonthYearAndPathContext(unittest.TestCase):
+    def test_month_name_year_reads_as_year_month(self):
+        # Visesh, 11/04/2026: "Offering Memorandum - July 2026" must become
+        # 2026-07 - ... , never a bare 2026 with July left in the title.
+        p = fr.parse_name("Offering Memorandum - Valley Center Storage Units - July 2026.pdf")
+        self.assertEqual(p.date_str(), "2026-07")
+        self.assertEqual(p.rest, "Offering Memorandum - Valley Center Storage Units")
+
+    def test_month_year_with_comma(self):
+        p = fr.parse_name("Board Minutes September, 2025.pdf")
+        self.assertEqual(p.date_str(), "2025-09")
+
+    def test_path_context_entity_facility_project(self):
+        maps = _maps()
+        self.assertEqual(
+            fr.path_context(maps, "/Shared/#Entities/Greens Global, Inc/#Unsorted").get("entity"),
+            "Greens Global, Inc")
+        self.assertEqual(
+            fr.path_context(maps, "/Shared/--Operations/04 - Escondido/01 - Daily Operations").get("facility"),
+            "Escondido")
+        self.assertEqual(
+            fr.path_context(maps, "/Shared/--Development/Projects/Menifee/#General").get("project"),
+            "Menifee")
+        self.assertEqual(fr.path_context(maps, "/Shared/#Unsorted"), {})
+
+
 class TestClassify(unittest.TestCase):
     def test_sop_examples(self):
         cases = [
