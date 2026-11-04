@@ -1,6 +1,7 @@
-﻿import { useEffect, useMemo, useState } from 'react';
-import { FolderInput, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { FolderInput, RefreshCw, SlidersHorizontal, Square, X } from 'lucide-react';
 import { api } from '../api';
+import EgnyteTree from '../egnyte/EgnyteTree';
 import { Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
 import { ErrorBanner, LoadingState, SkeletonBlocks } from '../components/AsyncState';
@@ -51,21 +52,77 @@ export default function FilingTab({ toastOk, toastErr }) {
   const [view, setView] = useState('queue');      // queue = work the moves; names = what every file should be called
   const [rulesOpen, setRulesOpen] = useState(false);
   const [activity, setActivity] = useState(null);
+  // The tree's ticks: which folders the next scan covers. Empty = the
+  // configured #Unsorted staging folders (the server default).
+  const [pickedFolders, setPickedFolders] = useState(() => new Set());
+  const [includeSub, setIncludeSub] = useState(true);
+  const [progress, setProgress] = useState(null);   // {folders, files} while a walk runs
+  const cancelRef = useRef(false);
 
   const loadStatus = () => api.filingStatus().then(setStatus).catch(() => setStatus(false));
   useEffect(() => { loadStatus(); }, []);
   useEffect(() => { api.filingActivity().then(d => setActivity(d.rows)).catch(() => setActivity([])); }, []);
 
-  const runScan = () => {
+  // Counts and totals are recomputed here because a walked scan arrives in
+  // pieces - the server's per-call numbers only cover that call.
+  const assemble = (proposals, missingRoots, truncated) => {
+    const counts = { auto: 0, review: 0, skip: 0 };
+    const totals = { files: 0, labeled: 0, unlabeled: 0 };
+    for (const p of proposals) {
+      counts[p.status] = (counts[p.status] || 0) + 1;
+      if (p.status !== 'skip') { totals.files += 1; totals[p.labeled ? 'labeled' : 'unlabeled'] += 1; }
+    }
+    return { proposals, counts, totals, missingRoots, truncated };
+  };
+
+  // Ticked folders are walked CLIENT-side, a few folders per request, so no
+  // single call can outlive the 18-second request limit however deep the
+  // tree goes - and the table fills while the walk runs, with a Stop that
+  // keeps what is already found.
+  const WALK_FOLDER_CAP = 300;
+  const WALK_FILE_CAP = 2000;
+  const runScan = async () => {
     setScanning(true); setResults({}); setSelected(new Set());
-    api.filingScan()
-      .then((data) => {
+    cancelRef.current = false;
+    try {
+      if (!pickedFolders.size) {
+        const data = await api.filingScan();
         setScan(data);
-        // Everything that is ready starts selected - the person unticks, not ticks.
         setSelected(new Set(data.proposals.filter(p => p.status === 'auto').map(p => p.sourcePath)));
-      })
-      .catch(e => toastErr?.(e.message || 'The scan failed'))
-      .finally(() => setScanning(false));
+        return;
+      }
+      const seen = new Set();
+      const queue = [...pickedFolders];
+      const missing = [];
+      let all = [];
+      let folders = 0;
+      let truncated = false;
+      while (queue.length && !cancelRef.current) {
+        if (folders >= WALK_FOLDER_CAP || all.length >= WALK_FILE_CAP) { truncated = true; break; }
+        const batch = [];
+        while (batch.length < 5 && queue.length) {
+          const p = queue.shift();
+          if (!seen.has(p)) { seen.add(p); batch.push(p); }
+        }
+        if (!batch.length) continue;
+        const r = await api.filingScan({ paths: batch });
+        folders += (r.scannedRoots || []).length;
+        missing.push(...(r.missingRoots || []));
+        all = all.concat(r.proposals || []);
+        if (includeSub) queue.push(...(r.subfolders || []));
+        setProgress({ folders, files: all.filter(p => p.status !== 'skip').length });
+        setScan(assemble(all, missing, truncated));
+      }
+      const stopped = cancelRef.current && queue.length > 0;
+      setScan(assemble(all, missing, truncated || stopped));
+      setSelected(new Set(all.filter(p => p.status === 'auto').map(p => p.sourcePath)));
+      if (stopped) toastOk?.('Scan stopped - keeping what was found');
+    } catch (e) {
+      toastErr?.(e.message || 'The scan failed');
+    } finally {
+      setScanning(false);
+      setProgress(null);
+    }
   };
 
   const applySelected = async () => {
@@ -115,7 +172,7 @@ export default function FilingTab({ toastOk, toastErr }) {
             <FolderInput size={18} /> Filing & Sorting
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, maxWidth: 640 }}>
-            Scans the #Unsorted folders in Egnyte and proposes a name and a home for each file per the naming SOPs. Nothing moves until you press Move.
+            Pick folders on the left - or scan the #Unsorted staging folders by default - and every file inside gets a proposed name and home per the naming SOPs. Nothing moves until you press Move.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -124,10 +181,16 @@ export default function FilingTab({ toastOk, toastErr }) {
               <SlidersHorizontal size={15} /> Rules
             </button>
           )}
-          <button className="primary-btn" onClick={runScan} disabled={scanning || !status.configured} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <RefreshCw size={15} style={scanning ? { animation: 'spin 1s linear infinite' } : undefined} />
-            {scanning ? 'Scanning...' : 'Scan Now'}
-          </button>
+          {scanning ? (
+            <button className="secondary-btn" onClick={() => { cancelRef.current = true; }} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Square size={13} /> Stop
+            </button>
+          ) : (
+            <button className="primary-btn" onClick={runScan} disabled={!status.configured} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <RefreshCw size={15} />
+              Scan Now{pickedFolders.size ? ` (${pickedFolders.size} Folder${pickedFolders.size === 1 ? '' : 's'})` : ''}
+            </button>
+          )}
         </div>
       </div>
 
@@ -137,9 +200,43 @@ export default function FilingTab({ toastOk, toastErr }) {
         </div>
       )}
 
-      {scanning && <LoadingState size="section" label="Reading the #Unsorted folders" />}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      {status.configured && (
+        <div style={{ flex: '0 0 300px', minWidth: 260, maxWidth: 360, border: '1px solid var(--border-color)', borderRadius: 12, padding: '10px 8px', maxHeight: '72vh', overflowY: 'auto' }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, padding: '2px 6px 6px' }}>Scan These Folders</div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '0 6px 8px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={includeSub} onChange={e => setIncludeSub(e.target.checked)} />
+            Include Subfolders
+          </label>
+          <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', padding: '0 6px 8px' }}>
+            Tick folders (or click one) and press Scan Now. Nothing ticked scans the #Unsorted staging folders.
+            {pickedFolders.size > 0 && (
+              <button className="btn-sm" onClick={() => setPickedFolders(new Set())} style={{ marginLeft: 6, fontSize: 11 }}>
+                Clear ({pickedFolders.size})
+              </button>
+            )}
+          </div>
+          <EgnyteTree
+            rootLabel="All Files"
+            selected={pickedFolders}
+            onToggleSelect={(p) => setPickedFolders(prev => {
+              const n = new Set(prev);
+              if (n.has(p)) n.delete(p); else n.add(p);
+              return n;
+            })}
+            onSelect={(p) => setPickedFolders(p ? new Set([p]) : new Set())}
+          />
+        </div>
+      )}
+      <div style={{ flex: 1, minWidth: 360, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      {scan && !scanning && (
+      {scanning && (
+        <LoadingState size="section" label={progress
+          ? `Scanned ${progress.folders} folder${progress.folders === 1 ? '' : 's'} - ${progress.files} file${progress.files === 1 ? '' : 's'} so far`
+          : 'Reading the folders'} />
+      )}
+
+      {scan && (
         <>
           {/* Totals: how much of the staging pile is already named right */}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -174,7 +271,7 @@ export default function FilingTab({ toastOk, toastErr }) {
               </button>
             ))}
             <div style={{ flex: 1 }} />
-            {readyLeft > 0 && (
+            {readyLeft > 0 && !scanning && (
               <button className="primary-btn" onClick={applySelected} disabled={applying}>
                 {applying ? 'Moving...' : `Move ${readyLeft} File${readyLeft === 1 ? '' : 's'}`}
               </button>
@@ -272,6 +369,9 @@ export default function FilingTab({ toastOk, toastErr }) {
           </div>
         </div>
       )}
+
+      </div>
+      </div>
 
       {rulesOpen && (
         <RulesSheet status={status} onClose={() => setRulesOpen(false)}

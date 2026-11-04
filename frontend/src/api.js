@@ -3561,7 +3561,7 @@ api.undoOffSchedule = (email, shiftIds) => req('/timeclock/schedule/on-schedule/
 // name + destination per the naming SOPs; a person applies; switching a doc
 // class to auto-file (config) is manager+. No AI anywhere in this path.
 api.filingStatus = () => req('/filing/status');
-api.filingScan = () => req('/filing/scan', { method: 'POST' });
+api.filingScan = (body) => req('/filing/scan', { method: 'POST', body: JSON.stringify(body || {}) });
 api.filingApply = (moves) => req('/filing/apply', { method: 'POST', body: JSON.stringify({ moves }) });
 api.filingConfig = (body) => req('/filing/config', { method: 'PUT', body: JSON.stringify(body) });
 api.filingActivity = () => req('/filing/activity');

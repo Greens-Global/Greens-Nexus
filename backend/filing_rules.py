@@ -41,6 +41,10 @@ DATE_FULL = re.compile(r"(?<!\d)(20\d{2})[-_./ ]+(\d{1,2})[-_./ ]+(\d{1,2})(?!\d
 DATE_YM = re.compile(r"(?<!\d)(20\d{2})[-_./ ]+(\d{1,2})(?!\d)")
 DATE_Y = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
 MONTH_LEAD = re.compile(r"^(" + "|".join(MONTHS) + r")\b\s*[-:]?\s*", re.IGNORECASE)
+# "July 2026" / "July, 2026" anywhere in the name reads as 2026-07 (Visesh,
+# 11/04/2026: "Offering Memorandum - July 2026" must not leave July in the
+# title with a bare 2026 in front).
+MONTH_YEAR = re.compile(r"\b(" + "|".join(MONTHS) + r")[.,]?\s+(20\d{2})\b", re.IGNORECASE)
 
 # Hyphenated words the separator cleanup must not split apart.
 _HYPHEN_WORDS = [("U - Haul", "U-Haul"), ("As - Built", "As-Built"),
@@ -111,6 +115,12 @@ def parse_name(filename: str) -> ParsedName:
         m = DATE_YM.search(stem)
         if m and 1 <= int(m.group(2)) <= 12:
             p.year, p.month = int(m.group(1)), int(m.group(2))
+            stem = (stem[: m.start()] + " " + stem[m.end():]).strip()
+    if p.year is None:
+        m = MONTH_YEAR.search(stem)
+        if m:
+            p.month = MONTH_BY_NAME[m.group(1).lower()]
+            p.year = int(m.group(2))
             stem = (stem[: m.start()] + " " + stem[m.end():]).strip()
     if p.year is None:
         m = MONTH_LEAD.match(stem)
@@ -446,6 +456,32 @@ def find_context(maps: Maps, text: str, root_ctx: dict) -> dict:
                 ctx["entity"] = canonical
         elif len(hits) > 1:
             ctx["entity_ambiguous"] = sorted(hits)
+    return ctx
+
+
+def path_context(maps: Maps, folder: str) -> dict:
+    """What a folder's own PATH says about whose files live in it - an
+    entity's subtree names the entity, a facility's names the facility, a
+    project's the project. Stronger than name-matching the file (a scan of
+    /Shared/#Entities/Greens Global, Inc/... is never ambiguous the way the
+    words 'Greens Global' in a file name are)."""
+    ctx: dict = {}
+    norm = folder.rstrip("/")
+    prefix = maps.entities_root + "/"
+    if norm.startswith(prefix):
+        head = norm[len(prefix):].split("/", 1)[0]
+        if head in maps.entities:
+            ctx["entity"] = head
+    for name, path in maps.facilities.items():
+        p = path.rstrip("/")
+        if norm == p or norm.startswith(p + "/"):
+            ctx["facility"] = name
+            break
+    for name, path in maps.projects.items():
+        p = path.rstrip("/")
+        if norm == p or norm.startswith(p + "/"):
+            ctx["project"] = name
+            break
     return ctx
 
 
