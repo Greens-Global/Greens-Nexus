@@ -14,6 +14,7 @@ import { useNexusStore } from './lib/useNexusStore.js';
 import { portfolioStats, assetCompleteness } from './lib/assetMetrics.js';
 import { typeLabel } from './lib/portfolioCards.js';
 import { useAssetCompanies, companyName, companyIdOf, needsCompany, NO_COMPANY } from './lib/companies.js';
+import { egnyteFolderOf, normalizeEgnyteFolder } from './lib/egnyteFolder.js';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { StatusLabel } from '../components/StatusLabel.jsx';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
@@ -486,10 +487,21 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         }
       }
 
+      // Egnyte Folder (11/03/2026): the pinned path on the row, never a snapshot
+      // value, stored as the server normalizes it; the server checks the change.
+      if ('Egnyte Folder' in draft) {
+        const from = egnyteFolderOf(asset);
+        const to = normalizeEgnyteFolder(draft['Egnyte Folder']);
+        if (from !== to) {
+          flat.egnyteFolder = to;
+          changes.push({ field: 'Egnyte Folder', from, to });
+        }
+      }
+
       if (kind === 'property') {
         snapshot = PT.map((group) => ({
           group: group.group,
-          fields: group.fields.filter((f) => f.type !== 'company').map((f) => {
+          fields: group.fields.filter((f) => f.type !== 'company' && f.type !== 'egnyte').map((f) => {
             const hasDraftValue = f.label in draft;
             let value = hasDraftValue ? draft[f.label]
               : existing[normLabel(f.label)] !== undefined ? existing[normLabel(f.label)]

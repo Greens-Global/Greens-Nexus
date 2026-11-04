@@ -657,6 +657,111 @@ def find_property_folder(site: str) -> tuple[str | None, str]:
     return None, ("ambiguous" if hits else "no_match")
 
 
+# ── a property's PINNED folder (Neil, 11/03/2026) ────────────────────────────
+# "Should a property be able to pin its exact Egnyte folder instead of matching
+# by name?" - yes. The pin is the Asset Management asset's `egnyteFolder`
+# (routers/property_assets checks it on the row save); the construction filer
+# reads it before any name match (construction_worker.property_folder).
+
+_WEB_PATH_MARK = "#storage/files/1"
+
+
+def pin_roots() -> list[str]:
+    """Where a pinned property folder may live: the property roots, plus the
+    root new property folders are made in when that is somewhere else."""
+    roots = list(property_roots())
+    try:
+        made = create_root()
+    except Exception:
+        made = ""
+    if made and made.lower() not in {r.lower() for r in roots}:
+        roots.append(made)
+    return roots
+
+
+def normalize_pinned_folder(path: str) -> str:
+    """A pinned folder as it is stored: '' for none, else the normalized
+    absolute path (one slash between segments, each segment trimmed). Takes a
+    pasted Egnyte folder link (`.../app/index.do#storage/files/1/Shared/...`)
+    as its path. Raises ValueError with the words to show when the value is
+    not a folder inside one of `pin_roots()`, or carries '..' / '.' segments
+    or control characters. Makes no Egnyte call - the field saves whether or
+    not Egnyte is set up; whether the folder EXISTS is the filer's question."""
+    from urllib.parse import unquote
+    raw = (path or "").strip()
+    if not raw:
+        return ""
+    if raw.lower().startswith(("http://", "https://")):
+        at = raw.find(_WEB_PATH_MARK)
+        if at < 0:
+            raise ValueError("Paste the folder's path (it starts with /Shared) or its Egnyte folder link")
+        raw = unquote(raw[at + len(_WEB_PATH_MARK):])
+    if any(ord(c) < 32 or ord(c) == 127 for c in raw):
+        raise ValueError("The Egnyte folder path has a character a folder name cannot hold")
+    segs = [s.strip() for s in raw.replace("\\", "/").split("/")]
+    if any(s in (".", "..") for s in segs):
+        raise ValueError("The Egnyte folder path may not contain '..' or '.'")
+    p = norm("/".join(s for s in segs if s))
+    roots = pin_roots()
+    low = p.lower()
+    if not any(low.startswith(r.lower().rstrip("/") + "/") for r in roots):
+        raise ValueError("The Egnyte folder must be a folder inside " + " or ".join(roots))
+    return p
+
+
+def property_folder_candidates(site: str, limit: int = 25) -> dict[str, Any]:
+    """For a PERSON pinning a property's folder (Asset Management's Find
+    Folder): every folder under the property roots whose name could be the
+    site's, best first, and the one the unattended filer would pick by name
+    - listed, never pinned for them.
+
+    {"match": path | None, "why": 'matched' | 'ambiguous' | 'no_match',
+     "candidates": [{"path", "name", "root", "how"}]}, how = 'exact' |
+    'site' | 'contains'. The order and `match` are find_property_folder's
+    rule over every root: the first root (in priority order) holding an
+    exact or site-key name wins, an exact name first; else one substring
+    match across every root, two or more being 'ambiguous'. A missing root
+    (404) is skipped; any other failure raises EgnyteError(502) - the person
+    tries again rather than seeing half the list."""
+    want = (site or "").strip().lower()
+    if not want:
+        return {"match": None, "why": "no_match", "candidates": []}
+    keys = {want, _site_key(want)}
+    strong, loose = [], []
+    for root in property_roots():
+        try:
+            names = [f["name"] for f in list_folder(root)["folders"]]
+        except EgnyteError as e:
+            if e.status == 404:
+                continue
+            raise EgnyteError(f"Could not list a property folder root: {e}", 502)
+        exact = [n for n in names if n.lower() == want]
+        site_hits = [n for n in names if n not in exact and _site_key(n) in keys]
+        rest = [n for n in names if n not in exact and n not in site_hits and want in n.lower()]
+        strong += [{"path": norm(f"{root}/{n}"), "name": n, "root": root, "how": "exact"} for n in exact]
+        strong += [{"path": norm(f"{root}/{n}"), "name": n, "root": root, "how": "site"} for n in site_hits]
+        loose += [{"path": norm(f"{root}/{n}"), "name": n, "root": root, "how": "contains"} for n in rest]
+    if strong:
+        match, why = strong[0]["path"], "matched"
+    elif len(loose) == 1:
+        match, why = loose[0]["path"], "matched"
+    else:
+        match, why = None, ("ambiguous" if loose else "no_match")
+    return {"match": match, "why": why, "candidates": (strong + loose)[:max(1, limit)]}
+
+
+def folder_exists(path: str) -> bool:
+    """True when Egnyte lists `path`, False on a 404. Any other failure
+    raises EgnyteError - "Egnyte did not answer" is never "no folder"."""
+    try:
+        list_folder(path)
+    except EgnyteError as e:
+        if e.status == 404:
+            return False
+        raise
+    return True
+
+
 def plans_folder(site_folder: str, child_names: list[str] | None = None) -> str:
     """The documents subfolder inside a resolved property folder.
 
