@@ -232,8 +232,11 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
                     "rule": "", "reasons": ["subfolder - tick it in the tree to scan inside"],
                     "canonicalName": "", "labeled": False})
         for f in listing["files"]:
-            proposals.append(filing_rules.propose(
-                f["name"], root, ctx, maps, cfg["confirmed"]))
+            prop = filing_rules.propose(f["name"], root, ctx, maps, cfg["confirmed"])
+            # A fast look at the file itself (Visesh, 11/04: "if somebody is
+            # confused") - Egnyte's own full-screen viewer, keyed on group_id.
+            prop["previewUrl"] = svc.file_web_url(f.get("groupId") or "")
+            proposals.append(prop)
             if len(proposals) >= MAX_SCAN_FILES:
                 break
         if len(proposals) >= MAX_SCAN_FILES:
