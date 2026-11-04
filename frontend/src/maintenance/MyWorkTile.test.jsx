@@ -2,7 +2,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 
 // Workday's My Tickets tile (Neil, 11/04/2026): a full stat tile with the
-// count, shown only when there is work.
+// count, shown when there is work - and always, at 0, for a maintenance team.
 const getMyMaintenanceWork = vi.fn();
 vi.mock('../api', () => ({ api: { getMyMaintenanceWork: (...a) => getMyMaintenanceWork(...a) } }));
 
@@ -10,7 +10,7 @@ const { default: MyWorkTile, useMyMaintenanceWork } = await import('./MyWorkTile
 
 function Page() {
   const w = useMyMaintenanceWork();
-  return <div data-grid={w.count ? 'tickets' : 'plain'}><MyWorkTile {...w} /></div>;
+  return <div data-grid={w.show ? 'tickets' : 'plain'}><MyWorkTile {...w} /></div>;
 }
 
 beforeEach(() => getMyMaintenanceWork.mockReset());
@@ -26,7 +26,15 @@ describe('My Tickets tile', () => {
     expect(tile.textContent).toContain('1 overdue');
     expect(document.querySelector('[data-grid]').getAttribute('data-grid')).toBe('tickets');
   });
-  it('is not there with no work', async () => {
+  it('stays up at 0 with "Nothing open" for someone on a maintenance team', async () => {
+    getMyMaintenanceWork.mockResolvedValue({ tickets: [], onTeam: true });
+    render(<Page />);
+    const tile = await screen.findByRole('button', { name: 'My Tickets, 0 open' });
+    expect(tile.querySelector('.dk-stat-num').textContent).toBe('0');
+    expect(tile.textContent).toContain('Nothing open');
+    expect(document.querySelector('[data-grid]').getAttribute('data-grid')).toBe('tickets');
+  });
+  it('is not there with no work for anyone else', async () => {
     getMyMaintenanceWork.mockResolvedValue({ tickets: [] });
     render(<Page />);
     await waitFor(() => expect(getMyMaintenanceWork).toHaveBeenCalled());

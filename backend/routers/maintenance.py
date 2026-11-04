@@ -328,7 +328,14 @@ def my_work(user: dict = Depends(get_current_user), db: Session = Depends(get_db
     today_of = MS.TodayCache(db)
     out = sorted([dict(_row(t, can_open=True, names=names, assets=assets, today_of=today_of), mine=t.id in mine_ids)
                   for t in rows], key=_sort_key)
-    return {"tickets": out, "canStart": worker,
+    # On a maintenance team (Neil, 11/04/2026): Workday keeps the My Tickets
+    # tile up, at 0, for the people who work property tickets - a ticket
+    # agent whose department files them - so an empty list reads "Nothing
+    # open" instead of the tile vanishing. Everyone else sees it only with work.
+    on_team = bool(depts) and db.query(
+        db.query(T_.id).filter(T_.hr_department_id.in_(depts), T_.property_asset_id != "").exists()
+    ).scalar()
+    return {"tickets": out, "canStart": worker, "onTeam": bool(on_team),
             "overdue": len([r for r in out if r["overdue"]]),
             "preventive": len([r for r in out if r["preventive"]])}
 
