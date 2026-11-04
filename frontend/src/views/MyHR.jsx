@@ -29,7 +29,7 @@ import { filesFromPaste } from '../tasks/lib';
 import { setPendingOpen } from '../lib/pendingOpen';
 import FormsTile from '../forms/FormsTile';
 import { offlineRead } from '../lib/offline/read';
-import MyWorkTile from '../maintenance/MyWorkTile';
+import MyWorkTile, { useMyMaintenanceWork } from '../maintenance/MyWorkTile';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -518,6 +518,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
   // remembered answer, then /time/status), so the Hours tile never shows for
   // a salaried person while /time/me is still on its way (Neil, 10/08).
   const hoursExempt = clockParts?.exempt ?? !!sheet?.timeTrackingExempt;
+  const myWork = useMyMaintenanceWork();
 
   return (
     <div className="wd-overview" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', fontFamily: 'var(--wk-font)' }}>
@@ -537,7 +538,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
           {/* One row (Pranshu, Oct 15 2026): this week's hours, time off, time
               with us, and Ask HR at the right edge. Today's shift left the hero
               - your week is the My Schedule card below. */}
-          <div className={`wd-statgrid${hoursExempt ? ' wd-statgrid--nohours' : ''}`}>
+          <div className={`wd-statgrid${hoursExempt ? ' wd-statgrid--nohours' : ''}${myWork.count ? ' wd-statgrid--tickets' : ''}`}>
             {!hoursExempt ? (
               /* The hours open the Time Sheet. */
               <div className="dk-stat dk-stat--hero wd-stat wd-hero" style={{ cursor: 'default' }}>
@@ -560,6 +561,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
               hint={tenure !== '-' ? `Since ${formatDate(profile.startDate)}` : 'No start date on your HR record'}
               title="Counted from the start date on your HR record. If it is wrong, ask HR to correct it."
               color="orange" Icon={Hourglass} />
+            {/* My Tickets (Neil, 11/04/2026): a full tile beside Time With Us, left of the compact rows. Shows only when there is work. */}
+            <MyWorkTile {...myWork} />
             {/* Ask HR (Pranshu, Oct 15 2026): a button at the end of the row
                 instead of a card at the bottom. It opens the panel with New
                 Request and every request sent; a dot says HR did something
@@ -594,8 +597,6 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
             <PurchaseRequestTile onOpen={onOpenPurchase || (() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'purchase' } })))} />
             {/* Fill a Form (Forms & Checklists, Neil 11/02/2026): the forms this person may fill, in the fill sheet. Shows only when there is one. `openForm` is the "form:<id>" / "form:pick" deep link. */}
             <FormsTile autoOpen={openForm} flash={flash} />
-            {/* My Work (Construction plan phase 5, Neil 11/03/2026): a technician's maintenance tickets, preventive first - Start, Done with a photo, Scan a Tag. Shows only when there is work. */}
-            <MyWorkTile />
             </div>
           </div>
         </>

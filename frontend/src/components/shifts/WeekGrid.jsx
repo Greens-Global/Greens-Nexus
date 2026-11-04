@@ -283,7 +283,7 @@ export function CoverageChip({ c, compact = false, onShort }) {
 export default function WeekGrid({ days, compact = false, sections, byCell, openCells, offOn, holOn = () => null, availOn = () => null, usualOf = () => null,
   notes = {}, weather = {}, holidayDates = new Set(), holidayNames = {}, me = '', prefs = {}, teamZone = '', canManage = false,
   rowEditable = () => false, empWeekMin, dayStats, weekMin, overWeeks = () => [], copied = null, dropKey = '', dragId = '',
-  isCollapsed = () => false, on = null, dragProps = () => ({}), personDragProps = null, dropProps = () => ({}), dropStyle = () => ({}),
+  isCollapsed = () => false, on = null, dragProps = () => ({}), stretchProps = null, personDragProps = null, dropProps = () => ({}), dropStyle = () => ({}),
   hoverCell = () => ({}), hoverShift = () => ({}), clickable = (fn) => fn, onNowOf = () => false, blockChildren = null, selected = null,
   ariaRole = 'grid', ariaLabel = 'Schedule', notesRow = false, maxHeight = 'calc(100vh - 150px)',
   single = false, emptyNote = null, cornerTools = null, ghostOf = () => null, blockClass = () => '', motion = true, glowToday = false,
@@ -308,6 +308,19 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
 
   // Actuals (Phase 1): the cell's clock result, for the shift it names (or
   // the only shift in the cell).
+  // Stretch to copy (11/04/2026): a grip on each side edge of a shift the
+  // viewer may change; pulling it across the days beside it copies the
+  // shift into them (ShiftSchedule's beginStretch). Shown on hover only
+  // (style.css "Stretch to copy"), never on a touch screen.
+  const grips = (s) => {
+    const sp = !coarse && on && stretchProps ? stretchProps(s) : null;
+    if (!sp) return null;
+    const stop = (e) => e.stopPropagation();
+    return ['left', 'right'].map((side) => (
+      <span key={side} className="sched-stretch" data-stretch={side} aria-hidden="true" title="Pull to copy this shift to the days beside it"
+        onClick={stop} onDoubleClick={stop} onContextMenu={stop} {...sp(side)} />
+    ));
+  };
   const block = (s, email, ds, groupId, sole = false) => (
     <ShiftBlock key={s.id} shift={s} open={!email} compact={compact} teamZone={teamZone} tabIndex={-1} dragging={dragId === s.id} className={blockClass(s)}
       selected={selected?.shiftId === s.id}
@@ -320,6 +333,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         onPointerDown: (e) => { dragProps(s).onPointerDown?.(e); on.longPress(e, { email, date: ds, groupId, shift: s }); },
       } : {})}>
       {blockChildren?.(s, { email, ds })}
+      {grips(s)}
     </ShiftBlock>
   );
 

@@ -25,6 +25,9 @@ import ScheduleDay from './shifts/ScheduleDay';
 import ScheduleMonth from './shifts/ScheduleMonth';
 import SchedulePhone from './shifts/SchedulePhone';
 import ShiftPanel, { HistoryList } from './shifts/ShiftPanel';
+import { applyLive, draftFrom, movedTo, editedFields } from './shifts/shiftLive';
+import { teamsForCell, typesForTeams } from './shifts/shiftTypeTeams';
+import { weekKey, getWeek, putWeek, prefetchWeek } from './shifts/weekCache';
 import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, shiftShortText, sectionKey, teamColor, dayFullyOff, addDaysIso, parseIso, conflictMap, coverageFor, todayIso, adherenceLine, flagOf, FLAG_KINDS, FLAG_ORDER } from './shifts/shiftLib';
 
 // ── The schedule (Microsoft Teams "Shifts" style, rebuilt Oct 2026) ────────
@@ -157,7 +160,14 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   const foldKey = `nexus.shifts.fold.${me || 'anon'}`;
   const [fold, setFoldState] = useState(() => { try { return JSON.parse(localStorage.getItem(foldKey) || '{}') || {}; } catch { return {}; } });
   const setFold = (next) => { setFoldState(next); try { localStorage.setItem(foldKey, JSON.stringify(next)); } catch { /* private mode */ } };
-  const [data, setData] = useState(null);
+  // Instant edits (Neil, 11/04/2026: "it should be instant when a shift gets
+  // added and then in the background it should sync"): `rawData` is what the
+  // server last said; `live` holds the changes still on their way to it
+  // (shiftLive.js). `data` - what every line below reads - is the two
+  // together, so an add, a delete or a move shows the moment it is made.
+  const [rawData, setData] = useState(null);
+  const [live, setLive] = useState([]);
+  const data = useMemo(() => applyLive(rawData, live), [rawData, live]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [panel, setPanel] = useState(null);        // { cell: { email, date, existing, groupId }, mode }
@@ -212,16 +222,75 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   // failed load) shows the skeleton. A failed load is an error with Retry,
   // never an empty-looking schedule with Share still offered.
   const loadedRange = useRef('');   // the range `data` belongs to (the actuals fetch waits for it)
-  const load = useCallback(() => {
-    setError(null);
+  const rangeRef = useRef('');
+  useEffect(() => { rangeRef.current = `${start}|${end}`; }, [start, end]);   // before the load effect below
+  // A refresh read before the latest change was saved would put the old
+  // schedule back for a moment: it is dropped and asked again (`edits` moves
+  // on every change made and every change saved; `flying` counts the saves
+  // still out).
+  const edits = useRef(0);
+  const flying = useRef(0);
+  const reloadTimer = useRef(null);
+  const loadRef = useRef(() => {});
+  const syncSoon = useCallback((ms = 400) => {
+    clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(() => loadRef.current(true), ms);
+  }, []);
+  useEffect(() => () => clearTimeout(reloadTimer.current), []);
+  // A full load (a new range, Share, Copy, Fill...) also refreshes what the
+  // clock said and who confirmed (`fullSeq`); the quiet sync after an
+  // instant edit does not - a draft changes neither, and the actuals call
+  // is the slowest on the page.
+  const [fullSeq, setFullSeq] = useState(0);
+  const load = useCallback((quiet = false) => {
+    if (!quiet) setError(null);
+    const at = edits.current, range = `${start}|${end}`;
     api.timeSchedule(start, end).then((r) => {
-      loadedRange.current = `${start}|${end}`;
+      putWeek(weekKey(me, start, end), r);
+      if (rangeRef.current !== range) return;                 // the week changed meanwhile
+      if (at !== edits.current || flying.current > 0) { syncSoon(); return; }
+      loadedRange.current = range;
+      if (!quiet) setFullSeq((n) => n + 1);
       setData(r);
       if (r?.weekStart && r.weekStart !== weekStart) setPrefsState((p) => { const n = { ...p, weekStart: r.weekStart }; try { localStorage.setItem(PREFS_KEY, JSON.stringify(n)); } catch { /* */ } return n; });
-    }).catch((e) => { setError(e?.message || 'Could not load the schedule.'); });
+    }).catch((e) => {
+      // A quiet sync that fails leaves the grid as it is (the edits are
+      // saved; only the warnings may be a beat behind) - never the error page.
+      if (!quiet) setError(e?.message || 'Could not load the schedule.');
+    });
   }, [start, end]);   // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setData(null); }, [start, end]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadRef.current = load; }, [load]);
+  // A week seen before shows at once and refreshes quietly behind
+  // (shifts/weekCache.js); a new one shows the skeleton until it lands.
+  useEffect(() => {
+    const seen = getWeek(weekKey(me, start, end));
+    if (seen) {
+      // The grid shows the copy at once; the full load behind it marks the
+      // range loaded, so actuals, confirmations and labor are read once,
+      // for the fresh schedule - exactly as for a week not seen before.
+      setData(seen);
+      load();
+    } else {
+      setData(null);
+      load();
+    }
+  }, [load]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The weeks either side are read ahead once this one is on screen, so
+  // Next / Previous show at once too (a month is not - it is rarely stepped).
+  const hasData = !!rawData;
+  useEffect(() => {
+    if (!hasData || view === 'month') return undefined;
+    const t = setTimeout(() => {
+      [1, -1].forEach((n) => {
+        const d = new Date(cursor);
+        d.setDate(d.getDate() + n * (view === 'day' ? 1 : view === 'twoweeks' ? 14 : 7));
+        const span = viewDays(view, d, weekStart);
+        const s = isoDate(span[0]), e = isoDate(span[span.length - 1]);
+        prefetchWeek(weekKey(me, s, e), () => api.timeSchedule(s, e));
+      });
+    }, 600);
+    return () => clearTimeout(t);
+  }, [hasData, start, end]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Actuals (Phase 1, Oct 14): what the clock said, fetched BESIDE the
   // schedule once it is on screen and the range reaches today - never
@@ -235,21 +304,21 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   // server strips pay).
   const [labor, setLabor] = useState(null);
   useEffect(() => {
-    if (!data || data.canManage === false || loadedRange.current !== `${start}|${end}`) { setLabor(null); return undefined; }
+    if (!rawData || rawData.canManage === false || loadedRange.current !== `${start}|${end}`) { setLabor(null); return undefined; }
     let alive = true;
     api.timeScheduleLabor(start, end).then((r) => { if (alive) setLabor(r || null); }).catch(() => { if (alive) setLabor(null); });
     return () => { alive = false; };
-  }, [data, start, end]);
+  }, [rawData, fullSeq, start, end]);
   const showActuals = prefs.actuals !== false;
   const reachesToday = start <= todayIso();
   useEffect(() => {
-    if (!data || !showActuals || !reachesToday || loadedRange.current !== `${start}|${end}`) { setActuals(null); return undefined; }
+    if (!fullSeq || !showActuals || !reachesToday || loadedRange.current !== `${start}|${end}`) { setActuals(null); return undefined; }
     let live = true;
     Promise.resolve().then(() => api.timeSchedActuals(start, end))
       .then((r) => { if (live) setActuals(r && typeof r === 'object' && r.cells ? r : null); })
       .catch(() => { if (live) setActuals(null); });
     return () => { live = false; };
-  }, [data, showActuals, reachesToday, start, end]);
+  }, [fullSeq, showActuals, reachesToday, start, end]);
   const actualOf = useCallback((email, ds) => actuals?.cells?.[`${email}|${ds}`] || null, [actuals]);
 
   // Confirmations (Phase 3a, Oct 14): who has confirmed the schedules shared
@@ -259,14 +328,15 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   // confirmedAt, nudgedAt }], unconfirmed }], unconfirmed }; the rows kept
   // here are its people.
   const [confirmRows, setConfirmRows] = useState(null);
+  const rawManage = !!rawData && rawData.canManage !== false;
   useEffect(() => {
-    if (!data || data.canManage === false || loadedRange.current !== `${start}|${end}`) { setConfirmRows(null); return undefined; }
+    if (!fullSeq || !rawManage || loadedRange.current !== `${start}|${end}`) { setConfirmRows(null); return undefined; }
     let live = true;
     Promise.resolve().then(() => api.timeSchedConfirmations(start, end))
       .then((r) => { if (live) setConfirmRows(Array.isArray(r?.people) ? r.people : null); })
       .catch(() => { if (live) setConfirmRows(null); });
     return () => { live = false; };
-  }, [data, start, end]);
+  }, [fullSeq, rawManage, start, end]);
   const confirmations = useMemo(() => {
     const rows = (confirmRows || []).filter((r) => r?.email && Array.isArray(r.publishes) && r.publishes.length);
     if (!rows.length) return null;
@@ -343,11 +413,24 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   const groupIdSet = useMemo(() => new Set(groups.map((g) => g.id)), [groups]);
   const claimedAll = useMemo(() => new Set(liveGroups.flatMap((g) => g.members || [])), [liveGroups]);
   const noTeamEmails = useMemo(() => (data?.employees || []).map((e) => e.email).filter((e) => !claimedAll.has(e)), [data, claimedAll]);
+  // Your own team first (Neil, 11/04/2026: a manager on the Operations Team
+  // opens on the Operations Team, not All Teams); the team you pick by hand
+  // is remembered per person (teamKey) and wins over this every time.
   const computedDefault = useMemo(() => {
     if (!data) return null;
-    if (!liveGroups.length || liveGroups.length > 1) return ALL_TEAMS;
+    if (!liveGroups.length) return ALL_TEAMS;
     const mine = me && liveGroups.find((g) => (g.members || []).includes(me));
     if (mine) return mine.id;
+    // Else the team with the most people you may change (a manager who is
+    // not on the team their reports are on).
+    const editable = new Set((data.employees || []).filter((e) => e.canEdit && e.email !== me).map((e) => e.email));
+    let lead = null, leadN = 0;
+    liveGroups.forEach((g) => {
+      const n = (g.members || []).filter((em) => editable.has(em)).length;
+      if (n > leadN) { lead = g; leadN = n; }
+    });
+    if (lead) return lead.id;
+    if (liveGroups.length > 1) return ALL_TEAMS;
     let best = liveGroups[0], bestN = -1;
     liveGroups.forEach((g) => {
       const set = new Set(g.members || []);
@@ -607,6 +690,36 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       toastErr?.(e?.message || fail || 'Something went wrong.'); return null;
     } finally { setBusy(false); }
   }
+  // An instant change (11/04/2026): `change` ({ adds, removes, patches },
+  // shiftLive.js) shows at once; `fn` saves it; `settle(r)` is the same kind
+  // of change made from the server's answer and lands in `rawData` as the
+  // guess leaves, in one render, so nothing flickers. A refusal takes the
+  // guess back and says why. The full schedule (warnings, hours, rules) is
+  // read again quietly once the saves stop.
+  const liveSeq = useRef(0);
+  function runLive(change, fn, { ok, fail, settle, undo: undoOf, after, onFail } = {}) {
+    const key = `live-${++liveSeq.current}`;
+    edits.current += 1; flying.current += 1;
+    setLive((l) => [...l, { ...change, key }]);
+    after?.();
+    return new Promise((resolve) => resolve(fn())).then((r) => {
+      edits.current += 1;
+      const done = settle ? settle(r) : null;
+      if (done) setData((d) => applyLive(d, [done]));
+      setLive((l) => l.filter((x) => x.key !== key));
+      const msg = ok ? (typeof ok === 'function' ? ok(r) : ok) : '';
+      const back = undoOf?.(r) || null;
+      if (back) offerUndo(msg || 'Done.', back);
+      else if (msg) toastOk?.(msg);
+      return r;
+    }, (e) => {
+      setLive((l) => l.filter((x) => x.key !== key));
+      setLeaving(new Set());
+      onFail?.(e);
+      toastErr?.(e?.message || fail || 'Something went wrong.');
+      return null;
+    }).finally(() => { flying.current -= 1; syncSoon(); });
+  }
   const undoNow = () => {
     const u = undo; if (!u) return;
     clearTimeout(undoTimer.current); setUndo(null);
@@ -623,43 +736,63 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       if (r.updated || r.edited) bits.push(`${r.updated || r.edited} changed`);
       if (r.removed) bits.push(`${r.removed} removed`);
       const told = r.notified ? ` ${r.notified} ${r.notified === 1 ? 'person' : 'people'} notified.` : '';
-      return r.published ? `Shared with the team: ${bits.length ? bits.join(', ') : `${r.published} shift${r.published !== 1 ? 's' : ''}`}.${told}` : 'Nothing new to share.';
+      if (r.quiet) return r.published ? `Saved to the schedule without notifying anyone: ${bits.length ? bits.join(', ') : `${r.published} shift${r.published !== 1 ? 's' : ''}`}.` : 'Nothing new to save.';
+      return r.published ?`Shared with the team: ${bits.length ? bits.join(', ') : `${r.published} shift${r.published !== 1 ? 's' : ''}`}.${told}` : 'Nothing new to share.';
     }, fail: 'Could not share the schedule.', after: () => setOpen('') });
     return r ?? (failed ? { error: failed?.message || 'Could not share the schedule.' } : null);
   };
   const pastePayload = (email, date, groupId = '') => ({ employee_email: email, work_date: date, shift_id: copied.shiftId,
     start_hhmm: copied.start, end_hhmm: copied.end, label: copied.label, note: copied.note, break_min: copied.breakMin ?? 0, color: copied.ownColor || '',
     activities: copied.activities || [], group_id: email ? (copied.groupId || '') : (groupId || copied.groupId || ''), ...(email ? {} : { open_slots: 1 }) });
-  const pasteInto = (email, date, groupId = '') => copied && (cut ? pasteCut(email, date) : run(() => api.timeSchedCreate(pastePayload(email, date, groupId)),
-  { ok: 'Shift copied here.', fail: 'Could not paste the shift.', undo: (r) => (r?.id ? () => api.timeSchedDelete(r.id) : null) }));
+  // Creates show at once (runLive): the guess is the shift the payload makes.
+  const createLive = (payloads, opts = {}) => runLive({ adds: payloads.map((p) => draftFrom(p, presets)) },
+    () => Promise.all(payloads.map((p) => api.timeSchedCreate(p))),
+    { ...opts, settle: (rs) => ({ adds: (rs || []).filter((r) => r?.id) }) });
+  const stillSaving = (s) => { if (!s?.live) return false; toastOk?.('One moment - that shift is still saving.'); return true; };
+  const pasteInto = (email, date, groupId = '') => copied && (cut ? pasteCut(email, date) : createLive([pastePayload(email, date, groupId)],
+  { ok: 'Shift copied here.', fail: 'Could not paste the shift.', undo: (rs) => (rs?.[0]?.id ? () => api.timeSchedDelete(rs[0].id) : null) }));
   // Ctrl+click several days, then Ctrl+V (Pranshu, Oct 29 2026): one copy in
   // each selected day the user may edit, with one Undo for all of them.
   const pasteMany = (cells) => {
     const at = cells.map((c) => ({ email: c.key.split('|')[0], date: c.key.split('|')[1], groupId: c.groupId })).filter((c) => rowEditable(c.email));
     if (!copied || !at.length) return null;
-    return run(() => Promise.all(at.map((c) => api.timeSchedCreate(pastePayload(c.email, c.date, c.groupId)))),
+    return createLive(at.map((c) => pastePayload(c.email, c.date, c.groupId)),
       { ok: `Shift copied into ${at.length} day${at.length === 1 ? '' : 's'}.`, fail: 'Could not paste the shift into every day.',
         undo: (rs) => { const ids = (rs || []).map((r) => r?.id).filter(Boolean); return ids.length ? () => Promise.all(ids.map((id) => api.timeSchedDelete(id))) : null; } });
   };
   // A cut shift moves on its first paste; the clipboard is then empty.
   const pasteCut = (email, date) => { const s0 = copied; setCopied(null); setCut(false); moveShift(s0, email, date, false); };
-  const saveCell = (payload) => run(() => (payload.id ? api.timeSchedUpdate(payload.id, payload) : api.timeSchedCreate(payload)),
-    { ok: (r) => (r?.hasChanges ? 'Change saved. The team sees it once you share.' : 'Shift saved.'), fail: 'Could not save.', after: () => setPanel(null) });
+  // The side panel closes the moment Save is pressed; a refusal opens it
+  // again on the same shift with the reason.
+  const saveCell = (payload) => {
+    const was = panel;
+    const opts = { ok: (r) => (r?.hasChanges ? 'Change saved. The team sees it once you share.' : 'Shift saved.'), fail: 'Could not save.',
+      after: () => setPanel(null), onFail: () => setPanel(was) };
+    if (!payload.id) return createLive([payload], { ...opts, ok: 'Shift saved.' });
+    const s = (data?.scheduled || []).find((x) => x.id === payload.id);
+    if (!s || stillSaving(s)) return null;
+    return runLive({ patches: [{ id: s.id, fields: editedFields(s, payload) }] }, () => api.timeSchedUpdate(payload.id, payload),
+      { ...opts, settle: (r) => (r?.id ? { adds: [r] } : null) });
+  };
   const delCell = (id) => {
     const s = (data?.scheduled || []).find((x) => x.id === id);
-    if (s && s.published === false && !reduce) setLeaving((l) => new Set([...l, id]));   // a draft shrinks out while it goes
-    return run(() => api.timeSchedDelete(id), {
+    if (stillSaving(s)) return null;
+    const pending = !!(s && (s.published || s.hasChanges));
+    return runLive({ removes: [{ id, pending }] }, () => api.timeSchedDelete(id), {
       ok: (r) => (r?.pending ? "Marked for removal. It stays on the team's schedule until you share." : 'Shift removed.'), fail: 'Could not remove.', after: () => setPanel(null),
       undo: (r) => (!s ? null : r?.pending ? (s.hasChanges ? null : () => api.timeSchedDiscard(id)) : () => api.timeSchedCreate(createPayload(s))),
+      settle: (r) => ({ removes: [{ id, pending: !!r?.pending }] }),
     });
   };
   const discardCell = (id) => run(() => api.timeSchedDiscard(id), { ok: 'Changes discarded.', fail: 'Could not discard the changes.', after: () => setPanel(null) });
   const assignOpen = (id, email) => run(() => api.timeSchedAssign(id, email), { ok: 'Shift assigned.', fail: 'Could not assign.', after: () => setPanel(null) });
   const moveShift = (s, email, date, duplicate) => {
     if (!duplicate && s.email === email && s.date === date) return;
-    run(() => api.timeSchedMove(s.id, { employee_email: email, work_date: date, duplicate }), {
+    if (stillSaving(s)) return;
+    runLive(movedTo(s, email, date, duplicate), () => api.timeSchedMove(s.id, { employee_email: email, work_date: date, duplicate }), {
       ok: (r) => (duplicate ? 'Shift copied here as a draft.' : !email ? 'Moved to open shifts.' : r?.sourcePending ? 'Shift moved. The team keeps the original until you share.' : 'Shift moved.'),
       fail: 'Could not move the shift.', after: () => setPanel(null),
+      settle: (r) => (r?.shift ? { adds: [r.shift], removes: duplicate || r.moved === false ? [] : [{ id: s.id, pending: !!r.sourcePending }] } : null),
       undo: (r) => (!r?.shift?.id || (!duplicate && s.hasChanges) ? null : async () => {
         await api.timeSchedDelete(r.shift.id);
         if (duplicate) return;
@@ -667,8 +800,8 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
         else await api.timeSchedCreate(createPayload(s));
       }) });
   };
-  const placePreset = (p, email, date, groupId = '') => run(() => api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: p.id, group_id: groupId, ...(email ? {} : { open_slots: 1 }) }),
-    { ok: `${p.name || p.code} placed as a draft.`, fail: 'Could not place the shift.', undo: (r) => (r?.id ? () => api.timeSchedDelete(r.id) : null) });
+  const placePreset = (p, email, date, groupId = '') => createLive([{ employee_email: email, work_date: date, shift_id: p.id, group_id: groupId, ...(email ? {} : { open_slots: 1 }) }],
+    { ok: `${p.name || p.code} placed as a draft.`, fail: 'Could not place the shift.', undo: (rs) => (rs?.[0]?.id ? () => api.timeSchedDelete(rs[0].id) : null) });
   // Fill usual hours for some people across the visible dates (one bulk call
   // per shift type); Undo removes exactly the drafts it made.
   async function fillUsual(emails, who, opts = {}) {
@@ -704,9 +837,13 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
     include_open: !g?.id, include_notes: true, include_activities: true, skip_timeoff: true, skip_holidays: true, overwrite: false, include_timeoff: false, ...(g?.id ? { group_id: g.id } : {}) }), {
     ok: (r) => (r?.created ? `Copied ${r.created} shift${r.created === 1 ? '' : 's'} from last week as drafts. Share to send them.` : 'Last week had no shifts to copy.'),
     fail: 'Could not copy last week.' });
-  const recolor = (s, color) => run(() => api.timeSchedUpdate(s.id, { employee_email: s.email, work_date: s.date, shift_id: s.shiftId, start_hhmm: s.start, end_hhmm: s.end,
-    label: s.label, note: s.note, break_min: s.breakMin ?? 0, activities: s.activities || [], color, group_id: s.groupId || '', ...(s.email ? {} : { open_slots: s.openSlots || 1 }) }),
-  { ok: 'Color changed.', fail: 'Could not change the color.' });
+  const recolor = (s, color) => {
+    if (stillSaving(s)) return null;
+    const payload = { employee_email: s.email, work_date: s.date, shift_id: s.shiftId, start_hhmm: s.start, end_hhmm: s.end,
+      label: s.label, note: s.note, break_min: s.breakMin ?? 0, activities: s.activities || [], color, group_id: s.groupId || '', ...(s.email ? {} : { open_slots: s.openSlots || 1 }) };
+    return runLive({ patches: [{ id: s.id, fields: editedFields(s, payload) }] }, () => api.timeSchedUpdate(s.id, payload),
+      { ok: 'Color changed.', fail: 'Could not change the color.', settle: (r) => (r?.id ? { adds: [r] } : null) });
+  };
   const setUsual = (email, shiftId) => run(() => api.timeShiftAssign({ shift_id: shiftId || '', emails: [email] }),
     { ok: shiftId ? `${names[email]} is on ${presets.find((p) => p.id === shiftId)?.name || 'that shift type'} as their usual hours.` : `${names[email]} has no usual hours now.`, fail: 'Could not change the usual hours.' });
   const saveTimeOff = (payload, approve) => run(async () => { const r = await api.timeOffOnBehalf(payload); if (approve) await api.timeOffDecide(r.id, { status: 'approved', note: '' }); return r; },
@@ -938,7 +1075,61 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   const dragProps = (s) => (shiftEditable(s) && !s.pendingDelete ? { onPointerDown: (e) => beginDrag(e, s) } : {});
   const dropProps = (email, ds) => ({ 'data-drop': `${email}|${ds}` });
   const clickable = (fn) => (e) => { if (suppressClick.current) { e.stopPropagation(); return; } fn(e); };
-  const dropStyle = (email, ds) => (dropKey === `${email}|${ds}` ? { outline: '2px dashed var(--wk-brand)', outlineOffset: -3, background: 'var(--wk-brand-tint)' } : {});
+
+  // ── Stretch to copy (Neil, 11/04/2026) ─────────────────────────────────
+  // Pull a shift's left or right edge across the days beside it, like
+  // filling cells in Excel: on release it is copied, as a draft, into every
+  // day it was pulled over that has nothing on it yet, in one instant
+  // change with one Undo. Only along the shift's own row - the column under
+  // the pointer decides, so the pointer may drift above or below the row.
+  const [stretch, setStretch] = useState(null);   // { keys: Set('email|date') } while pulling
+  const beginStretch = (e, s, side) => {
+    if (!canManage || e.pointerType === 'touch' || e.button !== 0 || !s.email) return;
+    e.preventDefault(); e.stopPropagation();
+    const cell = e.currentTarget.closest?.('[data-cell]');
+    const row = cell?.getAttribute('data-r');
+    const iso = days.map(isoDate);
+    const from = iso.indexOf(s.date);
+    if (row == null || from < 0) return;
+    const cols = [...(rootRef.current || document).querySelectorAll(`[data-cell][data-r="${row}"]`)]
+      .map((el) => ({ ds: (el.getAttribute('data-cell') || '').split('|')[1], box: el.getBoundingClientRect() }))
+      .filter((c) => iso.includes(c.ds));
+    let span = [];
+    document.body.classList.add('sched-stretching');
+    const move = (ev) => {
+      const hit = cols.find((c) => ev.clientX >= c.box.left && ev.clientX < c.box.right)
+        || (ev.clientX < (cols[0]?.box.left ?? 0) ? cols[0] : cols[cols.length - 1]);
+      const at = hit ? iso.indexOf(hit.ds) : from;
+      const to = side === 'right' ? Math.max(at, from) : Math.min(at, from);
+      span = iso.slice(Math.min(from, to), Math.max(from, to) + 1).filter((d) => d !== s.date);
+      setStretch(span.length ? { keys: new Set(span.map((d) => `${s.email}|${d}`)) } : null);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      document.body.classList.remove('sched-stretching');
+      setStretch(null);
+      if (!span.length) return;
+      suppressClick.current = true;
+      setTimeout(() => { suppressClick.current = false; }, 0);
+      copyAcross(s, span);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const copyAcross = (s, dates) => {
+    const free = dates.filter((d) => !(byCell[`${s.email}|${d}`] || []).some((x) => !x.pendingDelete));
+    const taken = dates.length - free.length;
+    if (!free.length) { toastOk?.(`${taken === 1 ? 'That day already has' : 'Those days already have'} a shift - nothing copied.`); return; }
+    const skip = taken ? ` Skipped ${taken} day${taken === 1 ? '' : 's'} that already had one.` : '';
+    createLive(free.map((d) => ({ ...createPayload(s), work_date: d })), {
+      ok: `Shift copied to ${free.length} more day${free.length === 1 ? '' : 's'} as drafts.${skip}`, fail: 'Could not copy the shift to every day.',
+      undo: (rs) => { const ids = (rs || []).map((r) => r?.id).filter(Boolean); return ids.length ? () => Promise.all(ids.map((id) => api.timeSchedDelete(id))) : null; } });
+  };
+  const stretchProps = (s) => (s.email && shiftEditable(s) && !s.pendingDelete && !s.live && rowEditable(s.email)
+    ? (side) => ({ onPointerDown: (e) => beginStretch(e, s, side) }) : null);
+  const dropStyle = (email, ds) => (dropKey === `${email}|${ds}` || stretch?.keys.has(`${email}|${ds}`)
+    ? { outline: '2px dashed var(--wk-brand)', outlineOffset: -3, background: 'var(--wk-brand-tint)' } : {});
   // Drag a person onto another group's header: they join it and leave the
   // one they were dragged from (when you may change both).
   const canMovePeople = canManage && groupBy === 'group' && prefs.teams !== false && groups.some((g) => g.canEdit);
@@ -1083,11 +1274,16 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
   useEffect(() => {
     if (!data) { seenRef.current = null; return undefined; }
     const ids = new Set((data.scheduled || []).map((x) => x.id));
+    // A saved shift taking over from its instant guess is not new: it
+    // popped once already, when the guess appeared.
+    const spot = (x) => `${x.email}|${x.date}|${x.start}`;
+    const guessed = new Set((data.scheduled || []).filter((x) => x.live).map(spot));
     const prev = seenRef.current;
-    seenRef.current = { start, ids };
+    seenRef.current = { start, ids, guessed };
     setLeaving((l) => (l.size ? new Set() : l));
     if (reduce || !prev || prev.start !== start) return undefined;
-    const added = [...ids].filter((id) => !prev.ids.has(id));
+    const added = [...ids].filter((id) => !prev.ids.has(id))
+      .filter((id) => { const x = data.scheduled.find((y) => y.id === id); return !x || x.live || !prev.guessed?.has(spot(x)); });
     if (!added.length) return undefined;
     setFresh(new Set(added));
     const t = setTimeout(() => setFresh(new Set()), MOTION.pop + 240);
@@ -1390,7 +1586,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
         </section>
       )}
       {error ? (
-        <ErrorBanner message={`The schedule could not be loaded - ${error}`} onRetry={load} />
+        <ErrorBanner message={`The schedule could not be loaded - ${error}`} onRetry={() => load()} />
       ) : data === null ? (
         <SkeletonBlocks count={6} height={60} borderRadius={10} />
       ) : (
@@ -1415,7 +1611,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
           notes={notes} weather={weather} holidayDates={holidayDates} holidayNames={holidayNames} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
           rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} weekMin={weekMin} overWeeks={overWeeks}
           copied={copied} dropKey={dropKey} dragId={drag?.id} isCollapsed={(k) => collapsed.has(k)} on={managing ? weekOn : gridOn} selected={sel}
-          dragProps={dragProps} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable}
+          dragProps={dragProps} stretchProps={managing ? stretchProps : null} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable}
           single={single} emptyNote={emptyNote} cornerTools={cornerTools} ghostOf={ghostOf} blockClass={blockClass} motion={!reduce} glowToday={glowRef.current}
           personFill={managing ? personFill : null} usualCan={(email) => !!usualOf(email)}
           coverageOf={coverageOf} onCoverage={managing ? onCoverage : null} pulseCells={pulseCells}
@@ -1464,11 +1660,11 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
           status={shiftState(details.shift).text} onClose={() => setDetails(null)}
           onEdit={details.readOnly ? undefined : () => { const s = details.shift; setDetails(null); openShiftEditor(s, s.email, s.date); }} />
       )}
-      {menu && <ShiftMenu menu={menu} presets={presets} canTimeOff={canTimeOff} hasCopied={!!copied} onAction={menuAction} onClose={() => setMenu(null)} />}
-      {personMenu && <PersonMenu menu={personMenu} presets={presets} usualId={data?.usual?.[personMenu.emp.email] || ''} canTimeOff={canTimeOff} onAction={personAction} onClose={() => setPersonMenu(null)} />}
+      {menu && <ShiftMenu menu={menu} presets={typesForTeams(presets, teamsForCell(groups, menu.email, menu.groupId), [data?.usual?.[menu.email]])} canTimeOff={canTimeOff} hasCopied={!!copied} onAction={menuAction} onClose={() => setMenu(null)} />}
+      {personMenu && <PersonMenu menu={personMenu} presets={typesForTeams(presets, teamsForCell(groups, personMenu.emp.email, ''), [data?.usual?.[personMenu.emp.email]])} usualId={data?.usual?.[personMenu.emp.email] || ''} canTimeOff={canTimeOff} onAction={personAction} onClose={() => setPersonMenu(null)} />}
       {panel && (
         <ShiftPanel key={`${panel.cell.email}|${panel.cell.date}|${panel.cell.existing?.id || ''}|${panel.mode}`} cell={panel.cell} initialMode={panel.mode}
-          presets={presets} quickPicks={quickPicks} groups={groups.filter((g) => !g.archived)} people={Object.values(empByEmail).filter((e) => e.canEdit !== false)} nameOf={nameOf}
+          presets={typesForTeams(presets, teamsForCell(groups, panel.cell.email, panel.cell.groupId), [panel.cell.existing?.shiftId, data?.usual?.[panel.cell.email]])} quickPicks={quickPicks} groups={groups.filter((g) => !g.archived)} people={Object.values(empByEmail).filter((e) => e.canEdit !== false)} nameOf={nameOf}
           teamZone={teamZoneLabel} busy={busy} canTimeOff={canTimeOff} jobsites={data?.jobsites || []}
           onSave={saveCell} onAssign={assignOpen} onDelete={delCell} onDiscard={discardCell}
           onCopy={(s) => { copyShift(s); setPanel(null); }} onToOpen={(s) => moveShift(s, '', s.date, false)}
@@ -1493,7 +1689,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
           onSave={saveDayNote} onClose={() => setOpen('')} />
       )}
       {weatherCall && (
-        <WeatherCallDialog key={`${weatherCall.groupId}|${weatherCall.date}|${weatherCall.place || ''}`} groupId={weatherCall.groupId} date={weatherCall.date} place={weatherCall.place || ''} onClose={() => setWeatherCall(null)} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+        <WeatherCallDialog key={`${weatherCall.groupId}|${weatherCall.date}|${weatherCall.place || ''}`} groupId={weatherCall.groupId} date={weatherCall.date} place={weatherCall.place || ''} onClose={() => setWeatherCall(null)} onChanged={() => load()} toastOk={toastOk} toastErr={toastErr} />
       )}
       {open === 'view' && (
         <ViewOptionsDialog prefs={prefs} onPrefs={setPrefs} query={query} onQuery={setQuery} groupBy={groupBy} onGroupBy={setGroupBy}
