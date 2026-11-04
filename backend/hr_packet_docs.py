@@ -1229,7 +1229,7 @@ def _hire_problems(db: Session, ev) -> list:
 
 
 def verify_and_send(db: Session, ev, user: dict, *, seen: dict, excluded_ack: bool,
-                    can_see_pay: bool, ip: str = "", user_agent: str = "") -> None:
+                    can_see_pay: bool, ip: str = "", user_agent: str = "", in_person: bool = False) -> None:
     """Only the verifier - the person the packet's verify role resolves to
     today - releases it, after checking every document. The caller holds the
     event row lock; this commits (Nexus Sign commits the envelope)."""
@@ -1262,14 +1262,24 @@ def verify_and_send(db: Session, ev, user: dict, *, seen: dict, excluded_ack: bo
     if not excluded_ack:
         raise hle.PacketError("Confirm the packet is not a record excluded from electronic signature.", 422)
     parties = p["parties"]
+    first_actor = next((x for x in parties if x["partyRole"] != "cc"), None)
+    if in_person and (first_actor is None or (first_actor["email"] or "").lower() != (ev.subject_email or "").lower()):
+        raise hle.PacketError("Sign in person works when the person signs first - here someone else signs before "
+                              "them, so send it electronically.", 409)
     hle.refresh_due(ev)                    # paperwork after a signed offer never goes out already expired
     status = status_at_send(parties, ev.subject_email)
-    out = build_envelope(db, ev, setting, user, p, excluded_ack=excluded_ack, ip=ip, user_agent=user_agent)
+    out = build_envelope(db, ev, setting, user, p, excluded_ack=excluded_ack, ip=ip, user_agent=user_agent,
+                         in_person=in_person)
     now = datetime.now(timezone.utc).isoformat()
     ev.sign_request_id = out["id"]
     ev.status = status
     ev.verified_by, ev.verified_at, ev.updated_at = me, now, now
-    hle._stage_note(db, ev, f"Verified and sent by {name_of(db, me)}", by=me)
+    if in_person:
+        # Print And Send (11/04/2026): signed face to face; HR uploads the signed copy.
+        ev.inputs = {**(ev.inputs or {}), "in_person": True}      # reassigned, never mutated (JSON column)
+        hle._stage_note(db, ev, f"Verified by {name_of(db, me)} - to be signed in person on paper", by=me)
+    else:
+        hle._stage_note(db, ev, f"Verified and sent by {name_of(db, me)}", by=me)
     db.commit()
 
 
@@ -1360,7 +1370,7 @@ def offer_with_jd(ev, rendered: list, *, signer: str) -> list:
 
 
 def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dict, *,
-                   excluded_ack: bool, ip: str = "", user_agent: str = "") -> dict:
+                   excluded_ack: bool, ip: str = "", user_agent: str = "", in_person: bool = False) -> dict:
     """Render every document with pay, refuse anything still showing a
     {{variable}}, upload the PDFs, place every signer's fields on the lines
     the templates drew, and hand Nexus Sign one envelope."""
@@ -1457,7 +1467,7 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
                         if ev.kind in CANDIDATE_KINDS else ""),
             ip=ip, user_agent=user_agent, excluded_ack=excluded_ack, document_class="employment",
             link_kind="life_event", link_id=ev.id, sender_signs_first=sender_first,
-            prints_pay=p["printsPay"] or private_blank, saved=saved)
+            prints_pay=p["printsPay"] or private_blank, saved=saved, in_person=in_person)
     except HTTPException as ex:
         federal_discard(docs)
         raise hle.PacketError(str(ex.detail), ex.status_code)

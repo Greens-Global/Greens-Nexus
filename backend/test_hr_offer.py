@@ -426,5 +426,88 @@ class BuildingBlockTests(OfferCase):
         self.assertEqual(titles, ["Accounting CA - Jane Doe", "Onboarding Requirements - Jane Doe"])
 
 
+
+class PreviewTests(OfferCase):
+    """Preview before Create (Neil, 11/04/2026): the letter and its job
+    description as Create would make them - and nothing is kept."""
+
+    def _preview(self):
+        body = {"inputs": {"worker_type": "employee", "employment_type": "full_time", "job_title": "Analyst",
+                           "start_date": "2030-11-02", "offer_expires": "2030-10-28", "manager_email": MGR,
+                           "work_location": "Irvine, CA", "merge": {"probation_period": "90 days"},
+                           "jd_template_id": "t-jd", "new_role_duties": "Reconciles accounts.",
+                           "work_start": "09:00", "work_end": "17:00"},
+                "pay": {"base": 85000, "payBasis": "salary", "frequency": "annual", "currency": "USD"}}
+        return self.client.post("/hr/candidates/cand-1/offer/preview", json=body)
+
+    def test_preview_is_the_letter_then_the_job_description_and_saves_nothing(self):
+        import base64
+        import io
+        from pypdf import PdfReader
+        r = self._preview()
+        self.assertEqual(r.status_code, 200, r.text)
+        pdf = base64.b64decode(r.json()["pdf"])
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        text = "".join(pg.extract_text() or "" for pg in PdfReader(io.BytesIO(pdf)).pages)
+        self.assertIn("Analyst", text)                            # the letter, filled in
+        self.assertIn("Reconciles accounts", text)                # the job description follows the letter
+        self.assertIn("Job Description Acknowledgment", text)     # then its read-it page
+        self.assertEqual(r.json()["unfilled"], [])
+        db = database.SessionLocal()
+        try:
+            self.assertEqual(db.query(models.HrLifeEvent).filter_by(candidate_id="cand-1").count(), 0)
+            self.assertEqual(db.query(models.Document).filter(models.Document.candidate_id == "cand-1").count(), 0)
+            self.assertEqual(db.query(models.HrCandidate).filter_by(id="cand-1").one().stage, "interview")
+            self.assertEqual(db.query(models.NexusNotification).count(), self._bells_before)
+        finally:
+            db.close()
+        self.assertEqual(self._offer().status_code, 200)          # Create still works after a preview
+
+    def setUp(self):
+        super().setUp()
+        db = database.SessionLocal()
+        self._bells_before = db.query(models.NexusNotification).count()
+        db.close()
+
+
+
+class InPersonTests(OfferCase):
+    """Print And Send (Pranshu / Neil, 11/04/2026): "I'm hiring that employee
+    manually, like face to face, not through the electronic signature"."""
+
+    def test_print_and_send_emails_nobody_and_the_uploaded_copy_hires_them(self):
+        r = self._offer()
+        self.assertEqual(r.status_code, 200, r.text)
+        eid = r.json()["id"]
+        self.invited.clear()
+        r = self._verify(eid, self._review(eid), in_person=True)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn(CAND, self.invited)                         # not emailed
+        ev = self._ev(eid)
+        self.assertTrue(ev.inputs.get("in_person"))
+        log = self.db.query(models.HrSignEvent).filter_by(request_id=ev.sign_request_id).all()
+        self.assertFalse([e for e in log if e.type == "sent"])       # so the automatic chase never emails them
+        printed = self.client.get(f"/hr/life-events/{eid}/print")
+        self.assertEqual(printed.status_code, 200, printed.text)
+        self.assertTrue(printed.content.startswith(b"%PDF"))
+        up = self.client.post(f"/hr/life-events/{eid}/signed-in-person",
+                              files={"file": ("signed.pdf", printed.content, "application/pdf")})
+        self.assertEqual(up.status_code, 200, up.text)
+        ev = self._ev(eid)
+        self.assertEqual(ev.status, "completed")
+        self.assertTrue(ev.employee_id)                              # hired, the same as an e-signed offer
+        party = self._party(ev.sign_request_id, CAND)
+        self.assertEqual((party.status, party.signature_kind), ("signed", "paper"))
+        again = self.client.post(f"/hr/life-events/{eid}/signed-in-person",
+                                 files={"file": ("signed.pdf", printed.content, "application/pdf")})
+        self.assertEqual(again.status_code, 409)
+
+    def test_an_electronic_offer_has_nothing_to_print(self):
+        eid = self._offer().json()["id"]
+        self.assertEqual(self._verify(eid, self._review(eid)).status_code, 200)
+        self.assertIn(CAND, self.invited)
+        self.assertEqual(self.client.get(f"/hr/life-events/{eid}/print").status_code, 409)
+
+
 if __name__ == "__main__":
     unittest.main()

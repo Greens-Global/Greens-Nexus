@@ -37,7 +37,8 @@ import SignOnceModal from './SignOnceModal';
 import PacketReadiness from './PacketReadiness';
 import PacketIntakePanel from './PacketIntakePanel';
 import { formatDate } from '../lib/datetime';
-import { US_STATE_NAMES, placeName } from '../lib/usStates';
+import { placeName } from '../lib/usStates';
+import WorksInSelect from './WorksInSelect';
 import { FEDERAL_FORMS, federalFormLabel, orderFederalForms } from '../lib/federalForms';
 
 // Roomy, plain: normal-case labels, one short hint only where it helps.
@@ -313,7 +314,6 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
     (d.personQuestions || []).forEach(l => { if (!asked.person.includes(l)) asked.person.push(l); });
     (d.hrQuestions || []).forEach(l => { if (!asked.hr.includes(l)) asked.hr.push(l); });
   });
-  const countries = [...new Set([...(catalog?.countries || ['US', 'IN']), p.country].filter(Boolean))];
   const verifyHolder = holders && holders[p.verifyRole];
 
   // Copy From (Neil, Oct 22: "a builder option where you can copy from"):
@@ -384,21 +384,9 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 18px' }}>
         <div>
           <label style={lbl} htmlFor="pk-country">Works In</label>
-          <select id="pk-country" className="form-input" style={{ width: '100%' }} value={p.country}
-            onChange={e => setPlace({ country: e.target.value, region: e.target.value === 'US' ? p.region : '' })}>
-            <option value="">{event === 'hire' ? 'Pick a country' : 'Any Country'}</option>
-            {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
-          </select>
+          <WorksInSelect id="pk-country" country={p.country} region={p.region} countryNames={COUNTRY_NAMES}
+            emptyLabel={event === 'hire' ? 'Pick a place' : 'Any Place'} onChange={setPlace} />
         </div>
-        {p.country === 'US' && (
-          <div>
-            <label style={lbl} htmlFor="pk-region">State</label>
-            <select id="pk-region" className="form-input" style={{ width: '100%' }} value={p.region} onChange={e => setPlace({ region: e.target.value })}>
-              <option value="">Anywhere In The US</option>
-              {Object.entries(US_STATE_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
-            </select>
-          </div>
-        )}
         {placeEvent && (
           <div>
             <label style={lbl} htmlFor="pk-wt">Hired As</label>
