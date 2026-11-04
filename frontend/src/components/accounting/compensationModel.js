@@ -66,8 +66,11 @@ export const LINES = [
   { key: 'bonus', label: 'Bonus', shown: true },
   { key: 'payroll', label: 'Salaried / Hourly Payroll', shown: true },
   { key: 'totalPayroll', label: 'Total Payroll Expenses', parts: ['bonus', 'payroll'] },
-  { key: 'k401', label: '401(k) Contribution (Company)' },
-  { key: 'health', label: 'Health Insurance (Company)' },
+  // 10/30 (Charmi: "401K Compensation is not included... there should be
+  // breakdown"): the benefit parts show beside their total, not only
+  // behind Columns.
+  { key: 'k401', label: '401(k) Contribution (Company)', shown: true },
+  { key: 'health', label: 'Health Insurance (Company)', shown: true },
   { key: 'totalBenefits', label: 'Total Benefits', parts: ['k401', 'health'], shown: true },
   { key: 'futa', label: 'FUTA' },
   { key: 'medicare', label: 'Medicare' },

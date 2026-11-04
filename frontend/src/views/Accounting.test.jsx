@@ -64,7 +64,9 @@ describe('Accounting view', () => {
   it('shows a skeleton, never nothing, while access is being asked', () => {
     apiMock.getMyAccountingAccess.mockReturnValue(new Promise(() => {}));
     const { container } = render(<Accounting activeSub="overview" onSubChange={() => {}} />);
-    expect(container.querySelector('.skeleton-block, [class*="skeleton"]') || container.textContent.includes('Accounting')).toBeTruthy();
+    // The heading is the bar tab the page belongs to (Neil, 10/30) - on
+    // overview that is Dashboard, not Accounting.
+    expect(container.querySelector('.skeleton-block, [class*="skeleton"]') || container.textContent.includes('Dashboard')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Overview' })).toBeNull();
   });
 
