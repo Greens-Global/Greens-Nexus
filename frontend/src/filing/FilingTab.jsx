@@ -92,14 +92,14 @@ export default function FilingTab({ toastOk, toastErr }) {
 
   // Counts and totals are recomputed here because a walked scan arrives in
   // pieces - the server's per-call numbers only cover that call.
-  const assemble = (proposals, missingRoots, truncated) => {
+  const assemble = (proposals, missingRoots, truncated, failedRoots = []) => {
     const counts = { auto: 0, review: 0, skip: 0 };
     const totals = { files: 0, labeled: 0, unlabeled: 0 };
     for (const p of proposals) {
       counts[p.status] = (counts[p.status] || 0) + 1;
       if (p.status !== 'skip') { totals.files += 1; totals[p.labeled ? 'labeled' : 'unlabeled'] += 1; }
     }
-    return { proposals, counts, totals, missingRoots, truncated };
+    return { proposals, counts, totals, missingRoots, truncated, failedRoots };
   };
 
   // Ticked folders are walked CLIENT-side, a few folders per request, so no
@@ -111,56 +111,68 @@ export default function FilingTab({ toastOk, toastErr }) {
   // (ROW_PAGE) so a large result never freezes the browser.
   const WALK_FOLDER_CAP = 2000;
   const WALK_FILE_CAP = 10000;
-  const runScan = async () => {
-    setScanning(true); setResults({}); setSelected(new Set()); setShown(ROW_PAGE);
+  // `roots` = the folders to walk; `merge` = add to the scan on screen (the
+  // Try Again pass over folders Egnyte would not list) instead of starting over.
+  const runScan = async ({ roots = null, merge = false } = {}) => {
+    setScanning(true); setShown(ROW_PAGE);
+    if (!merge) { setResults({}); setSelected(new Set()); }
     cancelRef.current = false;
     try {
-      if (!pickedFolders.size) {
+      const startFrom = roots || [...pickedFolders];
+      if (!startFrom.length) {
         const data = await api.filingScan();
-        setScan(data);
-        setSelected(new Set(data.proposals.filter(p => p.status === 'auto').map(p => p.sourcePath)));
+        setScan(assemble(data.proposals || [], data.missingRoots || [], !!data.truncated, data.failedRoots || []));
+        setSelected(new Set((data.proposals || []).filter(p => p.status === 'auto').map(p => p.sourcePath)));
         return;
       }
       const seen = new Set();
-      const queue = [...pickedFolders];
-      const missing = [];
-      let all = [];
+      const queue = [...startFrom];
+      const prior = merge ? (scan?.proposals || []) : [];
+      const known = new Set(prior.map(p => p.sourcePath));
+      const missing = merge ? [...(scan?.missingRoots || [])] : [];
+      const failed = [];
+      let all = [...prior];
       let folders = 0;
       let truncated = false;
-      // One lone failed request (a worker blip, the 11/04 502) must not
-      // kill a long walk - a batch gets one more try before giving up.
+      // A throttled or failed batch must never sink the walk (Nov 4: Egnyte
+      // throttles a per-user key, and the error used to end the whole scan at
+      // the root's 35 files). The server already waits throttling out; here a
+      // batch gets one more try, then its folders are set aside by path and
+      // the walk carries on - the person can Try Again on just those.
       const scanBatch = async (paths) => {
         try { return await api.filingScan({ paths }); }
-        catch { return await api.filingScan({ paths }); }
+        catch (e1) {
+          if (e1?.status === 401) throw e1;
+          try { return await api.filingScan({ paths }); }
+          catch (e2) {
+            if (e2?.status === 401) throw e2;
+            return { proposals: [], scannedRoots: [], missingRoots: [], subfolders: [], failedRoots: paths };
+          }
+        }
       };
       while (queue.length && !cancelRef.current) {
         if (folders >= WALK_FOLDER_CAP || all.length >= WALK_FILE_CAP) { truncated = true; break; }
-        // Two batches in flight: a deep tree walks almost twice as fast, and
-        // two requests is gentle enough on the API and on Egnyte's rate cap.
-        const batches = [];
-        while (batches.length < 2 && queue.length) {
-          const batch = [];
-          while (batch.length < 5 && queue.length) {
-            const p = queue.shift();
-            if (!seen.has(p)) { seen.add(p); batch.push(p); }
-          }
-          if (batch.length) batches.push(batch);
+        // One batch in flight: Egnyte allows a per-user key only a few calls
+        // a second, and two in flight (round 6) mostly bought throttling.
+        const batch = [];
+        while (batch.length < 5 && queue.length) {
+          const p = queue.shift();
+          if (!seen.has(p)) { seen.add(p); batch.push(p); }
         }
-        if (!batches.length) continue;
-        const resList = await Promise.all(batches.map(scanBatch));
-        for (const r of resList) {
-          if (r.truncated) truncated = true;   // one folder past the server's per-call cap
-          folders += (r.scannedRoots || []).length;
-          missing.push(...(r.missingRoots || []));
-          all = all.concat(r.proposals || []);
-          if (includeSub) queue.push(...(r.subfolders || []));
-        }
+        if (!batch.length) continue;
+        const r = await scanBatch(batch);
+        if (r.truncated) truncated = true;   // one folder past the server's per-call cap
+        folders += (r.scannedRoots || []).length;
+        missing.push(...(r.missingRoots || []));
+        failed.push(...(r.failedRoots || []));
+        all = all.concat((r.proposals || []).filter(p => !known.has(p.sourcePath)));
+        if (includeSub) queue.push(...(r.subfolders || []));
         setProgress({ folders, files: all.filter(p => p.status !== 'skip').length });
-        setScan(assemble(all, missing, truncated));
+        setScan(assemble(all, missing, truncated, failed));
       }
       const stopped = cancelRef.current && queue.length > 0;
-      setScan(assemble(all, missing, truncated || stopped));
-      setSelected(new Set(all.filter(p => p.status === 'auto').map(p => p.sourcePath)));
+      setScan(assemble(all, missing, truncated || stopped, failed));
+      if (!merge) setSelected(new Set(all.filter(p => p.status === 'auto').map(p => p.sourcePath)));
       if (stopped) toastOk?.('Scan stopped - keeping what was found');
     } catch (e) {
       toastErr?.(e.message || 'The scan failed');
@@ -339,7 +351,7 @@ export default function FilingTab({ toastOk, toastErr }) {
               <Square size={13} /> Stop
             </button>
           ) : (
-            <button className="primary-btn" onClick={runScan} disabled={!status.configured} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button className="primary-btn" onClick={() => runScan()} disabled={!status.configured} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <RefreshCw size={15} />
               Scan Now{pickedFolders.size ? ` (${pickedFolders.size} Folder${pickedFolders.size === 1 ? '' : 's'})` : ''}
             </button>
@@ -473,6 +485,17 @@ export default function FilingTab({ toastOk, toastErr }) {
             Ready rows move together with the Move button. A Needs Review row is filed by hand: press File It, adjust the name, pick the folder.
           </div>
 
+          {scan.failedRoots?.length > 0 && !scanning && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5, padding: '8px 12px', borderRadius: 10, background: 'hsla(45, 93%, 47%, 0.12)' }}>
+              <span>
+                {scan.failedRoots.length} folder{scan.failedRoots.length === 1 ? '' : 's'} could not be read just now - Egnyte was busy. The files above are complete for every other folder.
+              </span>
+              <button className="secondary-btn" style={{ fontSize: 12.5 }}
+                onClick={() => runScan({ roots: scan.failedRoots, merge: true })}>
+                Try Those Again
+              </button>
+            </div>
+          )}
           {scan.missingRoots?.length > 0 && (
             <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
               Not scanned (no access or missing): {scan.missingRoots.join(', ')}

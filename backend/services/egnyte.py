@@ -306,6 +306,15 @@ def _raise(resp: httpx.Response, what: str) -> None:
     # Preserve 404/403 so the caller can distinguish "no such folder" (expected
     # for a property with no Egnyte folder yet) from "Egnyte is broken".
     status = resp.status_code if resp.status_code in (401, 403, 404, 409) else 502
+    # Rate limiting is "slow down", not "broken" and not "no access" (Nov 4
+    # 2026): Egnyte throttles a per-user OAuth key past a few calls a second,
+    # answering 429 - or 403 "Developer Over Qps/Rate". Flattened to 502 it
+    # reached the browser as Cloudflare's own Bad Gateway page with the reason
+    # hidden; read as 403 a busy folder looked like a folder you may not see.
+    # 429 lets a caller back off and retry.
+    if resp.status_code == 429 or (resp.status_code == 403 and "over qps" in resp.text.lower()) \
+            or (resp.status_code == 403 and "over rate" in resp.text.lower()):
+        status = 429
     raise EgnyteError(f"{what}: {resp.text[:200]}", status)
 
 
