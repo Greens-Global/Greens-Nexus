@@ -20,6 +20,11 @@ import { Spinner } from './AsyncState';
 import DetailsFormFields from './DetailsFormFields';
 import SignOnceModal from './SignOnceModal';
 import { REPORTS_TO } from './OfferModal';
+import { DateField } from '../tasks/components';
+
+// What is printed shows the date as the document prints it - MM/DD/YYYY -
+// whatever the reader's own Profile > Date Format (Neil, 11/04/2026).
+const printed = (iso) => formatDate(iso, '', undefined, 'MM/DD/YYYY');
 
 const lbl = { fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '0 0 5px' };
 const h3 = { fontSize: 15, fontWeight: 800, margin: '24px 0 10px', color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 10 };
@@ -167,6 +172,10 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
     <div><label style={lbl} htmlFor={`rv-${key}`}>{label}</label>
       <input id={`rv-${key}`} className="form-input" style={{ width: '100%' }} value={form[key] || ''} onChange={e => set(key, e.target.value)} {...props} /></div>
   );
+  const dateBox = (label, key) => (
+    <div><label style={lbl}>{label}</label>
+      <DateField value={form[key] || ''} onChange={x => set(key, x || '')} placeholder="MM/DD/YYYY" title={label} style={{ width: '100%' }} /></div>
+  );
   const todo = ev.status === 'intake' ? `Waiting for ${first} to fill in their details - the documents are generated the moment they do.`
     : inReview && data.isVerifier ? 'Read each document, check what is printed in it, then confirm and send.'
       : inReview ? `Waiting for ${v.name || 'the verifier'} (${v.roleLabel || 'HR'}) to check and send it.`
@@ -227,8 +236,8 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
         {editing ? (
           <div style={card}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-              {isHire && field('Start Date', 'start_date', { type: 'date' })}
-              {isHire && field('Offer Expires', 'offer_expires', { type: 'date' })}
+              {isHire && dateBox('Start Date', 'start_date')}
+              {isHire && dateBox('Offer Expires', 'offer_expires')}
               {field('Legal First Name', 'first_name')}
               {field('Legal Last Name', 'last_name')}
               {field('Preferred Name', 'preferred_name')}
@@ -269,12 +278,12 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
           <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '4px 28px' }}>
             <div>
               {isHire && <Row k="Role" v={o.jobTitle && `${o.jobTitle}${o.department ? ` - ${o.department}` : ''}`} />}
-              {isHire && <Row k="Start Date" v={formatDate(o.startDate)} />}
-              {isHire && <Row k="Offer Expires" v={formatDate(o.offerExpires)} />}
+              {isHire && <Row k="Start Date" v={printed(o.startDate)} />}
+              {isHire && <Row k="Offer Expires" v={printed(o.offerExpires)} />}
               {isHire && <Row k={<span title={REPORTS_TO} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Supervisor <Info size={12} aria-label={REPORTS_TO} style={{ cursor: 'help' }} /></span>} v={o.managerName} />}
               {ev.kind === 'promotion' && <Row k="New Role" v={o.jobTitle} />}
-              {ev.kind === 'promotion' && <Row k="Effective" v={formatDate(o.effectiveDate)} />}
-              {ev.kind === 'separation' && <Row k="Last Day" v={formatDate(o.lastDay)} />}
+              {ev.kind === 'promotion' && <Row k="Effective" v={printed(o.effectiveDate)} />}
+              {ev.kind === 'separation' && <Row k="Last Day" v={printed(o.lastDay)} />}
               <Row k="Pay" v={data.pay !== undefined ? data.payText : <Locked />} />
               <Row k="Timings" v={o.schedule || (o.workStart && o.workEnd ? `${formatHHMM(o.workStart)} - ${formatHHMM(o.workEnd)}` : '')} />
               {isHire && (o.jdFile || o.jdName) && <Row k="Job Description" v={<>

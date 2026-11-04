@@ -56,6 +56,18 @@ describe('PacketReview', () => {
     expect(verify.mock.calls[0][1]).toEqual({ excluded_ack: true, seen: { d1: 1 } });
   });
 
+  it('shows dates as printed (MM/DD/YYYY) even when the reader picked day-first (Neil, 11/04/2026)', async () => {
+    const { setDateFormat } = await import('../lib/datetime');
+    setDateFormat('DD/MM/YYYY');
+    try {
+      review = { ...base, canVerify: true, isVerifier: true };
+      render(<PacketReview eventId="ev1" onClose={noop} onChanged={noop} toastOk={noop} toastErr={noop} />);
+      await waitFor(() => expect(screen.getByText('11/02/2026')).toBeTruthy());
+      expect(screen.getByText('10/28/2026')).toBeTruthy();
+      expect(screen.queryByText('02/11/2026')).toBeNull();
+    } finally { setDateFormat('MM/DD/YYYY'); }
+  });
+
   it('names what the new hire fills while signing, without calling it unfilled', async () => {
     review = { ...base, canVerify: true, isVerifier: true,
                documents: [{ ...base.documents[0], atSigning: ['Nationality', 'WhatsApp Number'] }] };

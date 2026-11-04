@@ -60,6 +60,8 @@ describe('OfferModal', () => {
     expect(screen.getByLabelText('Primary Work Location')).toBeTruthy();   // the letter prints it
     fireEvent.change(screen.getByLabelText('Primary Work Location'), { target: { value: 'Irvine, CA' } });
     fireEvent.change(screen.getByLabelText('Pay'), { target: { value: '85000' } });
+    // Timings are always asked (Neil, 11/04/2026), whatever the letter prints.
+    fireEvent.change(screen.getByLabelText('Or Describe The Timings'), { target: { value: 'Rotating shifts' } });
     next();
     expect(screen.getByLabelText('Probation Period *')).toBeTruthy();       // the letter asks HR
     fireEvent.click(screen.getByText('Create Offer Letter'));
@@ -71,7 +73,8 @@ describe('OfferModal', () => {
     const [cid, body] = startOffer.mock.calls[0];
     expect(cid).toBe('c1');
     expect(body.inputs).toMatchObject({ worker_type: 'employee', employment_type: 'full_time', country: 'US', role_id: 'jr-an',
-      work_location: 'Irvine, CA', merge: { probation_period: '90 days' }, jd_template_id: 'jd-1' });
+      work_location: 'Irvine, CA', merge: { probation_period: '90 days' }, jd_template_id: 'jd-1',
+      work_start: '09:00', work_end: '17:00', timings_text: 'Rotating shifts' });
     expect(body.pay_values).toEqual({ joining_bonus: '$2,000' });            // pay never goes in merge
     expect(body.pay).toMatchObject({ base: 85000, payBasis: 'salary' });
   });

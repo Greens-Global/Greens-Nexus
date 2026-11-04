@@ -30,7 +30,6 @@ const OTHER_ROLE = '__other__';
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
 const COUNTRY_NAMES = { US: 'United States', IN: 'India', CA: 'Canada', GB: 'United Kingdom', AE: 'United Arab Emirates', PH: 'Philippines', MX: 'Mexico', AU: 'Australia' };
 const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
-const SCHEDULE = ['work_schedule', 'work_hours', 'work_days'];
 const STEPS = [['who', 'Who You Are Hiring'], ['offer', 'The Offer'], ['questions', 'Questions']];
 
 const lbl = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '18px 0 6px' };
@@ -200,7 +199,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
       const payQs = canSeePay ? Object.fromEntries(questions.filter(q => q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v)) : {};
       const ev = await api.startOffer(c.id, {
         inputs: { ...f, ...who, role_id: roleId, new_role_name: isOther ? f.new_role_name.trim() : '',
-                  ...(SCHEDULE.some(k => prints.has(k)) ? timing : {}),
+                  ...timing,
                   jd_template_id: jdFile ? '' : jdId, new_role_duties: isOther ? newDuties.trim() : '',
                   packet_id: chosenId, merge: plain },
         pay: canSeePay && String(pay.base).trim() ? { ...pay, base: Number(pay.base) } : null,
@@ -385,9 +384,9 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
         </div>
       ) : <div style={hint}>Pay &amp; Benefits access is needed to enter pay - whoever checks the offer adds it before sending.</div>}
 
-      {SCHEDULE.some(k => prints.has(k)) && (
-        <>
-          <label style={{ ...lbl, marginTop: 26 }}>Work Hours And Days</label>
+      {/* Always asked (Neil, 11/04/2026: "I didn't see that as an option") - it shows under Check What Is Printed. */}
+      <>
+          <label style={{ ...lbl, marginTop: 26 }}>Timings</label>
           <div style={{ ...grid, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
             <div><label style={{ ...hint, marginTop: 0, marginBottom: 4, display: 'block' }} htmlFor="of-from">From</label>
               <input id="of-from" type="time" className="form-input" style={{ width: '100%' }} value={timing.work_start} onChange={e => setTiming(t => ({ ...t, work_start: e.target.value }))} /></div>
@@ -402,8 +401,10 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
                   background: on ? 'var(--pine)' : 'var(--card)', color: on ? '#fff' : 'var(--ink)' }}>{l}</button>;
             })}
           </div>
-        </>
-      )}
+          <label style={{ ...hint, marginTop: 10, marginBottom: 4, display: 'block' }} htmlFor="of-timings">Or Describe The Timings</label>
+          <input id="of-timings" className="form-input" style={{ width: '100%' }} value={timing.timings_text}
+            onChange={e => setTiming(t => ({ ...t, timings_text: e.target.value }))} placeholder="e.g. Rotating shifts, 40 hours a week" />
+      </>
 
       {jdFile ? (
         <div><div style={{ ...lbl, marginTop: 26 }}>Job Description</div>
