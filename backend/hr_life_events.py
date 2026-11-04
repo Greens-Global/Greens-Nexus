@@ -1195,7 +1195,8 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
     role_id = "" if new_role else (role_id or cand.role_id or "").strip()
     entity = db.query(HrEntity).filter(HrEntity.id == cand.company).first()
     company = entity.name if entity else "this company"
-    choices = [{"id": r.id, "name": r.name or "Unnamed", "workerType": r.worker_type or "any", "country": r.country or ""}
+    choices = [{"id": r.id, "name": r.name or "Unnamed", "workerType": r.worker_type or "any", "country": r.country or "",
+                "region": r.region or ""}
                for r in packet_choices(db, cand.company, "offer")]
     out = {"country": country, "companyCountry": company_country, "region": region, "companyRegion": company_region,
            "choices": choices, "offerLetter": None, "hiringPacket": None, "missing": "", "missingPacket": ""}

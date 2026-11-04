@@ -23,7 +23,8 @@ import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { DateField } from '../tasks/components';
-import { US_STATE_NAMES } from '../lib/usStates';
+import { worksInLabel } from '../lib/usStates';
+import WorksInSelect from './WorksInSelect';
 import { leadsFor } from './HiringSchedule';
 
 const OTHER_ROLE = '__other__';
@@ -71,7 +72,8 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const [step, setStep] = useState('who');
   const [tried, setTried] = useState(false);
   // Where they work picks the paperwork - country AND state (Neil, Oct 22).
-  const [who, setWho] = useState({ worker_type: '', employment_type: 'full_time', country: '', region: '' });
+  // Works In defaults to United States - CA (Neil, 11/04/2026).
+  const [who, setWho] = useState({ worker_type: '', employment_type: 'full_time', country: 'US', region: 'CA' });
   const [f, setF] = useState(() => ({
     role_id: c.roleId || (c.roleTitle ? OTHER_ROLE : ''), new_role_name: c.roleId ? '' : (c.roleTitle || ''),
     department: c.department || '', start_date: (c.expectedStart || '').slice(0, 10),
@@ -147,7 +149,6 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   // A role whose department has no head: back to Head of HR, never a refused send.
   useEffect(() => { if (opts && !opts.offerFrom?.department_head?.email) setF(p => (p.offer_from === 'hr' ? p : { ...p, offer_from: 'hr' })); }, [opts]);
   const contractor = who.worker_type === 'contractor';
-  const countries = useMemo(() => [...new Set([opts?.companyCountry, 'US', 'IN', who.country].filter(Boolean))], [opts, who.country]);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   // Supervisor = the role's default, else the department head (Neil, Oct 22). One Nexus
   // filled in follows a role or department change; one HR picked by hand is kept.
@@ -232,16 +233,8 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             </select></div>
         )}
         <div><label style={lbl} htmlFor="of-country">Works In</label>
-          <select id="of-country" className="form-input" style={{ width: '100%' }} value={who.country} onChange={e => setWho(w => ({ ...w, country: e.target.value, region: '' }))}>
-            {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
-          </select></div>
-        {who.country === 'US' && (
-          <div><label style={lbl} htmlFor="of-region">State</label>
-            <select id="of-region" className="form-input" style={{ width: '100%' }} value={who.region} onChange={e => setWho(w => ({ ...w, region: e.target.value }))}>
-              <option value="">- pick the state -</option>
-              {Object.entries(US_STATE_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
-            </select></div>
-        )}
+          <WorksInSelect id="of-country" country={who.country} region={who.region} countryNames={COUNTRY_NAMES}
+            onChange={place => setWho(w => ({ ...w, ...place }))} /></div>
         <div><label style={lbl} htmlFor="of-role">Role</label>
           <select id="of-role" className="form-input" style={{ width: '100%' }} value={f.role_id} onChange={e => pickRole(e.target.value)}>
             <option value="">- pick the role -</option>
@@ -299,7 +292,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
               <label style={{ ...lbl, margin: '0 0 6px' }} htmlFor="of-letter">Use A Different Offer Letter</label>
               <select id="of-letter" className="form-input" style={{ width: '100%' }} value={chosenId} onChange={e => setChosenId(e.target.value)}>
                 <option value="">The one Nexus picks for this hire</option>
-                {opts.choices.map(x => <option key={x.id} value={x.id}>{x.name}{x.workerType !== 'any' ? ` - ${x.workerType === 'contractor' ? 'Contractors' : 'Employees'}` : ''}{x.country ? ` (${COUNTRY_NAMES[x.country] || x.country})` : ''}</option>)}
+                {opts.choices.map(x => <option key={x.id} value={x.id}>{x.name}{x.workerType !== 'any' ? ` - ${x.workerType === 'contractor' ? 'Contractors' : 'Employees'}` : ''}{x.country ? ` (${worksInLabel(x.country, x.region, COUNTRY_NAMES)})` : ''}</option>)}
               </select>
             </div>
           )}

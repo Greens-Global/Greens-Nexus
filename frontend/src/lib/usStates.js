@@ -17,3 +17,18 @@ export const stateName = (code) => US_STATE_NAMES[(code || '').toUpperCase()] ||
 /** "California", "India", "Texas" - the place a packet or hire is for. */
 export const placeName = (country, region, countryNames = {}) =>
   (country === 'US' && region ? stateName(region) : '') || countryNames[country] || country || '';
+
+// Works In (Neil, 11/04/2026): three places for every hiring document - an
+// offer, a hiring packet, a promotion, a separation - "other options will
+// come later... each state has their own process". United States - CA first:
+// it is the default.
+export const WORKS_IN = [
+  { key: 'US-CA', country: 'US', region: 'CA', label: 'United States - CA' },
+  { key: 'US-TX', country: 'US', region: 'TX', label: 'United States - TX' },
+  { key: 'IN', country: 'IN', region: '', label: 'India' },
+];
+export const worksInKey = (country, region) => (country ? (country === 'US' ? `US-${region || ''}` : country) : '');
+/** The label of a saved place, one of the three or an older one kept as it was. */
+export const worksInLabel = (country, region, countryNames = {}) =>
+  WORKS_IN.find(w => w.key === worksInKey(country, region))?.label
+  || (country === 'US' ? `United States - ${region || 'Anywhere'}` : countryNames[country] || country || '');

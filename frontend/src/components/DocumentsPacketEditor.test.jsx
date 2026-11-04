@@ -133,8 +133,9 @@ describe('DocumentsPacketEditor - place first', () => {
     fireEvent.click(screen.getByText(/Continue/));
     expect(await screen.findByText(/Pick where these hires work/)).toBeTruthy();
     expect(screen.getByText('Pick employees or contractors.')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('Works In'), { target: { value: 'US' } });
-    fireEvent.change(screen.getByLabelText('State'), { target: { value: 'CA' } });
+    const where = screen.getByLabelText('Works In');
+    expect([...where.options].map(o => o.textContent)).toEqual(['Pick a place', 'United States - CA', 'United States - TX', 'India']);
+    fireEvent.change(where, { target: { value: 'US-CA' } });
     fireEvent.change(screen.getByLabelText('Hired As'), { target: { value: 'employee' } });
     expect(screen.getByLabelText('Name').value).toBe('California Employee Hiring Packet');
     // The role is tucked away and off by default.
