@@ -153,9 +153,24 @@ def _egnyte(token, fn, *args):
         raise
 
 
+# The maps change when someone reorganizes Egnyte, which is rare; a walked
+# scan calls /filing/scan dozens of times in a minute and each call was
+# re-listing the three index folders (3 Egnyte round trips) before its real
+# work. One shared 5-minute cache cuts every walk call's latency by more
+# than half. Shared across callers deliberately: the maps only steer which
+# CONTEXT a suggestion gets, folder names of entities and facilities are not
+# secrets to the supervisor+ users this router admits, and every actual move
+# still runs under the caller's own Egnyte permissions.
+_MAPS_TTL_SEC = 300
+_maps_cache: dict = {"at": 0.0, "maps": None}
+
+
 def _live_maps(token: str | None) -> filing_rules.Maps:
     """The entity / facility / project maps, read from the live tree at scan
     time - never hardcoded, so an Egnyte re-org does not need a deploy."""
+    import time
+    if _maps_cache["maps"] is not None and time.monotonic() - _maps_cache["at"] < _MAPS_TTL_SEC:
+        return _maps_cache["maps"]
     maps = filing_rules.Maps()
     try:
         folders = _call(svc.list_folder, maps.entities_root, token)["folders"]
@@ -174,6 +189,8 @@ def _live_maps(token: str | None) -> filing_rules.Maps:
             maps.projects[f["name"]] = f["path"]
     except HTTPException:
         pass
+    import time
+    _maps_cache["at"], _maps_cache["maps"] = time.monotonic(), maps
     return maps
 
 
