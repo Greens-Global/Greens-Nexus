@@ -9,6 +9,10 @@
 //
 // Editing an existing asset no longer goes through this modal - the spec sheet
 // and the Overview edit in place.
+//
+// Company (Neil, 11/03/2026): every asset belongs to a company, so it is asked
+// here as one short field - the companies this person may assign, the only one
+// preselected; the server checks it on the row save.
 
 import { useRef, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
@@ -70,20 +74,23 @@ const SECTION_LABEL_STYLE = { fontSize: '0.68rem', fontWeight: 600, textTransfor
  *                     true only for the single-asset create, not the CSV bulk-import loop
  * @param onClose      () => void
  */
-export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose }) {
+export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose, companies = [] }) {
   const importing = mode === 'import';
   const [kind, setKind] = useState(() => draft?.kind || inferAssetKind(draft) || 'property');
   const importInputRef = useRef(null);
 
   const schema = WIZARD_SCHEMAS[kind] || PROPERTY_WIZARD_FIELDS;
   const isNonPropertyAsset = kind !== 'property';
-  const createFields = CREATE_FIELDS[kind] || CREATE_FIELDS.property;
+  const assignable = (companies || []).filter((c) => c.assignable);
+  const companyField = { k: 'companyId', label: 'Company', type: 'select', req: assignable.length > 0,
+    options: assignable.map((c) => ({ v: c.id, l: c.name })) };
+  const createFields = [...(CREATE_FIELDS[kind] || CREATE_FIELDS.property), companyField];
   const otherProperties = (properties || []).filter((p) => inferAssetKind(p) === 'property');
 
   // Form values across every schema's keys at once so switching the class before
   // saving does not drop what was typed under another class.
   const [values, setValues] = useState(() => {
-    const initial = { image: draft?.image || '' };
+    const initial = { image: draft?.image || '', companyId: draft?.companyId || '' };
     PROPERTY_WIZARD_FIELDS.concat(VEHICLE_FIELDS, EQUIPMENT_FIELDS).forEach((f) => {
       if (!f.sec) initial[f.k] = draft ? draft[f.k] ?? '' : '';
     });
@@ -103,12 +110,15 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
 
   const dirty = !importing && (JSON.stringify(values) !== JSON.stringify(initialValues) || linkTargetId !== (draft?.parentId || ''));
 
+  // The one company this person may assign is the answer until they pick another.
+  const companyValue = values.companyId || (assignable.length === 1 ? assignable[0].id : '');
+
   const save = () => {
-    const next = requiredErrors(createFields, values);
+    const next = requiredErrors(createFields, { ...values, companyId: companyValue });
     setErrors(next);
     if (Object.keys(next).length) return;
 
-    const payload = { image: values.image, kind };
+    const payload = { image: values.image, kind, companyId: companyValue };
     schema.forEach((f) => { if (!f.sec) payload[f.k] = values[f.k] ?? ''; });
     if (isNonPropertyAsset) payload.assetType = kind === 'vehicle' ? 'Vehicle' : 'Heavy Equipment';
     // The detail view reads any KEYLESS field only from asset.snapshot, so every
@@ -263,7 +273,7 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
 
       <div className="form-grid">
         {createFields.map((f) => (
-          <FieldInput key={f.k} f={f} value={values[f.k]} error={errors[f.k]} onChange={setField} />
+          <FieldInput key={f.k} f={f} value={f.k === 'companyId' ? companyValue : values[f.k]} error={errors[f.k]} onChange={setField} />
         ))}
       </div>
       <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 10, lineHeight: 1.5 }}>

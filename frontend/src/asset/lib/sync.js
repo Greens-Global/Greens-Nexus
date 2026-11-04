@@ -168,10 +168,22 @@ export function flush() {
       }
       const conflicts = (r && r.conflicts) || [];
       const trashed = (r && r.trashed) || [];
+      // Rows the server refused one by one (a company the person may not
+      // assign, 11/03/2026): the rest of the batch landed; these are kept on
+      // the device, the person is told why, and the tab takes the server's copy.
+      const refused = (r && r.refused) || [];
+      if (refused.length) {
+        const ids = new Set(refused.map((x) => x.id));
+        const rows = [];
+        for (const coll of ROW_COLLECTIONS) for (const row of (batch[coll] && batch[coll].upsert) || []) if (ids.has(row.id)) rows.push({ coll, ...row });
+        keepConflicts(rows);
+        const first = refused.find((x) => x.status !== 409) || refused[0];
+        notifySaveFailed(first.status, first.message, false);
+      }
       if (conflicts.length) notifyConflicts(conflicts, batch);
-      // A conflict (the server kept someone else's row) or a live asset a Delete
-      // Forever only moved to the Trash: the tab takes the server's copy.
-      if (conflicts.length || trashed.length) pullAfterFlush = true;
+      // A conflict (the server kept someone else's row), a refused row, or a live
+      // asset a Delete Forever only moved to the Trash: the tab takes the server's copy.
+      if (conflicts.length || trashed.length || refused.length) pullAfterFlush = true;
       if (!opsEmpty(pending)) pushTimer = setTimeout(flush, 200);
       else if (pullAfterFlush) {
         pullAfterFlush = false;

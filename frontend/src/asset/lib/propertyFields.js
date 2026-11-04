@@ -29,6 +29,9 @@ export const PT = [
     group: 'Project Details',
     fields: [
       { label: 'Project Name', key: 'name' },
+      // The HR company the asset belongs to (Neil, 11/03/2026) - an id on the
+      // row (`companyId`), never a snapshot value; lib/companies.js names it.
+      { label: 'Company', key: 'companyId', type: 'company' },
       { label: 'Property Address', key: 'address' },
       { label: 'Ownership Entity', key: 'entity' },
       { label: 'City', key: 'city' },

@@ -440,8 +440,12 @@ def place_tags(body: TagsBody, user: dict = Depends(get_current_user), db: Sessi
     eq_ids = {s.asset_id for s in svc if s.asset_id} | {
         r[0] for r in db.query(T_.equipment_asset_id).filter(T_.property_asset_id.in_(ids),
                                                               T_.equipment_asset_id != "").all()}
+    # The tag names the PROPERTY's company (its Company field - Neil,
+    # 11/03/2026); a property with none yet: its schedules' team company,
+    # else the printer's own.
     companies = [(s.template or {}).get("company_id") for s in svc if (s.template or {}).get("company_id")]
-    company_id = companies[0] if companies else T.company_for(db, _me(user))
+    company_id = (property_links.property_company(db, prop)
+                  or (companies[0] if companies else T.company_for(db, _me(user))))
     ent = db.get(models.HrEntity, company_id) if company_id else None
     company = (ent.name if ent is not None else "") or ""
     name = property_links.display_name(prop)

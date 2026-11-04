@@ -116,4 +116,25 @@ describe('sync queue', () => {
     expect(applied[0].properties[0].name).toBe('server');
     stop();
   });
+
+  it('a row the server refused alone: the rest landed, the app is told why and the tab re-pulls', async () => {
+    saveImpl = async () => ({ ok: true, _ts: 8, conflicts: [], revs: { b: 'r1' },
+      refused: [{ id: 'a', status: 403, message: 'You can put an asset only in a company you manage.' }] });
+    const applied = [];
+    const stop = sync.wireBackgroundSync((ws) => applied.push(ws));
+    const failed = [];
+    const onFail = (e) => failed.push(e.detail);
+    window.addEventListener('nexus:asset-save-failed', onFail);
+    sessionStorage.removeItem(sync.CONFLICTS_KEY);
+    sync.queueOps({ properties: { upsert: [{ id: 'a', name: 'A', companyId: 'c2' }, { id: 'b', name: 'B' }], delete: [] } });
+    await vi.advanceTimersByTimeAsync(900);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ status: 403, message: 'You can put an asset only in a company you manage.', soft: false });
+    expect(JSON.parse(sessionStorage.getItem(sync.CONFLICTS_KEY)).map((x) => x.row.id)).toEqual(['a']);
+    expect(calls.get).toBe(1);
+    expect(sync.hasPending()).toBe(false);
+    window.removeEventListener('nexus:asset-save-failed', onFail);
+    stop();
+  });
 });
