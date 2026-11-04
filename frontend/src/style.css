@@ -9067,3 +9067,44 @@ body:has(.apv-phone) { overflow-x: clip; }
   .it-cartbar-ico { display: none; }
   .it-cartbar .primary-btn { padding: 9px 12px; font-size: 13px; }
 }
+
+/* What's New Timeline: the bar between the list and the detail (Neil,
+   11/04/2026). A faint grip shows it can be moved; it turns the brand color
+   while hovered, dragged or focused. ChangelogView.jsx PaneDivider. */
+.nx-pane-divider {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+  align-self: stretch;
+  border-radius: 6px;
+}
+.nx-pane-divider::before {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: transparent;
+  transition: background-color .12s ease-out;
+}
+.nx-pane-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 4px; height: 32px;
+  transform: translate(-50%, -50%);
+  border-radius: 4px;
+  background: var(--nx-border);
+  transition: background-color .12s ease-out;
+}
+.nx-pane-divider:hover::before,
+.nx-pane-divider.is-dragging::before,
+.nx-pane-divider:focus-visible::before { background: var(--wk-brand); }
+.nx-pane-divider:hover::after,
+.nx-pane-divider.is-dragging::after,
+.nx-pane-divider:focus-visible::after { background: var(--wk-brand); }
+.nx-pane-divider:focus-visible { outline: none; }
+@media (prefers-reduced-motion: reduce) {
+  .nx-pane-divider::before, .nx-pane-divider::after { transition: none; }
+}
