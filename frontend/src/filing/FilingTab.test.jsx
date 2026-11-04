@@ -172,6 +172,28 @@ describe('Filing & Sorting tab', () => {
     expect(sent.length).toBe(31);
   });
 
+  it('the Proposed Names view opens files and fixes names in place, like the queue', async () => {
+    filingScan.mockResolvedValue(scanOf([
+      row('Wrong 2020-02-02.pdf', { canonicalName: '2020-02-02 - Wrong.pdf', labeled: false, previewUrl: 'https://egnyte.test/navigate/file/abc' }),
+      row('2020-01-01 - Right.pdf'),
+    ]));
+    filingApply.mockReset().mockImplementation((moves) => Promise.resolve({
+      results: moves.map(m => ({ sourcePath: m.sourcePath, ok: true, to: `${m.destFolder}/${m.newName}` })),
+      moved: moves.length, failed: 0, deferred: [],
+    }));
+    render(<FilingTab />);
+    fireEvent.click(await screen.findByRole('button', { name: /Scan Now/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Proposed Names/ }));
+    const link = await screen.findByRole('link', { name: 'Wrong 2020-02-02.pdf' });
+    expect(link.getAttribute('href')).toBe('https://egnyte.test/navigate/file/abc');
+    expect(screen.getByText('Already right')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Fix Name' }));
+    expect(await screen.findByText('Renamed')).toBeTruthy();
+    expect(filingApply).toHaveBeenCalledWith([expect.objectContaining({
+      sourcePath: '/Shared/#Unsorted/Wrong 2020-02-02.pdf', destFolder: '/Shared/#Unsorted', newName: '2020-02-02 - Wrong.pdf',
+    })]);
+  });
+
   it('walks ticked folders and their subfolders, a few per request', async () => {
     try { localStorage.setItem('filing-picked', JSON.stringify(['/Shared/A'])); } catch { /* jsdom */ }
     filingScan.mockImplementation(({ paths } = {}) => {
