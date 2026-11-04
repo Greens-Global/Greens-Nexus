@@ -1567,6 +1567,12 @@ def _run_migrations():
             "ALTER TABLE hr_entities ADD COLUMN it_contact_email VARCHAR DEFAULT ''",
             # A role's documents sent with the offer, in order (Nov 4 2026) - see the Postgres list.
             "ALTER TABLE nexus_groups ADD COLUMN offer_docs JSON DEFAULT '[]'",
+            # MRI lease documents folder (Urmi, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
+            # Workers' comp class (11/05/2026) - see the Postgres list.
+            "ALTER TABLE workers_comp_rates ADD COLUMN class_code VARCHAR DEFAULT ''",
+            "ALTER TABLE workers_comp_rates ADD COLUMN state VARCHAR DEFAULT ''",
+            "ALTER TABLE workers_comp_rates ADD COLUMN description VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3725,6 +3731,16 @@ def _run_migrations():
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS it_contact_email VARCHAR DEFAULT ''",
         # A role's documents sent with the offer letter, in order (Nov 4 2026): models.NexusGroup.offer_docs.
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS offer_docs JSONB DEFAULT '[]'::jsonb",
+        # MRI lease documents folder (Urmi, 11/03/2026, Teams Nexus -
+        # Accounting): the lease's Egnyte folder, like MRE's per-vendor one.
+        # models.Lease.egnyte_folder.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS egnyte_folder VARCHAR DEFAULT ''",
+        # Workers' comp class code, state and description (Charmi / Neil,
+        # 11/05/2026, Teams Nexus - Accounting): the insurer's sheet per rate.
+        # models.WorkersCompRate.
+        "ALTER TABLE workers_comp_rates ADD COLUMN IF NOT EXISTS class_code VARCHAR DEFAULT ''",
+        "ALTER TABLE workers_comp_rates ADD COLUMN IF NOT EXISTS state VARCHAR DEFAULT ''",
+        "ALTER TABLE workers_comp_rates ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -102,7 +102,7 @@ describe('MRI, Oct 22', () => {
     render(<LeasingTab canEdit />);
     const row = (await screen.findByText('47385 RCR, Temecula')).closest('tr');
     const mar = within(row).getByRole('button', { name: new RegExp(`Mar ${Y}: Covered`) });
-    expect(mar.textContent).toBe('3,500c');
+    expect(mar.textContent).toBe('3,500↩');   // 10/29 (Neil): the marker is a small return arrow, not a bare "c"
     expect(mar.getAttribute('aria-label')).toMatch(new RegExp(`3,500.00 covered by the May ${Y} payment`));
     expect(within(row).getByRole('button', { name: new RegExp(`May ${Y}: Paid.*applied to Mar ${Y}`) })).toBeTruthy();
     const semi = screen.getByText('910 SECR - Ste 101').closest('tr');

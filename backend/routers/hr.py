@@ -5163,10 +5163,16 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
 # year wins, every earlier one stays as the history). Accounting >
 # Compensation charges rate x gross wages for each year of its period. The pay
 # record's grant: hr_comp viewers read, editors (HR and payroll) add a rate.
+# ratePct is the insurer's "rate per $100 of remuneration" (the same number as
+# a percent of wages); classCode / state / description are the insurer's class
+# (Charmi / Neil, 11/05/2026).
 class WorkersCompIn(BaseModel):
-    year:    int
-    ratePct: float
-    note:    Optional[str] = ""
+    year:        int
+    ratePct:     float
+    note:        Optional[str] = ""
+    classCode:   Optional[str] = ""
+    state:       Optional[str] = ""
+    description: Optional[str] = ""
 
 
 def workers_comp_out(db: Session, employee_id: str) -> dict:
@@ -5174,7 +5180,8 @@ def workers_comp_out(db: Session, employee_id: str) -> dict:
     from models import WorkersCompRate
     rows = (db.query(WorkersCompRate).filter(WorkersCompRate.employee_id == employee_id)
             .order_by(WorkersCompRate.effective_year.desc(), WorkersCompRate.set_at.desc()).all())
-    history = [{"year": r.effective_year, "ratePct": r.rate_pct, "note": r.note or "", "setBy": r.set_by or "", "setAt": r.set_at or ""} for r in rows]
+    history = [{"year": r.effective_year, "ratePct": r.rate_pct, "classCode": r.class_code or "", "state": r.state or "",
+                "description": r.description or "", "note": r.note or "", "setBy": r.set_by or "", "setAt": r.set_at or ""} for r in rows]
     rates, seen = [], set()
     for h in history:
         if h["year"] not in seen:
@@ -5205,8 +5212,15 @@ def add_workers_comp(eid: str, body: WorkersCompIn, user: dict = Depends(require
     if not 2000 <= body.year <= now.year + 1:
         raise HTTPException(400, f"Pick a year from 2000 to {now.year + 1}.")
     if not 0 <= body.ratePct <= 100:   # NaN fails both sides too
-        raise HTTPException(400, "The workers' comp rate is a percent of gross wages, from 0 to 100.")
+        raise HTTPException(400, "The workers' comp rate is per $100 of wages, from 0 to 100.")
+    state = (body.state or "").strip().upper()
+    if state and not re.fullmatch(r"[A-Z]{2}", state):
+        raise HTTPException(400, "The state is its two-letter code, e.g. CA.")
+    class_code = (body.classCode or "").strip()
+    if class_code and not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.\-]{0,19}", class_code):
+        raise HTTPException(400, "The class code is letters, digits and hyphens, e.g. 8810 or 9015-1.")
     db.add(WorkersCompRate(id=str(uuid.uuid4()), employee_id=row.id, effective_year=body.year, rate_pct=round(body.ratePct, 4),
+                           class_code=class_code, state=state, description=(body.description or "").strip()[:300],
                            note=(body.note or "").strip()[:200], set_by=user["email"], set_at=now.isoformat()))
     db.commit()
     return workers_comp_out(db, row.id)

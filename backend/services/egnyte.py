@@ -320,13 +320,30 @@ def _raise(resp: httpx.Response, what: str) -> None:
 
 # ── read ─────────────────────────────────────────────────────────────────────
 
-def list_folder(path: str = "", token: str | None = None) -> dict[str, Any]:
-    """Folder listing. Returns folders + files with the fields the UI needs."""
+def list_folder(path: str = "", token: str | None = None, count: int | None = None,
+                offset: int = 0, timeout: int | None = None) -> dict[str, Any]:
+    """Folder listing. Returns folders + files with the fields the UI needs.
+
+    `count`/`offset` (Nov 3 - Priyanka/Urmi: the picker died with "Can't reach
+    Nexus" on Greens Global's and OSM's Vendors folders): ask Egnyte for a PAGE
+    of a huge folder instead of all of it. Sorted by name when paging so pages
+    are stable. Egnyte versions that ignore the params just answer with the
+    whole listing, which is exactly what no-paging callers get today - the
+    caller's dedupe-and-append handles either. `timeout` lets the browse route
+    wait longer than the 15s the server-side resolvers want."""
     target = norm(path)
-    resp = _send("GET", f"{base_url()}{_FS}{_url_path(target)}", token, timeout=TIMEOUT_LIST)
+    params: dict[str, Any] = {}
+    if count:
+        params = {"count": count, "offset": max(0, offset),
+                  "sort_by": "name", "sort_direction": "ascending"}
+    resp = _send("GET", f"{base_url()}{_FS}{_url_path(target)}", token,
+                 params=params or None, timeout=timeout or TIMEOUT_LIST)
     _raise(resp, "Could not browse Egnyte")
     data = resp.json()
     return {
+        # Egnyte's own paging fields when it sent them (total_count arrives on
+        # paged listings); callers that did not page see no difference.
+        **({"totalCount": data["total_count"]} if isinstance(data.get("total_count"), int) else {}),
         "path": data.get("path", target),
         # The folder's own description (Egnyte's "Add a description" feature) -
         # a Folder Options field, so it rides on the folder's OWN object, not
@@ -486,7 +503,7 @@ def web_url(path: str) -> str:
     offer this - Nexus shows the folder, Egnyte remains where people manage
     permissions, versions and sharing."""
     base, _ = _auth()
-    return f"{base}/app/index.do#storage/files/1{norm(path)}"
+    return f"{base}/app/index.do#storage/files/1{_url_path(path)}"
 
 
 def file_web_url(group_id: str) -> str:

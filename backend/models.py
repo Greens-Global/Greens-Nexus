@@ -5512,6 +5512,10 @@ class Lease(Base):
     stale_since      = Column(String, default="")
     stale_last_paid  = Column(String, default="")
     stale_task_id    = Column(String, default="")
+    # Nov 3 (Urmi, Teams: "no Browse folder for us to connect the lease
+    # documents" in MRI): the lease's Egnyte folder, the same idea as MRE's
+    # per-vendor egnyte_folder. A path only - the documents stay in Egnyte.
+    egnyte_folder    = Column(String, default="")
 
 
 class LeaseRate(Base):
@@ -9245,6 +9249,13 @@ class WorkersCompRate(Base):
     note           = Column(String, default="")
     set_by         = Column(String, default="")
     set_at         = Column(String, default="")                       # ISO timestamp, UTC
+    # The insurer's class (Charmi / Neil, 11/05/2026, Teams Nexus - Accounting):
+    # "State | Class Code | Description | Rate Per $100 of Remuneration", e.g.
+    # CA 8810 "CLERICAL OFFICE EMPLOYEES-NOC" 0.84. rate_pct above IS the rate
+    # per $100 (a percent of wages), so stored rates keep their meaning.
+    class_code     = Column(String, default="")                       # e.g. "8810", "9015-1"
+    state          = Column(String, default="")                       # 2-letter, '' = not given
+    description    = Column(String, default="")                       # the insurer's class description
 
 
 # ─────────────────────────────────────────────────────────────────────────────

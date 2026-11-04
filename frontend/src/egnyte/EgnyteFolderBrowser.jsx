@@ -19,9 +19,9 @@ import {
 import { isPdfName, openEgnyteInPdfTools } from '../lib/pdfToolsHandoff';
 import { api } from '../api';
 import {
-  canPreview, crumbsFor, downloadEgnyteFile, egnyteErrorMessage, FOLDER_FRESH_MS,
-  getFolderCached, invalidateFolder, isNotConnected, isShortcut, mutateFolderCache,
-  normPath, officeAppFor, peekFolder, prefetchChildren, prefetchFolder,
+  canPreview, crumbsFor, downloadEgnyteFile, egnyteErrorMessage, fetchMoreFolder,
+  FOLDER_FRESH_MS, getFolderCached, invalidateFolder, isNotConnected, isShortcut,
+  mutateFolderCache, normPath, officeAppFor, peekFolder, prefetchChildren, prefetchFolder,
 } from './lib';
 import EgnyteDetails from './EgnyteDetails';
 import FolderPickModal from './EgnyteFolderPick';
@@ -183,6 +183,24 @@ export default function EgnyteFolderBrowser({
   }, []);
 
   useEffect(() => { load(clampToPin(initialPath)); }, [load, initialPath]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The next page of a paged listing (huge Vendors folders, Nov 3) - appended
+  // in place, so the rows already on screen never move.
+  const [loadingMore, setLoadingMore] = useState(false);
+  const showMore = () => {
+    const target = pathRef.current;
+    setLoadingMore(true);
+    setRowError('');
+    fetchMoreFolder(target)
+      .then(grown => {
+        if (grown && pathRef.current === target) {
+          setData(grown);
+          prefetchChildren(grown);
+        }
+      })
+      .catch(err => setRowError(egnyteErrorMessage(err, 'Could not load the rest of this folder.')))
+      .finally(() => setLoadingMore(false));
+  };
 
   // ── selection, bookmarks, row-menu, file-manager verbs (Aug 11) ──
   const [selected, setSelected] = useState(() => new Set());
@@ -588,7 +606,7 @@ export default function EgnyteFolderBrowser({
             </span>
             {!loading && !error && !results && (
               <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', background: 'var(--wk-hover)', borderRadius: 10, padding: '2px 9px', whiteSpace: 'nowrap' }}>
-                {(data?.folders?.length || 0) + (data?.files?.length || 0)} items
+                {(data?.folders?.length || 0) + (data?.files?.length || 0)}{data?.hasMore ? '+' : ''} items
               </span>
             )}
           </div>
@@ -792,21 +810,34 @@ export default function EgnyteFolderBrowser({
         ) : error ? (
           <ProblemNote message={error} onRetry={() => load(path)} />
         ) : (
-          <EgnyteListing
-            folders={data?.folders || []}
-            files={data?.files || []}
-            onOpenFolder={openFolder}
-            onHoverFolder={prefetchFolder}
-            onDownload={download}
-            onPreview={setPreview}
-            onMenu={onPick ? undefined : (item, isFolder, rect, align) => setMenu({ item, isFolder, rect, align })}
-            selected={onPick ? undefined : selected}
-            onToggleSelect={onPick ? undefined : toggleSelect}
-            onToggleAll={onPick ? undefined : toggleAll}
-            downloadingPath={downloading}
-            emptyLabel="This folder is empty."
-            emptyHint={canWrite ? 'Drop a file here to add the first one.' : undefined}
-          />
+          <>
+            <EgnyteListing
+              folders={data?.folders || []}
+              files={data?.files || []}
+              onOpenFolder={openFolder}
+              onHoverFolder={prefetchFolder}
+              onDownload={download}
+              onPreview={setPreview}
+              onMenu={onPick ? undefined : (item, isFolder, rect, align) => setMenu({ item, isFolder, rect, align })}
+              selected={onPick ? undefined : selected}
+              onToggleSelect={onPick ? undefined : toggleSelect}
+              onToggleAll={onPick ? undefined : toggleAll}
+              downloadingPath={downloading}
+              emptyLabel="This folder is empty."
+              emptyHint={canWrite ? 'Drop a file here to add the first one.' : undefined}
+            />
+            {/* A huge folder (thousands of vendor subfolders) arrives one page
+                at a time - the search above still finds anything by name. */}
+            {data?.hasMore && (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0 6px' }}>
+                <button type="button" className="secondary-btn" disabled={loadingMore} onClick={showMore}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                  {loadingMore ? <Spinner size={13} /> : null}
+                  {loadingMore ? 'Loading more…' : 'Show More'}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 

@@ -1258,6 +1258,14 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .nx-overlay.is-closing > .nx-panel { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
 .nx-overlay.is-closing > .nx-modal-sheet { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
 
+/* Compensation report rows (Charmi, 10/30: "needs banding and hover
+   highlight"). Solid backgrounds on EVERY cell - the name column is pinned
+   (position: sticky), so a transparent row would let the amounts scroll
+   through it; painting the whole row keeps the pin opaque in both themes. */
+.acct-comp tbody td, .acct-comp tfoot td { background: var(--bg-card); }
+.acct-comp tbody tr:nth-child(even) td { background: var(--bg-secondary); }
+.acct-comp tbody tr:hover td { background: var(--wk-hover, var(--mist)); }
+
 /* ── Sheets (Neil, 11/01/2026) ─────────────────────────────────────────────
    A desktop popup that is a record, a form or a workspace is a SHEET: docked
    to the right edge, full height, the width it already had (the 60% rule's
@@ -7440,7 +7448,15 @@ body:has(.nx-finish-bar) { overflow-x: clip; }
 .acct-num .acct-vh, th.acct-num .acct-vh { flex-direction: row-reverse; }
 .acct-vh-sort { display: inline-flex; align-items: center; border: none; background: none; padding: 1px; border-radius: 4px; color: var(--wk-brand, #2b45e1); cursor: pointer; flex-shrink: 0; }
 .acct-vh-sort:hover { background: var(--wk-brand-tint, #e8ecfd); }
-.acct-vh-funnel { display: inline-flex; align-items: center; border: none; background: none; padding: 2px; border-radius: 4px; color: var(--text-muted); cursor: pointer; opacity: 0; flex-shrink: 0; }
+.acct-vh-funnel { display: inline-flex; align-items: center; border: none; background: none; padding: 2px; border-radius: 4px; color: var(--text-muted); cursor: pointer; opacity: 0.45; flex-shrink: 0; }
+/* Report statements: a heading sorts (Urmi, Teams 11/05/2026); the mark is faint until used. */
+.acct-sort-head { display: inline-flex; align-items: center; gap: 4px; border: none; background: none; padding: 0; margin: 0; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.acct-sort-head:hover { color: var(--text-primary); }
+.acct-sort-mark { font-size: 9px; opacity: 0.4; }
+.acct-sort-mark::after { content: "95"; }
+.acct-sort-mark.on { opacity: 1; color: var(--wk-brand, #2b45e1); }
+.acct-sort-mark.asc::after { content: "B2"; }
+.acct-sort-mark.desc::after { content: "BC"; }
 th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visible, .acct-vh-funnel[aria-expanded="true"] { opacity: 1; }
 .acct-vh-funnel.on { opacity: 1; color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
 @media (hover: none) { .acct-vh-funnel { opacity: 0.7; } }

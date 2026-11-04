@@ -65,9 +65,14 @@ export const HOUR_COLUMNS = [
 export const LINES = [
   { key: 'bonus', label: 'Bonus', shown: true },
   { key: 'payroll', label: 'Salaried / Hourly Payroll', shown: true },
-  { key: 'totalPayroll', label: 'Total Payroll Expenses', parts: ['bonus', 'payroll'] },
-  { key: 'k401', label: '401(k) Contribution (Company)' },
-  { key: 'health', label: 'Health Insurance (Company)' },
+  // Charmi, Teams 11/05/2026: "I do not see Overtime Payroll" - account 61909.
+  { key: 'overtime', label: 'Overtime Payroll', shown: true },
+  { key: 'totalPayroll', label: 'Total Payroll Expenses', parts: ['bonus', 'payroll', 'overtime'] },
+  // 10/30 (Charmi: "401K Compensation is not included... there should be
+  // breakdown"): the benefit parts show beside their total, not only
+  // behind Columns.
+  { key: 'k401', label: '401(k) Contribution (Company)', shown: true },
+  { key: 'health', label: 'Health Insurance (Company)', shown: true },
   { key: 'totalBenefits', label: 'Total Benefits', parts: ['k401', 'health'], shown: true },
   { key: 'futa', label: 'FUTA' },
   { key: 'medicare', label: 'Medicare' },
@@ -81,10 +86,13 @@ export const LINES = [
   { key: 'otherBenefits', label: 'Other Benefits', byAccount: true, shown: true },
   { key: 'workersComp', label: "Workers' Comp", shown: true },
   { key: 'totalEmployer', label: 'Total Employer Expenses', parts: ['totalPayroll', 'totalBenefits', 'totalTaxes', 'otherBenefits', 'workersComp'], shown: true },
-  { key: 'dedHealth', label: 'Health Insurance (Employee)' },
-  { key: 'ded401k', label: '401(k) Contribution (Employee)' },
+  // Charmi, Teams 11/05/2026: the employee's own health premium and 401(k)
+  // come out of the paycheck - shown beside the company's share, so the
+  // table does not read as if the company paid 100% of the insurance.
+  { key: 'dedHealth', label: 'Health Insurance (Employee Deduction)', shown: true },
+  { key: 'ded401k', label: '401(k) (Employee Deduction)', shown: true },
   { key: 'dedOther', label: 'Other Deductions', optional: true },
-  { key: 'totalDeductions', label: 'Total Deductions from Gross Pay', parts: ['dedHealth', 'ded401k', 'dedOther'] },
+  { key: 'totalDeductions', label: 'Total Deductions from Gross Pay', parts: ['dedHealth', 'ded401k', 'dedOther'], shown: true },
   { key: 'fedWh', label: 'Federal Withholding' },
   { key: 'medicareWh', label: 'Medicare (Employee)' },
   { key: 'socsecWh', label: 'Social Security (Employee)' },
@@ -117,7 +125,7 @@ export const STATEMENT = [
   },
   {
     id: 'employer', heading: 'Employer Expenses', total: 'totalEmployer', groups: [
-      { id: 'payroll', heading: 'Payroll Expenses', lines: ['bonus', 'payroll'], total: 'totalPayroll' },
+      { id: 'payroll', heading: 'Payroll Expenses', lines: ['bonus', 'payroll', 'overtime'], total: 'totalPayroll' },
       { id: 'benefits', heading: 'Benefits', lines: ['k401', 'health'], total: 'totalBenefits' },
       { id: 'taxes', heading: 'Employer Payroll Taxes', lines: ['futa', 'medicare', 'socsec', 'suta', 'ett', 'otherTaxes'], total: 'totalTaxes' },
       { id: 'other', heading: 'Other Benefits', accounts: 'otherBenefits', total: 'otherBenefits', totalLabel: 'Total Other Benefits' },
@@ -126,7 +134,7 @@ export const STATEMENT = [
   },
   {
     id: 'net', heading: 'Employee Net Pay', total: 'netPay', groups: [
-      { id: 'gross', heading: 'Payroll Expenses', lines: ['bonus', 'payroll'], total: 'totalPayroll' },
+      { id: 'gross', heading: 'Payroll Expenses', lines: ['bonus', 'payroll', 'overtime'], total: 'totalPayroll' },
       { id: 'deductions', heading: 'Deductions from Gross Pay', lines: ['dedHealth', 'ded401k', 'dedOther'], total: 'totalDeductions' },
       { id: 'withheld', heading: 'Employee Taxes Withheld', lines: ['fedWh', 'medicareWh', 'socsecWh', 'sdi', 'stateWh'], total: 'totalWithheld' },
     ],
