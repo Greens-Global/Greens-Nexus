@@ -404,6 +404,9 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
             # A fast look at the file itself (Visesh, 11/04: "if somebody is
             # confused") - Egnyte's own full-screen viewer, keyed on group_id.
             prop["previewUrl"] = svc.file_web_url(f.get("groupId") or "")
+            # The in-page viewer (EgnytePreview) uses the size to refuse a
+            # spreadsheet or text file too big to render in the browser.
+            prop["size"] = f.get("size") or 0
             # Learned route: where similar files from this subtree were
             # actually filed before (pattern memory, not AI - see
             # filing_rules.suggest_learned).
