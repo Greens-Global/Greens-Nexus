@@ -22,6 +22,16 @@ vi.mock('../api', () => ({
 // The tree lists Egnyte - not this file's subject.
 vi.mock('../egnyte/EgnyteTree', () => ({ default: () => <div>egnyte tree</div> }));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: vi.fn(() => Promise.resolve(true)) } }));
+// The viewer fetches bytes from Egnyte - stand-in shows which file is open.
+vi.mock('../egnyte/EgnytePreview', () => ({
+  default: ({ file, navIndex, navCount, onNav, onClose }) => (
+    <div role="dialog" aria-label="viewer">
+      viewing {file.name} ({navIndex + 1} of {navCount})
+      <button onClick={() => onNav(1)}>Next File</button>
+      <button onClick={onClose}>Close Viewer</button>
+    </div>
+  ),
+}));
 
 const FilingTab = (await import('./FilingTab')).default;
 
@@ -192,6 +202,21 @@ describe('Filing & Sorting tab', () => {
     expect(filingApply).toHaveBeenCalledWith([expect.objectContaining({
       sourcePath: '/Shared/#Unsorted/Wrong 2020-02-02.pdf', destFolder: '/Shared/#Unsorted', newName: '2020-02-02 - Wrong.pdf',
     })]);
+  });
+
+  it('a file name opens the document on the page, and the viewer steps through the list', async () => {
+    filingScan.mockResolvedValue(scanOf([
+      row('First 2020-01-01.pdf', { labeled: false, canonicalName: '' }),
+      row('Second 2020-01-02.pdf', { labeled: false, canonicalName: '' }),
+    ]));
+    render(<FilingTab />);
+    fireEvent.click(await screen.findByRole('button', { name: /Scan Now/ }));
+    fireEvent.click(await screen.findByText('First 2020-01-01.pdf'));
+    expect(await screen.findByText(/viewing First 2020-01-01\.pdf \(1 of 2\)/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Next File' }));
+    expect(await screen.findByText(/viewing Second 2020-01-02\.pdf \(2 of 2\)/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close Viewer' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'viewer' })).toBeNull());
   });
 
   it('walks ticked folders and their subfolders, a few per request', async () => {
