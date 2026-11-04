@@ -535,14 +535,22 @@ def apply(body: ApplyBody, request: Request, user: dict = Depends(require_writer
                     # idempotent per level (an existing folder answers 403/405,
                     # which the service reads as "it exists", not an error).
                     parts = [p for p in dest.split("/") if p]
-                    for i in range(2, len(parts) + 1):
-                        _egnyte(token, svc.create_folder, "/" + "/".join(parts[:i]))
+                    for depth in range(2, len(parts) + 1):
+                        _egnyte(token, svc.create_folder, "/" + "/".join(parts[:depth]))
                     listed[dest] = set()
-            if name.lower() in listed[dest]:
+            src_folder, src_name = src.rsplit("/", 1)
+            in_place = src_folder == dest
+            # A rename in place that only changes letter case would otherwise
+            # collide with the file itself - the one name that is "taken" by
+            # the very file being renamed.
+            self_hit = in_place and name.lower() == src_name.lower()
+            if name.lower() in listed[dest] and not self_hit:
                 results.append({"sourcePath": src, "ok": False,
                                 "error": "a file with that name is already there"})
                 continue
             _egnyte(token, svc.move_item, src, f"{dest}/{name}")
+            if in_place:
+                listed[dest].discard(src_name.lower())   # the old name is free again
             listed[dest].add(name.lower())
         except HTTPException as exc:
             results.append({"sourcePath": src, "ok": False, "error": str(exc.detail)})
