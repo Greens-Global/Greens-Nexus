@@ -907,6 +907,24 @@ def start_offer(cid: str, body: OfferIn, user: dict = Depends(require_hr_write),
     return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
 
 
+@router.post("/candidates/{cid}/offer/preview")
+def preview_offer(cid: str, body: OfferIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Preview before Create (Neil, 11/04/2026): the offer letter, its job
+    description and the read-it page as Create Offer Letter would make them.
+    Nothing is saved - the request is rolled back. {pdf: base64, unfilled:
+    the names that would print blank}."""
+    import base64
+    comp = _has_comp(user, db)
+    pay = _pay_allowed(HirePacketIn(pay=body.pay), user, db)
+    try:
+        pdf, unfilled = hle.preview_offer(db, user, cid, body.inputs or {}, pay,
+                                          _pay_values_allowed(body.pay_values, user, db), body.details or {},
+                                          hr_scope(user, db), can_see_pay=comp)
+    except hle.PacketError as e:
+        _raise(e)
+    return {"pdf": base64.b64encode(pdf).decode("ascii"), "unfilled": unfilled}
+
+
 @router.post("/candidates/{cid}/hiring-packet/after-offer")
 def start_packet_after_offer(cid: str, background: BackgroundTasks, user: dict = Depends(require_hr_write),
                              db: Session = Depends(get_db)):

@@ -2643,6 +2643,8 @@ export const api = {
   // sent to the verifier; after-offer: start the packet when it could not start itself.
   offerOptions:        (cid, params = {}) => req(`/hr/candidates/${cid}/offer/options?${new URLSearchParams(params)}`),
   startOffer:          (cid, data) => req(`/hr/candidates/${cid}/offer/start`, { method: 'POST', body: JSON.stringify(data) }),
+  // Preview before Create (Neil, 11/04/2026): the letter + job description as Create would make them; nothing is saved.
+  previewOffer:        (cid, data) => req(`/hr/candidates/${cid}/offer/preview`, { method: 'POST', body: JSON.stringify(data) }),
   startPacketAfterOffer: (cid) => req(`/hr/candidates/${cid}/hiring-packet/after-offer`, { method: 'POST' }),
   // File Manually (Oct 15 2026): automatic Egnyte filing failed - HR names the folder.
   fileLifeEventManually: (eid, folder) => req(`/hr/life-events/${eid}/file-manually`, { method: 'POST', body: JSON.stringify({ folder }) }),

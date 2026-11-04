@@ -1174,7 +1174,7 @@ def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", r
     snaps = hpd.with_sources(s, snaps)
     tokens = {t for snap in snaps for t in snap.tokens}
     return {"id": s.id, "name": s.name or "", "workerType": s.worker_type or "any", "country": s.country or "",
-            "documents": [snap.name for snap in snaps], "problems": problems,
+            "documents": [snap.name for snap in snaps], "templateIds": [snap.tpl.id for snap in snaps], "problems": problems,
             "hrQuestions": hpd.hr_questions(snaps), "prints": sorted(tokens & set(OFFER_PRINTS)),
             "personQuestions": [f["label"] for f in hpd.template_form(snaps)],
             "printsPay": hpd.packet_prints_pay(s, snaps)}
@@ -1328,6 +1328,54 @@ def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[d
     the verifier is asked to check it. The candidate is at Offer from here.
     HR's answers for the hiring packet that follows are kept with it, so
     nobody is asked twice. Commits."""
+    ev, p = _build_offer(db, user, cid, inputs, pay, pay_values, details, scope, preview=False)
+    _stage_note(db, ev, f"Offer letter prepared - waiting for {p['verifier']['name'] or 'HR'} to verify",
+                by=user["email"])
+    _ask_verifier(db, ev, p)
+    db.commit()
+    return ev
+
+
+def preview_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dict], pay_values: Optional[dict],
+                  details: Optional[dict], scope, *, can_see_pay: bool) -> tuple:
+    """Preview before Create (Neil, 11/04/2026: "preview should happen prior to
+    create ... to make sure that no mistakes have been made"): the offer letter
+    with its job description and the read-it page, exactly as Create Offer
+    Letter would make them - built inside this request and rolled back, so
+    nothing is kept and nobody is told. Returns (pdf, unfilled names)."""
+    import io
+    import hr_packet_docs as hpd
+    from pypdf import PdfReader, PdfWriter
+    from models import Document
+    try:
+        ev, _p = _build_offer(db, user, cid, inputs, pay, pay_values, details, scope, preview=True)
+        db.flush()                       # autoflush is off: the new document rows are read below
+        setting = hpd.event_setting(db, ev)
+        pay_now = hpd.event_pay(db, ev, setting) if can_see_pay else {}
+        rendered, unfilled = [], []
+        for e in ev.documents or []:
+            row = db.query(Document).filter(Document.id == e["documentId"]).first()
+            pdf, missing = hpd.render_row(db, row, pay_now, setting=setting)
+            unfilled += [m for m in missing if m not in unfilled]
+            rendered.append((row, e, pdf, []))
+        if rendered and (ev.inputs or {}).get("jd_in_offer"):
+            rendered = hpd.offer_with_jd(ev, rendered, signer=hpd.SUBJECT_ROLE)
+        out = PdfWriter()
+        for _row, _e, pdf, _f in rendered:
+            for page in PdfReader(io.BytesIO(pdf)).pages:
+                out.add_page(page)
+        buf = io.BytesIO()
+        out.write(buf)
+        return buf.getvalue(), unfilled
+    finally:
+        db.rollback()
+
+
+def _build_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dict], pay_values: Optional[dict],
+                 details: Optional[dict], scope, *, preview: bool) -> tuple:
+    """The offer event and its documents, flushed, not committed - shared by
+    Create and Preview so the preview is the letter that will be made. A
+    preview creates no role and moves no stage; the caller rolls it back."""
     import hr_packet_docs as hpd
     plan = plan_offer(db, user, cid, inputs, pay, scope, lock=True)
     cand, setting, d, packet = plan["candidate"], plan["setting"], plan["details"], plan["packet"]
@@ -1348,7 +1396,7 @@ def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[d
     if not person.get("first_name") or not person.get("last_name"):
         raise PacketError("Enter their legal first and last name.")
     now = _now()
-    if d["new_role_name"]:
+    if d["new_role_name"] and not preview:
         role = create_company_role(db, cand.company, d["new_role_name"], d["department"], user["email"],
                                    plan["subjectName"])
         d["role_id"] = role.id
@@ -1373,7 +1421,7 @@ def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[d
                      intake=person, effective_date=d["start_date"], documents=[],
                      created_by=user["email"].lower(), created_at=now, updated_at=now)
     db.add(ev)
-    if cand.stage != "offer":
+    if cand.stage != "offer" and not preview:
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage, to_stage="offer",
                             note=f"Offer started - {setting.name or 'offer letter'}", by_email=user["email"],
                             created_at=now))
@@ -1384,11 +1432,7 @@ def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[d
     db.flush()
     p = hpd.event_plan(db, ev, setting, sender=user["email"], can_see_pay=True)
     hpd.sync_documents(db, ev, setting, p, user["email"].lower())
-    _stage_note(db, ev, f"Offer letter prepared - waiting for {p['verifier']['name'] or 'HR'} to verify",
-                by=user["email"])
-    _ask_verifier(db, ev, p)
-    db.commit()
-    return ev
+    return ev, p
 
 
 def start_packet_after_offer(db: Session, offer: HrLifeEvent, by: str) -> tuple:

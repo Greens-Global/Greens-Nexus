@@ -16,7 +16,7 @@
 //     hired, and the hiring packet starts by itself.
 // Problems show only when Continue is pressed, on the step they belong to.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info } from 'lucide-react';
+import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info, RefreshCw, ExternalLink } from 'lucide-react';
 import { api } from '../api';
 import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
@@ -31,7 +31,10 @@ const OTHER_ROLE = '__other__';
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
 const COUNTRY_NAMES = { US: 'United States', IN: 'India', CA: 'Canada', GB: 'United Kingdom', AE: 'United Arab Emirates', PH: 'Philippines', MX: 'Mexico', AU: 'Australia' };
 const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
-const STEPS = [['who', 'Who You Are Hiring'], ['offer', 'The Offer'], ['questions', 'Questions']];
+// Preview before Create (Neil, 11/04/2026): the letter and job description as they will go, with Back to fix.
+const STEPS = [['who', 'Who You Are Hiring'], ['offer', 'The Offer'], ['questions', 'Questions'], ['preview', 'Preview']];
+// A template opens in Documents in its own browser tab, so this offer keeps everything typed.
+const openTemplate = (id) => window.open(`/documents/documents-templates?template=${encodeURIComponent(id)}`, '_blank', 'noopener');
 
 const lbl = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '18px 0 6px' };
 const hint = { fontSize: 12.5, color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 };
@@ -94,6 +97,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const [chosenId, setChosenId] = useState('');         // HR picked another offer letter by hand
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pv, setPv] = useState(null);           // the preview: {loading} | {url, unfilled} | {error}
   const autoMgr = useRef('');                          // the supervisor Nexus filled in, not HR
 
   useEffect(() => {
@@ -182,31 +186,50 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
       !jdFile && noDuties && (isOther ? 'Type the new role\'s duties.' : `${pickedRole?.name || 'This role'} has no job description yet - add it under Settings > People & Access > Roles.`),
     ],
     questions: questions.filter(q => q.required && !(q.pay && !canSeePay) && !String(answers[q.token] || '').trim()).map(q => `Answer ${q.label}.`),
+    preview: [],
   };
   const stepProblems = (k) => problemsFor[k].filter(Boolean);
   const stepIndex = STEPS.findIndex(([k]) => k === step);
   const goTo = (k) => { setStep(k); setTried(false); };
   const next = () => {
     if (stepProblems(step).length) { setTried(true); return; }
-    goTo(STEPS[stepIndex + 1][0]);
+    const to = STEPS[stepIndex + 1][0];
+    goTo(to);
+    if (to === 'preview') loadPreview();
   };
+
+  // What Preview and Create both send - the preview is the letter Create makes.
+  const offerBody = () => {
+    const plain = Object.fromEntries(questions.filter(q => !q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v));
+    const payQs = canSeePay ? Object.fromEntries(questions.filter(q => q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v)) : {};
+    return {
+      inputs: { ...f, ...who, role_id: roleId, new_role_name: isOther ? f.new_role_name.trim() : '',
+                ...timing,
+                jd_template_id: jdFile ? '' : jdId, new_role_duties: isOther ? newDuties.trim() : '',
+                packet_id: chosenId, merge: plain },
+      pay: canSeePay && String(pay.base).trim() ? { ...pay, base: Number(pay.base) } : null,
+      pay_values: Object.keys(payQs).length ? payQs : null,
+      details: { first_name: person.first_name.trim(), last_name: person.last_name.trim(), ...(prints.has('address') ? { address: person.address.trim() } : {}) },
+    };
+  };
+
+  async function loadPreview() {
+    setPv({ loading: true });
+    try {
+      const out = await api.previewOffer(c.id, offerBody());
+      const bytes = Uint8Array.from(atob(out.pdf || ''), ch => ch.charCodeAt(0));
+      setPv({ url: URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })), unfilled: out.unfilled || [] });
+    } catch (e) { setPv({ error: e?.message || 'Could not build the preview.' }); }
+  }
+  // Each preview's file is let go when the next one replaces it, or on close.
+  useEffect(() => () => { if (pv?.url) URL.revokeObjectURL(pv.url); }, [pv]);
 
   async function create() {
     const bad = STEPS.find(([k]) => stepProblems(k).length);
     if (bad) { setStep(bad[0]); setTried(true); return; }
     setBusy(true);
     try {
-      const plain = Object.fromEntries(questions.filter(q => !q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v));
-      const payQs = canSeePay ? Object.fromEntries(questions.filter(q => q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v)) : {};
-      const ev = await api.startOffer(c.id, {
-        inputs: { ...f, ...who, role_id: roleId, new_role_name: isOther ? f.new_role_name.trim() : '',
-                  ...timing,
-                  jd_template_id: jdFile ? '' : jdId, new_role_duties: isOther ? newDuties.trim() : '',
-                  packet_id: chosenId, merge: plain },
-        pay: canSeePay && String(pay.base).trim() ? { ...pay, base: Number(pay.base) } : null,
-        pay_values: Object.keys(payQs).length ? payQs : null,
-        details: { first_name: person.first_name.trim(), last_name: person.last_name.trim(), ...(prints.has('address') ? { address: person.address.trim() } : {}) },
-      });
+      const ev = await api.startOffer(c.id, offerBody());
       onStarted(ev);
     } catch (e) { toastErr?.(e?.message || 'Could not make the offer.'); setBusy(false); }
   }
@@ -463,8 +486,32 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
     </>
   );
 
-  const body = { who: whoStep, offer: offerStep, questions: questionsStep }[step];
-  const last = step === 'questions';
+  // ── step 4: preview ──
+  const letterTpl = (letter?.templateIds || [])[0] || '';
+  const previewStep = (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+      <h2 style={h2}>Check the offer before it is made</h2>
+      <p style={lead}>The offer letter and the job description exactly as {first} will get them. Nothing is saved yet - go Back to change an answer,
+        or open a document in Documents to change its wording, then Refresh.</p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+        <button type="button" className="secondary-btn" onClick={loadPreview} disabled={!!pv?.loading} style={smallBtn}>
+          {pv?.loading ? <Spinner size={13} /> : <RefreshCw size={13} />} Refresh
+        </button>
+        {letterTpl && <button type="button" className="secondary-btn" onClick={() => openTemplate(letterTpl)} style={smallBtn}><ExternalLink size={13} /> Edit Offer Letter In Documents</button>}
+        {!jdFile && jdId && <button type="button" className="secondary-btn" onClick={() => openTemplate(jdId)} style={smallBtn}><ExternalLink size={13} /> Edit Job Description In Documents</button>}
+      </div>
+      {jdFile && <div style={hint}>The job description is {pickedRole?.name || 'the role'}&apos;s own file - change it under Settings &gt; People &amp; Access &gt; Roles &gt; Job Description.</div>}
+      {pv?.unfilled?.length > 0 && <Warn>These print blank: {pv.unfilled.join(', ')}. Go Back and fill them, or fix the template.</Warn>}
+      {pv?.error && <Warn>{pv.error}</Warn>}
+      <div className="nx-fill" style={{ flex: 1, minHeight: 420, marginTop: 12, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden', display: 'flex' }}>
+        {pv?.url ? <iframe title="Offer letter preview" src={pv.url} style={{ flex: 1, border: 'none' }} />
+          : <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{pv?.loading ? <Spinner size="section" /> : null}</div>}
+      </div>
+    </div>
+  );
+
+  const body = { who: whoStep, offer: offerStep, questions: questionsStep, preview: previewStep }[step];
+  const last = step === 'preview';
 
   return (
     <div onClick={e => e.target === e.currentTarget && !busy && onClose()}

@@ -21,6 +21,10 @@ const offerOptions = vi.fn((cid, p) => Promise.resolve({
   missing: p.worker_type === 'contractor' ? 'No offer letter is set up for a Contractor in US at Greens yet.' : '',
 }));
 const startOffer = vi.fn(() => Promise.resolve({ id: 'ev-offer', candidateId: 'c1', kind: 'offer', status: 'review' }));
+// Preview before Create (Neil, 11/04/2026) - the PDF comes back as base64.
+const previewOffer = vi.fn(() => Promise.resolve({ pdf: btoa('%PDF-1.4'), unfilled: [] }));
+URL.createObjectURL = vi.fn(() => 'blob:preview');
+URL.revokeObjectURL = vi.fn();
 const getDocTemplates = vi.fn(() => Promise.resolve([{ id: 'jd-1', name: 'Job Description', publishedVersion: 1 }]));
 const plainOptions = { roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting', defaultManagerEmail: '', hasDuties: true, jdFile: '' }], departments: ['Accounting'] };
 const hiringOptions = vi.fn(() => Promise.resolve(plainOptions));
@@ -28,6 +32,7 @@ const people = { current: [] };
 vi.mock('../api', () => ({ api: {
   offerOptions: (...a) => offerOptions(...a),
   startOffer: (...a) => startOffer(...a),
+  previewOffer: (...a) => previewOffer(...a),
   hiringOptions: (...a) => hiringOptions(...a),
   getDocTemplates: (...a) => getDocTemplates(...a),
 } }));
@@ -36,6 +41,12 @@ const { default: OfferModal } = await import('./OfferModal');
 
 const cand = { id: 'c1', firstName: 'Jane', lastName: 'Doe', email: 'jane@gmail.com', company: 'co', roleId: 'jr-an', expectedStart: '2030-11-02' };
 const next = () => fireEvent.click(screen.getByText('Continue'));
+// Questions -> Preview -> Create Offer Letter.
+const previewThenCreate = async () => {
+  next();
+  await waitFor(() => expect(screen.getByTitle('Offer letter preview')).toBeTruthy());
+  fireEvent.click(screen.getByText('Create Offer Letter'));
+};
 
 describe('OfferModal', () => {
   it('asks employee or contractor first, then only what the chosen letter needs, step by step', async () => {
@@ -64,13 +75,21 @@ describe('OfferModal', () => {
     fireEvent.change(screen.getByLabelText('Or Describe The Timings'), { target: { value: 'Rotating shifts' } });
     next();
     expect(screen.getByLabelText('Probation Period *')).toBeTruthy();       // the letter asks HR
-    fireEvent.click(screen.getByText('Create Offer Letter'));
+    expect(screen.queryByText('Create Offer Letter')).toBeNull();            // only after the Preview
+    next();
     expect(screen.getByText('Answer Probation Period.')).toBeTruthy();       // required, said at the field's step
     fireEvent.change(screen.getByLabelText('Probation Period *'), { target: { value: '90 days' } });
     fireEvent.change(screen.getByLabelText('Joining Bonus'), { target: { value: '$2,000' } });
-    fireEvent.click(screen.getByText('Create Offer Letter'));
+    // The Preview names what prints blank; Back keeps every answer.
+    previewOffer.mockResolvedValueOnce({ pdf: btoa('%PDF-1.4'), unfilled: ['Employee Number'] });
+    next();
+    expect(await screen.findByText(/These print blank: Employee Number/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Back'));
+    expect(screen.getByLabelText('Probation Period *').value).toBe('90 days');
+    await previewThenCreate();
     await waitFor(() => expect(onStarted).toHaveBeenCalledWith(expect.objectContaining({ id: 'ev-offer' })));
     const [cid, body] = startOffer.mock.calls[0];
+    expect(previewOffer.mock.calls.at(-1)).toEqual([cid, body]);          // the preview is the letter Create makes
     expect(cid).toBe('c1');
     expect(body.inputs).toMatchObject({ worker_type: 'employee', employment_type: 'full_time', country: 'US', role_id: 'jr-an',
       work_location: 'Irvine, CA', merge: { probation_period: '90 days' }, jd_template_id: 'jd-1',
@@ -95,7 +114,7 @@ describe('OfferModal', () => {
     fireEvent.change(from, { target: { value: 'department_head' } });
     next();
     fireEvent.change(screen.getByLabelText('Probation Period *'), { target: { value: '90 days' } });
-    fireEvent.click(screen.getByText('Create Offer Letter'));
+    await previewThenCreate();
     await waitFor(() => expect(startOffer).toHaveBeenCalled());
     expect(startOffer.mock.calls[0][1].inputs.offer_from).toBe('department_head');
   });
@@ -147,7 +166,7 @@ describe('OfferModal - the job description after the letter', () => {
     expect(screen.getByText('Analyst JD.pdf')).toBeTruthy();
     next();
     fireEvent.change(screen.getByLabelText('Probation Period *'), { target: { value: '90 days' } });
-    fireEvent.click(screen.getByText('Create Offer Letter'));
+    await previewThenCreate();
     await waitFor(() => expect(startOffer).toHaveBeenCalled());
     expect(startOffer.mock.calls[0][1].inputs.jd_template_id).toBe('');
   });
