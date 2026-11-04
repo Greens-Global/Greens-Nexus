@@ -12,6 +12,7 @@ import Superscript from '@tiptap/extension-superscript';
 import Highlight from '@tiptap/extension-highlight';
 import { MergeField, PageBreak, DocShape, DocTextbox, ResizableImage, Bookmark, SectionBox, SignatureBlock } from './docBuilderExtensions';
 import { boldTextNode } from './markdownBold';
+import { CommentMark } from './docCommentMark';
 
 // Word-style cell shading - TipTap's stock TableCell/TableHeader carry no
 // background-color attribute, so both are extended identically with one
@@ -140,6 +141,8 @@ export const BODY_EXTENSIONS = [
   // autolink: true - typing/pasting a bare URL now auto-converts to a real
   // hyperlink, matching Word; previously explicitly disabled.
   Link.configure({ openOnClick: false, autolink: true }),
+  // The anchor of a comment thread (Review tab); the words live on the server.
+  CommentMark,
 ];
 
 // ── Structural repair ────────────────────────────────────────────────────────

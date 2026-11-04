@@ -24,6 +24,11 @@ import Ruler from './docRibbon/Ruler';
 import NavigationPane from './docRibbon/NavigationPane';
 import { WordCountDialog, AccessibilityDialog } from './docRibbon/WordCountDialog';
 import { countWords, accessibilityIssues, headingsOf } from './docRibbon/docStats';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import CommentsPane from './docComments/CommentsPane';
+import { useDocComments } from './docComments/useDocComments';
+import { commentAnchorEl } from '../lib/docCommentMark';
+import { useRole } from '../contexts/RoleContext';
 import { canDictate, useDictation, spokenAfter } from '../lib/voice';
 import FullScreenButton, { useFullScreen } from './FullScreenButton';
 import { api } from '../api';
@@ -532,6 +537,39 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [viewPrefs, setViewPrefs] = useState({ paginate: true, ruler: false, nav: false, spell: true });
   const setPref = (k, v) => setViewPrefs((p) => ({ ...p, [k]: v }));
   const [wordCountOpen, setWordCountOpen] = useState(false);
+  // Comments (Review tab, Nov 2026): the threads live on the server
+  // (routers/doc_comments.py), the page keeps one `comment` mark per thread,
+  // and the pane opens beside the pages.
+  const { myEmail: me = '', myLevel = 1 } = useRole() || {};
+  const commentStore = useDocComments(kind, docId);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [activeComment, setActiveComment] = useState('');
+  const [commentDraft, setCommentDraft] = useState(null);
+  // The active thread's mark lights up; a click on any mark opens its thread.
+  useEffect(() => {
+    document.querySelectorAll('.doc-comment-mark.is-active').forEach((el) => el.classList.remove('is-active'));
+    if (activeComment) document.querySelectorAll(`[data-comment-id="${CSS.escape(activeComment)}"]`).forEach((el) => el.classList.add('is-active'));
+  }, [activeComment, commentStore.comments]);
+  useEffect(() => {
+    const onClick = (e) => {
+      const el = e.target.closest?.('[data-comment-id]');
+      if (!el || !e.target.closest('.doc-page')) return;
+      setActiveComment(el.getAttribute('data-comment-id'));
+      setCommentsOpen(true);
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, []);
+  // A thread deleted, by anyone, takes its mark with it.
+  useEffect(() => {
+    if (commentStore.loading) return;
+    const ids = new Set(commentStore.comments.map((c) => c.id));
+    for (const ed of editorsRef.current.values()) {
+      const stale = new Set();
+      ed.state.doc.descendants((n) => { n.marks.forEach((m) => { if (m.type.name === 'comment' && m.attrs.id && !ids.has(m.attrs.id)) stale.add(m.attrs.id); }); });
+      stale.forEach((id) => ed.commands.unsetComment(id));
+    }
+  }, [commentStore.comments, commentStore.loading]);
   const [a11yIssues, setA11yIssues] = useState(null);
   const [full, toggleFull] = useFullScreen('documents');
   const rootRef = useRef(null);
@@ -726,6 +764,44 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     }
   }, []);
   const activeEditor = editorsRef.current.get(activePageId);
+
+  const commentRoots = commentStore.comments.filter((c) => !c.parentId);
+  const startComment = () => {
+    if (!activeEditor || activeEditor.state.selection.empty) { toastErr?.('Select the text to comment on first.'); return; }
+    const { from, to } = activeEditor.state.selection;
+    const quote = activeEditor.state.doc.textBetween(from, to, ' ').trim().slice(0, 300);
+    setCommentDraft({ quote, from, to, pageId: activePageId });
+    setCommentsOpen(true);
+  };
+  const onCommentSaved = (c, draft) => {
+    const ed = editorsRef.current.get(draft.pageId);
+    if (ed && c?.id) ed.chain().setTextSelection({ from: draft.from, to: draft.to }).setComment(c.id).run();
+    setCommentDraft(null);
+    setActiveComment(c?.id || '');
+  };
+  const selectComment = (id) => {
+    setActiveComment(id);
+    setCommentsOpen(true);
+    for (const ed of editorsRef.current.values()) {
+      const el = commentAnchorEl(ed.view.dom, id);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); break; }
+    }
+  };
+  const stepComment = (dir) => {
+    if (!commentRoots.length) return;
+    const i = commentRoots.findIndex((c) => c.id === activeComment);
+    selectComment(commentRoots[(i + dir + commentRoots.length) % commentRoots.length].id);
+  };
+  // A thread is gone for good, so the ribbon's Delete holds inside the dialog
+  // that says so (the pane's own Delete holds on the row).
+  const deleteActiveComment = async () => {
+    if (!activeComment) return;
+    const { dialog } = await import('../ui/dialog');
+    dialog.confirm('Delete this comment thread and its replies?', {
+      hold: true, confirmText: 'Delete', doneText: 'Deleted',
+      onConfirm: async () => { await commentStore.remove(activeComment); setActiveComment(''); },
+    });
+  };
   activeEditorRef.current = activeEditor;
   // Review > Spelling: the browser underlines misspellings on every page.
   useEffect(() => {
@@ -2716,7 +2792,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             { label: 'Remove Table of Contents', onClick: removeTableOfContents, disabled: !findTocRange() }]} />
           </Group>
           <Group label="Comments">
-            <BigBtn icon={MessageSquare} label="New Comment" title="Coming in the next release" disabled />
+            <BigBtn icon={MessageSquare} label="New Comment" title="Comment on the selected text" onClick={startComment}
+              disabled={!activeEditor || activeEditor.state.selection.empty} />
           </Group>
           <Group label="Header & Footer">
             <BigBtn icon={LayoutPanelTop} label="Header & Footer" active={headerVisible || footerVisible} onClick={toggleHeaderFooter} />
@@ -2924,9 +3001,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             <BigBtn icon={Accessibility} label="Check Accessibility" onClick={() => setA11yIssues(accessibilityIssues([...editorsRef.current.values()]))} />
           </Group>
           <Group label="Comments">
-            {['New Comment', 'Delete', 'Previous', 'Next', 'Show Comments'].map(l => (
-              <BigBtn key={l} icon={MessageSquare} label={l} title="Coming in the next release" disabled />
-            ))}
+            <BigBtn icon={MessageSquare} label="New Comment" title="Comment on the selected text" onClick={startComment}
+              disabled={!activeEditor || activeEditor.state.selection.empty} />
+            <BigBtn icon={Trash2} label="Delete" title="Delete the selected comment thread" onClick={deleteActiveComment} disabled={!activeComment} />
+            <BigBtn icon={ChevronLeft} label="Previous" title="Previous comment" onClick={() => stepComment(-1)} disabled={commentRoots.length < 2} />
+            <BigBtn icon={ChevronRight} label="Next" title="Next comment" onClick={() => stepComment(1)} disabled={commentRoots.length < 2} />
+            <BigBtn icon={MessageSquare} label="Show Comments" title="Show or hide the comments pane" active={commentsOpen} onClick={() => setCommentsOpen((o) => !o)} />
           </Group>
           <Group label="Tracking">
             <span style={{ fontSize: 11.5, color: 'var(--muted)', padding: '0 4px', maxWidth: 200 }}>Track Changes is not in this editor yet. Version History (File) keeps every saved version.</span>
@@ -3235,6 +3315,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           top header (style.css ".nx-docb-vars") so it stays while the pages
           scroll. Click inserts the variable at the cursor, drag drops it
           where it lands, double-click edits its field (templates). */}
+      {!preview && !isMobile && commentsOpen && (
+        <CommentsPane store={commentStore} me={me} isAdmin={myLevel >= 4}
+          ownerEmail={String(doc?.ownerEmail || doc?.createdBy || '').toLowerCase()}
+          activeId={activeComment} onSelect={selectComment}
+          draft={commentDraft} onDraftSaved={onCommentSaved} onDraftCancel={() => setCommentDraft(null)}
+          onClose={() => setCommentsOpen(false)} />
+      )}
       {!preview && !isMobile && (
         <aside className="nx-docb-vars" aria-label="Variables used in this document">
           <div className="nx-docb-vars-head">
