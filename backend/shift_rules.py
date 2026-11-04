@@ -129,6 +129,13 @@ def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "mo
                       "key": (iv[0] if iv else datetime(d.year, d.month, d.day, tzinfo=timezone.utc), str(s.get("id") or ""))})
     worked = sorted((i for i in items if not i["cancelled"]), key=lambda i: i["key"])
     rule = (ot_rule or "ca").lower()
+    # Salaried and overtime-exempt people (Neil, 11/04/2026 - leadership was
+    # warned "over 40h is overtime"): none of the hourly labor rules apply -
+    # no overtime, no rest, no days in a row, no company week cap. Only a cap
+    # they set for themselves still warns. config_for marks them.
+    if cfg.get("_salaried"):
+        rule = "none"
+        cfg = {**cfg, "ruleMinRestHours": 0, "ruleMaxDaysInRow": 0, "ruleMaxWeekHours": 0}
 
     # Rest between WORKDAYS (Neil, Oct 30 2026): measured from the latest end
     # of an earlier work date to the first start of the next one. The parts
@@ -243,17 +250,31 @@ def person_shifts(db, emails, lo: str, hi: str, view: str = "effective", presets
     return out
 
 
-def overtime_rule_for(rate_rule: str, country: str, company_country: str, exempt: bool) -> str:
+def overtime_rule_for(rate_rule: str, country: str, company_country: str, exempt: bool, salaried: bool = False) -> str:
     """One person's overtime rule: PayrollRate.overtime_rule when they have
     a rate row; else their country (own, then the company's): US -> 'ca',
-    anything else -> 'none'. Exempt from time tracking -> 'none'."""
-    if exempt:
+    anything else -> 'none'. Exempt from time tracking, or salaried (fixed
+    monthly pay - payroll gives them no overtime) -> 'none'."""
+    if exempt or salaried:
         return "none"
     r = (rate_rule or "").strip().lower()
     if r:
         return r
     c = ((country or "").strip() or (company_country or "").strip()).upper()
     return "ca" if c in ("US", "USA") else "none"
+
+
+def salaried_emails(db) -> set:
+    """Everyone salaried (Neil, 11/04/2026): exempt from time tracking (a
+    nexus_groups.time_tracking_exempt group) or on fixed monthly pay
+    (PayrollRate.pay_type 'fixed', whatever its overtime_rule says - payroll
+    gives them no overtime). No overtime warning, alert or bell is ever about
+    them. Lowercase emails, two queries."""
+    from models import PayrollRate
+    from routers.timeclock import time_tracking_exempt_emails
+    fixed = {(r.employee_email or "").lower() for r in
+             db.query(PayrollRate.employee_email).filter(PayrollRate.pay_type == "fixed").all() if r.employee_email}
+    return fixed | time_tracking_exempt_emails(db)
 
 
 def config_for(db, emails) -> dict:
@@ -273,8 +294,9 @@ def config_for(db, emails) -> dict:
               db.query(NexusEmployee.work_email, NexusEmployee.company, NexusEmployee.country)
               .filter(func.lower(NexusEmployee.work_email).in_(emails)).all() if e.work_email}
     company_country = {e.id: (e.country or "") for e in db.query(HrEntity.id, HrEntity.country).all()}
-    rates = {(r.employee_email or "").lower(): (r.overtime_rule or "").lower()
-             for r in db.query(PayrollRate).filter(func.lower(PayrollRate.employee_email).in_(emails)).all()}
+    rate_rows = db.query(PayrollRate).filter(func.lower(PayrollRate.employee_email).in_(emails)).all()
+    rates = {(r.employee_email or "").lower(): (r.overtime_rule or "").lower() for r in rate_rows}
+    fixed = {(r.employee_email or "").lower() for r in rate_rows if (r.pay_type or "").lower() == "fixed"}
     exempt = time_tracking_exempt_emails(db)
     base = get_settings(db)
     by_company = {"": base}
@@ -285,8 +307,14 @@ def config_for(db, emails) -> dict:
         if cid not in by_company:
             by_company[cid] = {**base, **_saved_settings(db, cid)}
         rule = overtime_rule_for(rates.get(em, ""), p.country if p is not None else "",
-                                 company_country.get(cid, ""), em in exempt)
-        out[em] = (by_company[cid], rule)
+                                 company_country.get(cid, ""), em in exempt, em in fixed)
+        # Salaried (Neil, 11/04/2026): exempt from time tracking or on fixed
+        # monthly pay - none of the hourly labor rules warn for them (evaluate
+        # reads the mark). An overtime rule of 'none' alone is NOT salaried:
+        # hourly staff outside the US still get the rest and days-in-a-row
+        # rules.
+        salaried = em in exempt or em in fixed
+        out[em] = ({**by_company[cid], "_salaried": True} if salaried else by_company[cid], rule)
     return out
 
 

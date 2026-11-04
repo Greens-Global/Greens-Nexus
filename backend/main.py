@@ -1560,6 +1560,7 @@ def _run_migrations():
             "ALTER TABLE construction_media ADD COLUMN source_media_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_media ADD COLUMN task_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_weekly_reports ADD COLUMN pair_ids JSON DEFAULT '[]'",
+            "ALTER TABLE shifts ADD COLUMN group_ids VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3711,6 +3712,7 @@ def _run_migrations():
         "ALTER TABLE construction_field_tickets ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_change_orders ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_closeout_records ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS group_ids VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4485,6 +4487,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] probation seeds skipped: {e}")
+    # Shift types belong to teams (Neil, 11/04/2026): once, each existing
+    # type is linked to the teams that already use it (shift_type_teams.py).
+    try:
+        import shift_type_teams
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            linked = shift_type_teams.apply_once(db)
+            if linked:
+                print("[startup] shift types linked to their teams: "
+                      + "; ".join(f"{k} -> {', '.join(v)}" for k, v in linked.items()))
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] shift type teams skipped: {e}")
     # Tiers (Neil, 11/02/2026): the Super Administrators set and the tier
     # words cleared run from _tier_seeds on EVERY boot, not here.
     # Presidents' Day (Neil, Oct 29 2026: "it's not showing Presidents' Day").

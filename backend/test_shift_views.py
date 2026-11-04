@@ -322,19 +322,39 @@ class ShiftViewTests(unittest.TestCase):
                       (401, 403))
 
     # ── Teams (Neil, Sep 30) ──────────────────────────────────────────────
-    def test_a_manager_sees_everyone_and_changes_only_their_team(self):
+    def test_a_manager_sees_and_changes_only_their_own_team(self):
+        # Neil, 11/04/2026: another team is not on a manager's planner at all
+        # (it used to show, read-only - "a lot of bloat").
         self._place(email=A)                          # someone else's person
         self._as(MGR)
         data = self.client.get(f"/timeclock/schedule?start={MON}&end={TUE}").json()
         rows = {e["email"]: e["canEdit"] for e in data["employees"]}
         self.assertTrue(rows[B] and rows[MGR])
-        self.assertFalse(rows[A])
-        self.assertEqual([s["canEdit"] for s in data["scheduled"] if s["email"] == A], [False])
+        self.assertNotIn(A, rows)
+        self.assertEqual([s for s in data["scheduled"] if s["email"] == A], [])
+        self.assertNotIn(GROUP, [g["id"] for g in data["groups"]])
         self.assertEqual(self.client.post("/timeclock/schedule", json={"employee_email": A, "work_date": TUE,
                                                                        "start_hhmm": "09:00", "end_hhmm": "17:00"}).status_code, 403)
         self._place(email=B, day=TUE)
+
+    def test_a_manager_sees_the_whole_team_they_are_on(self):
+        # A manager ON a team (Amy on the Operations Team) sees all of it,
+        # though she may change only her own people: rows say canEdit.
+        db = database.SessionLocal()
+        try:
+            db.add(models.ShiftGroupMember(id="sv-mgr-in", group_id=GROUP, employee_email=MGR))
+            db.commit()
+        finally:
+            db.close()
+        self._place(email=A)
+        self._as(MGR)
+        data = self.client.get(f"/timeclock/schedule?start={MON}&end={TUE}").json()
+        rows = {e["email"]: e["canEdit"] for e in data["employees"]}
+        self.assertIn(A, rows)
+        self.assertFalse(rows[A])
+        self.assertEqual([s["canEdit"] for s in data["scheduled"] if s["email"] == A], [False])
         store = next(g for g in data["groups"] if g["id"] == GROUP)
-        self.assertEqual(store["members"], [A])
+        self.assertEqual(sorted(store["members"]), sorted([A, MGR]))
         self.assertFalse(store["canEdit"])
 
     def test_team_members_rename_archive_and_order(self):

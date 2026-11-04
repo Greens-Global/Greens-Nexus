@@ -2,7 +2,7 @@
 // to its button, and a context menu at a point. Both close on an outside
 // press or Escape, trap Tab, and move with the arrow keys - the old shift
 // menu was mouse-only (Shifts QA 24).
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 
@@ -81,20 +81,29 @@ export function MenuButton({ label, Icon, items, className = 'secondary-btn', al
 
 // A menu at a point (right-click or long-press): a full-screen catcher
 // closes it on any press outside.
+// It grows to its longest line (11/04/2026: "Place Shift Type" labels were
+// cut off with a sideways scrollbar at a fixed 230px), never past the
+// window, and is placed by its MEASURED size so it stays fully on screen.
 export function ContextMenu({ x, y, label, onClose, children, width = 230 }) {
   const ref = useRef(null);
+  const [at, setAt] = useState({ left: x, top: y });
   useEffect(() => {
     ref.current?.querySelector('[role^="menuitem"]:not(:disabled)')?.focus();
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  const left = Math.max(8, Math.min(x, (window.innerWidth || 1000) - width - 12));
-  const top = Math.max(8, Math.min(y, (window.innerHeight || 800) - 380));
+  useLayoutEffect(() => {
+    const r = ref.current?.getBoundingClientRect?.();
+    const vw = window.innerWidth || 1000, vh = window.innerHeight || 800;
+    const w = r?.width || width, h = r?.height || 0;
+    setAt({ left: Math.max(8, Math.min(x, vw - w - 8)), top: Math.max(8, Math.min(y, vh - h - 8)) });
+  }, [x, y, width, children]);
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1500 }} onPointerDown={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }}>
       <div ref={ref} role="menu" aria-label={label} onPointerDown={(e) => e.stopPropagation()} onKeyDown={menuKeys} className="m-menu"
-        style={{ ...POP, position: 'fixed', left, top, width, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' }}>
+        style={{ ...POP, position: 'fixed', left: at.left, top: at.top, minWidth: width, width: 'max-content', maxWidth: 'calc(100vw - 16px)',
+          maxHeight: 'calc(100vh - 16px)', overflowY: 'auto', overflowX: 'hidden' }}>
         {children}
       </div>
     </div>

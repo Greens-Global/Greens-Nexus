@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { orderNav } from './navOrder';
 import { useRole } from "../contexts/RoleContext";
 import { useIsMobile } from "../lib/useIsMobile";
@@ -309,26 +309,52 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
     p.classList.add('is-on');
   };
   const onListLeave = hoverOff;
-  // The active pill: placed before paint; a glide on a module change, a snap
-  // (no transition) on mount and whenever the rail folds or unfolds, because
-  // the rows' geometry changes under it then.
-  const snapRef = useRef({ first: true, collapsed });
+  // The active pill: placed before paint. It GLIDES only on a module change;
+  // everything else (mount, folding or unfolding the rail, a count badge or
+  // a kicker moving the rows) SNAPS it, with no transition, onto the row.
+  // 11/04/2026 (Neil: "it pauses for a second, and then slides and
+  // readjusts"): the rail's width animates for 260ms after a fold, and the
+  // rows' heights change all through it (labels wrap at the narrow widths),
+  // so a single snap at the start left the pill on a stale spot and a later
+  // render glided it down. A ResizeObserver on the list now keeps it on its
+  // row, frame by frame, while the geometry moves.
+  const pillAt = useRef({ view: null, top: -1, h: -1 });
+  const activeRef = useRef(activeView);
+  useEffect(() => { activeRef.current = activeView; }, [activeView]);
+  const placeActive = useCallback((view, glide) => {
+    const p = activePill.current;
+    if (!p) return;
+    const el = rowEls.current.get(view);
+    if (!el) { p.style.opacity = '0'; pillAt.current = { view, top: -1, h: -1 }; return; }
+    const top = el.offsetTop, h = el.offsetHeight;
+    const at = pillAt.current;
+    if (at.view === view && at.top === top && at.h === h) return;   // already there (or gliding there)
+    pillAt.current = { view, top, h };
+    if (!glide) p.style.transition = 'none';
+    p.style.opacity = '1';
+    p.style.height = `${h}px`;
+    p.style.transform = `translateY(${top}px)`;
+    if (!glide) { void p.offsetHeight; p.style.transition = ''; }
+  }, []);
   useLayoutEffect(() => {
     // The hovered row just became the active one (it was clicked): its tint
     // is the active pill now, so the hover pill stands down.
     if (hoveredView.current && hoveredView.current === activeView) hoverPill.current?.classList.remove('is-on');
-    const p = activePill.current;
-    if (!p) return;
-    const el = rowEls.current.get(activeView);
-    if (!el) { p.style.opacity = '0'; return; }
-    const snap = snapRef.current.first || snapRef.current.collapsed !== collapsed;
-    snapRef.current = { first: false, collapsed };
-    if (snap) p.style.transition = 'none';
-    p.style.opacity = '1';
-    p.style.height = `${el.offsetHeight}px`;
-    p.style.transform = `translateY(${el.offsetTop}px)`;
-    if (snap) { void p.offsetHeight; p.style.transition = ''; }
+    const prev = pillAt.current.view;
+    placeActive(activeView, prev !== null && prev !== activeView);
   });
+  // Folding or unfolding: the hover pill's row moved under it - it stands
+  // down until the pointer moves again.
+  useLayoutEffect(() => { hoverOff(); }, [collapsed]);
+  const listRef = useRef(null);
+  useEffect(() => {
+    const list = listRef.current;
+    if (!motionOn || !list || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => placeActive(activeRef.current, false));
+    ro.observe(list);
+    rowEls.current.forEach((el) => ro.observe(el));
+    return () => ro.disconnect();
+  }, [motionOn, collapsed, placeActive]);
   // The pop and the cascade are "information from previous renders": the
   // module that just became active pops once; the rail that just unfolded
   // cascades its labels. Both clear on a timer.
@@ -467,7 +493,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
         {/* ── Nav ── */}
         <nav className="sidebar-nav" ref={navRef}>
           {morePill('above')}
-          <ul className="nav-list" role="none" onPointerLeave={onListLeave}>
+          <ul ref={listRef} className="nav-list" role="none" onPointerLeave={onListLeave}>
             {motionOn && (
               <>
                 <li ref={activePill} className="nav-pill nav-pill--active" role="presentation" aria-hidden="true" />

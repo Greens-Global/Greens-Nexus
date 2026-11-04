@@ -65,6 +65,8 @@ const CLOSE_FALLBACK_MS = 1000;
 // A reload the person cancelled at the browser's "Leave site?" prompt
 // (unsaved work elsewhere) never unloads the page: the buttons come back.
 const RELOAD_RECOVER_MS = 4000;
+// The weekly bar's Reload waits this long, at most, for its dismissal to land.
+const DISMISS_WAIT_MS = 3000;
 
 // See What's New on a NEW VERSION opens this popup (Oct 29 2026, Neil agreed:
 // "should not reload the whole Nexus"): the updates the waiting version brings,
@@ -270,7 +272,17 @@ export default function FeatureBanner({ activeView, onNavigate }) {
   };
   // Closing the weekly popup folds the bar away - it has been seen.
   const closePopup = () => { setPopupOpen(false); if (!update) close(); };
-  const reload = () => go(() => window.location.reload());
+  // Reload on the WEEKLY bar counts as seeing the news, like its X (Neil /
+  // Urmi, 11/05/2026: people pressed Reload for ten minutes - the reload
+  // worked, but the server still said "show", so the bar came straight back
+  // and read as "the update did not install"). The dismissal is waited for,
+  // a few seconds at most, so the reloaded page already knows.
+  const reload = () => go(() => {
+    if (update || dismissed.current) { window.location.reload(); return; }
+    dismissed.current = true;
+    Promise.race([api.dismissFeatureBanner().catch(() => {}), new Promise((r) => setTimeout(r, DISMISS_WAIT_MS))])
+      .finally(() => window.location.reload());
+  });
   // A full load, not in-app navigation: the new version, opened on What's New.
   const reloadOntoWhatsNew = () => go(() => window.location.assign('/whats-new'));
 

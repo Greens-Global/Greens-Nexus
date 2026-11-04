@@ -6694,6 +6694,18 @@ body:has(.docs-root) { overflow-x: clip; }
 .m-roll-down > span { animation: m-roll-down var(--m-base) var(--m-ease) both; }
 .sched-chip { transition: transform var(--m-fast) var(--m-ease), box-shadow var(--m-fast) var(--m-ease); }
 .sched-chip[role="button"]:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(15, 23, 42, .12); }
+/* Stretch to copy (11/04/2026, WeekGrid grips): a thin grip on each side
+   edge of a shift, shown on hover; pull it across the next days. */
+.sched-stretch { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 1; opacity: 0;
+  transition: opacity var(--m-fast) ease-out; touch-action: none; }
+.sched-stretch[data-stretch="left"] { left: 0; }
+.sched-stretch[data-stretch="right"] { right: 0; }
+.sched-stretch::after { content: ""; position: absolute; top: 25%; bottom: 25%; width: 3px; border-radius: 2px; background: var(--wk-brand); }
+.sched-stretch[data-stretch="left"]::after { left: 2px; }
+.sched-stretch[data-stretch="right"]::after { right: 2px; }
+.sched-chip:hover .sched-stretch, body.sched-stretching .sched-stretch { opacity: 1; }
+body.sched-stretching, body.sched-stretching * { cursor: ew-resize !important; user-select: none; }
+@media (pointer: coarse) { .sched-stretch { display: none; } }
 .sched-arrow { transition: background var(--m-fast) ease-out, transform var(--m-fast) var(--m-ease); }
 .sched-arrow:hover { background: var(--bg) !important; }
 .sched-arrow:active { transform: scale(.94); }
