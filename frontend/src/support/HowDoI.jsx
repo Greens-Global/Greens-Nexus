@@ -10,7 +10,9 @@
 // full-width strip left empty at the end of that row. The tile lists the
 // questions as compact rows; a row opens its answer IN the tile (the list
 // steps aside, Back or Escape brings it back and focus returns to the row),
-// so the tile keeps its place and nothing below it moves.
+// so the tile keeps its place and nothing below it moves: the list stays
+// mounted (hidden and inert) and sets the tile's height, and the answer is
+// laid over it, scrolling inside if it is longer.
 //
 // Each question is shown only to people who can open what is behind it -
 // the left menu's own rule (Sidebar's isNavItemVisible) for the module it
@@ -81,8 +83,8 @@ export default function HowDoI({ onTicket }) {
   return (
     <section className={`support-card how-do-i${cur ? ' is-answer' : ''}`} aria-label="How Do I" data-tour="support-how-do-i"
       onKeyDown={(e) => { if (e.key === 'Escape' && cur) { e.stopPropagation(); setOpen(''); } }}>
-      {!cur ? (
-        <div className="how-do-i-view" key="list">
+      <div className="how-do-i-stack">
+        <div className={`how-do-i-view${cur ? ' is-hidden' : ''}`} aria-hidden={cur ? true : undefined} inert={!!cur}>
           <div className="how-do-i-head">
             <div className="support-icon"><CircleHelp size={18} /></div>
             <div className="support-card-title">How Do I...</div>
@@ -90,7 +92,7 @@ export default function HowDoI({ onTicket }) {
           <ul className="how-do-i-list">
             {items.map((n) => (
               <li key={n.key} className="how-do-i-row">
-                <button type="button" className="how-do-i-q" aria-expanded={false}
+                <button type="button" className="how-do-i-q" aria-expanded={open === n.key}
                   ref={(el) => { rowRefs.current[n.key] = el; }} onClick={() => setOpen(n.key)}>
                   <span className="how-do-i-ico"><n.Icon size={15} /></span>
                   <span className="how-do-i-label">{n.q}</span>
@@ -100,19 +102,20 @@ export default function HowDoI({ onTicket }) {
             ))}
           </ul>
         </div>
-      ) : (
-        <div className="how-do-i-view how-do-i-answer-view" key={cur.key} role="region" aria-label={`${cur.q} answer`}>
-          <div className="how-do-i-answer-head">
-            <button type="button" ref={backRef} className="how-do-i-back" onClick={() => setOpen('')} aria-label="Back to How Do I">
-              <ChevronLeft size={16} />
-            </button>
-            <span className="how-do-i-ico"><cur.Icon size={15} /></span>
-            <span className="how-do-i-answer-title">{cur.q}</span>
+        {cur && (
+          <div className="how-do-i-view how-do-i-answer-view" key={cur.key} role="region" aria-label={`${cur.q} answer`}>
+            <div className="how-do-i-answer-head">
+              <button type="button" ref={backRef} className="how-do-i-back" onClick={() => setOpen('')} aria-label="Back to How Do I">
+                <ChevronLeft size={16} />
+              </button>
+              <span className="how-do-i-ico"><cur.Icon size={15} /></span>
+              <span className="how-do-i-answer-title">{cur.q}</span>
+            </div>
+            <p className="how-do-i-answer">{cur.answer}</p>
+            <button type="button" className="how-do-i-act" onClick={() => act(cur)}>{cur.action}<ChevronRight size={14} aria-hidden="true" /></button>
           </div>
-          <p className="how-do-i-answer">{cur.answer}</p>
-          <button type="button" className="how-do-i-act" onClick={() => act(cur)}>{cur.action}<ChevronRight size={14} aria-hidden="true" /></button>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   );
 }
