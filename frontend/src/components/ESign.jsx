@@ -990,7 +990,7 @@ export function SigningGate({ payload, gateApi, onCleared, onDecline }) {
 // story - created, sent, received, verified, opened, opened again, signed -
 // rather than a status word. The server already keeps every one of those as an
 // append-only event; this just tells it back in order.
-function HistoryPanel({ loadHistory, onClose }) {
+function HistoryPanel({ loadHistory, onClose, zIndex = 1450 }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
 
@@ -1003,7 +1003,7 @@ function HistoryPanel({ loadHistory, onClose }) {
   }, [loadHistory]);
 
   return (
-    <Modal zIndex={1450} onClose={onClose}
+    <Modal zIndex={zIndex} onClose={onClose}
       title={(
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Clock size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} /> History
@@ -1156,7 +1156,12 @@ function UploadField({ field, style, innerRef, record, busy, disabled, error,
   );
 }
 
-export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi, copyApi, onReportBreak, fieldError = null }) {
+// `layer` lifts every popup this screen opens (the signature pad, Decline,
+// Sign on Paper, History) by that much. A host that shows the screen in its
+// own high layer must pass it: Workday's time sheet signing sits at z 4000
+// and the pad (1400) opened BEHIND it - "I click Sign and nothing happens"
+// (Miranda, 11/04/2026).
+export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi, copyApi, onReportBreak, fieldError = null, layer = 0 }) {
   // Phone widths: the action bar's one row of controls does not fit, and the
   // signer should never have to scroll back up to finish (Sagar, Sep 22 2026).
   const narrow = useIsMobile('(max-width: 720px)');
@@ -1689,7 +1694,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
 
   // One sheet for the three steps; the footer follows the step.
   const paperModal = (
-    <Modal zIndex={1400} onClose={() => setPaperStep(0)}
+    <Modal zIndex={1400 + layer} onClose={() => setPaperStep(0)}
       title={(
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Printer size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
@@ -1790,7 +1795,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   // centered card. Back keeps the typed reason; the close question's Discard
   // (and a close with nothing typed) clears it.
   const declineModal = (
-    <Modal zIndex={1400} placement="center" title="Sign on Paper Instead"
+    <Modal zIndex={1400 + layer} placement="center" title="Sign on Paper Instead"
       onClose={(how) => { if (how !== 'back') setDeclineReason(''); setDeclineOpen(false); }}
       isDirty={declineDirty} onSave={() => setDeclineOpen(false)}
       footer={(close) => (
@@ -1822,7 +1827,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
       {declineOpen && declineModal}
       {paperStep > 0 && paperModal}
       {historyOpen && historyApi && (
-        <HistoryPanel loadHistory={historyApi} onClose={() => setHistoryOpen(false)} />
+        <HistoryPanel loadHistory={historyApi} zIndex={1450 + layer} onClose={() => setHistoryOpen(false)} />
       )}
     </>
   );
@@ -2116,13 +2121,13 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
         </div>
       )}
 
-      {padOpen && <SignaturePad name={payload.myName} onClose={() => setPadOpen(false)}
+      {padOpen && <SignaturePad name={payload.myName} zIndex={1400 + layer} onClose={() => setPadOpen(false)}
         onAdopt={(s) => { setSig(s); setPadOpen(false); }} />}
 
       {declineOpen && declineModal}
       {paperStep > 0 && paperModal}
       {historyOpen && historyApi && (
-        <HistoryPanel loadHistory={historyApi} onClose={() => setHistoryOpen(false)} />
+        <HistoryPanel loadHistory={historyApi} zIndex={1450 + layer} onClose={() => setHistoryOpen(false)} />
       )}
     </div>
   );
@@ -2131,7 +2136,9 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
 // ── Internal signing - in-shell panel replacing the E-Sign tab content ────────
 // Exported for the timesheet review panel, which opens the same signing
 // screen for a timesheet envelope (TimesheetReviewPanel.jsx).
-export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
+// `layer`: pass it when this screen sits in a high fixed layer of its own
+// (see SigningDoc) so its popups open above it, not behind it.
+export function SignModal({ partyId, onClose, onDone, toastOk, toastErr, layer = 0 }) {
   const [payload, setPayload] = useState(null);
   const [busy, setBusy] = useState(false);
   const [reporting, setReporting] = useState(false);   // CA: Report a Missed Break
@@ -2206,7 +2213,7 @@ export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
             ? <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
             : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
                 gateApi={gateApi} onCleared={() => load().catch(() => {})} uploadApi={uploadApi}
-                historyApi={historyApi} fieldError={fieldError}
+                historyApi={historyApi} fieldError={fieldError} layer={layer}
                 onReportBreak={payload.breakAttestation?.reviewId && payload.breakAttestation.canReport !== false
                   ? () => setReporting(true) : undefined} />}
           {/* CA-rule staff: Report a Missed Break instead of signing - the

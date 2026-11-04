@@ -429,7 +429,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
       <History rounds={r.rounds} nameFor={name} />
       {signing && createPortal(
         <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
-          <SignModal partyId={signing} onClose={() => setSigning(null)}
+          <SignModal partyId={signing} layer={3000} onClose={() => setSigning(null)}
             onDone={() => { setSigning(null); onChanged?.(); }} toastOk={toastOk || (() => {})} toastErr={toastErr || (() => {})} />
         </div>, document.body)}
       {below}
