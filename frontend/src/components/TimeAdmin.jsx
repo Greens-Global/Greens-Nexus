@@ -174,7 +174,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
   // The punch-fix request a notice named: the list opens on it (see the
   // Punch requests view). Read once on mount for a bell click made while this
   // screen was still loading, then live through nexus:open-punch-request.
-  const [focusReq, setFocusReq] = useState(() => takePendingOpen('punchRequest') || '');
+  // ...or the Daily Briefing's ?punchRequest=<id> (11/05/2026).
+  const [focusReq, setFocusReq] = useState(() => new URLSearchParams(window.location.search).get('punchRequest')
+    || takePendingOpen('punchRequest') || '');
   const focusPunchRequest = useCallback((id) => {
     if (!id) return;
     setFocusReq(id);
@@ -191,8 +193,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
   useEffect(() => {
     // Drop the link's parameters once used, so a reload doesn't reopen it.
     const q = new URLSearchParams(window.location.search);
-    if (q.get('timecard')) {
-      ['timecard', 'start', 'type'].forEach(k => q.delete(k));
+    if (q.get('timecard') || q.get('punchRequest')) {
+      ['timecard', 'start', 'type', 'punchRequest'].forEach(k => q.delete(k));
       const rest = q.toString();
       window.history.replaceState(window.history.state, '', window.location.pathname + (rest ? `?${rest}` : ''));
     }
@@ -273,6 +275,17 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
   const [bulkBusy, setBulkBusy] = useState(false);
   const loadPunchReqs = useCallback(() =>
     api.timePunchRequests('pending').then(r => setPunchReqs(Array.isArray(r) ? r : [])).catch(() => {}), []);
+  // Opened from the Daily Briefing's ?punchRequest= link, the list arrives
+  // after the first scroll attempt: scroll to the named request once it is in.
+  const focusSeen = useRef(false);
+  useEffect(() => {
+    if (focusSeen.current || !focusReq || view !== 'actions' || !punchReqs.length) return undefined;
+    const t = setTimeout(() => {
+      const el = document.getElementById(`punch-req-${focusReq}`);
+      if (el) { focusSeen.current = true; el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    }, 80);
+    return () => clearTimeout(t);
+  }, [focusReq, view, punchReqs]);
   useEffect(() => {
     loadPunchReqs();
     return pollWhileVisible(loadPunchReqs, 60000);

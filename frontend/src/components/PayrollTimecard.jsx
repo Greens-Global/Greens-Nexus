@@ -603,7 +603,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       fixedSnapped.current = true;   // stay on it - no first-load snap to this month
       setPStart(anchorForStart(d.start, type));
     };
-    go(takePendingOpen('myTimecard'));
+    // The Daily Briefing's "Sign Your Updated Time Sheet" link carries
+    // ?start=<period>&type=<pay type> (11/05/2026); used once, then dropped.
+    const q = new URLSearchParams(window.location.search);
+    const fromLink = q.get('start') ? { start: q.get('start'), payType: q.get('type') || '' } : null;
+    if (fromLink) {
+      q.delete('start'); q.delete('type');
+      const rest = q.toString();
+      window.history.replaceState(window.history.state, '', window.location.pathname + (rest ? `?${rest}` : ''));
+    }
+    go(takePendingOpen('myTimecard') || fromLink);
     const onOpen = (e) => { takePendingOpen('myTimecard'); go(e.detail); };
     window.addEventListener('nexus:open-my-timecard', onOpen);
     return () => window.removeEventListener('nexus:open-my-timecard', onOpen);
