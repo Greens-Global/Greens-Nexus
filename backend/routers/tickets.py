@@ -41,6 +41,7 @@ import ticket_mail_templates as tmpl
 import property_links
 import ticket_property_link
 import ticket_confidential
+import ticket_property_company
 from app_url import app_url
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
@@ -1257,6 +1258,13 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     # maintenance_services.file_preventive): the company the server already
     # decided, never re-derived from the run-as person (review H1).
     company_id = trusted_company or _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
+    if prop is not None and not trusted_company and not confidential_desk:
+        # A ticket on a property files under the property's company (Neil,
+        # 11/03/2026) - its team swapped for that company's team of the same
+        # name - when everyone on it stays inside the wall; else as above.
+        company_id, body.hr_department_id = ticket_property_company.resolve(
+            db, user, prop, company_id, body.hr_department_id or "",
+            people=((body.requester_email or user["email"]), body.assignee_email), item_ids=body.item_ids)
     from routers import ticket_items   # Equipment: validated before anything is written
     linked_items = ticket_items.check_items(db, user, body.item_ids, ticket_company=company_id,
                                             requester_email=(body.requester_email or user["email"]))
@@ -1875,6 +1883,11 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
                                          else t.service_area))
     # The unit follows its property: checked against it, cleared with it.
     ticket_property_link.check_update(db, t, data, new_prop)
+    # A ticket that sat under its old property's company follows the new
+    # property's (ticket_property_company.on_repoint) - only for an editor who
+    # may change the company and the team, never out of anyone's sight.
+    ticket_property_company.on_repoint(db, user, t, new_prop, data,
+                                       may_set=scope is None or {"company_id", "hr_department_id"} <= scope)
     if "maintenance_cost" in data:
         data["maintenance_cost"] = property_links.normalize_cost(data["maintenance_cost"])
     if "maintenance_vendor" in data:
