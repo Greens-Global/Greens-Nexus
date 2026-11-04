@@ -3668,6 +3668,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .doc-editor .ProseMirror table { border-collapse: collapse; margin: 12px 0; width: 100%; }
 .doc-editor .ProseMirror td, .doc-editor .ProseMirror th { border: 1px solid var(--line); padding: 6px 9px; }
 .doc-editor .ProseMirror th { background: var(--mist); font-weight: 700; text-align: left; }
+/* A Word table with no borders (a layout table): faint gridlines while
+   editing so the cells can still be found, nothing in print or export. */
+.doc-editor .ProseMirror table[data-borders="none"] td,
+.doc-editor .ProseMirror table[data-borders="none"] th { border: 1px dashed #e5e7eb; }
+@media print { .doc-editor .ProseMirror table[data-borders="none"] td, .doc-editor .ProseMirror table[data-borders="none"] th { border-color: transparent; } }
 .doc-editor .ProseMirror img { max-width: 100%; border-radius: 4px; }
 .doc-editor .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: #9ca3af; font-style: italic;

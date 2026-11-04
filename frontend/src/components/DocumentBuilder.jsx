@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { generateJSON, generateHTML } from '@tiptap/core';
-import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import {
   X, Eye, EyeOff, Bold, Italic, Underline, List, ListOrdered,
@@ -25,7 +24,7 @@ import { importDocumentFile } from '../lib/docBuilderImport';
 import { slugifyToken, variableFromDrop, VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
 import { extractVariables, mergeFieldDefs, sharedDefs, tokensInDoc } from '../lib/extractVariables';
 import { Pagination, paginationKey, planBreaks } from '../lib/docBuilderPagination';
-import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanvasStyle, textFlowPx, textColumnPx, sheetPadding, sheetsFor, scrollableAncestor, measureHtmlHeight } from '../lib/pageSetup';
+import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, marginsOf, pageCanvasStyle, textFlowPx, textColumnPx, sheetPadding, sheetsFor, scrollableAncestor, measureHtmlHeight } from '../lib/pageSetup';
 import { useIsMobile } from '../lib/useIsMobile';
 import EgnyteBrowser from './EgnyteBrowser';
 import DefineMergeFieldModal from './DefineMergeFieldModal';
@@ -654,14 +653,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   }, []);
   const activeEditor = editorsRef.current.get(activePageId);
 
+  // The same schema as the pages, so a header imported from Word keeps its
+  // font, size, alignment and table - a plain StarterKit threw them away.
   const headerEditor = useEditor({
-    extensions: [StarterKit, Placeholder.configure({ placeholder: 'Header text…' })],
+    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Header text…' })],
     content: null,
     onUpdate: () => { if (hydratedRef.current) scheduleSave(); scheduleUsedScan(); },
   });
 
   const footerEditor = useEditor({
-    extensions: [StarterKit, Placeholder.configure({ placeholder: 'Footer text…' })],
+    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Footer text…' })],
     content: null,
     onUpdate: () => { if (hydratedRef.current) scheduleSave(); scheduleUsedScan(); },
   });
@@ -1801,7 +1802,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (!isEmpty && !window.confirm('This will replace the current document content. Continue?')) return;
     setImporting(true);
     try {
-      const { html, json: directJson, pageSetup: importedPageSetup, warnings } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
+      const { html, json: directJson, pageSetup: importedPageSetup, header: importedHeader, footer: importedFooter, warnings } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
       const json = directJson || generateJSON(html || '<p></p>', BODY_EXTENSIONS);
       // The imported doc still carries pageBreak markers (docxToTiptap.js
       // preserves Word's own page breaks) - split it into real pages the same
@@ -1821,6 +1822,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       // margins (docxToTiptap.js) - apply them so the imported page setup
       // matches the original, not whatever this document had before.
       if (importedPageSetup) updatePageSetup(importedPageSetup);
+      // The Word file's own header and footer replace this document's, like
+      // its body does - a .docx with none clears them.
+      if (directJson) {
+        const band = (json, setVisible, ed) => {
+          if (json) { setVisible(true); ed?.commands.setContent(repairDocJson(json), { emitUpdate: false }); }
+          else { setVisible(false); ed?.commands.clearContent(); }
+        };
+        band(importedHeader, setHeaderVisible, headerEditor);
+        band(importedFooter, setFooterVisible, footerEditor);
+      }
       // Save the discovered variables onto the template, leaving any the author
       // already configured by hand exactly as they are.
       let added = [];
@@ -2505,9 +2516,24 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Margins</label>
                   <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={pageSetup.margins}
-                    onChange={e => updatePageSetup({ margins: e.target.value })}>
+                    onChange={e => updatePageSetup(e.target.value === 'custom'
+                      ? { margins: 'custom', marginIn: marginsOf(pageSetup) }
+                      : { margins: e.target.value })}>
                     {MARGIN_PRESETS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
+                  {pageSetup.margins === 'custom' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+                      {['top', 'bottom', 'left', 'right'].map(side => (
+                        <label key={side} style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                          {side[0].toUpperCase() + side.slice(1)}
+                          <input type="number" min="0.2" max="3" step="0.05" className="form-input" style={{ width: 64, fontSize: 12, padding: '3px 6px' }}
+                            value={marginsOf(pageSetup)[side]}
+                            onChange={e => updatePageSetup({ marginIn: { ...marginsOf(pageSetup), [side]: Number(e.target.value) } })} />
+                        </label>
+                      ))}
+                      <span style={{ gridColumn: '1 / -1', fontSize: 10.5, color: 'var(--muted)' }}>Inches</span>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Columns</label>
@@ -2830,7 +2856,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             )}
           </div>
           {headerVisible && (
-            <div style={{ flex: '1 1 auto', maxWidth: 340, textAlign: 'right' }}>
+            <div style={{ flex: '1 1 auto', maxWidth: activeLetterhead ? 340 : undefined, textAlign: activeLetterhead ? 'right' : 'left' }}>
               {!preview && (
                 <button onClick={() => { setHeaderVisible(false); headerEditor?.commands.clearContent(); scheduleSave(); }}
                   style={{ float: 'right', background: 'none', border: 'none', color: 'var(--muted)', fontSize: 10.5, cursor: 'pointer', marginBottom: 2 }}>Remove header</button>
@@ -2859,7 +2885,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup, { compact: isMobile }).maxWidth, margin: '16px auto 0', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
           {activeLetterhead?.footerJson?.text && <div className="doc-letterhead-tagline" style={{ margin: 0 }}>{activeLetterhead.footerJson.text}</div>}
           {footerVisible && (
-            <div style={{ flex: '1 1 auto', maxWidth: 340, marginLeft: 'auto', textAlign: 'right' }}>
+            <div style={{ flex: '1 1 auto', maxWidth: activeLetterhead?.footerJson?.text ? 340 : undefined, marginLeft: 'auto', textAlign: activeLetterhead?.footerJson?.text ? 'right' : 'left' }}>
               {!preview && (
                 <button onClick={() => { setFooterVisible(false); footerEditor?.commands.clearContent(); scheduleSave(); }}
                   style={{ float: 'right', background: 'none', border: 'none', color: 'var(--muted)', fontSize: 10.5, cursor: 'pointer', marginBottom: 2 }}>Remove footer</button>

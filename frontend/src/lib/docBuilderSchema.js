@@ -60,9 +60,37 @@ const PARAGRAPH_STYLE_ATTRS = {
   spacingAfter: {
     default: null,
     parseHTML: (el) => (el.style.marginBottom ? parseFloat(el.style.marginBottom) : null),
-    renderHTML: (attrs) => (attrs.spacingAfter ? { style: `margin-bottom: ${attrs.spacingAfter}pt` } : {}),
+    renderHTML: (attrs) => (attrs.spacingAfter != null ? { style: `margin-bottom: ${attrs.spacingAfter}pt` } : {}),
+  },
+  // Word's Indent Left / First Line (Layout tab, and every imported .docx with
+  // an indented paragraph or a hanging first line). Points, like the spacing.
+  // Rendered after `indent` so a measured indent wins over the level-based one.
+  indentLeft: {
+    default: null,
+    parseHTML: (el) => (el.style.marginLeft && /pt$/.test(el.style.marginLeft) ? parseFloat(el.style.marginLeft) : null),
+    renderHTML: (attrs) => (attrs.indentLeft ? { style: `margin-left: ${attrs.indentLeft}pt` } : {}),
+  },
+  indentFirst: {
+    default: null,
+    parseHTML: (el) => (el.style.textIndent ? parseFloat(el.style.textIndent) : null),
+    renderHTML: (attrs) => (attrs.indentFirst ? { style: `text-indent: ${attrs.indentFirst}pt` } : {}),
   },
 };
+
+// Word draws a table with no borders at all (a layout table, a form) as
+// bare text; the editor shows faint gridlines so it can still be edited.
+const StyledTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      borders: {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-borders') || null,
+        renderHTML: (attrs) => (attrs.borders ? { 'data-borders': attrs.borders } : {}),
+      },
+    };
+  },
+});
 const StyledParagraph = Paragraph.extend({ addAttributes() { return { ...this.parent?.(), ...PARAGRAPH_STYLE_ATTRS }; } });
 const StyledHeading = Heading.extend({ addAttributes() { return { ...this.parent?.(), ...PARAGRAPH_STYLE_ATTRS }; } });
 
@@ -73,14 +101,16 @@ const StyledHeading = Heading.extend({ addAttributes() { return { ...this.parent
 // decoration-only, contributes nothing to the schema, and each editor needs
 // its own placeholder text) - DocumentBuilder.jsx appends it locally.
 export const BODY_EXTENSIONS = [
-  StarterKit.configure({ paragraph: false, heading: false }),
+  // link: false - StarterKit ships its own Link; the configured one below is
+  // the one in use (two registered as "link" was a TipTap warning on every mount).
+  StarterKit.configure({ paragraph: false, heading: false, link: false }),
   StyledParagraph, StyledHeading,
   // Inline, like Word: a picture lives in the run where it was placed, so a
   // Teams transcript's speaker avatar sits beside the name rather than on a
   // line of its own. The node view is already built for it
   // (.doc-image-wrap is display:inline-block, vertical-align:middle).
   ResizableImage.configure({ inline: true }),
-  Table.configure({ resizable: true }),
+  StyledTable.configure({ resizable: true }),
   TableRow, TableHeader, TableCell,
   MergeField, PageBreak, DocShape, DocTextbox, Bookmark, SectionBox,
   SignatureBlock,
