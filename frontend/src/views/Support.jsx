@@ -43,7 +43,6 @@ import { useIsMobile } from '../lib/useIsMobile';
 // To..."), Known Issues and "Expect a reply by" - each its own file in support/.
 import HelpCenterSearch from '../support/HelpCenterSearch';
 import HowDoI from '../support/HowDoI';
-import KnownIssuesBanner from '../support/KnownIssues';
 import ExpectReply from '../support/ExpectReply';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
@@ -596,7 +595,6 @@ export default function Support({ activeSub, onSubChange }) {
         </div>
       </div>
 
-      <KnownIssuesBanner />
       <HelpCenterSearch onFileTicket={(seed) => setSubmitting(seed || true)} />
 
       <div className="support-grid" data-tour="support-options">
