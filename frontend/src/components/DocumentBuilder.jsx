@@ -166,6 +166,25 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
     editable,
     onUpdate: () => onUpdate(pageId),
     onSelectionUpdate: () => onActivity(pageId),
+    editorProps: {
+      // A variable dragged in (from the library or the Variables Used rail)
+      // is placed here, as a chip, and ProseMirror is told the drop is
+      // handled - left to itself it ALSO pastes the drag's plain-text
+      // "{{token}}" fallback, which the detector then turns into a second
+      // chip (Sagar, 11/04/2026: "it's coming two variables"). The page's
+      // onDrop below sees the mark and leaves a handled drop alone.
+      handleDrop: (view, event) => {
+        const token = variableFromDrop(event);
+        if (!token || !view.editable) return false;
+        event.preventDefault();
+        event.nxVariableHandled = true;
+        const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
+        const pos = at ? at.pos : view.state.selection.from;
+        view.dispatch(view.state.tr.insert(pos, view.state.schema.nodes.mergeField.create({ token })));
+        onActivity(pageId);
+        return true;
+      },
+    },
   });
   useEffect(() => {
     if (!editor) return;
@@ -1604,6 +1623,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     const token = variableFromDrop(e);
     if (!token) return;                       // some other drag (a file, text) - leave it alone
     e.preventDefault();
+    if (e.nativeEvent?.nxVariableHandled) return;   // the page editor placed it (handleDrop above)
     const ed = editorsRef.current.get(pageId);
     if (!ed) return;
     const at = ed.view.posAtCoords({ left: e.clientX, top: e.clientY });
