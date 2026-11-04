@@ -3666,6 +3666,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .doc-inline-editor .ProseMirror { min-height: 24px; }
 .doc-editor .ProseMirror p { margin: 0 0 10px; }
 .doc-editor .ProseMirror table { border-collapse: collapse; margin: 12px 0; width: 100%; }
+/* A table is never a scrolling box on a page (border-collapse rounds the
+   table a pixel wider than its wrapper, which showed a scrollbar under
+   every imported table); like Word, a wide one simply runs into the margin. */
+.doc-editor .tableWrapper { overflow-x: visible; }
 .doc-editor .ProseMirror td, .doc-editor .ProseMirror th { border: 1px solid var(--line); padding: 6px 9px; }
 .doc-editor .ProseMirror th { background: var(--mist); font-weight: 700; text-align: left; }
 /* A Word table with no borders (a layout table): faint gridlines while
