@@ -8,7 +8,7 @@
 // gets, or replacing one of that packet's (the standard confidentiality
 // agreement).
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Save, FileText, Upload, Eye, EyeOff, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Save, FileText, Upload, Eye, EyeOff, ExternalLink, AlertTriangle, ArrowUp, ArrowDown, BookOpen } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
@@ -145,9 +145,17 @@ function JdFromDocuments({ role, templates, onSaved, toastOk, toastErr }) {
   );
 }
 
+// The role's offer documents as the screen edits them: [{kind: 'jd'} | {kind: 'doc', templateId}].
+function offerRows(role) {
+  const rows = (role.offer_docs || []).map(d => (d.kind === 'jd' ? { kind: 'jd' } : { kind: 'doc', templateId: d.templateId || '' }));
+  return rows.some(d => d.kind === 'jd') ? rows : [{ kind: 'jd' }, ...rows];
+}
+
 export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
   const [duties, setDuties] = useState(role.job_description || '');
   const [docs, setDocs] = useState(() => (role.hiring_docs || []).map(d => ({ templateId: d.templateId, replaces: d.replaces || '' })));
+  // Sent with the offer letter, in this order (Pranshu, 11/04/2026) - the job description is one row, once.
+  const [offerDocs, setOfferDocs] = useState(() => offerRows(role));
   const [templates, setTemplates] = useState(null);
   const [busy, setBusy] = useState(false);
   const [jdMode, setJdMode] = useState(role.jd_template?.id ? 'docs' : role.jd_file?.name ? 'file' : 'type');
@@ -179,16 +187,24 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
     setBusy(false);
   }
   const byId = useMemo(() => Object.fromEntries((templates || []).map(t => [t.id, t])), [templates]);
-  const dirty = duties !== (role.job_description || '')
+  const dirty = JSON.stringify(offerDocs) !== JSON.stringify(offerRows(role))
+    || duties !== (role.job_description || '')
     || JSON.stringify(docs) !== JSON.stringify((role.hiring_docs || []).map(d => ({ templateId: d.templateId, replaces: d.replaces || '' })));
-  const incomplete = docs.some(d => !d.templateId);
+  const incomplete = docs.some(d => !d.templateId) || offerDocs.some(d => d.kind === 'doc' && !d.templateId);
+  const moveOffer = (i, by) => setOfferDocs(list => {
+    const j = i + by;
+    if (j < 0 || j >= list.length) return list;
+    const next = [...list];
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  });
   const setDoc = (i, patch) => setDocs(list => list.map((d, j) => (j === i ? { ...d, ...patch } : d)));
 
   async function save() {
     if (incomplete) { toastErr('Pick a document on every row, or remove the empty row.'); return; }
     setBusy(true);
     try {
-      const saved = await api.updateJobRole(role.id, { job_description: duties, hiring_docs: docs });
+      const saved = await api.updateJobRole(role.id, { job_description: duties, hiring_docs: docs, offer_docs: offerDocs });
       onSaved?.(saved);
       toastOk('Saved - every packet this role is hired with now uses these.');
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
@@ -233,7 +249,53 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
         </>
       )}
 
-      <div style={{ ...lbl, marginTop: 20 }}>Role Documents</div>
+      <div style={{ ...lbl, marginTop: 20 }}>Sent With The Offer Letter</div>
+      <div style={hint}>
+        The candidate gets one document to sign: the offer letter, then these in this order - for example an NDA, then the job description.
+        Use the arrows to change the order.
+      </div>
+      {templates === null ? <div style={{ marginTop: 10 }}><Spinner size={16} /></div> : (
+        <div role="list" aria-label="Sent with the offer letter" style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--mist)', fontSize: 13, fontWeight: 600 }}>
+            <FileText size={15} style={{ color: 'var(--muted)' }} /> Offer Letter <span style={{ fontWeight: 500, color: 'var(--muted)' }}>- always first</span>
+          </div>
+          {offerDocs.map((d, i) => (
+            <div key={d.kind === 'jd' ? 'jd' : `doc-${i}`} role="listitem" data-offer-row={d.kind === 'jd' ? 'jd' : d.templateId || 'new'}
+              style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
+              <span style={{ width: 18, color: 'var(--muted)', fontWeight: 700, fontSize: 12.5 }}>{i + 2}</span>
+              {d.kind === 'jd' ? (
+                <span style={{ flex: '2 1 200px', display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 600 }}>
+                  <BookOpen size={15} style={{ color: 'var(--pine)' }} /> Job Description
+                  <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: 12.5 }}>- with the page they tick to say they read it</span>
+                </span>
+              ) : (
+                <select aria-label={`Offer document ${i + 2}`} className="form-input" style={{ flex: '2 1 200px', minWidth: 0 }} value={d.templateId}
+                  onChange={e => setOfferDocs(list => list.map((x, j) => (j === i ? { kind: 'doc', templateId: e.target.value } : x)))}>
+                  <option value="">- pick a document -</option>
+                  {(templates || []).filter(t => (t.category || '') !== 'job_description')
+                    .filter(t => t.id === d.templateId || !offerDocs.some(x => x.templateId === t.id))
+                    .map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {d.templateId && !byId[d.templateId] && <option value={d.templateId}>A template that is not active</option>}
+                </select>
+              )}
+              <button type="button" className="secondary-btn" onClick={() => moveOffer(i, -1)} disabled={i === 0}
+                aria-label={`Move ${d.kind === 'jd' ? 'Job Description' : `document ${i + 2}`} up`} title="Move up" style={{ padding: '6px 9px' }}><ArrowUp size={13} /></button>
+              <button type="button" className="secondary-btn" onClick={() => moveOffer(i, 1)} disabled={i === offerDocs.length - 1}
+                aria-label={`Move ${d.kind === 'jd' ? 'Job Description' : `document ${i + 2}`} down`} title="Move down" style={{ padding: '6px 9px' }}><ArrowDown size={13} /></button>
+              {d.kind !== 'jd' && (
+                <button type="button" className="secondary-btn" onClick={() => setOfferDocs(list => list.filter((_, j) => j !== i))}
+                  aria-label={`Remove document ${i + 2}`} title="Remove" style={{ padding: '6px 9px' }}><Trash2 size={13} /></button>
+              )}
+            </div>
+          ))}
+          <div>
+            <button type="button" className="secondary-btn" onClick={() => setOfferDocs(list => [...list, { kind: 'doc', templateId: '' }])}
+              disabled={offerDocs.length >= 11} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add Document To The Offer</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ ...lbl, marginTop: 20 }}>Sent With The Hiring Packet</div>
       <div style={hint}>
         Documents only this role signs - for example its own confidentiality agreement. They go out with whatever packet the person is hired with
         (California, Texas, India...). Replaces swaps out one of the packet&apos;s documents; otherwise the document is added after the packet&apos;s own.

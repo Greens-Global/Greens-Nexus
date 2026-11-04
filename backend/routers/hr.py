@@ -828,9 +828,17 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
                        "jdFile": ((r.jd_file or {}).get("name") or "") if (r.jd_file or {}).get("path") else "",
                        # Or a Documents template, live (11/04/2026).
                        "jdTemplateId": r.jd_template_id or "",
+                       # What goes with the offer letter, in order (11/04/2026) - its names for the offer form.
+                       "offerDocs": _offer_docs_of(db, r),
                        "hasDuties": bool((r.job_description or r.description or "").strip())}
                       for r in roles],
             "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES)}
+
+
+def _offer_docs_of(db: Session, role) -> list:
+    """[{kind, templateId, name}] the role sends with its offer, in order (11/04/2026)."""
+    from routers.jobroles import _ser_offer_docs
+    return _ser_offer_docs(db, getattr(role, "offer_docs", None) or [])
 
 
 def _cand_in_scope(c: Optional[HrCandidate], scope) -> HrCandidate:

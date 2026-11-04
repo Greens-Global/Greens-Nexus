@@ -1375,17 +1375,49 @@ def attach_jd(letter_pdf: bytes, letter_fields: list, jd_pdf: bytes, jd_fields: 
     """(pdf, fields): the letter's pages, the job description's, then the
     acknowledgment page with the signer's required tick box. The job
     description's own boxes move with its pages."""
+    return fold_offer(letter_pdf, letter_fields, [(jd_pdf, jd_fields, True)], signer=signer, job_title=job_title)
+
+
+def offer_order(d: dict) -> list:
+    """What follows the offer letter, in the role's order (Pranshu, 11/04/2026):
+    template ids, and 'jd' once for the job description - first when the
+    role never placed it."""
+    out = []
+    for r in d.get("role_offer_docs") or []:
+        if not isinstance(r, dict):
+            continue
+        key = "jd" if r.get("kind") == "jd" else str(r.get("templateId") or "")
+        if key and key not in out:
+            out.append(key)
+    if "jd" not in out:
+        out.insert(0, "jd")
+    return out
+
+
+def fold_offer(letter_pdf: bytes, letter_fields: list, parts: list, *, signer: str, job_title: str) -> tuple:
+    """(pdf, fields): the letter, then each part [(pdf, fields, is_jd)] in
+    order - the job description followed by its read-it page with the
+    signer's required tick box. Every part's own boxes move with its pages."""
     import io
     from pypdf import PdfReader, PdfWriter
-    letter, jd = PdfReader(io.BytesIO(letter_pdf)), PdfReader(io.BytesIO(jd_pdf))
+    letter = PdfReader(io.BytesIO(letter_pdf))
     out = PdfWriter()
-    for page in list(letter.pages) + list(jd.pages) + list(PdfReader(io.BytesIO(jd_ack_page(job_title))).pages):
+    for page in letter.pages:
         out.add_page(page)
-    n, m = len(letter.pages), len(jd.pages)
-    fields = list(letter_fields) + [{**f, "id": f"jd-{f['id']}", "page": int(f.get("page") or 0) + n}
-                                    for f in jd_fields]
-    fields.append({"id": "jd-ack", "role": signer, "type": "check", "label": JD_ACK_LABEL, "required": True,
-                   "page": n + m, **JD_ACK_BOX})
+    n, fields = len(letter.pages), list(letter_fields)
+    for i, (pdf, part_fields, is_jd) in enumerate(parts):
+        reader = PdfReader(io.BytesIO(pdf))
+        for page in reader.pages:
+            out.add_page(page)
+        tag = "jd" if is_jd else f"o{i + 1}"
+        fields += [{**f, "id": f"{tag}-{f['id']}", "page": int(f.get("page") or 0) + n} for f in part_fields]
+        n += len(reader.pages)
+        if is_jd:
+            for page in PdfReader(io.BytesIO(jd_ack_page(job_title))).pages:
+                out.add_page(page)
+            fields.append({"id": "jd-ack", "role": signer, "type": "check", "label": JD_ACK_LABEL, "required": True,
+                           "page": n, **JD_ACK_BOX})
+            n += 1
     buf = io.BytesIO()
     out.write(buf)
     return buf.getvalue(), fields
@@ -1406,20 +1438,35 @@ def offer_jd_pdf(ev) -> Optional[bytes]:
 
 
 def offer_with_jd(ev, rendered: list, *, signer: str) -> list:
-    """The offer's rendered documents [(row, entry, pdf, fields)] with the job
-    description folded into the first - the offer letter."""
+    """The offer's rendered documents [(row, entry, pdf, fields)] folded into
+    the first - the offer letter: then the role's documents and its job
+    description in the role's order (11/04/2026), one document to sign."""
     import hr_life_events as hle
     d = ev.inputs or {}
+    rest = list(rendered[1:])
+
+    def take(tid):
+        hit = next((r for r in rest if r[1].get("templateId") == tid), None)
+        if hit is not None:
+            rest.remove(hit)
+        return hit
     jd_pdf, jd_fields = offer_jd_pdf(ev), []
     if jd_pdf is None:
-        hit = next((r for r in rendered[1:] if r[1].get("templateId") == d.get("jd_template_id")), None)
+        hit = take(d.get("jd_template_id"))
         if hit is None:
             raise hle.PacketError("The job description is missing from this offer - click Edit and pick it again.", 409)
-        rendered = [r for r in rendered if r is not hit]
         jd_pdf, jd_fields = hit[2], hit[3]
+    parts = []
+    for key in offer_order(d):
+        if key == "jd":
+            parts.append((jd_pdf, jd_fields, True))
+        else:
+            hit = take(key)
+            if hit is not None:
+                parts.append((hit[2], hit[3], False))
     row, e, pdf, fields = rendered[0]
-    pdf, fields = attach_jd(pdf, fields, jd_pdf, jd_fields, signer=signer, job_title=d.get("job_title", ""))
-    return [(row, e, pdf, fields)] + rendered[1:]
+    pdf, fields = fold_offer(pdf, fields, parts, signer=signer, job_title=d.get("job_title", ""))
+    return [(row, e, pdf, fields)] + rest
 
 
 def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dict, *,
@@ -2119,6 +2166,9 @@ def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str
         ids = with_role_docs(ids, d.get("role_docs"))
     if kind == "offer":
         jd = "" if not d.get("jd_in_offer") or d.get("role_jd_file") else d.get("jd_template_id") or ""
+        if d.get("jd_in_offer"):
+            # The role's documents that go with the offer (11/04/2026).
+            ids += [t for t in offer_order(d) if t != "jd" and t not in ids]
     else:
         jd = "" if d.get("jd_in_offer") else d.get("jd_template_id") or ""
     if jd and jd not in ids:

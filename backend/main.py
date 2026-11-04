@@ -1527,6 +1527,8 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN jd_template_id VARCHAR DEFAULT ''",
             # A company's IT Support Contact (Nov 4 2026) - see the Postgres list.
             "ALTER TABLE hr_entities ADD COLUMN it_contact_email VARCHAR DEFAULT ''",
+            # A role's documents sent with the offer, in order (Nov 4 2026) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN offer_docs JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3682,6 +3684,8 @@ def _run_migrations():
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS jd_template_id VARCHAR DEFAULT ''",
         # A company's IT Support Contact (Nov 4 2026): models.HrEntity.it_contact_email.
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS it_contact_email VARCHAR DEFAULT ''",
+        # A role's documents sent with the offer letter, in order (Nov 4 2026): models.NexusGroup.offer_docs.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS offer_docs JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -33,6 +33,12 @@ const COUNTRY_NAMES = { US: 'United States', IN: 'India', CA: 'Canada', GB: 'Uni
 const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
 // Preview before Create (Neil, 11/04/2026): the letter and job description as they will go, with Back to fix.
 const STEPS = [['who', 'Who You Are Hiring'], ['offer', 'The Offer'], ['questions', 'Questions'], ['preview', 'Preview']];
+// What follows the letter, in the role's order (Pranshu, 11/04/2026): "offer letter, NDA then Job description".
+const offerAfter = (role, jdFile) => {
+  const order = role?.offerDocs?.length ? role.offerDocs : [{ kind: 'jd' }];
+  return order.map(d => (d.kind === 'jd' ? (jdFile ? `the job description (${jdFile})` : 'the job description') : d.name || 'a role document'))
+    .join(', then ');
+};
 // A template opens in Documents in its own browser tab, so this offer keeps everything typed.
 const openTemplate = (id) => window.open(`/documents/documents-templates?template=${encodeURIComponent(id)}`, '_blank', 'noopener');
 
@@ -286,7 +292,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             <>
               <div><CheckCircle size={14} style={{ verticalAlign: 'middle', color: 'hsl(var(--color-green))', marginRight: 6 }} /><b>Offer letter:</b> {letter.name}</div>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                After the letter: {jdFile ? `the role's job description file (${jdFile})` : 'the role\'s job description'}, with a box {first} ticks to say they read it.
+                After the letter: {offerAfter(pickedRole, jdFile)}, with a box {first} ticks to say they read the job description.
               </div>
               <div style={{ marginTop: 4 }}>
                 {packet ? <>

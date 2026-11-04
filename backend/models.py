@@ -764,6 +764,11 @@ class NexusGroup(Base):
     # updated"): its PUBLISHED wording prints after the offer letter, read
     # when each offer is made. '' = the typed duties or the file.
     jd_template_id  = Column(String, default="")
+    # What goes WITH the offer letter, in order (Pranshu, 11/04/2026: "if we
+    # put NDA at 1st order then in offer letter candidate will see offer
+    # letter, NDA then Job description"): [{"kind": "jd"} | {"kind": "doc",
+    # "templateId"}]. The job description is one item, once; [] = it alone.
+    offer_docs      = Column(JSON, default=list)
 
 
 class NexusGroupMember(Base):

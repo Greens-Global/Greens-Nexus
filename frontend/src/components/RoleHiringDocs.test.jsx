@@ -29,6 +29,24 @@ const removeRoleJdFile = vi.fn(id => Promise.resolve({ id, jd_file: {} }));
 const { default: RoleHiringDocs } = await import('./RoleHiringDocs');
 
 describe('RoleHiringDocs', () => {
+  // Pranshu, 11/04/2026: "if we put NDA at 1st order then in offer letter candidate will see offer letter, NDA then Job description".
+  it('orders the documents sent with the offer letter, the job description among them', async () => {
+    updateJobRole.mockClear();
+    render(<RoleHiringDocs role={{ id: 'jr-admin', name: 'Admin Associate', job_description: 'Runs the office.', hiring_docs: [] }}
+      toastOk={() => {}} toastErr={() => {}} />);
+    const list = await screen.findByRole('list', { name: 'Sent with the offer letter' });
+    expect(list.querySelector('[data-offer-row="jd"]')).toBeTruthy();                 // the job description is always there
+    fireEvent.click(screen.getByText('Add Document To The Offer'));
+    const pick = screen.getByLabelText('Offer document 3');
+    expect([...pick.options].map(o => o.textContent)).not.toContain('Admin Associate JD');   // job descriptions sit in their own row
+    fireEvent.change(pick, { target: { value: 't-nda' } });
+    fireEvent.click(screen.getByLabelText('Move document 3 up'));
+    expect([...list.querySelectorAll('[data-offer-row]')].map(r => r.getAttribute('data-offer-row'))).toEqual(['t-nda', 'jd']);
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(updateJobRole).toHaveBeenCalled());
+    expect(updateJobRole.mock.calls[0][1].offer_docs).toEqual([{ kind: 'doc', templateId: 't-nda' }, { kind: 'jd' }]);
+  });
+
   // Pranshu, 11/04/2026: or pick it from Documents - linked, so a change there reaches the next offer.
   it('Pick From Documents links a Job Description template, saved on change', async () => {
     updateJobRole.mockClear();
@@ -66,7 +84,7 @@ describe('RoleHiringDocs', () => {
     fireEvent.change(screen.getByLabelText('Replaces'), { target: { value: 't-nda' } });
     fireEvent.click(screen.getByText('Save'));
     await waitFor(() => expect(updateJobRole).toHaveBeenCalledWith('jr-con', {
-      job_description: 'Frames walls.', hiring_docs: [{ templateId: 't-nda-con', replaces: 't-nda' }] }));
+      job_description: 'Frames walls.', hiring_docs: [{ templateId: 't-nda-con', replaces: 't-nda' }], offer_docs: [{ kind: 'jd' }] }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 

@@ -541,14 +541,17 @@ def role_paperwork(role) -> dict:
     Job Description prints, the role's own documents and its job description
     file (Neil, 11/03/2026), frozen into an offer's details."""
     if role is None:
-        return {"role_description": "", "role_docs": [], "role_jd_file": {}, "role_jd_template": ""}
+        return {"role_description": "", "role_docs": [], "role_jd_file": {}, "role_jd_template": "",
+                "role_offer_docs": []}
     docs = [{"templateId": str(r.get("templateId") or ""), "replaces": str(r.get("replaces") or "")}
             for r in (getattr(role, "hiring_docs", None) or []) if isinstance(r, dict) and r.get("templateId")]
     f = getattr(role, "jd_file", None) or {}
     return {"role_description": (getattr(role, "job_description", "") or role.description or "").strip(),
             "role_docs": docs, "role_jd_file": dict(f) if isinstance(f, dict) and f.get("path") else {},
             # A job description kept in Documents (11/04/2026): its published wording, live.
-            "role_jd_template": (getattr(role, "jd_template_id", "") or "") if not (isinstance(f, dict) and f.get("path")) else ""}
+            "role_jd_template": (getattr(role, "jd_template_id", "") or "") if not (isinstance(f, dict) and f.get("path")) else "",
+            # What goes with the offer letter, in order (11/04/2026), frozen into the offer.
+            "role_offer_docs": [dict(x) for x in (getattr(role, "offer_docs", None) or []) if isinstance(x, dict)]}
 
 
 def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
@@ -1164,14 +1167,15 @@ def offer_from_people(db: Session, company: str, department: str) -> dict:
 
 
 def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", role_id: str = "",
-              kind: str = "offer", role_docs=None) -> Optional[dict]:
+              kind: str = "offer", role_docs=None, offer_docs=None) -> Optional[dict]:
     """What a letter or packet needs from HR, for the offer form - with the
     documents it adds for this person's team and role (a hiring packet with
     the role's own documents filled in)."""
     if s is None:
         return None
     import hr_packet_docs as hpd
-    ids = hpd.template_ids_for(s, {"department": department, "role_id": role_id, "role_docs": role_docs or []}, kind)
+    ids = hpd.template_ids_for(s, {"department": department, "role_id": role_id, "role_docs": role_docs or [],
+                                   "jd_in_offer": True, "role_offer_docs": offer_docs or []}, kind)
     snaps, problems = hpd.load_snaps(db, ids)
     snaps = hpd.with_sources(s, snaps)
     tokens = {t for snap in snaps for t in snap.tokens}
@@ -1210,7 +1214,8 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
     from models import NexusGroup
     role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first() if role_id else None
     department = (role.department if role is not None else "") or department or cand.department or ""
-    out["offerLetter"] = _describe(db, letter, department, role_id)
+    out["offerLetter"] = _describe(db, letter, department, role_id,
+                                   offer_docs=role_paperwork(role)["role_offer_docs"])
     out["hiringPacket"] = _describe(db, packet, department, role_id, kind="hire",
                                     role_docs=role_paperwork(role)["role_docs"])
     from hr_packet_docs import name_of
