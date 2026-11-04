@@ -125,6 +125,24 @@ describe('Filing & Sorting tab', () => {
     await waitFor(() => expect(screen.queryByText(/could not be read just now/)).toBeNull());
   });
 
+  it('folders the server defers (its time budget ran out) are scanned next', async () => {
+    try { localStorage.setItem('filing-picked', JSON.stringify(['/Shared/A', '/Shared/B'])); } catch { /* jsdom */ }
+    filingScan.mockImplementation(({ paths } = {}) => {
+      if (paths.length === 2) {
+        // Lists A, runs out of time, hands B back.
+        return Promise.resolve(scanOf([row('A.pdf', { sourcePath: '/Shared/A/A.pdf', labeled: false, canonicalName: '' })],
+          { scannedRoots: ['/Shared/A'], deferred: ['/Shared/B'] }));
+      }
+      return Promise.resolve(scanOf([row('B.pdf', { sourcePath: '/Shared/B/B.pdf', labeled: false, canonicalName: '' })],
+        { scannedRoots: ['/Shared/B'] }));
+    });
+    render(<FilingTab />);
+    fireEvent.click(await screen.findByRole('button', { name: /Scan Now \(2 Folders\)/ }));
+    expect(await screen.findByText('B.pdf')).toBeTruthy();
+    expect(screen.getByText('A.pdf')).toBeTruthy();
+    expect(filingScan).toHaveBeenCalledWith({ paths: ['/Shared/B'] });
+  });
+
   it('walks ticked folders and their subfolders, a few per request', async () => {
     try { localStorage.setItem('filing-picked', JSON.stringify(['/Shared/A'])); } catch { /* jsdom */ }
     filingScan.mockImplementation(({ paths } = {}) => {
