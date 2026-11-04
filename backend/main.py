@@ -4466,7 +4466,8 @@ def _startup_seeds():
     except Exception as e:
         print(f"[startup] weather department seed skipped: {e}")
     # Asset Management Company field (Neil, 11/03/2026): every asset without a
-    # companyId gets the company the old inference gave it, ONCE (its
+    # companyId gets a STRONG answer (its Operating Entity or its lead property;
+    # an asset-manager guess is left blank for review) ONCE (its
     # nexus_settings mark; Activity Log entry + _rev bump per row; never
     # overwrites one already set). Before the construction pass below, which
     # reads it. Deployed API or a laptop's own SQLite only (should_run);

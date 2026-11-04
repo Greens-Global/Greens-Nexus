@@ -24,6 +24,7 @@ import os
 import tempfile
 import unittest
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
@@ -101,8 +102,10 @@ class PropertyCompanyTests(unittest.TestCase):
                                          payload=payload, updated_at=rev))
         self.db.commit()
 
-    def _save(self, user, row, logs=()):
-        out = PA.post_changes(changes(row, logs=logs), db=self.db, user=user)
+    def _save(self, user, row, logs=(), rows=None, records=()):
+        ch = changes(*(rows or [row]), logs=logs)
+        ch.warranties = PA.RowOps(upsert=list(records))
+        out = PA.post_changes(ch, db=self.db, user=user)
         self.db.expire_all()
         return out
 
@@ -111,10 +114,14 @@ class PropertyCompanyTests(unittest.TestCase):
         return (self.db.get(models.PropertyAsset, pid).payload or {}).get("companyId", "")
 
     def _refused(self, user, row):
-        with self.assertRaises(HTTPException) as cm:
-            PA.post_changes(changes(row), db=self.db, user=user)
-        self.db.rollback()
-        return cm.exception
+        """The save answers 200 with the row in `refused` (per row, never the
+        whole batch) - returned as (status_code, detail)."""
+        out = PA.post_changes(changes(row), db=self.db, user=user)
+        self.db.expire_all()
+        got = [r for r in out["refused"] if r["id"] == row["id"]]
+        self.assertEqual(len(got), 1, out)
+        self.assertNotIn(row["id"], out["revs"])
+        return SimpleNamespace(status_code=got[0]["status"], detail=got[0]["message"])
 
     # ── validation on the per-row save ──
     def test_an_unknown_company_is_refused(self):
@@ -219,41 +226,86 @@ class PropertyCompanyTests(unittest.TestCase):
         self._asset("lead", entity="Other Co")
         self._asset("parcel", parentId="lead")
         self._asset("mgr", contacts={"pm / asset manager": {"email": MANAGER}})
+        self._asset("mgrparcel", parentId="mgr")          # its lead is only a manager guess too
         self._asset("twin", entity="Twin")
         self._asset("kept", entity="Greens Storage", companyId="c2")
 
     def test_the_dry_run_lists_and_writes_nothing(self):
+        """Only strong answers are set; an asset-manager guess is listed for
+        review, never written."""
         self._seed_fill()
         plan = F.dry_run(self.db)
         self.assertEqual({i["assetId"]: (i["companyId"], i["how"]) for i in plan["set"]},
                          {"ent": ("c1", "its Operating Entity"), "lead": ("c2", "its Operating Entity"),
-                          "parcel": ("c2", "its lead property"), "mgr": ("c2", "its asset manager's company")})
+                          "parcel": ("c2", "its lead property")})
+        self.assertEqual({i["assetId"]: (i["companyId"], i["how"]) for i in plan["review"]},
+                         {"mgr": ("c2", "its asset manager's company"),
+                          "mgrparcel": ("c2", "its asset manager's company")})
         self.assertEqual([i["assetId"] for i in plan["blank"]], ["twin"])
         self.assertEqual(plan["kept"], 1)
         self.assertEqual(self._company("ent"), "")
         self.assertEqual(self.db.query(models.PropertyActivityLog).count(), 0)
 
-    def test_the_fill_sets_blanks_only_once_with_a_log_and_a_new_rev(self):
+    def test_the_fill_sets_strong_blanks_only_once_with_a_log_and_a_new_rev(self):
         self._seed_fill()
-        self.assertEqual(F.fill(self.db), 4)
+        self.assertEqual(F.fill(self.db), 3)
         self.db.expire_all()
         got = {p.id: (p.payload or {}).get("companyId", "") for p in self.db.query(models.PropertyAsset).all()}
-        self.assertEqual(got, {"ent": "c1", "lead": "c2", "parcel": "c2", "mgr": "c2", "twin": "", "kept": "c2"})
+        self.assertEqual(got, {"ent": "c1", "lead": "c2", "parcel": "c2", "mgr": "", "mgrparcel": "",
+                               "twin": "", "kept": "c2"})
         self.assertEqual(self.db.get(models.PropertyAsset, "kept").updated_at, "r0")     # never touched
+        self.assertEqual(self.db.get(models.PropertyAsset, "mgr").updated_at, "r0")      # a guess is never written
         self.assertNotEqual(self.db.get(models.PropertyAsset, "ent").updated_at, "r0")   # _rev bumped
         logs = {lg.property_id: lg.payload for lg in self.db.query(models.PropertyActivityLog).all()}
-        self.assertEqual(set(logs), {"ent", "lead", "parcel", "mgr"})
+        self.assertEqual(set(logs), {"ent", "lead", "parcel"})
         self.assertEqual(logs["parcel"]["reason"], "Company set from its lead property")
         self.assertEqual(logs["ent"]["changes"], [{"field": "Company", "from": "", "to": "Greens Storage"}])
         self.assertGreater(self.db.get(models.PropertyWorkspaceMeta, 1).ts, 0)
-        # An open tab still holding the old copy gets a conflict, never overwrites it.
-        out = PA.post_changes(changes({"id": "ent", "name": "Ent", "entity": "Greens Storage", "_rev": "r0"}),
-                              db=self.db, user=SUPER)
-        self.assertEqual(out["conflicts"], ["ent"])
+        # The read still falls back to the guess while the field is blank.
+        self.assertEqual(property_links.property_company(self.db, self.db.get(models.PropertyAsset, "mgr")), "c2")
         # Once: a later blank row is left for a person to set.
         self._asset("later", entity="Greens Storage")
         self.assertIsNone(F.fill(self.db))
         self.assertEqual(self._company("later"), "")
+
+    def test_a_save_queued_before_the_fill_is_taken_and_keeps_the_company(self):
+        """The deploy window: a tab queued an edit against the pre-fill rev.
+        The fill is the only change since, so it is not a conflict - the edit
+        lands and the filled company stays. Once anyone else saves the row,
+        the old rev is an ordinary conflict again."""
+        self._seed_fill()
+        F.fill(self.db)
+        out = self._save(EDITOR, {"id": "ent", "name": "Ent Renamed", "entity": "Greens Storage", "_rev": "r0"})
+        self.assertEqual(out["conflicts"], [])
+        row = self.db.get(models.PropertyAsset, "ent")
+        self.assertEqual((row.name, (row.payload or {}).get("companyId")), ("Ent Renamed", "c1"))
+        # An explicit blank from that tab is the pre-fill blank, not a clear.
+        out = self._save(EDITOR, {"id": "lead", "name": "Lead", "entity": "Other Co", "companyId": "", "_rev": "r0"})
+        self.assertEqual((out["conflicts"], self._company("lead")), ([], "c2"))
+        # The row has moved on since: the pre-fill rev conflicts now.
+        out = self._save(EDITOR, {"id": "ent", "name": "Old Tab", "entity": "Greens Storage", "_rev": "r0"})
+        self.assertEqual(out["conflicts"], ["ent"])
+        self.assertEqual(self.db.get(models.PropertyAsset, "ent").name, "Ent Renamed")
+        # A row the fill never touched keeps the plain rule.
+        out = self._save(EDITOR, {"id": "kept", "name": "Kept", "_rev": "stale"})
+        self.assertEqual(out["conflicts"], ["kept"])
+
+    def test_a_refused_row_does_not_drop_the_rest_of_the_batch(self):
+        self._asset("mine")
+        self._asset("away", companyId="c2")
+        log_ok = {"id": "lg-ok", "propertyId": "mine", "action": "edited", "ts": "2026-11-03T10:00:00Z"}
+        log_no = {"id": "lg-no", "propertyId": "away", "action": "edited", "ts": "2026-11-03T10:00:00Z"}
+        out = self._save(ADMIN_A, None, rows=[
+            {"id": "mine", "name": "Mine", "companyId": "c1", "_rev": "r0"},
+            {"id": "away", "name": "Away", "companyId": "c1", "_rev": "r0"},
+            {"id": "fresh", "name": "Fresh", "companyId": "c2"}], logs=[log_ok, log_no],
+            records=[{"id": "w1", "propertyId": "fresh", "scope": "Roof"}])
+        self.assertEqual({r["id"]: r["status"] for r in out["refused"]}, {"away": 403, "fresh": 403, "w1": 409})
+        self.assertEqual((self._company("mine"), self._company("away")), ("c1", "c2"))
+        self.assertIsNone(self.db.get(models.PropertyAsset, "fresh"))
+        self.assertIsNone(self.db.get(models.PropertyRecord, "w1"))
+        self.assertIsNotNone(self.db.get(models.PropertyActivityLog, "lg-ok"))
+        self.assertIsNone(self.db.get(models.PropertyActivityLog, "lg-no"))   # the change it describes did not land
 
     def test_the_fill_runs_on_the_deployed_api_or_a_local_sqlite_only(self):
         saved = {k: os.environ.pop(k, None) for k in ("WEBSITE_SITE_NAME", "NEXUS_BACKGROUND_WORKER", "NEXUS_ASANA_SYNC_WORKER")}

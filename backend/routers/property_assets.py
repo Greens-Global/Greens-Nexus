@@ -378,7 +378,8 @@ def _strip_rev(row: Dict[str, Any]) -> Dict[str, Any]:
 # an unwalled caller may clear it. An unchanged value is never re-checked (a
 # walled editor still saves the rest of a row placed elsewhere), and a row
 # saved without the key keeps the company it has (a tab that never read the
-# field cannot erase it - nothing is deleted by code).
+# field cannot erase it - nothing is deleted by code). A refused row is
+# reported in `refused` and the rest of the batch still saves.
 
 _COMPANY_KEY = "companyId"
 
@@ -395,29 +396,65 @@ class _Scope:
         return self._v
 
 
-def _check_company(db: Session, scope: "_Scope", existing, payload: Dict[str, Any]) -> None:
+def _check_company(db: Session, scope: "_Scope", existing, payload: Dict[str, Any]):
+    """None when the row's company may be saved as it stands, else the
+    refusal (status, message). A refusal is per ROW (review, 11/03/2026):
+    post_changes reports it in `refused` and saves the rest of the batch."""
     import auth
     from models import HrEntity
     had = str(((existing.payload or {}) if existing is not None else {}).get(_COMPANY_KEY) or "").strip()
     if _COMPANY_KEY not in payload:
         if had:
             payload[_COMPANY_KEY] = had
-        return
+        return None
     new = str(payload.get(_COMPANY_KEY) or "").strip()
     payload[_COMPANY_KEY] = new
     if new == had:
-        return
+        return None
     reach = scope.get()
     if had and reach is not None and db.get(HrEntity, had) is not None and had not in reach:
-        raise HTTPException(status_code=403, detail="This asset belongs to a company outside yours - a Super Administrator can move it.")
+        return 403, "This asset belongs to a company outside yours - a Super Administrator can move it."
     if not new:
         if reach is not None:
-            raise HTTPException(status_code=403, detail="Only a Super Administrator can clear an asset's company - pick another company instead.")
-        return
+            return 403, "Only a Super Administrator can clear an asset's company - pick another company instead."
+        return None
     if db.get(HrEntity, new) is None:
-        raise HTTPException(status_code=400, detail="That company is not in Nexus - pick one from the list.")
+        return 400, "That company is not in Nexus - pick one from the list."
     if not auth.company_ok(new, reach):
-        raise HTTPException(status_code=403, detail="You can put an asset only in a company you manage.")
+        return 403, "You can put an asset only in a company you manage."
+    return None
+
+
+class _FillRevs:
+    """What the one-time Company fill did to each row (asset_company_fill),
+    read once per batch and only when a stale row needs it."""
+    def __init__(self, db: Session):
+        self.db, self._v = db, None
+
+    def get(self) -> dict:
+        if self._v is None:
+            import asset_company_fill
+            self._v = asset_company_fill.filled_revs(self.db)
+        return self._v
+
+
+def _filled_since(fill: "_FillRevs", existing, rev) -> str:
+    """The company the one-time fill set on this row when the fill is the ONLY
+    change since the tab read it (its rev is the pre-fill one and the row
+    still carries the fill's stamp) - '' otherwise. A save a tab queued over
+    the deploy window is then not a conflict: it is taken, and the row keeps
+    the filled company (review, 11/03/2026). A row stamped by anyone after
+    the fill is an ordinary conflict again."""
+    if existing is None:
+        return ""
+    entry = fill.get().get(existing.id) or {}
+    if not entry or existing.updated_at != entry.get("to"):
+        return ""
+    before = entry.get("from") or ""
+    # An unstamped row took any save before the fill (_stale), so it still does.
+    if before and str(rev or "") != before:
+        return ""
+    return str(entry.get("companyId") or "")
 
 
 def assignable_companies(db: Session, user) -> List[Dict[str, Any]]:
@@ -453,7 +490,10 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
     email = (user or {}).get("email", "")
     sees_private, allowed = _reach(db, user)
     company_scope = _Scope(db, user)
+    fill = _FillRevs(db)
     conflicts: List[str] = []
+    refused: List[Dict[str, Any]] = []   # rows the server would not take: {id, status, message}
+    refused_new: set = set()             # new assets refused - their records in this batch wait with them
     trashed: List[str] = []        # live assets a Delete Forever only moved to the Trash
     revs: Dict[str, str] = {}      # id -> the updated_at every written row now carries
 
@@ -506,10 +546,21 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
         existing = db.get(PropertyAsset, pid)
         guard(pid, existing, row)
         if _stale(existing, row.get("_rev")):
-            conflicts.append(pid)
-            continue
+            filled = _filled_since(fill, existing, row.get("_rev"))
+            if not filled:
+                conflicts.append(pid)
+                continue
+            # Queued before the one-time fill: taken, keeping the filled company
+            # unless the person picked one themselves.
+            if not str(row.get(_COMPANY_KEY) or "").strip():
+                row[_COMPANY_KEY] = filled
         payload = _strip_rev(row)
-        _check_company(db, company_scope, existing, payload)
+        why = _check_company(db, company_scope, existing, payload)
+        if why:
+            refused.append({"id": pid, "status": why[0], "message": why[1]})
+            if existing is None:
+                refused_new.add(pid)
+            continue
         revs[pid] = now
         if existing is None:
             db.add(PropertyAsset(id=pid, name=str(payload.get("name") or ""), manager=str(payload.get("manager") or ""),
@@ -528,7 +579,8 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
         if existing is None:
             continue
         guard(existing.id, existing)
-        if _stale(existing, ch.properties.deleteRevs.get(str(pid))):
+        if (_stale(existing, ch.properties.deleteRevs.get(str(pid)))
+                and not _filled_since(fill, existing, ch.properties.deleteRevs.get(str(pid)))):
             conflicts.append(existing.id)
             continue
         # Delete Forever is only for an asset already in the Trash; a live one
@@ -551,6 +603,9 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             if not rid:
                 continue
             pid = str(row.get("propertyId") or "")
+            if pid in refused_new:
+                refused.append({"id": rid, "status": 409, "message": "Its asset was not saved."})
+                continue
             guard(pid, db.get(PropertyAsset, pid) if pid else None)
             existing = db.get(PropertyRecord, rid)
             # Moving a record also needs reach over the asset it is leaving.
@@ -578,7 +633,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
                 continue
             db.delete(existing)
 
-    lost = set(conflicts)
+    lost = set(conflicts) | {r["id"] for r in refused}
     for entry in ch.logs.append:
         lid = str(entry.get("id") or "").strip()
         if not lid or db.get(PropertyActivityLog, lid) is not None:
@@ -600,7 +655,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
     meta.updated_by = email
     meta.updated_at = now
     db.commit()
-    return {"ok": True, "_ts": ts_ms, "conflicts": conflicts, "trashed": trashed, "revs": revs}
+    return {"ok": True, "_ts": ts_ms, "conflicts": conflicts, "trashed": trashed, "revs": revs, "refused": refused}
 
 
 @router.get("/property-assets/metrics")

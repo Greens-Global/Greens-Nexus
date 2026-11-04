@@ -152,12 +152,20 @@ def stored_company(db, prop) -> str:
     return cid if cid and db.get(models.HrEntity, cid) is not None else ""
 
 
-def infer_company(db, prop, names=None, _lead: bool = True) -> tuple:
+MANAGER_GUESS = "its asset manager's company"
+
+
+def infer_company(db, prop, names=None, _lead: bool = True, strong: bool = False) -> tuple:
     """(company id, how) from what the row says about itself, never its
     Company field: its Operating Entity matched to exactly ONE company (name
     or legal name - a name two companies share places nothing), else, for a
     parcel, its lead property's company, else its asset manager's company.
-    ('', '') when nothing places it. `how` is the Activity Log wording."""
+    ('', '') when nothing places it. `how` is the Activity Log wording.
+
+    `strong=True` stops before the asset manager: who manages a property is
+    a weak guess at who owns it, good enough for a read while the field is
+    blank, never written to the row (review, 11/03/2026 - the one-time fill
+    asks with strong=True)."""
     if prop is None:
         return "", ""
     pl = prop.payload or {}
@@ -170,9 +178,15 @@ def infer_company(db, prop, names=None, _lead: bool = True) -> tuple:
     parent_id = (prop.parent_id or str(pl.get("parentId") or "")).strip()
     if _lead and parent_id and parent_id != prop.id:
         lead = db.get(models.PropertyAsset, parent_id)
-        cid = stored_company(db, lead) or infer_company(db, lead, names, _lead=False)[0]
+        cid, how = stored_company(db, lead), "its lead property"
+        if not cid:
+            cid, lead_how = infer_company(db, lead, names, _lead=False, strong=strong)
+            # A lead placed only by its manager is the same weak guess for its parcel.
+            how = MANAGER_GUESS if lead_how == MANAGER_GUESS else how
         if cid:
-            return cid, "its lead property"
+            return cid, how
+    if strong:
+        return "", ""
     mgr = manager_email(db, prop)
     if mgr:
         from sqlalchemy import func
@@ -180,7 +194,7 @@ def infer_company(db, prop, names=None, _lead: bool = True) -> tuple:
                .filter(func.lower(models.NexusEmployee.work_email) == mgr).first())
         cid = ((emp.company if emp is not None else "") or "").strip()
         if cid and db.get(models.HrEntity, cid) is not None:
-            return cid, "its asset manager's company"
+            return cid, MANAGER_GUESS
     return "", ""
 
 
