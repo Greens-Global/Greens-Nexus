@@ -58,9 +58,12 @@ def _acquire_sweep_lock(db) -> None:
         db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _CONSTRUCTION_SWEEP_LOCK_KEY})
 
 
-# One answer per property per sweep tick: a batch of 20 photos from one job
-# must not list the Egnyte roots 20 times. Cleared at the start of every tick
-# (sweep_once), so a folder made or renamed in Egnyte is seen a minute later.
+# One answer per property (and one job folder per job) per sweep tick: a
+# batch of 20 photos from one job must not list the Egnyte roots 20 times -
+# nor, while Egnyte is down, fail 20 times over by re-listing them (a lookup
+# that raised is remembered and raised again). Cleared at the start of every
+# tick (sweep_once), so a folder made or renamed in Egnyte is seen a minute
+# later.
 _FOLDER_MEMO: dict = {}
 
 
@@ -84,17 +87,20 @@ def property_folder(db, project, memo: dict | None = None) -> tuple[str, str]:
 
     Where the folder comes from: Nexus stores no Egnyte folder on a property
     (the Asset Management record has none, and the wiring registry has no
-    per-property slot), so a property's folder is the one the Egnyte module's
-    own resolver finds - `services/egnyte.resolve_property_folder` over the
-    `property.roots` wiring (#Entities, then --Asset Management), matched on
-    the Asset Management property's name. That resolver only ever answers a
-    folder that EXISTS; it never makes one up.
+    per-property slot), so a property's folder is the one the Egnyte module
+    finds over the `property.roots` wiring (#Entities, then --Asset
+    Management) by the Asset Management property's name - through
+    `services/egnyte.find_property_folder`, the UNATTENDED form of the
+    resolver: an exact or site-key match, or a substring match only when it
+    is the one candidate across every root. It only ever answers a folder
+    that EXISTS; it never makes one up.
 
-    `why` is 'matched' with a folder, else the reason it is '' - 'no_property',
-    'property_missing', 'property_unnamed' or 'no_egnyte_folder' - and the
-    file goes to the construction root (today's behavior), logged.
-    Egnyte not answering at all raises (strict), so the row is retried rather
-    than filed at the root for good.
+    `why` is 'matched' with a folder, else the reason it is '' -
+    'no_property', 'property_missing', 'property_unnamed', 'ambiguous' or
+    'no_egnyte_folder' - and the file goes to the construction root (today's
+    behavior), logged. Egnyte not answering raises (and keeps raising for
+    the rest of the tick), so the row is retried rather than filed at the
+    root for good.
 
     (Until 11/03/2026 this read `models.Property`, which does not exist, so
     every file went to the construction root.)"""
@@ -102,8 +108,12 @@ def property_folder(db, project, memo: dict | None = None) -> tuple[str, str]:
     if not pid:
         return "", "no_property"
     memo = _FOLDER_MEMO if memo is None else memo
-    if pid in memo:
-        return memo[pid]
+    key = ("property", pid)
+    if key in memo:
+        got = memo[key]
+        if isinstance(got, Exception):
+            raise got
+        return got
     prop = db.get(models.PropertyAsset, pid)
     name = (getattr(prop, "name", "") or "").strip() if prop else ""
     if prop is None:
@@ -111,10 +121,41 @@ def property_folder(db, project, memo: dict | None = None) -> tuple[str, str]:
     elif not name:
         out = ("", "property_unnamed")
     else:
-        resolved = egnyte_svc.resolve_property_folder(name, strict=True)
-        out = (egnyte_svc.norm(resolved), "matched") if resolved else ("", "no_egnyte_folder")
-    memo[pid] = out
+        try:
+            found, why = egnyte_svc.find_property_folder(name)
+        except Exception as e:
+            memo[key] = e
+            raise
+        out = ((egnyte_svc.norm(found), "matched") if found
+               else ("", "ambiguous" if why == "ambiguous" else "no_egnyte_folder"))
+    memo[key] = out
     return out
+
+
+def job_folder_name(db, project, prop_folder: str, memo: dict | None = None) -> str:
+    """The job's folder inside `<property folder>/Construction/`.
+
+    Built from the job code (else the first 8 of its id) and its name -
+    `GSVC-2026-04 - Phase 2 Canopy`. Once a file of the job has been filed
+    there, that folder is reused for good, so renaming the job (or giving it
+    a code later) never splits its files across two folders."""
+    memo = _FOLDER_MEMO if memo is None else memo
+    key = ("job", project.id, prop_folder.lower())
+    if key in memo:
+        return memo[key]
+    prefix = f"{prop_folder}/{storage.PROPERTY_SUBFOLDER}/"
+    filed = (db.query(models.ConstructionMedia.egnyte_path)
+             .filter(models.ConstructionMedia.project_id == project.id,
+                     models.ConstructionMedia.egnyte_status == "uploaded",
+                     models.ConstructionMedia.egnyte_path.startswith(prefix, autoescape=True))
+             .order_by(models.ConstructionMedia.egnyte_synced_at).first())
+    seg = ""
+    if filed and filed[0]:
+        seg = filed[0][len(prefix):].split("/", 1)[0]
+    if not seg:
+        seg = storage.job_segment(project.name, getattr(project, "code", "") or "", project.id)
+    memo[key] = seg
+    return seg
 
 
 def media_folder(db, project, day: str, memo: dict | None = None) -> str:
@@ -127,8 +168,7 @@ def media_folder(db, project, day: str, memo: dict | None = None) -> str:
     since August."""
     folder, why = property_folder(db, project, memo)
     if folder:
-        job = storage.job_segment(project.name, getattr(project, "code", "") or "", project.id)
-        return storage.property_job_log_folder(folder, job, day)
+        return storage.property_job_log_folder(folder, job_folder_name(db, project, folder, memo), day)
     if why != "no_property":
         print(f"[construction] job {project.id} ({project.name}): property "
               f"{project.property_id} has no Egnyte folder ({why}) - filing at the construction root")
@@ -203,46 +243,65 @@ _REASON_WORDS = {
     "property_missing": "The job's property is not in Asset Management.",
     "property_unnamed": "The job's property has no name to find its folder by.",
     "no_egnyte_folder": "No Egnyte folder was found for the property.",
+    "ambiguous": "More than one Egnyte folder could be the property's - none was picked.",
     "egnyte_unreachable": "Egnyte did not answer while looking for the property's folder.",
     "egnyte_not_connected": "Egnyte is not connected on this server.",
 }
 
 
-def root_filed_report(db, projects, limit: int = 2000) -> dict:
+def root_filed_report(db, projects, user: dict, limit: int = 2000) -> dict:
     """Which construction files already in Egnyte sit outside their property's
     folder, and where the sweep would file each one today.
 
     READ ONLY (Neil, 11/03/2026): nothing is moved, copied or deleted - the
-    list is for Neil to decide on a move later. Every job with a property is
-    looked at; a job without one belongs at the construction root and is not
-    listed. A file already under `<property folder>/Construction/` is where
-    it belongs and is not listed either. A property whose folder cannot be
-    found is listed with an empty destination and the reason.
+    list is for Neil to decide on a move later. Every live job with a
+    property is looked at; a job without one belongs at the construction
+    root and is not listed. A file already under `<property folder>/
+    Construction/` is where it belongs and is not listed either. A file that
+    went to the root because its property's folder cannot be found (no
+    match, more than one candidate, a renamed folder) is listed with an
+    empty destination and the reason - those are the ones the sweep is
+    STILL filing at the root.
+
+    Left out: deleted jobs and deleted media, and media on a draft log the
+    caller did not write (a draft is private to its author). A PRIVATE
+    Asset Management property's name and folder are blanked unless the
+    caller may see private assets (property_links.viewable).
 
     Lists Egnyte (once per property) - call it from a thread or a sync route,
     never on the event loop."""
+    import property_links
+    me = ((user or {}).get("email") or "").strip().lower()
     memo: dict = {}
     ready = storage.egnyte_ready()
     rows, total = [], 0
     for p in projects:
-        if not (p.property_id or "").strip():
+        if not (p.property_id or "").strip() or p.deleted_at:
             continue
         folder, why = "", "egnyte_not_connected"
         if ready:
             try:
                 folder, why = property_folder(db, p, memo)
-            except Exception as e:   # strict resolver: Egnyte did not answer
+            except Exception as e:   # Egnyte did not answer
                 print(f"[construction] root-filed report: property {p.property_id}: {e}")
                 folder, why = "", "egnyte_unreachable"
-                memo[p.property_id] = (folder, why)
         prop = db.get(models.PropertyAsset, p.property_id)
+        shown = prop is None or property_links.viewable(prop, user)
+        drafts = {lid for (lid, author) in
+                  db.query(models.ConstructionDailyLog.id, models.ConstructionDailyLog.author_email)
+                  .filter(models.ConstructionDailyLog.project_id == p.id,
+                          models.ConstructionDailyLog.status == "draft").all()
+                  if (author or "").strip().lower() != me}
         media = (db.query(models.ConstructionMedia)
                  .filter(models.ConstructionMedia.project_id == p.id,
+                         models.ConstructionMedia.deleted_at == "",
                          models.ConstructionMedia.egnyte_status == "uploaded",
                          models.ConstructionMedia.egnyte_path != "")
                  .order_by(models.ConstructionMedia.uploaded_at).all())
         home = f"{folder}/{storage.PROPERTY_SUBFOLDER}/".lower() if folder else ""
         for m in media:
+            if m.daily_log_id and m.daily_log_id in drafts:
+                continue
             current = egnyte_svc.norm(m.egnyte_path or "")
             if home and current.lower().startswith(home):
                 continue
@@ -250,7 +309,7 @@ def root_filed_report(db, projects, limit: int = 2000) -> dict:
             if len(rows) >= limit:
                 continue
             dest_folder = ""
-            if folder:
+            if folder and shown:
                 day = _media_day(db, m)
                 try:
                     dest_folder = media_folder(db, p, day, memo) if day else ""
@@ -260,13 +319,13 @@ def root_filed_report(db, projects, limit: int = 2000) -> dict:
             rows.append({
                 "mediaId": m.id, "kind": m.kind or "",
                 "jobId": p.id, "jobName": p.name or "", "jobCode": p.code or "",
-                "jobDeleted": bool(p.deleted_at), "mediaDeleted": bool(m.deleted_at),
-                "propertyId": p.property_id, "propertyName": (getattr(prop, "name", "") or "") if prop else "",
+                "propertyId": p.property_id,
+                "propertyName": (getattr(prop, "name", "") or "") if prop and shown else "",
                 "currentPath": current, "currentUrl": m.egnyte_web_url or "",
                 "filedAt": m.egnyte_synced_at or "",
                 "destinationFolder": dest_folder,
                 "destinationPath": f"{dest_folder}/{name}" if dest_folder and name else "",
-                "reason": "" if folder else _REASON_WORDS.get(why, why),
+                "reason": "" if folder or not shown else _REASON_WORDS.get(why, why),
             })
     return {"rows": rows, "total": total, "truncated": total > len(rows),
             "egnyteConfigured": ready,

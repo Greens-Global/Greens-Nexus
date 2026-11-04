@@ -127,16 +127,21 @@ def daily_log_folder(property_folder: str, log_date: str) -> str:
 PROPERTY_SUBFOLDER = "Construction"
 
 
+def _segment_part(text: str) -> str:
+    return re.sub(r"\s+", " ", _UNSAFE.sub(" ", text or "")).strip(" .")
+
+
 def job_segment(name: str, code: str = "", job_id: str = "") -> str:
     """The job's own folder name inside the property's Construction folder:
-    its name, made safe for one Egnyte path segment (a "/" in a job name
-    would otherwise nest folders). The code, then the id, when the name has
-    nothing left."""
-    for cand in (name, code, job_id):
-        seg = re.sub(r"\s+", " ", _UNSAFE.sub(" ", cand or "")).strip(" .")
-        if seg:
-            return seg[:120]
-    return "Job"
+    its code (else the first 8 of its id) and its name, each made safe for
+    one Egnyte path segment (a "/" in a job name would otherwise nest
+    folders) - `GSVC-2026-04 - Phase 2 Canopy`. The sweep reuses whatever
+    folder a job's files already went to, so a later rename does not split
+    them (construction_worker.job_folder_name)."""
+    tag = _segment_part(code) or _segment_part((job_id or "")[:8])
+    label = _segment_part(name)
+    seg = f"{tag} - {label}" if tag and label and tag != label else (tag or label)
+    return seg[:120].strip(" .") or "Job"
 
 
 def property_job_log_folder(property_folder: str, job: str, log_date: str) -> str:

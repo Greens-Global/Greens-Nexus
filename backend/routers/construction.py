@@ -1854,14 +1854,17 @@ def egnyte_root_filed(limit: int = 2000, user: dict = Depends(get_current_user),
     copied or deleted: the list is for Neil to decide on a move.
 
     Managers and administrators, inside their company walls (a job in another
-    company is not listed). A sync route on purpose - it lists Egnyte once per
+    company is not listed); deleted jobs and media, other people's draft-log
+    media and a private property's name and folder are left out
+    (construction_worker.root_filed_report). A sync route on purpose - it lists Egnyte once per
     property, so FastAPI runs it in its thread pool, off the event loop."""
     if _level(user) < 3:
         raise HTTPException(403, "Managers and administrators only.")
     import construction_worker
     limit = max(1, min(int(limit or 2000), 5000))
     jobs = [p for p in db.query(models.ConstructionProject)
-            .filter(models.ConstructionProject.property_id != "")
+            .filter(models.ConstructionProject.property_id != "",
+                    models.ConstructionProject.deleted_at == "")
             .order_by(models.ConstructionProject.name).all()
             if _in_company(db, user, p)]
-    return construction_worker.root_filed_report(db, jobs, limit=limit)
+    return construction_worker.root_filed_report(db, jobs, user, limit=limit)
