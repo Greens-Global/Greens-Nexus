@@ -15,6 +15,7 @@ import { linesFile } from './linesExport';
 import SendReportDialog from './SendReportDialog';
 import AddMenu from './AddMenu';
 import EntryDetail from './EntryDetail';
+import { EgnyteField } from './LoanDialogs';
 import { DateField } from '../../tasks/components';
 import { dialog } from '../../ui/dialog';
 import SidePanel, { PanelSection } from './SidePanel';
@@ -1562,6 +1563,12 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
             {field('dueDay', 'Rent Due on Day', { type: 'number', min: 1, max: 28 })}
             {field('graceDays', 'Late After (days past due)', { type: 'number', min: 0, max: 60 })}
           </div>
+
+          {/* Nov 3 (Urmi, Teams: "no Browse folder for us to connect the lease
+              documents"): the lease's Egnyte folder, like MRE's vendor one. */}
+          <EgnyteField id="lease-egnyte" labelText={isLease ? 'Lease Documents Folder (Egnyte)' : 'Documents Folder (Egnyte)'}
+            value={l.egnyteFolder || ''} url={l.egnyteFolder && l.egnyteFolder === lease.egnyteFolder ? lease.egnyteUrl : null}
+            onChange={(v) => set({ egnyteFolder: v })} />
 
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

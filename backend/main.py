@@ -1560,6 +1560,8 @@ def _run_migrations():
             "ALTER TABLE construction_media ADD COLUMN source_media_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_media ADD COLUMN task_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_weekly_reports ADD COLUMN pair_ids JSON DEFAULT '[]'",
+            # MRI lease documents folder (Urmi, 11/03/2026) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3711,6 +3713,10 @@ def _run_migrations():
         "ALTER TABLE construction_field_tickets ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_change_orders ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_closeout_records ENABLE ROW LEVEL SECURITY",
+        # MRI lease documents folder (Urmi, 11/03/2026, Teams Nexus -
+        # Accounting): the lease's Egnyte folder, like MRE's per-vendor one.
+        # models.Lease.egnyte_folder.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS egnyte_folder VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
