@@ -131,17 +131,39 @@ def status(user: dict = Depends(get_current_user)):
 
 # ── browse / read ────────────────────────────────────────────────────────────
 
+# The browse surface may wait this long on one listing - longer than the
+# resolvers' 15s because a Vendors folder with thousands of subfolders
+# (Greens Global, OSM - Nov 3, Neil: "please hotfix") can genuinely take
+# Egnyte that long to serialize. The frontend passes a 60s timeout for this
+# one call, so a slow answer still beats the browser's limit.
+_BROWSE_TIMEOUT = 50
+# One page of a paged browse. Big enough that ordinary folders never page.
+_MAX_PAGE = 1000
+
+
 @router.get("/folder")
-def list_folder(path: str = "", user: dict = Depends(get_current_user),
-                db=Depends(get_db)):
+def list_folder(path: str = "", count: int = 0, offset: int = 0,
+                user: dict = Depends(get_current_user), db=Depends(get_db)):
     tok = _browse_token(user, db)
-    data = _call(svc.list_folder, path, token=tok)
+    kwargs = {}
+    if count:
+        kwargs = {"count": max(1, min(count, _MAX_PAGE)), "offset": max(0, offset)}
+    data = _call(svc.list_folder, path, token=tok, timeout=_BROWSE_TIMEOUT, **kwargs)
     for f in data["files"]:
         # navigate/file opens the file itself (viewer + Office Online Edit);
         # the folder-style path link cannot address a file.
         f["webUrl"] = svc.file_web_url(f.get("groupId", "")) or svc.web_url(f["path"])
     for d in data["folders"]:
         d["webUrl"] = svc.web_url(d["path"])
+    if count:
+        # A full page means there may be more - deliberately NOT read from
+        # total_count, whose semantics differ across Egnyte versions. An
+        # Egnyte that ignored the paging params answers with everything at
+        # once; the client's append-and-dedupe then finds nothing new on
+        # "page 2" and stops.
+        got = len(data["folders"]) + len(data["files"])
+        data["hasMore"] = got >= kwargs["count"]
+        data["nextOffset"] = max(0, offset) + got
     return data
 
 
