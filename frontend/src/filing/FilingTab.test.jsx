@@ -9,12 +9,13 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 const filingStatus = vi.fn();
 const filingScan = vi.fn();
 const filingActivity = vi.fn(() => Promise.resolve({ rows: [] }));
+const filingApply = vi.fn(() => Promise.resolve({ results: [], moved: 0, failed: 0 }));
 vi.mock('../api', () => ({
   api: {
     filingStatus: (...a) => filingStatus(...a),
     filingScan: (...a) => filingScan(...a),
     filingActivity: (...a) => filingActivity(...a),
-    filingApply: vi.fn(() => Promise.resolve({ results: [], moved: 0, failed: 0 })),
+    filingApply: (...a) => filingApply(...a),
     filingConfig: vi.fn(),
   },
 }));
@@ -141,6 +142,34 @@ describe('Filing & Sorting tab', () => {
     expect(await screen.findByText('B.pdf')).toBeTruthy();
     expect(screen.getByText('A.pdf')).toBeTruthy();
     expect(filingScan).toHaveBeenCalledWith({ paths: ['/Shared/B'] });
+  });
+
+  it('Fix All Names sends at most 10 a request and re-sends what the server defers', async () => {
+    const many = Array.from({ length: 25 }, (_, i) =>
+      row(`Bad ${i} 2020-01-01.pdf`, { canonicalName: `2020-01-01 - Bad ${i}.pdf`, labeled: false }));
+    filingScan.mockResolvedValue(scanOf(many));
+    let first = true;
+    filingApply.mockReset().mockImplementation((moves) => {
+      // The very first request runs out of time after 4 moves.
+      const doneNow = first ? moves.slice(0, 4) : moves;
+      const deferred = first ? moves.slice(4).map(m => m.sourcePath) : [];
+      first = false;
+      return Promise.resolve({
+        results: doneNow.map(m => ({ sourcePath: m.sourcePath, ok: true, to: `${m.destFolder}/${m.newName}` })),
+        moved: doneNow.length, failed: 0, deferred,
+      });
+    });
+    render(<FilingTab />);
+    fireEvent.click(await screen.findByRole('button', { name: /Scan Now/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Fix All Names \(25\)/ }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Fix All Names/ })).toBeNull());
+    const sizes = filingApply.mock.calls.map(c => c[0].length);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(10);
+    const sent = filingApply.mock.calls.flatMap(c => c[0].map(m => m.sourcePath));
+    // Every file renamed exactly once, the 6 deferred ones re-sent.
+    const ok = new Set(filingApply.mock.results.length ? sent : []);
+    expect(ok.size).toBe(25);
+    expect(sent.length).toBe(31);
   });
 
   it('walks ticked folders and their subfolders, a few per request', async () => {
