@@ -50,6 +50,10 @@ export default function FilingTab({ toastOk, toastErr }) {
   const [results, setResults] = useState({});     // sourcePath -> {ok, error, to}
   const [filter, setFilter] = useState('all');
   const [view, setView] = useState('queue');      // queue = work the moves; names = what every file should be called
+  // A review row whose name is already canonical needs nothing - hidden from
+  // the queue by default (Visesh, 11/04: ignore the correctly labeled files).
+  const [hideLabeled, setHideLabeled] = useState(true);
+  const [fileIt, setFileIt] = useState(null);     // the row being filed by hand
   const [rulesOpen, setRulesOpen] = useState(false);
   const [activity, setActivity] = useState(null);
   // The tree's ticks: which folders the next scan covers. Empty = the
@@ -105,7 +109,14 @@ export default function FilingTab({ toastOk, toastErr }) {
           if (!seen.has(p)) { seen.add(p); batch.push(p); }
         }
         if (!batch.length) continue;
-        const r = await api.filingScan({ paths: batch });
+        let r;
+        try {
+          r = await api.filingScan({ paths: batch });
+        } catch {
+          // One lone failed request (a worker blip, the 11/04 502) must not
+          // kill a long walk - try that batch once more before giving up.
+          r = await api.filingScan({ paths: batch });
+        }
         folders += (r.scannedRoots || []).length;
         missing.push(...(r.missingRoots || []));
         all = all.concat(r.proposals || []);
@@ -152,9 +163,14 @@ export default function FilingTab({ toastOk, toastErr }) {
 
   const rows = useMemo(() => {
     const all = scan?.proposals || [];
-    if (filter === 'all') return all;
-    return all.filter(p => p.status === filter);
-  }, [scan, filter]);
+    const base = hideLabeled ? all.filter(p => !(p.status === 'review' && p.labeled)) : all;
+    if (filter === 'all') return base;
+    return base.filter(p => p.status === filter);
+  }, [scan, filter, hideLabeled]);
+
+  const hiddenLabeled = useMemo(
+    () => (scan?.proposals || []).filter(p => p.status === 'review' && p.labeled).length,
+    [scan]);
 
   const readyLeft = useMemo(
     () => (scan?.proposals || []).filter(p => p.status === 'auto' && selected.has(p.sourcePath) && !results[p.sourcePath]?.ok).length,
@@ -270,12 +286,22 @@ export default function FilingTab({ toastOk, toastErr }) {
                 {f.label}{f.key !== 'all' ? ` (${scan.counts[f.key] || 0})` : ` (${scan.proposals.length})`}
               </button>
             ))}
+            {hiddenLabeled > 0 && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={hideLabeled} onChange={e => setHideLabeled(e.target.checked)} />
+                Hide Correctly Labeled ({hiddenLabeled})
+              </label>
+            )}
             <div style={{ flex: 1 }} />
             {readyLeft > 0 && !scanning && (
               <button className="primary-btn" onClick={applySelected} disabled={applying}>
                 {applying ? 'Moving...' : `Move ${readyLeft} File${readyLeft === 1 ? '' : 's'}`}
               </button>
             )}
+          </div>
+
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            Ready rows move together with the Move button. A Needs Review row is filed by hand: press File It, adjust the name, pick the folder.
           </div>
 
           {scan.missingRoots?.length > 0 && (
@@ -335,6 +361,11 @@ export default function FilingTab({ toastOk, toastErr }) {
                             <div style={{ wordBreak: 'break-word' }}>{p.newName}</div>
                             <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{p.destFolder}</div>
                           </>
+                        ) : (p.newName || p.canonicalName) ? (
+                          <>
+                            <div style={{ wordBreak: 'break-word' }}>Suggested: {p.newName || p.canonicalName}</div>
+                            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>no folder yet - use File It</div>
+                          </>
                         ) : <span style={{ color: 'var(--text-secondary)' }}>-</span>}
                       </td>
                       <td style={{ padding: '8px 10px', maxWidth: 300 }}>
@@ -344,6 +375,11 @@ export default function FilingTab({ toastOk, toastErr }) {
                           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
                             {p.reasons.join('; ')}
                           </div>
+                        )}
+                        {p.status === 'review' && !r?.ok && (
+                          <button className="btn-sm" onClick={() => setFileIt(p)} style={{ marginTop: 6, fontSize: 12 }}>
+                            File It
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -372,6 +408,16 @@ export default function FilingTab({ toastOk, toastErr }) {
 
       </div>
       </div>
+
+      {fileIt && (
+        <FileItSheet proposal={fileIt} onClose={() => setFileIt(null)}
+          onFiled={(r) => {
+            setResults(prev => ({ ...prev, [r.sourcePath]: r }));
+            setFileIt(null);
+            api.filingActivity().then(d => setActivity(d.rows)).catch(() => {});
+          }}
+          toastOk={toastOk} toastErr={toastErr} />
+      )}
 
       {rulesOpen && (
         <RulesSheet status={status} onClose={() => setRulesOpen(false)}
@@ -430,6 +476,64 @@ function NamesTable({ proposals }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+// Manual filing for a row the rules could not finish (Visesh, 11/04): the
+// suggested name prefilled and editable, the destination picked from the
+// same tree, one Move File. It goes through the same /filing/apply as the
+// automatic moves - audit row, no overwrite, the caller's own Egnyte
+// permissions - so by-hand never means around-the-guardrails.
+function FileItSheet({ proposal, onClose, onFiled, toastOk, toastErr }) {
+  const suggested = proposal.newName || proposal.canonicalName || proposal.currentName;
+  const [name, setName] = useState(suggested);
+  const [dest, setDest] = useState(proposal.destFolder || '');
+  const [busy, setBusy] = useState(false);
+  const move = async () => {
+    setBusy(true);
+    try {
+      const out = await api.filingApply([{
+        sourcePath: proposal.sourcePath, destFolder: dest, newName: name.trim(),
+        docType: proposal.docType || 'Manual', rule: proposal.rule || 'manual',
+      }]);
+      const r = out.results?.[0];
+      if (r?.ok) { toastOk?.(`Filed ${name.trim()}`); onFiled(r); }
+      else toastErr?.(r?.error || 'Could not move the file');
+    } catch (e) {
+      toastErr?.(e.message || 'Could not move the file');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title="File This Document" onClose={onClose} width="max(60vw, 640px)">
+      <div className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{proposal.sourcePath}</div>
+        <label style={{ fontSize: 12.5, fontWeight: 600 }}>
+          New Name
+          <input value={name} onChange={e => setName(e.target.value)}
+            style={{ display: 'block', width: '100%', marginTop: 4, fontSize: 13, padding: '8px 10px', border: '1px solid var(--border-color)', borderRadius: 8, boxSizing: 'border-box' }} />
+        </label>
+        <div style={{ fontSize: 12.5, fontWeight: 600 }}>
+          Files To
+          {dest
+            ? <span style={{ fontWeight: 500, color: 'var(--text-secondary)', wordBreak: 'break-all' }}> - {dest}</span>
+            : <span style={{ fontWeight: 500, color: 'hsl(35, 90%, 34%)' }}> - pick the folder below</span>}
+        </div>
+        <div style={{ flex: 1, minHeight: 240, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 10, padding: 6 }}>
+          <EgnyteTree rootLabel="All Files"
+            selected={dest ? new Set([dest]) : new Set()}
+            onToggleSelect={(p) => setDest(prev => (prev === p ? '' : p))}
+            onSelect={(p) => setDest(p || '')} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" disabled={busy || !dest || !name.trim() || name.includes('/')} onClick={move}>
+            {busy ? 'Moving...' : 'Move File'}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
