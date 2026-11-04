@@ -63,6 +63,7 @@ export default function FilingTab({ toastOk, toastErr }) {
   const [fileIt, setFileIt] = useState(null);     // the row being filed by hand
   const ROW_PAGE = 200;
   const [shown, setShown] = useState(ROW_PAGE);   // rows rendered; Show More adds a page
+  const [query, setQuery] = useState('');         // narrows the rows by name or folder
   const [rulesOpen, setRulesOpen] = useState(false);
   const [activity, setActivity] = useState(null);
   // The tree's ticks: which folders the next scan covers. Empty = the
@@ -275,10 +276,34 @@ export default function FilingTab({ toastOk, toastErr }) {
 
   const rows = useMemo(() => {
     const all = scan?.proposals || [];
-    const base = hideLabeled ? all.filter(p => !(p.status === 'review' && p.labeled)) : all;
+    let base = hideLabeled ? all.filter(p => !(p.status === 'review' && p.labeled)) : all;
+    const q = query.trim().toLowerCase();
+    if (q) base = base.filter(p => p.sourcePath.toLowerCase().includes(q));
     if (filter === 'all') return base;
     return base.filter(p => p.status === filter);
-  }, [scan, filter, hideLabeled]);
+  }, [scan, filter, hideLabeled, query]);
+
+  // The scan as a report - a spreadsheet the labeling team or a reviewer can
+  // work from. Built in the browser from what is on screen; nothing is sent.
+  const exportCsv = () => {
+    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const head = ['Status', 'Labeled', 'Current Name', 'Folder', 'Doc Type', 'Suggested Name', 'Files To', 'Learned Folder', 'Why'];
+    const lines = [head.map(cell).join(',')];
+    for (const p of (scan?.proposals || [])) {
+      if (p.status === 'skip') continue;
+      lines.push([
+        p.status === 'auto' ? 'Ready' : 'Needs Review', p.labeled ? 'Yes' : 'No',
+        p.currentName, p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/')), p.docType,
+        p.newName || p.canonicalName, p.destFolder, p.learnedDest || '', (p.reasons || []).join('; '),
+      ].map(cell).join(','));
+    }
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'filing-scan.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
 
   const hiddenLabeled = useMemo(
     () => (scan?.proposals || []).filter(p => p.status === 'review' && p.labeled).length,
@@ -358,6 +383,19 @@ export default function FilingTab({ toastOk, toastErr }) {
       )}
       <div style={{ flex: 1, minWidth: 360, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
+      {!scan && !scanning && status.configured && (
+        <div style={{ border: '1px dashed var(--border-color)', borderRadius: 12, padding: '18px 20px', fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>How It Works</div>
+          <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--text-secondary)' }}>
+            <li>Tick one or more folders on the left (or click one). Include Subfolders reaches every file inside, however deep.</li>
+            <li>Press Scan Now. Each file gets the name the naming SOPs give it; files already named right are counted and hidden.</li>
+            <li>Only labeling? Press Fix All Names - every wrong name is corrected in place and nothing moves.</li>
+            <li>Filing too? Open a file with its name to check it, then File It (pick the folder) or File to Learned (where the team filed similar files before).</li>
+          </ol>
+          <div style={{ marginTop: 8, color: 'var(--text-secondary)' }}>Every rename and move is in the Audit Log, and nothing is ever overwritten.</div>
+        </div>
+      )}
+
       {scanning && (
         <LoadingState size="section" label={progress
           ? `Scanned ${progress.folders} folder${progress.folders === 1 ? '' : 's'} - ${progress.files} file${progress.files === 1 ? '' : 's'} so far`
@@ -410,7 +448,15 @@ export default function FilingTab({ toastOk, toastErr }) {
                 Hide Correctly Labeled ({hiddenLabeled})
               </label>
             )}
+            <input value={query} onChange={e => { setQuery(e.target.value); setShown(ROW_PAGE); }}
+              placeholder="Find a file or folder" aria-label="Find a file or folder in the results"
+              style={{ fontSize: 12.5, padding: '5px 10px', border: '1px solid var(--border-color)', borderRadius: 8, minWidth: 200 }} />
             <div style={{ flex: 1 }} />
+            {!scanning && (
+              <button className="btn-sm" onClick={exportCsv} title="Download this scan as a spreadsheet">
+                Export CSV
+              </button>
+            )}
             {fixable.length > 0 && !scanning && (
               <button className="secondary-btn" onClick={fixAllNames} disabled={applying}>
                 Fix All Names ({fixable.length})
