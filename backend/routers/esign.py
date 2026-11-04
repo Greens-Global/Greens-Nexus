@@ -1880,7 +1880,7 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                     document_class: str = "", governing_law: str = "",
                     link_kind: str = "", link_id: str = "",
                     sender_signs_first: bool = False, prints_pay: bool = False,
-                    saved: Optional[dict] = None, in_person: bool = False) -> dict:
+                    saved: Optional[dict] = None, in_person: bool = False, in_flow: bool = False) -> dict:
     # Server-side, at the one point BOTH send paths reach: a guardrail that
     # lives only in the wizard is not a guardrail - the API is reachable
     # without it, and this is the check that keeps a will or an eviction
@@ -1977,6 +1977,11 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
         # (no "sent" event) the automatic chase never emails them either.
         if in_person:
             _log(db, req.id, "in_person", f"{r.name} signs in person on paper - not emailed", party_id=r.id)
+            continue
+        # Straight on from their details form (Pranshu, 11/04/2026: "I don't
+        # want that candidate should get another email for the hiring packet").
+        if in_flow:
+            _log(db, req.id, "in_flow", f"{r.name} signs straight after their details form - not emailed", party_id=r.id)
             continue
         _notify_party(db, r, req, sender_name)
     db.commit()
@@ -2091,7 +2096,7 @@ def envelope_from_documents(db: Session, user: dict, *, documents: list, parties
                             document_class: str = "employment", link_kind: str = "",
                             link_id: str = "", sender_signs_first: bool = False,
                             prints_pay: bool = False, saved: Optional[dict] = None,
-                            egnyte_folder: str = "", in_person: bool = False) -> dict:
+                            egnyte_folder: str = "", in_person: bool = False, in_flow: bool = False) -> dict:
     """Server-rendered documents - HR packets built from the Documents module
     (Oct 14). Each {name, path, fields} is a PDF already in _DOC_BUCKET with its
     fields placed from the template's signature blocks. The first is the
@@ -2110,7 +2115,7 @@ def envelope_from_documents(db: Session, user: dict, *, documents: list, parties
                            user_agent=user_agent, documents=rest, routing="sequential",
                            egnyte_folder=egnyte_folder or "", excluded_ack=excluded_ack, document_class=document_class,
                            link_kind=link_kind, link_id=link_id, sender_signs_first=sender_signs_first,
-                           prints_pay=prints_pay, saved=saved, in_person=in_person)
+                           prints_pay=prints_pay, saved=saved, in_person=in_person, in_flow=in_flow)
 
 
 @router.post("/requests")
@@ -4121,6 +4126,7 @@ _HISTORY_LABELS = {
     "created":      "Envelope created",
     "sent":         "Invitation sent",
     "in_person":    "To be signed in person",
+    "in_flow":      "Opened from the details form",
     "viewed":       "Document viewed",
     "consented":    "Electronic records disclosure accepted",
     "otp_sent":     "Verification code sent",

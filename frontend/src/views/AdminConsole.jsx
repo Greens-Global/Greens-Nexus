@@ -521,7 +521,7 @@ const GROUPS = [
   // Hiring & Onboarding
   { id: 'hiring-documents', subject: 'hiring', face: 'both', scope: 'company', icon: FileText, title: 'Hiring Documents',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
-    sub: 'Offer letters, hiring packets, promotion letters and separation packages: which documents each company sends, for which roles and kind of hire, who signs, and Ready To Send.',
+    sub: 'Offer letters, hiring packets, promotion letters and separation packages: which documents each company sends, for which roles and kind of hire, who signs, and Ready To Send. The same setup opens from Documents > Hiring Documents.',
     keywords: 'packets offer letter hiring packet promotion separation nda confidentiality agreement documents signers' },
   { id: 'interview-questionnaires', subject: 'hiring', face: 'org', scope: 'org', icon: ClipboardList, title: 'Interview Questionnaires',
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },

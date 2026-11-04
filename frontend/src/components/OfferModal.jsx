@@ -33,6 +33,12 @@ const COUNTRY_NAMES = { US: 'United States', IN: 'India', CA: 'Canada', GB: 'Uni
 const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
 // Preview before Create (Neil, 11/04/2026): the letter and job description as they will go, with Back to fix.
 const STEPS = [['who', 'Who You Are Hiring'], ['offer', 'The Offer'], ['questions', 'Questions'], ['preview', 'Preview']];
+// What follows the letter, in the role's order (Pranshu, 11/04/2026): "offer letter, NDA then Job description".
+const offerAfter = (role, jdFile) => {
+  const order = role?.offerDocs?.length ? role.offerDocs : [{ kind: 'jd' }];
+  return order.map(d => (d.kind === 'jd' ? (jdFile ? `the job description (${jdFile})` : 'the job description') : d.name || 'a role document'))
+    .join(', then ');
+};
 // A template opens in Documents in its own browser tab, so this offer keeps everything typed.
 const openTemplate = (id) => window.open(`/documents/documents-templates?template=${encodeURIComponent(id)}`, '_blank', 'noopener');
 
@@ -123,7 +129,10 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   // role's own file when it has one, else its duties printed by the Job Description document.
   const pickedRole = roles.roles.find(r => r.id === roleId);
   const jdFile = pickedRole?.jdFile || '';
-  const noDuties = isOther ? !newDuties.trim() : !!pickedRole && !pickedRole.hasDuties;
+  // A role whose job description lives in Documents brings that template, live (11/04/2026).
+  const roleJd = !jdFile && pickedRole?.jdTemplateId ? pickedRole.jdTemplateId : '';
+  useEffect(() => { if (roleJd) setJdId(roleJd); }, [roleJd]);
+  const noDuties = isOther ? !newDuties.trim() : !!pickedRole && !pickedRole.hasDuties && !roleJd;
   // Which letter - re-read whenever HR changes who they are hiring or where.
   useEffect(() => {
     let alive = true;
@@ -283,7 +292,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             <>
               <div><CheckCircle size={14} style={{ verticalAlign: 'middle', color: 'hsl(var(--color-green))', marginRight: 6 }} /><b>Offer letter:</b> {letter.name}</div>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                After the letter: {jdFile ? `the role's job description file (${jdFile})` : 'the role\'s job description'}, with a box {first} ticks to say they read it.
+                After the letter: {offerAfter(pickedRole, jdFile)}, with a box {first} ticks to say they read the job description.
               </div>
               <div style={{ marginTop: 4 }}>
                 {packet ? <>
@@ -428,11 +437,13 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           <div style={hint}>{pickedRole.name}&apos;s own file - sent after the offer letter exactly as uploaded, with a box {first} ticks to say they read it.</div></div>
       ) : (
         <div><label style={{ ...lbl, marginTop: 26 }} htmlFor="of-jd">Job Description</label>
-          <select id="of-jd" className="form-input" style={{ width: '100%', maxWidth: 420 }} value={jdId} onChange={e => setJdId(e.target.value)}>
+          <select id="of-jd" className="form-input" style={{ width: '100%', maxWidth: 420 }} value={jdId} onChange={e => setJdId(e.target.value)} disabled={!!roleJd}>
             <option value="">- pick the document -</option>
             {jds.map(t => <option key={t.id} value={t.id}>{t.name}{t.publishedVersion ? '' : ' (Not Published)'}</option>)}
           </select>
-          <div style={hint}>Prints the role&apos;s duties after the offer letter, with a box {first} ticks to say they read it.</div>
+          <div style={hint}>{roleJd
+            ? <>{pickedRole.name}&apos;s job description from Documents - its published wording goes after the offer letter, with a box {first} ticks to say they read it.</>
+            : <>Prints the role&apos;s duties after the offer letter, with a box {first} ticks to say they read it.</>}</div>
           {isOther && (
             <>
               <label style={{ ...lbl, marginTop: 14 }} htmlFor="of-duties">Duties For {f.new_role_name.trim() || 'The New Role'}</label>
@@ -441,7 +452,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
               <div style={hint}>Saved on the new role too, so the next offer for it has them.</div>
             </>
           )}
-          {!isOther && pickedRole && !pickedRole.hasDuties && (
+          {!isOther && pickedRole && !pickedRole.hasDuties && !roleJd && (
             <Warn>{pickedRole.name} has no job description yet - type its duties or upload a file under Settings &gt; People &amp; Access &gt; Roles.</Warn>
           )}</div>
       )}

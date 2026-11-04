@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle, AlertTriangle, Send, Lock, User, MapPin, HeartPulse, FileText } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Send, Lock, User, MapPin, HeartPulse, FileText, ArrowRight } from 'lucide-react';
 import { fetchPublicIntake, submitPublicIntake } from '../api';
 import { formatDate } from '../lib/datetime';
 import { Spinner } from '../components/AsyncState';
@@ -75,7 +75,12 @@ export default function PublicIntake({ token, preview }) {
     if (preview) return;
     setBusy(true); setProblem('');
     const values = { ...v, ...(sameAddress ? { permanent_address: v.address || '' } : {}) };
-    try { await submitPublicIntake(token, values); setDone(true); }
+    try {
+      const out = await submitPublicIntake(token, values);
+      // Submit And Continue (Pranshu, 11/04/2026): the hiring packet opens in the same flow - no second email.
+      if (out?.signUrl) { window.location.assign(out.signUrl); return; }
+      setDone(true);
+    }
     catch (err) { setProblem(err.message || 'Could not send your details - please try again.'); }
     setBusy(false);
   }
@@ -108,10 +113,23 @@ export default function PublicIntake({ token, preview }) {
 
   if (error) return message(AlertTriangle, 'hsl(30,80%,48%)', 'This Link Is Not Valid', error);
   if (!page) return shell(<div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="section" /></div>);
+  if (page.state === 'submitted' && page.signUrl) {
+    // Back on this link before signing: carry on where they left off.
+    return shell(
+      <div style={{ textAlign: 'center', padding: '18px 4px' }}>
+        <CheckCircle size={34} style={{ color: 'hsl(142,60%,35%)' }} />
+        <div style={{ fontSize: 18, fontWeight: 800, marginTop: 10, color: ink }}>Your Details Are In</div>
+        <div style={{ fontSize: 14, color: muted, marginTop: 6, lineHeight: 1.6 }}>Your hiring documents are filled in and waiting for your signature.</div>
+        <a href={page.signUrl} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 18, borderRadius: 12, padding: '12px 22px', background: '#14532d', color: '#fff', fontSize: 15, fontWeight: 700, textDecoration: 'none' }}>
+          Continue To Sign <ArrowRight size={16} />
+        </a>
+      </div>,
+    );
+  }
   if (done || page.state === 'submitted') {
     return message(CheckCircle, 'hsl(142,60%,35%)', `Thank You${v.first_name ? `, ${v.first_name}` : ''}`,
       page.afterOffer
-        ? `Your documents are being filled in from your answers. You will get an email from ${page.company || 'HR'} to sign them - no account or password needed.`
+        ? `Your details are in. ${page.company || 'HR'} is giving your documents a final check - you will get an email to sign them shortly, no account or password needed.`
         : `Your details are with ${page.company || 'HR'}. You will receive your documents to sign in a separate email once HR has prepared them.`);
   }
   if (page.state === 'expired') return message(AlertTriangle, 'hsl(30,80%,48%)', 'This Link Has Expired', 'Please contact HR for a new one.');
@@ -187,7 +205,7 @@ export default function PublicIntake({ token, preview }) {
       )}
       <button type="submit" disabled={busy}
         style={{ marginTop: 22, width: '100%', border: 'none', borderRadius: 12, padding: '13px 16px', background: '#14532d', color: '#fff', fontSize: 15.5, fontWeight: 700, cursor: busy ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'Inter,sans-serif', opacity: busy ? 0.7 : 1 }}>
-        {busy ? <Spinner size={16} /> : <Send size={16} />} {preview ? 'Preview Only - Nothing Is Sent' : page.afterOffer ? 'Send - Prepare My Documents' : 'Send To HR'}
+        {busy ? <Spinner size={16} /> : page.afterOffer ? <ArrowRight size={16} /> : <Send size={16} />} {preview ? 'Preview Only - Nothing Is Sent' : page.afterOffer ? 'Submit And Continue' : 'Send To HR'}
       </button>
       <div style={{ fontSize: 12, color: muted, textAlign: 'center', marginTop: 12, lineHeight: 1.5 }}>
         No account or password needed. This link is unique to you - please do not share it.

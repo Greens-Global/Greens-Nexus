@@ -151,7 +151,7 @@ describe('OfferModal - the job description after the letter', () => {
     render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
     fireEvent.click(screen.getByRole('radio', { name: 'Employee' }));
     expect(await screen.findByText(/It holds: NDA\./)).toBeTruthy();
-    expect(screen.getByText(/After the letter: the role's job description, with a box Jane ticks/)).toBeTruthy();
+    expect(screen.getByText(/After the letter: the job description, with a box Jane ticks/)).toBeTruthy();
   });
 
   it("sends the role's own file and asks for no document", async () => {
@@ -159,7 +159,7 @@ describe('OfferModal - the job description after the letter', () => {
     hiringOptions.mockResolvedValueOnce({ ...plainOptions, roles: [{ ...plainOptions.roles[0], jdFile: 'Analyst JD.pdf' }] });
     render(<OfferModal candidate={cand} canSeePay={false} onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
     fireEvent.click(screen.getByRole('radio', { name: 'Employee' }));
-    expect(await screen.findByText(/the role's job description file \(Analyst JD\.pdf\)/)).toBeTruthy();
+    expect(await screen.findByText(/After the letter: the job description \(Analyst JD\.pdf\)/)).toBeTruthy();
     await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
     next();
     expect(screen.queryByLabelText('Job Description')).toBeNull();
