@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -1093,6 +1093,7 @@ def regenerate_packet(eid: str, user: dict = Depends(require_hr_write), db: Sess
 class VerifyIn(BaseModel):
     excluded_ack: Optional[bool] = False
     seen:         Optional[dict] = None    # {documentId: version} the reviewer saw
+    in_person:    Optional[bool] = False   # Print And Send: signed face to face on paper (11/04/2026)
 
 
 @router.post("/life-events/{eid}/verify-and-send")
@@ -1104,7 +1105,7 @@ def verify_and_send_packet(eid: str, body: VerifyIn, request: Request, user: dic
     ip, ua = _client_meta(request)
     try:
         hpd.verify_and_send(db, ev, user, seen=body.seen or {}, excluded_ack=bool(body.excluded_ack),
-                            can_see_pay=_has_comp(user, db), ip=ip, user_agent=ua)
+                            can_see_pay=_has_comp(user, db), ip=ip, user_agent=ua, in_person=bool(body.in_person))
     except hle.PacketError as e:
         db.rollback()
         _raise(e)
@@ -1112,6 +1113,70 @@ def verify_and_send_packet(eid: str, body: VerifyIn, request: Request, user: dic
     out = hle.ser_event(db, ev, show_pay=_has_comp(user, db))
     out["senderPartyId"] = hle.sender_party_id(db, ev, user["email"])
     return out
+
+
+# ── Print And Send: signed in person (Pranshu / Neil, 11/04/2026) ────────────
+# "I'm hiring that employee manually, like face to face, not through the
+# electronic signature." Verify builds the envelope as always but emails
+# nobody; HR prints it, the person signs on paper, and HR uploads the signed
+# copy - recorded as that person's wet signature, so the countersign, the
+# hire and the filing run exactly as they do for an electronic one.
+
+def _in_person_request(db: Session, ev: HrLifeEvent):
+    from models import HrSignRequest
+    if not (ev.inputs or {}).get("in_person"):
+        raise HTTPException(409, "This one goes out for electronic signature - nothing to print.")
+    req = (db.query(HrSignRequest).filter(HrSignRequest.id == ev.sign_request_id).first()
+           if ev.sign_request_id else None)
+    if req is None:
+        raise HTTPException(409, "It has not been verified yet.")
+    return req
+
+
+@router.get("/life-events/{eid}/print")
+def print_in_person(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Every document of the envelope, one PDF, ready to print."""
+    import io
+    from pypdf import PdfReader, PdfWriter
+    from routers import esign
+    ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).first()
+    if not ev:
+        raise HTTPException(404, "Not found")
+    _event_in_scope(db, ev, hr_scope(user, db))
+    req = _in_person_request(db, ev)
+    if req.prints_pay and not _has_comp(user, db):
+        raise HTTPException(403, "These documents show pay - Pay & Benefits access is needed to print them.")
+    out = PdfWriter()
+    for path in [req.pdf_storage_path] + [d.get("path") for d in (req.documents or []) if d.get("path")]:
+        got = esign._storage_fetch(esign._DOC_BUCKET, path)
+        if not got.is_success:
+            raise HTTPException(502, "Could not open the documents - try again in a minute.")
+        for page in PdfReader(io.BytesIO(got.content)).pages:
+            out.add_page(page)
+    buf = io.BytesIO()
+    out.write(buf)
+    esign._log(db, req.id, "downloaded", f"Printed for signing in person by {user['email']}")
+    db.commit()
+    return Response(content=buf.getvalue(), media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{hle._safe_name(ev.subject_name or "Packet")} - To Sign.pdf"'})
+
+
+@router.post("/life-events/{eid}/signed-in-person")
+def signed_in_person(eid: str, request: Request, file: UploadFile = File(...), user: dict = Depends(require_hr_write),
+                     db: Session = Depends(get_db)):
+    """The signed paper copy, scanned: the person's wet signature."""
+    from models import HrSignParty
+    from routers import esign
+    ev = _locked_event(db, eid, user)
+    req = _in_person_request(db, ev)
+    party = (db.query(HrSignParty).filter(HrSignParty.request_id == req.id,
+                                          HrSignParty.email == (ev.subject_email or "").lower()).first())
+    if party is None:
+        raise HTTPException(409, "The person is not a signer of these documents.")
+    ip, ua = _client_meta(request)
+    esign.record_in_person(db, req, party, file, by_name=hpd.name_of(db, user["email"]), ip=ip, ua=ua)
+    db.refresh(ev)
+    return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
 
 
 # ── Documents > HR Records (Oct 14) ──────────────────────────────────────────

@@ -21,6 +21,7 @@ const base = {
   problems: [], outdated: false, seen: { d1: 1 },
 };
 let review = base;
+const printInPerson = vi.fn(() => Promise.resolve({ blob: new Blob(['%PDF']), filename: 'Jane Doe - To Sign.pdf' }));
 const verify = vi.fn(() => Promise.resolve({ id: 'ev1', status: 'sent', senderPartyId: '' }));
 vi.mock('../api', () => ({
   api: {
@@ -30,6 +31,7 @@ vi.mock('../api', () => ({
     voidLifeEvent: () => Promise.resolve({}),
     patchPacketValues: () => Promise.resolve(review),
     packetDocumentPdf: () => Promise.resolve({ blob: new Blob(['%PDF']) }),
+    printInPerson: (...a) => printInPerson(...a),
   },
 }));
 vi.mock('./ESign', () => ({ SignaturePad: () => null }));
@@ -47,13 +49,30 @@ describe('PacketReview', () => {
     expect(screen.getByText('11/02/2026')).toBeTruthy();
     const send = screen.getByText('Verify And Send').closest('button');
     expect(send.disabled).toBe(true);
+    expect(screen.queryByText(/not a record that cannot be signed/)).toBeNull();   // the double negative is gone
     fireEvent.click(screen.getByText(/I checked every document/));
-    fireEvent.click(screen.getByText(/not a record that cannot be signed/));
-    expect(send.disabled).toBe(false);
+    expect(send.disabled).toBe(false);                                 // the in-person box is optional
     fireEvent.click(send);
     await waitFor(() => expect(ok).toHaveBeenCalledWith('Sent - Jane Doe has been emailed the documents to sign.'));
     expect(onSignNow).not.toHaveBeenCalled();
     expect(verify.mock.calls[0][1]).toEqual({ excluded_ack: true, seen: { d1: 1 } });
+  });
+
+  it('signed in person: the button says Print And Send, nobody is emailed, the print copy downloads (11/04/2026)', async () => {
+    review = { ...base, canVerify: true, isVerifier: true };
+    verify.mockClear();
+    const ok = vi.fn();
+    URL.createObjectURL = vi.fn(() => 'blob:print');
+    URL.revokeObjectURL = vi.fn();
+    render(<PacketReview eventId="ev1" onClose={noop} onChanged={noop} toastOk={ok} toastErr={noop} />);
+    await waitFor(() => expect(screen.getByText('Verify And Send')).toBeTruthy());
+    fireEvent.click(screen.getByText(/I checked every document/));
+    fireEvent.click(screen.getByText(/Sign in person, not electronically/));
+    const send = screen.getByText('Print And Send').closest('button');
+    fireEvent.click(send);
+    await waitFor(() => expect(ok).toHaveBeenCalledWith(expect.stringContaining('have Jane Doe sign it in person')));
+    expect(verify.mock.calls[0][1]).toEqual({ excluded_ack: true, seen: { d1: 1 }, in_person: true });
+    expect(printInPerson).toHaveBeenCalledWith('ev1');
   });
 
   it('shows dates as printed (MM/DD/YYYY) even when the reader picked day-first (Neil, 11/04/2026)', async () => {

@@ -13,7 +13,7 @@
 // template was published meanwhile) this screen asks for one regenerate and
 // reloads - it never treats the read as a writer.
 import { useEffect, useRef, useState } from 'react';
-import { X, FileText, Eye, Send, Ban, CheckCircle, AlertTriangle, Pencil, Lock, RefreshCw, Copy, Mail, PenTool, Info } from 'lucide-react';
+import { X, FileText, Eye, Send, Ban, CheckCircle, AlertTriangle, Pencil, Lock, RefreshCw, Copy, Mail, PenTool, Info, Printer } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatHHMM } from '../lib/datetime';
 import { Spinner } from './AsyncState';
@@ -25,6 +25,16 @@ import { DateField } from '../tasks/components';
 // What is printed shows the date as the document prints it - MM/DD/YYYY -
 // whatever the reader's own Profile > Date Format (Neil, 11/04/2026).
 const printed = (iso) => formatDate(iso, '', undefined, 'MM/DD/YYYY');
+
+// Print And Send (11/04/2026): the documents to sign in person, saved as a PDF to print.
+export async function savePrintCopy(eventId) {
+  const { blob, filename } = await api.printInPerson(eventId);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename || 'To Sign.pdf';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
 
 const lbl = { fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '0 0 5px' };
 const h3 = { fontSize: 15, fontWeight: 800, margin: '24px 0 10px', color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 10 };
@@ -82,7 +92,8 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
   const [editing, setEditing] = useState(false);       // everything printed, edited together
   const [form, setForm] = useState({});
   const [checked, setChecked] = useState(false);
-  const [ack, setAck] = useState(false);
+  // Optional (Pranshu, 11/04/2026): signed in person on paper instead of electronically.
+  const [inPerson, setInPerson] = useState(false);
   const [signing, setSigning] = useState(null);        // a Signs Once step being signed (Oct 14)
   const regenerated = useRef(false);
 
@@ -139,12 +150,18 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
   async function send() {
     setBusy('send');
     try {
-      const out = await api.verifyAndSendPacket(eventId, { excluded_ack: ack, seen: data.seen });
+      // Hiring documents are employment records - never a record excluded from
+      // electronic signature - so Nexus confirms that itself (excluded_ack).
+      const out = await api.verifyAndSendPacket(eventId, { excluded_ack: true, seen: data.seen, ...(inPerson ? { in_person: true } : {}) });
+      if (inPerson) {
+        try { await savePrintCopy(eventId); } catch (e) { toastErr?.(e?.message || 'Verified - print it from the card.'); }
+      }
       onChanged?.();
       onClose();
       // Verify is a check, never a signature: the person signs first and the
       // company countersigns after them (Neil, Oct 22 2026).
-      toastOk?.(out.status === 'sent' ? `Sent - ${ev.subjectName} has been emailed the documents to sign.` : 'Sent for signature.');
+      toastOk?.(inPerson ? `Verified - print it, have ${ev.subjectName} sign it in person, then click Upload Signed Copy on their card.`
+        : out.status === 'sent' ? `Sent - ${ev.subjectName} has been emailed the documents to sign.` : 'Sent for signature.');
     } catch (e) {
       toastErr?.(e?.message || 'Could not send the packet.');
       load();
@@ -358,8 +375,8 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
               I checked every document - the names, dates, pay and wording are right.
             </label>
             <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', fontSize: 13.5 }}>
-              <input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} style={{ marginTop: 3, width: 16, height: 16, accentColor: 'var(--pine)' }} />
-              This is not a record that cannot be signed electronically.
+              <input type="checkbox" checked={inPerson} onChange={e => setInPerson(e.target.checked)} style={{ marginTop: 3, width: 16, height: 16, accentColor: 'var(--pine)' }} />
+              <span>Sign in person, not electronically <span style={{ color: 'var(--muted)' }}>(optional) - print it, have {first} sign it face to face, then upload the signed copy.</span></span>
             </label>
           </div>
         )}
@@ -375,10 +392,10 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
         )}
         <button className="secondary-btn" onClick={onClose} disabled={busy === 'send'}>Close</button>
         {inReview && data.isVerifier && (
-          <button className="primary-btn" onClick={send} disabled={!!busy || !data.canVerify || !checked || !ack || !!editing}
-            title={!data.canVerify ? 'Fix the problems listed first' : !checked || !ack ? 'Tick both boxes first' : ''}
+          <button className="primary-btn" onClick={send} disabled={!!busy || !data.canVerify || !checked || !!editing}
+            title={!data.canVerify ? 'Fix the problems listed first' : !checked ? 'Tick that you checked every document first' : ''}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy === 'send' ? <Spinner size={13} /> : <Send size={13} />} Verify And Send
+            {busy === 'send' ? <Spinner size={13} /> : inPerson ? <Printer size={13} /> : <Send size={13} />} {inPerson ? 'Print And Send' : 'Verify And Send'}
           </button>
         )}
       </div>

@@ -470,5 +470,44 @@ class PreviewTests(OfferCase):
         db.close()
 
 
+
+class InPersonTests(OfferCase):
+    """Print And Send (Pranshu / Neil, 11/04/2026): "I'm hiring that employee
+    manually, like face to face, not through the electronic signature"."""
+
+    def test_print_and_send_emails_nobody_and_the_uploaded_copy_hires_them(self):
+        r = self._offer()
+        self.assertEqual(r.status_code, 200, r.text)
+        eid = r.json()["id"]
+        self.invited.clear()
+        r = self._verify(eid, self._review(eid), in_person=True)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn(CAND, self.invited)                         # not emailed
+        ev = self._ev(eid)
+        self.assertTrue(ev.inputs.get("in_person"))
+        log = self.db.query(models.HrSignEvent).filter_by(request_id=ev.sign_request_id).all()
+        self.assertFalse([e for e in log if e.type == "sent"])       # so the automatic chase never emails them
+        printed = self.client.get(f"/hr/life-events/{eid}/print")
+        self.assertEqual(printed.status_code, 200, printed.text)
+        self.assertTrue(printed.content.startswith(b"%PDF"))
+        up = self.client.post(f"/hr/life-events/{eid}/signed-in-person",
+                              files={"file": ("signed.pdf", printed.content, "application/pdf")})
+        self.assertEqual(up.status_code, 200, up.text)
+        ev = self._ev(eid)
+        self.assertEqual(ev.status, "completed")
+        self.assertTrue(ev.employee_id)                              # hired, the same as an e-signed offer
+        party = self._party(ev.sign_request_id, CAND)
+        self.assertEqual((party.status, party.signature_kind), ("signed", "paper"))
+        again = self.client.post(f"/hr/life-events/{eid}/signed-in-person",
+                                 files={"file": ("signed.pdf", printed.content, "application/pdf")})
+        self.assertEqual(again.status_code, 409)
+
+    def test_an_electronic_offer_has_nothing_to_print(self):
+        eid = self._offer().json()["id"]
+        self.assertEqual(self._verify(eid, self._review(eid)).status_code, 200)
+        self.assertIn(CAND, self.invited)
+        self.assertEqual(self.client.get(f"/hr/life-events/{eid}/print").status_code, 409)
+
+
 if __name__ == "__main__":
     unittest.main()

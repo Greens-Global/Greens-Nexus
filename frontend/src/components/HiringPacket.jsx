@@ -14,7 +14,7 @@
 // folder My HR > My Documents already shows them.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock, AlertTriangle, Plus, Trash2, Copy, Info } from 'lucide-react';
+import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock, AlertTriangle, Plus, Trash2, Copy, Info, Printer, Upload } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import HoldButton from '../ui/HoldButton';
@@ -31,7 +31,7 @@ import { PacketEditor, describeRoles } from './PacketTemplates';
 import PacketCoverage from './PacketCoverage';
 import { DocumentsPacketEditor, packetCopy } from './DocumentsPacketEditor';
 import { readinessSummary } from '../lib/packetFlow';
-import PacketReview from './PacketReview';
+import PacketReview, { savePrintCopy } from './PacketReview';
 import FolderPickModal from '../egnyte/EgnyteFolderPick';
 
 const ENABLED_EVENTS = ['offer', 'hire', 'promotion', 'separation'];
@@ -838,6 +838,24 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
   // The offer is signed but the hiring packet could not start by itself (no
   // packet set up yet) - HR starts it here once it is (Oct 14).
   const notStarted = ev.kind === 'offer' && ev.status === 'completed' && (ev.flags || []).find(f => f.code === 'packet_not_started');
+  // Print And Send (11/04/2026): the person signs on paper; HR prints and uploads the signed copy.
+  const subjectParty = (ev.parties || []).find(p => p.isSubject);
+  const inPerson = !!ev.inputs?.in_person && ev.status === 'sent' && subjectParty && subjectParty.status !== 'signed';
+  async function printIt() {
+    setBusy('print');
+    try { await savePrintCopy(ev.id); } catch (e) { toastErr?.(e?.message || 'Could not print it.'); }
+    setBusy('');
+  }
+  async function uploadSigned(file) {
+    if (!file) return;
+    setBusy('signed');
+    try {
+      await api.uploadSignedInPerson(ev.id, file);
+      toastOk?.(`Signed copy saved - ${ev.subjectName}'s signature is recorded.`);
+      onChanged?.();
+    } catch (e) { toastErr?.(e?.message || 'Could not save the signed copy.'); }
+    setBusy('');
+  }
   async function startPacket() {
     setBusy('packet');
     try {
@@ -917,6 +935,11 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
             : `Offer open through ${usDay(ev.inputs.offer_expires)} - the link expires after that day.`}
         </div>
       )}
+      {inPerson && (
+        <div style={{ fontSize: 12.5, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Printer size={13} style={{ color: 'var(--muted)' }} /> Signed in person - print it, have {ev.subjectName} sign it, then upload the signed copy.
+        </div>
+      )}
       {notStarted && <Problem>The hiring packet did not start: {notStarted.message}</Problem>}
       {ev.applyNote && (ev.status === 'completed' || ev.applyStatus) && <div style={{ fontSize: 12, marginTop: 6 }}>{ev.applyNote}</div>}
       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -964,6 +987,18 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
           <button className="secondary-btn" onClick={() => setReviewOpen(true)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <FileSignature size={12} /> Documents
           </button>
+        )}
+        {inPerson && (
+          <>
+            <button className="secondary-btn" onClick={printIt} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              {busy === 'print' ? <Spinner size={12} /> : <Printer size={12} />} Print
+            </button>
+            <label className="primary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+              {busy === 'signed' ? <Spinner size={12} /> : <Upload size={12} />} Upload Signed Copy
+              <input type="file" accept="application/pdf,image/*" disabled={!!busy} style={{ display: 'none' }}
+                onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; uploadSigned(file); }} />
+            </label>
+          </>
         )}
         {ev.senderPartyId && onSignNow && !hideSign && (
           <button className="primary-btn" onClick={() => onSignNow(ev.senderPartyId)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
