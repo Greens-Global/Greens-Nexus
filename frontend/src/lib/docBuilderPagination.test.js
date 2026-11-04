@@ -142,6 +142,12 @@ describe('planBreaks splitting a paragraph by lines', () => {
     expect(plan.every(b => b.gap === 0)).toBe(true);   // the sheets are filled to the line
   });
 
+  it('a page break marker starts a new sheet with the block after it', () => {
+    // Block 1 is the marker; block 2 must start sheet 2 even though it fits.
+    const plan = planBreaks([100, 20, 100], SHEET, undefined, () => null, (i) => i === 2);
+    expect(plan).toEqual([{ index: 2, gap: SHEET - 120 }]);
+  });
+
   it('still moves a block that cannot split whole', () => {
     expect(planBreaks([800, 100], SHEET, undefined, () => null)).toEqual([{ index: 1, gap: 64 }]);
   });

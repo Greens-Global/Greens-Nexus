@@ -327,6 +327,8 @@ function paraPropsFrom(pPr, inherited = {}) {
   if (ind) {
     const left = twipsPt(attr(ind, 'w', 'left') ?? attr(ind, 'w', 'start'));
     if (left != null) out.indentLeft = round1(left);
+    const right = twipsPt(attr(ind, 'w', 'right') ?? attr(ind, 'w', 'end'));
+    if (right != null) out.indentRight = round1(right);
     const hanging = twipsPt(attr(ind, 'w', 'hanging'));
     const firstLine = twipsPt(attr(ind, 'w', 'firstLine'));
     if (hanging != null && hanging > 0) out.indentFirst = -round1(hanging);
@@ -350,6 +352,7 @@ function paragraphAttrsFrom(props, { isListItem } = {}) {
   if (!isListItem) {
     if (props.indentLeft) attrs.indentLeft = props.indentLeft;
     if (props.indentFirst) attrs.indentFirst = props.indentFirst;
+    if (props.indentRight) attrs.indentRight = props.indentRight;
   }
   return attrs;
 }
@@ -877,9 +880,10 @@ function readPageSetup(bodyEl) {
     const h = measureInches(attr(pgSz, 'w', 'h'));
     orientation = attr(pgSz, 'w', 'orient') === 'landscape' || w > h ? 'landscape' : 'portrait';
     const long = Math.max(w, h), short = Math.min(w, h);
-    if (Math.abs(long - 14) < 0.3 && Math.abs(short - 8.5) < 0.3) size = 'legal';
-    else if (Math.abs(long - 17) < 0.3 && Math.abs(short - 11) < 0.3) size = 'tabloid';
-    else if (Math.abs(long - 11.69) < 0.3 && Math.abs(short - 8.27) < 0.3) size = 'a4';
+    // Kept in step with pageSetup.js PAGE_SIZES and doc_export.py PAGE_SIZES_IN.
+    const SIZES = [['legal', 14, 8.5], ['tabloid', 17, 11], ['a4', 11.69, 8.27], ['a3', 16.54, 11.69], ['a5', 8.27, 5.83], ['b5', 9.84, 6.93], ['executive', 10.5, 7.25]];
+    const hit = SIZES.find(([, l, s]) => Math.abs(long - l) < 0.3 && Math.abs(short - s) < 0.3);
+    if (hit) size = hit[0];
   }
   const setup = { size, orientation, margins: 'normal' };
   const m = sectionMargins(sectPr);

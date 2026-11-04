@@ -3,6 +3,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Paragraph from '@tiptap/extension-paragraph';
 import Heading from '@tiptap/extension-heading';
 import { Table, TableRow, TableHeader as BaseTableHeader, TableCell as BaseTableCell } from '@tiptap/extension-table';
+import { BulletList } from '@tiptap/extension-list';
 import TextAlign from '@tiptap/extension-text-align';
 import { TextStyleKit } from '@tiptap/extension-text-style';
 import Link from '@tiptap/extension-link';
@@ -75,7 +76,26 @@ const PARAGRAPH_STYLE_ATTRS = {
     parseHTML: (el) => (el.style.textIndent ? parseFloat(el.style.textIndent) : null),
     renderHTML: (attrs) => (attrs.indentFirst ? { style: `text-indent: ${attrs.indentFirst}pt` } : {}),
   },
+  indentRight: {
+    default: null,
+    parseHTML: (el) => (el.style.marginRight && /pt$/.test(el.style.marginRight) ? parseFloat(el.style.marginRight) : null),
+    renderHTML: (attrs) => (attrs.indentRight ? { style: `margin-right: ${attrs.indentRight}pt` } : {}),
+  },
 };
+
+// Word's bullet gallery (disc, circle, square) - the list's own marker style.
+const StyledBulletList = BulletList.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      listStyle: {
+        default: null,
+        parseHTML: (el) => el.style.listStyleType || null,
+        renderHTML: (attrs) => (attrs.listStyle ? { style: `list-style-type: ${attrs.listStyle}` } : {}),
+      },
+    };
+  },
+});
 
 // Word draws a table with no borders at all (a layout table, a form) as
 // bare text; the editor shows faint gridlines so it can still be edited.
@@ -103,8 +123,8 @@ const StyledHeading = Heading.extend({ addAttributes() { return { ...this.parent
 export const BODY_EXTENSIONS = [
   // link: false - StarterKit ships its own Link; the configured one below is
   // the one in use (two registered as "link" was a TipTap warning on every mount).
-  StarterKit.configure({ paragraph: false, heading: false, link: false }),
-  StyledParagraph, StyledHeading,
+  StarterKit.configure({ paragraph: false, heading: false, link: false, bulletList: false }),
+  StyledParagraph, StyledHeading, StyledBulletList,
   // Inline, like Word: a picture lives in the run where it was placed, so a
   // Teams transcript's speaker avatar sits beside the name rather than on a
   // line of its own. The node view is already built for it

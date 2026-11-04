@@ -18,6 +18,8 @@ Known, deliberate approximations (see the plan, not silent gaps):
 - PDF font family maps to reportlab's built-in base-14 fonts (no TTF embedding).
 - DOCX numbered lists always count 1, 2, 3 (a letter or roman format needs a
   numbering definition python-docx cannot write); the PDF honors the format.
+- The bullet glyph (disc / circle / square), the watermark and the page
+  number position are PDF-only; the Word file keeps Word's defaults.
 """
 import base64
 import re
@@ -41,6 +43,11 @@ PAGE_SIZES_IN = {
     "legal": (8.5, 14.0),      # legal agreements/contracts
     "tabloid": (11.0, 17.0),   # large reports/drawings
     "a4": (8.27, 11.69),       # international
+    # Word's Layout > Size list; kept in step with the frontend's PAGE_SIZES.
+    "a3": (11.69, 16.54),
+    "a5": (5.83, 8.27),
+    "b5": (6.93, 9.84),
+    "executive": (7.25, 10.5),
 }
 # Symmetric margins on all four sides - a simplification of Word's own
 # presets (whose "Wide" is asymmetric, 2in sides/1in top-bottom); kept simple
@@ -205,6 +212,7 @@ def _para_layout(attrs: dict) -> dict:
         "lineHeight": attrs.get("lineHeight"),
         "indentLeft": (_num(attrs.get("indentLeft")) or 0) + 18 * (int(_num(attrs.get("indent")) or 0)),
         "indentFirst": _num(attrs.get("indentFirst")),
+        "indentRight": _num(attrs.get("indentRight")),
         "background": attrs.get("backgroundColor"),
     }
 
@@ -607,14 +615,15 @@ def _para_layout_style(style, b: dict):
     spacing and the indents (a Word import's, or the Layout tab's) likewise."""
     before, after = b.get("spacingBefore"), b.get("spacingAfter")
     leading = _leading_for(style, b.get("lineHeight"))
-    left, first = b.get("indentLeft") or 0, b.get("indentFirst") or 0
-    if before is None and after is None and leading is None and not left and not first:
+    left, first, right = b.get("indentLeft") or 0, b.get("indentFirst") or 0, b.get("indentRight") or 0
+    if before is None and after is None and leading is None and not left and not first and not right:
         return style
-    return style.clone(f"{style.name}_lay{before}_{after}_{leading}_{left}_{first}",
+    return style.clone(f"{style.name}_lay{before}_{after}_{leading}_{left}_{first}_{right}",
                         spaceBefore=before if before is not None else style.spaceBefore,
                         spaceAfter=after if after is not None else style.spaceAfter,
                         leading=leading if leading is not None else style.leading,
                         leftIndent=style.leftIndent + left,
+                        rightIndent=style.rightIndent + right,
                         firstLineIndent=first if first else style.firstLineIndent)
 
 
@@ -1005,11 +1014,31 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
                     f.drawOn(canvas, m_left, y)
                 except Exception:
                     pass
-        # Right-aligned page number, mirroring a printed SOP's footer (title
-        # left, page right). "of N" comes from the counting pass below.
-        canvas.setFont("Helvetica", 9)
-        canvas.setFillColor(colors.HexColor("#6b7280"))
-        canvas.drawRightString(pagesize[0] - m_right, m_bottom - 14, f"Page {canvas.getPageNumber()} of {total_pages[0]}")
+        # A text watermark (Layout > Watermark), faint and diagonal across the page.
+        watermark = str((page_setup or {}).get("watermark") or "").strip()
+        if watermark:
+            canvas.saveState()
+            canvas.setFillAlpha(0.12)
+            canvas.setFillColor(colors.HexColor("#1f2937"))
+            canvas.setFont("Helvetica-Bold", 72)
+            canvas.translate(pagesize[0] / 2, pagesize[1] / 2)
+            canvas.rotate(45)
+            canvas.drawCentredString(0, 0, watermark[:40])
+            canvas.restoreState()
+        # The page number where Insert > Page Numbers put it (bottom right by
+        # default, as a printed SOP's footer). "of N" comes from the counting pass.
+        where = str((page_setup or {}).get("pageNumbers") or "bottom-right")
+        if where != "none":
+            canvas.setFont("Helvetica", 9)
+            canvas.setFillColor(colors.HexColor("#6b7280"))
+            label = f"Page {canvas.getPageNumber()} of {total_pages[0]}"
+            y = pagesize[1] - m_top + 8 if where.startswith("top") else m_bottom - 14
+            if where.endswith("left"):
+                canvas.drawString(m_left, y, label)
+            elif where.endswith("center"):
+                canvas.drawCentredString(pagesize[0] / 2, y, label)
+            else:
+                canvas.drawRightString(pagesize[0] - m_right, y, label)
         canvas.restoreState()
 
     # The letterhead belongs in the FIRST PAGE'S HEADER, not at the top of the
@@ -1305,6 +1334,8 @@ def _apply_docx_para_extras(paragraph, b: dict) -> None:
         pf.left_indent = Pt(b["indentLeft"])
     if b.get("indentFirst"):
         pf.first_line_indent = Pt(b["indentFirst"])
+    if b.get("indentRight"):
+        pf.right_indent = Pt(b["indentRight"])
     if b.get("background"):
         _shade_docx_paragraph(paragraph, b["background"])
     if b.get("border"):

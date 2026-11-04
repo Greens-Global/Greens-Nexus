@@ -10,6 +10,12 @@ export const PAGE_SIZES = [
   { value: 'legal', label: 'Legal (8.5 × 14 in)', wIn: 8.5, hIn: 14.0 },
   { value: 'tabloid', label: 'Tabloid (11 × 17 in)', wIn: 11.0, hIn: 17.0 },
   { value: 'a4', label: 'A4 (International)', wIn: 8.27, hIn: 11.69 },
+  // Word's Layout > Size list; kept in step with doc_export.py PAGE_SIZES_IN
+  // and docxToTiptap.js readPageSetup.
+  { value: 'a3', label: 'A3 (11.69 × 16.54 in)', wIn: 11.69, hIn: 16.54 },
+  { value: 'a5', label: 'A5 (5.83 × 8.27 in)', wIn: 5.83, hIn: 8.27 },
+  { value: 'b5', label: 'B5 (6.93 × 9.84 in)', wIn: 6.93, hIn: 9.84 },
+  { value: 'executive', label: 'Executive (7.25 × 10.5 in)', wIn: 7.25, hIn: 10.5 },
 ];
 export const PAGE_SIZE_DIMS = Object.fromEntries(PAGE_SIZES.map((s) => [s.value, { wIn: s.wIn, hIn: s.hIn }]));
 

@@ -58,10 +58,13 @@ function gutterDom(b, n, info) {
   const footText = document.createElement('div');
   footText.className = 'doc-sheet-foot-text';
   footText.innerHTML = info.footerHtml || '';
+  // Where Insert > Page Numbers put the number (bottom right by default).
+  const where = info.pageNumbers || 'bottom-right';
   const pageNo = document.createElement('div');
-  pageNo.className = 'doc-sheet-pageno';
+  pageNo.className = `doc-sheet-pageno is-${where.split('-')[1] || 'right'}`;
   pageNo.textContent = `Page ${n} of ${info.total}`;
-  foot.append(footText, pageNo);
+  foot.append(footText);
+  if (where.startsWith('bottom')) foot.append(pageNo);
 
   const space = document.createElement('div');
   space.className = 'doc-sheet-space';
@@ -76,6 +79,11 @@ function gutterDom(b, n, info) {
   headText.className = 'doc-sheet-head-text';
   headText.innerHTML = info.headerHtml || '';
   head.append(headText);
+  if (where.startsWith('top')) {
+    const topNo = pageNo.cloneNode(true);
+    topNo.textContent = `Page ${n + 1} of ${info.total}`;   // the sheet that STARTS under this band
+    head.append(topNo);
+  }
 
   band.append(foot, space, head);
   root.append(band);
@@ -93,7 +101,7 @@ const buildDecorations = (doc, breaks, info) => {
       // Before the cursor at this position, so typing there lands on the new
       // sheet; no marks, so the band never inherits bold from the text.
       side: -1, marks: [], ignoreSelection: true,
-      key: `sheet-${i}-${Math.round(b.gap)}-${info.rev || 0}-${info.total}-${info.base || 0}`,
+      key: `sheet-${i}-${Math.round(b.gap)}-${info.rev || 0}-${info.total}-${info.base || 0}-${info.pageNumbers || ''}`,
     }));
   });
   return DecorationSet.create(doc, decos);
@@ -148,7 +156,7 @@ export const Pagination = Extension.create({
  * (line null) or before `line` inside it, and `gap` is the room left under
  * the last line kept on the sheet before it.
  */
-export function planBreaks(heights, sheetPx, firstSheetPx, linesOf = () => null) {
+export function planBreaks(heights, sheetPx, firstSheetPx, linesOf = () => null, forced = () => false) {
   const sheet = Math.max(1, sheetPx);
   // The FIRST sheet can be shorter than the rest: a letterhead is drawn into
   // page 1's header, so the exporter gives page 1 a shorter text frame. The
@@ -165,6 +173,8 @@ export function planBreaks(heights, sheetPx, firstSheetPx, linesOf = () => null)
   const settle = () => { while (used >= cap) { used -= cap; cap = sheet; } };
   heights.forEach((hRaw, index) => {
     const h = Math.max(0, hRaw || 0);
+    // `forced(index)`: a page break marker sits right before this block.
+    if (forced(index) && used > 0) { out.push({ index, gap: cap - used }); used = 0; cap = sheet; }
     if (h <= cap - used) { used += h; settle(); return; }
 
     const lines = linesOf(index);
