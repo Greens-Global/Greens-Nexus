@@ -120,30 +120,86 @@ def is_listed(prop, user, db=None, allowed=_UNSET) -> bool:
             and asset_kind(prop) == "property" and in_scope(prop, allowed))
 
 
-def property_company(db, prop) -> str:
-    """The company (HrEntity id) a property belongs to, as far as Asset
-    Management says: its own `companyId`, else the HrEntity named like its
-    Operating Entity, else its asset manager's company; '' = unknown. A
-    preventive schedule's team must be of this company when it is known."""
+# ── An asset's company (Neil, 11/03/2026: "A company field on asset
+# management would replace the inferred company") ─────────────────────────────
+# The asset row's own `companyId` (payload key, an HrEntity id) is THE answer,
+# set on the asset's Details and in Add Asset, validated on the per-row save
+# (routers/property_assets._check_company). Every reader asks
+# `property_company`; the inference below is only the fallback for a row that
+# has none yet - asset_company_fill sets every placeable row ONCE from it, and
+# the rows it cannot place wait under Asset Management's "Needs a Company".
+
+AMBIGUOUS = object()
+_FALLBACK_LOGGED: set = set()
+
+
+def entity_ids_by_name(db) -> dict:
+    """{company name or legal name (lower): HrEntity id, or AMBIGUOUS when
+    two companies answer to it}."""
+    out: dict = {}
+    for e in db.query(models.HrEntity.id, models.HrEntity.name, models.HrEntity.legal_name).all():
+        for n in {(e.name or "").strip().lower(), (e.legal_name or "").strip().lower()} - {""}:
+            out[n] = AMBIGUOUS if (n in out and out[n] != e.id) else e.id
+    return out
+
+
+def stored_company(db, prop) -> str:
+    """The Company field as saved on the row - '' when blank, or when it names
+    a company that no longer exists."""
     if prop is None:
         return ""
+    cid = str((prop.payload or {}).get("companyId") or "").strip()
+    return cid if cid and db.get(models.HrEntity, cid) is not None else ""
+
+
+def infer_company(db, prop, names=None, _lead: bool = True) -> tuple:
+    """(company id, how) from what the row says about itself, never its
+    Company field: its Operating Entity matched to exactly ONE company (name
+    or legal name - a name two companies share places nothing), else, for a
+    parcel, its lead property's company, else its asset manager's company.
+    ('', '') when nothing places it. `how` is the Activity Log wording."""
+    if prop is None:
+        return "", ""
     pl = prop.payload or {}
-    cid = str(pl.get("companyId") or "").strip()
-    if cid and db.get(models.HrEntity, cid) is not None:
-        return cid
     entity = str(pl.get("entity") or "").strip().lower()
     if entity:
-        for e in db.query(models.HrEntity).all():
-            if (e.name or "").strip().lower() == entity:
-                return e.id
+        names = names if names is not None else entity_ids_by_name(db)
+        hit = names.get(entity, "")
+        if hit and hit is not AMBIGUOUS:
+            return hit, "its Operating Entity"
+    parent_id = (prop.parent_id or str(pl.get("parentId") or "")).strip()
+    if _lead and parent_id and parent_id != prop.id:
+        lead = db.get(models.PropertyAsset, parent_id)
+        cid = stored_company(db, lead) or infer_company(db, lead, names, _lead=False)[0]
+        if cid:
+            return cid, "its lead property"
     mgr = manager_email(db, prop)
     if mgr:
         from sqlalchemy import func
         emp = (db.query(models.NexusEmployee)
                .filter(func.lower(models.NexusEmployee.work_email) == mgr).first())
-        if emp is not None and (emp.company or "").strip():
-            return emp.company.strip()
-    return ""
+        cid = ((emp.company if emp is not None else "") or "").strip()
+        if cid and db.get(models.HrEntity, cid) is not None:
+            return cid, "its asset manager's company"
+    return "", ""
+
+
+def property_company(db, prop) -> str:
+    """THE company (HrEntity id) an Asset Management asset belongs to: its
+    Company field; only while that is blank, the inference (logged once per
+    asset per process, so a fallback still in use shows in the log). '' =
+    unknown. A preventive schedule's team, a construction job's company and
+    the tag sheet's company name all read this - never a second rule."""
+    if prop is None:
+        return ""
+    cid = stored_company(db, prop)
+    if cid:
+        return cid
+    cid, how = infer_company(db, prop)
+    if cid and prop.id not in _FALLBACK_LOGGED:
+        _FALLBACK_LOGGED.add(prop.id)
+        print(f"[property-company] {prop.id}: no Company set - inferred from {how} ({cid})")
+    return cid
 
 
 def display_name(prop) -> str:

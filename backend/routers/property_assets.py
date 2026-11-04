@@ -368,11 +368,91 @@ def _strip_rev(row: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in row.items() if k != "_rev"}
 
 
+# ── Company (Neil, 11/03/2026) ───────────────────────────────────────────────
+# An asset's company is its payload's `companyId` (an HrEntity id) - the field
+# property_links.property_company reads before any inference. A save that
+# CHANGES it is checked here: the new value must be a company in Nexus that the
+# saver may assign (auth.company_scope - a Super Administrator or an unwalled
+# caller any, a walled Administrator / walled person only their companies),
+# the asset must not be leaving a company outside the saver's reach, and only
+# an unwalled caller may clear it. An unchanged value is never re-checked (a
+# walled editor still saves the rest of a row placed elsewhere), and a row
+# saved without the key keeps the company it has (a tab that never read the
+# field cannot erase it - nothing is deleted by code).
+
+_COMPANY_KEY = "companyId"
+
+
+class _Scope:
+    """The saver's company scope, read once per batch and only when needed."""
+    def __init__(self, db: Session, user):
+        self.db, self.user, self._v, self._read = db, user, None, False
+
+    def get(self):
+        if not self._read:
+            import auth
+            self._v, self._read = auth.company_scope(self.user or {}, self.db), True
+        return self._v
+
+
+def _check_company(db: Session, scope: "_Scope", existing, payload: Dict[str, Any]) -> None:
+    import auth
+    from models import HrEntity
+    had = str(((existing.payload or {}) if existing is not None else {}).get(_COMPANY_KEY) or "").strip()
+    if _COMPANY_KEY not in payload:
+        if had:
+            payload[_COMPANY_KEY] = had
+        return
+    new = str(payload.get(_COMPANY_KEY) or "").strip()
+    payload[_COMPANY_KEY] = new
+    if new == had:
+        return
+    reach = scope.get()
+    if had and reach is not None and db.get(HrEntity, had) is not None and had not in reach:
+        raise HTTPException(status_code=403, detail="This asset belongs to a company outside yours - a Super Administrator can move it.")
+    if not new:
+        if reach is not None:
+            raise HTTPException(status_code=403, detail="Only a Super Administrator can clear an asset's company - pick another company instead.")
+        return
+    if db.get(HrEntity, new) is None:
+        raise HTTPException(status_code=400, detail="That company is not in Nexus - pick one from the list.")
+    if not auth.company_ok(new, reach):
+        raise HTTPException(status_code=403, detail="You can put an asset only in a company you manage.")
+
+
+def assignable_companies(db: Session, user) -> List[Dict[str, Any]]:
+    """The companies the Company picker offers this caller: every company they
+    may assign (their company scope), plus - named, not assignable - any other
+    company an asset they can see already sits in, so the screen can show it."""
+    import auth
+    from models import HrEntity
+    reach = auth.company_scope(user or {}, db)
+    visible = _visible_ids(db, user)
+    used = {str((p.payload or {}).get(_COMPANY_KEY) or "").strip()
+            for p in db.query(PropertyAsset).all() if p.id in visible}
+    out = []
+    for e in db.query(HrEntity).order_by(HrEntity.name).all():
+        ok = auth.company_ok(e.id, reach)
+        if ok or e.id in used:
+            out.append({"id": e.id, "name": e.name or "", "assignable": ok})
+    return out
+
+
+@router.get("/property-assets/companies")
+def get_companies(db: Session = Depends(get_db), user=Depends(require_asset_read)):
+    """The Company picker's list (see assignable_companies) and whether this
+    caller may leave an asset with no company (only an unwalled one)."""
+    import auth
+    return {"companies": assignable_companies(db, user),
+            "canClear": auth.company_scope(user or {}, db) is None}
+
+
 @router.post("/property-assets/changes")
 def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(require_asset_write)):
     now = _now()
     email = (user or {}).get("email", "")
     sees_private, allowed = _reach(db, user)
+    company_scope = _Scope(db, user)
     conflicts: List[str] = []
     trashed: List[str] = []        # live assets a Delete Forever only moved to the Trash
     revs: Dict[str, str] = {}      # id -> the updated_at every written row now carries
@@ -429,6 +509,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             conflicts.append(pid)
             continue
         payload = _strip_rev(row)
+        _check_company(db, company_scope, existing, payload)
         revs[pid] = now
         if existing is None:
             db.add(PropertyAsset(id=pid, name=str(payload.get("name") or ""), manager=str(payload.get("manager") or ""),

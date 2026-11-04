@@ -13,6 +13,7 @@ import { TIMELINE_FIELDS, permitColumns } from './lib/timelineFields.js';
 import { useNexusStore } from './lib/useNexusStore.js';
 import { portfolioStats, assetCompleteness } from './lib/assetMetrics.js';
 import { typeLabel } from './lib/portfolioCards.js';
+import { useAssetCompanies, companyName, companyIdOf, needsCompany, NO_COMPANY } from './lib/companies.js';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { StatusLabel } from '../components/StatusLabel.jsx';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
@@ -137,6 +138,11 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     }
   }, [activeSub, loading]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [typeFilter, setTypeFilter] = useState('');
+  // The portfolio's Company filter (a company id; NO_COMPANY = Needs a Company) -
+  // here, not in Portfolio, so the Needs Attention chip can open it.
+  const [companyFilter, setCompanyFilter] = useState('');
+  // The Company picker's list and whether this person may leave an asset with none.
+  const companyList = useAssetCompanies();
   const moreRef = useRef(null);                                // the header's "more actions" button
   const [moreOpen, setMoreOpen] = useState(false);
   // The portfolio's own more menu and the panel open under its Needs Attention band
@@ -178,7 +184,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       if (d.soft) {
         pushToast("Changes aren't syncing yet - retrying. Keep this tab open.", 'mut');
       } else {
-        const why = d.status === 403 ? "you don't have edit access to Asset Management"
+        // A company the person may not assign, move or clear: the server's words say why.
+        const why = d.status === 403 ? (/compan/i.test(d.message || '') ? d.message : "you don't have edit access to Asset Management")
           : d.status === 400 ? (d.message || 'the server refused the change')
           : d.status === 422 ? 'the server rejected the data shape'
           : `save failed (error ${d.status || 'network'})`;
@@ -468,10 +475,21 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       const changes = [];
       let snapshot;
 
+      // Company (11/03/2026): an id on the row, never a snapshot value; the log
+      // names the companies. The server checks the change on the row save.
+      if ('Company' in draft) {
+        const from = companyIdOf(asset);
+        const to = String(draft.Company || '').trim();
+        if (from !== to) {
+          flat.companyId = to;
+          changes.push({ field: 'Company', from: companyName(companyList.companies, from), to: companyName(companyList.companies, to) });
+        }
+      }
+
       if (kind === 'property') {
         snapshot = PT.map((group) => ({
           group: group.group,
-          fields: group.fields.map((f) => {
+          fields: group.fields.filter((f) => f.type !== 'company').map((f) => {
             const hasDraftValue = f.label in draft;
             let value = hasDraftValue ? draft[f.label]
               : existing[normLabel(f.label)] !== undefined ? existing[normLabel(f.label)]
@@ -752,6 +770,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const pulse = !active ? portfolioStats(store) : null;
   const needData = !active ? visibleProperties.filter((p) => assetCompleteness(p).pct < 100).length : 0;
   const flagCount = !active ? visibleProperties.reduce((n, p) => n + ((p.reviewFlags || []).length), 0) : 0;
+  // Live assets with no company yet (the one-time fill could not place them) - for an administrator to set.
+  const needCompany = !active ? visibleProperties.filter(needsCompany).length : 0;
   const assetKind = active ? inferAssetKind(active) : null;
   const recordViews = active ? recordViewsFor(assetKind) : [];
   const stripTabs = active ? stripTabsFor(assetKind) : [];
@@ -835,7 +855,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
                 <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{active.name}</span>
                 {active.private && <StatusLabel label="Private" color="hsl(var(--color-red))" size="sm" title="Hidden from everyone but officers" />}
               </h2>
-              <p>{[cityRegion(active), assetKind === 'property' ? typeLabel(active) : ''].filter(Boolean).join(' · ') || '-'}</p>
+              <p>{[companyName(companyList.companies, companyIdOf(active)), cityRegion(active), assetKind === 'property' ? typeLabel(active) : ''].filter(Boolean).join(' · ') || '-'}</p>
             </div>
           </div>
           <div className="asset-head-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
@@ -946,6 +966,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
           extraChips={[
             { count: needData, label: 'Need Data', color: 'orange', title: 'Assets with key fields to fill', expanded: panel === 'data', onClick: () => setPanel((p) => (p === 'data' ? null : 'data')) },
             { count: flagCount, label: 'Flagged', color: 'purple', title: 'Fields flagged for review', expanded: panel === 'flags', onClick: () => setPanel((p) => (p === 'flags' ? null : 'flags')) },
+            // Needs a Company (11/03/2026): the portfolio filtered to the assets with no company set.
+            { count: needCompany, label: 'Need a Company', color: 'orange', title: 'Assets with no company set', expanded: companyFilter === NO_COMPANY, onClick: () => setCompanyFilter((c) => (c === NO_COMPANY ? '' : NO_COMPANY)) },
           ]} />
       )}
       {view === 'portfolio' && !active && panel === 'data' && (
@@ -962,7 +984,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       {view === 'portfolio' && !active && panel === 'trash' && (
         <TrashPanel deleted={deletedProperties} onRecover={recoverAsset} onPurge={purgeAsset} recordsOf={recordsOf} onClose={() => setPanel(null)} />
       )}
-      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} metrics={metrics} store={store} selectedId={lastOpenedId} />}
+      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} metrics={metrics} store={store} selectedId={lastOpenedId} companies={companyList.companies} companyFilter={companyFilter} setCompanyFilter={setCompanyFilter} />}
 
       {view === 'property' && active?.assembled && !active.parentId && <AssemblageParcels lead={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} />}
       {view === 'property' && active && !editState.editing && (
@@ -974,7 +996,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         <PropertyJobs property={active} />
       )}
       {view === 'property' && active && (
-        <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} />
+        <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} companies={companyList.companies} canClearCompany={companyList.canClear} />
       )}
       {view === 'property' && active && inferAssetKind(active) === 'property' && (
         <PropertyLoans property={active} onSaveEntityCode={(code) => setEntityCode(active.id, code)} />
@@ -1050,6 +1072,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
           draft={modal.draft}
           mode={modal.mode || 'add'}
           properties={visibleProperties}
+          companies={companyList.companies}
           onSave={(patch, reason, linkOptions, meta) => {
             // New Heavy Equipment or Vehicle asset from the guided wizard (not CSV bulk-import,
             // which has no sensible per-row Item Management pairing): don't persist yet - stage

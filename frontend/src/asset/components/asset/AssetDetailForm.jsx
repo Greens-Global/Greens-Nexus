@@ -12,6 +12,7 @@ import { MultiDateInput } from '../shared/FieldInput.jsx';
 import { PropertyMapLink } from './PropertyMapLink.jsx';
 import { PhotoGallery } from './PhotoGallery.jsx';
 import { SiteModelSection } from './SiteModelSection.jsx';
+import { companyIdOf, companyName, companyOptions } from '../../lib/companies.js';
 
 const FLAG_REASONS = ['Appears Incorrect', 'Needs Verification', 'Outdated', 'Missing Info', 'Other'];
 
@@ -35,7 +36,7 @@ const inputStyle = { width: '100%', padding: '5px 9px', fontSize: '0.82rem' };
  * is responsible for mapping label -> the right storage location (top-level field vs. snapshot
  * value), same asymmetry as the read path above.
  */
-export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetail, onSaveContact, onOpenLead, onFlag }) {
+export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetail, onSaveContact, onOpenLead, onFlag, companies = [], canClearCompany = false }) {
   const flagMap = new Map((asset.reviewFlags || []).map((x) => [(x.g || '') + '~#~' + (x.f || ''), x.reason || '']));
   const isProperty = inferAssetKind(asset) === 'property';
   // Data Gaps chips name the completeness check, not always the row label.
@@ -141,7 +142,19 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
     });
   };
 
-  const renderEditInput = (f) => f.unitLabel ? (
+  const renderEditInput = (f) => f.t === 'company' ? (() => {
+    // The Company picker: the companies this person may assign (the server
+    // checks the same rule on save); read-only when the asset sits in a
+    // company outside theirs.
+    const { options, locked } = companyOptions(companies, f.raw, canClearCompany);
+    return (
+      <select className="form-input" aria-label="Company" value={draft[f.l] ?? ''} disabled={locked}
+        title={locked ? 'This asset belongs to a company outside yours - a Super Administrator can move it.' : undefined}
+        onChange={(e) => setField(f.l, e.target.value)} style={inputStyle}>
+        {options.map((o) => <option key={o.v || 'none'} value={o.v}>{o.l}</option>)}
+      </select>
+    );
+  })() : f.unitLabel ? (
     <div style={{ display: 'flex', gap: 6 }}>
       <input className="form-input" type="text" value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={{ ...inputStyle, flex: 1 }} />
       <select className="form-input" value={draft[f.unitLabel] ?? 'Acres'} onChange={(e) => setField(f.unitLabel, e.target.value)} style={{ ...inputStyle, width: 84, flexShrink: 0 }}>
@@ -232,12 +245,13 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
 
         {!editing && <div style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)', margin: '4px 0 -6px' }}>Details</div>}
         {sections.map((sec, si) => {
-          const all = sec.fields.map((f) => ({ ...f, value: formatFieldValue(f.raw, f.t), flagKey: (sec.title || '') + '~#~' + f.l }));
+          const all = sec.fields.map((f) => ({ ...f, value: f.t === 'company' ? companyName(companies, f.raw) : formatFieldValue(f.raw, f.t), flagKey: (sec.title || '') + '~#~' + f.l }));
           const hasValue = (f) => String(f.value ?? '').trim() !== '';
           const filled = all.filter(hasValue).length;
           // Read mode: the filled fields, plus any empty one that is flagged or deep-linked.
           const open = editing || !!showEmpty[sec.title];
-          const rows = open ? all : all.filter((f) => hasValue(f) || (onFlag && flagMap.has(f.flagKey)) || revealed.has(String(f.l).toLowerCase()) || (highlightField && String(f.l).toLowerCase() === highlightField));
+          // Company always shows, a dash when none is set (Needs a Company), so it is never hidden.
+          const rows = open ? all : all.filter((f) => hasValue(f) || f.t === 'company' || (onFlag && flagMap.has(f.flagKey)) || revealed.has(String(f.l).toLowerCase()) || (highlightField && String(f.l).toLowerCase() === highlightField));
           const hidden = all.length - rows.length;
           return (
           <section key={'sec' + si} id={'gt-sec' + si} style={sectionCardStyle}>
@@ -284,7 +298,8 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
                     {/* The flag: a quiet icon that shows on hover (always on a touch
                         screen, always once flagged - asset-styles .gt-flag). A click
                         opens the reasons; a flagged one clears on click. */}
-                    {onFlag ? (
+                    {/* Company is a picker, not text: nothing to flag or push a fix for. */}
+                    {onFlag && f.t !== 'company' ? (
                       <button
                         type="button"
                         ref={menuOpen ? flagBtnRef : undefined}
@@ -366,13 +381,18 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
  *   - Vehicle/equipment: straight from the pre-built `snapshot` array, no live schema filtering.
  */
 function buildSections(asset, isProperty, editing) {
+  // Every asset class carries the Company field (11/03/2026) - on a vehicle or
+  // a piece of equipment it leads the first section (their snapshot has no row
+  // for it; App.jsx saveDetail writes it to `companyId`, never the snapshot).
+  const companyField = { l: 'Company', raw: companyIdOf(asset), t: 'company', key: 'companyId' };
   if (!isProperty) {
-    return (asset.snapshot && asset.snapshot.length)
+    const groups = (asset.snapshot && asset.snapshot.length)
       ? asset.snapshot.map((g) => ({
           title: g.group,
           fields: (g.fields || []).map((f) => ({ l: String(f.label || '').trim(), raw: f.value })),
         }))
-      : [];
+      : [{ title: 'Details', fields: [] }];
+    return [{ ...groups[0], fields: [companyField, ...groups[0].fields.filter((f) => f.l !== 'Company')] }, ...groups.slice(1)];
   }
 
   const stabilized = baseStage(asset.devStage) === 'Stabilized';
@@ -396,6 +416,7 @@ function buildSections(asset, isProperty, editing) {
   }));
   const resolveValue = (field) => {
     if (field.type === 'stage') return asset.devStage || snapshotValues[normLabel(field.label)] || '';
+    if (field.type === 'company') return companyIdOf(asset);
     if (field.key && asset[field.key] != null && String(asset[field.key]).trim() !== '') return String(asset[field.key]);
     const v = snapshotValues[normLabel(field.label)];
     return v !== undefined && v !== '' ? v : '';
@@ -413,6 +434,7 @@ function buildSections(asset, isProperty, editing) {
 
   if (asset.assembled && asset.parentId) {
     const PARCEL_INFO_FIELDS = [
+      { label: 'Company', key: 'companyId', type: 'company' },
       { label: 'Property Address', key: 'address' },
       { label: 'City', key: 'city' },
       { label: 'County', key: 'county' },
