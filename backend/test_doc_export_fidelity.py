@@ -83,6 +83,14 @@ class PdfTests(unittest.TestCase):
         self.assertIn("wide", text)
         self.assertIn("Nexus", text)
 
+    def test_a_table_of_contents_link_prints_as_text(self):
+        # "#toc:<page>:<slug>" is the editor's own anchor; reportlab treated it
+        # as an undefined PDF destination and the whole export was a 500.
+        body = {"type": "doc", "content": [
+            _p("Quarterly Vendor Agreement", marks=[{"type": "link", "attrs": {"href": "#toc:pg_1:quarterly"}}])]}
+        text = _pdf_text(render_pdf("T", [], [tiptap_to_blocks(body, {})], [], None, None))
+        self.assertIn("Quarterly Vendor Agreement", text)
+
     def test_signature_anchors_come_from_the_real_pass(self):
         body = {"type": "doc", "content": [_p("Sign below"), {"type": "signatureBlock", "attrs": {"role": "employee"}}]}
         anchors = []

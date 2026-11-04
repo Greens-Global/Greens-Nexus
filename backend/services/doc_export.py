@@ -529,7 +529,11 @@ def _runs_to_markup(runs: list) -> str:
             font_attrs.append(f"face='{_pdf_font_face(r['fontFamily'])}'")
         if font_attrs:
             t = f"<font {' '.join(font_attrs)}>{t}</font>"
-        if r.get("link"):
+        # An in-document link (the editor's "#toc:..." Table of Contents
+        # entries, a "#bookmark") is plain text here: reportlab takes a "#"
+        # href as a PDF destination and fails the whole export when it is
+        # not defined. Word's own table of contents prints as text too.
+        if r.get("link") and not str(r["link"]).startswith("#"):
             t = f'<a href="{_esc(r["link"])}" color="blue">{t}</a>'
         if r.get("fill"):
             # render_pdf's nxFill callback records where this blank is drawn.
