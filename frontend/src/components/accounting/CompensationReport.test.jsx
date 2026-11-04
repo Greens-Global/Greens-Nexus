@@ -230,7 +230,7 @@ describe('CompensationReport', () => {
   it('from the person\'s report, a figure opens its lines with a way back; the health split asks for one side only', async () => {
     render(<CompensationReport />);
     fireEvent.click(await screen.findByTitle("Open Valinda Cranfill's compensation report"));
-    fireEvent.click(within(panel()).getByRole('button', { name: /^Health Insurance \(Employee\) for Valinda Cranfill, Year Ending 12\/31\/2026/ }));
+    fireEvent.click(within(panel()).getByRole('button', { name: /^Health Insurance \(Employee Deduction\) for Valinda Cranfill, Year Ending 12\/31\/2026/ }));
     await waitFor(() => expect(api.getCompensationLines).toHaveBeenCalledWith(expect.objectContaining({ accounts: ['61903:c'] })));
     fireEvent.click(within(panel()).getByRole('button', { name: "Back to Valinda Cranfill's report" }));
     expect(within(panel()).getByRole('table', { name: /Employee Compensation Report/ })).toBeTruthy();
@@ -264,12 +264,23 @@ describe('CompensationReport', () => {
     expect(await screen.findByText(/No payroll on the ledger carries an employee in these months/)).toBeTruthy();
   });
 
+  // 10/30 (Neil): no Run Report button - a valid range runs itself; a bad
+  // one shows why and never reads the ledger.
   it('refuses a range longer than a year', async () => {
     render(<CompensationReport />);
     await screen.findByText('Valinda Cranfill');
     fireEvent.change(screen.getByLabelText('From Month'), { target: { value: '2024-01' } });
     expect(screen.getByText('Pick at most 12 months.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Run Report' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Run Report' })).toBeNull();
+    expect(api.getCompensationReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('a changed range runs by itself after a beat', async () => {
+    render(<CompensationReport />);
+    await screen.findByText('Valinda Cranfill');
+    fireEvent.change(screen.getByLabelText('From Month'), { target: { value: '2026-03' } });
+    await waitFor(() => expect(api.getCompensationReport).toHaveBeenCalledTimes(2), { timeout: 2500 });
+    expect(api.getCompensationReport).toHaveBeenLastCalledWith('2026-03', expect.any(String));
   });
 });
 

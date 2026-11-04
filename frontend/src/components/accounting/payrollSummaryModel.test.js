@@ -82,3 +82,12 @@ describe('payroll summary', () => {
     expect(got.names['desc:E-0185']).toBe('E-0185 (from the description)');
   });
 });
+
+describe('yearBack', () => {
+  it('is the same date a year earlier, a leap day kept inside the month', async () => {
+    const { yearBack } = await import('./payrollSummaryModel');
+    expect(yearBack('2026-01-01')).toBe('2025-01-01');
+    expect(yearBack('2026-11-05')).toBe('2025-11-05');
+    expect(yearBack('2028-02-29')).toBe('2027-02-28');
+  });
+});

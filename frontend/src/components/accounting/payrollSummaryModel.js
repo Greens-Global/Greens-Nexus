@@ -177,3 +177,11 @@ export function tableOf(summary, as = 'columns') {
       : { kind: r.kind, label: r.label, cells: [...summary.employees.map((e) => r.values[e.key] || 0), r.total], drills: [...summary.employees.map((e) => cellDrill(r, [e.key])), total(r)] })),
   };
 }
+
+// The same date a year earlier ("2026-02-29" -> "2025-02-28").
+export function yearBack(iso) {
+  const [y, m, d] = String(iso || '').split('-').map(Number);
+  if (!y) return iso;
+  const last = new Date(y - 1, m, 0).getDate();
+  return `${y - 1}-${String(m).padStart(2, '0')}-${String(Math.min(d, last)).padStart(2, '0')}`;
+}

@@ -119,7 +119,7 @@ const NAME_BAND = { lender: [180, 300], entity: [160, 260] };
 const dash = <span style={{ color: 'var(--text-muted)' }}>-</span>;
 const KIND = { external: 'External', intercompany: 'Intercompany', given: 'Loan Given' };
 
-const TYPES = [['all', 'All Types'], ['external', 'External'], ['internal', 'Internal']];
+const TYPES = [['all', 'Internal and External'], ['external', 'External Only'], ['internal', 'Internal Only']];
 const dscrText = (v) => (v == null ? '-' : `${v.toFixed(2)}x`);
 const rateText = (r) => (r.ratePct == null ? '' : `${Number(r.ratePct).toFixed(2)}%${r.rateType ? ` ${r.rateType === 'variable' ? 'variable' : 'fixed'}` : ''}`);
 const sumOf = (rows, k) => Math.round(rows.reduce((s, r) => s + (Number(r[k]) || 0), 0) * 100) / 100;
@@ -567,11 +567,10 @@ export default function LoansTab({ canEdit = false }) {
         </BarMore>
         <PeriodStepper config={period} period="range" onChange={onPeriod} />
         {view === 'loans' && <>
-        <BarMore level={2} active={type !== 'all' ? 1 : 0}>
+        {/* Charmi, Teams 11/05/2026 ("I do not see the Internal, External Filter"): it stays on the bar, never folded into More. */}
         <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Internal or External" style={{ ...control, ...fitSelect(TYPES.find(([k]) => k === type)?.[1], { base: widest(TYPES.map(([, l]) => l)) }), color: type === 'all' ? 'var(--text-primary)' : 'var(--wk-brand, #2b45e1)' }}>
           {TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
-        </BarMore>
         <BarSearch value={text} onChange={setText} label="Filter loans" placeholder="Filter loans" width={190} />
         <TableViewBar view={tv} />
         <div className="acct-bar-end">

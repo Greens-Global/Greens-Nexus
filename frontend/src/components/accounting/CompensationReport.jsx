@@ -3,7 +3,8 @@ import { ChevronDown, ChevronRight, Printer } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner } from '../AsyncState';
 import Amount, { formatAmount } from './Amount';
-import { BarMore, ColumnResizer, ControlBar, control, ExportMenu, SyncButton } from './reportControls';
+import { BarMore, ColumnResizer, ControlBar, control, CustomizeButton, ExportMenu, SyncButton, Toggle } from './reportControls';
+import { useAccountingPrefs } from './prefs';
 import { useTableSync } from './tableSync';
 import { useColumnWidths, useFitHeight } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
@@ -90,8 +91,11 @@ function compColumns(grouping) {
 // Employee box also finds the employee ID shown under the name.
 const compFilterColumns = (columns) => filterColumnsOf(columns, { instead: { name: (r) => `${r.name || ''} ${r.code || ''}` } });
 // The first column (the name) stays put while the amounts scroll sideways.
+// Its background comes from the .acct-comp row rules in style.css (banding
+// and hover, Charmi 10/30), which paint every cell solid so the amounts
+// scroll UNDER the pinned name rather than through it.
 const PINNED = new Set(['name', 'label']);
-const pin = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-card)' };
+const pin = { position: 'sticky', left: 0, zIndex: 1 };
 const filterCell = (col) => filterCellOf(PINNED.has(col.key) ? col.key : '')(col);
 
 /** Item 18: "just like dot dot dot that is loading" - never the pale blocks, never a blank screen. */
@@ -163,12 +167,25 @@ export default function CompensationReport() {
   const sync = useTableSync(useCallback(() => Promise.all([loadReport(asked, true), loadHours(asked, true)]), [asked, loadReport, loadHours]));
   const reloadAll = () => { loadReport(asked); loadHours(asked); };
 
-  const run = () => { if (!rangeError) setAsked([from, to]); };
+  // 10/30 (Neil: "What does this RUN REPORT do? If nothing then please take
+  // it out"): no button - a valid range runs itself after a beat, so picking
+  // both months costs one read, not two.
+  useEffect(() => {
+    if (rangeError || (from === asked[0] && to === asked[1])) return undefined;
+    const t = setTimeout(() => setAsked([from, to]), 600);
+    return () => clearTimeout(t);
+  }, [from, to, rangeError, asked]);
   const periods = report ? { cur: { from: report.from, to: report.to }, prior: report.prior || { from: '', to: '' } } : null;
   const curLabel = report ? periodLabel(report.from, report.to) : '';
   const priorLabel = report?.prior ? periodLabel(report.prior.from, report.prior.to) : '';
+  // Charmi / Neil, Teams 11/05/2026: inactive employees are left out unless
+  // Customize > Show Inactive Employees is on (off by default, kept per person).
+  const [prefs, setPrefs] = useAccountingPrefs();
+  const showInactive = !!prefs.compShowInactive;
   const merged = useMemo(() => withHours(report?.people, hours), [report, hours]);
-  const all = useMemo(() => (view === 'people' ? merged.rows : groupRows(merged.rows, view)), [merged, view]);
+  const kept = useMemo(() => (showInactive ? merged.rows : merged.rows.filter((r) => r.active !== false)), [merged, showInactive]);
+  const hiddenInactive = merged.rows.length - kept.length;
+  const all = useMemo(() => (view === 'people' ? kept : groupRows(kept, view)), [kept, view]);
   // Item 01: the standard view over the rows of the grouping picked (each grouping keeps its own); the totals follow it.
   const columns = useMemo(() => compColumns(view), [view]);
   const boxes = useMemo(() => compFilterColumns(columns), [columns]);
@@ -216,8 +233,14 @@ export default function CompensationReport() {
       <DrillAmount value={r.cur?.[l.key]} label={`${l.label} for ${name}`} onOpen={() => openLines(r, name, l.key, 'cur')} />
     </td>
   )]));
+  // Charmi, Teams 11/05/2026 ("Can we have drill down options here as well"):
+  // a person's hours open the days behind them, from their Time Sheet.
   const hourCells = (r, strong = false) => Object.fromEntries(HOUR_COLUMNS.map((c) => [c.key, (
-    <td style={{ ...tdNum, ...(strong ? { fontWeight: 700 } : null) }} title="From Time Clock's payroll cards">{hoursPending ? <span style={muted}>...</span> : r[c.key] ? hrs(r[c.key]) : '-'}</td>
+    <td style={{ ...tdNum, ...(strong ? { fontWeight: 700 } : null) }} title="From Time Clock's payroll cards">
+      {hoursPending ? <span style={muted}>...</span> : !r[c.key] ? '-' : r.email && view === 'people'
+        ? <button type="button" style={drillBtn} onClick={() => setPanel({ kind: 'hours', subject: r, name: r.name, key: c.key })} title={`Open the days behind ${r.name}'s ${c.short} hours`}>{hrs(r[c.key])}</button>
+        : hrs(r[c.key])}
+    </td>
   )]));
 
   return (
@@ -229,13 +252,18 @@ export default function CompensationReport() {
           to
           <input type="month" value={to} onChange={(e) => setRange([from, e.target.value])} style={control} aria-label="To Month" title="To Month" />
         </span>
-        <button type="button" className="primary-btn" onClick={run} disabled={!!rangeError || state.loading} style={{ height: 30, fontSize: '0.78rem' }}>Run Report</button>
         <BarMore level={1} active={view !== 'people' ? 1 : 0}>
         <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="View">
           {VIEWS.map((v) => <button key={v.key} type="button" style={seg(view === v.key)} aria-pressed={view === v.key} onClick={() => pickView(v.key)}>{v.label}</button>)}
         </div>
         </BarMore>
         <TableViewBar key={view} view={tv} />
+        <BarMore level={2} active={showInactive ? 1 : 0}>
+          <CustomizeButton active={showInactive}>
+            <Toggle checked={showInactive} onChange={(v) => setPrefs({ compShowInactive: v })} label="Show Inactive Employees"
+              hint="People marked inactive in People are left out until this is on." />
+          </CustomizeButton>
+        </BarMore>
         {/* Round 3 (item 02): on a short row Sync is the fourth to move into More, Export the fifth. */}
         <div className="acct-bar-end">
           <BarMore level={4}>
@@ -261,7 +289,7 @@ export default function CompensationReport() {
         <div className="acct-stack-card acct-stack-main" style={card}>
           <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' }}>
             <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Compensation</h3>
-            <span style={muted}>{curLabel} · {report.people.length} {report.people.length === 1 ? 'employee' : 'employees'}{narrowed ? ` · ${rows.length} of ${all.length} rows pass the filters` : ''}</span>
+            <span style={muted}>{curLabel} · {kept.length} {kept.length === 1 ? 'employee' : 'employees'}{hiddenInactive ? ` (${hiddenInactive} inactive hidden)` : ''}{narrowed ? ` · ${rows.length} of ${all.length} rows pass the filters` : ''}</span>
             {hoursPending && <span role="status" style={muted}>Loading Time Clock hours... {buildingHint(monthsBetween(asked[0], asked[1]))}</span>}
           </div>
           {hoursState.error && (
@@ -298,7 +326,9 @@ export default function CompensationReport() {
                       <td style={{ ...td, ...pin }}>
                         <button type="button" style={{ ...plainBtn, display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => openStatement(r)} title={`Open ${r.name}'s compensation report`}>
                           <Avatar email={r.email} name={r.name} size={26} card={false} />
-                          <span><strong>{r.name}</strong><div style={muted}>{r.code}</div></span>
+                          <span><strong>{r.name}</strong><div style={muted}>{r.code}</div>
+                            {r.nameMismatch && <div style={{ ...muted, color: '#b45309' }} title={`In People, ${r.code} is on ${r.nameMismatch}'s record. Fix the employee code on People > Job.`}>People has {r.code} on {r.nameMismatch}</div>}
+                          </span>
                         </button>
                       </td>
                     ),
@@ -353,6 +383,9 @@ export default function CompensationReport() {
       <StatementPanel key={`s-${panel.name}`} panel={panel} curLabel={curLabel} priorLabel={priorLabel} onClose={() => setPanel(null)}
         onLines={(key, period, account) => openLines(panel.subject, panel.name, key, period, account, panel)}
         exportItems={(build) => exportItems('statement', build, false)} />
+    )}
+    {panel?.kind === 'hours' && (
+      <HoursPanel key={`h-${panel.subject.email}-${panel.key}`} panel={panel} range={hoursRange(asked)} onClose={() => setPanel(null)} />
     )}
     {panel?.kind === 'lines' && report && (
       <LedgerLinesPanel key={`l-${panel.name}-${panel.key}-${panel.period}-${panel.account || ''}`} panel={panel} periods={periods}
@@ -492,10 +525,67 @@ function WorkersCompNote({ subject, period = 'cur' }) {
       <strong>Workers&apos; Comp</strong>
       {parts.map((w, i) => (
         <span key={`${w.name || ''}-${w.year}-${i}`}>
-          {w.name && subject.codes?.length > 1 ? `${w.name}: ` : ''}{w.year}: {pct(w.ratePct)} of {formatAmount(w.gross)} gross wages = {formatAmount(w.amount)}{w.rateYear !== w.year ? ` (the rate set for ${w.rateYear})` : ''}
+          {w.name && subject.codes?.length > 1 ? `${w.name}: ` : ''}{w.year}: {pct(w.ratePct)}{w.classCode ? ` (Class ${w.classCode})` : ''} of {formatAmount(w.gross)} gross wages = {formatAmount(w.amount)}{w.rateYear !== w.year ? ` (the rate set for ${w.rateYear})` : ''}
         </span>
       ))}
     </div>
+  );
+}
+
+const monthEndOf = (m) => `${m}-${String(new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0).getDate()).padStart(2, '0')}`;
+const HOUR_DAY_KEY = { regMin: (d) => d.regMin, overtimeMin: (d) => (d.otMin || 0) + (d.dtMin || 0), sickMin: (d) => d.sickMin, vacationMin: (d) => d.vacationMin };
+
+/** The days behind one person's hours: their Time Sheet's days, month by month, the column clicked first. */
+function HoursPanel({ panel, range, onClose }) {
+  useEscape(onClose);
+  const { subject, name, key } = panel;
+  const [days, setDays] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!range) return undefined;
+    let alive = true;
+    const months = [];
+    for (let m = range[0]; m <= range[1]; m = monthKey(new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 1))) months.push(m);
+    Promise.all(months.map((m) => api.timePayroll(subject.email, `${m}-01`, monthEndOf(m))))
+      .then((cards) => {
+        if (!alive) return;
+        const seen = new Map();
+        cards.forEach((c) => (c?.days || []).forEach((d) => { if (d?.date) seen.set(d.date, d); }));
+        setDays([...seen.values()].sort((a, b) => a.date.localeCompare(b.date)));
+      })
+      .catch((e) => { if (alive) setError(e?.message || 'Could not read the Time Sheet.'); });
+    return () => { alive = false; };
+  }, [subject.email, range?.[0], range?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cols = HOUR_COLUMNS;
+  const val = (d, k) => Number(HOUR_DAY_KEY[k](d)) || 0;
+  const loaded = range ? days : [];
+  const shown = (loaded || []).filter((d) => cols.some((c) => val(d, c.key)));
+  const sum = (k) => shown.reduce((n, d) => n + val(d, k), 0);
+  const label = cols.find((c) => c.key === key)?.short || '';
+  const openSheet = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock', sub: 'timesheet' } }));
+  return (
+    <SidePanel label="Hours" title={`${name} - ${label} Hours`} caption={range ? periodLabel(`${range[0]}-01`, monthEndOf(range[1])) : ''} onClose={onClose}>
+      <span style={muted}>Each day from {name}&apos;s Time Sheet. <button type="button" style={linkBtn} onClick={openSheet}>Open Time Sheets</button></span>
+      {error ? <ErrorBanner message={error} /> : !loaded ? <LoadingDots compact hint="Reading the Time Sheet." /> : (
+        <div style={{ ...card, overflowX: 'auto' }}>
+          <table aria-label={`Hours by day - ${name}`} style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead><tr><th style={th}>Date</th>{cols.map((c) => <th key={c.key} style={{ ...thNum, ...(c.key === key ? { color: 'var(--text-primary)' } : null) }}>{c.short}</th>)}</tr></thead>
+            <tbody>
+              {!shown.length && <tr><td colSpan={cols.length + 1} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }}>No hours on the Time Sheet for these months.</td></tr>}
+              {shown.map((d) => (
+                <tr key={d.date}>
+                  <td style={td}>{formatDate(d.date)}</td>
+                  {cols.map((c) => <td key={c.key} style={{ ...tdNum, ...(c.key === key ? { fontWeight: 700 } : null) }}>{val(d, c.key) ? hrs(val(d, c.key)) : '-'}</td>)}
+                </tr>
+              ))}
+            </tbody>
+            {!!shown.length && (
+              <tfoot><tr><td style={{ ...td, fontWeight: 700 }}>Total - {shown.length} {shown.length === 1 ? 'day' : 'days'}</td>{cols.map((c) => <td key={c.key} style={{ ...tdNum, fontWeight: 700 }}>{hrs(sum(c.key))}</td>)}</tr></tfoot>
+            )}
+          </table>
+        </div>
+      )}
+    </SidePanel>
   );
 }
 

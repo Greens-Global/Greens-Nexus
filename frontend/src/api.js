@@ -1912,7 +1912,12 @@ export const api = {
   // convert) - both go through the same backend client, so do not "unify" them
   // by pointing one at the other.
   egnyteStatus:      ()                   => req('/egnyte/status'),
-  egnyteFolder:      (path = '')          => req(`/egnyte/folder?path=${encodeURIComponent(path)}`),
+  // The listing takes a long timeout (Nov 3): a Vendors folder with thousands
+  // of subfolders (Greens Global, OSM) can take Egnyte longer than the 18s
+  // default, which surfaced as "Can't reach Nexus" in the folder picker. The
+  // backend pages the listing (count/offset) so this is the backstop, not the
+  // wait anyone normally sees.
+  egnyteFolder:      (path = '', page)    => req(`/egnyte/folder?path=${encodeURIComponent(path)}${page?.count ? `&count=${page.count}&offset=${page.offset || 0}` : ''}`, { timeoutMs: 60_000 }),
   egnyteFile:        (path, opts)         => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}`, opts),
   // Same bytes, but asking to VIEW rather than download, so the response carries
   // the file's real content type and the blob can be rendered. The server grants
@@ -2287,7 +2292,7 @@ export const api = {
   runRecurringStaleCheck: () => req('/accounting/mre/stale-check', { method: 'POST' }),
   // 10/27: whether that check (or the one a new months setting started) has finished.
   getRecurringStaleCheck: () => req('/accounting/mre/stale-check'),
-  suggestMreEgnyteFolder: (vendor) => req(`/accounting/mre/egnyte-suggest?vendor=${encodeURIComponent(vendor)}`),
+  suggestMreEgnyteFolder: (vendor) => req(`/accounting/mre/egnyte-suggest?vendor=${encodeURIComponent(vendor)}`, { timeoutMs: 60_000 }),
 
   // PFS file lock + Affiliated Entities + an executive profile per borrower
   // (Charmi, 10/04). routers/pfs_access.py, routers/pfs_affiliates.py.

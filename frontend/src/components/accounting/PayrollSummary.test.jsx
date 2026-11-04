@@ -38,7 +38,9 @@ describe('Payroll Summary', () => {
     expect(row('Net Pay').textContent).toMatch(/1,800\.00.*4,000\.00.*5,800\.00/);
     expect(row('Total Payroll Cost')).toBeTruthy();
     // The reconciliation names the account no row reads (the net pay liability).
-    expect(within(screen.getByRole('status', { name: 'Reconciliation to the payroll journal' })).getByText(/23700 Payroll Liability/)).toBeTruthy();
+    // Charmi, Teams 11/05/2026 ("I do not think we need this"): no reconciliation box under the summary.
+    expect(screen.queryByRole('status', { name: 'Reconciliation to the payroll journal' })).toBeNull();
+    expect(screen.queryByText(/reconcile to PYRJ/)).toBeNull();
     expect(api.searchAccountingLedger).not.toHaveBeenCalled();
   });
 
