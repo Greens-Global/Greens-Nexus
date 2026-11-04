@@ -471,7 +471,7 @@ export default function FilingTab({ toastOk, toastErr }) {
             </button>
           </div>
 
-          {view === 'names' && <NamesTable proposals={scan.proposals} />}
+          {view === 'names' && <NamesTable proposals={scan.proposals} results={results} onFixName={fixName} />}
 
           {view === 'queue' && (<>
           {/* Counts + filter */}
@@ -693,19 +693,25 @@ export default function FilingTab({ toastOk, toastErr }) {
 // Every scanned file beside the name the rulebook would give it - the reading
 // view for "what should these be called". Unlabeled files sort first; a file
 // whose name is already canonical says so instead of repeating itself.
-function NamesTable({ proposals }) {
+// The same row tools as the queue (Visesh, 11/04: names and previews in one
+// place) - open the file, Fix Name in place - and the same paging, so a
+// 10,000-file tree never renders all at once.
+function NamesTable({ proposals, results = {}, onFixName }) {
+  const PAGE = 200;
+  const [shown, setShown] = useState(PAGE);
   const sorted = useMemo(() => {
     const files = proposals.filter(p => p.status !== 'skip');
     return [...files].sort((a, b) => (a.labeled === b.labeled ? 0 : a.labeled ? 1 : -1));
   }, [proposals]);
   return (
-    <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 12 }}>
+    <>
+    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '65vh', border: '1px solid var(--border-color)', borderRadius: 12 }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
-          <tr style={{ textAlign: 'left', background: 'var(--bg-secondary)' }}>
-            <th style={{ padding: '8px 10px' }}>Current Name</th>
-            <th style={{ padding: '8px 10px' }}>Should Be</th>
-            <th style={{ padding: '8px 10px' }}>Status</th>
+          <tr style={{ textAlign: 'left' }}>
+            {['Current Name', 'Should Be', 'Status'].map(h => (
+              <th key={h} style={{ padding: '8px 10px', position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-secondary)' }}>{h}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -714,12 +720,17 @@ function NamesTable({ proposals }) {
               Nothing here - the staging folders are clean.
             </td></tr>
           )}
-          {sorted.map((p) => {
+          {sorted.slice(0, shown).map((p) => {
             const shouldBe = p.newName || p.canonicalName;
+            const r = results[p.sourcePath];
+            const canFix = !p.labeled && shouldBe && shouldBe !== p.currentName && !r?.ok && onFixName;
             return (
               <tr key={p.sourcePath} style={{ borderTop: '1px solid var(--border-color)', verticalAlign: 'top' }}>
                 <td style={{ padding: '8px 10px', maxWidth: 380 }}>
-                  <div style={{ wordBreak: 'break-word' }}>{p.currentName}</div>
+                  {p.previewUrl ? (
+                    <a href={p.previewUrl} target="_blank" rel="noreferrer" title="Open the file in Egnyte's viewer"
+                      style={{ wordBreak: 'break-word', color: 'inherit' }}>{p.currentName}</a>
+                  ) : <div style={{ wordBreak: 'break-word' }}>{p.currentName}</div>}
                   <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
                     {p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/'))}
                   </div>
@@ -728,9 +739,21 @@ function NamesTable({ proposals }) {
                   {p.labeled
                     ? <span style={{ color: 'var(--text-secondary)' }}>Already right</span>
                     : (shouldBe || <span style={{ color: 'var(--text-secondary)' }}>No date in the name - a person names it</span>)}
+                  {!p.labeled && spacingOnly(p.currentName, shouldBe) && (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>differs only in spacing</div>
+                  )}
                 </td>
                 <td style={{ padding: '8px 10px' }}>
-                  <StatusChip status={p.labeled ? 'labeled' : 'unlabeled'} />
+                  <StatusChip status={r?.ok ? 'renamed' : r ? 'failed' : (p.labeled ? 'labeled' : 'unlabeled')} />
+                  {r && !r.ok && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', marginTop: 4 }}>{r.error}</div>}
+                  {canFix && (
+                    <div style={{ marginTop: 6 }}>
+                      <button className="btn-sm" onClick={() => onFixName(p)} style={{ fontSize: 12 }}
+                        title="Rename in place to the suggested name - the file stays where it is">
+                        Fix Name
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             );
@@ -738,6 +761,15 @@ function NamesTable({ proposals }) {
         </tbody>
       </table>
     </div>
+    {sorted.length > shown && (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--text-secondary)' }}>
+        Showing {shown.toLocaleString('en-US')} of {sorted.length.toLocaleString('en-US')}
+        <button className="secondary-btn" onClick={() => setShown(s => s + PAGE)} style={{ fontSize: 12.5 }}>
+          Show {Math.min(PAGE, sorted.length - shown)} More
+        </button>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -826,7 +858,10 @@ function RulesSheet({ status, onClose, onSaved, toastOk, toastErr }) {
         </div>
 
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Scanned Folders</div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>Default Folders</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            Scanned when nothing is ticked in the tree - the staging folders new files land in.
+          </div>
           {status.scanRoots.map((root) => (
             <div key={root} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-color)', fontSize: 12.5 }}>
               <span style={{ flex: 1, wordBreak: 'break-all' }}>{root}</span>
