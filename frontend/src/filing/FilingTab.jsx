@@ -23,7 +23,14 @@ const CHIP = {
   failed: { bg: 'hsla(var(--color-red), 0.12)',     fg: 'hsl(var(--color-red))',   label: 'Failed' },
   labeled:   { bg: 'hsla(var(--color-green), 0.12)', fg: 'hsl(var(--color-green))', label: 'Labeled' },
   unlabeled: { bg: 'hsla(45, 93%, 47%, 0.14)',       fg: 'hsl(35, 90%, 34%)',       label: 'Unlabeled' },
+  renamed:   { bg: 'hsl(var(--color-green))',         fg: '#fff',                    label: 'Renamed' },
 };
+
+// The suggestion differs from the current name only in separators and
+// whitespace - "Plan -Charles" vs "Plan - Charles". Called out in words,
+// because to the eye the two names read identical (Visesh, 11/04).
+const spacingOnly = (a, b) =>
+  !!a && !!b && a !== b && a.replace(/[\s-]+/g, '') === b.replace(/[\s-]+/g, '');
 
 function StatusChip({ status }) {
   const c = CHIP[status] || CHIP.skip;
@@ -133,6 +140,26 @@ export default function FilingTab({ toastOk, toastErr }) {
     } finally {
       setScanning(false);
       setProgress(null);
+    }
+  };
+
+  // Rename in place: same folder, the suggested name - through the same
+  // /filing/apply as every move (audit row, no overwrite, Egnyte permissions).
+  const fixName = async (p) => {
+    const newName = p.newName || p.canonicalName;
+    const folder = p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/'));
+    try {
+      const out = await api.filingApply([{ sourcePath: p.sourcePath, destFolder: folder, newName, docType: p.docType || 'Rename', rule: 'rename' }]);
+      const r = out.results?.[0];
+      if (r?.ok) {
+        toastOk?.(`Renamed to ${newName}`);
+        setResults(prev => ({ ...prev, [p.sourcePath]: { ...r, renamed: true } }));
+        api.filingActivity().then(d => setActivity(d.rows)).catch(() => {});
+      } else {
+        toastErr?.(r?.error || 'Could not rename the file');
+      }
+    } catch (e) {
+      toastErr?.(e.message || 'Could not rename the file');
     }
   };
 
@@ -335,7 +362,7 @@ export default function FilingTab({ toastOk, toastErr }) {
                 )}
                 {rows.map((p) => {
                   const r = results[p.sourcePath];
-                  const effective = r ? (r.ok ? 'done' : 'failed') : p.status;
+                  const effective = r ? (r.ok ? (r.renamed ? 'renamed' : 'done') : 'failed') : p.status;
                   return (
                     <tr key={p.sourcePath} style={{ borderTop: '1px solid var(--border-color)', verticalAlign: 'top' }}>
                       <td style={{ padding: '8px 10px' }}>
@@ -349,7 +376,14 @@ export default function FilingTab({ toastOk, toastErr }) {
                         )}
                       </td>
                       <td style={{ padding: '8px 10px', maxWidth: 340 }}>
-                        <div style={{ fontWeight: 600, wordBreak: 'break-word' }}>{p.currentName}</div>
+                        {p.previewUrl ? (
+                          <a href={p.previewUrl} target="_blank" rel="noreferrer" title="Open the file in Egnyte's viewer"
+                            style={{ fontWeight: 600, wordBreak: 'break-word', color: 'inherit' }}>
+                            {p.currentName}
+                          </a>
+                        ) : (
+                          <div style={{ fontWeight: 600, wordBreak: 'break-word' }}>{p.currentName}</div>
+                        )}
                         <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
                           {p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/'))}
                         </div>
@@ -364,7 +398,11 @@ export default function FilingTab({ toastOk, toastErr }) {
                         ) : (p.newName || p.canonicalName) ? (
                           <>
                             <div style={{ wordBreak: 'break-word' }}>Suggested: {p.newName || p.canonicalName}</div>
-                            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>no folder yet - use File It</div>
+                            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                              {spacingOnly(p.currentName, p.newName || p.canonicalName)
+                                ? 'differs only in spacing - Fix Name puts it right'
+                                : 'no folder yet - use File It'}
+                            </div>
                           </>
                         ) : <span style={{ color: 'var(--text-secondary)' }}>-</span>}
                       </td>
@@ -377,9 +415,17 @@ export default function FilingTab({ toastOk, toastErr }) {
                           </div>
                         )}
                         {p.status === 'review' && !r?.ok && (
-                          <button className="btn-sm" onClick={() => setFileIt(p)} style={{ marginTop: 6, fontSize: 12 }}>
-                            File It
-                          </button>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                            <button className="btn-sm" onClick={() => setFileIt(p)} style={{ fontSize: 12 }}>
+                              File It
+                            </button>
+                            {(p.newName || p.canonicalName) && (p.newName || p.canonicalName) !== p.currentName && (
+                              <button className="btn-sm" onClick={() => fixName(p)} style={{ fontSize: 12 }}
+                                title="Rename in place to the suggested name - the file stays where it is">
+                                Fix Name
+                              </button>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -508,7 +554,14 @@ function FileItSheet({ proposal, onClose, onFiled, toastOk, toastErr }) {
   return (
     <Modal title="File This Document" onClose={onClose} width="max(60vw, 640px)">
       <div className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
-        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{proposal.sourcePath}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+          {proposal.sourcePath}
+          {proposal.previewUrl && (
+            <a href={proposal.previewUrl} target="_blank" rel="noreferrer" style={{ marginLeft: 8, whiteSpace: 'nowrap' }}>
+              Open the File
+            </a>
+          )}
+        </div>
         <label style={{ fontSize: 12.5, fontWeight: 600 }}>
           New Name
           <input value={name} onChange={e => setName(e.target.value)}
