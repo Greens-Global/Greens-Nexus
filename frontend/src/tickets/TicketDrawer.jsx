@@ -516,12 +516,24 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
       body.comment = extra.comment ? `${replyBody}${extra.comment}` : replyBody;
       body.comment_internal = reply.internal;
     }
+    // What this save carries - only that is cleared once it lands. An edit
+    // made while it was on its way (the phone card stays open and editable
+    // during a save) is still held afterwards, not wiped.
+    const sentPending = { ...pending, ...(description !== undefined ? { description } : {}) };
+    const sentBodies = new Set([reply.body, replyBody]);
     const saved = await updateTicket(t.id, body);
     for (const a of storedImagesRef.current) api.addTicketAttachment(t.id, a).catch(attachFailed(a.name));
     storedImagesRef.current = [];
     baseRef.current = saved && saved.id ? saved : null;
-    setPending({});
-    setReply({ body: '', internal: false });
+    const same = (a, b) => JSON.stringify(a ?? '') === JSON.stringify(b ?? '');
+    setPending((cur) => {
+      const next = { ...cur };
+      for (const k of Object.keys(sentPending)) {
+        if (same(cur[k], sentPending[k]) || (k === 'description' && same(cur[k], pending.description))) delete next[k];
+      }
+      return next;
+    });
+    setReply((r) => (sentBodies.has(r.body) || isEmptyDoc(r.body) ? { body: '', internal: false } : r));
     return true;
   };
   // The held fields someone else changed since this visit started (or since
@@ -1009,8 +1021,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           openConfirm={() => setDialog({ mode: 'confirm', viaDone: true })}
           reopen={reopen} escalate={escalate} requestControl={() => setRequestingControl(true)}
           // Delete is a hold on the phone (ui/HoldButton): the hold IS the
-          // confirmation, so no second question.
-          removeTicket={() => deleteTicket(t.id)} afterDelete={onClose} />
+          // confirmation, so no second question. It closes the drawer itself,
+          // as the desktop's Delete does: once the store drops the ticket the
+          // card is gone, and the HoldButton with it (its onDone never runs).
+          removeTicket={() => deleteTicket(t.id).then(() => onClose())} />
         {overlays}
       </>
     );

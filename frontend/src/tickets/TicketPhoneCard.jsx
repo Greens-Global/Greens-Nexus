@@ -51,7 +51,9 @@ const TABS = [['conversation', 'Conversation'], ['overview', 'Details'], ['attac
 const SWIPE_PX = 72;         // a horizontal drag this long steps to the next / previous ticket
 // A drag that starts on any of these is theirs (selecting text, scrolling a
 // wide table, a picker), never a step.
-const NO_SWIPE = 'input, textarea, select, [contenteditable="true"], .nx-rich, table, pre, .scroll-tabs, [data-no-swipe]';
+const NO_SWIPE = 'input, textarea, select, [contenteditable="true"], .nx-rich, .nx-rich-body, table, pre, .scroll-tabs, [data-no-swipe]';
+// Text being selected (a long-press drag) is never a step either.
+const selecting = () => { try { const sel = window.getSelection?.(); return !!sel && !sel.isCollapsed; } catch { return false; } };
 
 // One row of a picker sheet: 48px tall, the mark of the current value on the right.
 const rowStyle = {
@@ -63,9 +65,9 @@ const rowStyle = {
 function PickSheet({ title, options, value, onPick, onClose }) {
   return (
     <BottomSheet title={title} onClose={onClose}>
-      <div role="listbox" aria-label={title}>
+      <div role="group" aria-label={title}>
         {options.map((o) => (
-          <button key={o.id} type="button" role="option" aria-selected={o.id === value} className="nx-menu-row"
+          <button key={o.id} type="button" aria-pressed={o.id === value} className="nx-menu-row"
             style={{ ...rowStyle, background: o.id === value ? NX.hover : 'transparent' }}
             onClick={() => { onClose(); if (o.id !== value) onPick(o.id); }}>
             <span style={{ flex: 1, minWidth: 0 }}>
@@ -187,7 +189,7 @@ function PhoneComposer({ ticket, reply, onReplyChange, onSend, sending, canInter
       {(canInternal || savedReplies) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           {canInternal && [['Reply', false], ['Internal Note', true]].map(([lab, isInt]) => (
-            <button key={lab} type="button" aria-pressed={internal === isInt} onClick={() => setInternal(isInt)} style={pill(internal === isInt, isInt)}>
+            <button key={lab} type="button" aria-pressed={internal === isInt} onPointerDown={(e) => e.preventDefault()} onClick={() => setInternal(isInt)} style={pill(internal === isInt, isInt)}>
               {isInt ? <Lock size={12} /> : <MessageSquare size={12} />}{lab}
             </button>
           ))}
@@ -215,7 +217,7 @@ function PhoneComposer({ ticket, reply, onReplyChange, onSend, sending, canInter
       )}
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
         <button type="button" aria-label={tray ? 'Hide Attach Options' : 'Attach a Photo or File'} aria-expanded={tray}
-          disabled={tray && voiceRec} onClick={() => setTray((o) => !o)}
+          disabled={tray && voiceRec} onPointerDown={(e) => e.preventDefault()} onClick={() => setTray((o) => !o)}
           style={{ ...btn('ghost'), width: 40, height: 40, padding: 0, justifyContent: 'center', borderRadius: 20, color: NX.dim, flexShrink: 0,
             background: tray ? NX.hover : 'transparent', transform: tray ? 'rotate(45deg)' : 'none', transition: 'transform .18s ease-out, background .13s' }}>
           <Plus size={20} />
@@ -304,7 +306,7 @@ export default function TicketPhoneCard(p) {
     canWorking, canEditStatus, canSeeAssignSla, ownRequester, canEscalate, canDelete, canRequestControl,
     stage, setStatus, statusOpts, priorityOpts, typeOpts,
     pending, reply, setReply, hasReply, saving, voiceRec, setVoiceRec, send, done,
-    openResolve, openConfirm, reopen, escalate, requestControl, removeTicket, afterDelete,
+    openResolve, openConfirm, reopen, escalate, requestControl, removeTicket,
   } = p;
   const [picker, setPicker] = useState(null);   // 'status' | 'priority' | 'type' | 'sla' | 'assign' | 'more'
   const [composing, setComposing] = useState(false);
@@ -315,7 +317,7 @@ export default function TicketPhoneCard(p) {
   const [drag, setDrag] = useState(0);
   const reduced = prefersReducedMotion();
   const onTouchStart = (e) => {
-    if (!hasNav || e.touches.length !== 1 || e.target.closest?.(NO_SWIPE)) { swipe.current = null; return; }
+    if (!hasNav || e.touches.length !== 1 || e.target.closest?.(NO_SWIPE) || selecting()) { swipe.current = null; return; }
     const { clientX: x, clientY: y } = e.touches[0];
     swipe.current = { x, y, dx: 0, sideways: null };
   };
@@ -335,7 +337,7 @@ export default function TicketPhoneCard(p) {
     const s = swipe.current;
     swipe.current = null;
     setDrag(0);
-    if (!s?.sideways) return;
+    if (!s?.sideways || selecting()) return;
     if (s.dx <= -SWIPE_PX && onNext) onNext();
     else if (s.dx >= SWIPE_PX && onPrev) onPrev();
   };
@@ -531,10 +533,10 @@ export default function TicketPhoneCard(p) {
           {/* Conversation first; the rest one tap away - no strip to scroll. */}
           {/* Sticky, so a long thread can still switch to Details. */}
           <div data-no-swipe="" style={{ position: 'sticky', top: -12, zIndex: 2, background: NX.surface, margin: '6px -16px 6px', padding: '6px 16px' }}>
-          <div role="tablist" aria-label="Ticket Sections"
+          <div role="group" aria-label="Ticket Sections"
             style={{ display: 'flex', gap: 2, padding: 3, borderRadius: 11, background: NX.border2 }}>
             {TABS.map(([k, lab]) => (
-              <button key={k} type="button" role="tab" aria-selected={tab === k}
+              <button key={k} type="button" aria-pressed={tab === k}
                 onClick={() => { setTab(k); if (k === 'conversation') clearNewReplies(); }}
                 style={{ flex: '1 1 auto', minWidth: 0, height: 36, padding: '0 6px', border: 'none', borderRadius: 8, cursor: 'pointer', fontFamily: FONT,
                   fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
@@ -549,7 +551,7 @@ export default function TicketPhoneCard(p) {
           </div>
           </div>
 
-          <div role="tabpanel" style={{ flex: 1, paddingTop: 4 }}>
+          <div style={{ flex: 1, paddingTop: 4 }}>
             {tab === 'conversation' && conversationProps.render({
               lead: <DescriptionMessage t={t} v={v} nameOf={nameOf} canEditText={canEditText} onEdit={startEdit} />,
             })}
@@ -599,7 +601,7 @@ export default function TicketPhoneCard(p) {
               <div data-more="delete" style={{ display: 'grid', borderTop: `1px solid ${NX.border2}`, marginTop: 8, paddingTop: 14 }}>
                 <HoldButton label="Delete Ticket" doneLabel="Deleted" holdMs={HOLD_RECORD_MS} style={{ width: '100%', minHeight: 44, justifyContent: 'center' }}
                   fallbackMessage={`Delete ${ticketNo(t.code) || 'this ticket'}? Its history is kept and a manager can restore it.`}
-                  onConfirm={removeTicket} onDone={() => { closeSheet(); afterDelete(); }} />
+                  onConfirm={removeTicket} onDone={closeSheet} />
                 <div style={{ fontSize: 12, color: NX.faint, textAlign: 'center', marginTop: 8 }}>Its history is kept and a manager can restore it.</div>
               </div>
             )}

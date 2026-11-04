@@ -1772,7 +1772,9 @@ export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
     </div>
   );
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
+    // data-no-swipe: a swipe in the viewer (panning a picture) is the
+    // viewer's, never the phone ticket card's step to the next ticket.
+    <div data-no-swipe="" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
       <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px', color: '#fff' }}>
         <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
         <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
