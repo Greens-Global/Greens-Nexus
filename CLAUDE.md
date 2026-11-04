@@ -899,6 +899,11 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   only the fallback). Administrators SEE every company's assets - never add
   a company wall to the asset reads. Only ASSIGNING a company is limited to
   the companies the saver may use (`_check_company`, refused per row).
+  A ticket on a property files under the property's company (Neil,
+  11/03/2026) - ONE rule, `ticket_property_company.resolve`, called by
+  `file_ticket`, Batch Create and the re-point on edit; a blank company or
+  a filer / requester / assignee who could not see that company keeps
+  today's company; preventive `trusted_company` still wins.
 - **A property may pin its Egnyte folder** (Neil, 11/03/2026): `egnyteFolder`
   on the asset (Details > Egnyte Folder, Find Folder lists name candidates
   from `GET /property-assets/{id}/egnyte-folders`), checked on the row save
