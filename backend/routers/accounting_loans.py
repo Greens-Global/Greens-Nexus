@@ -807,7 +807,8 @@ def _save_settings_sync(loan_id: str, entity: str, patch: dict, by: str) -> None
 def _egnyte_web(path: str) -> Optional[str]:
     if not path or not os.getenv("EGNYTE_DOMAIN", "").strip():
         return None
-    return f"{egnyte_svc.base_url()}/app/index.do#storage/files/1{egnyte_svc.norm(path)}"
+    # Encoded (Urmi, Teams 11/05/2026: the link errored): folder names carry "#", "&" and "%".
+    return f"{egnyte_svc.base_url()}/app/index.do#storage/files/1{egnyte_svc._url_path(path)}"
 
 
 def egnyte_folder(value: Optional[str]) -> str:

@@ -7418,7 +7418,15 @@ body:has(.nx-finish-bar) { overflow-x: clip; }
 .acct-num .acct-vh, th.acct-num .acct-vh { flex-direction: row-reverse; }
 .acct-vh-sort { display: inline-flex; align-items: center; border: none; background: none; padding: 1px; border-radius: 4px; color: var(--wk-brand, #2b45e1); cursor: pointer; flex-shrink: 0; }
 .acct-vh-sort:hover { background: var(--wk-brand-tint, #e8ecfd); }
-.acct-vh-funnel { display: inline-flex; align-items: center; border: none; background: none; padding: 2px; border-radius: 4px; color: var(--text-muted); cursor: pointer; opacity: 0; flex-shrink: 0; }
+.acct-vh-funnel { display: inline-flex; align-items: center; border: none; background: none; padding: 2px; border-radius: 4px; color: var(--text-muted); cursor: pointer; opacity: 0.45; flex-shrink: 0; }
+/* Report statements: a heading sorts (Urmi, Teams 11/05/2026); the mark is faint until used. */
+.acct-sort-head { display: inline-flex; align-items: center; gap: 4px; border: none; background: none; padding: 0; margin: 0; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.acct-sort-head:hover { color: var(--text-primary); }
+.acct-sort-mark { font-size: 9px; opacity: 0.4; }
+.acct-sort-mark::after { content: "95"; }
+.acct-sort-mark.on { opacity: 1; color: var(--wk-brand, #2b45e1); }
+.acct-sort-mark.asc::after { content: "B2"; }
+.acct-sort-mark.desc::after { content: "BC"; }
 th:hover .acct-vh-funnel, td:hover .acct-vh-funnel, .acct-vh-funnel:focus-visible, .acct-vh-funnel[aria-expanded="true"] { opacity: 1; }
 .acct-vh-funnel.on { opacity: 1; color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
 @media (hover: none) { .acct-vh-funnel { opacity: 0.7; } }
