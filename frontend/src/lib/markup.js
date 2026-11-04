@@ -14,7 +14,7 @@
 import { api } from '../api';
 import { isOwnImageUrl } from './storageView';
 
-export const MARKUP_KINDS = ['task', 'ticket', 'note', 'walkthrough', 'file'];
+export const MARKUP_KINDS = ['task', 'ticket', 'note', 'walkthrough', 'file', 'construction_media'];
 export const MARKUP_FRAME = 1200;      // the picture is scaled to fit this square, in board units
 const LABEL_MAX = 200;
 const ID_MAX = 100;
@@ -35,7 +35,7 @@ const clip = (s, n) => String(s || '').trim().slice(0, n);
 
 // A source's link back is a path inside Nexus: one leading slash (never `//`
 // or `/\`, which a browser reads as another site) and a screen we know.
-export const SOURCE_PATHS = ['/tickets', '/tasks', '/notes', '/dashboard', '/support', '/help-center'];
+export const SOURCE_PATHS = ['/tickets', '/tasks', '/notes', '/dashboard', '/support', '/help-center', '/construction'];
 export function isAppPath(url) {
   if (typeof url !== 'string' || !/^\/(?![/\\])/.test(url)) return false;
   return SOURCE_PATHS.some((p) => url === p || url.startsWith(`${p}/`) || url.startsWith(`${p}?`) || url.startsWith(`${p}#`));

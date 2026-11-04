@@ -1512,23 +1512,29 @@ def _kb_reviews(db: Session, user: dict, ctx: dict) -> list:
 
 @source("construction_log_review", "Daily Log Reviews", "work")
 def _construction_logs(db: Session, user: dict, ctx: dict) -> list:
-    """Daily logs submitted on a jobsite where the caller is one of the
-    project's named managers (the people the "Daily Log Ready to Review"
-    bell goes to), still to approve - the review queue's statuses, and only
-    projects the caller may review (_may_review). Never the caller's own
-    log. A manager by role reviews any project on the review queue; only the
-    named ones are asked, so only theirs wait here."""
-    from routers.construction import _emails, _may_review, _visible_projects
+    """Daily logs submitted on a jobsite where the caller is one of its
+    reviewers (construction_notify.reviewers - the project's named managers,
+    else the manager tier of its company: exactly who the "Daily Log Ready to
+    Review" bell goes to), still to approve - the review queue's statuses,
+    and only projects the caller may review (_may_review, inside their
+    company wall). Never the caller's own log. A manager by role reviews any
+    project of their company on the review queue; only the reviewers are
+    asked, so only theirs wait here."""
+    import construction_ai
+    from construction_notify import reviewers
+    from routers.construction import _may_review, _tags, _visible_projects
     me = _me(user)
     if not me:
         return []
     P, L = models.ConstructionProject, models.ConstructionDailyLog
-    named = [p for p in db.query(P).filter(P.deleted_at == "").all() if me in _emails(p.manager_emails)]
+    named = [p for p in db.query(P).filter(P.deleted_at == "").all() if me in reviewers(db, p)]
     if not named:
         return []
-    projects = {p.id: p for p in _visible_projects(db, user) if p.id in {n.id for n in named} and _may_review(user, p)}
+    projects = {p.id: p for p in _visible_projects(db, user)
+                if p.id in {n.id for n in named} and _may_review(db, user, p)}
     if not projects:
         return []
+    ai_on = construction_ai.configured()
     out = []
     for lg in (db.query(L).filter(L.project_id.in_(sorted(projects)), L.status.in_(("submitted", "processed")),
                                   L.deleted_at == "").order_by(L.log_date).all()):
@@ -1536,18 +1542,117 @@ def _construction_logs(db: Session, user: dict, ctx: dict) -> list:
             continue
         p = projects[lg.project_id]
         who = (lg.author_email or "").lower()
-        flags = len(lg.ai_safety_flags or [])
+        # The crew's own tags (11/03/2026); the AI's words only while AI is on.
+        tags = ", ".join(t.title() for t in _tags(getattr(lg, "tags", None)))
+        flags = len(lg.ai_safety_flags or []) if ai_on else 0
         out.append(row("construction_log_review", lg.id, person_email=who, person_name=_name(db, ctx, who) if who else "",
                        title=f"Daily Log - {p.name} ({_us_day(lg.log_date)})",
-                       detail=_short(lg.ai_summary or lg.notes_raw or "") or "Read the log, then approve it or ask for more.",
+                       detail=_short((lg.ai_summary if ai_on else "") or lg.notes_raw or "")
+                       or "Read the log, then approve it or ask for more.",
                        created_at=lg.submitted_at or lg.created_at, actions=(a_open("Review"),),
-                       link={"view": "ops", "sub": "construction-dashboard"},
+                       link={"view": "ops", "sub": f"activity:{p.id}"},
                        facts=(("Jobsite", p.name or ""), ("Day", _us_day(lg.log_date)),
                               ("Crew", str(lg.crew_size) if lg.crew_size else ""),
                               ("Hours", f"{lg.hours_worked:g}" if lg.hours_worked else ""),
                               ("Weather", lg.weather or ""),
+                              ("Flagged", tags),
                               ("Safety Flags", str(flags) if flags else ""),
-                              ("AI Summary", "Still being read" if not lg.ai_processed_at else ""))))
+                              ("AI Summary", "Still being read" if ai_on and not lg.ai_processed_at else ""))))
+    return out
+
+
+@source("construction_rfi_response", "RFI Responses", "work")
+def _construction_rfis(db: Session, user: dict, ctx: dict) -> list:
+    """Open RFIs whose answer is owed by the caller (construction_rfis.
+    responder_email - Neil, 11/03/2026), on jobs they may still read
+    (routers.construction._may_read: the job's people, or a manager inside
+    its company). Due date first: an RFI's lag costs schedule."""
+    from routers.construction import _may_read
+    me = _me(user)
+    if not me:
+        return []
+    R, P = models.ConstructionRfi, models.ConstructionProject
+    rows = db.query(R).filter(R.responder_email == me, R.status == "open", R.deleted_at == "").all()
+    jobs = {p.id: p for p in db.query(P).filter(P.id.in_(sorted({r.project_id for r in rows}) or [""]),
+                                                 P.deleted_at == "").all()}
+    out = []
+    for r in rows:
+        p = jobs.get(r.project_id)
+        if p is None or not _may_read(db, user, p):
+            continue
+        out.append(row("construction_rfi_response", r.id,
+                       title=" - ".join(x for x in ("RFI", r.number or "", r.subject or "Needs an Answer") if x),
+                       detail=_short(r.question or "") or f"Answer it on {p.name}.",
+                       created_at=r.created_at, due=r.due_on or "", actions=(a_open("Answer"),),
+                       link={"view": "ops", "sub": f"project:{p.id}:rfis"}, scope="act",
+                       facts=(("Job", p.name or ""), ("Ball In Court", r.ball_in_court or ""),
+                              ("Response Due", _us_day(r.due_on) if r.due_on else ""),
+                              ("Schedule Impact", f"{r.schedule_impact_days} days" if r.schedule_impact_days else ""))))
+    return out
+
+
+@source("construction_submittal_decision", "Submittal Decisions", "work")
+def _construction_submittals(db: Session, user: dict, ctx: dict) -> list:
+    """Submittals waiting on the caller's decision (construction_submittals.
+    approver_email, pending or submitted - Neil, 11/03/2026), on jobs they
+    may still read. Decided on the job's RFIs and Submittals tab."""
+    from routers.construction import _may_read
+    me = _me(user)
+    if not me:
+        return []
+    S, P = models.ConstructionSubmittal, models.ConstructionProject
+    rows = (db.query(S).filter(S.approver_email == me, S.status.in_(("pending", "submitted")),
+                               S.deleted_at == "").all())
+    jobs = {p.id: p for p in db.query(P).filter(P.id.in_(sorted({s.project_id for s in rows}) or [""]),
+                                                 P.deleted_at == "").all()}
+    out = []
+    for s in rows:
+        p = jobs.get(s.project_id)
+        if p is None or not _may_read(db, user, p):
+            continue
+        out.append(row("construction_submittal_decision", s.id,
+                       title=" - ".join(x for x in ("Submittal", s.number or "", s.title or "Needs a Decision") if x),
+                       detail=f"Approve, approve as noted, send back or reject it on {p.name}.",
+                       created_at=s.submitted_on or s.created_at, due=s.due_on or "", actions=(a_open("Decide"),),
+                       link={"view": "ops", "sub": f"project:{p.id}:rfis"},
+                       facts=(("Job", p.name or ""), ("Spec Section", s.spec_section or ""),
+                              ("Revision", str(s.revision) if s.revision else ""),
+                              ("Due", _us_day(s.due_on) if s.due_on else ""))))
+    return out
+
+
+@source("construction_change_order", "Change Orders", "work")
+def _construction_change_orders(db: Session, user: dict, ctx: dict) -> list:
+    """Change orders waiting on the caller's internal approval before they go
+    to the owner or client (construction_change_orders.approver_email,
+    Awaiting Approval - Neil, 11/03/2026, phase 3), on jobs they may still
+    read. Approved or sent back on the job's Changes tab (the approve call
+    sends the Nexus Sign envelope)."""
+    from routers.construction import _may_read, _may_review, _may_see_cost
+    me = _me(user)
+    if not me:
+        return []
+    C, P = models.ConstructionChangeOrder, models.ConstructionProject
+    rows = db.query(C).filter(C.approver_email == me, C.status == "awaiting_approval", C.deleted_at == "").all()
+    jobs = {p.id: p for p in db.query(P).filter(P.id.in_(sorted({c.project_id for c in rows}) or [""]),
+                                                 P.deleted_at == "").all()}
+    out = []
+    for c in rows:
+        p = jobs.get(c.project_id)
+        # The amount is shown: only to an approver who may still see money (review M2).
+        if p is None or not _may_read(db, user, p) or not _may_review(db, user, p) or not _may_see_cost(db, user, p):
+            continue
+        who = (c.created_by or "").lower()
+        amount = f"{'-' if (c.amount or 0) < 0 else ''}${abs(c.amount or 0):,.2f}"
+        out.append(row("construction_change_order", c.id, person_email=who,
+                       person_name=_name(db, ctx, who) if who else "",
+                       title=" - ".join(x for x in ("Change Order", c.number or "", c.title or "") if x),
+                       detail=f"{amount} on {p.name}. Approve it to send it to {c.signer_name or 'the owner'} for signature.",
+                       created_at=c.modified_at or c.created_at, actions=(a_open("Review"),),
+                       link={"view": "ops", "sub": f"project:{p.id}:changes"},
+                       facts=(("Job", p.name or ""), ("Amount", amount),
+                              ("Schedule Impact", f"{c.schedule_impact_days:+d} days" if c.schedule_impact_days else ""),
+                              ("Signer", c.signer_name or ""), ("Reason", (c.reason or "").replace("_", " ").title()))))
     return out
 
 

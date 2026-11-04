@@ -98,7 +98,7 @@ describe('Contact Directory', () => {
     const solo = { ...PEOPLE[1], email: 'solo@x.com', name: 'Sol Solo', firstName: 'Sol', lastName: 'Solo', managerEmail: '', managerName: '', availability: null };
     payload = { ...payload, people: [{ ...PEOPLE[0], division: 'Finance' }, PEOPLE[1], PEOPLE[2], kim, solo] };
     render(<Directory />);
-    fireEvent.click(await screen.findByRole('tab', { name: /Org Chart/ }));
+    fireEvent.click(await screen.findByRole('tab', { name: /Organizational Chart/ }));
     await screen.findByText(/on the chart/);
     // The canvas holds Bo and his direct reports; Kim (two levels down) is
     // folded behind Sam's pill until it is opened.

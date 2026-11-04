@@ -103,14 +103,14 @@ TITLE_MAX = 200
 BODY_MAX = 300_000
 SCENE_MAX = 2_000_000                 # characters of board JSON
 SCENE_TYPE = "nexus-board"
-SOURCE_KINDS = ("task", "ticket", "note", "walkthrough", "file")
+SOURCE_KINDS = ("task", "ticket", "note", "walkthrough", "file", "construction_media")
 SOURCE_ID_MAX, SOURCE_LABEL_MAX = 100, 200
 # A Mark Up source link is a Nexus page: one leading slash and never two
 # (`//evil.com` is another site to a browser), no backslash, no
 # percent-encoded slash or backslash (`/%2F%2Fevil.com`), and one of the
 # pages a markup can come from.
 _SOURCE_PATH = re.compile(r"^/(?![/\\])[A-Za-z0-9_\-./?=&%:#@+]*$")
-_SOURCE_PREFIXES = ("/tickets", "/tasks", "/notes", "/dashboard", "/support")
+_SOURCE_PREFIXES = ("/tickets", "/tasks", "/notes", "/dashboard", "/support", "/construction")
 _ENCODED_SLASH = re.compile(r"%(2f|5c)", re.I)
 TAG_MAX, TAGS_MAX = 40, 20
 SHARES_MAX = 50

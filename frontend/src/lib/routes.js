@@ -50,6 +50,15 @@ export function itemLinkSub(view, segs) {
   return view === 'inventory' && segs?.[1] === 'item' && segs?.[2] ? `item/${segs[2]}` : null;
 }
 
+// A place's own link (Scan to Request, 11/03/2026): /tickets/place/<property>
+// and /tickets/place/<property>/<asset> - a site or equipment QR tag - are the
+// Tickets sub "place/<property>[/<asset>]", written back as the same path.
+// The rest of the link rules live in maintenance/placeLink.js. null = not one.
+export function ticketPlaceSub(view, segs) {
+  if (view !== 'tickets' || segs?.[1] !== 'place' || !segs?.[2]) return null;
+  return `place/${segs[2]}${segs[3] ? `/${segs[3]}` : ''}`;
+}
+
 // The address the app writes for its state. On the FIRST write - the app
 // rewriting the address it was opened at (/support -> /help-center, a default
 // tab added) - the query and hash ride along: an email's /support?ticket=<id>

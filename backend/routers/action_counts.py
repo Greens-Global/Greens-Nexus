@@ -196,6 +196,12 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
                          + a("role_change", 0)
                          + a("probation", 0),   # recommendations (Oct 27 2026; past the end with none = passed, Oct 29)
         },
+        # Construction (Neil, 11/03/2026): daily logs to review, RFIs to
+        # answer and submittals to decide - the Approvals sources, counted once.
+        "ops": {
+            "construction-dashboard": a("construction_log_review", 0) + a("construction_rfi_response", 0)
+                                      + a("construction_submittal_decision", 0),
+        },
         "accounting": {
             # Vendor and customer changes: the Approvals source (Oct 28 2026).
             "partners": a("accounting_partner_change", 0),

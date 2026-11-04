@@ -42,7 +42,7 @@ describe('registerServiceWorker', () => {
     const b = await pwa.registerServiceWorker();
     expect(a).toBe(b);
     expect(sw.register).toHaveBeenCalledTimes(1);
-    expect(sw.register).toHaveBeenCalledWith('/sw.js', { scope: '/' });
+    expect(sw.register).toHaveBeenCalledWith('/sw.js', { scope: '/', updateViaCache: 'none' });
   });
 });
 

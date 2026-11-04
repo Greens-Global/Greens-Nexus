@@ -35,13 +35,24 @@ vi.mock('../api', () => ({ api: {
   reviewConstructionLog: vi.fn(),
   updateConstructionLog: vi.fn(),
   submitConstructionLog: vi.fn(),
+  submitConstructionLogSigned: vi.fn(),
   createConstructionMedia: vi.fn(),
   deleteConstructionMedia: vi.fn(),
+  // Field and Closeout (phase 3): the log's prefill, the report's photos.
+  getLogPrefill: vi.fn(async () => null),
+  getJobTimeline: vi.fn(async () => ({ photos: [], pairs: [] })),
   // The dashboard renders ConstructionInbox, which reads the shared bell feed.
   // Listed here so this harness matches what the tree actually calls - the
   // strip is covered on its own in ConstructionInbox.test.jsx.
   getNotifications: vi.fn(),
   markNotifRead: vi.fn(),
+  // 11/03/2026: the AI status (everything AI hides while it is off), one
+  // project, the people pickers and the property list of Edit Job.
+  getConstructionMeta: vi.fn(),
+  getConstructionProject: vi.fn(),
+  getPeopleDirectory: vi.fn(),
+  getTicketProperties: vi.fn(),
+  getTaskProjectTemplates: vi.fn(),
 } }));
 
 // The capture screen talks to Supabase Storage directly. Stubbed at the helper
@@ -63,6 +74,7 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true })
 
 import { api } from '../api';
 import { uploadConstructionMedia } from './lib/upload';
+import { resetConstructionMeta } from './lib/meta';
 import ConstructionDashboard from './ConstructionDashboard';
 import ReviewQueue from './ReviewQueue';
 import WeeklyReports from './WeeklyReports';
@@ -95,6 +107,11 @@ const log = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetConstructionMeta();
+  api.getConstructionMeta.mockResolvedValue({ aiEnabled: false });
+  api.getConstructionProject.mockResolvedValue(null);
+  api.getPeopleDirectory.mockResolvedValue([]);
+  api.getTicketProperties.mockResolvedValue({ properties: [] });
   api.getConstructionOverview.mockResolvedValue({
     totalWorkforce: 6, activeSites: 1, safetyFlags: 1, pendingReview: 1,
     logsThisWeek: 3, projects: [project],
@@ -145,13 +162,13 @@ describe('ConstructionDashboard', () => {
     api.resolveProjectLink.mockResolvedValue({ lat: 33.517652, lng: -117.155831, precision: 'place', address: '41715 Enterprise Cir N, Temecula, CA 92590', placeName: 'GS Temecula' });
     api.createConstructionProject.mockResolvedValue({ id: 'p9', name: 'GS Temecula' });
     render(<ConstructionDashboard />);
-    fireEvent.click((await screen.findAllByRole('button', { name: /New Project/ }))[0]);
+    fireEvent.click((await screen.findAllByRole('button', { name: /New Job/ }))[0]);
     fireEvent.change(screen.getByLabelText('Google Maps link or coordinates'), { target: { value: 'https://maps.app.goo.gl/abc' } });
     fireEvent.click(screen.getByRole('button', { name: /Use Link/ }));
     await waitFor(() => expect(screen.getByLabelText('Address').value).toBe('41715 Enterprise Cir N, Temecula, CA 92590'));
     expect(screen.getByLabelText('Address').readOnly).toBe(true);
     expect(document.querySelector('[data-project-place]').textContent).toContain('The weather is read at this exact point.');
-    fireEvent.click(screen.getByRole('button', { name: 'Create Project' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Job' }));
     await waitFor(() => expect(api.createConstructionProject).toHaveBeenCalled());
     expect(api.createConstructionProject).toHaveBeenCalledWith(expect.objectContaining({
       name: 'GS Temecula', address: '41715 Enterprise Cir N, Temecula, CA 92590', latitude: 33.517652, longitude: -117.155831 }));
@@ -173,7 +190,7 @@ describe('ConstructionDashboard', () => {
     // gone". Skeletons carry no text, so the check is that the page has its
     // frame and the empty state is absent.
     expect(screen.getByText('Construction Overview')).toBeInTheDocument();
-    expect(screen.queryByText(/No construction projects yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No jobs yet/i)).not.toBeInTheDocument();
   });
 
   it('renders an empty state rather than a blank panel', async () => {
@@ -182,7 +199,7 @@ describe('ConstructionDashboard', () => {
       logsThisWeek: 0, projects: [],
     });
     render(<ConstructionDashboard />);
-    await waitFor(() => expect(screen.getByText(/No construction projects yet/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/No jobs yet/i)).toBeInTheDocument());
   });
 
   it('survives the overview failing', async () => {
@@ -278,10 +295,12 @@ describe('Registers', () => {
         createdAt: '2026-07-20T00:00:00Z',
       }],
     }[kind] || []));
+    // With AI on (Neil or Visesh turned it on), the AI's suggestion is a prompt
+    // to confirm, never a state change.
+    api.getConstructionMeta.mockResolvedValue({ aiEnabled: true });
     render(<Registers project={project} canReview />);
     await waitFor(() => expect(screen.getByText('Foundation complete')).toBeInTheDocument());
-    // The AI suggestion is a prompt to confirm, never a state change.
-    expect(screen.getByText(/AI suggests this is hit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/AI suggests this is hit/i)).toBeInTheDocument();
   });
 
   it('renders read-only for a worker', async () => {
@@ -321,7 +340,7 @@ describe('DailyLogCapture', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save & Close/i }));
 
     await waitFor(() => expect(api.updateConstructionLog).toHaveBeenCalledWith(
-      log.id, expect.objectContaining({ notes_raw: 'Footings poured on the north wall.' }),
+      log.id, expect.objectContaining({ notes_raw: 'Footings poured on the north wall.' }), expect.anything(),
     ));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
@@ -375,7 +394,7 @@ describe('DailyLogCapture', () => {
       expect(screen.getByDisplayValue(`${log.notes} Footings poured on the north wall`)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: /Save & Close/i }));
       await waitFor(() => expect(api.updateConstructionLog).toHaveBeenCalledWith(
-        log.id, expect.objectContaining({ notes_raw: `${log.notes} Footings poured on the north wall` }),
+        log.id, expect.objectContaining({ notes_raw: `${log.notes} Footings poured on the north wall` }), expect.anything(),
       ));
     } finally { delete window.webkitSpeechRecognition; }
   });

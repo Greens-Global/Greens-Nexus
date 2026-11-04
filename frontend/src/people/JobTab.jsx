@@ -23,7 +23,7 @@ function seedOf(e) {
     employment_type: e.employmentType || 'full_time', start_date: e.startDate || '',
     manager_email: (e.managerEmail || '').toLowerCase(), backup_manager_email: (e.backupManagerEmail || '').toLowerCase(),
     contractor: { ...(e.contractor || {}) },
-    // Division lead (the Org Chart colors everyone under them) and, for an
+    // Division lead (the Organizational Chart colors everyone under them) and, for an
     // external, the company they work for - both moved here from the Org
     // Chart panel, which now only shows a person (11/03/2026).
     division: e.division || '', external_company: e.externalCompany || '',
@@ -148,7 +148,7 @@ export default function JobTab({
               placeholder="Default - their manager's manager, or the company's HR contact" noneLabel="Use the Default"
               ariaLabel="Backup Manager" style={PICK_BOX} />
           </Field>
-          <Field label="Division Lead Of" htmlFor="job-division" hint="Everyone reporting under this person is shown as this division on the Org Chart. Leave blank if they do not lead a division.">
+          <Field label="Division Lead Of" htmlFor="job-division" hint="Everyone reporting under this person is shown as this division on the Organizational Chart. Leave blank if they do not lead a division.">
             <input id="job-division" className="form-input" style={BOX} value={d.division} placeholder="e.g. Operations" onChange={set('division')} />
           </Field>
           {isExternal && (

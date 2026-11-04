@@ -7,6 +7,7 @@ import { useMsal } from '@azure/msal-react';
 import { useRequisitions } from '../contexts/RequisitionContext';
 import { cleanName } from '../lib/utils';
 import { usePeopleDirectory, useItemApprovers } from '../lib/queries';
+import JobTagSelect from './JobTagSelect';
 
 const ITEMS = ['Laptop','PC','Monitors','Speakers','Headset','Mouse','Keyboard','Battery Backup','Webcam','Safety Vest','Safety Helmet','Hand Tools','Power Tools','Nametag','Uniforms','Keys & Key Sets','Tablet','Phone'];
 const OTHER_ITEM = '__other__';
@@ -28,6 +29,7 @@ export default function PurchaseRequestForm({ onSubmitted, onCancel }) {
   const [dept,         setDept]         = useState('Operations');
   const [reason,       setReason]       = useState('');
   const [refLink,      setRefLink]      = useState('');
+  const [jobId,        setJobId]        = useState('');   // optional construction job (plan phase 4)
   const [submitError,  setSubmitError]  = useState('');   // P0-6: shown when the submit actually fails
   const [submitting,   setSubmitting]   = useState(false);
   const { data: directory = [] } = usePeopleDirectory();   // shared cache across all pickers
@@ -74,9 +76,10 @@ export default function PurchaseRequestForm({ onSubmitted, onCancel }) {
         employeeName, employeeDept: dept, item: resolvedItem, quantity: qty, reason: fullReason,
         employeeEmail: forSelf ? '' : behalfMatch?.email || '',
         approverEmail: approver.email,
+        jobId,
       });
       try { localStorage.setItem('nexus-approver-email', approver.email); } catch { /* ignore */ }
-      setItem(''); setCustomItem(''); setQty(1); setDept('Operations'); setReason(''); setRefLink('');
+      setItem(''); setCustomItem(''); setQty(1); setDept('Operations'); setReason(''); setRefLink(''); setJobId('');
       setForSelf(true); setBehalfName('');
       onSubmitted?.();
     } catch (err) {
@@ -185,6 +188,12 @@ export default function PurchaseRequestForm({ onSubmitted, onCancel }) {
         <p style={{ fontSize:11.5, color:'var(--muted)', margin:'6px 0 0' }}>
           Only this manager will be notified of your request.
         </p>
+      </div>
+
+      {/* The construction job it is for - only for people on a job */}
+      <div style={{ marginBottom:20 }}>
+        <JobTagSelect id="pr-job" value={jobId} onChange={setJobId} label="JOB (OPTIONAL)" labelStyle={FL}
+          style={{ width:'100%', maxWidth:380 }} hint="Pick the job this is for - it shows on the job's Money tab." />
       </div>
 
       {/* Reference link */}

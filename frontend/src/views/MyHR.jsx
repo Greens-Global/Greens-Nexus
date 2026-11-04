@@ -28,6 +28,8 @@ import { uploadTicketEvidence } from '../tickets/evidenceUpload';
 import { filesFromPaste } from '../tasks/lib';
 import { setPendingOpen } from '../lib/pendingOpen';
 import FormsTile from '../forms/FormsTile';
+import { offlineRead } from '../lib/offline/read';
+import MyWorkTile from '../maintenance/MyWorkTile';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -261,7 +263,9 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
   const flash = (t, ok = true) => { setToast({ t, ok }); setTimeout(() => setToast(null), 4000); };
 
   useEffect(() => {
-    api.myHrProfile().then(setProfile).catch(e => setProfErr(e?.message || 'Could not load your profile'));
+    // Through the phone (field offline, Neil 11/03/2026): with no signal the
+    // tiles - Fill a Form among them - still draw from the last copy kept.
+    offlineRead('myhr:profile', () => api.myHrProfile()).then(setProfile).catch(e => setProfErr(e?.message || 'Could not load your profile'));
     api.myHrDocs().then(d => setDocs(Array.isArray(d) ? d : [])).catch(() => setDocs(false));
     api.timeOffMine().then(l => setLeave(Array.isArray(l) ? l : [])).catch(() => setLeave(false));
     api.myPaystubs().then(r => setStubs(Array.isArray(r) ? r : [])).catch(() => {});
@@ -590,6 +594,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
             <PurchaseRequestTile onOpen={onOpenPurchase || (() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'purchase' } })))} />
             {/* Fill a Form (Forms & Checklists, Neil 11/02/2026): the forms this person may fill, in the fill sheet. Shows only when there is one. `openForm` is the "form:<id>" / "form:pick" deep link. */}
             <FormsTile autoOpen={openForm} flash={flash} />
+            {/* My Work (Construction plan phase 5, Neil 11/03/2026): a technician's maintenance tickets, preventive first - Start, Done with a photo, Scan a Tag. Shows only when there is work. */}
+            <MyWorkTile />
             </div>
           </div>
         </>

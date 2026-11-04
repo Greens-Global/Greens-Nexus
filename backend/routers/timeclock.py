@@ -7701,7 +7701,7 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     # day's chip covers the team's site, as before).
     import jobsites
     cat = jobsites.Catalog(db)
-    jobsite_list = cat.options() if can_write or any(s.get("jobsite") for s in scheduled) else []
+    jobsite_list = cat.options(user) if can_write or any(s.get("jobsite") for s in scheduled) else []
     if any(s.get("jobsite") for s in scheduled):
         site_of = {g.id: g.work_site_id or "" for g in db.query(ShiftGroup).all()}
         bands = {(w["groupId"], w["date"], w["place"]): w for w in weather if w.get("place")}
@@ -8291,7 +8291,7 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_schedu
     tz = _placement_tz(body.timezone, preset, team_tz)
     import jobsites
     try:
-        jobsite = jobsites.normalize(db, body.jobsite)
+        jobsite = jobsites.normalize(db, body.jobsite, user)
     except ValueError as e:
         raise HTTPException(400, str(e))
     _dup_check(db, em, day, start, end, group_id=gid)   # after every 400: a bad field is reported first
@@ -9393,7 +9393,7 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
     if body.jobsite is not None:
         import jobsites
         try:
-            row.jobsite = jobsites.normalize(db, body.jobsite)
+            row.jobsite = jobsites.normalize(db, body.jobsite, None if (body.jobsite or "").strip() == jobsite_was else user)
         except ValueError as e:
             raise HTTPException(400, str(e))
     was_removing = bool(row.pending_delete)
@@ -9451,12 +9451,12 @@ def create_jobsite(body: JobsiteIn, user: dict = Depends(require_schedule_write)
     import jobsites
     try:
         p = jobsites.create_project(db, (user.get("email") or "").lower(), body.name, body.address,
-                                    body.latitude, body.longitude)
+                                    body.latitude, body.longitude, user=user)
     except ValueError as e:
         raise HTTPException(400, str(e))
     db.commit()
     key = jobsites.PROJECT + p.id
-    return next(o for o in jobsites.Catalog(db).options() + [{"id": key, "kind": "project", "name": p.name,
+    return next(o for o in jobsites.Catalog(db).options(user) + [{"id": key, "kind": "project", "name": p.name,
                 "where": p.address or "", "located": False, "hint": jobsites.NO_POINT}] if o["id"] == key)
 
 

@@ -9,8 +9,9 @@
 //                       opened underneath, date and cost for each, and a total.
 // Writes go through the property ticket endpoints (backend property_tickets.py);
 // nothing here writes the Asset Management workspace.
-import { useState } from 'react';
-import { ChevronDown, CornerDownRight } from 'lucide-react';
+import { Suspense, lazy, useState } from 'react';
+import { ChevronDown, CornerDownRight, Plus, QrCode } from 'lucide-react';
+import { StatusLabel } from '../../../components/StatusLabel.jsx';
 import { api } from '../../../api.js';
 import { formatDate } from '../../../lib/datetime.js';
 import { filesFromPaste } from '../../../tasks/lib';
@@ -21,6 +22,11 @@ import { readSchedule } from '../../lib/maintenanceLog.js';
 import { StatusBadge } from '../shared/StatusBadge.jsx';
 import { EmptyState } from '../shared/EmptyState.jsx';
 import { Modal } from '../shared/Modal.jsx';
+
+// Preventive schedules (11/03/2026) and the site / equipment tags - their own
+// lazy chunks; the tag sheet is the Items one (ONE tag printer).
+const PreventiveScheduleSheet = lazy(() => import('./PreventiveScheduleSheet.jsx'));
+const TagSheet = lazy(() => import('../../../inventory/scan/TagSheet'));
 
 const UNITS = [['', 'One Time'], ['week', 'Weeks'], ['month', 'Months'], ['year', 'Years']];
 const todayYmd = () => {
@@ -250,14 +256,58 @@ function EditScheduleModal({ propertyId, svc, onClose, onSaved }) {
   );
 }
 
+// What a preventive schedule (11/03/2026) says under its name: how it
+// repeats, what it is on, and when the next one comes.
+function scheduleLine(s) {
+  const bits = [s.kindLabel, s.system];
+  if (s.kind === 'meter') bits.push(`Next at ${s.meterNextLabel || '-'}${s.meterLastLabel ? ` (reads ${s.meterLastLabel})` : ''}`);
+  else if (s.waitingOnCompletion) bits.push('Next due after the open ticket is done');
+  else if (s.active && s.nextDue) bits.push(`Next due ${formatDate(s.nextDue)}`);
+  return bits.filter(Boolean).join(' · ');
+}
+
 export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) {
   const [editing, setEditing] = useState(null);
+  const [scheduling, setScheduling] = useState(null);   // {} = a new preventive schedule, else the one being edited
+  const [tagging, setTagging] = useState(false);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const services = data?.services || [];
   const all = [...(data?.open || []), ...(data?.history || [])];
+  const pm = data?.preventive || { open: 0, overdue: 0 };
+  const header = data?.canManage || pm.open ? (
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginRight: 'auto', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+        {pm.open ? <span>{pm.open} preventive ticket{pm.open === 1 ? '' : 's'} open</span> : <span>Preventive tickets are filed by the schedules below.</span>}
+        {pm.overdue > 0 && <StatusLabel label={`${pm.overdue} Overdue`} color="#dc2626" size="sm" />}
+      </div>
+      {data?.canManage && (<>
+        <button type="button" className="secondary-btn" onClick={() => setTagging(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><QrCode size={14} /> Print Tags</button>
+        <button type="button" className="primary-btn" onClick={() => setScheduling({})} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> New Schedule</button>
+      </>)}
+    </div>
+  ) : null;
+  const sheets = (<>
+    {scheduling && (
+      <Suspense fallback={null}>
+        <PreventiveScheduleSheet propertyId={propertyId} svc={scheduling.id ? scheduling : null}
+          onClose={() => setScheduling(null)} onSaved={() => { setScheduling(null); onChanged(); }} />
+      </Suspense>
+    )}
+    {tagging && (
+      <Suspense fallback={null}>
+        <TagSheet items={[{ id: propertyId }]} onClose={() => setTagging(false)}
+          loadTags={() => api.getPlaceTags(propertyId)} payloadFor={(t, base) => `${String(base).replace(/\/+$/, '')}${t.path}`}
+          emptyText="This property's tags cannot be printed by you." />
+      </Suspense>
+    )}
+  </>);
   if (!services.length) {
-    return <EmptyState>No recurring services yet. When you add a resolved ticket to the maintenance record, set its Next Service Due to schedule the next one.</EmptyState>;
+    return (<>
+      {header}
+      <EmptyState>No preventive schedules yet. Add one with New Schedule - every month on the 1st, a set time after each completion, or by a vehicle's or equipment's meter. A resolved ticket added to the maintenance record can also set its Next Service Due.</EmptyState>
+      {sheets}
+    </>);
   }
   const act = async (key, fn) => {
     setBusy(key); setErr('');
@@ -267,6 +317,7 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
   const th = { textAlign: 'left', padding: '6px 10px', fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.03em' };
   const td = { padding: '8px 10px', fontSize: '0.82rem', color: 'var(--text-primary)', borderTop: '1px solid var(--border-color)' };
   return (<>
+    {header}
     {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: '0.8rem', marginBottom: 8 }}>{err}</div>}
     {services.map((s) => (
       <div key={s.id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-card)', marginBottom: 12, overflow: 'hidden' }}>
@@ -274,19 +325,25 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
           <div style={{ flex: '1 1 260px' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
               <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{s.subject}</span>
-              <StatusBadge tone={s.active ? 'green' : 'mut'}>{s.active ? s.recurrenceLabel : 'Stopped'}</StatusBadge>
+              <StatusBadge tone={s.active ? 'green' : 'mut'}>{s.active ? (s.kind ? s.scheduleLabel : s.recurrenceLabel) : 'Stopped'}</StatusBadge>
+              {s.openCount > 0 && <StatusLabel label={`${s.openCount} Open`} color="#64748b" size="sm" />}
+              {s.overdueCount > 0 && <StatusLabel label={`${s.overdueCount} Overdue`} color="#dc2626" size="sm" />}
+              {s.attentionLabel && <StatusLabel label={s.attentionLabel} color="#b45309" size="sm" />}
             </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
-              {s.system} · from {s.parentCodeLabel}
-              {s.active ? ` · Next service ${formatDate(s.nextDue)}` : ''} · Total {formatTotals(s.totals) || '$0.00'}
+              {s.kind ? scheduleLine(s) : <>{s.system} · from {s.parentCodeLabel}{s.active ? ` · Next service ${formatDate(s.nextDue)}` : ''}</>}
+              {' · '}Total {formatTotals(s.totals) || '$0.00'}
             </div>
           </div>
           {data?.canManage && (<>
-            {s.active && <button className="secondary-btn" disabled={busy === s.id}
+            {/* A meter jump held for a person (review, 11/03/2026). */}
+            {s.attention === 'reading' && <button className="secondary-btn" disabled={busy === s.id}
+              onClick={() => act(s.id, () => api.updateMaintenanceService(propertyId, s.id, { confirm_reading: true, rev: s.rev }))}>Confirm Reading</button>}
+            {s.active && !s.waitingOnCompletion && !(s.kind && s.kind !== 'calendar' && s.openCount > 0) && <button className="secondary-btn" disabled={busy === s.id}
               onClick={() => act(s.id, () => api.openMaintenanceServiceNow(propertyId, s.id))}>Open Ticket Now</button>}
-            <button className="secondary-btn" onClick={() => setEditing(s)}>{s.active ? 'Edit Schedule' : 'Restart'}</button>
+            <button className="secondary-btn" onClick={() => (s.kind ? setScheduling(s) : setEditing(s))}>{s.active ? 'Edit Schedule' : 'Restart'}</button>
             {s.active && <button className="secondary-btn" disabled={busy === s.id}
-              onClick={() => act(s.id, () => api.updateMaintenanceService(propertyId, s.id, { active: false }))}>Stop</button>}
+              onClick={() => act(s.id, () => api.updateMaintenanceService(propertyId, s.id, { active: false, ...(s.kind ? { rev: s.rev } : {}) }))}>Stop</button>}
           </>)}
         </div>
         <div style={{ overflowX: 'auto' }}>
@@ -298,9 +355,9 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
                 const row = all.find((x) => x.id === r.id);
                 return (
                   <tr key={r.id}>
-                    <td style={{ ...td, paddingLeft: r.isParent ? 10 : 30 }}>
+                    <td style={{ ...td, paddingLeft: r.isParent || s.kind ? 10 : 30 }}>
                       <button type="button" onClick={() => row && onOpen(row)} style={{ border: 'none', background: 'none', padding: 0, cursor: row ? 'pointer' : 'default', color: 'var(--text-primary)', fontFamily: 'inherit', fontSize: 'inherit', textAlign: 'left' }}>
-                        {r.isParent ? null : <CornerDownRight size={12} style={{ marginRight: 4, verticalAlign: '-2px', color: 'var(--text-secondary)' }} />}<b>{r.codeLabel}</b> {r.isParent ? '(Original)' : ''}
+                        {r.isParent || s.kind ? null : <CornerDownRight size={12} style={{ marginRight: 4, verticalAlign: '-2px', color: 'var(--text-secondary)' }} />}<b>{r.codeLabel}</b> {r.isParent ? '(Original)' : ''}
                       </button>
                     </td>
                     <td style={td}>{formatDate(r.date) || '-'}</td>
@@ -318,5 +375,6 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
     ))}
     {editing && <EditScheduleModal propertyId={propertyId} svc={editing} onClose={() => setEditing(null)}
       onSaved={() => { setEditing(null); onChanged(); }} />}
+    {sheets}
   </>);
 }

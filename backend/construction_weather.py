@@ -141,7 +141,23 @@ def backfill(db: Session, limit: int = 20) -> int:
     for p in rows:
         if geocode(p):
             done += 1
-    if done:
+    # The jobsite's clock (11/03/2026): a placed project with no zone yet
+    # reads it from its forecast (the widget's cache - one call a point).
+    import construction_company
+    zoneless = (db.query(models.ConstructionProject)
+                .filter(models.ConstructionProject.deleted_at == "",
+                        models.ConstructionProject.latitude != 0.0,
+                        (models.ConstructionProject.time_zone == "") | (models.ConstructionProject.time_zone.is_(None)))
+                .limit(limit).all())
+    zoned = 0
+    for p in zoneless:
+        try:
+            from routers.weather import forecast_for
+            if construction_company.remember_zone(p, forecast_for(p.latitude, p.longitude, "imperial").get("timezone") or ""):
+                zoned += 1
+        except Exception as e:  # noqa: BLE001 - the clock falls back to the team zone meanwhile
+            log.warning("construction zone for %s skipped: %s", p.name, e)
+    if done or zoned:
         db.commit()
     return done
 
@@ -172,7 +188,8 @@ async def backfill_loop():
 #
 # Each active jobsite's people - its managers, crew and executives, plus
 # anyone with a shift scheduled there that day (`_scheduled`; Pranshu,
-# 10/31/2026) - hear tomorrow's weather at that site the evening before (from EVENING_HOUR, site
+# 10/31/2026), and of them only the people weather_scope.py puts in a
+# weather department (`audience`, 11/03/2026) - hear tomorrow's weather at that site the evening before (from EVENING_HOUR, site
 # time) and again early in the morning only if the forecast changed
 # (MORNING_FROM..MORNING_TO). One bell and one email per person covers every
 # site they are on; a site that would earn a flag leads. What has been sent is
@@ -310,6 +327,17 @@ def _people(p) -> set:
             if (e or "").strip()}
 
 
+def audience(db: Session, p, day: str) -> set:
+    """Who hears this jobsite's weather for `day`: the project's people and
+    anyone scheduled there, THROUGH THE ONE WEATHER RULE (weather_scope.py,
+    Neil 10/29/2026 - weather only for people in departments with Weather
+    Calls on). Nobody is told by being on a list alone, and an executive
+    address that is not a Nexus person (an outside investor) never gets a
+    bell or this email (11/03/2026)."""
+    import weather_scope
+    return weather_scope.weather_people(db, _people(p) | _scheduled(db, p, day))
+
+
 def _scheduled(db: Session, p, day: str) -> set:
     """Everyone with a published shift at the jobsite that day (the weather
     follows the jobsite, 10/30/2026) - on the project's lists or not. A shift
@@ -420,13 +448,16 @@ def tick(db: Session, now=None) -> dict:
         except Exception as e:  # noqa: BLE001 - one site's outage never stops the rest
             log.warning("construction weather for %s skipped: %s", p.name, e)
             continue
+        # The jobsite's own clock, kept for the logs and the weekly report.
+        import construction_company
+        touched = construction_company.remember_zone(p, fc.get("timezone") or "") or touched
         if local.hour >= EVENING_HOUR:
             slot, day = "evening", (local.date() + timedelta(days=1)).isoformat()
         elif MORNING_FROM <= local.hour < MORNING_TO:
             slot, day = "morning", local.date().isoformat()
         else:
             continue
-        people = _people(p) | _scheduled(db, p, day)
+        people = audience(db, p, day)
         o = day_outlook(fc, day, cfg) if people else None
         if not o:
             continue

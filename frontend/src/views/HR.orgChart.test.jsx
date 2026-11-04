@@ -78,7 +78,7 @@ describe('Org chart externals and four-line cards', () => {
     const { default: HR } = await import('./HR');
     render(<HR activeSub="hr-org" onSubChange={onSubChange} />);
     await screen.findByText('Val Top');
-    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));   // seeded view folds the second level once it has reports
+    fireEvent.click(screen.getByRole('button', { name: 'Expand All' }));   // seeded view folds the second level once it has reports
     // A tap = pointer down on the card, pointer up with no movement.
     fireEvent.pointerDown(cardOf('Jane Doe'), { clientX: 10, clientY: 10, button: 0 });
     fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
@@ -94,8 +94,8 @@ describe('Org chart externals and four-line cards', () => {
   it('the company filter keeps an external with the company they report into; an internal shows its company by name', async () => {
     localStorage.setItem('nx-orgchart-externals', 'true');
     await renderChart();
-    fireEvent.change(screen.getByDisplayValue('All companies'), { target: { value: 'co1' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+    fireEvent.change(screen.getByDisplayValue('All Companies'), { target: { value: 'co1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Expand All' }));
     expect(screen.getByText('Jane Doe')).toBeTruthy();                       // reports into Greens Co
     fireEvent.pointerDown(cardOf('Mia Mid'), { clientX: 10, clientY: 10, button: 0 });
     fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
@@ -112,5 +112,42 @@ describe('Org chart externals and four-line cards', () => {
       fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
       expect(rowValue('Reports To')).toContain('Jane');
     } finally { PEOPLE[1].managerEmail = 'val@x.com'; }
+  }, 20000);
+});
+
+// The pass of 11/03/2026 (Neil: "still very average").
+describe('Organizational Chart pass', () => {
+  it('a division reaches everyone under its lead - on the panel and in the legend count', async () => {
+    PEOPLE[0].division = 'Operations';   // Val leads Operations; Mia reports to Val
+    try {
+      await renderChart();
+      const legend = screen.getByRole('group', { name: 'Divisions' });
+      expect(within(legend).getByRole('button', { name: /Operations/ }).textContent).toContain('2');   // Val and Mia, not 1
+      fireEvent.pointerDown(cardOf('Mia Mid'), { clientX: 10, clientY: 10, button: 0 });
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
+      expect(screen.getByText('Division', { selector: 'span' }).nextElementSibling.textContent).toBe('Operations (from their manager)');
+    } finally { delete PEOPLE[0].division; }
+  }, 20000);
+
+  it('search finds by name or title and Enter steps through every match', async () => {
+    await renderChart();
+    const box = screen.getByRole('textbox', { name: 'Find a person on the chart' });
+    fireEvent.change(box, { target: { value: 'i' } });           // Val (Director), Mia
+    expect(screen.getByText('1 of 2')).toBeTruthy();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(screen.getByText('2 of 2')).toBeTruthy();
+    fireEvent.keyDown(box, { key: 'Enter', shiftKey: true });
+    expect(screen.getByText('1 of 2')).toBeTruthy();
+    fireEvent.change(box, { target: { value: 'zzz' } });
+    expect(screen.getByText('No match')).toBeTruthy();
+  }, 20000);
+
+  it('a card is a keyboard stop: Enter opens the person, and the open person stays marked', async () => {
+    await renderChart();
+    const card = cardOf('Val Top');
+    expect(card.getAttribute('tabindex')).toBe('0');
+    fireEvent.keyDown(card, { key: 'Enter' });
+    expect(screen.getByRole('button', { name: /Open Record/ })).toBeTruthy();
+    expect(card.getAttribute('aria-pressed')).toBe('true');
   }, 20000);
 });

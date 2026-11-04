@@ -79,6 +79,13 @@ export function countDetail(c, view) {
 export const tabCount = (c, view, tab) => c?.[view]?.[tab] || 0;
 // A module's ModuleTabs list with each tab's count as its `badge`.
 export const withBadges = (tabs, c, view) => tabs.map((t) => {
+  // A dropdown tab (ModuleTabs `items`) counts on each item and adds them up
+  // on the tab itself, so a count never hides inside a closed menu.
+  if (t.items) {
+    const items = withBadges(t.items, c, view);
+    const sum = items.reduce((s, i) => s + (Number(i.badge) || 0), 0);
+    return sum ? { ...t, items, badge: sum } : { ...t, items };
+  }
   const n = tabCount(c, view, t.key);
   return n ? { ...t, badge: n } : t;
 });

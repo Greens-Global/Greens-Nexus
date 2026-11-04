@@ -14,6 +14,10 @@ import { rewriteResponseText, restoreRequestBody, fromViewUrl } from './lib/stor
 let _reauthing = false;
 function _maybeReauth() {
   if (_reauthing) return;
+  // No signal: a redirect to Microsoft could only fail, and the page would be
+  // gone. Field offline (11/03/2026) parks the change and sends it after the
+  // next sign-in instead (lib/offline/outbox.js).
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
   let acct;
   try { acct = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0]; } catch { return; }
   if (!acct) return;   // genuinely signed out - the login gate handles that
@@ -179,6 +183,7 @@ export function setCacheBridge(client) { _queryClient = client; }
 
 export function getActAsSessionId() { return _actAsSessionId; }
 export function setActAsSessionId(id) {
+  const changed = (_actAsSessionId || null) !== (id || null);
   _actAsSessionId = id;
   if (id) sessionStorage.setItem(ACT_AS_KEY, id);
   else sessionStorage.removeItem(ACT_AS_KEY);
@@ -186,6 +191,8 @@ export function setActAsSessionId(id) {
   // the PREVIOUS identity and must never leak across an Act As boundary.
   _getCache.clear();
   _queryClient?.clear();
+  // ...nor what the phone keeps for offline (lib/offline/auth.js clears it).
+  if (changed && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('nexus:identity-change'));
 }
 function _actAsHeader() {
   return _actAsSessionId ? { 'X-Act-As-Session': _actAsSessionId } : {};
@@ -2028,12 +2035,15 @@ export const api = {
   // <a href> carries no Authorization header - it would just 401.
   exportConstructionReportPdf: (reportId) => reqBlob(`/construction/reports/${reportId}/pdf`),
   getConstructionLogs:  (projectId) => req(`/construction/projects/${projectId}/logs`),
-  startConstructionLog: (projectId, data) => req(`/construction/projects/${projectId}/logs`, { method: "POST", body: JSON.stringify(data) }),
-  updateConstructionLog: (logId, data) => req(`/construction/logs/${logId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // `opts.headers` (field offline, 11/03/2026): the outbox's Idempotency-Key
+  // rides here, so a resend of a write that landed is answered, not repeated
+  // (backend/idempotency.py, docs/Offline.md).
+  startConstructionLog: (projectId, data, opts = {}) => req(`/construction/projects/${projectId}/logs`, { method: "POST", body: JSON.stringify(data), headers: opts.headers }),
+  updateConstructionLog: (logId, data, opts = {}) => req(`/construction/logs/${logId}`, { method: "PATCH", body: JSON.stringify(data), headers: opts.headers }),
   submitConstructionLog: (logId) => req(`/construction/logs/${logId}/submit`, { method: "POST" }),
   reviewConstructionLog: (logId, data) => req(`/construction/logs/${logId}/review`, { method: "POST", body: JSON.stringify(data) }),
   getConstructionMedia: (logId) => req(`/construction/logs/${logId}/media`),
-  createConstructionMedia: (logId, data) => req(`/construction/logs/${logId}/media`, { method: "POST", body: JSON.stringify(data) }),
+  createConstructionMedia: (logId, data, opts = {}) => req(`/construction/logs/${logId}/media`, { method: "POST", body: JSON.stringify(data), headers: opts.headers }),
   deleteConstructionMedia: (mediaId) => req(`/construction/media/${mediaId}`, { method: "DELETE" }),
   // Milestones, RFIs and submittals share one set of endpoints - `kind` is one
   // of 'milestones' | 'rfis' | 'submittals'. Namespaced under /register/ so the
@@ -2351,6 +2361,18 @@ export const api = {
   addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),
   updateMaintenanceService: (id, serviceId, body) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   openMaintenanceServiceNow: (id, serviceId) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}/open-now`, { method: 'POST' }),
+  // Preventive maintenance (Construction plan phase 5, 11/03/2026): schedules
+  // on the property, and the field side (backend/routers/maintenance.py).
+  createPmSchedule:       (id, body) => req(`/property-assets/${encodeURIComponent(id)}/schedules`, { method: 'POST', body: JSON.stringify(body) }),
+  getPmScheduleOptions:   (id) => req(`/property-assets/${encodeURIComponent(id)}/schedule-options`),
+  getMaintenanceRollup:   () => req('/maintenance/rollup'),
+  getMaintenancePlace:    (propertyId, assetId = '') => req(`/maintenance/place/${encodeURIComponent(propertyId)}${assetId ? `?asset=${encodeURIComponent(assetId)}` : ''}`),
+  reportPlaceProblem:     (propertyId, body) => req(`/maintenance/place/${encodeURIComponent(propertyId)}/report`, { method: 'POST', body: JSON.stringify(body) }),
+  getMyMaintenanceWork:   () => req('/maintenance/my-work'),
+  startMaintenanceWork:   (ticketId) => req(`/maintenance/tickets/${encodeURIComponent(ticketId)}/start`, { method: 'POST' }),
+  finishMaintenanceWork:  (ticketId, body) => req(`/maintenance/tickets/${encodeURIComponent(ticketId)}/done`, { method: 'POST', body: JSON.stringify(body) }),
+  tickMaintenanceStep:    (ticketId, label, done) => req(`/maintenance/tickets/${encodeURIComponent(ticketId)}/checklist`, { method: 'POST', body: JSON.stringify({ label, done }) }),
+  getPlaceTags:           (propertyId) => req('/maintenance/tags', { method: 'POST', body: JSON.stringify({ property_id: propertyId }) }),
   // Marketing > Google Ads, read-only (backend/routers/marketing_ads.py).
   getAdsStatus: () => req('/marketing/ads/status'),
   startAdsConnect: () => req('/marketing/ads/oauth/start', { method: 'POST' }),
@@ -3296,11 +3318,15 @@ export const api = {
   // was made from as an ordinary image attachment - the EXISTING attachment
   // endpoints, no new path. `source` is the board's { kind, id }; anything
   // but a task or a ticket is refused here so a caller can hide the action.
-  attachMarkup: (source, { url, name, size = "" }) => {
+  attachMarkup: (source, { url, name, size = "", blob = null }) => {
     const data = { name, size, kind: "image", url };
     if (source?.kind === "task") return api.addTaskAttachment(source.id, data);
     if (source?.kind === "ticket") return api.addTicketAttachment(source.id, data);
-    return Promise.reject(new Error("Only a task or a ticket can take a markup back."));
+    // A job photo (Construction, 11/03/2026): the board's PNG goes into the
+    // job's own construction-media folder and comes back as a photo beside
+    // the original. `blob` is the PNG; the job is in the source's link.
+    if (source?.kind === "construction_media") return _attachConstructionMarkup(source, { name, blob });
+    return Promise.reject(new Error("Only a task, a ticket or a job photo can take a markup back."));
   },
   // One kept copy of a note in full (11/02/2026): noteVersions' rows are
   // light (a board's carry shapes / words, never its scene); this one
@@ -3530,3 +3556,106 @@ api.getItemTags = (ids) => req('/items/tags', { method: 'POST', body: JSON.strin
 // slots and answers their ids, which the Undo hands back to put them on the person.
 api.setOnSchedule = (email, on) => req('/timeclock/schedule/on-schedule', { method: 'PUT', body: JSON.stringify({ email, on: !!on }) });
 api.undoOffSchedule = (email, shiftIds) => req('/timeclock/schedule/on-schedule/undo', { method: 'POST', body: JSON.stringify({ email, shiftIds: shiftIds || [] }) });
+// Documents > Filing & Sorting (Nov 2026, routers/filing.py): rules-based
+// Egnyte filing from the #Unsorted staging folders. Scan proposes a canonical
+// name + destination per the naming SOPs; a person applies; switching a doc
+// class to auto-file (config) is manager+. No AI anywhere in this path.
+api.filingStatus = () => req('/filing/status');
+api.filingScan = () => req('/filing/scan', { method: 'POST' });
+api.filingApply = (moves) => req('/filing/apply', { method: 'POST', body: JSON.stringify({ moves }) });
+api.filingConfig = (body) => req('/filing/config', { method: 'PUT', body: JSON.stringify(body) });
+api.filingActivity = () => req('/filing/activity');
+// Construction foundations (Neil, 11/03/2026; routers/construction.py): one
+// job (its health row, the project URL /construction/project:<id>), the Edit
+// Job sheet's save, the server's AI status (every AI chip hides while it is
+// off), the one way back from Approved (a reason on the record), a manager
+// removing a draft's photo (a reason), and the review queue for one jobsite.
+api.getConstructionProject = (projectId) => req(`/construction/projects/${encodeURIComponent(projectId)}`);
+api.updateConstructionProject = (projectId, data) => req(`/construction/projects/${encodeURIComponent(projectId)}`, { method: 'PATCH', body: JSON.stringify(data) });
+api.getConstructionMeta = () => cachedGet('/construction/meta', 300_000);
+api.reopenConstructionLog = (logId, reason) => req(`/construction/logs/${logId}/reopen`, { method: 'POST', body: JSON.stringify({ reason }) });
+api.removeConstructionMedia = (mediaId, reason = '') => req(`/construction/media/${mediaId}${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`, { method: 'DELETE' });
+api.getConstructionReviewQueueFor = (projectId) => req(`/construction/review-queue?project_id=${encodeURIComponent(projectId || '')}`);
+// The Job, connected (Neil, 11/03/2026; routers/construction_jobs.py): the
+// job's task project (schedule, punch), Start Job from a ticket, crew and
+// hours, forms, equipment, a property's jobs, the Jobs search group. Writes
+// a phone may resend carry an id it made (the offline outbox).
+api.getJobSchedule = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/schedule`);
+api.makeJobTaskProject = (jobId, templateId = '') => req(`/construction/projects/${encodeURIComponent(jobId)}/task-project`, { method: 'POST', body: JSON.stringify({ templateId }) });
+api.addJobToPortfolio = (jobId, portfolioId) => req(`/construction/projects/${encodeURIComponent(jobId)}/portfolio`, { method: 'POST', body: JSON.stringify({ portfolio_id: portfolioId || '' }) });
+api.addPunchItem = (jobId, data) => req(`/construction/projects/${encodeURIComponent(jobId)}/punch`, { method: 'POST', body: JSON.stringify(data) });
+api.setPunchDone = (taskId, done) => req(`/construction/punch/${encodeURIComponent(taskId)}/done`, { method: 'POST', body: JSON.stringify({ done: !!done }) });
+api.setPunchVerified = (taskId, verified) => req(`/construction/punch/${encodeURIComponent(taskId)}/verify`, { method: 'POST', body: JSON.stringify({ verified: !!verified }) });
+api.getJobConnected = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/connected`);
+api.getJobCrew = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/crew`);
+api.getJobLabor = (jobId, from = '', to = '') => req(`/construction/projects/${encodeURIComponent(jobId)}/labor?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(to)}`);
+api.getJobForms = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/forms`);
+api.getJobPhotos = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/photos`);
+api.getJobEquipment = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/equipment`);
+api.linkJobEquipment = (jobId, data) => req(`/construction/projects/${encodeURIComponent(jobId)}/equipment`, { method: 'POST', body: JSON.stringify(data) });
+api.endJobEquipment = (linkId) => req(`/construction/equipment-links/${encodeURIComponent(linkId)}/end`, { method: 'POST' });
+api.startJobFromTicket = (ticketId, data = {}) => req(`/construction/tickets/${encodeURIComponent(ticketId)}/start-job`, { method: 'POST', body: JSON.stringify(data) });
+api.getTicketJobs = (ticketId) => req(`/construction/tickets/${encodeURIComponent(ticketId)}/jobs`);
+api.getTaskProjectJob = (taskProjectId) => cachedGet(`/construction/task-projects/${encodeURIComponent(taskProjectId)}/job`, 300_000);
+api.getPropertyJobs = (propertyId) => req(`/construction/properties/${encodeURIComponent(propertyId)}/jobs`);
+api.getMyJobs = () => cachedGet('/construction/my-jobs', 60_000);
+api.searchJobs = (q, limit = 6) => req(`/construction/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+// A job's Money (Neil, 11/03/2026, plan phase 4; routers/construction_money.py):
+// budget, requested-not-billed, actual from the books by the job's Intacct
+// Project-Job, changes and the worked-out forecast ({allowed: false} for
+// anyone who may not see it); Over Budget for the dashboard cards; the Edit
+// Job picker and save for the job's Project-Job code and entity; the jobs a
+// purchase request or a reimbursement may be tagged with.
+api.getJobMoney = (jobId) => cachedGet(`/construction/projects/${encodeURIComponent(jobId)}/money`, 60_000);
+api.getJobMoneyFlags = () => cachedGet('/construction/money/flags', 60_000);
+api.getBookProjects = (entity = '') => req(`/construction/books/projects${entity ? `?entity=${encodeURIComponent(entity)}` : ''}`);
+api.mapJobBooks = (jobId, body) => req(`/construction/projects/${encodeURIComponent(jobId)}/books`, { method: 'PUT', body: JSON.stringify(body) });
+api.getSpendJobs = () => cachedGet('/construction/spend-jobs', 120_000);
+// Field and Closeout (Neil, 11/03/2026, plan phase 3; routers/construction_field.py,
+// routers/construction_handover.py): the self-drafting daily log, the photo
+// timeline (pairs, Mark Up, the photo report), punch spots and Done photos,
+// field tickets, change orders, closeout. Writes the phone's outbox may resend
+// take opts.headers (the Idempotency-Key - docs/Offline.md).
+const _jp = (id) => `/construction/projects/${encodeURIComponent(id)}`;
+const _post = (path, data, opts = {}) => req(path, { method: 'POST', body: JSON.stringify(data || {}), headers: opts.headers });
+api.getLogPrefill = (jobId, day = '') => req(`${_jp(jobId)}/logs/prefill?date=${encodeURIComponent(day)}`);
+api.submitConstructionLogSigned = (logId, signedName, opts = {}) => _post(`/construction/logs/${encodeURIComponent(logId)}/submit`, { signed_name: signedName || '' }, opts);
+api.getJobTimeline = (jobId, { tag = '', q = '', logId = '' } = {}) => req(`${_jp(jobId)}/timeline?tag=${encodeURIComponent(tag)}&q=${encodeURIComponent(q)}&log_id=${encodeURIComponent(logId)}`);
+api.addJobMedia = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/media`, data, opts);
+api.updateMediaMeta = (mediaId, data, opts = {}) => req(`/construction/media/${encodeURIComponent(mediaId)}/meta`, { method: 'PATCH', body: JSON.stringify(data), headers: opts.headers });
+api.makePhotoPair = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/pairs`, data, opts);
+api.removePhotoPair = (pairId) => req(`/construction/pairs/${encodeURIComponent(pairId)}`, { method: 'DELETE' });
+api.attachConstructionMarkup = (mediaId, data, opts = {}) => _post(`/construction/media/${encodeURIComponent(mediaId)}/markup`, data, opts);
+api.photoReportPdf = (jobId, data) => reqBlob(`${_jp(jobId)}/photo-report`, { method: 'POST', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } });
+api.addPunchItemQueued = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/punch`, data, opts);
+api.setPunchDoneWithPhoto = (taskId, done, photo, opts = {}) => _post(`/construction/punch/${encodeURIComponent(taskId)}/done`, { done: !!done, ...(photo ? { photo } : {}) }, opts);
+api.setPunchVerifiedQueued = (taskId, verified, opts = {}) => _post(`/construction/punch/${encodeURIComponent(taskId)}/verify`, { verified: !!verified }, opts);
+api.setPunchSpot = (taskId, locationText, opts = {}) => _post(`/construction/punch/${encodeURIComponent(taskId)}/spot`, { location_text: locationText || '' }, opts);
+api.getJobChanges = (jobId) => req(`${_jp(jobId)}/changes`);
+api.getFieldTicketLabor = (jobId, day = '') => req(`${_jp(jobId)}/field-tickets/labor?date=${encodeURIComponent(day)}`);
+api.createFieldTicket = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/field-tickets`, data, opts);
+api.signFieldTicket = (ticketId, data, opts = {}) => _post(`/construction/field-tickets/${encodeURIComponent(ticketId)}/sign`, data, opts);
+api.voidFieldTicket = (ticketId) => _post(`/construction/field-tickets/${encodeURIComponent(ticketId)}/void`, {});
+api.createChangeOrder = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/change-orders`, data, opts);
+api.updateChangeOrder = (coId, data) => req(`/construction/change-orders/${encodeURIComponent(coId)}`, { method: 'PATCH', body: JSON.stringify(data) });
+api.sendChangeOrder = (coId, data = {}) => _post(`/construction/change-orders/${encodeURIComponent(coId)}/send`, data);
+api.approveChangeOrder = (coId) => _post(`/construction/change-orders/${encodeURIComponent(coId)}/approve`, {});
+api.sendBackChangeOrder = (coId, note) => _post(`/construction/change-orders/${encodeURIComponent(coId)}/send-back`, { note });
+api.voidChangeOrder = (coId, note = '') => _post(`/construction/change-orders/${encodeURIComponent(coId)}/void`, { note });
+api.getJobCloseout = (jobId) => req(`${_jp(jobId)}/closeout`);
+api.addCloseoutRecord = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/closeout/records`, data, opts);
+api.removeCloseoutRecord = (recordId) => req(`/construction/closeout/records/${encodeURIComponent(recordId)}`, { method: 'DELETE' });
+api.closeOutJob = (jobId) => _post(`${_jp(jobId)}/closeout`, { write_back: true });
+api.sendOwnerSignoff = (jobId, data) => _post(`${_jp(jobId)}/closeout/signoff`, data);
+
+// Mark Up "Attach to" a job photo (lib/markup.js source kind construction_media).
+async function _attachConstructionMarkup(source, { name, blob }) {
+  const m = /project:([^:/?#]+)/.exec(String(source?.url || ''));
+  if (!m || !blob) throw new Error('This board does not know which job it belongs to.');
+  const { uploadConstructionMedia } = await import('./construction/lib/upload');
+  const base = String(name || 'Mark Up').replace(/[\\/:*?"<>|]+/g, '-');
+  const file = new File([blob], base.endsWith('.png') ? base : `${base}.png`, { type: 'image/png' });
+  const { payload, error } = await uploadConstructionMedia(file, { projectId: decodeURIComponent(m[1]) });
+  if (error) throw new Error(error);
+  return api.attachConstructionMarkup(source.id, { url: payload.url, storage_path: payload.storage_path || '', mime_type: payload.mime_type || 'image/png', size_bytes: payload.size_bytes || 0, name: name || 'Mark Up' });
+}

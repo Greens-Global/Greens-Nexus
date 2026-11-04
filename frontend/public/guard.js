@@ -102,7 +102,8 @@
   // what failed to load, and a strict CSP can block a <style> @keyframes - so the
   // progress bar is animated from JS via inline styles. Neutral surface reads in
   // light or dark; the brand green matches the rest of Nexus.
-  // mode: 'updating' (animated sweep, auto-reloads) | 'failed' (Reload button).
+  // mode: 'updating' (animated sweep, auto-reloads) | 'failed' (Reload button)
+  // | 'offline' (no signal: waits for it, then reloads).
   function panel(mode, failedUrl) {
     var id = 'nx-boot-panel';
     if (document.getElementById(id)) return;
@@ -128,7 +129,12 @@
     var p = document.createElement('div');
     p.style.cssText = 'font-size:13.5px;line-height:1.55;color:#676879';
 
-    if (mode === 'failed') {
+    if (mode === 'offline') {
+      h.textContent = 'You Are Offline';
+      p.textContent = 'This part of Nexus is not saved on this device yet. It opens by itself as soon as you are back online.';
+      card.appendChild(h);
+      card.appendChild(p);
+    } else if (mode === 'failed') {
       h.textContent = 'Nexus could not finish loading';
       p.textContent = 'One part of Nexus keeps failing to load on this connection. ' +
         'Reloading may help; if it comes back, send IT the details below.';
@@ -185,9 +191,24 @@
     (document.body || document.documentElement).appendChild(wrap);
   }
 
+  // No signal (field offline, Neil 11/03/2026): reloading cannot fetch what
+  // is missing, it only loops. If the app is up, the screen's own boundary
+  // says this part is not saved on the phone yet; if it never started, say so
+  // here and open it again the moment the signal is back.
+  function offline() {
+    try { return navigator.onLine === false; } catch (_) { return false; }
+  }
+  function waitForSignal(failedUrl) {
+    var root = document.getElementById('root');
+    if (root && root.childElementCount > 0) return;   // the app is running - its boundary speaks
+    panel('offline', failedUrl);
+    window.addEventListener('online', function () { location.reload(); }, { once: true });
+  }
+
   function recover(failedUrl, reason) {
     if (busy) return;
     if (!sameOrigin(failedUrl)) return;          // third-party resources are never boot-critical
+    if (offline()) return waitForSignal(failedUrl);
     var list = recent();
     var n = list.length;
     if (n >= MAX) {

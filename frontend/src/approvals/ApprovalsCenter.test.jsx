@@ -246,12 +246,19 @@ describe('Approvals', () => {
   });
 });
 
+// Customize is a toggle; open it only when it is closed.
+const openCustomize = () => { if (!screen.queryByRole('dialog', { name: 'Customize your approvals' })) fireEvent.click(screen.getByRole('button', { name: /^Customize/ })); };
+
 // Neil, 10/28/2026: sort by priority, banding and a hover, sorts and filters.
 describe('All folds the departments (Pranshu, Oct 31 2026)', () => {
   it('starts every department folded on All, opens one on a click, and shows the rows again on a kind', async () => {
     const rows = INBOX.rows.map((r, i) => ({ ...r, department: i ? 'Operations' : 'Admin' }));
     approvalsInbox.mockResolvedValue({ ...INBOX, rows, who: { isHr: true } });
     const { rerender } = render(<Approvals activeSub={null} onSubChange={() => {}} />);
+    // Kind is everyone's default now (Neil, 11/03/2026); Department is a pick under Customize.
+    await screen.findByText('Priya Sharma');
+    openCustomize();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Group approvals by' }), { target: { value: 'department' } });
     const admin = await screen.findByRole('button', { name: /^Admin/ });
     expect(admin.getAttribute('aria-expanded')).toBe('false');
     expect(screen.getByRole('button', { name: /^Operations/ }).getAttribute('aria-expanded')).toBe('false');
@@ -263,6 +270,35 @@ describe('All folds the departments (Pranshu, Oct 31 2026)', () => {
     rerender(<Approvals activeSub="money" onSubChange={() => {}} />);
     expect(screen.getByRole('button', { name: /^Operations/ }).getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByText('Ankit Patel')).toBeTruthy();
+    openCustomize();
+    fireEvent.click(screen.getByRole('button', { name: /Reset to Default/ }));
+  });
+});
+
+describe('Customize (Neil, 11/03/2026)', () => {
+  it('groups by Kind by default for HR too, keeps a pick, and Reset to Default brings Kind back', async () => {
+    const rows = INBOX.rows.map((r, i) => ({ ...r, department: i ? 'Operations' : 'Admin' }));
+    approvalsInbox.mockResolvedValue({ ...INBOX, rows, who: { isHr: true } });
+    const { unmount } = render(<Approvals activeSub={null} onSubChange={() => {}} />);
+    await screen.findByText('Priya Sharma');
+    expect(screen.getByRole('button', { name: /^Customize/ }).getAttribute('aria-label')).toBe('Customize - grouped by Kind');
+    expect(screen.queryByRole('button', { name: /^Operations/ })).toBeNull();
+    openCustomize();
+    const panel = screen.getByRole('dialog', { name: 'Customize your approvals' });
+    expect(panel.textContent).toContain('Saved for you');
+    expect(screen.getByRole('button', { name: /Reset to Default/ }).disabled).toBe(true);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Group approvals by' }), { target: { value: 'department' } });
+    expect(screen.getByRole('button', { name: 'Folded' }).getAttribute('aria-pressed')).toBe('true');   // Department starts folded
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(screen.getByRole('button', { name: /^Operations/ }).getAttribute('aria-expanded')).toBe('true');
+    unmount();
+    // Kept for this person: a fresh mount comes back the way they left it.
+    render(<Approvals activeSub={null} onSubChange={() => {}} />);
+    await screen.findByText('Priya Sharma');
+    expect(screen.getByRole('button', { name: /^Customize/ }).getAttribute('aria-label')).toBe('Customize - grouped by Department');
+    openCustomize();
+    fireEvent.click(screen.getByRole('button', { name: /Reset to Default/ }));
+    expect(screen.getByRole('button', { name: /^Customize/ }).getAttribute('aria-label')).toBe('Customize - grouped by Kind');
   });
 });
 
@@ -274,6 +310,7 @@ describe('Approvals sorts and filters', () => {
     render(<Approvals />);
     await screen.findByText('Time Off - 11/03/2026 to 11/05/2026 (3 days)');
     expect(titles()[0]).toMatch(/^Time Off/);
+    openCustomize();   // Sort lives under Customize
     expect(document.querySelector('.apv-card .apv-row').className).toContain('nx-row-hover');
     fireEvent.change(screen.getByRole('combobox', { name: 'Sort approvals' }), { target: { value: 'priority' } });
     expect(titles().map((t) => t.split(' ')[0])).toEqual(['Reimbursement', 'Time', 'Time']);

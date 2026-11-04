@@ -16,7 +16,7 @@ import DateBlock from './shifts/DateBlock';
 import { isoDate, parseIso, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayShort, shortTime, shiftShortText, actualFor } from './shifts/shiftLib';
 import { useShiftRequests } from './useShiftRequests';
 import MyAvailability from './MyAvailability';
-import { formsForShift } from '../forms/formRules';
+import { formsForShift, jobOfShift } from '../forms/formRules';
 import { ModalLoading } from './AsyncState';
 // Fill a Form (Forms & Checklists, Neil 11/02/2026): a shift card's "Fill
 // <title>" opens the fill sheet with the shift - loaded on first use.
@@ -73,7 +73,9 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   useEffect(() => {
     if (!mine || typeof api.formsMine !== 'function') return undefined;
     let live = true;
-    api.formsMine().then((r) => { if (live) setShiftForms((Array.isArray(r) ? r : r?.forms || []).filter((f) => f.showOnShifts)); }).catch(() => {});
+    // Through the phone (forms/formsOffline.js): the buttons are there with no signal too.
+    import('../forms/formsOffline').then((m) => m.loadMyForms())
+      .then((r) => { if (live) setShiftForms((Array.isArray(r) ? r : r?.forms || []).filter((f) => f.showOnShifts)); }).catch(() => {});
     return () => { live = false; };
   }, [mine]);
   useEffect(() => {
@@ -449,7 +451,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       {flash && <div role="status" style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>{flash}</div>}
       {fillForm && (
         <Suspense fallback={<ModalLoading zIndex={4100} />}>
-          <FillForm templateId={fillForm.form.id} shiftId={fillForm.shift.id} workSiteId={fillForm.form.workSiteId || ''} onClose={() => setFillForm(null)}
+          <FillForm templateId={fillForm.form.id} shiftId={fillForm.shift.id} workSiteId={fillForm.form.workSiteId || ''} projectId={jobOfShift(fillForm.shift)} onClose={() => setFillForm(null)}
             onSent={(entry) => setFlash(`${entry?.title || fillForm.form.title} sent`)} />
         </Suspense>
       )}

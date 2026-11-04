@@ -11,15 +11,33 @@
 // the Admin module in full (Pranshu, Sep 9) - it was the only thing this
 // screen's Manage button led to, so the button and TicketManageView.jsx are
 // both gone rather than left pointing at an empty screen.
+//
+// Scan to Request (11/03/2026): the sub "place/<property>[/<asset>]" - a
+// scanned site or equipment tag - opens the place's sheet over the desk
+// (maintenance/PlaceSheet.jsx, its own lazy chunk). Closing it clears the sub.
+import { Suspense, lazy } from 'react';
 import TicketsView from '../tickets/TicketsView';
 import { NX, FONT } from '../tasks/theme';
+import { parsePlaceSub } from '../maintenance/placeLink';
+import SheetGuard from '../maintenance/SheetGuard';
 
-export default function Tickets() {
+const PlaceSheet = lazy(() => import('../maintenance/PlaceSheet'));
+
+export default function Tickets({ activeSub = null, onSubChange }) {
+  const place = parsePlaceSub(activeSub);
+  const close = () => onSubChange?.(null);
   return (
     <div className="nx-tasks" style={{ fontFamily: FONT, display: 'flex', flexDirection: 'column', height: '100%', background: NX.canvas }}>
       <div style={{ flex: 1, minHeight: 0 }}>
         <TicketsView />
       </div>
+      {place && (
+        <SheetGuard onClose={close}>
+          <Suspense fallback={null}>
+            <PlaceSheet propertyId={place.propertyId} assetId={place.assetId} onClose={close} />
+          </Suspense>
+        </SheetGuard>
+      )}
     </div>
   );
 }

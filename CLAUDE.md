@@ -361,8 +361,10 @@ keep the diff minimal.
   empty leaves Tasks on the left; phones stay Tasks, Updates, Bookmarks.
 - **The Tickets desk is queues, not tiles** (Neil, 10/31/2026): the main
   page's tabs (`tickets/queues.js`, in this order: Needs Reply, Unassigned,
-  Mine, Due Soon, Waiting, All Open, Done, then To Route / To Approve when
-  non-empty, then the person's saved views, then Raised by Me, then "+ View")
+  Mine, Due Soon, Waiting, All Open, Done, then To Route / To Approve /
+  Preventive when non-empty (Preventive, 11/03/2026: the live tickets a
+  preventive schedule filed, its count the overdue ones in red when any),
+  then the person's saved views, then Raised by Me, then "+ View")
   are filter presets over the tickets TasksContext holds, counted over the
   WHOLE workspace (no count pill on Done, All Open or Raised by Me). The
   server's `needsReply` flag on every `GET /task-tickets` row (`_needs_reply`
@@ -411,8 +413,8 @@ keep the diff minimal.
   when the save lands); `scene.js compact` runs before a save and a scene
   still over 2 MB is refused with a notice, never sent as a 413.
 - **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
-  on the phone (`public/manifest.webmanifest`, `public/sw.js` - a push-only
-  worker, no caching, offline is deferred) and pushes the BELL: a Web Push
+  on the phone (`public/manifest.webmanifest`, `public/sw.js` - push plus the
+  offline app shell, see Field offline below) and pushes the BELL: a Web Push
   goes out for every `NexusNotification` row with a named recipient through
   the `after_insert` listener in `backend/push.py` and the leader-only
   `push_loop` (off the event loop); broadcasts never push; never add a
@@ -434,6 +436,31 @@ keep the diff minimal.
   labor line is `GET /timeclock/schedule/labor` (hours from
   `shift_attendance._paid_minutes`, rates from the payroll history by day,
   fixed pay counted not priced, managers never see pay).
+- **Field offline (Neil, 11/03/2026: FULL OFFLINE for field work now -
+  replaces "offline is deferred"; `docs/Offline.md`):** `public/sw.js` keeps
+  the app shell (the build writes its file list - `scripts/offline-manifest.mjs`,
+  `OFFLINE_SCREENS`): pages NETWORK FIRST (never stale online, the saved copy
+  only with no signal), `/assets/*` cache first, the API NEVER cached; a new
+  deploy takes over once its files are saved and the "new version" bar asks
+  for the reload. What the field reads offline is `lib/offline/store.js`
+  `readThrough(name, fetcher)` - per person (account + Act As), cleared on
+  sign out, a different person and every Act As change; never show a cached
+  copy to anyone else. Every field change goes through the ONE outbox
+  (`lib/offline/outbox.js`, the punch-queue rules made general: an id made on
+  the phone sent as the idempotency key, saved before it is sent, retry while
+  unknown, park on no signal / 401 and replay on online / visible / sign-in,
+  a 409 kept for Keep Mine / Use Theirs - never a silent overwrite - and any
+  other 4xx Not Sent with the server's words); a kind registers in its own
+  module and gets ONE loader line in `lib/offline/kinds.js`. The server side
+  is `backend/idempotency.py` (the `Idempotency-Key` header, table
+  `nexus_idempotency_keys`, RLS on dev and prod, 7-day purge in
+  `reminders_loop`); a route with its own key keeps it (Forms' `entryKey`).
+  Never add a second outbox, a second offline cache, a caching rule for the
+  API in the worker, or a retry layer on top of api.js's GET retries.
+  Nothing is queued under Act As. The emergency switch is the build variable
+  `VITE_OFFLINE_SHELL=off` + a redeploy (the worker empties its caches and
+  answers nothing, push stays; never unregister it - runbook in the guide).
+  `bodQueue` / `punchQueue` keep their own (time-window) rules.
 - **Forms are templates (Neil, 11/02/2026, `docs/Forms.md`):** a field form
   (inspection, incident report, vehicle check, checklist) is a `DocTemplate`
   with `doc_type='form'` - the same field list plus form-only keys (`section`,
@@ -450,7 +477,8 @@ keep the diff minimal.
   `workflows.emit` at the two choke points in `routers/forms.py` with the
   answers FLAT on `extra`; the Insights Forms card carries counts, never
   answers. Never add a second form engine, a second entry store or an
-  offline path outside the punch-queue pattern.
+  offline path outside the punch-queue pattern (the outbox above is that
+  pattern; Fill a Form already uses it - `forms/formsOffline.js`).
 - **Federal forms (Neil, 11/02/2026, `backend/federal_forms/`,
   `docs/Federal-Forms.md`):** Form W-4, Form I-9 (Section 2 by HR) and the
   Direct Deposit Authorization are filled and signed in Nexus Sign - from
@@ -904,6 +932,60 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   the verify lists: https://claude.ai/artifact/MZR3srrjuzCQQYHTMERgNU .
 - Equipment and vehicles pair with Item Management (`AddItemModal`) - do not
   build a second warranty/serial system there.
+- **Preventive maintenance (Neil, 11/03/2026, Construction plan phase 5).**
+  Tickets ARE the work orders - no second queue. A preventive schedule is a
+  `property_maintenance_services` row with `kind` calendar / floating /
+  meter (`''` = the old service set from a resolved ticket), set under the
+  property's Maintenance > Preventive Maintenance and run by the SAME daily
+  scan (`maintenance_services.run_daily`, reminders_loop, switch
+  `maintenance_services`) - never a second scheduler. Each occurrence files
+  ONE ticket through `tickets.file_ticket` as whoever last saved the
+  schedule; `property_maintenance_occurrences` (unique schedule + due key)
+  is the idempotency key. A preventive ticket carries `service_id`,
+  `pm_due_on` (Overdue) and `equipment_asset_id`; closing it by any path
+  writes its maintenance record and moves a floating schedule on
+  (`maintenance_pm_sync.py`). Meter readings are read from the asset's
+  record (`odometer` + the odometer / vservice logs, `hours`), never typed
+  twice. Scan to Request: site / equipment tags are `/tickets/place/<p>[/<a>]`
+  (`maintenance/placeLink.js`), recognized by the ONE Items scanner and
+  printed by the Items TagSheet; `routers/maintenance.py` holds the place
+  sheet, Report a Problem, the walled roll-up and Workday's My Work.
+  Review rules (11/03/2026): the ticket's company is the TEAM's
+  (`file_ticket(trusted_company=)`, the team must be the property's
+  company); a preventive ticket = `service_id` AND `pm_due_on` (a
+  ticket-born service keeps its old behavior); a schedule save carries its
+  `rev`; an occurrence already filed rolls the schedule on; the NEWEST meter
+  reading counts (a drop rebases, a jump past 3 intervals waits for Confirm
+  Reading); every date is the company's team-zone day
+  (`maintenance_services.local_today` / `TodayCache`); resolving a
+  preventive ticket by ANY path needs a photo (`require_finish_photo`).
+
+- **Construction Jobs (Neil, 11/03/2026, plan
+  https://claude.ai/artifact/B5jm924fPPQ85AEDjBoSHr).** ONE Job record
+  (`construction_projects`, `job_type` work_order | project) per piece of
+  work, always in a company (`company_id`, walled like the rest of Nexus);
+  the work lives in its home module: the Job's own task project
+  (`task_project_id`, stamped from the company's "Work Order" /
+  "Construction Project" template) holds schedule, milestones and the Punch
+  section (Done, then the project status Verified) - Neil overrode Sagar's
+  08/04 "independent of Tasks" rule; Tickets are the maintenance work
+  orders (Start Job links a ticket; job complete resolves it through the
+  desk's own update path); crews from Shifts placements at `project-<id>`,
+  hours from `time_punches.jobsite` (hours only, never pay); forms via
+  `doc_form_entries.linked_project_id` under the ONE form reach rule; money
+  is read from Intacct by the job's Project-Job code (`intacct_project_id`),
+  never keyed into Nexus, for `_may_see_cost` + Accounting grant + entity
+  access only - change order and contract dollars follow `_may_see_cost`
+  everywhere (weekly report and PDFs render them per viewer). Field writes
+  use ONE idempotency mechanism: the `Idempotency-Key` in
+  `nexus_idempotency_keys` (phone-made ids are only the record's own id and
+  the outbox sends that id as the key; docs/Offline.md). Closeout writes to
+  Asset Management only through its per-row save (`post_changes`) as the
+  person closing out, under their edit permission, with fixed `cx-<record
+  id>` ids that are only ever created, never overwritten, never PUT
+  /workspace. "Done needs a photo" is enforced on the construction punch
+  route only - completing a punch task from Tasks does not ask (known gap).
+  AI stays off: nothing in the module waits on it.
 
 ## Gotchas
 

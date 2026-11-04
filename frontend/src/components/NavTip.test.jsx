@@ -107,13 +107,14 @@ describe('the clock buttons', () => {
     expect(tip().dataset.side).toBe('right');   // the folded rail opens it beside the button
   });
 
-  it('a button you cannot press says why, underneath', () => {
-    render(<ClockChip vm={off} variant="wide" />);
-    hover(screen.getByRole('button', { name: 'Start Break' }));
+  it('a Retry says why, underneath', () => {
+    const lost = { state: 'in', timer: '2:10', sinceLabel: 'since 7:52 AM', lost: true, busy: false, actions: { punchOut: vi.fn(), toggleBreak: vi.fn(), openClock: vi.fn() } };
+    render(<ClockChip vm={lost} variant="wide" />);
+    hover(screen.getByRole('button', { name: 'Retry Punch Out' }));
     wait(300);
-    expect(tip().querySelector('.navtip-label').textContent).toBe('Start Break');
-    expect(tip().querySelector('.navtip-detail').textContent).toBe('Punch in first');
-    expect(screen.getByRole('button', { name: 'Start Break' }).getAttribute('aria-describedby')).toBe(tip().id);
+    expect(tip().querySelector('.navtip-label').textContent).toBe('Retry Punch Out');
+    expect(tip().querySelector('.navtip-detail').textContent).toBe('The last punch has not recorded');
+    expect(screen.getByRole('button', { name: 'Retry Punch Out' }).getAttribute('aria-describedby')).toBe(tip().id);
   });
 
   it('is the flyout card: a tooltip placed on the side it was asked for, label big, detail quieter', () => {
