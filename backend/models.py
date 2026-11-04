@@ -5512,6 +5512,10 @@ class Lease(Base):
     stale_since      = Column(String, default="")
     stale_last_paid  = Column(String, default="")
     stale_task_id    = Column(String, default="")
+    # Nov 3 (Urmi, Teams: "no Browse folder for us to connect the lease
+    # documents" in MRI): the lease's Egnyte folder, the same idea as MRE's
+    # per-vendor egnyte_folder. A path only - the documents stay in Egnyte.
+    egnyte_folder    = Column(String, default="")
 
 
 class LeaseRate(Base):
