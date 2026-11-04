@@ -1562,6 +1562,10 @@ class HrEntity(Base):
     # single column keeps working.
     manager_email      = Column(String, default="")
     manager_emails     = Column(JSON, default=list)
+    # The company's IT Support Contact (Pranshu, 11/04/2026): named in the
+    # welcome email a new hire gets once their hiring packet is signed, beside
+    # their manager and HR. A Nexus person's email ('' = none named).
+    it_contact_email   = Column(String, default="")
     # The company's HR contact (a Nexus person): signs every employee's
     # timesheet last and finalizes it for payroll (timesheet_review.py).
     hr_contact_email   = Column(String, default="")

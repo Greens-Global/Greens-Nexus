@@ -544,6 +544,44 @@ class SubmitAndContinueTests(OfferCase):
         self.assertTrue(self._ev(packet.id).intake.get("first_name"))         # their details are kept
 
 
+class WelcomeEmailTests(OfferCase):
+    """Welcome aboard (Pranshu, 11/04/2026): once the hiring packet is signed
+    the new hire's email names their manager, HR and IT, with how to reach them."""
+
+    def test_the_welcome_names_manager_hr_and_it_support(self):
+        import types
+        import hr_life_email as hm
+        IT = "ivy.it@greensglobal.com"
+        self.db.add(models.NexusEmployee(id="e-ivy", work_email=IT, first_name="Ivy", last_name="Tech", company=CO,
+                                         status="active", job_title="IT Administrator", phone="555-0199"))
+        self.db.query(models.NexusEmployee).filter_by(work_email=MGR).update({"phone": "555-0111"})
+        self.db.query(models.HrEntity).filter_by(id=CO).update({"it_contact_email": IT})
+        self.db.commit()
+        ev = types.SimpleNamespace(inputs={"manager_email": MGR, "job_title": "Analyst", "start_date": "2030-11-02"},
+                                   employee_id="", entity_id=CO, subject_email=CAND, kind="hire")
+        contacts = hm.welcome_contacts(self.db, ev)
+        self.assertEqual([(c["kind"], c["email"]) for c in contacts], [("manager", MGR), ("hr", HR), ("it", IT)])
+        self.assertEqual((contacts[0]["name"], contacts[0]["phone"], contacts[0]["title"]), ("Max Mgr", "555-0111", "Max Title"))
+        subject, html = hm.compose("hire", stage="completed", role="subject", first_name="Jane", company="Greens Test, LLC",
+                                   location="", inputs=ev.inputs, pay={}, manager="Max Mgr", note="", docs=[], link="",
+                                   sender={"name": "Charmi Shah", "email": HR}, contacts=contacts,
+                                   party=types.SimpleNamespace(email=CAND, name="Jane Doe"),
+                                   req=types.SimpleNamespace(id="req-1", title="Hiring Packet - Jane Doe", created_at="2030-10-20"))
+        self.assertIn("Welcome to the team, Jane", subject)
+        for text in ("Your Manager", "Human Resources", "IT Support", "Ivy Tech", "mailto:ivy.it@greensglobal.com",
+                     "tel:555-0111", "no question is too small"):
+            self.assertIn(text, html)
+        self.assertNotIn("—", html)                   # never an em dash in copy
+
+    def test_someone_who_left_is_never_named(self):
+        import types
+        import hr_life_email as hm
+        self.db.query(models.NexusEmployee).filter_by(work_email=MGR).update({"status": "offboarded"})
+        self.db.commit()
+        ev = types.SimpleNamespace(inputs={"manager_email": MGR}, employee_id="", entity_id=CO, subject_email=CAND, kind="hire")
+        self.assertEqual([c["kind"] for c in hm.welcome_contacts(self.db, ev)], ["hr"])
+
+
 class RoleJdFromDocumentsTests(OfferCase):
     """A role's job description kept in Documents (Pranshu, 11/04/2026): linked,
     so the offer prints that template's published wording - no duties typed,
