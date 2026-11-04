@@ -177,25 +177,34 @@ def _live_maps(token: str | None) -> filing_rules.Maps:
     return maps
 
 
-def _root_context(root: str, maps: filing_rules.Maps) -> dict:
-    """An entity's own #Unsorted already says whose files these are."""
-    prefix = maps.entities_root + "/"
-    if root.startswith(prefix):
-        head = root[len(prefix):].split("/", 1)[0]
-        if head in maps.entities:
-            return {"entity": head}
-    return {}
+class ScanBody(BaseModel):
+    # Folders ticked in the tab's tree. The CLIENT walks the tree: each call
+    # lists only the named folders and answers their subfolder paths, so no
+    # single request can run past the browser's 18-second limit however deep
+    # the tree goes (the 11/04 lesson: one long request is a 502 waiting to
+    # happen). None/empty = the configured #Unsorted staging roots, exactly
+    # as before.
+    paths: list[str] | None = None
 
 
 @router.post("/scan")
-def scan(user: dict = Depends(require_writer), db: Session = Depends(get_db)):
+def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
+         db: Session = Depends(get_db)):
     token = _browse_token(user, db)
     cfg = _load_config(db)
     maps = _live_maps(token)
 
+    picked = [svc.norm(p) for p in ((body.paths if body else None) or []) if (p or "").strip()]
+    if len(picked) > 10:
+        raise HTTPException(400, "At most 10 folders per scan call")
+    for p in picked:
+        if not p.startswith("/Shared"):
+            raise HTTPException(400, "Folders to scan must be under /Shared")
+    roots = picked or cfg["scanRoots"]
+
     proposals: list[dict] = []
-    scanned, missing = [], []
-    for root in cfg["scanRoots"]:
+    scanned, missing, subfolders = [], [], []
+    for root in roots:
         try:
             listing = _egnyte(token, svc.list_folder, root)
         except HTTPException as exc:
@@ -204,14 +213,24 @@ def scan(user: dict = Depends(require_writer), db: Session = Depends(get_db)):
                 continue
             raise
         scanned.append(root)
-        ctx = _root_context(root, maps)
+        # The folder's own path says whose files these are (an entity's
+        # subtree, a facility's, a project's) - never guessed from words.
+        ctx = filing_rules.path_context(maps, root)
         for sub in listing["folders"]:
-            skippable = sub["name"].lower() in SKIP_SUBFOLDERS
-            proposals.append({
-                "sourcePath": sub["path"], "currentName": sub["name"],
-                "status": "skip", "docType": "", "destFolder": "", "newName": "",
-                "rule": "", "reasons": ["legacy dump - left alone" if skippable
-                                        else "subfolder - files inside are not scanned yet"]})
+            if sub["name"].lower() in SKIP_SUBFOLDERS:
+                proposals.append({
+                    "sourcePath": sub["path"], "currentName": sub["name"],
+                    "status": "skip", "docType": "", "destFolder": "", "newName": "",
+                    "rule": "", "reasons": ["legacy dump - left alone"],
+                    "canonicalName": "", "labeled": False})
+            elif picked:
+                subfolders.append(sub["path"])   # the caller's walk continues here
+            else:
+                proposals.append({
+                    "sourcePath": sub["path"], "currentName": sub["name"],
+                    "status": "skip", "docType": "", "destFolder": "", "newName": "",
+                    "rule": "", "reasons": ["subfolder - tick it in the tree to scan inside"],
+                    "canonicalName": "", "labeled": False})
         for f in listing["files"]:
             proposals.append(filing_rules.propose(
                 f["name"], root, ctx, maps, cfg["confirmed"]))
@@ -231,6 +250,7 @@ def scan(user: dict = Depends(require_writer), db: Session = Depends(get_db)):
             totals["labeled" if p.get("labeled") else "unlabeled"] += 1
     return {"proposals": proposals, "counts": counts, "totals": totals,
             "scannedRoots": scanned, "missingRoots": missing,
+            "subfolders": subfolders,
             "truncated": len(proposals) >= MAX_SCAN_FILES}
 
 
@@ -261,10 +281,13 @@ def apply(body: ApplyBody, request: Request, user: dict = Depends(require_writer
     for mv in body.moves:
         src, dest = svc.norm(mv.sourcePath), svc.norm(mv.destFolder)
         name = mv.newName.strip()
-        # This endpoint files FROM staging only - it is not a general mover.
-        if not any(src.startswith(root.rstrip("/") + "/") for root in cfg["scanRoots"]):
+        # Scans now reach any folder the person ticked, so the old staging-only
+        # containment is gone. The real boundaries stay: supervisor+ in Nexus,
+        # the caller's own Egnyte permissions on every move (per-user OAuth),
+        # and /Shared only - never Private/ trees.
+        if not src.startswith("/Shared/") or "/../" in src:
             results.append({"sourcePath": src, "ok": False,
-                            "error": "not inside a configured scan folder"})
+                            "error": "source must be under /Shared"})
             continue
         if "/" in name or name.startswith("..") or not name:
             results.append({"sourcePath": src, "ok": False, "error": "bad file name"})
