@@ -195,6 +195,9 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
        row: chip, then number / label / hint, then the arrow. */
     .wd-statgrid { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
     .wd-statgrid--nohours { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    /* My Tickets (Neil, 11/04/2026): one more full tile when there is work. */
+    .wd-statgrid--tickets { grid-template-columns: minmax(0, 1.3fr) repeat(4, minmax(0, 1fr)); }
+    .wd-statgrid--nohours.wd-statgrid--tickets { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     /* Ask HR + Reimbursements (Oct 18 2026) + Purchase Request (Oct 22 2026):
        compact rows sharing the last cell, so none squeezes the row to
        "Document..." - the same tile look, a smaller badge, no pill. Three
@@ -1112,7 +1115,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const [toSignCount, setToSignCount] = useState(0);
   useEffect(() => {
     let live = true;
-    const load = () => api.timesheetReviewWaiting()
+    // only=sign: the count needs just the envelopes, not the review list -
+    // the list is the expensive part for a manager (11/04/2026).
+    const load = () => api.timesheetReviewWaiting({ only: 'sign' })
       // Envelopes waiting on my signature - the same count the to Sign card shows.
       .then(r => { if (live) setToSignCount(Array.isArray(r?.toSign) ? r.toSign.length : 0); })
       .catch(() => {});

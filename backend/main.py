@@ -57,6 +57,43 @@ from routers import support  # Support > System & Design + live Data Dictionary 
 from audit import AuditMiddleware
 
 
+MIGRATION_LOCK_TIMEOUT = "3s"
+_ADD_COLUMN_RE = re.compile(r'^\s*ALTER\s+TABLE\s+(?:public\.)?"?(\w+)"?\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+"?(\w+)"?', re.I)
+_ENABLE_RLS_RE = re.compile(r'^\s*ALTER\s+TABLE\s+(?:public\.)?"?(\w+)"?\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY\s*$', re.I)
+
+
+def _live_schema(conn) -> tuple[set, set]:
+    """(table, column) pairs and the tables with RLS on, read once from the
+    catalog (Postgres). Empty sets on any failure - then every statement is
+    sent exactly as before."""
+    try:
+        cols = {(t, c) for t, c in conn.execute(text(
+            "SELECT table_name, column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public'")).all()}
+        rls = {r[0] for r in conn.execute(text(
+            "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relrowsecurity")).all()}
+        conn.commit()
+        return cols, rls
+    except Exception as e:      # noqa: BLE001 - fall back to sending everything
+        conn.rollback()
+        print(f"[migration] live schema not read, sending every statement: {e}")
+        return set(), set()
+
+
+def _migration_already_applied(sql: str, have_cols: set, rls_on: set) -> bool:
+    """True only for a statement whose whole effect is already in place: an
+    ADD COLUMN IF NOT EXISTS for a column that exists, or ENABLE ROW LEVEL
+    SECURITY on a table that has it. Anything else (UPDATEs, other DDL) runs."""
+    m = _ADD_COLUMN_RE.match(sql)
+    if m:
+        return (m.group(1), m.group(2)) in have_cols
+    m = _ENABLE_RLS_RE.match(sql)
+    if m:
+        return m.group(1) in rls_on
+    return False
+
+
 def _run_migrations():
     """Add columns that were introduced after the initial table creation."""
     if DATABASE_URL.startswith("sqlite"):
@@ -1524,6 +1561,7 @@ def _run_migrations():
             "ALTER TABLE construction_media ADD COLUMN source_media_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_media ADD COLUMN task_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_weekly_reports ADD COLUMN pair_ids JSON DEFAULT '[]'",
+            "ALTER TABLE shifts ADD COLUMN group_ids VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3675,6 +3713,7 @@ def _run_migrations():
         "ALTER TABLE construction_field_tickets ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_change_orders ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_closeout_records ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS group_ids VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3682,14 +3721,33 @@ def _run_migrations():
     # later statement then "skips" and the final commit persists nothing, which
     # is how prod silently missed new columns (Jul 24: time_punches.category
     # broke every timeclock SELECT with a 500).
+    #
+    # Nov 4 2026: an ALTER TABLE takes an exclusive lock on its table BEFORE
+    # "IF NOT EXISTS" decides it is a no-op, and while it waits for that lock
+    # every new read of the table queues behind it. A staging boot's pass
+    # waited on prod's long time sheet reads and froze every time_punches
+    # read on prod (punch in, Add Break) for the length of the wait - and the
+    # boot never finished. So: statements whose work is already in the live
+    # schema are not sent at all (a column that exists, RLS already on), and
+    # anything that does run gives up on a lock after a few seconds instead of
+    # holding live traffic behind it (the guard retries a failed pass on the
+    # next start). SET LOCAL, per statement: the transaction pooler hands a
+    # connection back between transactions, so a session SET would not stick.
     with engine.connect() as conn:
+        have_cols, rls_on = _live_schema(conn)
+        already = 0
         for sql in migrations:
+            if _migration_already_applied(sql, have_cols, rls_on):
+                already += 1
+                continue
             try:
+                conn.execute(text(f"SET LOCAL lock_timeout = '{MIGRATION_LOCK_TIMEOUT}'"))
                 conn.execute(text(sql))
                 conn.commit()
             except Exception as e:
                 conn.rollback()
                 print(f"[migration] skipped: {e}")
+        print(f"[migration] {already} of {len(migrations)} already in place - not sent")
         _measure_slot_pressure(conn)
         # Order matters. The first pass finds columns the database is missing and
         # tries to add them; on a slot-exhausted table those adds fail, which is
@@ -4430,6 +4488,21 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] probation seeds skipped: {e}")
+    # Shift types belong to teams (Neil, 11/04/2026): once, each existing
+    # type is linked to the teams that already use it (shift_type_teams.py).
+    try:
+        import shift_type_teams
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            linked = shift_type_teams.apply_once(db)
+            if linked:
+                print("[startup] shift types linked to their teams: "
+                      + "; ".join(f"{k} -> {', '.join(v)}" for k, v in linked.items()))
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] shift type teams skipped: {e}")
     # Tiers (Neil, 11/02/2026): the Super Administrators set and the tier
     # words cleared run from _tier_seeds on EVERY boot, not here.
     # Presidents' Day (Neil, Oct 29 2026: "it's not showing Presidents' Day").

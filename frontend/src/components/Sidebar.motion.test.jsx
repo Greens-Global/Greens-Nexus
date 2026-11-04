@@ -239,6 +239,38 @@ describe('Sidebar motion', () => {
     expect(p.style.transform).toBe(`translateY(${row('Dashboard').offsetTop}px)`);
   });
 
+  // 11/04/2026 (Neil: "it pauses for a second, and then slides and
+  // readjusts"): the rail's width animates after a fold and the rows keep
+  // moving under the pill - it follows them at once, never glides there late.
+  it('keeps the active pill on its row while the rows move after a fold, with no late glide', async () => {
+    const observers = [];
+    const RealRO = window.ResizeObserver;
+    window.ResizeObserver = class { constructor(cb) { this.cb = cb; observers.push(this); } observe() {} unobserve() {} disconnect() {} };
+    try {
+      const { rerender } = mount();
+      await flush();
+      const p = pill('active');
+      rerender({ collapsed: true });
+      rerender({ collapsed: false });
+      await flush();
+      // Mid-animation: labels wrapped at the narrow width, so every row is 20px lower.
+      const real = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop');
+      Object.defineProperty(HTMLElement.prototype, 'offsetTop', { configurable: true, get() { return real.get.call(this) + 20; } });
+      let done = watchStyle(p);
+      act(() => { observers.forEach((o) => o.cb([])); });
+      expect(snapped(done())).toBe(true);                                // snapped, no slide
+      expect(p.style.transform).toBe(`translateY(${row('Dashboard').offsetTop}px)`);
+      // A later render on the same module never glides it anywhere.
+      const settled = p.getAttribute('style');
+      rerender({ activeSub: 'x' });
+      expect(p.getAttribute('style')).toBe(settled);                     // untouched: nothing to slide to
+      expect(p.style.transform).toBe(`translateY(${row('Dashboard').offsetTop}px)`);
+      Object.defineProperty(HTMLElement.prototype, 'offsetTop', real);
+    } finally {
+      window.ResizeObserver = RealRO;
+    }
+  });
+
   it('the company setting reaches the sidebar: Off from Settings draws no pills', async () => {
     mockApi.getBrandingConfig.mockImplementationOnce(() => Promise.resolve({ accent: 'green', navMotion: 'off' }));
     mount();

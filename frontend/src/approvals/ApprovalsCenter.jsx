@@ -42,6 +42,9 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useIsMobile } from '../lib/useIsMobile';
 import { UNDO_MS, bulkAction, doneWord, runApproval, runsInline, waited } from '../lib/approvalActions';
 import ApprovalsPhone from './ApprovalsPhone';
+import ScheduleContext from './ScheduleContext';
+import ShiftsAlso from './ShiftsAlso';
+import { takeApprovalFocus } from './focus';
 import { NO_KEYS, NOTE_ASK, PersonMark, daysWaiting, fullName, sectionize } from './shared';
 
 const actClass = (a) => (a.tone === 'primary' ? 'primary-btn apv-btn apv-yes'
@@ -88,12 +91,12 @@ const SORTERS = {
 };
 const matchesPriority = (r, f) => f === 'all' || (f === 'high' ? (PRIORITY_RANK[r.priority] ?? 2) <= 1 : (r.priority || 'medium') === f);
 const moduleName = (link) => NAV.find((n) => n.view === link?.view)?.label || '';
-const ACTION_WORD = { approve: 'Approved', reject: 'Rejected', decline: 'Declined', accept: 'Accepted', send_back: 'Sent Back',
+const ACTION_WORD = { approve: 'Approved', approve_remove: 'Approved', reject: 'Rejected', decline: 'Declined', accept: 'Accepted', send_back: 'Sent Back',
   yes: 'Voted Yes', no: 'Voted No', deny: 'Denied', changes: 'Changes Requested' };
 // The Undo toast's first word, Title Case (doneWord's own copy is sentence
 // case for the other screens that use it).
 const doneTitle = (key) => ACTION_WORD[key] || doneWord(key).replace(/\b\w/g, (c) => c.toUpperCase());
-const ACTION_COLOR = { approve: '#16a34a', accept: '#16a34a', yes: '#16a34a', reject: '#dc2626', decline: '#dc2626', deny: '#dc2626', no: '#dc2626' };
+const ACTION_COLOR = { approve: '#16a34a', approve_remove: '#16a34a', accept: '#16a34a', yes: '#16a34a', reject: '#dc2626', decline: '#dc2626', deny: '#dc2626', no: '#dc2626' };
 
 // `activeSub` is the Dashboard sub after "approvals": '' | '<group>' | 'history'.
 export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
@@ -165,7 +168,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
     if (!t) { setToast(null); return; }
     const id = ++toastSeq.current;
     setToast({ ...t, id });
-    toastTimer.current = setTimeout(() => setToast((cur) => (cur?.id === id ? null : cur)), t.kind === 'undo' ? UNDO_MS : t.kind === 'error' ? 7000 : 4500);
+    toastTimer.current = setTimeout(() => setToast((cur) => (cur?.id === id ? null : cur)), t.kind === 'undo' ? UNDO_MS : t.kind === 'error' || t.act ? 9000 : 4500);
   }, []);
   // The Undo toast speaks for EVERY decision still inside its window, not
   // just the last one: tap-tap-tap down the list and Undo still brings them
@@ -183,7 +186,16 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   };
   const sayUndo = () => { const keys = [...pending.current.keys()]; say({ kind: 'undo', keys, msg: undoText(keys) }); };
   const hide = (key, on) => setHidden((h) => { const n = new Set(h); if (on) n.add(key); else n.delete(key); return n; });
-  const reloadSoon = () => { clearTimeout(reloadTimer.current); reloadTimer.current = setTimeout(() => { load(); loadHistory(); }, 900); };
+  const [alsoTick, setAlsoTick] = useState(0);   // ShiftsAlso re-reads after a decision
+  const reloadSoon = () => { clearTimeout(reloadTimer.current); reloadTimer.current = setTimeout(() => { load(); loadHistory(); setAlsoTick((n) => n + 1); }, 900); };
+  // A request opened from elsewhere (the Shift Planner's strip, focus.js):
+  // once the list has it, it is the row under review.
+  useEffect(() => {
+    if (!data?.rows) return;
+    const key = takeApprovalFocus((k) => data.rows.some((r) => r.key === k));
+    const r = key && data.rows.find((x) => x.key === key);
+    if (r) { setFocusKey(r.key); setReviewing(r); }
+  }, [data]);
 
   const commit = useCallback(async (key) => {
     const p = pending.current.get(key);
@@ -207,9 +219,20 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
         api.approvalsDecided?.({ kind: p.row.kind, id: p.row.id, group: p.row.group, action: p.action.key, note: p.note || '', title: p.row.title,
           personEmail: p.row.person?.email || '', personName: p.row.person?.name || '', department: p.row.department || '',
           company: p.row.company || '', createdAt: p.row.createdAt || '', forEmail: p.row.forEmail || '' })?.catch?.(() => {});
-        const left = p.row.kind === 'time_off' && p.action.key === 'approve' ? (res?.conflicts || []).length : 0;
-        if (left && mounted.current) {
-          say({ kind: 'ok', msg: `Time off approved. ${left} shared shift${left === 1 ? '' : 's'} inside it still stand${left === 1 ? 's' : ''} - remove ${left === 1 ? 'it' : 'them'} in Team > Requests.`, link: { view: 'shifts', sub: 'requests' } });
+        // What the time-off decision did (Team > Requests' outcomes, moved
+        // here 11/04/2026): sent on to HR; approved with the shifts inside it
+        // marked for removal; or approved with shared shifts still standing,
+        // which one click on the toast removes.
+        if (p.row.kind === 'time_off' && mounted.current && (p.action.key === 'approve' || p.action.key === 'approve_remove')) {
+          const left = p.action.key === 'approve' ? (res?.conflicts || []).length : 0;
+          if (res?.awaitingHr) say({ kind: 'ok', msg: 'Approved - it now waits for HR approval. The shifts inside it stay until HR approves.' });
+          else if (p.action.key === 'approve_remove') say({ kind: 'ok', msg: 'Time off approved and the shifts inside it marked for removal. Share the schedule to send that.', link: { view: 'shifts', sub: 'schedule' } });
+          else if (left) {
+            say({ kind: 'ok', msg: `Time off approved. ${left} shared shift${left === 1 ? '' : 's'} inside it still stand${left === 1 ? 's' : ''}.`,
+              act: { label: 'Remove Those Shifts', run: () => api.timeOffDecide(p.row.id, { status: 'approved', note: '', remove_shifts: true })
+                .then(() => say({ kind: 'ok', msg: 'The shifts inside the leave are marked for removal. Share the schedule to send that.', link: { view: 'shifts', sub: 'schedule' } }))
+                .catch((e) => say({ kind: 'error', msg: e?.message || 'Could not remove the shifts.' })) } });
+          }
         }
       } catch (e) {
         if (mounted.current && p.row.kind === 'shift_request' && p.action.key === 'approve' && e?.status === 409 && !opts.force) {
@@ -256,7 +279,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
       if (required && !note) return;
     } else if (action.note && action.note !== 'none') {
       const ask = NOTE_ASK[action.key] || { title: action.label, message: '', placeholder: 'Note' };
-      const v = await dialog.prompt(ask.message, { title: `${ask.title}: ${row.title}`, placeholder: ask.placeholder, confirmText: action.label, required, multiline: true, danger: action.key === 'reject' });
+      const v = await dialog.prompt(required ? 'Tell them why. They see this note with the decision.' : ask.message, { title: `${ask.title}: ${row.title}`, placeholder: required ? ask.placeholder.replace(' (optional)', '') : ask.placeholder, confirmText: action.label, required, multiline: true, danger: action.key === 'reject' });
       if (v === null || v === undefined) return;
       note = String(v).trim();
       if (required && !note) return;
@@ -384,6 +407,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
     <div role="status" aria-live="polite" className={`apv-toast${toast.kind === 'error' ? ' is-error' : ''}`}>
       <span>{toast.msg}</span>
       {toast.kind === 'undo' && <button type="button" className="apv-toast-undo" onClick={() => undo(toast.keys)}>Undo</button>}
+      {toast.act && <button type="button" className="apv-toast-undo" onClick={() => { const run = toast.act.run; say(null); run(); }}>{toast.act.label}</button>}
       {toast.kind !== 'undo' && toast.link?.view && <button type="button" className="apv-toast-open" onClick={() => { go(toast.link); say(null); }}>Open</button>}
     </div>
   );
@@ -405,6 +429,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
           deptCounts={deptCounts} companyCounts={companyCounts} seesAll={seesAll}
           onAct={decide} loading={loading && !data} error={error && !data} onRetry={() => { setLoading(true); load(); }} errors={errors} onReload={() => load()}
           canApprove={!!who.canApprove}
+          footer={kind === 'shifts' ? <ShiftsAlso tick={alsoTick} /> : null}
           DetailView={Detail}
           history={<HistoryList history={history} onReload={loadHistory} />} />
         {toastEl}
@@ -581,6 +606,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
           </section>
         )}
       </AsyncSection>
+      {kind === 'shifts' && <ShiftsAlso tick={alsoTick} />}
     </div>
   );
 
@@ -706,6 +732,7 @@ export function Detail({ row, kindLabel, onClose, onAct, inModal = false }) {
       </div>
       {row.detail && <p className="apv-detail-text">{row.detail}</p>}
       {row.hint && recommendationReasons(row.hint) && <p className="apv-detail-text" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{recommendationReasons(row.hint)}</p>}
+      {row.context && <ScheduleContext row={row} />}
       {facts.length > 0 ? (
         <div className="apv-facts nx-fill">{facts.map((f) => [<div key={`${f.label}:l`}>{f.label}</div>, <div key={`${f.label}:v`}>{f.value}</div>])}</div>
       ) : !row.detail ? <div className="apv-detail-text nx-fill" style={{ color: 'var(--muted)' }}>{mod ? `The full request is in ${mod}.` : 'The full request is in its module.'}</div> : <div className="nx-fill" />}

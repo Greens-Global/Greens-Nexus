@@ -6836,6 +6836,18 @@ body:has(.docs-root) { overflow-x: clip; }
 .m-roll-down > span { animation: m-roll-down var(--m-base) var(--m-ease) both; }
 .sched-chip { transition: transform var(--m-fast) var(--m-ease), box-shadow var(--m-fast) var(--m-ease); }
 .sched-chip[role="button"]:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(15, 23, 42, .12); }
+/* Stretch to copy (11/04/2026, WeekGrid grips): a thin grip on each side
+   edge of a shift, shown on hover; pull it across the next days. */
+.sched-stretch { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 1; opacity: 0;
+  transition: opacity var(--m-fast) ease-out; touch-action: none; }
+.sched-stretch[data-stretch="left"] { left: 0; }
+.sched-stretch[data-stretch="right"] { right: 0; }
+.sched-stretch::after { content: ""; position: absolute; top: 25%; bottom: 25%; width: 3px; border-radius: 2px; background: var(--wk-brand); }
+.sched-stretch[data-stretch="left"]::after { left: 2px; }
+.sched-stretch[data-stretch="right"]::after { right: 2px; }
+.sched-chip:hover .sched-stretch, body.sched-stretching .sched-stretch { opacity: 1; }
+body.sched-stretching, body.sched-stretching * { cursor: ew-resize !important; user-select: none; }
+@media (pointer: coarse) { .sched-stretch { display: none; } }
 .sched-arrow { transition: background var(--m-fast) ease-out, transform var(--m-fast) var(--m-ease); }
 .sched-arrow:hover { background: var(--bg) !important; }
 .sched-arrow:active { transform: scale(.94); }
@@ -8535,6 +8547,11 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .apv-facts > div:nth-child(odd) { color: var(--muted); padding-right: 12px; }
 .apv-facts > div:nth-child(even) { color: var(--ink); font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; }
 .apv-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; padding-top: 4px; }
+/* A time-off or shift request's week (approvals/ScheduleContext.jsx, 11/04/2026): a hairline block above the facts. */
+.apv-sched { border-top: 1px solid var(--line); padding-top: 8px; }
+.apv-sched-h { font-size: 12px; font-weight: 700; color: var(--muted); }
+/* The Shifts filter's Waiting On A Teammate / Recently Decided (approvals/ShiftsAlso.jsx). */
+.apv-also { margin-top: 14px; }
 .apv-detail-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 40px 20px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; font-size: 13.5px; }
 .apv-detail-empty small { font-size: 12px; line-height: 1.5; }
 .apv-keys { display: grid; gap: 8px; font-size: 13.5px; }
@@ -8849,7 +8866,9 @@ body:has(.apv-phone) { overflow-x: clip; }
   .viewport:has(.nx-dl) { overflow: visible; }
   body:has(.nx-dl) { overflow-x: clip; }
   .nx-dl { --nx-dl-top: calc(var(--nx-announce-h, 0px) + 64px); }
-  .nx-dl-tools { position: sticky; top: var(--nx-dl-top); z-index: 5; background: var(--wk-bg, var(--paper)); padding: 10px 0 12px; margin: -10px 0 12px; }
+  /* A solid surface: the page behind is a gradient, so a tint-colored band
+     read as see-through once rows scrolled under it (Sagar, 11/04/2026). */
+  .nx-dl-tools { position: sticky; top: var(--nx-dl-top); z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); box-shadow: 0 8px 14px -12px rgba(15, 23, 42, .35); padding: 10px 0 12px; margin: -10px 0 12px; }
   .nx-dl-rail { top: calc(var(--nx-dl-top) + 12px); }
   .nx-dl-panel { top: calc(var(--nx-dl-top) + 12px); max-height: calc(100vh - var(--nx-dl-top) - 28px); }
 }

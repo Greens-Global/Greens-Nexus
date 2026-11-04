@@ -19,6 +19,7 @@ import DateBlock from './DateBlock';
 import { RollingNumber } from './motion';
 import { addDaysIso } from './shiftLib';
 import { DateField } from '../../tasks/components';
+import { dialog } from '../../ui/dialog';
 
 const VIEWS = [['day', 'Day'], ['week', 'Week'], ['month', 'Month']];
 export const MODAL_BACK = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' };
@@ -261,6 +262,8 @@ const TD = { fontSize: 12.5, padding: '6px 10px 6px 0', borderBottom: '1px solid
 // What a person sees for one change, before and after: "7:00 AM - 3:30 PM · GSV".
 const seenText = (start, end, label) => `${spanText(start, end)}${label ? ` · ${label}` : ''}`;
 // A warning's kind in one plain word (Oct 30 2026: no uppercase pills).
+// The minor rule's limit - the same number as timeclock.QUIET_MINOR_MIN.
+const QUIET_MINOR_MIN = 30;
 const warnWord = (w) => (w.kind !== 'conflict' ? 'Rule' : w.soft === true ? 'Heads Up' : 'Conflict');
 
 // Save & Share, ONE dialog (Neil, Oct 30 2026): the dates and team at the
@@ -331,7 +334,8 @@ export function ShareDialog({ defaultStart, defaultEnd, defaultGroupId = '', las
     try {
       const r = await Promise.resolve().then(() => api.timeSchedPublishReview({ start: from, end: to, ...(groupId ? { group_id: groupId } : {}) }));
       if (!liveRef.current || mine !== ticket.current) return;
-      setReview({ changes: Array.isArray(r?.changes) ? r.changes : [], people: Number(r?.people) || 0, warnings: Array.isArray(r?.warnings) ? r.warnings : [], reasonRequired: r?.reasonRequired === true });
+      setReview({ changes: Array.isArray(r?.changes) ? r.changes : [], people: Number(r?.people) || 0, warnings: Array.isArray(r?.warnings) ? r.warnings : [], reasonRequired: r?.reasonRequired === true,
+        major: Array.isArray(r?.major) ? r.major : null });
     } catch (e) {
       if (liveRef.current && mine === ticket.current) { setReview(null); setReviewErr(e?.message || 'Could not review these dates.'); }
     } finally { if (liveRef.current && mine === ticket.current) setReviewing(false); }
@@ -364,6 +368,28 @@ export function ShareDialog({ defaultStart, defaultEnd, defaultGroupId = '', las
   async function share() {
     setShareErr('');
     const r = await onPublish({ start_date: from, end_date: to, notify, ...(groupId ? { group_id: groupId } : {}), reason: reason.trim().slice(0, REASON_MAX) });
+    if (liveRef.current && r?.error) setShareErr(r.error);
+    else if (liveRef.current && r && !r.error) onMemo?.(null);
+  }
+  // Save Without Sharing (Neil, 11/04/2026): the changes go onto the team's
+  // schedule with no notification, for MINOR updates (the server's rule,
+  // timeclock._quiet_minor). A change that is not minor asks first and says
+  // why it should be shared; the server refuses it without that yes.
+  async function saveQuietly() {
+    setShareErr('');
+    const major = review?.major || [];
+    let confirm = false;
+    if (major.length) {
+      const list = major.slice(0, 6).map((c) => `- ${c.why || `${c.name} · ${dayText(c.date)}`}`).join('\n');
+      const more = major.length > 6 ? `\n- and ${major.length - 6} more` : '';
+      const ok = await dialog.confirm(
+        `${major.length === 1 ? 'This change is' : `${major.length} of these changes are`} not minor, so the people affected should be told:\n\n${list}${more}\n\n`
+        + 'Saving without sharing puts it on the schedule with no notification or email. Share it instead unless you have told them another way.',
+        { title: 'Save Without Telling the Team?', confirmText: 'Save Without Sharing', cancelText: 'Go Back' });
+      if (!ok) return;
+      confirm = true;
+    }
+    const r = await onPublish({ start_date: from, end_date: to, notify: 'none', confirm_major: confirm, ...(groupId ? { group_id: groupId } : {}), reason: reason.trim().slice(0, REASON_MAX) });
     if (liveRef.current && r?.error) setShareErr(r.error);
     else if (liveRef.current && r && !r.error) onMemo?.(null);
   }
@@ -497,6 +523,12 @@ export function ShareDialog({ defaultStart, defaultEnd, defaultGroupId = '', las
             <div style={{ fontSize: 13, fontWeight: 700 }}>Who Hears About It</div>
             {opt('changed', 'Only people whose shifts changed', 'Each gets a notification and an email listing their own changes.')}
             {opt('team', 'The whole team', 'The same, plus a short notification to everyone else on the schedule for these dates.')}
+            {Array.isArray(review?.major) && (
+              <div data-quiet-hint="" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                A minor update - a start or end moved {QUIET_MINOR_MIN} minutes or less, or a label, note, color or break - can be saved without sharing: it goes on the schedule and nobody is notified.
+                {review.major.length > 0 ? ` ${review.major.length} change${review.major.length === 1 ? ' here is' : 's here are'} not minor.` : ''}
+              </div>
+            )}
           </div>
 
           {(after?.count > 0 || extended) && (
@@ -515,6 +547,12 @@ export function ShareDialog({ defaultStart, defaultEnd, defaultGroupId = '', las
         </div>
         <div style={{ display: 'flex', gap: 8, paddingTop: 14, marginTop: 4, borderTop: '1px solid var(--line)', justifyContent: 'flex-end' }}>
           <button type="button" className="secondary-btn" onClick={cancel}>Cancel</button>
+          {/* An older API without the minor rule (no `major` in the review): not offered. */}
+          {Array.isArray(review?.major) && (
+            <button type="button" className="secondary-btn" onClick={saveQuietly} data-save-quiet=""
+              title={review.major.length ? 'Some of these changes are not minor - you will be asked first.' : 'Minor updates only: put them on the schedule with no notification.'}
+              disabled={busy || !ready || changes.length === 0 || (needReason && !reason.trim())}>Save Without Sharing</button>
+          )}
           <button type="button" className="primary-btn" onClick={share}
             disabled={busy || !ready || changes.length === 0 || (needReason && !reason.trim())}>{busy ? '…' : 'Share'}</button>
         </div>

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, waitFor, fireEvent, screen } from '@testing-library/react';
+import { VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
 
 // The Variables Used rail and the Make Variable bubble (Sagar, 11/04/2026):
 // every variable placed in the document is listed beside the pages, one click
@@ -91,5 +92,21 @@ describe('DocumentBuilder variables rail', () => {
     fireEvent.click(btn);
     const label = await waitFor(() => screen.getByDisplayValue('Dear'));
     expect(label).toBeTruthy();
+  });
+
+  it('places a dragged variable once, never a second chip from the plain-text fallback', async () => {
+    const editor = await mountTemplate();
+    const dom = document.querySelector('.doc-page .ProseMirror');
+    // jsdom lays nothing out, so ProseMirror cannot map the pointer to a
+    // position and would ignore the drop before asking handleDrop. Answer
+    // for it: the drop lands at the end of the paragraph.
+    editor.view.posAtCoords = () => ({ pos: editor.state.doc.content.size - 1, inside: 0 });
+    const data = { [VARIABLE_DRAG_TYPE]: 'loan.amount', 'text/plain': '{{loan.amount}}' };
+    const dataTransfer = { getData: (k) => data[k] || '', types: Object.keys(data), dropEffect: 'copy', effectAllowed: 'copy' };
+    fireEvent.drop(dom, { dataTransfer, clientX: 10, clientY: 10 });
+    await waitFor(() => expect(countFields(editor.getJSON())).toBe(2));
+    await vi.advanceTimersByTimeAsync(1500);   // past the {{token}} detector's delay
+    expect(countFields(editor.getJSON())).toBe(2);
+    expect(JSON.stringify(editor.getJSON())).not.toContain('{{loan.amount}}');
   });
 });

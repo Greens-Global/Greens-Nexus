@@ -1,19 +1,19 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarClock, CalendarDays, Contact, Inbox, Handshake, ListChecks, MonitorDot, UserPlus } from 'lucide-react';
+import { CalendarClock, CalendarDays, Contact, Handshake, ListChecks, MonitorDot, UserPlus } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import MyShifts from '../components/MyShifts';
 import { SkeletonBlocks } from '../components/AsyncState';
-import ShiftRequestsPage from '../components/ShiftRequestsPage';
 import ShiftSchedule from '../components/ShiftSchedule';
-import { useManagerInbox } from '../components/shifts/useManagerInbox';
 import { hasUnsavedWork, askToLeave } from '../lib/dialogGuard';
 import { canOpenWorkforceAnalytics } from '../lib/workforceAccess';
 
 // Team (Neil, Oct 13 2026; was Shifts, Sep 29): everything about the people
 // you work with. Contact (the Contact Directory, moved out of Support) and
-// Shifts (your group's week) for everyone; Schedule and Requests - the
-// manager's inbox, with a badge for what waits - for managers and above.
+// Shifts (your group's week) for everyone; the Shift Planner for managers
+// and above. Requests - the manager's inbox - moved into Dashboard >
+// Approvals (Neil, 11/04/2026); old 'requests' links land there (App.jsx)
+// and the planner names the requests on its dates (shifts/RequestsStrip).
 // Your OWN week is Workday > My Shifts (Neil: "the personal shift data should
 // move into your Workday"); old 'mine' links are redirected there (App.jsx).
 // An employee asks for a swap, an offer, an open shift or time off in
@@ -39,7 +39,6 @@ const WorkforceAnalytics = lazy(() => import('../components/TimeTrackingAdmin'))
 const TABS = [
   ['shifts', 'Shifts', CalendarClock, false],
   ['schedule', 'Shift Planner', CalendarDays, true],
-  ['requests', 'Requests', Inbox, true],
   ['analytics', 'Workforce Analytics', MonitorDot, false],
   // A role's own checklist steps, for department heads (Neil, Oct 19) - only
   // shown to someone who keeps at least one role.
@@ -51,7 +50,6 @@ const SUBTITLE = {
   contact: 'Find and reach anyone in the company',
   shifts: "Your group's week",
   schedule: "Plan the team's shifts, then share them",
-  requests: "Decide your team's time off, swaps, offers and open-shift requests",
   'role-checklists': "The extra onboarding, promotion, offboarding and leave steps your department's roles need",
   headcount: 'Ask to hire, and approve the requests waiting on you',
   analytics: 'Disclosed monitoring - coverage, activity, the weekly Scorecard, locations and company computers',
@@ -98,7 +96,6 @@ export default function Shifts({ activeSub, onSubChange }) {
   useEffect(() => { if (focus) onSubChange?.('schedule'); }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [toast, setToast] = useState(null);
   const timer = useRef(null);
-  const requests = useManagerInbox(canManage);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   // Stable, so the schedule never reloads just because a toast showed.
@@ -132,7 +129,7 @@ export default function Shifts({ activeSub, onSubChange }) {
       <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
         {tabs.map(([key, label, Icon]) => {
           const on = tab === key;
-          const badge = key === 'requests' ? requests.pendingCount : key === 'headcount' ? headcount.waiting : 0;
+          const badge = key === 'headcount' ? headcount.waiting : 0;
           return (
             <button key={key} type="button" role="tab" aria-selected={on} onClick={() => goTab(key)}
               aria-label={badge ? `${label}, ${badge} waiting` : undefined}
@@ -156,8 +153,6 @@ export default function Shifts({ activeSub, onSubChange }) {
         : tab === 'analytics' ? <Suspense fallback={<SkeletonBlocks count={4} height={96} />}><WorkforceAnalytics initialSub={focusDate || undefined} embedded onTab={(id) => onSubChange?.(`analytics:${id}`)} /></Suspense>
         : tab === 'headcount' ? <Suspense fallback={<SkeletonBlocks count={3} height={56} />}><HeadcountRequests toastOk={toastOk} toastErr={toastErr} /></Suspense>
         // Named, never the fall-through: a tab nobody may see renders nothing.
-        : tab === 'requests' ? <ShiftRequestsPage inbox={requests.inbox} timeoff={requests.timeoff} loading={requests.loading} error={requests.error}
-            onRetry={requests.reload} onChanged={requests.reload} toastOk={toastOk} toastErr={toastErr} />
         : null}
 
       {toast && (

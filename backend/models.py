@@ -2657,6 +2657,12 @@ class Shift(Base):
     # People admin manages only their own company's types; shared ones
     # take company-wide access (timeclock._require_company_manage).
     company_id = Column(String, default="")
+    # The teams (ShiftGroup ids, JSON list) this shift type is for (Neil,
+    # 11/04/2026: "it's weird to see IT Support Team available for
+    # operations"); '' / [] = every team. The planner offers a type only on
+    # its teams' rows; shift_type_teams.py filled it once from what each
+    # team already used.
+    group_ids  = Column(String, default="")
 
 
 class ScheduledShift(Base):
