@@ -1903,6 +1903,14 @@ export const api = {
   searchDocuments:    (q)         => req(`/documents/search?q=${encodeURIComponent(q)}`),
   getDocumentVersion: (did, vid)  => req(`/documents/${did}/versions/${vid}`),
 
+  // ── Documents - comments (Review tab, Nov 2026; routers/doc_comments.py) ──
+  // `kind` is 'document' or 'template'; the thread words live server-side,
+  // the anchor is the editor's own comment mark.
+  getDocComments:    (kind, id)            => req(`${kind === 'template' ? `/documents/templates/${id}` : `/documents/${id}`}/comments`),
+  addDocComment:     (kind, id, data)      => req(`${kind === 'template' ? `/documents/templates/${id}` : `/documents/${id}`}/comments`, { method: 'POST', body: JSON.stringify(data) }),
+  updateDocComment:  (kind, id, cid, data) => req(`${kind === 'template' ? `/documents/templates/${id}` : `/documents/${id}`}/comments/${cid}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteDocComment:  (kind, id, cid)       => req(`${kind === 'template' ? `/documents/templates/${id}` : `/documents/${id}`}/comments/${cid}`, { method: 'DELETE' }),
+
   // ── Documents (DMS) - Phase 7: template version history ──
   getDocTemplateVersions: (id)        => req(`/documents/templates/${id}/versions`),
   getDocTemplateVersion:  (id, vid)   => req(`/documents/templates/${id}/versions/${vid}`),
