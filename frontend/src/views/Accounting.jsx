@@ -260,7 +260,12 @@ const DASH_SUBS = ['overview', 'cash', 'performance', 'close'];
  *  10/30: "If we are on dashboard it should say Dashboard here, not
  *  accounting. This wiring is wrong or incomplete"). Unknown subs keep the
  *  module's name. */
-const headingFor = (sub) => TABS.find((t) => leafKeys([t]).includes(menuKey(sub)))?.label || 'Accounting';
+// Urmi, Teams 11/05/2026: an older statement key (rpt-pnl) or an alias still
+// says which tab it is under - every `rpt-` key is Reports.
+const headingFor = (sub) => {
+  const k = menuKey(ALIAS[sub] || sub);
+  return TABS.find((t) => leafKeys([t]).includes(k))?.label || (isReports(k) ? 'Reports' : 'Accounting');
+};
 
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
