@@ -39,7 +39,7 @@ export default function MyWorkSheet({ onClose, initial = null }) {
   };
   const rows = data?.tickets || [];
   return (
-    <Modal title="My Work" onClose={onClose} zIndex={4200}
+    <Modal title="My Tickets" onClose={onClose} zIndex={4200}
       footer={<button type="button" className="secondary-btn" onClick={() => setScanning(true)}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 42 }}><ScanLine size={15} /> Scan a Tag</button>}>
       {!data && !error && <SkeletonBlocks count={4} height={64} borderRadius={10} />}
