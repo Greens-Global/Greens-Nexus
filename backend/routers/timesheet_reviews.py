@@ -85,10 +85,30 @@ def _as_reviewer(db: Session, user: dict, r: TimesheetReview) -> str:
 
 
 @router.get("/waiting")
-def waiting(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def waiting(only: str = "", fresh: bool = False, user: dict = Depends(get_current_user),
+            db: Session = Depends(get_db)):
     """Timesheets submitted to the caller for review - the list at the top of
-    People > Time (Sep 29). Empty for anyone nobody reports to."""
+    People > Time (Sep 29). Empty for anyone nobody reports to.
+
+    only=sign: just the envelopes waiting on the caller's signature (Workday's
+    count) - the review list is the expensive part and is skipped.
+    The full answer is cached per person for a minute, one build at a time
+    (11/04/2026: a Super Administrator's list held database connections for
+    up to a minute and every other save on prod timed out); fresh=1 rebuilds
+    it, for the screen's own reload after an Approve or Send Back."""
     me = (user.get("email") or "").lower()
+    if only == "sign":
+        return {"reviews": [], "toSign": tsr.to_sign(db, me)}
+    import cache
+    if fresh:
+        cache.timesheet_waiting.invalidate(me)
+    # Hand the connection back while this request may wait on another's build
+    # (a GET wrote nothing); the build below takes one again.
+    db.rollback()
+    return cache.timesheet_waiting.get_or_load(me, lambda: _waiting(db, me))
+
+
+def _waiting(db: Session, me: str) -> dict:
     # Oct 16: plus the closed periods of the caller's people that nobody has
     # submitted - the manager reviews first.
     rows = [tsr.queue_row(db, r) for r in tsr.waiting_on(db, me)] + tsr.not_reviewed(db, me)

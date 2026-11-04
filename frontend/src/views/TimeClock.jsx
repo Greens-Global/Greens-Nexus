@@ -1112,7 +1112,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const [toSignCount, setToSignCount] = useState(0);
   useEffect(() => {
     let live = true;
-    const load = () => api.timesheetReviewWaiting()
+    // only=sign: the count needs just the envelopes, not the review list -
+    // the list is the expensive part for a manager (11/04/2026).
+    const load = () => api.timesheetReviewWaiting({ only: 'sign' })
       // Envelopes waiting on my signature - the same count the to Sign card shows.
       .then(r => { if (live) setToSignCount(Array.isArray(r?.toSign) ? r.toSign.length : 0); })
       .catch(() => {});
