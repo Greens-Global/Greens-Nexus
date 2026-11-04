@@ -61,12 +61,27 @@ export default function FilingTab({ toastOk, toastErr }) {
   // the queue by default (Visesh, 11/04: ignore the correctly labeled files).
   const [hideLabeled, setHideLabeled] = useState(true);
   const [fileIt, setFileIt] = useState(null);     // the row being filed by hand
+  const ROW_PAGE = 200;
+  const [shown, setShown] = useState(ROW_PAGE);   // rows rendered; Show More adds a page
   const [rulesOpen, setRulesOpen] = useState(false);
   const [activity, setActivity] = useState(null);
   // The tree's ticks: which folders the next scan covers. Empty = the
-  // configured #Unsorted staging folders (the server default).
-  const [pickedFolders, setPickedFolders] = useState(() => new Set());
-  const [includeSub, setIncludeSub] = useState(true);
+  // configured #Unsorted staging folders (the server default). Selection and
+  // toggles are per-viewer conveniences, so localStorage is the right home -
+  // wrapped, because private windows and blocked site data throw.
+  const [pickedFolders, setPickedFolders] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('filing-picked') || '[]')); }
+    catch { return new Set(); }
+  });
+  const [includeSub, setIncludeSub] = useState(() => {
+    try { return localStorage.getItem('filing-include-sub') !== '0'; } catch { return true; }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('filing-picked', JSON.stringify([...pickedFolders]));
+      localStorage.setItem('filing-include-sub', includeSub ? '1' : '0');
+    } catch { /* per-viewer convenience only */ }
+  }, [pickedFolders, includeSub]);
   const [progress, setProgress] = useState(null);   // {folders, files} while a walk runs
   const cancelRef = useRef(false);
 
@@ -90,10 +105,13 @@ export default function FilingTab({ toastOk, toastErr }) {
   // single call can outlive the 18-second request limit however deep the
   // tree goes - and the table fills while the walk runs, with a Stop that
   // keeps what is already found.
-  const WALK_FOLDER_CAP = 300;
-  const WALK_FILE_CAP = 2000;
+  // Escondido's #Unsorted alone has a child with 178 subfolders (11/04), so
+  // the caps sit well above a real entity tree; the table renders in pages
+  // (ROW_PAGE) so a large result never freezes the browser.
+  const WALK_FOLDER_CAP = 2000;
+  const WALK_FILE_CAP = 10000;
   const runScan = async () => {
-    setScanning(true); setResults({}); setSelected(new Set());
+    setScanning(true); setResults({}); setSelected(new Set()); setShown(ROW_PAGE);
     cancelRef.current = false;
     try {
       if (!pickedFolders.size) {
@@ -108,26 +126,34 @@ export default function FilingTab({ toastOk, toastErr }) {
       let all = [];
       let folders = 0;
       let truncated = false;
+      // One lone failed request (a worker blip, the 11/04 502) must not
+      // kill a long walk - a batch gets one more try before giving up.
+      const scanBatch = async (paths) => {
+        try { return await api.filingScan({ paths }); }
+        catch { return await api.filingScan({ paths }); }
+      };
       while (queue.length && !cancelRef.current) {
         if (folders >= WALK_FOLDER_CAP || all.length >= WALK_FILE_CAP) { truncated = true; break; }
-        const batch = [];
-        while (batch.length < 5 && queue.length) {
-          const p = queue.shift();
-          if (!seen.has(p)) { seen.add(p); batch.push(p); }
+        // Two batches in flight: a deep tree walks almost twice as fast, and
+        // two requests is gentle enough on the API and on Egnyte's rate cap.
+        const batches = [];
+        while (batches.length < 2 && queue.length) {
+          const batch = [];
+          while (batch.length < 5 && queue.length) {
+            const p = queue.shift();
+            if (!seen.has(p)) { seen.add(p); batch.push(p); }
+          }
+          if (batch.length) batches.push(batch);
         }
-        if (!batch.length) continue;
-        let r;
-        try {
-          r = await api.filingScan({ paths: batch });
-        } catch {
-          // One lone failed request (a worker blip, the 11/04 502) must not
-          // kill a long walk - try that batch once more before giving up.
-          r = await api.filingScan({ paths: batch });
+        if (!batches.length) continue;
+        const resList = await Promise.all(batches.map(scanBatch));
+        for (const r of resList) {
+          if (r.truncated) truncated = true;   // one folder past the server's per-call cap
+          folders += (r.scannedRoots || []).length;
+          missing.push(...(r.missingRoots || []));
+          all = all.concat(r.proposals || []);
+          if (includeSub) queue.push(...(r.subfolders || []));
         }
-        folders += (r.scannedRoots || []).length;
-        missing.push(...(r.missingRoots || []));
-        all = all.concat(r.proposals || []);
-        if (includeSub) queue.push(...(r.subfolders || []));
         setProgress({ folders, files: all.filter(p => p.status !== 'skip').length });
         setScan(assemble(all, missing, truncated));
       }
@@ -340,15 +366,21 @@ export default function FilingTab({ toastOk, toastErr }) {
 
       {scan && (
         <>
-          {/* Totals: how much of the staging pile is already named right */}
+          {/* Totals: how much of the pile is named right. Each tile opens its
+              slice - the number you want to act on is one click away. */}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {[['Total Files', scan.totals?.files ?? 0, null],
-              ['Labeled', scan.totals?.labeled ?? 0, 'hsl(var(--color-green))'],
-              ['Unlabeled', scan.totals?.unlabeled ?? 0, 'hsl(35, 90%, 34%)']].map(([label, n, color]) => (
-              <div key={label} style={{ flex: '0 0 auto', minWidth: 130, padding: '10px 16px', border: '1px solid var(--border-color)', borderRadius: 12 }}>
+            {[['Total Files', scan.totals?.files ?? 0, null, 'Every scanned file',
+               () => { setView('queue'); setFilter('all'); setHideLabeled(false); }],
+              ['Labeled', scan.totals?.labeled ?? 0, 'hsl(var(--color-green))', 'Already named right - the Proposed Names view',
+               () => setView('names')],
+              ['Unlabeled', scan.totals?.unlabeled ?? 0, 'hsl(35, 90%, 34%)', 'The files that need work',
+               () => { setView('queue'); setFilter('review'); setHideLabeled(true); }]]
+              .map(([label, n, color, hint, go]) => (
+              <button key={label} type="button" onClick={go} title={hint}
+                style={{ flex: '0 0 auto', minWidth: 130, padding: '10px 16px', border: '1px solid var(--border-color)', borderRadius: 12, background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
                 <div style={{ fontSize: 22, fontWeight: 700, color: color || 'inherit' }}>{n}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{label}</div>
-              </div>
+              </button>
             ))}
           </div>
 
@@ -366,7 +398,7 @@ export default function FilingTab({ toastOk, toastErr }) {
           {/* Counts + filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {FILTERS.map(f => (
-              <button key={f.key} onClick={() => setFilter(f.key)}
+              <button key={f.key} onClick={() => { setFilter(f.key); setShown(ROW_PAGE); }}
                 className={filter === f.key ? 'secondary-btn' : 'btn-sm'}
                 style={{ fontSize: 12.5, padding: '4px 12px' }}>
                 {f.label}{f.key !== 'all' ? ` (${scan.counts[f.key] || 0})` : ` (${scan.proposals.length})`}
@@ -400,22 +432,20 @@ export default function FilingTab({ toastOk, toastErr }) {
               Not scanned (no access or missing): {scan.missingRoots.join(', ')}
             </div>
           )}
-          {scan.truncated && (
+          {scan.truncated && !scanning && (
             <div style={{ fontSize: 12.5, color: 'hsl(35, 90%, 34%)' }}>
-              Showing the first 500 items - file some and scan again for the rest.
+              The scan stopped before reaching every folder (stopped by hand, or past {WALK_FOLDER_CAP.toLocaleString('en-US')} folders / {WALK_FILE_CAP.toLocaleString('en-US')} files). Tick a smaller folder to see the rest.
             </div>
           )}
 
-          {/* Proposals table */}
-          <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 12 }}>
+          {/* Proposals table - header stays put while a 500-row scan scrolls */}
+          <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '65vh', border: '1px solid var(--border-color)', borderRadius: 12 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ textAlign: 'left', background: 'var(--bg-secondary)' }}>
-                  <th style={{ padding: '8px 10px', width: 30 }}></th>
-                  <th style={{ padding: '8px 10px' }}>File</th>
-                  <th style={{ padding: '8px 10px' }}>Doc Type</th>
-                  <th style={{ padding: '8px 10px' }}>Files To</th>
-                  <th style={{ padding: '8px 10px' }}>Status</th>
+                <tr style={{ textAlign: 'left' }}>
+                  {['', 'File', 'Doc Type', 'Files To', 'Status'].map((h, i) => (
+                    <th key={h || 'tick'} style={{ padding: '8px 10px', width: i === 0 ? 30 : undefined, position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-secondary)' }}>{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -424,7 +454,7 @@ export default function FilingTab({ toastOk, toastErr }) {
                     Nothing here - the staging folders are clean.
                   </td></tr>
                 )}
-                {rows.map((p) => {
+                {rows.slice(0, shown).map((p) => {
                   const r = results[p.sourcePath];
                   const effective = r ? (r.ok ? (r.renamed ? 'renamed' : 'done') : 'failed') : p.status;
                   return (
@@ -509,6 +539,14 @@ export default function FilingTab({ toastOk, toastErr }) {
               </tbody>
             </table>
           </div>
+          {rows.length > shown && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--text-secondary)' }}>
+              Showing {shown.toLocaleString('en-US')} of {rows.length.toLocaleString('en-US')}
+              <button className="secondary-btn" onClick={() => setShown(s => s + ROW_PAGE)} style={{ fontSize: 12.5 }}>
+                Show {Math.min(ROW_PAGE, rows.length - shown)} More
+              </button>
+            </div>
+          )}
           </>)}
         </>
       )}
