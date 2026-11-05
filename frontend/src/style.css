@@ -4730,6 +4730,8 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   letter-spacing: -.015em; line-height: 1.15;
   margin: 0 0 10px; color: inherit;
 }
+.dk-head-date { font-size: 15px; font-weight: 500; color: var(--wk-dim); line-height: 1.4; margin: 0 0 4px; }
+[data-theme="dark"] .dk-head-date { color: var(--muted); }
 .dk-head-sub { font-size: 15px; color: var(--wk-dim); line-height: 1.5; }   /* a touch larger, level with the controls across from it (Neil, Oct 30 2026) */
 .dk-head-sub b { color: var(--wk-brand); font-weight: 700; }
 [data-theme="dark"] .dk-head-sub { color: var(--muted); }
@@ -5082,11 +5084,14 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
      California rides in the date line (.dk-sub-local). */
   .dk-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 0; align-items: start; }
   .dk-head-left, .dk-head-right { display: contents; }
-  .dk-head h1 { font-size: 24px; grid-column: 1; grid-row: 1; }
-  .dk-clock-row { grid-column: 2; grid-row: 1; }
+  /* Date above the greeting (Neil, 11/04/2026): date, greeting, then the
+     summary; the clock keeps the top-right corner across the first two. */
+  .dk-head-date { grid-column: 1; grid-row: 1; font-size: 14px; margin-bottom: 2px; }
+  .dk-head h1 { font-size: 24px; grid-column: 1; grid-row: 2; }
+  .dk-clock-row { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
   .dk-clock { font-size: 24px; }
-  .dk-head-sub { grid-column: 1 / -1; grid-row: 2; font-size: 14.5px; }
-  .dk-toolbar { grid-column: 1 / -1; grid-row: 3; }
+  .dk-head-sub { grid-column: 1 / -1; grid-row: 3; font-size: 14.5px; }
+  .dk-toolbar { grid-column: 1 / -1; grid-row: 4; }
   .dk-toolbar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 4px 0 6px; }
   .dk-toolbar::-webkit-scrollbar { display: none; }
   .dk-toolbar > * { flex-shrink: 0; }
