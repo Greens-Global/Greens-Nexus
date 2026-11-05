@@ -1,0 +1,1611 @@
+{
+ "slug": "customer-service-sales-fundamentals",
+ "title": "Customer Service & Sales Fundamentals",
+ "description": "The daily work of serving and selling at Greens: who our customers are, the nine parts of a sales call with word-for-word scripts, recommending a size, the 22-item call score sheet, walk-ins and tours, move-ins done right, web leads, honest answers to objections, rate increases and move-outs, collections with respect, difficult and unsafe situations, reviews, and twenty practice scenarios. Course 5 of the Greens Storage Academy.",
+ "overview": [
+  "Who calls and walks in, what they are going through, and why the first good conversation wins",
+  "The Greens service standard and the response times every site works to",
+  "The nine parts of a sales call, with sample scripts, and recommending a size instead of asking for one",
+  "The 22-item call score sheet used again in the Hands-On Check",
+  "Walk-ins, the tour route, a move-in done right, and following up on web leads within minutes",
+  "Honest answers to objections, rate increases and move-out calls",
+  "Collections with respect, under California's and Texas' collection laws",
+  "Difficult and unsafe situations, reviews, and twenty practice scenarios"
+ ],
+ "est_minutes": 210,
+ "delivery": "online",
+ "min_reading_minutes": 120,
+ "lessons": [
+  {
+   "file": "01-who-walks-through-our-door.md"
+  },
+  {
+   "file": "02-the-greens-service-standard.md"
+  },
+  {
+   "file": "03-why-the-phone-wins-or-loses-rentals.md"
+  },
+  {
+   "file": "04-the-nine-parts-of-a-sales-call.md"
+  },
+  {
+   "file": "05-recommending-a-size.md"
+  },
+  {
+   "file": "06-the-call-score-sheet.md"
+  },
+  {
+   "checkpoint": "Checkpoint: The Sales Call",
+   "questions": [
+    {
+     "type": "order",
+     "q": "Put these parts of a storage sales call in order.",
+     "options": [
+      "Greeting",
+      "Find out why they called",
+      "Discovery",
+      "Recommend a size",
+      "Build value",
+      "Price"
+     ],
+     "answer": [],
+     "explanation": "The nine parts run greeting, why they called, discovery, recommend, build value, price, then close, objections, and capture and follow up. Value comes before price.",
+     "lesson": "04-the-nine-parts-of-a-sales-call.md"
+    },
+    {
+     "type": "single",
+     "q": "A caller at Valley Center asks, \"How late are you open?\" What is the best response?",
+     "options": [
+      "Give the hours and say goodbye",
+      "Give the office and gate hours, then ask whether they are looking to rent or calling about an account",
+      "Ask why they want to know before giving the hours",
+      "Transfer them to the website"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Answer the question first, never dodge it, then ask one question that opens the conversation. Jordheim (2015) found about 90% of hours callers get only the hours.",
+     "lesson": "03-why-the-phone-wins-or-loses-rentals.md"
+    },
+    {
+     "type": "single",
+     "q": "Which question should you never ask a storage shopper?",
+     "options": [
+      "What are you planning to store?",
+      "When do you need to move in?",
+      "What size do you need?",
+      "Have you rented storage before?"
+     ],
+     "answer": [
+      2
+     ],
+     "explanation": "Most shoppers cannot picture a unit size, so they guess, usually too small. Ask what they are storing, then recommend a size and say why.",
+     "lesson": "05-recommending-a-size.md"
+    },
+    {
+     "type": "single",
+     "q": "In the 2004 IntelliShop mystery-shop study of storage calls, about how many staff asked the caller to rent?",
+     "options": [
+      "92%",
+      "75%",
+      "25%",
+      "5%"
+     ],
+     "answer": [
+      2
+     ],
+     "explanation": "Only 25.4% asked for the rental, although 92% answered professionally (IntelliShop, 12/2004). Friendly is common; asking for the rental is rare.",
+     "lesson": "03-why-the-phone-wins-or-loses-rentals.md"
+    },
+    {
+     "type": "single",
+     "q": "A caller describes a three-bedroom house with a piano and asks for a 10x10. What do you do?",
+     "options": [
+      "Rent the 10x10 she asked for",
+      "Explain honestly that it will not fit, recommend a 10x20 and say why, and ask about heat for the piano",
+      "Tell her to call back when she knows her size",
+      "Rent her two 5x5 units"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "You are the expert. A three-bedroom is about a 10x20 in the size guide, and pianos are heat-sensitive. Squeezing someone into a unit that is too small causes an angry move-in day.",
+     "lesson": "05-recommending-a-size.md"
+    },
+    {
+     "type": "single",
+     "q": "Where in the call do you give the price?",
+     "options": [
+      "In the greeting",
+      "After you build value, unless they asked for it first",
+      "Only after they reserve",
+      "Never on the phone"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Price comes after value. If a caller asks the price first, give a range from Cubby and then go to discovery.",
+     "lesson": "04-the-nine-parts-of-a-sales-call.md"
+    },
+    {
+     "type": "single",
+     "q": "A practice call scores 15 Yes out of 20 items that applied, and every price and fee was quoted correctly. What is the result?",
+     "options": [
+      "75%, a pass",
+      "68%, not yet",
+      "75%, not yet, because 90% is needed",
+      "It cannot be scored with N/A items"
+     ],
+     "answer": [
+      0
+     ],
+     "explanation": "Score = Yes divided by items that applied: 15 / 20 = 75%. The pass mark is 70%; 90% and above is excellent.",
+     "lesson": "06-the-call-score-sheet.md"
+    },
+    {
+     "type": "tf",
+     "q": "On the call score sheet, if you did not ask whether the caller had rented before, you may mark that item N/A.",
+     "options": [
+      "True",
+      "False"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "N/A is only for an item that could not apply, such as a caller who said in the first sentence that they rented before. Not asking is a No.",
+     "lesson": "06-the-call-score-sheet.md"
+    },
+    {
+     "type": "single",
+     "q": "Which of these is a fact you should say when you quote a Greens move-in in California?",
+     "options": [
+      "There is a $50 deposit",
+      "There is a one-time $25 admin fee and no charge to reserve",
+      "Protection is free the first month",
+      "Rates never change"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "From Greens' Cubby, 11/2026: the admin fee is $25, there is no reservation fee and no deposit on new move-ins. Say that rates are reviewed over time.",
+     "lesson": "04-the-nine-parts-of-a-sales-call.md"
+    },
+    {
+     "type": "short",
+     "q": "Write the first line you would say when you answer a call at Greens Storage Temecula.",
+     "options": [],
+     "answer": [],
+     "keywords": [
+      "greens",
+      "help"
+     ],
+     "explanation": "A great greeting has the company and property name, your name and an offer to help: \"Thank you for calling Greens Storage Temecula, this is Maria. How can I help you today?\"",
+     "lesson": "04-the-nine-parts-of-a-sales-call.md"
+    }
+   ]
+  },
+  {
+   "file": "08-walk-ins-and-the-tour.md"
+  },
+  {
+   "file": "09-move-in-done-right.md"
+  },
+  {
+   "page": "greens-tenant-protection",
+   "title": "Greens Tenant Protection",
+   "summary": "Greens' protection levels and prices, who uses what, and how to offer it at every move-in."
+  },
+  {
+   "file": "10-online-renters-and-digital-leads.md"
+  },
+  {
+   "page": "cubby-reservation",
+   "title": "Leads and Reservations in Cubby",
+   "summary": "Lead sources and statuses, holding a unit with a reservation, and follow-up tasks."
+  },
+  {
+   "file": "11-objections-honestly.md"
+  },
+  {
+   "checkpoint": "Checkpoint: Leads and Objections",
+   "questions": [
+    {
+     "type": "single",
+     "q": "A web reservation arrives during open hours. What is Greens' target for the first live contact?",
+     "options": [
+      "Within 5 minutes, 30 at most",
+      "Within 24 hours",
+      "By the end of the day",
+      "When the customer arrives"
+     ],
+     "answer": [
+      0
+     ],
+     "explanation": "Byrd (2021) calls 5 minutes impactful and 30 mandatory; DeFazio (2026) says by minute six they may have moved on. Greens' standard: 5 minutes, 30 at most.",
+     "lesson": "10-online-renters-and-digital-leads.md"
+    },
+    {
+     "type": "single",
+     "q": "A caller says, \"The place down the road is $20 cheaper.\" What do you say first?",
+     "options": [
+      "\"Their units are dirty, you'll regret it.\"",
+      "\"I can match that right now.\"",
+      "\"That's a fair question, and I'm glad you're comparing. Can I ask a couple of things so we're comparing the same thing?\"",
+      "\"Then you should rent there.\""
+     ],
+     "answer": [
+      2
+     ],
+     "explanation": "Acknowledge it without arguing. Then compare total cost and the real differences. Never criticize a competitor, and never promise a match you have not been authorized to give.",
+     "lesson": "11-objections-honestly.md"
+    },
+    {
+     "type": "multi",
+     "q": "When a caller says a competitor is cheaper, which costs should you compare honestly? Choose all that apply.",
+     "options": [
+      "Whether their price is a special and when it ends",
+      "Any admin fee",
+      "Whether protection or insurance is required",
+      "Rumors about the competitor's staff"
+     ],
+     "answer": [
+      0,
+      1,
+      2
+     ],
+     "explanation": "Compare total cost: the special and when it ends, the admin fee, protection, any deposit and a lock. Never pass on rumors or criticize the competitor.",
+     "lesson": "11-objections-honestly.md"
+    },
+    {
+     "type": "single",
+     "q": "A walk-in toured a 10x15, liked it, and says, \"I'll think about it.\" What is the best next step?",
+     "options": [
+      "Let them go and hope they return",
+      "Ask whether it is the size, the price or the timing, then offer a free hold, a written quote and a set follow-up time",
+      "Offer a discount on the spot",
+      "Tell them the unit will be gone tomorrow"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "\"I'll think about it\" usually hides one concern. Find it, answer it, and do not let them leave with nothing: a quote sheet, contact details, a free hold and a specific callback.",
+     "lesson": "11-objections-honestly.md"
+    },
+    {
+     "type": "single",
+     "q": "A web reservation came in 4 minutes ago and the customer does not answer your call. What do you do?",
+     "options": [
+      "Wait for them to call back",
+      "Leave a short voicemail with your name, the site and a callback time, send a text and an email, and call again later",
+      "Cancel the reservation",
+      "Email the full lease terms"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Voicemail, text and email right away, then another call, a second follow-up within 24 to 48 hours, and a confirmation the day before move-in (Byrd, 2021).",
+     "lesson": "10-online-renters-and-digital-leads.md"
+    },
+    {
+     "type": "tf",
+     "q": "A text telling a lead about a move-in special is a marketing text and needs the customer's prior express written consent.",
+     "options": [
+      "True",
+      "False"
+     ],
+     "answer": [
+      0
+     ],
+     "explanation": "Under the TCPA, marketing texts need prior express written consent. Honor STOP right away. Training only, not legal advice: ask your manager which messages need which consent.",
+     "lesson": "10-online-renters-and-digital-leads.md"
+    },
+    {
+     "type": "single",
+     "q": "A customer rented online and moved in without speaking to anyone. What do you still owe them?",
+     "options": [
+      "Nothing; they chose online",
+      "A check of the unit and gate code, a welcome message, and a welcome call within a day that covers the orientation",
+      "A printed copy of the full agreement by mail",
+      "A visit to their home"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Online renters skip the counter orientation. The welcome call covers the due date, late fee, autopay, protection and no living in units.",
+     "lesson": "10-online-renters-and-digital-leads.md"
+    },
+    {
+     "type": "single",
+     "q": "A tenant asks why there is an admin fee on her move-in. What is the best answer?",
+     "options": [
+      "\"The system adds it, I can't do anything.\"",
+      "\"It's a one-time $25 charge to set up your account. You won't see it again.\"",
+      "\"Everyone charges it.\"",
+      "\"I'll waive it if you rent today.\""
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "That is the wording on Greens Fees and Charges (the $25 is From Greens' Cubby, 11/2026). Quote every fee up front so it is never a surprise, and never blame a system.",
+     "lesson": "11-objections-honestly.md"
+    },
+    {
+     "type": "single",
+     "q": "A Fairfield caller says, \"Your website showed a lower rate yesterday.\" What do you do?",
+     "options": [
+      "Argue that the website is wrong",
+      "Check Cubby; honor the web price if it is still valid, or ask your manager before the customer leaves",
+      "Charge the higher rate",
+      "Tell them to rent online instead"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Never argue about a price mismatch. Check Cubby. Honor a valid web rate, and ask your manager if you are not sure.",
+     "lesson": "11-objections-honestly.md"
+    },
+    {
+     "type": "single",
+     "q": "Which offer may you make without your manager?",
+     "options": [
+      "A price match",
+      "A rate below the street rate in Cubby",
+      "A free reservation",
+      "A waiver above your limit"
+     ],
+     "answer": [
+      2
+     ],
+     "explanation": "Greens charges no reservation fee (From Greens' Cubby, 11/2026), so a free hold is always yours to offer. Price matches, below-street rates and waivers above your limit are your manager's call.",
+     "lesson": "11-objections-honestly.md"
+    }
+   ]
+  },
+  {
+   "file": "12-existing-tenants.md"
+  },
+  {
+   "page": "greens-waivers-credits-refunds",
+   "title": "Greens Waivers, Credits and Refunds",
+   "summary": "What a waive, a credit and a refund do, and who may approve each."
+  },
+  {
+   "file": "13-collections-with-respect.md"
+  },
+  {
+   "page": "greens-delinquency-timeline",
+   "title": "Greens Delinquency Timeline",
+   "summary": "The day-by-day collections ladder Cubby runs, and what you do at each step."
+  },
+  {
+   "file": "14-difficult-situations.md"
+  },
+  {
+   "page": "greens-privacy-and-records",
+   "title": "Greens Privacy and Records",
+   "summary": "Who may hear about an account, police and subpoenas, and what Greens keeps."
+  },
+  {
+   "checkpoint": "Checkpoint: Difficult Situations",
+   "questions": [
+    {
+     "type": "single",
+     "q": "A woman says her ex rents a unit at Valley Center with \"half my furniture\" and asks you to cut the lock. What do you say?",
+     "options": [
+      "Cut it if she shows ID",
+      "Confirm the ex rents there and call him",
+      "Without confirming whether he rents there, explain that only the tenant controls access and that a court order is the path",
+      "Let her in with the master code"
+     ],
+     "answer": [
+      2
+     ],
+     "explanation": "Never confirm or deny that someone is a tenant. Only the tenant, or someone with their code and key, gets in. A court order is the path. Call the police if she threatens anyone.",
+     "lesson": "14-difficult-situations.md"
+    },
+    {
+     "type": "single",
+     "q": "A Fairfield tenant reports his trailer lock was cut. Which response is right?",
+     "options": [
+      "\"You should have bought a better lock.\"",
+      "\"Greens will pay for everything.\"",
+      "Secure it with a facility lock, ask him to file a police report, write an incident report, preserve footage, and explain the claim path",
+      "Show him the camera footage on your screen"
+     ],
+     "answer": [
+      2
+     ],
+     "explanation": "Empathy, a facility lock, a police report number, an incident report, footage preserved but not shared with the tenant, neighbors checked, the claim path, no admission and no blame.",
+     "lesson": "14-difficult-situations.md"
+    },
+    {
+     "type": "single",
+     "q": "For three nights the same car has been parked late at Murrieta, and you saw a light in a unit at 6:00 AM. What do you do?",
+     "options": [
+      "Knock on the unit door",
+      "Open the unit to check",
+      "Document dates, times and gate activity, tell your manager, and never approach alone",
+      "Change the tenant's gate code yourself"
+     ],
+     "answer": [
+      2
+     ],
+     "explanation": "Never approach alone. Document it, tell your manager the same day, and plan any contact with backup or the police. Treat the person with dignity.",
+     "lesson": "14-difficult-situations.md"
+    },
+    {
+     "type": "single",
+     "q": "A family member calls: her father, a tenant, died last week. She wants into his unit today. What do you do first?",
+     "options": [
+      "Let her in; she is family",
+      "Offer condolences, then explain the documents needed before access: the death certificate and proof of who handles the estate",
+      "Tell her the unit will be sold",
+      "Give her the gate code"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Condolence first, then documents. Do not discuss the account or give access until your manager reviews them, and give the next steps in writing.",
+     "lesson": "14-difficult-situations.md"
+    },
+    {
+     "type": "single",
+     "q": "You are alone on site and a prospect asks you to step inside a far unit with him to measure. What do you do?",
+     "options": [
+      "Go in quickly",
+      "Stay in the doorway, hand him the tape measure, keep your phone in hand, and never say you are alone",
+      "Tell him you are alone so he understands",
+      "Close the door so it is quieter"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Never enter a unit with a prospect or tenant. Stay in the doorway. If anything feels wrong, end the tour or offer a video tour.",
+     "lesson": "14-difficult-situations.md"
+    },
+    {
+     "type": "single",
+     "q": "A tenant's boxes are soaked after a roof leak and she says, \"You're paying for this.\" What do you say?",
+     "options": [
+      "\"It's our fault, we'll cover it.\"",
+      "\"Not our problem.\"",
+      "\"I'm really sorry. Let me photograph it and get the leak reported, and I'll explain how a claim works.\"",
+      "\"You should have rented climate control.\""
+     ],
+     "answer": [
+      2
+     ],
+     "explanation": "Empathy without admitting liability. Document, report, offer a dry unit (a concession only within authority), explain the claim path, and never promise coverage.",
+     "lesson": "14-difficult-situations.md"
+    },
+    {
+     "type": "single",
+     "q": "A tenant arrives shouting that his gate code failed. After he finishes, what is the best next line?",
+     "options": [
+      "\"Calm down.\"",
+      "\"So you drove out and your code didn't open the gate. I'd be upset too. Let me check it now.\"",
+      "\"That's not my fault.\"",
+      "\"Read your agreement.\""
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Lower your voice, let him finish, play it back with empathy, then solve. Verify his ID before any code help.",
+     "lesson": "14-difficult-situations.md"
+    },
+    {
+     "type": "single",
+     "q": "A caller who is not on the account asks whether her son rents a unit at Escondido. What do you say?",
+     "options": [
+      "\"Yes, unit 112.\"",
+      "\"No, he moved out.\"",
+      "\"I'm not able to share whether any person is a customer.\"",
+      "\"Let me check and call you back with his balance.\""
+     ],
+     "answer": [
+      2
+     ],
+     "explanation": "Everything about a tenant is private, including whether they rent from Greens (Greens Privacy and Records).",
+     "lesson": "greens-privacy-and-records"
+    },
+    {
+     "type": "single",
+     "q": "A tenant who forgot her gate code calls from the gate. What must happen before you give or reset it?",
+     "options": [
+      "Nothing; she knows the unit number",
+      "Confirm her identity the way Greens requires",
+      "She must pay a fee",
+      "Ask a neighbor to vouch for her"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "A gate code is a password. Confirm identity first, every time, then give or reset it in Cubby.",
+     "lesson": "14-difficult-situations.md"
+    },
+    {
+     "type": "single",
+     "q": "Two joint tenants are separating, and one asks when the other last visited the unit. What do you do?",
+     "options": [
+      "Read the access log to her",
+      "Say you cannot share one person's visits or account details with the other, and stay neutral",
+      "Change the code so only she has access",
+      "Ask her to bring the other tenant in"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Never take sides, never share one person's visits with the other, and get both joint tenants' consent for account changes. If anyone is in danger, call the police.",
+     "lesson": "14-difficult-situations.md"
+    }
+   ]
+  },
+  {
+   "file": "15-reviews-and-reputation.md"
+  },
+  {
+   "file": "16-practice-sales-scenarios.md"
+  },
+  {
+   "file": "17-practice-service-scenarios.md"
+  }
+ ],
+ "quiz": {
+  "passPct": 80,
+  "drawCount": 35,
+  "maxTries": 3,
+  "shuffle": true,
+  "questions": [
+   {
+    "type": "single",
+    "q": "Vendors citing the Self Storage Association's Demand Studies (2023 and 2025) report about what share of people rent from the first facility they contact?",
+    "options": [
+     "About 15%",
+     "About 35%",
+     "About 57% to 58%",
+     "About 90%"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "Reported as 58% (citing the 2023 study) and 57% (citing the 2025 study). The originals are members only, so treat the number as reported. The lesson: the first good conversation usually wins.",
+    "lesson": "01-who-walks-through-our-door.md"
+   },
+   {
+    "type": "single",
+    "q": "Before they call you, how many places has a typical storage shopper compared, according to a 2026 operator column?",
+    "options": [
+     "None",
+     "About three",
+     "About ten",
+     "Only Greens"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "DeFazio (06/16/2026): shoppers research rates, reviews and photos online and have usually compared about three places before they call. The call tests you, not just the price.",
+    "lesson": "01-who-walks-through-our-door.md"
+   },
+   {
+    "type": "single",
+    "q": "In StorageCafe's 2026 survey, what was the top single factor renters named?",
+    "options": [
+     "Location",
+     "Price",
+     "Reviews",
+     "Gate hours"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Price led at 28%, with location at 17%; 54% chose climate control (StorageCafe, 2026). Most renters still named something other than price as the top reason.",
+    "lesson": "01-who-walks-through-our-door.md"
+   },
+   {
+    "type": "single",
+    "q": "How do RV and boat customers usually differ from household customers?",
+    "options": [
+     "They are always first-time renters",
+     "They rent year after year, care about security and access, and are less price-driven",
+     "They only rent for one month",
+     "They do not need registration or insurance"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Vehicle customers often rent seasonally for years and trust staff who know vehicles: length with the tongue, height, how often it goes out.",
+    "lesson": "01-who-walks-through-our-door.md"
+   },
+   {
+    "type": "order",
+    "q": "Put the Greens recovery method in order.",
+    "options": [
+     "Hear",
+     "Own",
+     "Solve",
+     "Thank",
+     "Fix"
+    ],
+    "answer": [],
+    "explanation": "Hear, Own, Solve, Thank, Fix. Hear before you solve: a fix for the wrong problem is not a fix. Fix means fixing the cause, not blaming a person.",
+    "lesson": "02-the-greens-service-standard.md"
+   },
+   {
+    "type": "tf",
+    "q": "Saying \"I'm sorry this happened\" to a tenant with water damage admits that Greens is legally at fault.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Apologizing for the experience is always fine and is not admitting fault. Never say Greens caused it or will pay; that is not yours to say.",
+    "lesson": "02-the-greens-service-standard.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant asks you to waive a fee that is above your limit. What do you say?",
+    "options": [
+     "\"Sure, done.\"",
+     "\"No, never.\"",
+     "\"That's my manager's call. I'll ask today and call you by 4:00 PM.\"",
+     "\"The system won't let me.\""
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "Know your limits on Greens Waivers, Credits and Refunds. Never promise a waive you may not give, and never blame a system. Escalate with a set callback time.",
+    "lesson": "02-the-greens-service-standard.md"
+   },
+   {
+    "type": "single",
+    "q": "You promised a caller an answer by 2:00 PM, and at 1:45 PM you still do not have it. What do you do?",
+    "options": [
+     "Wait and call when you know",
+     "Call at 1:45 PM, say you are still checking, and give a new time",
+     "Text \"sorry\" tomorrow",
+     "Ask a coworker to call"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A callback promise is a promise. If you cannot keep the time, call before it and set a new one. It builds trust instead of losing it.",
+    "lesson": "02-the-greens-service-standard.md"
+   },
+   {
+    "type": "single",
+    "q": "Where does the often-quoted \"35% of calls become rentals\" figure come from?",
+    "options": [
+     "A 2026 vendor study",
+     "Sue Weinman, a 2010 trade column",
+     "Greens' Cubby data",
+     "The 2004 IntelliShop study"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "It is from 2010 (Weinman, Inside Self-Storage). A 2026 vendor dataset (Swivl) found about 15% of sales calls became rentals. Always date the number.",
+    "lesson": "03-why-the-phone-wins-or-loses-rentals.md"
+   },
+   {
+    "type": "single",
+    "q": "A 2026 vendor dataset found about 15% of sales calls became rentals but about 4% of all touchpoints. What explains the difference?",
+    "options": [
+     "Bad staff",
+     "The denominator: counting every call, chat and visit instead of only sales calls",
+     "Rounding",
+     "Different years"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The way you count decides the rate. Greens measures you on new-rental calls only.",
+    "lesson": "03-why-the-phone-wins-or-loses-rentals.md"
+   },
+   {
+    "type": "tf",
+    "q": "Staff should quote the statistic that storage phone conversion \"fell from 65% to 57%.\"",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "We could not trace that claim to any study; it looks like a mix-up with the \"57% rent from the first site\" figure. Do not repeat it.",
+    "lesson": "03-why-the-phone-wins-or-loses-rentals.md"
+   },
+   {
+    "type": "single",
+    "q": "What should a voicemail to a prospect include?",
+    "options": [
+     "Only \"call us back\"",
+     "Your first name, the site, the unit and price they asked about, your number, and when you will try again",
+     "Their full quote and the lease terms",
+     "A special that expires in an hour"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A specific, friendly message gets returned. Log the attempt in Cubby, then call again at the time you said.",
+    "lesson": "03-why-the-phone-wins-or-loses-rentals.md"
+   },
+   {
+    "type": "single",
+    "q": "Which rule applies to a recorded phone line at a California site?",
+    "options": [
+     "No notice is needed",
+     "Everyone on the call must consent, so the line plays a notice that the call may be recorded",
+     "Only the caller's consent is needed",
+     "Recording is banned"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "California requires all parties' consent (Penal Code 632); Texas requires one party's. Training only, not legal advice: Greens decides how calls are recorded.",
+    "lesson": "03-why-the-phone-wins-or-loses-rentals.md"
+   },
+   {
+    "type": "multi",
+    "q": "Which are the four discovery questions from Ballard and Maxwell? Choose all that apply.",
+    "options": [
+     "Have you ever rented storage before?",
+     "What are you planning to store?",
+     "When do you need to move in?",
+     "How long do you think you'll need it?",
+     "What size do you need?"
+    ],
+    "answer": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "explanation": "The four questions are rented before, what you are storing, when, and how long. Never ask what size they need.",
+    "lesson": "04-the-nine-parts-of-a-sales-call.md"
+   },
+   {
+    "type": "single",
+    "q": "Which is the best example of building value?",
+    "options": [
+     "\"We have climate control.\"",
+     "\"You said your mom's dresser is solid wood. Our climate-controlled units keep it out of the summer heat.\"",
+     "\"We're the best site in town.\"",
+     "\"Every unit has a door.\""
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Value is a feature tied to something the caller said. A feature alone is a brochure.",
+    "lesson": "04-the-nine-parts-of-a-sales-call.md"
+   },
+   {
+    "type": "single",
+    "q": "Which is an assumptive close?",
+    "options": [
+     "\"Let me know if you have questions.\"",
+     "\"Great, let's get you set up in the 10x15. When do you want to move in? Does Saturday work?\"",
+     "\"Do you want to think about it?\"",
+     "\"Call us when you're ready.\""
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The assumptive close acts as if they have decided and asks about details. Most storage staff never ask for the rental at all.",
+    "lesson": "04-the-nine-parts-of-a-sales-call.md"
+   },
+   {
+    "type": "single",
+    "q": "A caller wants to see a unit before renting. Which close is best?",
+    "options": [
+     "\"Come by anytime.\"",
+     "\"I have 11:00 AM or 3:00 PM tomorrow. Which is better?\"",
+     "\"We're open all week.\"",
+     "\"Check the website.\""
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Offer a set time. In the 2004 IntelliShop study only 33% of staff asked to set an appointment, although 98% invited a visit.",
+    "lesson": "04-the-nine-parts-of-a-sales-call.md"
+   },
+   {
+    "type": "multi",
+    "q": "Before you hang up on a sales call, which details should be in Cubby? Choose all that apply.",
+    "options": [
+     "Name",
+     "Phone and email",
+     "Move-in date and the unit and price quoted",
+     "A follow-up time",
+     "Their gate code"
+    ],
+    "answer": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "explanation": "Capture name, phone, email, move date, the unit quoted, the lead source and the next contact time. A gate code is only set at move-in.",
+    "lesson": "04-the-nine-parts-of-a-sales-call.md"
+   },
+   {
+    "type": "tf",
+    "q": "When you quote a price, you should tell the customer that rates are reviewed over time and they will get written notice before a change.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Rate increases after a low first month are the industry's top complaint. Saying it up front prevents next year's angry call.",
+    "lesson": "04-the-nine-parts-of-a-sales-call.md"
+   },
+   {
+    "type": "single",
+    "q": "When you are unsure between two sizes, what does the lesson recommend?",
+    "options": [
+     "Pick the smaller one; it is cheaper",
+     "Go up a size and explain why",
+     "Let the customer guess",
+     "Rent both"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "DeFazio (2026): customers who doubt it will fit go shop one more place. Going up a size with a reason (a walkway, frequent access) is service, not pressure.",
+    "lesson": "05-recommending-a-size.md"
+   },
+   {
+    "type": "multi",
+    "q": "Which items are good reasons to recommend climate control? Choose all that apply.",
+    "options": [
+     "A piano",
+     "Old photographs",
+     "Wood antiques",
+     "Lawn chairs"
+    ],
+    "answer": [
+     0,
+     1,
+     2
+    ],
+    "explanation": "Wood, instruments, electronics, photos, documents, art and mattresses suffer in heat. Pushing climate control for lawn furniture is an add-on customers resent.",
+    "lesson": "05-recommending-a-size.md"
+   },
+   {
+    "type": "single",
+    "q": "At Greens, which site has the climate-controlled units?",
+    "options": [
+     "Fairfield",
+     "Escondido",
+     "Temecula",
+     "Murrieta"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "549 of Escondido's 717 enclosed units carry the Climate Controlled feature (From Greens' Cubby, 11/2026).",
+    "lesson": "05-recommending-a-size.md"
+   },
+   {
+    "type": "single",
+    "q": "During discovery a Temecula contractor mentions \"a couple of gas cans for the generator.\" What do you do?",
+    "options": [
+     "Ignore it",
+     "Kindly explain that fuel cannot be stored and why, and confirm he will keep it elsewhere",
+     "Refuse to rent to him",
+     "Tell him to hide them"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "\"What are you storing?\" also screens for prohibited items. Explain the rule as a helpful check, not an accusation.",
+    "lesson": "05-recommending-a-size.md"
+   },
+   {
+    "type": "single",
+    "q": "Which way of offering protection is wrong?",
+    "options": [
+     "Telling a real story about a neighbor's leak",
+     "Offering Greens' plan or their own policy",
+     "Calling Greens' protection plan \"insurance\" and saying it is required",
+     "Recording the choice in Cubby"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "A protection plan is not insurance, and it is never described as required unless the agreement says so. Use the approved wording on Greens Tenant Protection.",
+    "lesson": "05-recommending-a-size.md"
+   },
+   {
+    "type": "single",
+    "q": "How many items are on the Greens call score sheet, and what passes?",
+    "options": [
+     "10 items, 50%",
+     "22 items, 70% of the items that applied",
+     "22 items, 100%",
+     "15 items, 90%"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "22 items; 70% passes and 90% is excellent (Mixon, 2020). A wrong price or fee is never a pass.",
+    "lesson": "06-the-call-score-sheet.md"
+   },
+   {
+    "type": "tf",
+    "q": "A call that scores 95% but quoted the wrong rent is a pass.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Any call that quotes a wrong price or fee, calls the plan insurance, or promises something outside your authority is not a pass, whatever the percentage.",
+    "lesson": "06-the-call-score-sheet.md"
+   },
+   {
+    "type": "single",
+    "q": "How does the Hands-On Check use the call score sheet?",
+    "options": [
+     "It does not",
+     "Your trainer plays a caller in a mock sales call and scores you on the same 22 items",
+     "You fill it in about a coworker",
+     "It is mailed to customers"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The Hands-On Check's first sign-off is a mock sales call scored with this exact sheet: 70% of the items that applied, with no wrong price or fee.",
+    "lesson": "06-the-call-score-sheet.md"
+   },
+   {
+    "type": "single",
+    "q": "What is the mystery-shop standard for closing walk-ins who come in to rent?",
+    "options": [
+     "25%",
+     "50%",
+     "70%",
+     "90%"
+    ],
+    "answer": [
+     3
+    ],
+    "explanation": "Mixon (2020): close 90% of walk-ins who come in to rent. Someone who drove to the site is close to renting.",
+    "lesson": "08-walk-ins-and-the-tour.md"
+   },
+   {
+    "type": "single",
+    "q": "On a tour at Escondido, where do you stand when you show the unit?",
+    "options": [
+     "Inside the unit, so they follow you in",
+     "In the doorway; they step in while you stay outside",
+     "In the office",
+     "Behind them, inside"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Never enter a unit with a prospect or tenant. Older sales advice says to step in first; Greens does not.",
+    "lesson": "08-walk-ins-and-the-tour.md"
+   },
+   {
+    "type": "order",
+    "q": "Put the tour route in order.",
+    "options": [
+     "Before: pick the route and check the unit",
+     "At the gate: practice the keypad",
+     "On the way: point out carts and loading",
+     "At the unit: try the latch, place their things",
+     "Close at the unit"
+    ],
+    "answer": [],
+    "explanation": "Before, at the gate, on the way, at the unit, and the close at the unit, while they are picturing their things inside.",
+    "lesson": "08-walk-ins-and-the-tour.md"
+   },
+   {
+    "type": "multi",
+    "q": "A walk-in is not ready to rent. Which should you do before they leave? Choose all that apply.",
+    "options": [
+     "Write a quote sheet",
+     "Capture name, phone and email",
+     "Offer a free hold",
+     "Set a specific follow-up time",
+     "Tell them the price goes up tomorrow"
+    ],
+    "answer": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "explanation": "Mees (2020) found no written quote and no contact capture among the top walk-in failures. Never invent urgency.",
+    "lesson": "08-walk-ins-and-the-tour.md"
+   },
+   {
+    "type": "single",
+    "q": "You are alone late in the day and do not feel right about walking a prospect to the back of the property. What may you do?",
+    "options": [
+     "You must take him",
+     "Offer a video of the unit now and a tour when a coworker is in",
+     "Tell him you are alone",
+     "Give him the master code"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Trust your instincts. You may end a tour or offer a video tour instead. Never say you are alone.",
+    "lesson": "08-walk-ins-and-the-tour.md"
+   },
+   {
+    "type": "single",
+    "q": "When should you confirm a move-in?",
+    "options": [
+     "The day before",
+     "A month before",
+     "Only if they ask",
+     "After they move in"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Byrd (2021): confirm the arrival time the day before. It also catches plans that changed.",
+    "lesson": "09-move-in-done-right.md"
+   },
+   {
+    "type": "single",
+    "q": "At a Greens California site, which explanation of rent and late fees is correct?",
+    "options": [
+     "Due on the 15th; late fee on the 16th",
+     "Due on the 1st; a late fee posts on the 11th if rent is still unpaid",
+     "Due on the move-in anniversary",
+     "No late fees"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "From Greens' Cubby, 11/2026: rent is due on the 1st and the late fee posts at 12:00 AM on the 11th. The amount is on Greens Fees and Charges.",
+    "lesson": "09-move-in-done-right.md"
+   },
+   {
+    "type": "single",
+    "q": "Which line should every new tenant hear about access?",
+    "options": [
+     "\"We keep a key to your lock.\"",
+     "\"Whoever has your gate code and key can come and go until you change your code or lock.\"",
+     "\"We let your family in if they ask.\"",
+     "\"Only the manager can open your unit.\""
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The tenant controls access with their code and key. That rule is what makes \"let me into that unit\" an easy no later.",
+    "lesson": "09-move-in-done-right.md"
+   },
+   {
+    "type": "single",
+    "q": "A Temecula boat owner says his homeowner's policy covers everything. What do you do?",
+    "options": [
+     "Accept it with no details",
+     "Ask him to check it covers the boat in storage, and record the policy number and expiration date in Cubby",
+     "Make him buy Greens' plan anyway",
+     "Tell him vehicles need no coverage"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Vehicle tenants carry their own policy. Record proof in Cubby; Cubby raises a reminder task if proof is missing or expired.",
+    "lesson": "09-move-in-done-right.md"
+   },
+   {
+    "type": "single",
+    "q": "Which Cubby lead source is a warm lead you should call the same day?",
+    "options": [
+     "Abandoned Checkout",
+     "Duplicate",
+     "Unqualified",
+     "Converted"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "An abandoned checkout was minutes from renting online. Call the same day and offer to help finish.",
+    "lesson": "10-online-renters-and-digital-leads.md"
+   },
+   {
+    "type": "single",
+    "q": "A web lead arrives at 8:50 PM, after the office closed. When do you call?",
+    "options": [
+     "Right away at 8:55 PM",
+     "First thing the next business morning, before the task list",
+     "In a week",
+     "Only if they call again"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "After-hours leads are the first call of the next business morning. Calls and texts stay within reasonable hours.",
+    "lesson": "10-online-renters-and-digital-leads.md"
+   },
+   {
+    "type": "single",
+    "q": "Which is a good first text to a lead?",
+    "options": [
+     "\"Call me.\"",
+     "\"Hi Joe, it's Ana at Greens Storage Temecula. Thanks for your reservation! Is now a good time to confirm your space fits your boat?\"",
+     "\"Your balance is $211.60.\"",
+     "A link with no message"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Say who you are and the site, keep it short, ask one question. Never put a balance in a text unless policy says so.",
+    "lesson": "10-online-renters-and-digital-leads.md"
+   },
+   {
+    "type": "single",
+    "q": "An online reservation is for a 5x10, and the caller says she is storing a one-bedroom apartment. What do you do?",
+    "options": [
+     "Keep the 5x10; she chose it",
+     "Explain it will not fit and move the reservation to the right size, such as a 10x10",
+     "Cancel it",
+     "Charge a change fee"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Online renters pick their own size and often pick too small. The first call confirms the size fits.",
+    "lesson": "10-online-renters-and-digital-leads.md"
+   },
+   {
+    "type": "single",
+    "q": "A caller opens with, \"How much is a 10x10?\" What is the best response?",
+    "options": [
+     "Refuse to say until they visit",
+     "Give a range from Cubby, then ask what they are storing",
+     "Give the lowest price only",
+     "Ask for a card number"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Weinman (2010): ask about needs before price. Give the range so you are not dodging, then one discovery question.",
+    "lesson": "11-objections-honestly.md"
+   },
+   {
+    "type": "single",
+    "q": "A Temecula boat owner asks you to match a competitor's lower price. Your manager has not authorized matches. What do you say?",
+    "options": [
+     "\"Done, I'll match it.\"",
+     "\"Price matching is my manager's call. Let me ask today and call you back by 3:00 PM.\"",
+     "\"We never match, goodbye.\"",
+     "\"Their lot floods.\""
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Price matches are above your authority unless your manager says otherwise. Never promise one, and never criticize the competitor.",
+    "lesson": "11-objections-honestly.md"
+   },
+   {
+    "type": "single",
+    "q": "Which statement creates honest urgency?",
+    "options": [
+     "\"This is my last unit\" when it is not",
+     "\"Your move is Saturday. Let's make sure this unit is yours.\"",
+     "\"Prices double tomorrow.\"",
+     "\"Someone else is about to take it\" when nobody is"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Urgency tied to the customer's own date is honest. Invented scarcity is a lie and a future bad review.",
+    "lesson": "11-objections-honestly.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant says, \"That late fee isn't fair. I always pay.\" What is the best response?",
+    "options": [
+     "\"Rules are rules.\"",
+     "Empathize, explain when it applied, check your waiver authority, and offer autopay going forward",
+     "Waive it without checking your limit",
+     "\"The system did it.\""
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Use the authority on Greens Waivers, Credits and Refunds with a real reason in Cubby, or escalate with a time. Autopay prevents the next one.",
+    "lesson": "11-objections-honestly.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant emails a move-out notice. What is Greens' standard?",
+    "options": [
+     "Reply by email next week",
+     "A live phone call within 24 hours to learn why and help if you can",
+     "Send an automated survey",
+     "Do nothing"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Call live within 24 hours. Offer a save only when it fits; most move-outs are happy endings.",
+    "lesson": "12-existing-tenants.md"
+   },
+   {
+    "type": "single",
+    "q": "A Valley Center tenant gives notice because her mother's furniture was sold. What do you do?",
+    "options": [
+     "Push a discount to keep her",
+     "Thank her, confirm the steps (date, broom-clean, lock removed), and ask for a review and a referral",
+     "Charge a move-out fee",
+     "Ignore the notice"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "No save fits a life change that is over. Make the move-out a happy ending.",
+    "lesson": "12-existing-tenants.md"
+   },
+   {
+    "type": "single",
+    "q": "During a rate-increase call, when may you tell the tenant their new rate is still below the street rate?",
+    "options": [
+     "Always; it calms people",
+     "Only when Cubby shows it is true",
+     "Never",
+     "Only in writing"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Compare to the street rate only if it is true. Check Cubby first.",
+    "lesson": "12-existing-tenants.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant asks how much notice Greens must give before a rate change. You have not read it in her agreement. What do you do?",
+    "options": [
+     "Say 30 days",
+     "Say there is no notice",
+     "Check the agreement or ask your manager before answering",
+     "Say 90 days"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "Notice periods come from the agreement and state law. We have not confirmed one statute for storage in California or Texas. Never guess.",
+    "lesson": "12-existing-tenants.md"
+   },
+   {
+    "type": "single",
+    "q": "Before telling a caller their balance, what must you do?",
+    "options": [
+     "Nothing",
+     "Confirm they are the tenant or listed on the account, the way Greens requires",
+     "Ask for their unit number only",
+     "Text them the balance instead"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Confirm identity first (Greens Privacy and Records). An alternate contact receives lien notices but is not entitled to account details unless also authorized.",
+    "lesson": "12-existing-tenants.md"
+   },
+   {
+    "type": "single",
+    "q": "Which laws likely apply to how Greens collects its own rent, so Greens trains debt-collection conduct everywhere?",
+    "options": [
+     "Only the federal FDCPA",
+     "California's Rosenthal Act and Texas Finance Code chapter 392",
+     "No law applies to rent",
+     "Only federal bankruptcy law"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The FDCPA mostly covers third-party collectors. The Rosenthal Act (Civil Code 1788) and Texas Finance Code ch. 392 reach creditors; confirm with counsel. Training only, not legal advice.",
+    "lesson": "13-collections-with-respect.md"
+   },
+   {
+    "type": "single",
+    "q": "You call a tenant about past due rent and her roommate answers: \"What's it about?\" What do you say?",
+    "options": [
+     "\"Her rent is late.\"",
+     "\"It's about her storage balance of $129.\"",
+     "\"It's a personal matter. Please ask her to call Lee at Greens Storage at this number.\"",
+     "\"Tell her we're selling her stuff.\""
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "Third parties get your first name, Greens Storage and a callback number only, never the reason or the balance.",
+    "lesson": "13-collections-with-respect.md"
+   },
+   {
+    "type": "single",
+    "q": "Which collections voicemail is correct?",
+    "options": [
+     "\"This is Greens. You owe $240 and your unit goes to lien Friday.\"",
+     "\"Hi, this is Lee from Greens Storage. Please call me back at [number]. Thank you.\"",
+     "\"Pay now or we cut your lock.\"",
+     "\"Your account is past due.\""
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Voicemail: name, company and number only. Someone else may hear it.",
+    "lesson": "13-collections-with-respect.md"
+   },
+   {
+    "type": "single",
+    "q": "What are Greens' calling hours for collections?",
+    "options": [
+     "Any time",
+     "8:00 AM to 9:00 PM in the tenant's local time",
+     "Only 9:00 AM to 10:00 AM",
+     "Midnight to 6:00 AM"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Call only between 8:00 AM and 9:00 PM local time, not at work if they object, and never to annoy. More than 7 calls in 7 days is an absolute ceiling.",
+    "lesson": "13-collections-with-respect.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant asks why you cannot take a partial payment to stop the process. Which answer is honest?",
+    "options": [
+     "\"The system won't let me.\"",
+     "\"A partial payment is welcome, but the account stays past due until everything is paid, so the next steps can still happen.\"",
+     "\"Partial payments are illegal.\"",
+     "\"Pay half and it all stops.\""
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Never blame the system. Tell the truth: Cubby applies money to the oldest charge first, and only payment in full stops the ladder (From Greens' Cubby, 11/2026).",
+    "lesson": "13-collections-with-respect.md"
+   },
+   {
+    "type": "single",
+    "q": "A coworker suggests telling a past-due tenant \"we're selling Monday\" when the sale is weeks away. Why is that wrong?",
+    "options": [
+     "It is fine if it works",
+     "It is a false statement and a threat of something not about to happen, which collection laws forbid",
+     "Monday is a holiday",
+     "Only managers may say it"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "No false statements, no fake urgency, and never threaten action Greens does not intend or may not take. Give the real date.",
+    "lesson": "13-collections-with-respect.md"
+   },
+   {
+    "type": "single",
+    "q": "A Murrieta tenant who is 20 days late says he lost his job. What is the best approach?",
+    "options": [
+     "Threaten the lien sale",
+     "Confirm identity, show empathy, state the amount and next date factually, offer options within policy, and get a commitment with a date",
+     "Waive the whole balance",
+     "Hang up"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Empathy is not waiving everything. Offer a split across cards or ask your manager about a plan, then log the commitment in Cubby.",
+    "lesson": "13-collections-with-respect.md"
+   },
+   {
+    "type": "multi",
+    "q": "Which should make you stop collecting and call your manager the same day? Choose all that apply.",
+    "options": [
+     "The tenant says they are on active military duty",
+     "A bankruptcy notice arrives",
+     "The tenant disputes the balance in writing",
+     "The tenant promises to pay Friday"
+    ],
+    "answer": [
+     0,
+     1,
+     2
+    ],
+    "explanation": "Military status, bankruptcy, a death, a written dispute, a written request to stop contact, a Declaration in Opposition or a lawyer all go to your manager the same day.",
+    "lesson": "13-collections-with-respect.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant whose gate code stopped working on the 11th asks, \"Is that even legal?\" What do you do?",
+    "options": [
+     "Explain that the law requires it",
+     "Do not defend the timing as law; give the amount needed to restore access and offer to connect her with your manager",
+     "Restore the code for free",
+     "Ignore the question"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The day-11 gate code change is what Cubby does today and is under review with counsel. Never defend it to a tenant as the law; send disputes to your manager.",
+    "lesson": "13-collections-with-respect.md"
+   },
+   {
+    "type": "single",
+    "q": "Which is the right way to set a limit with a shouting customer?",
+    "options": [
+     "Shout back",
+     "\"I'm happy to keep talking, but I can't continue if we move to yelling or insults.\"",
+     "Hang up immediately",
+     "Call them names"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Set the limit calmly (Williams, 2022). If there is a threat or a safety concern, call 911.",
+    "lesson": "14-difficult-situations.md"
+   },
+   {
+    "type": "single",
+    "q": "After a break-in, the tenant asks to see the camera footage. What do you say?",
+    "options": [
+     "Show it on your phone",
+     "Explain that footage is preserved and goes to the police under Greens' policy",
+     "Delete it",
+     "Promise it shows the thief"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Preserve footage and gate logs, do not promise what they show, and do not share footage directly with the tenant.",
+    "lesson": "14-difficult-situations.md"
+   },
+   {
+    "type": "single",
+    "q": "A locked-out tenant lost the key to her own lock. What do you do?",
+    "options": [
+     "Cut it for anyone who knows the unit number",
+     "Verify her photo ID against the lease, then follow Greens' steps to cut the lock and record it",
+     "Tell her to break it herself",
+     "Refuse forever"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Cut a lock only for the verified tenant, with policy steps and any fee, recorded in Cubby.",
+    "lesson": "14-difficult-situations.md"
+   },
+   {
+    "type": "single",
+    "q": "Which is a warning sign that someone may be living in a unit?",
+    "options": [
+     "A tenant visits once a month",
+     "Extension cords running into a unit and the same code used very late and very early",
+     "A tenant pays by autopay",
+     "A moving truck at noon"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Other signs: a car parked overnight repeatedly, people walking the site after hours, a door partly open from inside. Never approach alone.",
+    "lesson": "14-difficult-situations.md"
+   },
+   {
+    "type": "single",
+    "q": "A man who is not a tenant becomes aggressive at a Texas site and threatens you. What do you do?",
+    "options": [
+     "Argue until he leaves",
+     "Keep the counter between you, never say you are alone, and call 911",
+     "Give him what he asks for",
+     "Follow him to his car"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Any threat or safety concern: call 911. A complaint can wait; your safety cannot.",
+    "lesson": "14-difficult-situations.md"
+   },
+   {
+    "type": "single",
+    "q": "A coworker wants to give $10 off next month to every tenant who posts a five-star review. What is the rule?",
+    "options": [
+     "Allowed if it is under $20",
+     "Not allowed: the FTC's 2024 rule bans buying positive reviews, and Greens offers no incentives at all",
+     "Allowed for long-term tenants",
+     "Allowed if the manager writes the review"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The FTC rule (finalized 08/2024) bans incentives conditioned on positive reviews. Greens goes further: no incentives of any kind.",
+    "lesson": "15-reviews-and-reputation.md"
+   },
+   {
+    "type": "single",
+    "q": "A one-star review says, \"They sold my stuff.\" Which reply is right?",
+    "options": [
+     "\"You were sent three notices and were 90 days late.\"",
+     "\"I'm sorry for how difficult this situation has been. I'm not able to discuss account details here, but I'd welcome a call at [number].\"",
+     "No reply ever",
+     "\"Read your lease.\""
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Calm, short, empathetic, no account or lien details, and take it offline. Tell your manager the same day.",
+    "lesson": "15-reviews-and-reputation.md"
+   },
+   {
+    "type": "tf",
+    "q": "Asking only the customers you know are happy to leave a review is a good way to grow your rating.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "That is review gating. Ask every customer the same neutral way, good or bad.",
+    "lesson": "15-reviews-and-reputation.md"
+   },
+   {
+    "type": "single",
+    "q": "A 10-year-old offers to translate lease terms for her Spanish-speaking parents at a Texas site. What do you do?",
+    "options": [
+     "Accept; it is faster",
+     "Thank her, and bring in a Spanish-speaking teammate or Greens' approved translation help for the lease terms",
+     "Refuse to rent",
+     "Skip the lease terms"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Never use a child to interpret lease, lien or collections terms. Use a Spanish-speaking teammate, approved help and Greens' Spanish materials.",
+    "lesson": "17-practice-service-scenarios.md"
+   },
+   {
+    "type": "single",
+    "q": "A Spanish-speaking customer asks whether she can have the rental agreement in Spanish. What do you say?",
+    "options": [
+     "\"Yes, I'll translate it myself.\"",
+     "\"No, never.\"",
+     "Do not promise a translated contract; ask your manager",
+     "Use an online translator on the agreement"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "California Civil Code 1632 may require a translated contract in some cases; whether it covers storage is for counsel. Training only, not legal advice: ask your manager.",
+    "lesson": "17-practice-service-scenarios.md"
+   },
+   {
+    "type": "single",
+    "q": "When you practice a scenario with a coworker, what should the scorer give you afterward?",
+    "options": [
+     "A list of everything you did wrong",
+     "The score and two things to work on",
+     "Nothing",
+     "A grade only"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Two things to work on, never ten. Then read \"what great looks like\" together and swap roles.",
+    "lesson": "16-practice-sales-scenarios.md"
+   },
+   {
+    "type": "short",
+    "q": "A caller asks only, \"How late are you open?\" After you give the hours, write the question you ask next.",
+    "options": [],
+    "answer": [],
+    "keywords": [
+     "rent|renting|rental|storage|unit|space|account"
+    ],
+    "explanation": "Ask why they called: \"Are you looking at renting a unit, or can I help you with your account?\" It turns an hours call into a conversation.",
+    "lesson": "03-why-the-phone-wins-or-loses-rentals.md"
+   }
+  ]
+ }
+}
