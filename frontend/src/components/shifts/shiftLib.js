@@ -2,6 +2,7 @@
 // grid, My Shifts, the team grid, the request cards and the settings. One
 // rule for hours, one for time off, one set of date helpers - the three
 // grids used to disagree on all of them (Shifts QA, 10/02).
+import { formatHM } from '../../lib/hoursText';
 import { formatHHMM, formatTime, formatTimeIn, formatWeekday, formatMonthDay, formatMonthYear, formatRangeShort, formatDate, weekOfYear } from '../../lib/datetime';
 
 // ── Dates ────────────────────────────────────────────────────────────────
@@ -104,9 +105,12 @@ export function minutesText(min) {
   return `${min}m`;
 }
 
-// Hours, two decimals, "Hrs" everywhere: 7 h 45 is "7.75 Hrs", never "7.8".
+// Hours as H:MM with "Hrs" everywhere a person reads them: 7 h 45 is
+// "7:45 Hrs", never "7.75" (Neil, 11/04/2026: no decimal hours). The
+// "Hrs" keeps a duration from reading as a clock time on the schedule.
+// hrsNumber stays decimal for the schedule export only.
 export function hrsNumber(min) { return Math.round((min / 60) * 100) / 100; }
-export function fmtHrs(min) { return `${hrsNumber(min)} Hrs`; }
+export function fmtHrs(min) { return `${formatHM(min)} Hrs`; }
 
 // ── Shift state ──────────────────────────────────────────────────────────
 // A PUBLISHED shift's unshared changes (Sep 28, QA D1/D2): an edit or a

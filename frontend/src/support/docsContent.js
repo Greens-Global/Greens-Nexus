@@ -73,7 +73,7 @@ export const DOCS = [
       {
         title: 'Find Anything in Two Seconds',
         steps: [
-          'Press Ctrl+K (Cmd+K on a Mac) or /, or click Search Nexus in the top header.',
+          'Press Ctrl+K or Ctrl+F (Cmd+K or Cmd+F on a Mac) or /, or click Search Nexus in the top header.',
           'Type a few letters of a task, project, person, portfolio, team, item, checkout, purchase request or page.',
           'Click the result (or use the arrow keys and Enter) to jump straight to it. A person opens their tasks if you use Tasks, otherwise their contact card.',
         ],
@@ -669,7 +669,7 @@ export const DOCS = [
       'A dashed border means a draft the team cannot see yet, a small corner mark an edit not shared yet, and struck through a shift removed at the next share.',
       'When someone is offboarded in People, their future shifts come off the schedule (shared ones at the next share); past shifts stay as the record.',
       'No Teams status in the Directory means the Teams status permission is not granted yet - it is not an error.',
-      'Scheduled hours leave out the unpaid break, so a 9:00 AM to 5:00 PM shift with a 30-minute lunch counts as 7.5 hours.',
+      'Scheduled hours leave out the unpaid break, so a 9:00 AM to 5:00 PM shift with a 30-minute lunch counts as 7:30 Hrs.',
       'The schedule works like Excel: click a shift or a day to select it (a box goes round it), move with the arrow keys, Ctrl+C or Ctrl+X the selected shift and Ctrl+V on the selected day to copy or move it. Ctrl+click more days first to paste a copy into all of them at once. Esc clears it.',
       'Conflicts To Review under the schedule lists every shift that may be a mistake, in plain words - outside someone\'s availability, overlapping another shift, on approved time off. Click one to see it.',
       'Limited Availability under a name means the person is off or only partly available on a day they usually work; days they never work (weekends off, say) do not count. Hover it for the days.',

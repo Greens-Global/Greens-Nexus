@@ -1,6 +1,7 @@
 // Tickets > Reports helpers (TicketReports.jsx): the date presets, the
 // duration wording and the Weekly Email hint. Kept apart from the component so it stays a
 // components-only module (fast refresh) and the presets can be tested.
+import { formatHoursWords } from '../lib/hoursText';
 
 // Local YYYY-MM-DD (what the API takes) - never shown to anyone.
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -15,9 +16,11 @@ export function presetRange(key, today = new Date()) {
   return [iso(addDays(t, -29)), iso(t)];
 }
 
+// Under two days as hours and minutes ("2h 30m", never "2.5 hrs" - Neil,
+// 11/04/2026), longer in days.
 export function fmtHours(h) {
   if (h == null) return '-';
-  return h < 48 ? `${h.toFixed(1)} hrs` : `${(h / 24).toFixed(1)} days`;
+  return h < 48 ? formatHoursWords(h, { compact: true }) : `${(h / 24).toFixed(1)} days`;
 }
 
 // What the Weekly Email switch means for this person (the server decides

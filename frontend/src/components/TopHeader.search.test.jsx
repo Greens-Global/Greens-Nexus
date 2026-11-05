@@ -57,7 +57,8 @@ describe('TopHeader search', () => {
     header();
     const plain = bar();
     expect(plain.placeholder).toBe('Search Nexus');
-    expect(plain.title).toMatch(/^Search Nexus \((⌘|Ctrl) K\)$/);
+    expect(plain.title).toBe('Search Nexus (Ctrl+F)');
+    expect(document.querySelector('.hdr-search-kbd').textContent).toBe('Ctrl+F');   // the same hint on a Mac (Neil, 11/05/2026)
     expect(inRight(plain)).toBe(true);
     expect(document.querySelector('.header-center .search-bar')).toBeNull();
     cleanup();
@@ -90,6 +91,53 @@ describe('TopHeader search', () => {
     const notTaken = fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
     expect(notTaken).toBe(true);
     expect(document.activeElement).not.toBe(bar());
+  });
+
+  it("Ctrl/Cmd+F lands in the bar, a second press is the browser's find, and a screen's own find or a popup keeps it (Neil, 11/04/2026)", () => {
+    header();
+    expect(fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })).toBe(false);   // the browser's find bar stays shut
+    expect(document.activeElement).toBe(bar());
+    expect(fireEvent.keyDown(bar(), { key: 'f', ctrlKey: true })).toBe(true);           // again: the browser finds in the page
+    bar().blur();
+    expect(fireEvent.keyDown(document.body, { key: 'F', metaKey: true })).toBe(false);  // Cmd+F on a Mac
+    expect(document.activeElement).toBe(bar());
+    bar().blur();
+    expect(fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true, shiftKey: true })).toBe(true);
+    // A screen's own find, listening on the window after the header did.
+    const own = (e) => { if (e.ctrlKey && e.key === 'f') e.preventDefault(); };
+    window.addEventListener('keydown', own);
+    fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true });
+    expect(document.activeElement).not.toBe(bar());
+    window.removeEventListener('keydown', own);
+    // Accounting's ledger search looks at the key last too (a window capture
+    // listener that queues one for the end): it still goes first.
+    const ledger = vi.fn();
+    const queue = (e) => { if (e.key === 'f') window.addEventListener('keydown', (ev) => { if (!ev.defaultPrevented) { ev.preventDefault(); ledger(); } }, { once: true }); };
+    window.addEventListener('keydown', queue, true);
+    fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true });
+    expect(ledger).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).not.toBe(bar());
+    window.removeEventListener('keydown', queue, true);
+    // A popup open: the browser keeps its find.
+    const pop = document.createElement('div'); pop.setAttribute('aria-modal', 'true'); document.body.appendChild(pop);
+    expect(fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })).toBe(true);
+    expect(document.activeElement).not.toBe(bar());
+    pop.remove();
+    // ...and so does a popup that is not marked modal (a role=dialog sheet, a class-styled overlay).
+    for (const make of [(d) => d.setAttribute('role', 'dialog'), (d) => { d.className = 'modal-overlay'; }, (d) => { d.className = 'cv-modal-overlay'; }]) {
+      const p2 = document.createElement('div'); make(p2); document.body.appendChild(p2);
+      expect(fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })).toBe(true);
+      expect(document.activeElement).not.toBe(bar());
+      p2.remove();
+    }
+    cleanup();
+    PHONE = true;
+    header();
+    const sheet = vi.fn();
+    window.addEventListener('nexus:search-open', sheet);
+    expect(fireEvent.keyDown(document.body, { key: 'f', metaKey: true })).toBe(false);
+    expect(sheet).toHaveBeenCalledTimes(1);                                             // the phone opens the same sheet
+    window.removeEventListener('nexus:search-open', sheet);
   });
 
   it('finds pages, items and Task-module content in one grouped list, and a pick navigates', async () => {

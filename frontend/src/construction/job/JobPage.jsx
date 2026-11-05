@@ -9,7 +9,7 @@
 // an Approvals row lands on RFIs And Submittals. Lazy: its own chunk, and the
 // Schedule tab (the Tasks timeline) a chunk of its own beyond that.
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { ArrowLeft, Pencil, Flag, ClipboardList, CheckSquare, Users, Ticket, Building2, Inbox, ExternalLink } from 'lucide-react';
+import { Pencil, Flag, ClipboardList, CheckSquare, Users, Ticket, Building2, Inbox, ExternalLink } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { StatusLabel } from '../../components/StatusLabel';
@@ -29,6 +29,8 @@ import FieldTab from './FieldTab';
 import MoneyLine from './MoneyLine';
 import { useJobMoney } from '../lib/money';
 import { prefetchJob } from '../constructionOffline';
+import PageTrail, { useTrailCrumbs } from '../../components/PageTrail';
+import { formatHoursWords } from '../../lib/hoursText';
 
 const ScheduleTab = lazy(() => import('./ScheduleTab'));
 // Field and Closeout (11/03/2026, phase 3): each its own chunk, beyond the
@@ -36,6 +38,8 @@ const ScheduleTab = lazy(() => import('./ScheduleTab'));
 const PhotosTab = lazy(() => import('./PhotosTab'));
 const ChangesTab = lazy(() => import('./ChangesTab'));
 const CloseoutTab = lazy(() => import('./CloseoutTab'));
+const PermitsTab = lazy(() => import('./PermitsTab'));
+const SubsTab = lazy(() => import('./SubsTab'));
 // Money (phase 4): its own chunk with the Accounting side panel.
 const MoneyTab = lazy(() => import('./MoneyTab'));
 const tabWait = <SkeletonBlocks count={3} height={120} borderRadius={12} />;
@@ -97,7 +101,7 @@ function Overview({ project, onTab, money }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ ...CARD, marginBottom: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <HealthRow health={project.health} />
+        <HealthRow health={project.health} targetMoves={project.targetMoves} />
         <ProgressTrack value={pct / 100} state={trackStateFor(project)} label={`${project.name} progress`}
           start={project.startOn ? `Started ${formatDate(project.startOn, project.startOn)}` : undefined}
           end={project.targetFinishOn ? `Target ${formatDate(project.targetFinishOn, project.targetFinishOn)}` : undefined}
@@ -124,6 +128,15 @@ function Overview({ project, onTab, money }) {
               <div><button type="button" style={linkBtn} onClick={() => onTab('schedule')}>Open Schedule</button></div>
             </Card>
           )}
+          {isProject && (
+            <Card icon={ClipboardList} title="Permits And Inspections" testId="inspections">
+              {data.inspections?.next
+                ? <Line left={<b>{data.inspections.next.title}</b>} right={`${formatDate(data.inspections.next.dueOn, data.inspections.next.dueOn)} (${daysWords(dayGap(project.today, data.inspections.next.dueOn))})`} />
+                : <div style={quiet}>No inspection scheduled.</div>}
+              {data.inspections?.failed > 0 && <div style={{ ...quiet, color: 'hsl(var(--color-red))', fontWeight: 600 }}>{plural(data.inspections.failed, 'inspection')} failed - schedule the re-inspection.</div>}
+              <div><button type="button" style={linkBtn} onClick={() => onTab('permits')}>Open Permits And Inspections</button></div>
+            </Card>
+          )}
           <Card icon={CheckSquare} title="Punch List" testId="punch">
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {['open', 'done', 'verified'].map((k) => (
@@ -138,7 +151,7 @@ function Overview({ project, onTab, money }) {
                 <Line left={<>{formatDate(data.lastLog.logDate, data.lastLog.logDate)}{data.lastLog.authorName ? ` - ${data.lastLog.authorName}` : ''}</>}
                   right={<StatusLabel size="sm" label={(LOG_STATUS[data.lastLog.status] || LOG_STATUS.submitted).label} color={(LOG_STATUS[data.lastLog.status] || LOG_STATUS.submitted).color} />} />
                 {(data.lastLog.crewSize > 0 || data.lastLog.hoursWorked > 0) && (
-                  <div style={quiet}>{[data.lastLog.crewSize ? `${data.lastLog.crewSize} ${data.lastLog.crewSize === 1 ? 'person' : 'people'}` : '', data.lastLog.hoursWorked ? `${data.lastLog.hoursWorked} h` : ''].filter(Boolean).join(' · ')}</div>
+                  <div style={quiet}>{[data.lastLog.crewSize ? `${data.lastLog.crewSize} ${data.lastLog.crewSize === 1 ? 'person' : 'people'}` : '', data.lastLog.hoursWorked ? formatHoursWords(data.lastLog.hoursWorked, { compact: true }) : ''].filter(Boolean).join(' · ')}</div>
                 )}
               </>
             ) : <div style={quiet}>No daily log filed yet.</div>}
@@ -149,7 +162,7 @@ function Overview({ project, onTab, money }) {
               ? <div style={quiet}>No one is scheduled on this jobsite this week. Place the crew here in Shifts.</div>
               : data.crew.people.slice(0, 8).map((c) => (
                 <Line key={c.email} left={c.name || personName(c.email, names)}
-                  right={`${plural(c.days.length, 'day')} · ${c.plannedHours} h`} />
+                  right={`${plural(c.days.length, 'day')} · ${formatHoursWords(c.plannedHours, { compact: true })}`} />
               ))}
           </Card>
           {(data.tickets || []).length > 0 && (
@@ -215,15 +228,15 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
   // Keep what the field needs on the phone while there is signal (the punch
   // list, today's log prefill, the photos, the changes) - offline tomorrow.
   useEffect(() => { prefetchJob(project); }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // CONSTRUCTION / PROJECT DASHBOARD over the job's name (the page trail).
+  useTrailCrumbs([{ label: 'Project Dashboard', onClick: onBack }]);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }} data-job-page={project.id}>
       <div className="view-header" style={{ marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 320px' }}>
-          <button className="secondary-btn" onClick={onBack} style={{ padding: 8 }} title="Back to Construction" aria-label="Back to Construction">
-            <ArrowLeft size={16} />
-          </button>
           <div className="view-title-group" style={{ minWidth: 0 }}>
+            <PageTrail title={project.name} />
             <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ overflowWrap: 'anywhere' }}>{project.name}</span>
               <StatusLabel size="sm" label={type.label} color={type.color} />
@@ -269,9 +282,10 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
         {active === 'changes' && <Suspense fallback={tabWait}><ChangesTab project={project} /></Suspense>}
         {active === 'field' && <FieldTab project={project} />}
         {active === 'rfis' && (
-          <Registers project={project} canReview={!!project.canEdit} onChanged={onChanged}
-            kinds={['rfis', 'submittals']} title="RFIs And Submittals" />
+          <Registers project={project} canReview={!!project.canEdit} onChanged={onChanged} />
         )}
+        {active === 'permits' && <Suspense fallback={tabWait}><PermitsTab project={project} /></Suspense>}
+        {active === 'subs' && <Suspense fallback={tabWait}><SubsTab project={project} /></Suspense>}
         {active === 'money' && (
           <Suspense fallback={tabWait}>
             <MoneyTab project={project} money={money} onEdit={project.canEdit ? () => setEditing(true) : null} />

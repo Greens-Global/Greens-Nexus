@@ -41,11 +41,20 @@ class Pack(JobsBase):
     def test_the_pack_registers_its_entities_and_events(self):
         catalog.load_packs()
         self.assertNotIn("construction", catalog.load_errors)
-        for e in ("job", "daily_log", "rfi", "submittal"):
+        for e in ("job", "daily_log", "rfi", "submittal", "change_order", "field_ticket", "weekly_report"):
             self.assertIn(e, catalog.ENTITIES)
         for k in ("job.created", "job.status_changed", "job.phase_changed", "daily_log.submitted",
-                  "daily_log.reviewed", "rfi.opened", "rfi.answered", "submittal.decided"):
+                  "daily_log.reviewed", "rfi.opened", "rfi.answered", "submittal.decided",
+                  # Round Two (11/05/2026): the rest of the job.
+                  "punch.verified", "field_ticket.signed", "change_order.sent", "change_order.approved",
+                  "change_order.sent_back", "change_order.declined", "job.closed_out", "report.published"):
             self.assertIn(k, catalog.EVENTS)
+
+    def test_closing_a_job_out_emits_once(self):
+        self.as_(MGR_A)
+        self.assertEqual(self.client.post("/construction/projects/pa/closeout", json={"write_back": False}).status_code, 200)
+        self.assertEqual(self.client.post("/construction/projects/pa/closeout", json={"write_back": False}).status_code, 200)
+        self.assertEqual([e.company_id for e in _events(self.db, "job.closed_out")], [A])
 
     def test_every_choke_point_emits_once(self):
         self.as_(MGR_A)

@@ -302,3 +302,21 @@ describe('Print / PDF', () => {
     expect(html).not.toContain('<script');
   });
 });
+
+describe('Export (one button)', () => {
+  it('offers PDF, Excel, CSV and Print Report from one Export menu', async () => {
+    const { WhatsNewExport } = await import('./changelogExtras');
+    render(<WhatsNewExport entries={[rel('t1', 'One')]} analytics={{ totals: {} }} insights={{}} statusOf={(e) => e.status} />);
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    for (const name of ['Export as PDF', 'Export as Excel', 'Export as CSV', 'Print Report']) {
+      expect(screen.getByRole('menuitem', { name: new RegExp(name) })).toBeTruthy();
+    }
+  });
+
+  it('the files share one column list, the CSV header included', async () => {
+    const { whatsNewColumns } = await import('./changelogExtras');
+    const cols = whatsNewColumns({ entries: { t1: { viewers: 5 } } }, {}, (e) => e.status);
+    expect(cols[0].header).toBe('Title');
+    expect(cols.find((c) => c.header === 'People Reached').get({ id: 't1' })).toBe(5);
+  });
+});

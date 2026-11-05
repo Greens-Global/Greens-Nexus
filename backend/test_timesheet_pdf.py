@@ -1,6 +1,8 @@
 """The time sheet pages of the signed Time Sheet PDF (timesheet_pdf.py)."""
+import copy
 import io
 import os
+import re
 import unittest
 
 from pypdf import PdfReader
@@ -73,7 +75,7 @@ def text_of(pdf: bytes) -> str:
 
 class Helpers(unittest.TestCase):
     def test_formats(self):
-        self.assertEqual((tp.hm(0), tp.hm(65), tp.hd(2645)), ("0:00", "1:05", "44:05 (44.08)"))
+        self.assertEqual((tp.hm(0), tp.hm(65), tp.hd(2645)), ("0:00", "1:05", "44:05"))   # no decimal hours (Neil, 11/04/2026)
         self.assertEqual((tp.money(1000.08), tp.money(5, "INR")), ("$1,000.08", "INR 5.00"))
         self.assertEqual(tp.day_label("2026-10-04"), "Sun 10/04")
 
@@ -91,20 +93,26 @@ class Hourly(unittest.TestCase):
         self.assertGreater(float(page.mediabox.width), float(page.mediabox.height))
 
     def test_the_screen_columns_and_pay(self):
-        for h in ("Date", "In", "Out", "Deducted Time", "Category", "Hours", "Hrs/Day", "OT", "Loc",
+        for h in ("Date", "In", "Out", "Deducted Time", "Category", "Punch", "Day Total", "OT", "Location",
                   "Pay Rate", "Wage", "$22.00/hr", "$97.17", "Total Regular hours at $22.00/hr",
                   "Total Overtime hours at $33.00/hr", "Total Sick hours at $22.00/hr", "TOTAL EDITED PUNCHES"):
             self.assertIn(h, self.text)
         self.assertNotIn("Non-OT", self.text)      # Pranshu, Oct 20: not on the PDF
+        self.assertNotIn("Hrs/Day", self.text)     # Neil, 11/04/2026: Punch / Day Total
 
     def test_every_day_and_week_totals(self):
         self.assertIn("Sun 10/04", self.text)
         self.assertIn("Sat 10/17", self.text)
-        self.assertIn("Total hours clocked for week of 10/4 to 10/10: 7:45", self.text)
+        self.assertIn("Total hours clocked for week of 10/04 to 10/10: 7:45 · Overtime: 0:00 · Wage: $170.50",
+                      self.text)
         self.assertIn("Total hours clocked for week of 10/11 to 10/17: 16:10", self.text)
 
     def test_break_row_under_its_shift(self):
-        self.assertIn("20:25 21:00", self.text); self.assertIn("21:10 23:45", self.text)   # punch pairs: the break is the gap (Oct 20)
+        self.assertIn("20:25 21:00", self.text); self.assertIn("21:10 23:45", self.text)   # punch pairs (Oct 20)
+        # The break is its own line between them, on the e-sign copy too
+        # (Neil, 11/04/2026): its start and end, its length, never "unpaid".
+        self.assertIn("Break 21:00 21:10 10 min", self.text)
+        self.assertNotIn("unpaid", self.text.lower())
 
     def test_notes_the_employee_may_read_only(self):
         self.assertIn("Note by employee: Doctor visit at noon", self.text)
@@ -155,7 +163,7 @@ class Hourly(unittest.TestCase):
         pdf, spot = tp.render(light, ctx(notes={}))
         self.assertEqual(spot["page"], 1)
 
-    def test_the_banding_follows_the_day_and_money_is_centered(self):
+    def test_the_banding_follows_the_day_and_figures_sit_right(self):
         t = tp.hourly_rows(HOURLY, ctx(notes={"2026-10-05": {"employeeNote": "Long day"}}))
         rows = t._cellvalues
         note = next(i for i, r in enumerate(rows) if "Long day" in getattr(r[0], "text", ""))
@@ -163,8 +171,52 @@ class Hourly(unittest.TestCase):
         banded = {c[1][1] for c in t._bkgrndcmds if c[3] == tp.BAND}
         self.assertIn(day, banded)                            # Mon 10/05 is a banded day...
         self.assertIn(note, banded)                           # ...and its note line is banded with it
-        self.assertEqual(rows[day][9].style.alignment, 1)     # Pay Rate and Wage centered
-        self.assertEqual(rows[day][10].style.alignment, 1)
+        # Times, durations and money right-aligned so hours:minutes and AM / PM
+        # line up (Neil, 11/04/2026); Date, Category and Location read left.
+        for c in (1, 2, 5, 9, 10):
+            self.assertEqual(rows[day][c].style.alignment, 2, c)
+        for c in (0, 4, 8):
+            self.assertEqual(rows[day][c].style.alignment, 0, c)
+        brk = next(i for i, r in enumerate(rows) if "Break" in getattr(r[0], "text", ""))
+        self.assertEqual((rows[brk][1].style.alignment, rows[brk][2].style.alignment), (2, 2))
+        self.assertIn("10 min", rows[brk][4].text)
+        week = next(i for i, r in enumerate(rows) if "Total hours clocked" in getattr(r[0], "text", ""))
+        self.assertEqual(rows[week][0].style.alignment, 1)    # the week line is centered...
+        self.assertIn(week, {c[1][1] for c in t._bkgrndcmds if c[3] == tp.WEEK})   # ...on the green tint
+        self.assertEqual(tp.WEEK.hexval(), "0xe8f5ee")
+
+    def test_the_day_total_and_shift_columns_sit_on_the_first_row(self):
+        # The screen (Neil, 11/04/2026): the day's total on its FIRST punch
+        # row; Deducted Time / Category / OT / Location / Pay Rate / Wage on
+        # each shift's first row only.
+        rows = tp.hourly_rows(HOURLY, ctx())._cellvalues
+        day = next(i for i, r in enumerate(rows) if "10/05" in getattr(r[0], "text", ""))
+        self.assertIn("7:45", rows[day][6].text)
+        later = [r for r in rows[day + 1:day + 4]]       # 20:25 row, the break line, the 21:10 row
+        self.assertTrue(all(r[6] == "" for r in later))
+        self.assertIn("20:25", later[0][1].text)
+        self.assertIn("$73.33", later[0][10].text)          # the second shift's first row carries its wage
+        self.assertIn("21:10", later[2][1].text)
+        self.assertTrue(all(later[2][c] == "" for c in (3, 4, 7, 8, 9, 10)))
+        mon12 = next(i for i, r in enumerate(rows) if "10/12" in getattr(r[0], "text", ""))
+        self.assertIn("8:10", rows[mon12][6].text)
+        self.assertEqual(rows[mon12 + 1][6], "")
+
+    def test_no_decimal_hours_anywhere(self):
+        self.assertIsNone(re.search(r"\(\d+\.\d\d\)", self.text), self.text)
+        self.assertIn("TOTALS 19:45 $436.33", self.text)
+
+    def test_an_hourly_holiday_reads_office_closed_not_paid(self):
+        card = copy.deepcopy(HOURLY)
+        card["days"].append({"date": "2026-10-13", "weekStart": "2026-10-11", "workedMin": 0, "segments": [],
+                             "isHoliday": True, "holidayName": "Veterans Day", "holidayType": "mandatory"})
+        card["days"][1]["holidayName"], card["days"][1]["holidayType"] = "Worked Day", "mandatory"
+        card["totals"]["holidayDays"] = 2
+        text = text_of(tp.render(card, ctx())[0])
+        self.assertIn("Holiday: Veterans Day - office closed, not paid.", text)
+        self.assertIn("Holiday: Worked Day - worked. Only the hours worked are paid; no holiday pay.", text)
+        self.assertIn("Company holidays (2 days) - office closed, not paid - -", text)
+        self.assertNotIn("credited", text)
 
 
 class Fixed(unittest.TestCase):
@@ -173,8 +225,9 @@ class Fixed(unittest.TestCase):
                                             kind="Salaried (monthly)"))[0])
         for s in ("Day", "Effect on Pay", "Present", "Personal", "Weekend", "-INR 2,000.00", "no change",
                   "Monthly salary", "Missed days (1 full): Personal x1", "NET PAY THIS MONTH", "INR 58,000.00",
-                  "TOTAL HOURS WORKED 9:00 (9.00)"):
+                  "TOTAL HOURS WORKED 9:00"):
             self.assertIn(s, text)
+        self.assertNotIn("(9.00)", text)       # no decimal hours (Neil, 11/04/2026)
         self.assertNotIn("OT rule", text)
 
 

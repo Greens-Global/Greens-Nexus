@@ -54,7 +54,8 @@ function AnswerText({ text, cite, open }) {
     else if (kind === 'p') blocks.push({ kind, text: body });
     else blocks.push({ kind, items: [body] });
   }
-  const p = { margin: '0 0 8px', fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink)' };
+  // The Help panel's full-height sheet sets the two variables to read larger.
+  const p = { margin: '0 0 8px', fontSize: 'var(--nx-ask-fs, 13.5px)', lineHeight: 'var(--nx-ask-lh, 1.55)', color: 'var(--ink)' };
   return blocks.map((b, i) => {
     if (b.kind === 'gap') return null;
     if (b.kind === 'p') return <p key={i} style={p}><Inline text={b.text} cite={cite} open={open} /></p>;
@@ -87,8 +88,9 @@ function SourceChip({ s, onOpened }) {
  * @param {(docId: string) => boolean} allow  the guide pages this person may read (docsAccess)
  * @param {(question: string) => void} onFileTicket  open the ticket form with the question in it
  * @param {() => void} [onOpened]  a source was opened (the Help panel closes itself)
+ * @param {(words: number) => void} [onAnswer]  an answer arrived, with its length in words (the Help panel grows for a long one)
  */
-export default function AskNexus({ question, allow, onFileTicket, onOpened, style }) {
+export default function AskNexus({ question, allow, onFileTicket, onOpened, onAnswer, style }) {
   const [res, setRes] = useState(null);       // null = asking
   const [error, setError] = useState('');
   const [n, setN] = useState(0);              // Try Again
@@ -130,6 +132,10 @@ export default function AskNexus({ question, allow, onFileTicket, onOpened, styl
   const notCovered = !!(res && !res.offline && !res.crisis && (!res.grounded || !res.answer));
   // The offline fallback is still a question nobody answered.
   useEffect(() => { if (res?.offline) logHelpSearch(q, (res.sources || []).length, 'ask'); }, [res, q]);
+  // Once per answer, not on every render of the caller.
+  useEffect(() => {
+    if (res?.answer) onAnswer?.(String(res.answer).trim().split(/\s+/).length);
+  }, [res]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!q) return null;
   return (

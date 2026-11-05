@@ -44,6 +44,9 @@ import { PersonMultiSelect } from '../tasks/components';
 import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
 import WorkSiteAddressMap from '../components/WorkSiteAddressMap';
 import { googleMapsUrl } from '../lib/addressSearch';
+import PageTrail from '../components/PageTrail';
+import { useTableValue } from '../tasks/tableCols';
+import ProgramTable from './ProgramTable';
 
 function Stat({ label, value, helper }) {
   return (
@@ -289,7 +292,7 @@ function ProjectCard({ p, onOpen, overBudget = false }) {
         </div>
       </div>
       <Progress project={p} />
-      <HealthRow health={p.health} compact overBudget={overBudget} />
+      <HealthRow health={p.health} compact overBudget={overBudget} targetMoves={p.targetMoves} />
     </div>
   );
 }
@@ -305,6 +308,10 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
   const { can } = useRole();
   const canReview = !!can?.('manager');
   const isMobile = useIsMobile();
+  // Cards or the Program table (Round Two, 11/05/2026) - a computer's choice,
+  // kept per person; phones keep the cards.
+  const [jobsView, setJobsView] = useTableValue('construction-program', 'view', 'Cards');
+  const asTable = !isMobile && jobsView === 'Table';
   // The open project is the URL's (Operations passes it); without a router
   // above (a test, an embed) it is kept here.
   const openId = onOpenProject ? projectId : localId;
@@ -377,10 +384,21 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
 
   const list = (
     <div style={CARD} key="list">
-      <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Jobs</h3>
-      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Late and at-risk jobs first. Open one for its schedule, punch list, crew and weather.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 0 }}>
+          <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Jobs</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>
+            {asTable ? 'Every job on one table: health, dates, money and cost per square foot, compared. Open a row for the job.' : 'Late and at-risk jobs first. Open one for its schedule, punch list, crew and weather.'}
+          </p>
+        </div>
+        {!isMobile && projects.length > 0 && (
+          <ChoicePills label="Jobs view" options={['Cards', 'Table']} value={jobsView === 'Table' ? 'Table' : 'Cards'} onChange={setJobsView} />
+        )}
+      </div>
       {data === null ? (
         <SkeletonBlocks count={3} height={110} borderRadius={8} />
+      ) : asTable && projects.length > 0 ? (
+        <ProgramTable projects={projects} flags={moneyFlags} onOpen={open} />
       ) : projects.length === 0 ? (
         <Empty
           icon={Folder}
@@ -400,7 +418,9 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
     <>
       <div className="view-header" style={{ marginBottom: 24 }}>
         <div className="view-title-group">
-          <h2>Construction Overview</h2>
+          {/* The heading names the open tab (Project Dashboard), the trail the module. */}
+          <PageTrail title="Project Dashboard" />
+          <h2>Project Dashboard</h2>
           <p>Jobsite daily logs, media and weekly reporting</p>
         </div>
         <button className="primary-btn" onClick={() => setShowNew(true)}><Plus size={16} />New Job</button>

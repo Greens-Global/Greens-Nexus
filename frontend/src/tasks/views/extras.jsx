@@ -12,6 +12,7 @@ import { DateField, Modal, useIsMobile } from '../components';
 import { useCanEditTask } from '../canEditTask';
 import { awaitingFirstDate, clearingStopsSeries, moveTaskToDay, readPaneOpen, unscheduledTasks, writePaneOpen } from '../calendarMove';
 import UnscheduledPane from './UnscheduledPane';
+import { formatHoursWords } from '../../lib/hoursText';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -411,9 +412,9 @@ export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace'
 
       <Card title="Time tracking - estimate vs actual">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Estimated</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{totalEst}h</div></div>
-          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Actual</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{totalAct}h</div></div>
-          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Variance</div><div style={{ fontSize: 28, fontWeight: 700, color: variance > 0 ? NX.red : NX.green, fontVariantNumeric: 'tabular-nums' }}>{variance >= 0 ? '+' : ''}{variance.toFixed(1)}h</div></div>
+          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Estimated</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{formatHoursWords(totalEst, { compact: true })}</div></div>
+          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Actual</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{formatHoursWords(totalAct, { compact: true })}</div></div>
+          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Variance</div><div style={{ fontSize: 28, fontWeight: 700, color: variance > 0 ? NX.red : NX.green, fontVariantNumeric: 'tabular-nums' }}>{formatHoursWords(variance, { sign: true, compact: true })}</div></div>
         </div>
       </Card>
 

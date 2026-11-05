@@ -1,15 +1,16 @@
 // The tasks started from one SOP, and the old run history.
 import { useEffect, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection from '../../components/AsyncState';
 import { Chip, Av } from '../components/Chips';
 import { errText } from '../components/Toast';
+import { useTrailCrumbs } from '../../components/PageTrail';
 import { goKb, goView, fmtDate, fmtDateTime } from '../lib';
 
 export default function PageTasksView({ id }) {
   const [page, setPage] = useState(null);
   const [data, setData] = useState(null);
+  useTrailCrumbs(page ? [{ label: page.title, onClick: () => goKb('page', id) }] : []);
   const [err, setErr] = useState('');
   const load = () => { setErr(''); Promise.all([api.kbPage(id), api.kbPageTasks(id)]).then(([p, t]) => { setPage(p); setData(t); }).catch((e) => setErr(errText(e))); };
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -17,10 +18,6 @@ export default function PageTasksView({ id }) {
     <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
       {data && page && (
         <div className="kb-page">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} className="kb-meta">
-            <button type="button" className="kb-ibtn" style={{ width: 30, height: 30 }} aria-label="Back" onClick={() => goKb('page', id)}><ArrowLeft /></button>
-            <a href="#p" onClick={(e) => { e.preventDefault(); goKb('page', id); }}>{page.title}</a> / <b style={{ color: 'var(--kb-ink)' }}>Done as a Task</b>
-          </div>
           <section className="kb-card">
             <h3 className="kb-h3" style={{ marginBottom: 8 }}>Tasks</h3>
             {data.tasks.length === 0 && <div className="kb-empty">This page has not been started as a task yet.</div>}

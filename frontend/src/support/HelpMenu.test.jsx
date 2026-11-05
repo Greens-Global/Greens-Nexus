@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act, cleanup, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, within, waitFor } from '@testing-library/react';
 
 // The Help widget behind the header "?": Home (greeting + three cards),
 // Help (one search over the guide, Knowledge Base documents and courses) and
@@ -30,12 +30,13 @@ const TICKETS = [
   { id: 't2', code: 'TKT-000009', subject: 'New monitor request', status: 'resolved', createdAt: '2026-09-01T10:00:00Z', modifiedAt: '2026-09-02T10:00:00Z' },
 ];
 
-const apiState = { kbFail: false, tickets: TICKETS };
+const apiState = { kbFail: false, tickets: TICKETS, answer: '' };
 vi.mock('../api', () => {
   const handlers = {
     kbCorpusDocs: () => (apiState.kbFail ? Promise.reject(new Error('down')) : Promise.resolve(KB_DOCS)),
     kbCorpusCourses: () => (apiState.kbFail ? Promise.reject(new Error('down')) : Promise.resolve(KB_COURSES)),
     getMyTickets: () => Promise.resolve(apiState.tickets),
+    helpAsk: () => Promise.resolve({ answer: apiState.answer, grounded: true, sources: [] }),
   };
   return { api: new Proxy(handlers, { get: (t, k) => t[k] || (() => Promise.resolve([])) }) };
 });
@@ -46,7 +47,7 @@ const { registerTour, __resetTours, setPendingAutoTour, AUTO_TOUR_EVENT } = awai
 // Warm the lazy widget chunk so the first test is not timed on the transform.
 await import('./HelpWidget');
 
-beforeEach(() => { apiState.kbFail = false; apiState.tickets = TICKETS; __resetKbCorpus(); __resetHelpTab(); __resetTours(); });
+beforeEach(() => { apiState.kbFail = false; apiState.tickets = TICKETS; apiState.answer = ''; __resetKbCorpus(); __resetHelpTab(); __resetTours(); });
 const ROLE_CAN_ADMIN = false;   // the RoleContext mock above: can() is false
 afterEach(() => { cleanup(); });
 
@@ -387,5 +388,57 @@ describe('Help widget', () => {
     await openWidget();
     fireEvent.click(screen.getByRole('button', { name: /What's New in Nexus/ }));
     expect(onWhatsNew).toHaveBeenCalledTimes(1);
+  });
+
+  // The panel grows for something long to read (Neil, 11/04/2026).
+  const words = (n) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ');
+  const panel = () => screen.getByRole('dialog', { name: 'Help' });
+  const ask = async (question) => {
+    const input = screen.getByLabelText('Search for help');
+    fireEvent.change(input, { target: { value: question } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await screen.findByText(/^word0/, {}, LOAD);
+  };
+
+  it('a long Ask Nexus answer opens the full-height sheet; a short one keeps the small panel', async () => {
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    await goToHelpSearch();
+    apiState.answer = words(40);
+    await ask('short question');
+    expect(panel().getAttribute('data-expanded')).toBe('false');
+    apiState.answer = words(120);
+    await ask('long question');
+    // The answer lands a tick after the ask resolves; wait for the panel to grow.
+    await waitFor(() => expect(panel().className).toContain('is-expanded'));
+    expect(screen.getByRole('button', { name: 'Shrink the help panel' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('Shrink keeps it small for the rest of the open session, and a click on the scrim does not close Help', async () => {
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    await goToHelpSearch();
+    apiState.answer = words(120);
+    await ask('first long question');
+    await waitFor(() => expect(document.querySelector('.hw-scrim')).toBeTruthy());
+    const scrim = document.querySelector('.hw-scrim');
+    fireEvent.mouseDown(scrim);
+    expect(panel().getAttribute('data-expanded')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Shrink the help panel' }));
+    expect(panel().getAttribute('data-expanded')).toBe('false');
+    expect(screen.getByRole('button', { name: 'Expand the help panel' }).getAttribute('aria-pressed')).toBe('false');
+    apiState.answer = `${words(150)} again`;
+    await ask('second long question');
+    expect(panel().getAttribute('data-expanded')).toBe('false');
+  });
+
+  it('a guide article opened in the panel opens the full-height sheet', async () => {
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    const input = await goToHelpSearch();
+    expect(panel().getAttribute('data-expanded')).toBe('false');
+    fireEvent.change(input, { target: { value: 'request time off' } });
+    fireEvent.click(within(await screen.findByRole('list', { name: 'Help results' })).getAllByRole('button')[0]);
+    expect(panel().getAttribute('data-expanded')).toBe('true');
   });
 });

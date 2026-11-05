@@ -4,7 +4,8 @@
 //     project (the job type's template puts it there);
 //   * what is handed over - warranties (item or equipment, vendor, start,
 //     end, document), permits and inspections (AHJ, number, result, date),
-//     as-built and O&M documents;
+//     as-built and O&M documents (HandoverRecords.jsx - the permits and
+//     inspections also show live on their own tab, Round Two);
 //   * Close Out (held - it hands the records over and marks the job
 //     Complete): each record is written to the property in Asset Management
 //     through that module's own per-row save, as the person closing out, and
@@ -13,78 +14,20 @@
 // Plus the owner's or client's sign-off on substantial completion through
 // Nexus Sign.
 import { useState } from 'react';
-import { ClipboardCheck, Plus, Building2, FileSignature } from 'lucide-react';
+import { ClipboardCheck, FileSignature } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { StatusLabel } from '../../components/StatusLabel';
 import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
-import { DateField } from '../../tasks/components';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { CARD, TONE } from '../ui';
 import Empty from '../Empty';
-import { clientId, useLoad } from '../lib/job';
+import { useLoad } from '../lib/job';
 import { SetUp } from './PunchTab';
+import HandoverRecords from './HandoverRecords';
 
-const KIND_LABEL = { warranty: 'Warranty', permit: 'Permit', inspection: 'Inspection', document: 'Document' };
-const RESULT = { passed: ['Passed', TONE.green], failed: ['Failed', TONE.red], partial: ['Partial', TONE.yellow], pending: ['Pending', TONE.slate] };
-const DOC_CATS = [['as_built', 'As-Built'], ['om_manual', 'O&M Manual'], ['certificate', 'Certificate of Occupancy'], ['other', 'Other']];
 const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)' };
 const SIGNOFF = { sent: ['Sent', TONE.blue], signed: ['Signed', TONE.green], declined: ['Declined', TONE.red], void: ['Void', TONE.gray] };
-
-function AddRecord({ project, onAdded }) {
-  const [kind, setKind] = useState('warranty');
-  const [f, setF] = useState({});
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e?.target ? e.target.value : e }));
-  const add = async (e) => {
-    e.preventDefault();
-    setBusy(true); setError('');
-    try { await api.addCloseoutRecord(project.id, { id: clientId('rec'), kind, ...f }); setF({}); onAdded(); }
-    catch (err) { setError(err.message || 'Could not add that.'); }
-    setBusy(false);
-  };
-  const input = (k, label, ph = '') => (
-    <label className="form-label" style={{ margin: 0 }}>{label}<input className="form-input" value={f[k] || ''} onChange={set(k)} placeholder={ph} /></label>
-  );
-  const date = (k, label) => (
-    <div><span className="form-label" style={{ display: 'block' }}>{label}</span><DateField value={f[k] || ''} onChange={(v) => setF((x) => ({ ...x, [k]: v || '' }))} title={label} /></div>
-  );
-  return (
-    <form onSubmit={add} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }} aria-label="Add a Closeout Record">
-      <div role="group" aria-label="Kind" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {Object.entries(KIND_LABEL).map(([k, l]) => (
-          <button key={k} type="button" aria-pressed={kind === k} onClick={() => { setKind(k); setF({}); }}
-            className={kind === k ? 'primary-btn' : 'secondary-btn'} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>{l}</button>
-        ))}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
-        {kind === 'warranty' && <>{input('title', 'Item Covered', 'e.g. Gate motor')}{input('vendor', 'Vendor')}{date('start_on', 'Start')}{date('end_on', 'End')}{input('serial', 'Serial (optional)')}{input('item_id', 'Items Id (optional)', 'For equipment in Items')}</>}
-        {kind === 'permit' && <>{input('number', 'Permit Number')}{input('ahj', 'Authority (AHJ)')}{input('title', 'What It Covers')}{date('date_on', 'Issued or Finaled')}</>}
-        {kind === 'inspection' && <>{input('title', 'Inspection', 'e.g. Final building')}{input('ahj', 'Authority (AHJ)')}{date('date_on', 'Date')}</>}
-        {kind === 'document' && <>{input('title', 'Title', 'e.g. As-built set')}{date('date_on', 'Document Date')}</>}
-        {(kind === 'permit' || kind === 'inspection') && (
-          <label className="form-label" style={{ margin: 0 }}>Result
-            <select className="form-input" value={f.result || ''} onChange={set('result')}>
-              <option value="">Not Known</option>
-              {Object.entries(RESULT).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}
-            </select>
-          </label>
-        )}
-        {kind === 'document' && (
-          <label className="form-label" style={{ margin: 0 }}>Category
-            <select className="form-input" value={f.category || 'other'} onChange={set('category')}>
-              {DOC_CATS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-            </select>
-          </label>
-        )}
-      </div>
-      {input('notes', 'Notes')}
-      {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{error}</div>}
-      <div><button type="submit" className="primary-btn" disabled={busy}><Plus size={14} />{busy ? 'Adding…' : `Add ${KIND_LABEL[kind]}`}</button></div>
-    </form>
-  );
-}
 
 function Signoff({ project, data, onChanged }) {
   const so = data.closeout?.signoff || null;
@@ -119,13 +62,6 @@ function Signoff({ project, data, onChanged }) {
       {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))', marginTop: 6 }}>{error}</div>}
     </section>
   );
-}
-
-function describe(r) {
-  if (r.kind === 'warranty') return [r.vendor, r.startOn || r.endOn ? `${formatDate(r.startOn, '-')} to ${formatDate(r.endOn, '-')}` : '', r.itemName ? `Item: ${r.itemName}` : '', r.serial ? `Serial ${r.serial}` : ''];
-  if (r.kind === 'permit') return [r.number ? `No. ${r.number}` : '', r.ahj, r.dateOn ? formatDate(r.dateOn, '') : ''];
-  if (r.kind === 'inspection') return [r.ahj, r.dateOn ? formatDate(r.dateOn, '') : ''];
-  return [(DOC_CATS.find(([k]) => k === r.category) || [0, 'Other'])[1], r.dateOn ? formatDate(r.dateOn, '') : ''];
 }
 
 export default function CloseoutTab({ project, onChanged }) {
@@ -166,33 +102,7 @@ export default function CloseoutTab({ project, onChanged }) {
         ))}
       </section>
 
-      <section style={{ ...CARD, marginBottom: 14 }} aria-label="Handed Over">
-        <h3 style={{ fontSize: '1.05rem', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><Building2 size={16} />Handed Over</h3>
-        <p style={{ ...quiet, margin: '0 0 12px' }}>
-          {data.property ? <>Close Out adds these to <b>{data.property.name}</b> in Asset Management{data.property.canWrite ? '' : ' (someone with edit access there has to close out, or send them later)'}; an equipment warranty also goes on its item in Items.</>
-            : 'Link the job to a property (Edit Job) so Close Out can add these to Asset Management.'}
-        </p>
-        {(data.records || []).length === 0 ? <div style={quiet}>Nothing yet. Add the warranties, permits, inspections and documents the owner receives.</div>
-          : data.records.map((r) => {
-            const res = RESULT[r.result];
-            return (
-              <div key={r.id} data-closeout-record={r.id} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '9px 0', borderTop: '1px solid var(--border-color)' }}>
-                <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-                  <div style={{ fontSize: '0.88rem' }}><b>{KIND_LABEL[r.kind]}</b> · {r.title || r.number}</div>
-                  <div style={quiet}>{describe(r).filter(Boolean).join(' · ')}</div>
-                  {r.written?.error && <div style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{r.written.error}</div>}
-                </div>
-                {res && <StatusLabel size="sm" label={res[0]} color={res[1]} />}
-                <StatusLabel size="sm" label={r.written?.asset ? 'In Asset Management' : 'Not Handed Over'} color={r.written?.asset ? TONE.green : TONE.slate} />
-                {data.canAdd && !r.written?.asset && (
-                  <HoldButton label="Remove" ariaLabel="Remove this record" doneLabel="Removed" holdMs={HOLD_RECORD_MS} size="sm"
-                    onConfirm={() => api.removeCloseoutRecord(r.id).then(reload)} fallbackMessage="Take this record off the closeout?" />
-                )}
-              </div>
-            );
-          })}
-        {data.canAdd && <div style={{ borderTop: '1px solid var(--border-color)', marginTop: 8, paddingTop: 12 }}><AddRecord project={project} onAdded={reload} /></div>}
-      </section>
+      <HandoverRecords project={project} data={data} reload={reload} />
 
       <Signoff project={project} data={data} onChanged={reload} />
 

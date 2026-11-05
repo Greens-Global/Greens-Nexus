@@ -124,6 +124,11 @@ class ConstructionProject(Base):
     # {closedOutAt, closedOutBy, signoff: {requestId, status, signerName,
     # signerEmail, sentAt, signedAt}}. {} = not closed out.
     closeout           = Column(JSON, default=dict)
+    # Size (Round Two, 11/05/2026): the owner-builder's benchmark - cost per
+    # unit and per square foot across the same facility built many times.
+    # 0 = not known.
+    units              = Column(Integer, default=0)
+    square_feet        = Column(Integer, default=0)
 
 
 class ConstructionDailyLog(Base):
@@ -177,6 +182,10 @@ class ConstructionDailyLog(Base):
     delays         = Column(JSON, default=list)
     prefill        = Column(JSON, default=dict)
     weather_source = Column(String, default="")
+    # Subs on site (Round Two, 11/05/2026): [{name, headcount, hours}] - one
+    # line per subcontractor on site that day. Sub manpower is the number a
+    # delay claim is argued with; the weekly report sums it beside crew hours.
+    subs           = Column(JSON, default=list)
     signed_name    = Column(String, default="")
     signed_at      = Column(String, default="")
     # ── AI-derived (write-once) ──
@@ -523,6 +532,9 @@ class ConstructionJobLink(Base):
       kind       ref_id                 owner of the thing
       ticket     task_tickets.id        Tickets - the job's source ticket(s)
       checkout   item_checkouts.id      Items - equipment out to the job
+      sub        Intacct VENDORID       Accounting - a subcontractor on the job (Round Two
+                                        item 7, 11/05/2026; `note` is the trade; papers in
+                                        vendor_compliance)
 
     A link is never deleted: `ended_at` closes it (a checkout returned to a
     different job, an unlinked ticket) so the history of what the job used
@@ -535,7 +547,7 @@ class ConstructionJobLink(Base):
     __tablename__ = "construction_job_links"
     id          = Column(String, primary_key=True)
     project_id  = Column(String, nullable=False, index=True)
-    kind        = Column(String, nullable=False, index=True)   # ticket | checkout
+    kind        = Column(String, nullable=False, index=True)   # ticket | checkout | sub
     ref_id      = Column(String, nullable=False, index=True)
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
@@ -682,6 +694,10 @@ class ConstructionCloseoutRecord(Base):
     number      = Column(String, default="")       # permit number
     result      = Column(String, default="")       # passed | failed | partial | pending
     date_on     = Column(String, default="")       # issued / inspected / document date
+    # Live from day one (Round Two, 11/05/2026): an inspection's scheduled
+    # day. The day before, the superintendent is belled; a Failed one bells
+    # the managers. '' = not scheduled.
+    due_on      = Column(String, default="")
     category    = Column(String, default="")       # document: as_built | om_manual | certificate | other
     doc_url     = Column(String, default="")       # construction-media, this job's folder
     doc_name    = Column(String, default="")
@@ -691,3 +707,26 @@ class ConstructionCloseoutRecord(Base):
     created_at  = Column(String, default="")
     modified_at = Column(String, default="")
     deleted_at  = Column(String, default="")
+
+
+class VendorCompliance(Base):
+    """A subcontractor's papers (Round Two item 7, Neil, 11/05/2026). The
+    vendor is Intacct's - its VENDORID, through Accounting > Vendors &
+    Customers - and Nexus keeps only what Intacct does not: when the
+    certificate of insurance and the workers comp certificate expire, the
+    license, whether a W-9 is on file. One row per vendor id, made when a sub
+    is first put on a job or its papers first saved; `vendor_name` is a copy
+    of Intacct's name so the Subs tab and the expiry bells never call the
+    accounting app. Never a vendor directory: no address, no contact, no
+    terms live here."""
+    __tablename__ = "vendor_compliance"
+    vendor_id          = Column(String, primary_key=True)
+    vendor_name        = Column(String, default="")
+    coi_expires_on     = Column(String, default="")   # general liability certificate of insurance
+    wc_expires_on      = Column(String, default="")   # workers compensation certificate
+    license_number     = Column(String, default="")
+    license_expires_on = Column(String, default="")
+    w9_on_file         = Column(Boolean, default=False)
+    notes              = Column(Text, default="")
+    updated_by         = Column(String, default="")
+    updated_at         = Column(String, default="")

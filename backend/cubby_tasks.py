@@ -291,6 +291,14 @@ def _warehouse() -> tuple[dict, dict, str]:
     return tasks, staff, ""
 
 
+def _warehouse_gaps() -> str:
+    import cubby_warehouse
+    try:
+        return cubby_warehouse.missing_note()
+    except Exception:  # noqa: BLE001 - a note, never a failure
+        return ""
+
+
 def _warehouse_notes() -> tuple[dict, str]:
     """(notes by Cubby task id, oldest first; note). Its own call so a notes
     problem never costs the assignees. Never raises."""
@@ -391,7 +399,10 @@ def _sync(db, cfg: dict, facility_ids) -> dict:
     s = {"at": at, "status": "ok", "facilities": len(facility_ids), "open": len(open_rows),
          "created": 0, "updated": 0, "reassigned": 0, "completedFromCubby": 0, "reopenedFromCubby": 0,
          "notes": 0, "unmapped": {}, "noCreator": [], "unmatchedPeople": {}, "errors": [],
-         "warehouse": wh_note or "ok", "notesWarehouse": notes_note or "ok"}
+         "warehouse": wh_note or "ok", "notesWarehouse": notes_note or "ok",
+         # Columns the reads wanted that BigQuery's tables lack - read anyway,
+         # said here so a gap is seen, not guessed at (11/05/2026).
+         "warehouseGaps": _warehouse_gaps()}
 
     def fail(what: str, e: Exception) -> None:
         db.rollback()

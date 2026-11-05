@@ -418,7 +418,7 @@ class SigningTests(ReviewCase):
         for s_ in ("Salaried (monthly)", "Monthly Salary: $6,000.00", "Effect on Pay", "Day",
                    "NET PAY THIS MONTH", "Signed by employee - finalizes the time sheet"):
             self.assertIn(s_, text)
-        self.assertNotIn("Hrs/Day", text)
+        self.assertNotIn("Day Total", text)
         # Country or Region US: the meal and rest statement prints for salaried
         # staff too (Pranshu, Oct 20) - without Report a Missed Break, whose
         # premium pay only an hourly card pays.
@@ -496,7 +496,7 @@ class PaperPrintTests(ReviewCase):
         self.db.commit()
         self.addCleanup(lambda: (self.db.query(models.TimeApproval).filter_by(id="fin-paper").delete(), self.db.commit()))
         text = self._text(tsr.paper_pdf(self.db, EMP, ANCHOR, HR)[0])
-        self.assertIn("Break 30m", text)
+        self.assertIn("Break 7:00 PM 7:30 PM 30 min", " ".join(text.split()))   # its own line (Neil, 11/04/2026)
         self.assertIn("BREAK TIME", text)
         self.assertIn("Finalized by HR - period locked", text)
         self.assertIn("Signed by employee on paper", text)
@@ -505,7 +505,11 @@ class PaperPrintTests(ReviewCase):
         self.db.commit()
         r = tsr.submit(self.db, EMP, ANCHOR)
         esign_text = self._text(tsr.build_pdf(self.db, r)[0])
-        self.assertNotIn("Break 30m", esign_text)                    # the e-sign copy keeps its layout
+        # The e-sign copy shows the break line too - the PDF matches the screen
+        # (Neil, 11/04/2026; it was the paper copy only since Pranshu, Oct 23) -
+        # but not the paper copy's BREAK TIME summary line.
+        self.assertIn("Break 7:00 PM 7:30 PM 30 min", " ".join(esign_text.split()))
+        self.assertNotIn("BREAK TIME", esign_text)
         self.assertNotIn("on paper", esign_text)
 
     def test_a_finalized_time_sheet_still_prints_and_stays_as_it_was(self):

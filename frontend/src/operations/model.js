@@ -32,7 +32,8 @@ export const LEAD_STATUS = {
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const usdCents = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
-const usdCompact = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 });
+// minimumFractionDigits is explicit: without it older engines (Node 20, CI) print "$10.0K" and newer ones "$10K".
+const usdCompact = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: 1 });
 
 export function money(cents, { compact = false, exact = false } = {}) {
   const n = (Number(cents) || 0) / 100;

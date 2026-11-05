@@ -1,8 +1,8 @@
 """QuickBooks IIF time export (Oct 19 2026 audit):
 
-  * a paid company holiday is its own Holiday Pay line (the hours its credit
-    pays for: full_day_hours, half on a half-day holiday), renamed per
-    company like every other pay class, never billed to a job;
+  * an hourly company holiday is an unpaid day off (Neil, 11/04/2026): no
+    Holiday Pay line (the Oct 19 credit is gone), a half-day holiday worked
+    writes only the hours worked at Regular Pay;
   * the export takes FINALIZED time sheets only unless the caller asks for
     the draft explicitly (finalized_only=false), and that file is named
     -DRAFT;
@@ -141,29 +141,88 @@ class IifExportTests(unittest.TestCase):
         return self._get(query).text.split("\r\n")
 
     # ── Holiday ─────────────────────────────────────────────────────────────
-    def test_holiday_is_its_own_payroll_item(self):
+    def _unpaid_from(self, day):
+        # These fixtures are September holidays; move the unpaid-from date
+        # before them to test the rule (the real one is 11/01/2026).
+        from routers import timeclock
+        old, timeclock._HOURLY_HOLIDAYS_UNPAID_FROM = timeclock._HOURLY_HOLIDAYS_UNPAID_FROM, day
+        self.addCleanup(setattr, timeclock, "_HOURLY_HOLIDAYS_UNPAID_FROM", old)
+
+    def test_hourly_holiday_is_an_unpaid_day_off(self):
+        # Neil, 11/04/2026: hourly company holidays are unpaid days off - the
+        # old Holiday Pay credit (Pranshu, Oct 19) is gone. A full holiday not
+        # worked writes nothing; a half-day holiday writes only the hours worked.
+        self._unpaid_from("2026-09-01")
         lines = self._lines(f"&company={CO_A}&finalized_only=false")
         pat = [ln for ln in lines if "Pat Test" in ln]
         self.assertEqual(pat, [
-            # A full holiday not worked: full_day_hours at Holiday Pay, no job, not billable.
-            "TIMEACT\t9/14/2026\t\tPat Test\t\tHoliday Pay\t8.00\t\t\tY\t0",
             "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t1",
-            # The half-day holiday: the worked half at Regular, the other half at Holiday.
             "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t4.00\t\t\tY\t1",
-            "TIMEACT\t9/17/2026\t\tPat Test\t\tHoliday Pay\t4.00\t\t\tY\t0",
         ])
-        # Renamed per company like every other pay class.
+        # A renamed holiday code still saves, and still writes no line for hourly.
         r = self.client.put("/timeclock/payroll/export-codes", json={"company": CO_A, "codes": {"holiday": "HOL"}})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertIn("TIMEACT\t9/14/2026\t\tPat Test\t\tHOL\t8.00\t\t\tY\t0",
-                      self._lines(f"&company={CO_A}&finalized_only=false"))
-        # The Import Hub preview carries the same hours.
+        self.assertFalse([ln for ln in self._lines(f"&company={CO_A}&finalized_only=false") if "\tHOL\t" in ln])
+        # The Import Hub preview carries the same hours: no holiday key.
         hours = self.client.get(f"/timeclock/export-hours?start={START}&end={END}&company={CO_A}").json()["rows"]
-        self.assertEqual(next(x for x in hours if x["email"] == PAT)["hours"]["holiday"], 12.0)
-        # Company B has no holiday: no Holiday line, no holiday key.
+        self.assertNotIn("holiday", next(x for x in hours if x["email"] == PAT)["hours"])
         self.assertFalse([ln for ln in self._lines("&finalized_only=false") if "Quinn" in ln and "Holiday" in ln])
         hours = self.client.get(f"/timeclock/export-hours?start={START}&end={END}&company={CO_B}").json()["rows"]
         self.assertNotIn("holiday", hours[0]["hours"])
+
+    def test_hourly_card_keeps_the_holiday_but_pays_nothing(self):
+        from routers import timeclock
+        self._unpaid_from("2026-09-01")
+        db = database.SessionLocal()
+        try:
+            card = timeclock._compute_timecard(db, PAT, START, END)
+        finally:
+            db.close()
+        days = {d["date"]: d for d in card["days"]}
+        off = days["2026-09-14"]          # not worked: still a day entry, office closed
+        self.assertTrue(off["isHoliday"])
+        self.assertEqual((off["holidayName"], off["holidayType"], off["workedMin"]), ("Founders Day", "mandatory", 0))
+        half = days["2026-09-17"]         # worked: tagged, paid as the hours worked only
+        self.assertEqual((half["holidayName"], half["holidayType"], half["workedMin"]), ("Half Day", "half_day", 240))
+        for d in (off, half):
+            self.assertFalse(d.get("holidayPay"))
+            self.assertFalse(d.get("holidayMin"))
+        t = card["totals"]
+        # holidayDays counts the days off (the worked half day is not one).
+        self.assertEqual((t["holidayPay"], t["holidayDays"]), (0, 1))
+        self.assertTrue(half["holidayWorked"])
+        self.assertFalse(off.get("holidayWorked"))
+        self.assertEqual(t["totalPay"], 12 * 20.0)
+
+    def test_veterans_day_2026_is_an_unpaid_day_off(self):
+        # The real unpaid-from date: a holiday on 11/11/2026 pays an hourly person nothing.
+        from routers import timeclock
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrCompanyHoliday(id="hol-iif-3", company_id=CO_A, date="2026-11-11", name="Veterans Day",
+                                           type="mandatory"))
+            db.commit()
+            card = timeclock._compute_timecard(db, PAT, "2026-11-08", "2026-11-21")
+        finally:
+            db.close()
+        day = {d["date"]: d for d in card["days"]}["2026-11-11"]
+        self.assertTrue(day["isHoliday"])
+        self.assertFalse(day.get("holidayPay"))
+        self.assertEqual((card["totals"]["holidayPay"], card["totals"]["holidayDays"]), (0, 1))
+
+    def test_a_holiday_before_the_unpaid_date_keeps_its_credit(self):
+        # Holidays before 11/01/2026 keep the credit they were paid with, so a
+        # finalized period re-exports exactly as it was paid (review 11/04/2026).
+        lines = self._lines(f"&company={CO_A}&finalized_only=false")
+        pat = [ln for ln in lines if "Pat Test" in ln]
+        self.assertEqual(pat, [
+            "TIMEACT\t9/14/2026\t\tPat Test\t\tHoliday Pay\t8.00\t\t\tY\t0",
+            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t1",
+            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t4.00\t\t\tY\t1",
+            "TIMEACT\t9/17/2026\t\tPat Test\t\tHoliday Pay\t4.00\t\t\tY\t0",
+        ])
+        hours = self.client.get(f"/timeclock/export-hours?start={START}&end={END}&company={CO_A}").json()["rows"]
+        self.assertEqual(next(x for x in hours if x["email"] == PAT)["hours"]["holiday"], 12.0)
 
     # ── Finalized only ──────────────────────────────────────────────────────
     def test_finalized_only_by_default(self):

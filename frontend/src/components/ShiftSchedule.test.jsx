@@ -217,17 +217,17 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
     { email: 'bob@greensglobal.com', name: 'Bob Brown', photoUrl: '', location: '' }];
   const grid = (scheduled, over = {}) => ({ ...data(scheduled), employees: people, ...over });
 
-  it('shows profile photos, initials, the month in the day header and Hrs with two decimals', async () => {
+  it('shows profile photos, initials, the month in the day header and Hrs as H:MM', async () => {
     timeSchedule.mockResolvedValue(grid([shift({ breakMin: 45 })]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
     expect(document.querySelector('img[src="https://x.supabase.co/amy.png"]')).toBeTruthy();
     expect(screen.getByText('BB')).toBeTruthy();
-    expect(screen.getByText('Week · 7.25 Hrs')).toBeTruthy();
+    expect(screen.getByText('Week · 7:15 Hrs')).toBeTruthy();
     const header = screen.getAllByRole('columnheader')[0];
     expect(header.textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2}[A-Z][a-z]{2}/);   // "Mon 28" with the month said once, on the first day
     expect(screen.getAllByRole('columnheader')[1].textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2}\d/);   // the next day has no month
-    expect(header.textContent).toContain('1 · 7.25 Hrs');
+    expect(header.textContent).toContain('1 · 7:15 Hrs');
     // One calm line: the short time and the type's code; the break is the hover title, not the block.
     expect(blockOf('s1').textContent).toBe('9:00a - 5:00p');
     expect(blockOf('s1').getAttribute('title')).toContain('Break 45m');
@@ -261,7 +261,7 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
     expect(blockOf('c').getAttribute('aria-label')).toContain('Removing');
     expect(blockOf('c').querySelector('[data-state]').textContent).toBe('Removed');
     expect(blockOf('c').querySelector('[data-shift-time] span:nth-child(2)').style.textDecoration).toBe('line-through');
-    expect(screen.getByText('Week · 16 Hrs')).toBeTruthy();   // the removal is out
+    expect(screen.getByText('Week · 16:00 Hrs')).toBeTruthy();   // the removal is out
     expect(screen.getByRole('button', { name: 'Save & Share, 3 unsaved' })).toBeTruthy();
   });
 
@@ -276,8 +276,8 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
     const t1 = amy.querySelector('[data-timeoff="t1"]');
     expect(t1.textContent).toBe('2:00p - 4:00p Personal');          // one soft rose line beside the shift; the reason is the hover title
     expect(t1.getAttribute('title')).toContain('Dentist');
-    expect(screen.getByText('Week · 8 Hrs')).toBeTruthy();
-    expect(screen.getByText('8 Hrs · 2 people')).toBeTruthy();
+    expect(screen.getByText('Week · 8:00 Hrs')).toBeTruthy();
+    expect(screen.getByText('8:00 Hrs · 2 people')).toBeTruthy();
     // Two whole days off are ONE pill across both columns, the range said once.
     const t2 = document.querySelectorAll('[data-timeoff="t2"]');
     expect(t2.length).toBe(1);
@@ -297,10 +297,10 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
     expect(document.querySelector('[data-open-row="g1"] [data-shift="o1"]')).toBeTruthy();
     expect(document.querySelector('[data-open-row="all"] [data-shift="o2"]')).toBeTruthy();
     expect(document.querySelector('[data-open-row="g2"] [data-shift]')).toBeNull();
-    expect(document.querySelector('[data-open-row="g1"]').textContent).toContain('3 open · 24 Hrs');
+    expect(document.querySelector('[data-open-row="g1"]').textContent).toContain('3 open · 24:00 Hrs');
     expect(blockOf('o1').textContent).toContain('3 open');
-    expect(screen.getByText('Week · 8 Hrs')).toBeTruthy();   // people only; open spots have their own row
-    expect(screen.getByText('8 Hrs · 1 person')).toBeTruthy();
+    expect(screen.getByText('Week · 8:00 Hrs')).toBeTruthy();   // people only; open spots have their own row
+    expect(screen.getByText('8:00 Hrs · 1 person')).toBeTruthy();
     // Collapse a group: its rows go, the header stays.
     fireEvent.click(screen.getByRole('button', { name: 'Collapse Front' }));
     expect(screen.queryByText('Amy Adams')).toBeNull();
@@ -463,8 +463,9 @@ describe('Menus, clipboard, keyboard and touch', () => {
     fireEvent.contextMenu(blockOf('s1'));
     fireEvent.click(screen.getByText('Move To Open Shifts'));
     await waitFor(() => expect(timeSchedMove).toHaveBeenCalledWith('s1', { employee_email: '', work_date: monday, duplicate: false }));
-    fireEvent.contextMenu(blockOf('s1'));
-    fireEvent.click(screen.getByText('Delete'));
+    // The move reloads the week; on a slow runner the block is re-rendered after it, so open the menu once it is back.
+    await waitFor(() => { fireEvent.contextMenu(blockOf('s1')); expect(screen.getByRole('menu', { name: 'Shift options' })).toBeTruthy(); });
+    fireEvent.click(within(screen.getByRole('menu', { name: 'Shift options' })).getByText('Delete'));
     await waitFor(() => expect(timeSchedDelete).toHaveBeenCalledWith('s1'));
   });
 
@@ -569,7 +570,7 @@ describe('Menus, clipboard, keyboard and touch', () => {
     expect(ghost.getAttribute('aria-hidden')).toBe('true');
     expect(ghost.style.opacity).toBe('0');
     expect(cellOf('bob@greensglobal.com', plusDays(monday, 1)).querySelector('[data-ghost]')).toBeNull();
-    expect(screen.getByText('Week · 8 Hrs')).toBeTruthy();
+    expect(screen.getByText('Week · 8:00 Hrs')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('Options for Bob Brown'));
     const menu = screen.getByRole('menu', { name: 'Options for Bob Brown' });
     fireEvent.click(within(menu).getByRole('menuitemradio', { name: /Store · 9:00 AM - 5:00 PM/ }));
@@ -638,7 +639,7 @@ describe('The editor panel', () => {
     fireEvent.change(within(panel).getByLabelText('Activity 1 start'), { target: { value: '12:00' } });
     fireEvent.change(within(panel).getByLabelText('Activity 1 end'), { target: { value: '12:30' } });
     expect(within(panel).getByRole('button', { name: 'Unpaid', pressed: true })).toBeTruthy();   // new activities start unpaid
-    expect(panel.textContent).toContain('7.5 Hrs');
+    expect(panel.textContent).toContain('7:30 Hrs');
     expect(panel.textContent).toContain('30m unpaid');
     fireEvent.click(within(panel).getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(timeSchedUpdate).toHaveBeenCalledWith('s1', expect.objectContaining({
@@ -648,7 +649,7 @@ describe('The editor panel', () => {
   it('refuses a shift that starts and ends at the same time (QA D3)', async () => {
     timeSchedule.mockResolvedValue(data([shift({ start: '10:00', end: '10:00' }), shift({ id: 's2', email: 'bob@greensglobal.com', code: 'BOB' })]));
     render(<ShiftSchedule toastOk={toastOk} />);
-    expect(await screen.findByText('Week · 8 Hrs')).toBeTruthy();   // an old 10:00-10:00 row counts as 0 h
+    expect(await screen.findByText('Week · 8:00 Hrs')).toBeTruthy();   // an old 10:00-10:00 row counts as 0 h
     fireEvent.doubleClick(blockOf('s1'));
     expect(screen.getByRole('alert').textContent).toBe("Start and end can't be the same time.");
     expect(screen.getByRole('button', { name: /^Save$/ }).disabled).toBe(true);
@@ -747,7 +748,7 @@ describe('Views, options, export, drag', () => {
     fireEvent.click(day);
     await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(today, today));
     expect(await screen.findByLabelText(/^Shift 9:00 AM - 5:00 PM/)).toBeTruthy();
-    expect(screen.getByText(/1 person · 8 Hrs/)).toBeTruthy();   // headcount and hours in the Day header
+    expect(screen.getByText(/1 person · 8:00 Hrs/)).toBeTruthy();   // headcount and hours in the Day header
   });
 
   it('pastes a copied shift on a Day-view track (QA 25)', async () => {
@@ -766,11 +767,11 @@ describe('Views, options, export, drag', () => {
   it('filters people and shift types from View Options, and the hours follow', async () => {
     timeSchedule.mockResolvedValue(data([shift(), shift({ id: 's2', email: 'bob@greensglobal.com', shiftId: 'p2', code: 'NGT', start: '21:00', end: '05:00' })]));
     render(<ShiftSchedule toastOk={toastOk} />);
-    expect(await screen.findByText('Week · 16 Hrs')).toBeTruthy();
+    expect(await screen.findByText('Week · 16:00 Hrs')).toBeTruthy();
     const dlg = viewOptions();
     fireEvent.change(within(dlg).getByLabelText('Search people'), { target: { value: 'amy' } });
     expect(blockOf('s2')).toBeNull();
-    expect(screen.getByText('Week · 8 Hrs')).toBeTruthy();
+    expect(screen.getByText('Week · 8:00 Hrs')).toBeTruthy();
     fireEvent.change(within(dlg).getByLabelText('Search people'), { target: { value: '' } });
     fireEvent.change(within(dlg).getByLabelText('Filter by shift type'), { target: { value: 'p2' } });
     expect(blockOf('s1')).toBeNull();
@@ -868,7 +869,7 @@ describe('Views, options, export, drag', () => {
     expect(gone.textContent).toContain('Weather - unpaid');
     expect(gone.getAttribute('title')).toContain('Cancelled for weather (unpaid)');
     expect(blockOf('s2').getAttribute('title')).toContain('Start delayed for weather');
-    expect(screen.getByText('Week · 7 Hrs')).toBeTruthy();   // Amy's cancelled day counts nothing; Bob's 10-5
+    expect(screen.getByText('Week · 7:00 Hrs')).toBeTruthy();   // Amy's cancelled day counts nothing; Bob's 10-5
   });
 
   it('exports what is on screen with the group and unpaid activities', async () => {
@@ -1168,7 +1169,7 @@ describe('Groups on the grid', () => {
     const long = [0, 1, 2, 3, 4, 5].map((i) => shift({ id: `l${i}`, date: plusDays(monday, i), start: '08:00', end: '16:00' }));
     timeSchedule.mockResolvedValue(teams({ scheduled: long }));
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
-    expect(await screen.findByText(/48 Hrs · over 40/)).toBeTruthy();
+    expect(await screen.findByText(/48:00 Hrs · over 40/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText('Construction options'));
     fireEvent.click(screen.getByText('Archive Group'));
     await waitFor(() => expect(timeShiftGroupMeta).toHaveBeenCalledWith('g1', { archived: true }));
@@ -1426,13 +1427,13 @@ describe('Scheduled labor line', () => {
     timeSchedule.mockResolvedValue(data([shift()]));
     timeScheduleLabor.mockResolvedValue({ hours: 312, cost: 7840, currency: 'USD', payHidden: false, peopleWithoutRate: 2, fixedPayPeople: 1, days: [] });
     const { unmount } = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
-    const line = (await screen.findByText('Scheduled 312 h · $7,840 · 2 people without a rate · 1 person on fixed pay')).closest('[data-labor-line]');
+    const line = (await screen.findByText('Scheduled 312h 00m · $7,840 · 2 people without a rate · 1 person on fixed pay')).closest('[data-labor-line]');
     expect(line.getAttribute('title')).toBe('Scheduled hours for your team, published and draft shifts together, not counting unpaid breaks, at each person\'s hourly rate for that day. People on fixed pay are counted in the hours, not the cost.');
     expect(timeScheduleLabor).toHaveBeenCalledWith(expect.any(String), expect.any(String));
     unmount();
     timeScheduleLabor.mockResolvedValue({ hours: 8.5, cost: null, currency: 'USD', payHidden: true, peopleWithoutRate: null, fixedPayPeople: null, days: [] });
     const r2 = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
-    const hidden = (await screen.findByText('Scheduled 8.5 h')).closest('[data-labor-line]');
+    const hidden = (await screen.findByText('Scheduled 8h 30m')).closest('[data-labor-line]');
     expect(hidden.getAttribute('title')).toBe('Scheduled hours for your team, published and draft shifts together, not counting unpaid breaks.');
     r2.unmount();
     timeScheduleLabor.mockResolvedValue({ hours: 0, cost: 0, currency: 'USD', payHidden: false, peopleWithoutRate: 0, fixedPayPeople: 0, days: [] });
@@ -1443,13 +1444,13 @@ describe('Scheduled labor line', () => {
 
   it('laborText: thousands separators, one person / several people, and a scope across currencies printed per currency', () => {
     expect(laborText({ hours: 1250, cost: 98400, currency: 'USD', payHidden: false, peopleWithoutRate: 1, fixedPayPeople: 3 }))
-      .toBe('Scheduled 1,250 h · $98,400 · 1 person without a rate · 3 people on fixed pay');
-    expect(laborText({ hours: 1250.5, cost: 12.5, currency: 'USD', payHidden: false })).toBe('Scheduled 1,250.5 h · $12.50');
+      .toBe('Scheduled 1,250h 00m · $98,400 · 1 person without a rate · 3 people on fixed pay');
+    expect(laborText({ hours: 1250.5, cost: 12.5, currency: 'USD', payHidden: false })).toBe('Scheduled 1,250h 30m · $12.50');
     // Mixed currencies: the server sends no total; each currency stands alone.
     expect(laborText({ hours: 400, cost: null, currency: '', costs: { USD: 7840, INR: 52000 }, payHidden: false, fixedPayPeople: 1 }))
-      .toBe('Scheduled 400 h · $7,840 and ₹52,000 · 1 person on fixed pay');
+      .toBe('Scheduled 400h 00m · $7,840 and ₹52,000 · 1 person on fixed pay');
     // No total and one currency (nothing priced yet): hours only.
-    expect(laborText({ hours: 40, cost: null, currency: 'USD', costs: {}, payHidden: false })).toBe('Scheduled 40 h');
+    expect(laborText({ hours: 40, cost: null, currency: 'USD', costs: {}, payHidden: false })).toBe('Scheduled 40h 00m');
   });
 
   // Weekly labor budget (Neil, 11/02/2026): HR++ only - the server sends
@@ -1457,17 +1458,17 @@ describe('Scheduled labor line', () => {
   // after the scheduled figure and goes amber when over.
   it('laborText: the budget after the scheduled figure for HR++, amber when over, nothing for everyone else', () => {
     const under = { hours: 1250, cost: 98400, currency: 'USD', payHidden: false, budgetVisible: true, budget: { hours: 1300, amount: 100000, currency: 'USD' } };
-    expect(laborText(under)).toBe('Scheduled 1,250 h of 1,300 h budget · $98,400 of $100,000 budget');
+    expect(laborText(under)).toBe('Scheduled 1,250h 00m of 1,300h 00m budget · $98,400 of $100,000 budget');
     expect(laborOver(under)).toBe(false);
     const over = { ...under, budget: { hours: 1200, amount: 100000, currency: 'USD' } };
-    expect(laborText(over)).toBe('Scheduled 1,250 h of 1,200 h budget · $98,400 of $100,000 budget');
+    expect(laborText(over)).toBe('Scheduled 1,250h 00m of 1,200h 00m budget · $98,400 of $100,000 budget');
     expect(laborOver(over)).toBe(true);
     expect(laborOver({ ...under, budget: { hours: 1300, amount: 9000, currency: 'USD' } })).toBe(true);
     // Hours budget only; no budget set at all (nulls) says nothing extra.
-    expect(laborText({ ...under, budget: { hours: 1300, amount: null, currency: 'USD' } })).toBe('Scheduled 1,250 h of 1,300 h budget · $98,400');
-    expect(laborText({ ...under, budget: { hours: null, amount: null, currency: 'USD' } })).toBe('Scheduled 1,250 h · $98,400');
+    expect(laborText({ ...under, budget: { hours: 1300, amount: null, currency: 'USD' } })).toBe('Scheduled 1,250h 00m of 1,300h 00m budget · $98,400');
+    expect(laborText({ ...under, budget: { hours: null, amount: null, currency: 'USD' } })).toBe('Scheduled 1,250h 00m · $98,400');
     // A manager's payload carries neither key: the line is exactly as before.
-    expect(laborText({ hours: 1250, cost: null, currency: 'USD', payHidden: true })).toBe('Scheduled 1,250 h');
+    expect(laborText({ hours: 1250, cost: null, currency: 'USD', payHidden: true })).toBe('Scheduled 1,250h 00m');
     expect(laborOver({ hours: 1250, cost: null, currency: 'USD', payHidden: true })).toBe(false);
   });
 
@@ -1477,11 +1478,11 @@ describe('Scheduled labor line', () => {
       budgetVisible: true, budget: { hours: 300, amount: 9000, currency: 'USD' } });
     const { unmount } = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     const line = await waitFor(() => { const el = document.querySelector('[data-labor-line]'); if (!el) throw new Error('no line yet'); return el; });
-    expect(line.textContent).toBe('Scheduled 312 h of 300 h budget · $7,840 of $9,000 budget');
+    expect(line.textContent).toBe('Scheduled 312h 00m of 300h 00m budget · $7,840 of $9,000 budget');
     expect(line.getAttribute('data-labor-over')).toBe('');
     expect(line.style.color).toBe('');                                   // the figures stay muted
     const budgets = Array.from(line.querySelectorAll('[data-labor-budget]'));
-    expect(budgets.map((b) => b.textContent)).toEqual([' of 300 h budget', ' of $9,000 budget']);
+    expect(budgets.map((b) => b.textContent)).toEqual([' of 300h 00m budget', ' of $9,000 budget']);
     budgets.forEach((b) => { expect(b.style.color).toBe('hsl(var(--color-orange))'); expect(b.style.fontWeight).toBe('600'); });
     unmount();
     // Under budget: the fragments are there, uncolored, and the line is not marked.

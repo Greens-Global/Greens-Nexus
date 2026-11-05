@@ -1,6 +1,6 @@
 // Reading a page: the clean column, the action bar, On This Page, the rail.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Play, Share2, Pin, Pencil, ThumbsUp, ThumbsDown, Flag, Globe, Printer, Copy, Link2, ShieldCheck, AlertTriangle, PenLine, Check, RotateCcw, Archive, History, Eye, MessageSquare, ClipboardList, MoreHorizontal } from 'lucide-react';
+import { Play, Share2, Pin, Pencil, ThumbsUp, ThumbsDown, Flag, Globe, Printer, Copy, Link2, ShieldCheck, AlertTriangle, PenLine, Check, RotateCcw, Archive, History, Eye, MessageSquare, ClipboardList, MoreHorizontal } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection from '../../components/AsyncState';
 import AnchoredMenu from '../../components/AnchoredMenu';
@@ -11,6 +11,7 @@ import { TypeChip, VerifiedChip, StatusChip, Chip, Av, Banner } from '../compone
 import StartTaskModal from '../components/StartTaskModal';
 import PeoplePick, { usePeopleList } from '../components/PeoplePick';
 import { useToast, errText } from '../components/Toast';
+import { useTrailCrumbs } from '../../components/PageTrail';
 import { goKb, goView, fmtDate, fmtDateTime, pageUrl, copyText, typeMeta, plural, subFor } from '../lib';
 
 const LANGS = { en: 'English', es: 'Español', hi: 'हिन्दी' };
@@ -137,6 +138,8 @@ export default function PageView({ id, me }) {
   const toast = useToast();
   const { myGrantedModules, can } = useRole();
   const [page, setPage] = useState(null);
+  // The page trail: KNOWLEDGE BASE / <collection> over the page (11/04/2026).
+  useTrailCrumbs((page?.collection || []).map((c) => ({ label: c.name, onClick: () => goKb('collection', c.id) })));
   const [err, setErr] = useState('');
   const [lang, setLang] = useState('en');
   const [trans, setTrans] = useState(null);
@@ -181,12 +184,6 @@ export default function PageView({ id, me }) {
     <AsyncSection loading={!page && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
       {page && (
         <div className="kb-page">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }} className="kb-meta">
-            <button type="button" className="kb-ibtn" style={{ width: 30, height: 30 }} aria-label="Back to the Library" onClick={() => (page.collection?.[0] ? goKb('collection', page.collection[page.collection.length - 1].id) : goKb('home'))}><ArrowLeft /></button>
-            <a href="#home" onClick={(e) => { e.preventDefault(); goKb('home'); }}>Knowledge Base</a>
-            {(page.collection || []).map((c) => <span key={c.id}> / <a href="#c" onClick={(e) => { e.preventDefault(); goKb('collection', c.id); }}>{c.name}</a></span>)}
-            <span> / <b style={{ color: 'var(--kb-ink)' }}>{page.title}</b></span>
-          </div>
 
           {page.status !== 'approved' && (
             <Banner kind={page.status === 'archived' ? 'red' : 'amber'} icon={Eye}>

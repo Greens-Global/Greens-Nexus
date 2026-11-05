@@ -71,7 +71,7 @@ export default function OpsSettings({ toastOk, toastErr }) {
         </div>
         {on && !s.writeConfigured && (
           <p className="ops-note" role="status" style={{ margin: '10px 0 0', color: 'var(--warn-fg)' }}>
-            This server has no Cubby key with the Manager role ({s.writeKeyEnv}), so pushes will be refused until an
+            This server has no Cubby key ({s.writeKeyEnv} or CUBBY_API_KEY), so pushes will be refused until an
             administrator adds it in the API&apos;s app settings.
           </p>
         )}

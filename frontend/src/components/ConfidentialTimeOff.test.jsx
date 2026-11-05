@@ -91,7 +91,7 @@ describe('request form totals and types (Neil, Sep 30)', () => {
     const times = document.querySelectorAll('input[type="time"]');
     fireEvent.change(times[0], { target: { value: '08:30' } });
     fireEvent.change(times[1], { target: { value: '17:30' } });
-    expect(screen.getByText('9')).toBeTruthy();
+    expect(screen.getByText('9:00')).toBeTruthy();   // H:MM, never decimals (Neil, 11/04/2026)
     expect(screen.getByText('hours')).toBeTruthy();
   }, SLOW);
 

@@ -39,6 +39,7 @@ import {
 } from '../directory/lib';
 import { exportDirectoryPdf } from '../directory/pdf';
 import { openPersonTasks } from '../lib/personTasksNav';
+import PageTrail from '../components/PageTrail';
 
 const REFRESH_MS = 60_000;
 const PRESENCE_MS = 30_000;   // Teams presence poll; the server holds one Graph answer per 30 s
@@ -336,6 +337,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
       , toolsTarget) : null) : (
       <div className="view-header" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div className="view-title-group">
+          <PageTrail title="Directory" />
           <h2>Directory</h2>
           <p>{data ? `${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Find and reach anyone in the company'}</p>
         </div>
@@ -409,9 +411,10 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
               </div>
             </>
           ) : (
-          // The card column grows to its cap first, then every extra pixel
-          // widens the list (Neil, 10/13), where the status pills need room.
-          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(320px, 1fr) minmax(360px, 620px)', minHeight: 560 }}>
+          // The list is a bounded column and the contact card takes the rest
+          // (Neil, 11/04/2026 - supersedes the 10/13 rule that widened the list
+          // with every extra pixel). 480px keeps name, title and pills on a row.
+          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(340px, 480px) minmax(0, 1fr)', minHeight: 560 }}>
             {showList && (
               <div style={{ borderRight: mobile ? 'none' : `1px solid ${NX.border}`, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 {toolbar(false)}
@@ -446,7 +449,8 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
 
             {showProfile && (
               <div style={{ padding: mobile ? 16 : 22, minWidth: 0, overflowY: 'auto', maxHeight: mobile ? 'none' : 'calc(100vh - 200px)' }}>
-                {profile}
+                {/* Capped so a very wide screen does not stretch the card into an empty sheet. */}
+                <div style={{ maxWidth: mobile || !(person || missing) ? 'none' : 760 }}>{profile}</div>
               </div>
             )}
           </div>

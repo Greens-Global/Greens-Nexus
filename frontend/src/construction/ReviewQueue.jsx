@@ -26,6 +26,7 @@ import { StatusLabel } from '../components/StatusLabel';
 import { dialog } from '../ui/dialog';
 import { CARD, TAG_COLOR, TONE, personName, tagLabel } from './ui';
 import { useConstructionMeta } from './lib/meta';
+import { formatHoursWords } from '../lib/hoursText';
 
 const SEV = {
   high:   'hsl(var(--color-red))',
@@ -97,7 +98,7 @@ function LogCard({ log, onDecide, busy, aiEnabled }) {
                 <ImageIcon size={12} />{log.mediaCount}
               </span>
               {log.crewSize ? <span>crew of {log.crewSize}</span> : null}
-              {log.hoursWorked ? <span>{log.hoursWorked}h</span> : null}
+              {log.hoursWorked ? <span>{formatHoursWords(log.hoursWorked, { compact: true })}</span> : null}
               {aiEnabled && !log.awaitingAi && <Confidence value={log.aiConfidence} />}
             </div>
           </div>

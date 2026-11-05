@@ -176,7 +176,7 @@ describe('ConstructionDashboard', () => {
 
   it('renders the overview once loaded', async () => {
     render(<ConstructionDashboard />);
-    expect(screen.getByText('Construction Overview')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Project Dashboard' })).toBeInTheDocument();
     // Asserted on the address, not the name: the review queue renders above the
     // project list and names the same jobsite, so getByText(name) matches twice.
     await waitFor(() => expect(screen.getByText(project.address)).toBeInTheDocument());
@@ -189,7 +189,7 @@ describe('ConstructionDashboard', () => {
     // an in-flight fetch that renders the empty state reads as "our data is
     // gone". Skeletons carry no text, so the check is that the page has its
     // frame and the empty state is absent.
-    expect(screen.getByText('Construction Overview')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Project Dashboard' })).toBeInTheDocument();
     expect(screen.queryByText(/No jobs yet/i)).not.toBeInTheDocument();
   });
 
@@ -207,7 +207,7 @@ describe('ConstructionDashboard', () => {
     render(<ConstructionDashboard />);
     await waitFor(() => expect(screen.getByText('network down')).toBeInTheDocument());
     // The header must still be there - a failed fetch is a banner, not a blank screen.
-    expect(screen.getByText('Construction Overview')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Project Dashboard' })).toBeInTheDocument();
   });
 });
 
@@ -267,19 +267,14 @@ describe('WeeklyReports', () => {
 });
 
 describe('Registers', () => {
-  it('renders the milestones tab empty', async () => {
+  it('renders the RFIs tab empty - milestones live on the Schedule tab', async () => {
     render(<Registers project={project} canReview />);
-    await waitFor(() => expect(screen.getByText(/No milestones yet/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/No RFIs yet/i)).toBeInTheDocument());
+    expect(screen.queryByText(/Milestones/)).not.toBeInTheDocument();
   });
 
   it('renders rows for each register', async () => {
     api.getConstructionRegister.mockImplementation((_id, kind) => Promise.resolve({
-      milestones: [{
-        id: 'm1', projectId: 'p1', name: 'Foundation complete', description: '',
-        targetDate: '2026-09-01', actualDate: '', status: 'at_risk', critical: true,
-        aiDetectedAt: '2026-08-04T12:00:00Z', aiEvidence: ['media1'],
-        confirmedBy: '', createdAt: '2026-07-01T00:00:00Z',
-      }],
       rfis: [{
         id: 'q1', projectId: 'p1', number: 'RFI-014', subject: 'Rebar spacing',
         question: 'Confirm spacing at grid C.', answer: '', status: 'open',
@@ -295,12 +290,8 @@ describe('Registers', () => {
         createdAt: '2026-07-20T00:00:00Z',
       }],
     }[kind] || []));
-    // With AI on (Neil or Visesh turned it on), the AI's suggestion is a prompt
-    // to confirm, never a state change.
-    api.getConstructionMeta.mockResolvedValue({ aiEnabled: true });
     render(<Registers project={project} canReview />);
-    await waitFor(() => expect(screen.getByText('Foundation complete')).toBeInTheDocument());
-    expect(await screen.findByText(/AI suggests this is hit/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/RFI-014/)).toBeInTheDocument());
   });
 
   it('renders read-only for a worker', async () => {

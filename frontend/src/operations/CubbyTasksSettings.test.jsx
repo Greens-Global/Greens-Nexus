@@ -55,7 +55,7 @@ describe('Cubby Tasks settings', () => {
     render(<CubbyTasksSettings />);
     fireEvent.click(await screen.findByRole('switch', { name: 'Close Tasks in Cubby' }));
     await waitFor(() => expect(api.saveCubbyTaskSettings).toHaveBeenCalledWith({ closeInCubby: true }));
-    expect(await screen.findByText(/no Cubby key with the Manager role/)).toBeTruthy();
+    expect(await screen.findByText(/no Cubby key \(CUBBY_MANAGER_API_KEY or CUBBY_API_KEY\)/)).toBeTruthy();
   });
 
   it('summarizes the last run, what was skipped, and the queue', async () => {

@@ -4,6 +4,7 @@ import PlatformBadge from './PlatformBadge'
 import StarRating from '../shared/StarRating'
 import { formatDateTime } from '../../lib/datetime'
 import { C } from '../theme'
+import { formatHoursWords } from '../../lib/hoursText'
 
 const sentimentStyles = {
   Positive: { background: C.emerald50, color: C.emerald600 },
@@ -116,7 +117,7 @@ export default function ReviewCard({ review, onApprove, onRegenerate, highlightW
         {isPosted ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.emerald600, fontWeight: 500 }}>
             <CheckCircle2 size={13} />
-            Posted{review.responseHours != null ? ` • replied in ${review.responseHours.toFixed(1)} hrs` : ''}
+            Posted{review.responseHours != null ? ` • replied in ${formatHoursWords(review.responseHours, { compact: true })}` : ''}
             {review.wasEdited && <span style={{ color: C.gray400, fontWeight: 400 }}>(edited before posting)</span>}
           </div>
         ) : (

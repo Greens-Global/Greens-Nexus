@@ -400,6 +400,8 @@ def punch_verify(task_id: str, body: VerifyIn, background_tasks: BackgroundTasks
     m = _meta(db, job, t.id)
     if body.verified and not m.verified_at:
         m.verified_by, m.verified_at = _me(user), _now()
+        from routers.construction import _emit
+        _emit(db, "punch.verified", job, user, extra={"task_id": t.id, "title": t.title or ""})
     elif not body.verified:
         m.verified_by = m.verified_at = ""
     m.modified_at = _now()
@@ -749,6 +751,8 @@ def job_connected(job_id: str, user: dict = Depends(get_current_user), db: Sessi
                     "address": pay.get("address") or "", "city": pay.get("city") or "",
                     "state": pay.get("state") or ""}
     crew = construction_labor.crew_this_week(db, p, _jobsite_today(db, p))
+    import construction_closeout
+    inspections = construction_closeout.inspection_summary(db, p, today)
     names = _names(db, [c["email"] for c in crew["people"]] + [t.get("requesterEmail") for t in tickets]
                    + ([last.author_email] if last else []))
     for c in crew["people"]:
@@ -765,6 +769,7 @@ def job_connected(job_id: str, user: dict = Depends(get_current_user), db: Sessi
         "crew": crew,
         "tickets": tickets,
         "property": prop,
+        "inspections": inspections,
         "names": names,
     }
 

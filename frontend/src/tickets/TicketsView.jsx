@@ -57,6 +57,7 @@ import { CreateTicketModal } from './CreateTicketModal';
 import { TicketDrawer } from './TicketDrawer';
 import { TicketBoard } from './TicketBoard';
 import PreventiveRollup from '../maintenance/PreventiveRollup';
+import PageTrail from '../components/PageTrail';
 
 // Re-exported: tests and other modules import these from TicketsView.
 export { TicketActionDialog, CreateTicketModal, TicketDrawer };
@@ -667,6 +668,8 @@ export default function TicketsView() {
           tab too, and "+ View" saves the current filters as one. Phones get
           the same strip (swipeable), with Create in the floating bar. */}
       <div className="nx-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '0 8px' : '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, flexShrink: 0 }}>
+        {/* The page trail rides the bar, as on Tasks (Neil, 11/04/2026). */}
+        <PageTrail className="page-trail--bar" />
         <div data-tour="ticket-scope" style={{ flex: 1, minWidth: 0 }}>
           <ModuleTabs inline tabs={queueTabs} active={activeTab} onChange={onTab} />
         </div>

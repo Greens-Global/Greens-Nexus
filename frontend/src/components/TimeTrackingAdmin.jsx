@@ -15,6 +15,7 @@ import Scorecard from './workforce/Scorecard';
 import { useRole } from '../contexts/RoleContext';
 import { Spinner, LoadingState } from './AsyncState';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import PageTrail from '../components/PageTrail';
 
 // Human "last seen" from a seconds delta.
 function relSeen(secs) {
@@ -653,6 +654,7 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
       {module && (
         <div className="view-header" style={{ marginBottom: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div className="view-title-group">
+            <PageTrail title="Workforce Analytics" />
             <h2>Workforce Analytics</h2>
             <p>Disclosed monitoring - coverage, activity, locations, screenshots, and company computers</p>
           </div>

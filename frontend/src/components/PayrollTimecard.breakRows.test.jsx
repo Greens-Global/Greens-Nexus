@@ -1,19 +1,24 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { formatTimeTz } from '../lib/displayTz';
 
 // The hourly card as SwipeClock punch pairs (Charmi / Visesh, Oct 20 -
 // replaces the Oct 16 single row + Break row): a shift with a lunch is two
 // rows, clock-in -> break start and break end -> clock-out, each with its own
-// Total Hours, and a thin break line between them. Edit and Add sit in the
-// same two slots on every row. Display only: the hours and the pay are the
-// server's, unchanged.
+// Punch hours, and the break as its own line between them (11/04/2026: its
+// start under In, its end under Out, its length under Category). The shift's
+// figures and its Edit / Add / Log read on its first row. Display only: the
+// hours and the pay are the server's, unchanged.
 
 const now = new Date();
-const TODAY = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+// Today on the card's clock (California) - not the test machine's, which
+// runs in UTC on CI and is a day ahead every evening Pacific time.
+const TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 const at = (hm) => `${TODAY}T${hm}:00`;
 const t = (hm) => formatTimeTz(at(hm));
+// As the grid draws it (TimeText, 11/04/2026): "8:08" then " PM" in its own box.
+const tw = (hm) => t(hm).replace(/(am|pm)$/i, (m) => `\u00a0${m.toUpperCase()}`);
 
 // 15:48 -> 20:08, break 20:08 - 20:23, 20:23 -> 23:45: 4:20 + 3:22 = 7:42.
 const ONE_BREAK = {
@@ -69,70 +74,89 @@ async function open(c, { self = false } = {}) {
   await screen.findByText('Deducted Time');
   const { container } = utils;
   const cells = (tr) => [...tr.querySelectorAll('td')].map(td => td.textContent.trim());
-  // the rows with punches (an empty day reads '-' in In and Out)
-  const worked = [...container.querySelectorAll('tr.pr-day-row')].filter(tr => cells(tr).slice(2, 4).some(x => x !== '-'));
-  const lines = [...container.querySelectorAll('tr.pr-break-line')];
+  // the rows with punches; the break lines between them
+  const worked = [...container.querySelectorAll('tr.ts-row')];
+  const lines = [...container.querySelectorAll('tr.ts-brk')];
   return { ...utils, cells, worked, lines };
 }
 
+// Columns: 0 Date, 1 In, 2 Out, 3 Deducted Time, 4 Category, 5 Punch,
+// 6 Day Total, 7 OT, 8 Location, 9 Pay Rate, 10 Wage, 11 the actions.
 describe('a shift with a break on the Time Sheet', () => {
   it('reads as two punch pairs with a break line between, each row its own hours', async () => {
     const { container, cells, worked, lines } = await open(card([ONE_BREAK]));
     const heads = [...container.querySelectorAll('thead th')].map(th => th.textContent);
-    expect(heads).toEqual(['Date', 'Edit', 'In', 'Out', 'Deducted Time', 'Category', 'Total Hours', 'Hrs/Day', 'OT', 'Location', 'Pay Rate', 'Wage', 'Log']);
+    expect(heads).toEqual(['Date', 'In', 'Out', 'Deducted Time', 'Category', 'Punch', 'Day Total', 'OT', 'Location', 'Pay Rate', 'Wage', 'Actions']);
     expect(worked).toHaveLength(2);
     // Row 1: clock-in -> break start; row 2: break end -> clock-out.
-    expect(cells(worked[0])[2]).toContain(t('15:48'));
-    expect(cells(worked[0])[3]).toContain(t('20:08'));
+    expect(cells(worked[0])[1]).toContain(tw('15:48'));
+    expect(cells(worked[0])[2]).toContain(tw('20:08'));
     expect(cells(worked[1])[0]).toBe('');           // the date only on the day's first row
-    // Row 2 has no merged cells of its own: Date, Edit, In, Out, Total Hours, Hrs/Day.
-    expect(cells(worked[1])).toHaveLength(6);
-    expect(cells(worked[1])[2]).toContain(t('20:23'));
-    expect(cells(worked[1])[3]).toContain(t('23:45'));
-    // Each row's own Total Hours, adding up to the shift's 7:42.
-    expect(cells(worked[0])[6]).toBe('4:20');
-    expect(cells(worked[1])[4]).toBe('3:22');
-    // Hrs/Day: the first row points down, the last one has the day's total.
-    expect(worked[0].querySelectorAll('td')[7].querySelector('[aria-label="continues below"]')).toBeTruthy();
-    expect(cells(worked[1])[5]).toBe('7:42');
-    // The shift's Wage once, merged down over both rows and the break line.
-    expect(cells(worked[0])[11]).toBe('$169.40');
-    expect(worked[0].querySelectorAll('td')[11].getAttribute('rowspan')).toBe('3');
-    // The break line between them.
+    expect(cells(worked[1])[1]).toContain(tw('20:23'));
+    expect(cells(worked[1])[2]).toContain(tw('23:45'));
+    // Each row's own Punch hours, adding up to the shift's 7:42 - the day's
+    // total on its first row.
+    expect(cells(worked[0])[5]).toBe('4:20');
+    expect(cells(worked[1])[5]).toBe('3:22');
+    expect(cells(worked[0])[6]).toBe('7:42');
+    expect(cells(worked[1])[6]).toBe('');
+    // The shift's Wage once, on its first row.
+    expect(cells(worked[0])[10]).toBe('$169.40');
+    expect(cells(worked[1])[10]).toBe('');
+    // The break as its own line between them: start under In, end under Out,
+    // only its length under Category - never "unpaid".
     expect(lines).toHaveLength(1);
-    expect(lines[0].textContent).toContain(`Break 15 min (${t('20:08')} - ${t('20:23')})`);
+    const bl = cells(lines[0]);
+    expect(bl[0]).toBe('Break');
+    expect(bl[1]).toBe(tw('20:08'));
+    expect(bl[2]).toBe(tw('20:23'));
+    expect(bl[4]).toBe('15 min');
+    expect(lines[0].textContent).not.toMatch(/unpaid/i);
     expect(worked[0].nextElementSibling).toBe(lines[0]);
     expect(lines[0].nextElementSibling).toBe(worked[1]);
   }, 20000);
 
-  it('puts Edit and Add in the same two slots on every row, empty days included', async () => {
-    const { container, worked } = await open(card([ONE_BREAK]));
-    for (const tr of worked) {
-      const slots = tr.querySelectorAll('td:nth-child(2) [data-slot]');
-      expect([...slots].map(s => s.getAttribute('data-slot'))).toEqual(['edit', 'add']);
-      expect(slots[0].textContent).toBe('Edit');
-      expect(slots[1].textContent).toBe('Add');
+  it('lines every time up: hours:minutes and AM / PM each in a box of their own', async () => {
+    const { worked } = await open(card([ONE_BREAK]));
+    const tm = worked[0].querySelector('td:nth-child(2) .ts-tm');
+    expect(tm.querySelector('b').textContent).toBe(t('15:48').replace(/(am|pm)$/i, ''));
+    expect(tm.querySelector('i').textContent).toBe(`\u00a0${t('15:48').slice(-2).toUpperCase()}`);
+    // Every time has a dot or a spacer of the dot's width in front of it.
+    for (const tr of worked) for (const td of [tr.children[1], tr.children[2]]) {
+      expect(td.querySelector('.ts-tc > .ts-dot, .ts-tc > .ts-gsp')).toBeTruthy();
     }
-    // Row 2 starts where the break ended: its Edit fixes the break.
-    expect(worked[1].querySelector('[data-slot="edit"] button').getAttribute('title')).toContain('this break');
-    expect(worked[0].querySelector('[data-slot="edit"] button').getAttribute('title')).toContain('Edit this shift');
-    // A day with no punches keeps Add in the right-hand slot, under the others.
-    const empty = [...container.querySelectorAll('tr.pr-day-row')].find(tr => tr.querySelector('td:nth-child(2) [data-slot="add"]') && !tr.querySelector('[data-slot="edit"] button'));
-    expect(empty).toBeTruthy();
-    expect(empty.querySelector('[data-slot="edit"]').textContent).toBe('');
-    expect(empty.querySelector('[data-slot="add"]').textContent).toBe('Add');
+  }, 20000);
+
+  it('puts Edit, Add and Log on the shift\'s first row, and the break line fixes the break', async () => {
+    const { container, worked, lines } = await open(card([ONE_BREAK]));
+    const acts = worked[0].querySelector('td.ts-act');
+    expect([...acts.querySelectorAll('button')].map(b => b.textContent.trim())).toEqual(['Edit', 'Add', 'Log']);
+    expect(acts.querySelector('button').getAttribute('title')).toContain('Edit this shift');
+    expect(worked[1].querySelector('td.ts-act').textContent).toBe('');
+    // The break line itself opens the break fixer.
+    const brk = lines[0].querySelector('button');
+    expect(brk.getAttribute('aria-label')).toContain('Fix the start or end of this break');
+    fireEvent.click(brk);
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    // A past day with no punches offers Add and the Log on its one quiet line.
+    const empty = [...container.querySelectorAll('tr.ts-quiet')].find(tr => tr.textContent.includes('No punches'));
+    if (empty) expect([...empty.querySelectorAll('td.ts-act button')].map(b => b.textContent.trim())).toEqual(['Add', 'Log']);
+    // A day still ahead reads Upcoming with no Add (Neil, 11/04/2026).
+    const ahead = [...container.querySelectorAll('tr.ts-quiet')].find(tr => tr.textContent.includes('Upcoming'));
+    if (ahead) expect(ahead.querySelector('td.ts-act').textContent).toBe('');
   }, 20000);
 
   it('keeps each punch on its own cell: the manager-entered break end is bold with its provenance', async () => {
     const { worked } = await open(card([ONE_BREAK]));
-    const inBtn = worked[0].querySelector('td:nth-child(3) button[title*="Clock-in at"]');
+    const inBtn = worked[0].querySelector('td:nth-child(2) button[title*="Clock-in at"]');
     expect(inBtn.getAttribute('title')).toContain('Mobile app · GSE · IP 10.0.0.7');
-    const breakEnd = worked[1].querySelector('td:nth-child(3) button[title*="Break end at"]');
+    expect(inBtn.getAttribute('aria-label')).toMatch(/^Clock-in /);
+    const breakEnd = worked[1].querySelector('td:nth-child(2) button[title*="Break end at"]');
     expect(breakEnd).toBeTruthy();
     expect(breakEnd.getAttribute('title')).toContain('Entered by Charmi Desai on');
     expect(breakEnd.querySelector('span').style.fontWeight).toBe('800');
     // ...and the clock-taken break start on row 1's Out is not.
-    const breakStart = worked[0].querySelector('td:nth-child(4) button[title*="Break start at"]');
+    const breakStart = worked[0].querySelector('td:nth-child(3) button[title*="Break start at"]');
     expect(breakStart.querySelector('span').style.fontWeight).not.toBe('800');
   }, 20000);
 
@@ -144,15 +168,15 @@ describe('a shift with a break on the Time Sheet', () => {
     for (const self of [true, false]) {
       const c = card([ONE_BREAK], { meta }); if (self) c.email = 'hr@x.com';
       const { worked } = await open(c, { self });
-      const breakEnd = worked[1].querySelector('td:nth-child(3)');
-      expect(breakEnd.textContent).toContain(t('20:40'));
-      expect(breakEnd.textContent).toContain('pending');
+      const breakEnd = worked[1].querySelector('td:nth-child(2)');
+      expect(breakEnd.textContent).toContain(tw('20:40'));
+      expect(breakEnd.textContent).toContain('Pending');
       expect(breakEnd.querySelector('[title*="clocked in too soon"]')).toBeTruthy();
-      const breakStart = worked[0].querySelector('td:nth-child(4)');
-      expect(breakStart.textContent).toContain(t('20:05'));
+      const breakStart = worked[0].querySelector('td:nth-child(3)');
+      expect(breakStart.textContent).toContain(tw('20:05'));
       // ...and the clock-in / clock-out, which have none, show none.
-      expect(worked[0].querySelector('td:nth-child(3)').textContent).not.toContain('pending');
-      expect(worked[1].querySelector('td:nth-child(4)').textContent).not.toContain('pending');
+      expect(worked[0].querySelector('td:nth-child(2)').textContent).not.toContain('Pending');
+      expect(worked[1].querySelector('td:nth-child(3)').textContent).not.toContain('Pending');
       if (!self) expect(breakEnd.querySelector('[aria-label="Approve this edited time"]')).toBeTruthy();
       cleanup();
     }
@@ -167,42 +191,45 @@ describe('a shift with a break on the Time Sheet', () => {
       'p-bs2': { kind: 'break_start', at: at('22:00') }, 'p-be2': { kind: 'break_end', at: at('22:15') } } }));
     expect(worked).toHaveLength(3);
     expect(lines).toHaveLength(2);
-    expect(cells(worked[0])[6]).toBe('4:20');
-    expect(cells(worked[1])[4]).toBe('1:37');
-    expect(cells(worked[2])[4]).toBe('1:30');
-    expect(cells(worked[2])[5]).toBe('7:27');
-    expect(worked[0].querySelectorAll('td')[11].getAttribute('rowspan')).toBe('5');
+    expect(cells(worked[0])[5]).toBe('4:20');
+    expect(cells(worked[1])[5]).toBe('1:37');
+    expect(cells(worked[2])[5]).toBe('1:30');
+    expect(cells(worked[0])[6]).toBe('7:27');
   }, 20000);
 
   it('shows a break the clock-out closed as a missing break end, no made-up time', async () => {
     const seg = { ...ONE_BREAK, workedMin: 260, breaks: [{ start: at('20:08'), end: at('23:45'), min: 217, implicit: true, startId: 'p-bs', endId: '' }] };
     const { cells, worked, lines } = await open(card([seg]));
     expect(worked).toHaveLength(2);
-    expect(cells(worked[1])[2]).toBe('Missing');
-    expect(cells(worked[1])[3]).toContain(t('23:45'));
-    expect(cells(worked[1])[4]).toBe('0:00');
-    expect(cells(worked[0])[6]).toBe('4:20');
-    expect(lines[0].textContent).toContain('the break end was never punched');
+    expect(cells(worked[1])[1]).toBe('Missing');
+    expect(cells(worked[1])[2]).toContain(tw('23:45'));
+    expect(cells(worked[1])[5]).toBe('-');
+    expect(cells(worked[0])[5]).toBe('4:20');
+    expect(cells(lines[0])[2]).toBe('Not Ended');
+    expect(lines[0].querySelector('[title*="never punched"]')).toBeTruthy();
+    // ...and it is the first thing to fix.
+    expect(screen.getByTestId('ts-strip').textContent).toContain('Break Not Ended');
   }, 20000);
 
   it('shows an auto-deducted lunch as a line, not as punch times', async () => {
     const seg = { ...ONE_BREAK, breaks: [], workedMin: 447, deductedMin: 30 };
     const { cells, worked, lines } = await open(card([seg]));
     expect(worked).toHaveLength(1);
-    expect(cells(worked[0])[4]).toBe('−30m');
+    expect(cells(worked[0])[3]).toBe('−30m');
     expect(lines).toHaveLength(1);
     expect(lines[0].textContent).toContain('Auto-Deducted 30 min');
   }, 20000);
 
-  it('ends an open shift on the break start, then On Break since', async () => {
+  it('ends an open shift on the break start, then On Break', async () => {
     const seg = { ...ONE_BREAK, out: '', outR: '', outId: '', workedMin: 0, amount: 0, breaks: [], flags: ['missing_out'] };
     const c = card([seg]);
     delete c.punchMeta['p-be']; delete c.punchMeta['p-out'];
     const { cells, worked, lines } = await open(c);
     expect(worked).toHaveLength(1);
-    expect(cells(worked[0])[3]).toContain(t('20:08'));
+    expect(cells(worked[0])[2]).toContain(tw('20:08'));
     expect(lines).toHaveLength(1);
-    expect(lines[0].textContent).toContain(`On Break since ${t('20:08')}`);
+    expect(cells(lines[0])[1]).toBe(tw('20:08'));
+    expect(lines[0].textContent).toContain('On Break');
   }, 20000);
 });
 
@@ -245,6 +272,8 @@ describe('California meal flags', () => {
 
   it('show for HR on the employee card', async () => {
     await open(flagged());
-    expect(screen.getByText('Meal Missed')).toBeTruthy();
+    // On the day's line, and grouped on the Needs Attention strip.
+    expect(screen.getAllByText('Meal Missed').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('ts-strip').textContent).toContain('Meal Missed');
   }, 20000);
 });

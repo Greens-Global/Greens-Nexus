@@ -145,9 +145,11 @@ def _flag_context(user: dict = Depends(get_current_user), db: Session = Depends(
     committed = money.committed_by_job(db, rows)
     jobs = []
     for p in rows:
-        approved = sum(c["amount"] for c in money.job_changes(db, p.id) if c["state"] == "approved")
+        changes = money.job_changes(db, p.id)
+        approved = sum(c["amount"] for c in changes if c["state"] == "approved")
         jobs.append({"id": p.id, **_link(p), "today": _today(db, p),
-                     "budget": money.budget_of(p, approved)["amount"], "committed": committed.get(p.id, 0.0)})
+                     "budget": money.budget_of(p, approved)["amount"], "committed": committed.get(p.id, 0.0),
+                     "pending": sum(c["amount"] for c in changes if c["state"] == "pending")})
     return {"jobs": jobs, "allowed": acct.allowed_entities(user, db)}
 
 
@@ -174,7 +176,11 @@ async def money_flags(ctx: dict = Depends(_flag_context)):
         cost = money.cost_by_project(data.get("rows") or [], chart)
         for j in jobs:
             actual = cost.get(j["project"], 0.0)
-            flags[j["id"]] = {"overBudget": (actual + j["committed"]) > j["budget"] > 0}
+            # The Program table (Round Two, 11/05/2026) reads the same figures
+            # the Money tab shows, for the same readers.
+            w = money.worked_out(actual=actual, budget=j["budget"], committed=j["committed"], pending=j["pending"])
+            flags[j["id"]] = {"overBudget": (actual + j["committed"]) > j["budget"] > 0,
+                              "actual": round(actual, 2), "budget": j["budget"], "forecast": w.get("forecast")}
     return {"flags": flags}
 
 

@@ -44,6 +44,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import HelpCenterSearch from '../support/HelpCenterSearch';
 import HowDoI from '../support/HowDoI';
 import ExpectReply from '../support/ExpectReply';
+import PageTrail from '../components/PageTrail';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab. The
@@ -574,22 +575,16 @@ export default function Support({ activeSub, onSubChange }) {
       style={{ display: 'flex', flexDirection: 'column', gap: isPhone ? 16 : 24, paddingBottom: isPhone ? 'calc(16px + env(safe-area-inset-bottom))' : undefined }}>
       <ModuleTabs tabs={SUPPORT_TABS} active="help" onChange={setTab} />
 
-      {/* Documentation has its own back arrow in its toolbar (Oct 15 2026). */}
-      {tab !== 'help' && tab !== 'documentation' && (
-        <button type="button" onClick={() => setTab('help')}
-          style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px 6px 8px', borderRadius: 8,
-            border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: -8 }}>
-          <ChevronLeft size={15} /> Back to Help Center
-        </button>
-      )}
-
       {tab === 'documentation' ? (
         <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
-          <SupportDocs canImplement={canImplement} startOnGuide={onGuide} onBack={() => setTab('help')} />
+          {/* HELP CENTER over Documentation: the trail goes back (11/04/2026). */}
+          <PageTrail title="Documentation" />
+          <SupportDocs canImplement={canImplement} startOnGuide={onGuide} />
         </Suspense>
       ) : (<>
       <div className="view-header">
         <div className="view-title-group">
+          <PageTrail title="Help Center" />
           <h2>Help Center</h2>
           <p>Get help across Nexus</p>
         </div>

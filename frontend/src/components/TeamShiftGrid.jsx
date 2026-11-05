@@ -5,7 +5,7 @@
 // whole days off as one spanning pill. On a phone it is a day list with a
 // day strip, never a 7-column grid. Changing a shift is the manager's grid.
 import { useEffect, useState } from 'react';
-import { CalendarRange, Hand, Users } from 'lucide-react';
+import { CalendarRange, Hand } from 'lucide-react';
 import { useIsMobile } from '../lib/useIsMobile';
 import { Avatar } from './ShiftScheduleExtras';
 import { ShiftBlock, TimeOffBlock } from './shifts/ShiftBlock';
@@ -38,7 +38,7 @@ const STRIP = [
 // and a dot that follows the clock; anyone else keeps the scheduled dot.
 // `late`: the emails the server says are late right now (no clock-in past
 // their expected start + grace); the strip counts and filters on it.
-export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam, days, rows: allRows, onNow = [], openShifts = [], onRequestOpen, busyOpenId = '', thisWeek, timeZoneLabel = '', teamZone = '', live = null, late = [] }) {
+export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam, days, rows: allRows, onNow = [], openShifts = [], onRequestOpen, busyOpenId = '', thisWeek, timeZoneLabel = '', teamZone = '', live = null, late = [], body = null }) {
   const phone = useIsMobile();
   const [day, setDay] = useState(() => firstDay(days.map((d) => d.date), teamZone));
   useEffect(() => { setDay((k) => (days.some((d) => d.key === k) ? k : firstDay(days.map((d) => d.date), teamZone))); }, [days, teamZone]);
@@ -123,8 +123,6 @@ export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam,
 
   const head = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginBottom: 10 }}>
-      <span className="wkc-chip"><Users size={14} /></span>
-      <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Group Shifts</span>
       {teams.length > 1 ? (
         <TeamPicker ariaLabel="Group" compact={phone} value={team.id} onChange={onPickTeam} all={allTeam ? { people: allTeam.members.length, ...(team.id === allTeam.id ? { min: weekMin } : {}) } : null}
           teams={teams.map((t, i) => ({ id: t.id, name: t.name, color: teamColor(t.id, i), people: t.members.length, hint: t.isMember === false ? 'You manage' : '',
@@ -155,6 +153,8 @@ export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam,
     </div>
   );
   const zoneLine = timeZoneLabel ? <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {timeZoneLabel}</div> : null;
+  // `body`: Team > Shifts' Month view - the same head (group picker), the month calendar under it.
+  if (body) return <div style={{ marginTop: 22 }}>{head}{body}{zoneLine}</div>;
 
   if (phone) {
     const d = days.find((x) => x.key === day) || days[0];

@@ -206,13 +206,21 @@ def project_to_dict(p: models.ConstructionProject, *, with_cost: bool, db: Sessi
         # bell) and the closeout state (construction_closeout).
         "superintendentEmail": _nz(getattr(p, "superintendent_email", "")),
         "closeout": dict(getattr(p, "closeout", None) or {}),
+        # Round Two (11/05/2026): the job's size, for cost per unit / square foot.
+        "units": getattr(p, "units", 0) or 0, "squareFeet": getattr(p, "square_feet", 0) or 0,
     }
     if db is not None:
+        import construction_closeout
+        import construction_health
         # The jobsite's own clock (construction_company): its zone, its today
         # (a new log's date) and the week the weekly report would cover now.
         d["timeZone"] = construction_company.zone_of(db, p)
         d["today"] = construction_company.local_today(db, p).isoformat()
         d["weekStart"] = construction_company.current_week_start(db, p).isoformat()
+        # shortcut: two small reads per job on every list; a handful of jobs
+        # today - batch them when the Program table lists dozens.
+        d["targetMoves"] = construction_health.target_moves(db, p)
+        d["nextInspection"] = construction_closeout.inspection_summary(db, p, d["today"])["next"]
     if health is not None:
         d["health"] = health
     if names is not None:
@@ -258,6 +266,7 @@ def log_to_dict(l: models.ConstructionDailyLog, names: dict = None) -> dict:
         # The self-drafting log (11/03/2026, construction_field): delay lines,
         # what it was drafted from, where the weather came from, the signature.
         "delays": list(getattr(l, "delays", None) or []),
+        "subs": list(getattr(l, "subs", None) or []),
         "prefill": dict(getattr(l, "prefill", None) or {}),
         "weatherSource": getattr(l, "weather_source", "") or "",
         "signedName": getattr(l, "signed_name", "") or "",
@@ -344,6 +353,11 @@ class ProjectBody(BaseModel):
     archived: Optional[bool] = None
     # Who runs the site day to day (11/03/2026) - the missing-log bell.
     superintendent_email: Optional[str] = None
+    # Round Two (11/05/2026): the job's size, and the reason Edit Job must
+    # give when it moves the target finish.
+    units: Optional[int] = None
+    square_feet: Optional[int] = None
+    change_reason: Optional[str] = None
 
 
 PROJECT_STATUSES = ("active", "on_hold", "complete", "archived")
@@ -433,6 +447,11 @@ def _validate(db: Session, user: dict, p, data: dict) -> dict:
     for k in ("week_starts_on", "report_day"):
         if out.get(k) is not None and not (0 <= int(out[k]) <= 6):
             raise HTTPException(422, "Pick a day of the week")
+    for k in ("units", "square_feet"):
+        if out.get(k) is not None:
+            if not (0 <= int(out[k]) <= 10_000_000):
+                raise HTTPException(422, "Units and square feet are whole numbers, 0 or more")
+            out[k] = int(out[k])
     return out
 
 
@@ -470,6 +489,7 @@ def create_job(body: ProjectBody, user: dict, db: Session, company_id: str = Non
         contract_value=body.contract_value or 0.0, currency=body.currency or "USD",
         general_contractor=body.general_contractor or "",
         start_on=body.start_on or "", target_finish_on=body.target_finish_on or "",
+        units=data.get("units") or 0, square_feet=data.get("square_feet") or 0,
         # The creator is a manager by default. Without this the person who just
         # made the project cannot review anything in it, which reads as a bug.
         manager_emails=data["manager_emails"] if data.get("manager_emails") is not None else [_me(user)],
@@ -550,11 +570,26 @@ def update_project(project_id: str, body: ProjectBody,
         data.pop("contract_value", None)
         data.pop("currency", None)
     data = _validate(db, user, p, data)
+    # A target finish that moves needs a reason (Round Two, 11/05/2026): kept
+    # with before and after on the activity log, said on the health row and
+    # the weekly report. The first date set needs none.
+    reason = (data.pop("change_reason", None) or "").strip()[:300]
+    target_was = p.target_finish_on or ""
+    moved = target_was and data.get("target_finish_on") is not None and data["target_finish_on"] != target_was
+    if moved and not reason:
+        raise HTTPException(422, "Say why the target finish moved.")
     address_was = p.address or ""
     status_was, phase_was = p.status or "active", p.phase or ""
     for k, v in data.items():
         if v is not None:
             setattr(p, k, v)
+    if moved:
+        from construction_field import _us
+        db.add(models.ConstructionActivity(
+            id=gen_id(), project_id=p.id, entity_kind="project", entity_id=p.id, type="target_moved",
+            actor_email=user["email"], at=now_iso(),
+            detail=f"moved the target finish from {_us(target_was)} to {_us(p.target_finish_on)}: {reason}",
+            before={"target_finish_on": target_was}, after={"target_finish_on": p.target_finish_on, "reason": reason}))
     if (p.address or "") != address_was and "latitude" not in data and "longitude" not in data:
         p.latitude, p.longitude = 0.0, 0.0
         construction_weather.geocode(p)
@@ -623,6 +658,7 @@ class LogBody(BaseModel):
     tags: Optional[list] = None
     # The self-drafting log (11/03/2026, construction_field).
     delays: Optional[list] = None
+    subs: Optional[list] = None     # subs on site (Round Two, 11/05/2026)
     weather_source: Optional[str] = None
     # A log started offline carries the prefill the phone drafted it from.
     prefill: Optional[dict] = None
@@ -638,6 +674,11 @@ def _clean_log_fields(data: dict) -> dict:
     if "delays" in data:
         try:
             data["delays"] = construction_field.clean_delays(data["delays"])
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+    if "subs" in data:
+        try:
+            data["subs"] = construction_field.clean_subs(data["subs"])
         except ValueError as e:
             raise HTTPException(422, str(e))
     if "weather_source" in data and data["weather_source"] is not None \
@@ -706,6 +747,7 @@ def create_log(project_id: str, body: LogBody, user: dict = Depends(get_current_
         geofence_ok=_within_geofence(p, body.gps_latitude, body.gps_longitude),
         tags=_tags(body.tags),
         delays=data.get("delays") or [], weather_source=data.get("weather_source") or "",
+        subs=data.get("subs") or [],
         created_at=now, modified_at=now,
     )
     # The log drafts itself (11/03/2026, construction_field): an empty start
@@ -1661,6 +1703,7 @@ def publish_report(report_id: str, background_tasks: BackgroundTasks,
     _log_activity(db, project_id=p.id, entity_kind="report", entity_id=r.id,
                   type="published", actor_email=user["email"],
                   detail=f"v{r.version} week of {r.week_start}")
+    _emit(db, "report.published", r, user, extra={"job_id": p.id, "week_start": r.week_start, "version": r.version})
     db.commit()
     db.refresh(r)
     # Delivery runs after the response: rendering a PDF of jobsite photos and

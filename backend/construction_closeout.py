@@ -70,9 +70,47 @@ def record_to_dict(r) -> dict:
     return {"id": r.id, "projectId": r.project_id, "kind": r.kind, "title": r.title or "", "itemId": r.item_id or "",
             "serial": r.serial or "", "vendor": r.vendor or "", "startOn": r.start_on or "", "endOn": r.end_on or "",
             "ahj": r.ahj or "", "number": r.number or "", "result": r.result or "", "dateOn": r.date_on or "",
+            "dueOn": getattr(r, "due_on", "") or "",
             "category": r.category or "", "docUrl": r.doc_url or "", "docName": r.doc_name or "",
             "notes": r.notes or "", "written": dict(r.written or {}), "createdBy": r.created_by or "",
             "createdAt": r.created_at or ""}
+
+
+# ── Permits and inspections, live from day one (Round Two, 11/05/2026) ──────
+_OPEN = ("", "pending")
+
+
+def inspection_summary(db: Session, job, today: str) -> dict:
+    """{next, open, failed}: the next scheduled inspection still to happen
+    (the earliest with a scheduled day and no result, today or later), how
+    many have no result yet, how many failed - the Overview's card."""
+    R = models.ConstructionCloseoutRecord
+    rows = db.query(R).filter(R.project_id == job.id, R.deleted_at == "", R.kind == "inspection").all()
+    ahead = sorted((r for r in rows if (r.result or "") in _OPEN and (r.due_on or "") >= (today or "") and r.due_on),
+                   key=lambda r: r.due_on)
+    nxt = ahead[0] if ahead else None
+    return {"next": ({"id": nxt.id, "title": nxt.title or "Inspection", "ahj": nxt.ahj or "", "dueOn": nxt.due_on}
+                     if nxt else None),
+            "open": len([r for r in rows if (r.result or "") in _OPEN]),
+            "failed": len([r for r in rows if (r.result or "") == "failed"])}
+
+
+def failed_bell(db: Session, job, r, actor: str) -> None:
+    """An inspection marked Failed bells the job's managers (else the
+    company's reviewers) - one per person and record, rewritten in place."""
+    import construction_notify
+    to = sorted({(e or "").strip().lower() for e in (job.manager_emails or []) if (e or "").strip()}) \
+        or construction_notify.reviewers(db, job)
+    for em in to:
+        if em == (actor or "").lower():
+            continue
+        construction_notify.bell(
+            db, kind="inspection_failed", family=("inspection_failed", "inspection_due"), recipient=em,
+            ref_id=f"inspection:{r.id}", title="Inspection Failed",
+            body=f"{r.title or 'Inspection'}{' with ' + r.ahj if r.ahj else ''} on {job.name} failed"
+                 f"{' on ' + _us(r.date_on) if r.date_on else ''}. Schedule the re-inspection under Permits And Inspections.",
+            label="Open Permits And Inspections", sub=f"project:{job.id}:permits", requested_by=actor or "",
+            company=getattr(job, "company_id", "") or "")
 
 
 def asset_row(job, r) -> tuple[str, dict]:
@@ -89,7 +127,7 @@ def asset_row(job, r) -> tuple[str, dict]:
         res = (r.result or "").title()
         return "inspections", {**base, "type": r.title or "Inspection", "frequency": "One-time",
                                "ahjRequired": "Yes" if r.ahj else "No", "vendor": r.ahj or "",
-                               "lastCompleted": r.date_on or "", "nextDue": r.date_on or "",
+                               "lastCompleted": r.date_on or "", "nextDue": r.date_on or getattr(r, "due_on", "") or "",
                                "notes": " - ".join(x for x in (f"Result: {res}" if res else "", r.notes or "", src) if x)}
     if r.kind == "permit":
         title = " - ".join(x for x in (f"Permit {r.number}" if r.number else "Permit", r.title or "", r.ahj or "") if x)

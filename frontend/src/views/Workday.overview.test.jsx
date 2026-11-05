@@ -106,7 +106,7 @@ describe('Workday Overview with the Time Clock', () => {
     };
     await renderWorkday('overview');
     await screen.findByText('Amy Test');
-    expect(await screen.findByText('51.07 h vacation · 2 h sick left')).toBeTruthy();
+    expect(await screen.findByText('51h 04m vacation · 2h 00m sick left')).toBeTruthy();
     expect(screen.queryByText(/Approved working days in/)).toBeNull();
   }, SLOW);
 

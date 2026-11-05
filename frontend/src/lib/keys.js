@@ -19,3 +19,6 @@ export function isSearchShortcut(e) {
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') return true;
   return e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingTarget(e.target) && !isTypingTarget(document.activeElement);
 }
+
+// Ctrl/Cmd+F - the header search takes it only when nothing else did (TopHeader).
+export const isFindShortcut = (e) => (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && String(e.key).toLowerCase() === 'f';

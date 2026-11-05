@@ -37,6 +37,11 @@ export function useProperties() {
 
 export const savedOf = (p) => ({
   name: p.name || '',
+  jobType: p.jobType || 'project',
+  units: p.units ? String(p.units) : '',
+  squareFeet: p.squareFeet ? String(p.squareFeet) : '',
+  // Round Two: why the target finish moved - asked only when it does.
+  changeReason: '',
   address: p.address || '',
   latitude: p.latitude ? String(p.latitude) : '',
   longitude: p.longitude ? String(p.longitude) : '',
@@ -54,7 +59,7 @@ export const savedOf = (p) => ({
 });
 
 const FIELDS = {
-  name: 'name', address: 'address', status: 'status', phase: 'phase', startOn: 'start_on',
+  name: 'name', jobType: 'job_type', address: 'address', status: 'status', phase: 'phase', startOn: 'start_on',
   targetFinishOn: 'target_finish_on', propertyId: 'property_id', workerEmails: 'worker_emails',
   managerEmails: 'manager_emails', executiveEmails: 'executive_emails',
   superintendentEmail: 'superintendent_email',
@@ -66,6 +71,10 @@ export function changesFor(saved, draft, { canCost }) {
     if (JSON.stringify(saved[k]) !== JSON.stringify(draft[k])) out[key] = draft[k];
   }
   if (saved.percentComplete !== draft.percentComplete) out.percent_complete = Number(draft.percentComplete || 0);
+  if (saved.units !== draft.units) out.units = Number(draft.units || 0);
+  if (saved.squareFeet !== draft.squareFeet) out.square_feet = Number(draft.squareFeet || 0);
+  // The reason rides only when given; the server refuses a move without one.
+  if (targetMoved(saved, draft) && String(draft.changeReason || '').trim()) out.change_reason = String(draft.changeReason).trim();
   if (canCost && saved.contractValue !== draft.contractValue) out.contract_value = Number(draft.contractValue || 0);
   if ((saved.latitude !== draft.latitude || saved.longitude !== draft.longitude)
       && draft.latitude !== '' && draft.longitude !== '') {
@@ -75,11 +84,15 @@ export function changesFor(saved, draft, { canCost }) {
   return out;
 }
 
+// A target finish that was set and now changes (the first date needs no reason).
+export const targetMoved = (saved, draft) => !!saved.targetFinishOn && draft.targetFinishOn !== saved.targetFinishOn;
+
 // '' when the draft can be saved, else the sentence that says why not.
-export function invalidReason(draft) {
+export function invalidReason(draft, saved = null) {
   const pct = Number(draft.percentComplete);
   if (!String(draft.name || '').trim()) return 'Give the job a name.';
   if (Number.isNaN(pct) || pct < 0 || pct > 100) return 'Percent complete is between 0 and 100.';
   if (draft.startOn && draft.targetFinishOn && draft.targetFinishOn < draft.startOn) return 'The target finish cannot be before the start.';
+  if (saved && targetMoved(saved, draft) && !String(draft.changeReason || '').trim()) return 'Say why the target finish moved.';
   return '';
 }

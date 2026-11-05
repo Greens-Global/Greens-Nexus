@@ -18,6 +18,9 @@ from database import SessionLocal
 from routers.task_util import gen_id, now_iso, task_assignees
 from routers.tasks import TaskUpdate, update_task
 
+# The real warehouse readers, kept before the World fixture swaps in fakes.
+REAL_TASK_ROWS, REAL_MANAGER_ROWS, REAL_NOTE_ROWS = (cubby_warehouse.task_rows, cubby_warehouse.manager_rows,
+                                                    cubby_warehouse.note_rows)
 OWNER = "valinda@greensstorage.com"      # the facility project's owner - tasks are created as them
 AMY = "amy@greensstorage.com"
 SAGAR = "sagar@greensglobal.com"
@@ -487,33 +490,78 @@ def test_the_owner_is_not_a_collaborator_and_the_date_is_cubbys(world):
     assert OWNER in [e.lower() for e in (_tasks()["task_22"].follower_emails or [])]
 
 
-# ── The warehouse query (prod, 11/03/2026) ───────────────────────────────────
+# ── The warehouse query (prod, 11/03-11/05/2026) ─────────────────────────────
+# BigQuery's tables differ from the Postgres mirror, and each guessed column
+# only uncovered the next gap. The queries are built from the table's REAL
+# columns and types (cubby_warehouse._columns).
 
-def test_a_warehouse_without_updated_at_is_read_again_by_created_at(monkeypatch):
-    """BigQuery's tasks table has no `updated_at` (prod answered "Unrecognized
-    name: updated_at; Did you mean created_at?" and 183 tasks came in with
-    nobody assigned). The query falls back to created_at by itself, and the
-    rows still carry an (empty) updated_at."""
+def _warehouse_with(monkeypatch, tables: dict, rows: dict):
+    """A configured warehouse whose tables have `tables[name] = {col: type}`;
+    `_run` answers rows[name] and records each SQL."""
     monkeypatch.setenv("CUBBY_BQ_CREDENTIALS_JSON", '{"type": "service_account"}')
+    monkeypatch.setattr(cubby_warehouse, "_columns_cache", {})
+    monkeypatch.setattr(cubby_warehouse, "_missing", {})
+    monkeypatch.setattr(cubby_warehouse, "_columns", lambda table: tables[table.rsplit(".", 1)[-1]])
     asked = []
 
     def run(sql, params):
         asked.append(sql)
-        if "updated_at" in sql:
-            raise cubby_warehouse.WarehouseError(
-                "BigQuery did not answer (BadRequest): Unrecognized name: updated_at; Did you mean created_at? at [1:260]")
-        return [{"task_id": "t1", "status": "OPEN", "assigned_managers": ["Pat Lee"],
-                 "assigned_manager_groups": None, "created_at": "2026-11-01T08:00:00"}]
-
+        table = sql.split("FROM `", 1)[1].split("`", 1)[0].rsplit(".", 1)[-1]
+        return rows.get(table, [])
     monkeypatch.setattr(cubby_warehouse, "_run", run)
+    return asked
+
+
+PROD_LIKE_TASKS = {"task_id": "STRING", "facility_id": "STRING", "status": "STRING", "task_title": "STRING",
+                   "assigned_managers": "STRING", "created_at": "DATETIME"}     # no updated_at, no groups
+
+
+def test_tasks_are_read_with_only_the_columns_the_table_has(monkeypatch):
+    asked = _warehouse_with(monkeypatch, {"tasks": PROD_LIKE_TASKS}, {"tasks": [
+        {"task_id": "task_UxKstTQkZfU", "status": "OPEN", "assigned_managers": '{"Sagar Shoundik"}',
+         "created_at": "2026-11-03T13:38:14"}]})
     rows = cubby_warehouse.task_rows(None)
-    assert len(asked) == 2 and "updated_at" not in asked[1] and "CAST(created_at AS TIMESTAMP) >= @since" in asked[1]
-    assert rows[0]["assigned_managers"] == ["Pat Lee"] and rows[0]["updated_at"] == ""
-    assert "updated_at" in cubby_warehouse.tasks_sql() and "ORDER BY updated_at" in cubby_warehouse.tasks_sql()
+    sql = asked[0]
+    assert "updated_at" not in sql and "assigned_manager_groups" not in sql and "schedule" not in sql
+    assert "created_at >= DATETIME(@since)" in sql and "ORDER BY created_at DESC" in sql
+    assert rows[0]["assigned_managers"] == ["Sagar Shoundik"] and rows[0]["assigned_manager_groups"] == []
+    assert rows[0]["updated_at"] == ""
+    # The run says what it read without.
+    assert "tasks has no" in cubby_warehouse.missing_note() and "updated_at" in cubby_warehouse.missing_note()
+
+
+def test_the_window_compares_in_the_columns_own_type():
+    w = cubby_warehouse._window
+    assert w("updated_at", "TIMESTAMP") == "updated_at >= @since"
+    assert w("created_at", "DATETIME") == "created_at >= DATETIME(@since)"
+    assert w("due", "DATE") == "due >= DATE(@since)"
+    assert w("created_at", "STRING") == "SAFE_CAST(created_at AS TIMESTAMP) >= @since"
+
+
+def test_staff_are_read_whatever_the_name_and_email_columns_are_called(monkeypatch):
+    asked = _warehouse_with(monkeypatch, {"managers": {"manager_id": "STRING", "name": "STRING", "email": "STRING"}},
+                            {"managers": [{"manager_name": "Sagar Shoundik", "manager_email": "sagar@x.com"}]})
+    assert cubby_warehouse.manager_rows() == [{"manager_name": "Sagar Shoundik", "manager_email": "sagar@x.com"}]
+    assert "name AS manager_name" in asked[0] and "email AS manager_email" in asked[0]
+
+
+def test_a_staff_table_with_no_email_says_so(monkeypatch):
+    _warehouse_with(monkeypatch, {"managers": {"manager_id": "STRING", "manager_name": "STRING"}}, {})
+    with pytest.raises(cubby_warehouse.WarehouseError) as e:
+        cubby_warehouse.manager_rows()
+    assert "no email column" in str(e.value)
+
+
+def test_notes_window_uses_the_real_type(monkeypatch):
+    asked = _warehouse_with(monkeypatch, {"manager_notes": {"manager_note_id_int": "INTEGER", "task_id": "STRING",
+                                                            "message": "STRING", "manager_name": "STRING",
+                                                            "created_at": "TIMESTAMP"}}, {})
+    cubby_warehouse.note_rows(None)
+    assert "created_at >= @since" in asked[0] and "manager_id" not in asked[0]
 
 
 def test_any_other_warehouse_error_still_raises(monkeypatch):
-    monkeypatch.setenv("CUBBY_BQ_CREDENTIALS_JSON", '{"type": "service_account"}')
+    _warehouse_with(monkeypatch, {"tasks": PROD_LIKE_TASKS}, {})
 
     def run(sql, params):
         raise cubby_warehouse.WarehouseError("BigQuery did not answer (Forbidden)")
@@ -523,13 +571,162 @@ def test_any_other_warehouse_error_still_raises(monkeypatch):
         cubby_warehouse.task_rows(None)
 
 
-def test_the_warehouse_window_compares_timestamps_whatever_the_column_type():
-    """The warehouse's created_at / updated_at are DATETIME and the window
-    parameter is a TIMESTAMP; BigQuery will not compare the two as they are
-    (prod, 11/04/2026: the retry on created_at landed and the assignees were
-    still not read). Every window casts the column."""
-    import cubby_warehouse
-    assert "CAST(updated_at AS TIMESTAMP) >= @since" in cubby_warehouse.tasks_sql()
-    assert "CAST(created_at AS TIMESTAMP) >= @since" in cubby_warehouse.tasks_sql("created_at")
-    assert "CAST(created_at AS TIMESTAMP) >= @since" in cubby_warehouse.notes_sql()
-    assert "ORDER BY updated_at DESC" in cubby_warehouse.tasks_sql()
+def test_the_sync_key_writes_when_no_manager_key_is_set(monkeypatch):
+    """Sagar, 11/05/2026: our CUBBY_API_KEY carries every role, so Close Tasks
+    in Cubby uses it when CUBBY_MANAGER_API_KEY is not set; a Manager key wins."""
+    monkeypatch.delenv(ops_cubby_push.WRITE_KEY_ENV, raising=False)
+    monkeypatch.delenv("CUBBY_API_KEY", raising=False)
+    assert ops_cubby_push.write_configured() is False
+    monkeypatch.setenv("CUBBY_API_KEY", "sync-key")
+    assert ops_cubby_push.write_configured() is True and ops_cubby_push._write_key() == "sync-key"
+    monkeypatch.setenv(ops_cubby_push.WRITE_KEY_ENV, "manager-key")
+    assert ops_cubby_push._write_key() == "manager-key"
+
+
+def test_columns_fall_back_to_a_dry_run_without_metadata_permission(monkeypatch):
+    """No bigquery.tables.get: the column list comes from a free dry run."""
+    import sys
+    import types
+    monkeypatch.setattr(cubby_warehouse, "_columns_cache", {})
+    seen = {}
+
+    class Field:
+        def __init__(self, name, kind):
+            self.name, self.field_type = name, kind
+
+    class Client:
+        def get_table(self, table):
+            raise PermissionError("Forbidden: bigquery.tables.get")
+
+        def query(self, sql, job_config=None):
+            seen["sql"], seen["dry"] = sql, job_config.dry_run
+            return types.SimpleNamespace(schema=[Field("task_id", "STRING"), Field("created_at", "DATETIME")])
+
+    fake_bq = types.SimpleNamespace(QueryJobConfig=lambda **kw: types.SimpleNamespace(**kw))
+    monkeypatch.setitem(sys.modules, "google.cloud.bigquery", fake_bq)
+    monkeypatch.setattr(cubby_warehouse, "_client", lambda: Client())
+    cols = cubby_warehouse._columns(cubby_warehouse.TASKS_TABLE)
+    assert cols == {"task_id": "STRING", "created_at": "DATETIME"}
+    assert seen["dry"] is True and seen["sql"].startswith("SELECT * FROM `cubby-partner-data.analytics.tasks`")
+
+
+
+# ── End to end against a prod-shaped BigQuery (11/05/2026) ───────────────────
+# Prod answered, one guess at a time: no updated_at; a DATETIME compared with
+# a TIMESTAMP; no task_title. This fake BigQuery refuses exactly those things
+# the way BigQuery does, and the REAL readers (cubby_warehouse) run against it.
+import re  # noqa: E402
+
+PROD_SCHEMA = {
+    "tasks": {"task_id": "STRING", "facility_id": "STRING", "status": "STRING", "due_date": "DATE",
+              "assigned_managers": "STRING", "assigned_manager_groups": "STRING", "created_by": "STRING",
+              "unit_id": "STRING", "is_workflow_generated": "BOOLEAN", "created_at": "DATETIME"},
+    "managers": {"manager_id": "STRING", "manager_name": "STRING", "manager_email": "STRING"},
+    "manager_notes": {"manager_note_id_int": "INTEGER", "task_id": "STRING", "message": "STRING",
+                      "manager_name": "STRING", "manager_id": "STRING", "created_at": "DATETIME"},
+}
+_SQL_WORDS = {"select", "from", "where", "or", "and", "is", "not", "null", "true", "as", "order", "by", "desc",
+              "limit", "open", "datetime", "date", "safe_cast", "timestamp", "since"}
+
+
+class StrictBigQuery:
+    """Refuses an unknown column ("Unrecognized name") and a DATETIME/DATE
+    column compared with the TIMESTAMP parameter ("No matching signature"),
+    as prod's BigQuery did."""
+
+    def __init__(self, rows):
+        self.rows, self.asked = rows, []
+
+    def get_table(self, table):
+        name = table.rsplit(".", 1)[-1]
+        Field = type("Field", (), {})
+        out = []
+        for col, kind in PROD_SCHEMA[name].items():
+            f = Field()
+            f.name, f.field_type = col, kind
+            out.append(f)
+        return type("Table", (), {"schema": out})()
+
+    def query(self, sql, job_config=None):
+        self.asked.append(sql)
+        table = sql.split("FROM `", 1)[1].split("`", 1)[0].rsplit(".", 1)[-1]
+        schema = PROD_SCHEMA[table]
+        body = sql.split("`", 2)[2]                       # after the table name
+        select = sql[len("SELECT "):sql.index(" FROM ")]
+        aliases = {}
+        for part in select.split(","):
+            bits = part.split()
+            aliases[bits[-1]] = bits[0]
+        idents = set(aliases.values()) | {w for w in re.findall(r"[a-z_]+", re.sub(r"'[^']*'", "", body))
+                                         if w not in _SQL_WORDS}
+        for w in sorted(idents):
+            if w not in schema:
+                raise RuntimeError(f"Unrecognized name: {w}")
+        for col in re.findall(r"(?<![(\w])([a-z_]+) >= @since", body):
+            if schema[col] != "TIMESTAMP":
+                raise RuntimeError(f"No matching signature for operator >= for argument types: {schema[col]}, TIMESTAMP")
+        rows = [{alias: r.get(src) for alias, src in aliases.items()} for r in self.rows.get(table, [])]
+        return type("Job", (), {"result": lambda _self, timeout=None: rows})()
+
+
+def test_prod_shaped_warehouse_assigns_the_task_end_to_end(world, monkeypatch):
+    # 1. Linked while the warehouse could not be read: nobody assigned (prod, 11/03).
+    world.api_open = {"task_UxKstTQkZfU": _api_task("task_UxKstTQkZfU", "Test task after assignee fix")}
+    monkeypatch.setattr(cubby_warehouse, "task_rows",
+                        lambda since: (_ for _ in ()).throw(cubby_warehouse.WarehouseError("Unrecognized name: task_title")))
+    s = world.sync()
+    t = _tasks()["task_UxKstTQkZfU"]
+    assert task_assignees(t) == [] and "task_title" in s["warehouse"]
+    # 2. The real readers against a BigQuery shaped like prod's.
+    bq = StrictBigQuery({
+        "tasks": [{"task_id": "task_UxKstTQkZfU", "facility_id": FAC, "status": "OPEN",
+                   "assigned_managers": '{"Sagar Shoundik"}', "assigned_manager_groups": "{}",
+                   "created_at": "2026-11-03 13:38:14"}],
+        "managers": STAFF,
+        "manager_notes": [],
+    })
+    monkeypatch.setattr(cubby_warehouse, "_client", lambda: bq)
+    monkeypatch.setattr(cubby_warehouse, "_columns_cache", {})
+    monkeypatch.setattr(cubby_warehouse, "_missing", {})
+    monkeypatch.setattr(cubby_warehouse, "task_rows", REAL_TASK_ROWS)
+    monkeypatch.setattr(cubby_warehouse, "manager_rows", REAL_MANAGER_ROWS)
+    monkeypatch.setattr(cubby_warehouse, "note_rows", REAL_NOTE_ROWS)
+    s = world.sync()
+    assert s["warehouse"] == "ok" and s["notesWarehouse"] == "ok" and s["errors"] == [], s
+    assert s["reassigned"] == 1
+    t = _tasks()["task_UxKstTQkZfU"]
+    assert task_assignees(t) == [SAGAR]
+    assert OWNER not in (t.follower_emails or [])          # the project owner is not made a collaborator
+    assert "task_title" in s["warehouseGaps"] and "updated_at" in s["warehouseGaps"]
+    # Every query BigQuery saw was one it accepts (the fake would have raised).
+    assert len(bq.asked) == 3
+    # 3. The next run changes nothing.
+    assert world.sync()["reassigned"] == 0
+
+
+def test_close_in_cubby_works_with_only_the_sync_key(world, monkeypatch):
+    """Sagar, 11/05/2026: no CUBBY_MANAGER_API_KEY on prod - the sync's
+    CUBBY_API_KEY (every role) sends the completion."""
+    monkeypatch.delenv(ops_cubby_push.WRITE_KEY_ENV, raising=False)
+    monkeypatch.setenv("CUBBY_API_KEY", "sync-key")
+    sent = []
+
+    def post(url, json=None, headers=None, timeout=None):
+        sent.append((url, headers["Authorization"], dict(json)))
+        return type("R", (), {"status_code": 200, "json": lambda _s: {"data": {"taskId": json["taskId"]}}})()
+
+    monkeypatch.setattr(ops_cubby_push.httpx, "post", post)
+    world.api_open = {"task_20": _api_task("task_20", "Lock check")}
+    world.wh = {"task_20": _wh_task("task_20", "Lock check", people=["Amy Bolanos"])}
+    world.sync()
+    t = _tasks()["task_20"]
+    db = SessionLocal()
+    try:
+        update_task(t.id, TaskUpdate(completed=True), BackgroundTasks(), OWNER_USER, db)
+        cubby_tasks.save(db, {"closeInCubby": True}, ADMIN)
+    finally:
+        db.close()
+    assert cubby_tasks.push_pending()["sent"] == 1
+    url, auth_header, body = sent[-1]
+    assert url.endswith("/tasks/update") and auth_header == "Bearer sync-key"
+    assert body == {"taskId": "task_20", "status": "COMPLETED"} and _link("task_20").status == "COMPLETED"

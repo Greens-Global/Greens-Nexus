@@ -2,12 +2,13 @@
 // own content), checkpoints, the final quiz (graded on the server), the
 // result with what to reread, the certificate.
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Check, Lock, Award, Download, BookOpen, RotateCcw, AlertTriangle, ChevronRight, MapPin, UserCheck } from 'lucide-react';
+import { Check, Lock, Award, Download, BookOpen, RotateCcw, AlertTriangle, ChevronRight, MapPin, UserCheck } from 'lucide-react';
 import { api, saveBlob } from '../../api';
 import AsyncSection from '../../components/AsyncState';
 import Blocks from '../components/Blocks';
 import { Chip, Banner } from '../components/Chips';
 import { useToast, errText } from '../components/Toast';
+import { useTrailCrumbs } from '../../components/PageTrail';
 import { goKb, fmtDate, plural } from '../lib';
 import { OrderAnswer, ShortAnswer, PhotoAnswer, hasAnswer } from './QuestionInputs';
 import { RateCourse } from './CourseFeedback';
@@ -143,6 +144,8 @@ function Checkpoint({ course, lesson, onDone }) {
 export default function CoursePlayer({ id, me }) {
   const toast = useToast();
   const [course, setCourse] = useState(null);
+  // The page trail: KNOWLEDGE BASE / TRAINING over the course (11/04/2026).
+  useTrailCrumbs([{ label: 'Training', onClick: () => goKb('training') }]);
   const [err, setErr] = useState('');
   const [cur, setCur] = useState('');   // lesson id | 'quiz' | 'done'
   const load = () => { setErr(''); return api.kbCourse(id).then((c) => { setCourse(c); return c; }).catch((e) => { setErr(errText(e)); return null; }); };
@@ -167,11 +170,11 @@ export default function CoursePlayer({ id, me }) {
     <AsyncSection loading={!course && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
       {course && (
         <div className="kb-page">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }} className="kb-meta">
-            <button type="button" className="kb-ibtn" style={{ width: 30, height: 30 }} aria-label="Back to Training" onClick={() => goKb('training')}><ArrowLeft /></button>
-            <a href="#t" onClick={(e) => { e.preventDefault(); goKb('training'); }}>Training</a> / <b style={{ color: 'var(--kb-ink)' }}>{course.title}</b>
-            {course.can_edit && <button type="button" className="kb-btn sm" style={{ marginLeft: 'auto' }} onClick={() => goKb('builder', course.id)}>Edit Course</button>}
-          </div>
+          {course.can_edit && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }} className="kb-meta">
+              <button type="button" className="kb-btn sm" style={{ marginLeft: 'auto' }} onClick={() => goKb('builder', course.id)}>Edit Course</button>
+            </div>
+          )}
           {course.status !== 'published' && <Banner kind="amber" icon={AlertTriangle}>This course is not published. You are previewing the live content as a learner would see it.</Banner>}
           <div className="kb-cols">
             <aside className="kb-rail" style={{ flex: '0 1 300px', maxWidth: 320 }}>

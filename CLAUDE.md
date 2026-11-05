@@ -234,6 +234,11 @@ keep the diff minimal.
   open on top (e.g. New Purchase Request) stay on the 60% rule. A click
   outside these three never closes them - it nudges the popup and lights up
   its close button (`lib/usePopupNudge.js`); Close, Cancel and Escape close.
+  **Exception - the Help panel** (Neil, 11/04/2026): a long Ask Nexus
+  answer or a guide article opens it to a full-height sheet on the right at
+  `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
+  Shrink / Expand button; short answers keep the small card
+  (`support/HelpWidget.jsx`).
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 - **Every amount on every Accounting report drills down to its ledger lines
@@ -340,6 +345,19 @@ keep the diff minimal.
   (the day docked) below - whatever the person's full-day hours. The Time
   Sheet no longer prints a "Bands:" line; the day statuses say the result.
   India contractors never use these (8 h / 4 h credits, `india_contractor_pay`).
+
+- **Hourly company holidays are unpaid** (Neil, 11/04/2026: "Holidays are
+  days off for hourly employees"): `_compute_timecard` lists a holiday the
+  person did not work (office closed, no pay) and credits nothing - no
+  holidayPay / holidayMin, no IIF Holiday Pay line. Worked hours on a holiday
+  pay as usual. Salaried holidays (`_fixed_card`) are a separate rule.
+- **The Time Sheet grid lines up** (Neil, 11/04/2026, plan
+  https://claude.ai/artifact/V1YPriqxVi3graoHsG3iMN): every time is drawn by
+  `components/timesheet/TimeText.jsx` (hours:minutes and AM / PM in boxes of
+  their own), a break is its own row, the week total a centered line, row
+  actions at the row's end, NO decimal hours anywhere a person reads hours
+  (`lib/hoursText.js`; exports stay numeric). No timeline bars, no late /
+  variance chips. The signed PDF (`timesheet_pdf.py`) follows the same layout.
 
 - Task emails are BATCHED (Neil, Sep 24): an event that can wait goes into
   `task_email_queue`, and `task_notify.flush_batches` (every minute, inside
@@ -1003,6 +1021,36 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   /workspace. "Done needs a photo" is enforced on the construction punch
   route only - completing a punch task from Tasks does not ask (known gap).
   AI stays off: nothing in the module waits on it.
+  **Round Two (Neil, 11/05/2026, plan
+  https://claude.ai/artifact/EpG2gQr8KVi1ZZRaM6zVBE):** a Target Finish
+  that moves needs a reason (`change_reason` on the PATCH; kept as a
+  `target_moved` activity row with before / after, read by
+  `construction_health.target_moves` for the health row and the weekly
+  report); a job carries `units` / `square_feet` (cost per unit and per
+  square foot on Money and the dashboard's Program table, which reads the
+  same `/construction/money/flags` figures as the tab); permits and
+  inspections are the closeout records live from day one (`due_on` on an
+  inspection = its scheduled day; the Permits And Inspections tab on a
+  Project; `construction_field.inspection_tick` bells the superintendent the
+  day before, a Failed result bells the managers); a daily log's `subs`
+  lines are the subcontractors on site (`construction_field.clean_subs`);
+  punch.verified, field_ticket.signed, change_order.sent / approved /
+  sent_back / declined, job.closed_out and report.published are Workflows
+  events, so a change-order threshold is an automation rule, never code.
+  Vendors are Intacct's, through Accounting > Vendors & Customers - never a
+  Construction vendor directory (Neil, 11/05/2026).
+- **Subs and their papers (Round Two item 7, 11/05/2026,
+  `routers/construction_subs.py`, `vendor_compliance.py`):** a sub on a job
+  is a `ConstructionJobLink` kind `sub` whose `ref_id` is the Intacct
+  VENDORID (picked through `accounting_partners._get`, `note` = the trade);
+  the papers are ONE row per VENDORID (`vendor_compliance`: insurance,
+  workers comp and license expiry, W-9, with Intacct's name copied in) read
+  by the job's Subs tab and by the vendor record's Compliance tab in
+  Accounting through the same `construction/VendorCompliance.jsx`; the state
+  words (missing / expired / expiring / ok) are `vendor_compliance.state`,
+  the one rule; `expiry_tick` (in `field_loop`) bells the managers at 30 /
+  7 / 0 days once per paper and date. Never a second compliance store, no
+  contact or payment details here, nothing written to Intacct.
 
 ## Gotchas
 

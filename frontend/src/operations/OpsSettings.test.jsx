@@ -35,7 +35,7 @@ describe('Operations settings', () => {
     render(<OpsSettings toastOk={ok} />);
     fireEvent.click(await screen.findByRole('switch', { name: 'Push to Cubby' }));
     await waitFor(() => expect(api.saveOpsSettings).toHaveBeenCalledWith({ cubbyPushOn: true }));
-    expect(await screen.findByText(/no Cubby key with the Manager role/)).toBeTruthy();
+    expect(await screen.findByText(/no Cubby key \(CUBBY_MANAGER_API_KEY or CUBBY_API_KEY\)/)).toBeTruthy();
     expect(screen.getByTestId('ops-settings-history').textContent).toContain('turned it on');
     expect(ok).toHaveBeenCalledWith('Push to Cubby is on');
     window.confirm.mockRestore();
