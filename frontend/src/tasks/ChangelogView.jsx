@@ -38,7 +38,7 @@ import { useVisualViewport } from '../lib/useVisualViewport';
 import { BottomSheet } from './MobileTaskBar';
 import { canEditWhatsNew } from '../lib/whatsNewAccess';
 import { NX, FONT, chip, card, btn, input as inputStyle } from './theme';
-import { Avatar, Modal, usePeople, PersonSelect, useClickOutside, useIsMobile, DateField, TimeField, localTodayISO } from './components';
+import { Avatar, ChipMultiSelect, Modal, usePeople, PersonSelect, useClickOutside, useIsMobile, DateField, TimeField, localTodayISO } from './components';
 import { MODULES } from '../contexts/RoleContext';
 import { placeOf, placeOptions, placeKeyFor, inPlace, placeLabel, allPlaceLabels } from '../lib/changelogPlaces';
 import {
@@ -738,7 +738,7 @@ function EntryCard({ entry, nameOf, onViewDetails, onEdit }) {
           </div>
           <h3 style={{ margin: 0, fontSize: isMobile ? 17 : 18, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title || 'Untitled'}</h3>
           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: NX.dim }}>
-            {entry.version && <span style={{ fontFamily: 'monospace' }}>{entry.version}</span>}
+            {entry.version && <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{entry.version}</span>}
             <StageChip entry={entry} />
           </div>
           <IssueBanner entry={entry} all={all} onOpen={openEntry} />
@@ -930,18 +930,6 @@ function PaneDivider({ value, onChange, containerRef }) {
   );
 }
 
-// The Module filter's options: every section of the site that has updates,
-// each followed by its pages ("Workday", then "Workday - Time Sheet"), in the
-// left navigation's order, with how many updates each holds.
-function PlaceOptions({ places }) {
-  return (<>
-    <option value={ALL}>All Modules</option>
-    {places.map((p) => (
-      <option key={p.key} value={p.key}>{p.depth ? ' ' : ''}{p.label} ({p.count})</option>
-    ))}
-  </>);
-}
-
 function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, loading = false }) {
   const { forYou, flash } = useContext(ChangelogActions);
   // Every filter starts from the address bar and writes back to it, so a
@@ -971,7 +959,17 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
   // left navigation's order, with counts - lib/changelogPlaces.js. An old
   // link that still carries a raw module name lands on its place.
   const modules = useMemo(() => placeOptions(entries), [entries]);
-  const placeKey = moduleFilter === ALL ? ALL : placeKeyFor(moduleFilter);
+  // Several modules at once (Neil, 11/05/2026): the address bar keeps them
+  // comma-separated under the same `module` key; none picked = every module.
+  const placeKeys = useMemo(() => (moduleFilter === ALL ? [] : String(moduleFilter).split(',').filter(Boolean).map(placeKeyFor)), [moduleFilter]);
+  const setPlaceKeys = (keys) => setModuleFilter(keys.length ? keys.join(',') : ALL);
+  const moduleOptions = useMemo(() => modules.map((m) => ({ id: m.key, label: `${m.label} (${m.count})` })), [modules]);
+  // Today / Yesterday (Neil, 11/05/2026): a one-day From-To range in the
+  // person's own day, so it lives in the same URL state as the date boxes.
+  const today = localTodayISO();
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return localDayKey(d.toISOString()); })();
+  const dayPick = fromDate && fromDate === toDate ? (fromDate === today ? 'Today' : fromDate === yesterday ? 'Yesterday' : '') : '';
+  const pickDay = (day) => { const on = fromDate === day && toDate === day; setFromDate(on ? '' : day); setToDate(on ? '' : day); };
   // Newest release first, as Version History listed them.
   const versions = useMemo(() => Array.from(new Set(entries.map((e) => e.version).filter(Boolean))), [entries]);
   // When each version went out: its latest update's release time.
@@ -984,7 +982,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return entries.filter((e) => {
-      if (placeKey !== ALL && !inPlace(placeOf(e), placeKey)) return false;
+      if (placeKeys.length && !placeKeys.some((k) => inPlace(placeOf(e), k))) return false;
       if (typeFilter !== ALL && e.type !== typeFilter) return false;
       if (envFilter !== ALL && stageOf(e)?.key !== envFilter) return false;
       if (versionFilter !== ALL && e.version !== versionFilter) return false;
@@ -1002,7 +1000,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries, query, placeKey, typeFilter, envFilter, versionFilter, fromDate, toDate, comparing, compareFrom, compareTo, breakingOnly, mineOnly, versionAt]);
+  }, [entries, query, placeKeys, typeFilter, envFilter, versionFilter, fromDate, toDate, comparing, compareFrom, compareTo, breakingOnly, mineOnly, versionAt]);
   const anyFilter = query || moduleFilter !== ALL || typeFilter !== ALL || envFilter !== ALL || versionFilter !== ALL
     || fromDate || toDate || (comparing && (compareFrom || compareTo)) || breakingOnly || mineOnly;
   const clearAll = () => {
@@ -1053,12 +1051,13 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
     const chips = [
       mineOnly && { key: 'for', label: 'For You', clear: () => setMineOnly('') },
       breakingOnly && { key: 'breaking', label: 'Breaking / Action Required', clear: () => setBreakingOnly('') },
-      moduleFilter !== ALL && { key: 'module', label: placeLabel(placeKey), clear: () => setModuleFilter(ALL) },
+      ...placeKeys.map((k) => ({ key: `module-${k}`, label: placeLabel(k), clear: () => setPlaceKeys(placeKeys.filter((x) => x !== k)) })),
       typeFilter !== ALL && { key: 'category', label: typeMeta(typeFilter).label, clear: () => setTypeFilter(ALL) },
       envFilter !== ALL && { key: 'env', label: envLabel(envFilter), clear: () => setEnvFilter(ALL) },
       versionFilter !== ALL && { key: 'version', label: `Version ${versionFilter}`, clear: () => setVersionFilter(ALL) },
-      fromDate && { key: 'from', label: `From ${formatFullDate(fromDate)}`, clear: () => setFromDate('') },
-      toDate && { key: 'to', label: `To ${formatFullDate(toDate)}`, clear: () => setToDate('') },
+      dayPick && { key: 'day', label: dayPick, clear: () => pickDay(fromDate) },
+      !dayPick && fromDate && { key: 'from', label: `From ${formatFullDate(fromDate)}`, clear: () => setFromDate('') },
+      !dayPick && toDate && { key: 'to', label: `To ${formatFullDate(toDate)}`, clear: () => setToDate('') },
       comparing && (compareFrom || compareTo) && {
         key: 'compare',
         label: `${compareFrom ? `After ${compareFrom}` : 'From the Start'} to ${compareTo || 'Now'}`,
@@ -1066,7 +1065,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
       },
     ].filter(Boolean);
     const filterState = {
-      modules, versions, moduleFilter: placeKey, setModuleFilter, typeFilter, setTypeFilter, envFilter, setEnvFilter,
+      moduleOptions, placeKeys, setPlaceKeys, today, yesterday, pickDay, dayPick, versions, typeFilter, setTypeFilter, envFilter, setEnvFilter,
       versionFilter, setVersionFilter, fromDate, setFromDate, toDate, setToDate, comparing, setComparing,
       compareFrom, setCompareFrom, compareTo, setCompareTo, breakingOnly, setBreakingOnly, mineOnly, setMineOnly,
     };
@@ -1143,7 +1142,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
                 <StickyDayHeader group={group} />
                 <div style={{ ...card, overflow: 'hidden' }}>
                   {group.map((entry) => (
-                    <TimelineRow key={entry.id} entry={entry} compact onClick={() => setSheet(entry)} />
+                    <TimelineRow key={entry.id} entry={entry} nameOf={nameOf} compact onClick={() => setSheet(entry)} />
                   ))}
                 </div>
               </section>
@@ -1186,9 +1185,10 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
         </div>
         {/* Phones: the three filters share one row that swipes sideways. */}
         <div className={isMobile ? 'scroll-tabs' : undefined} style={isMobile ? { display: 'flex', gap: 8, overflowX: 'auto', width: '100%' } : { display: 'contents' }}>
-          <select value={placeKey} onChange={(e) => setModuleFilter(e.target.value)} style={selStyle} aria-label="Module">
-            <PlaceOptions places={modules} />
-          </select>
+          <div role="group" aria-label="Module" style={{ minWidth: isMobile ? 180 : 200, flexShrink: 0 }}>
+            <ChipMultiSelect value={placeKeys} onChange={setPlaceKeys} options={moduleOptions}
+              placeholder="All Modules" searchPlaceholder="Search modules…" emptyText="No modules yet." />
+          </div>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={selStyle} aria-label="Category">
             <option value={ALL}>All Categories</option>
             {CHANGE_TYPES.map((t) => <option key={t} value={t}>{CHANGE_TYPE_META[t].label}</option>)}
@@ -1213,6 +1213,12 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>To
           <DateField value={toDate || null} onChange={(v) => setToDate(v || '')} placeholder="MM/DD/YYYY" title="To date" style={{ ...inputStyle, width: 'auto', minWidth: 132, padding: '6px 10px', display: 'inline-flex' }} />
         </label>
+        {[['Today', today], ['Yesterday', yesterday]].map(([label, day]) => (
+          <button key={label} type="button" aria-pressed={dayPick === label} onClick={() => pickDay(day)}
+            style={{ ...btn('outline'), padding: '5px 10px', ...(dayPick === label ? { borderColor: NX.blue, color: NX.blue } : null) }}>
+            {label}
+          </button>
+        ))}
         <button type="button" aria-pressed={comparing} onClick={() => { if (comparing) { setCompareFrom(''); setCompareTo(''); } setComparing(!comparing); }}
           style={{ ...btn('outline'), padding: '5px 10px', ...(comparing ? { borderColor: NX.blue, color: NX.blue } : null) }}>
           <GitBranch size={13} />Compare Versions
@@ -1261,7 +1267,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
               <DayHeader group={group} />
               <div style={{ ...card, overflow: 'hidden' }}>
                 {group.map((entry) => (
-                  <TimelineRow key={entry.id} entry={entry} compact={compactRows} selected={!isMobile && entry.id === selectedId}
+                  <TimelineRow key={entry.id} entry={entry} nameOf={nameOf} compact={compactRows} selected={!isMobile && entry.id === selectedId}
                     onClick={() => (isMobile ? setSheet(entry) : setSelectedId(entry.id))} />
                 ))}
               </div>
@@ -1340,8 +1346,20 @@ function RowResponse({ entry }) {
   );
 }
 
-function TimelineRow({ entry, selected, onClick, compact = false }) {
+// Who built an update (Neil, 11/05/2026): the PR's first developer (the
+// server adds the Nexus email for our own, which brings the photo), else the
+// person who wrote it by hand. No match = the GitHub name with initials.
+function rowAuthor(entry, nameOf) {
+  const devs = entry.developers || [];
+  if (devs.length) return { email: devs[0].email || '', name: devs[0].name || devs[0].login, more: devs.length - 1 };
+  if (entry.authorId) return { email: entry.authorId, name: nameOf ? nameOf(entry.authorId) : entry.authorId, more: 0 };
+  return null;
+}
+
+function TimelineRow({ entry, nameOf, selected, onClick, compact = false }) {
   const meta = typeMeta(entry.type);
+  const author = rowAuthor(entry, nameOf);
+  const authorTitle = author ? `${author.name}${author.more ? ` and ${plural(author.more, 'other')}` : ''}` : '';
   const Icon = meta.icon;
   const thumbnail = (entry.images && entry.images[0]) || entry.afterImageDataUrl;
   if (compact) {
@@ -1354,6 +1372,8 @@ function TimelineRow({ entry, selected, onClick, compact = false }) {
         border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '12px 14px', minHeight: 56,
         background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', fontFamily: FONT,
       }}>
+        {/* card={false}: the row is itself a button. */}
+        {author && <span data-row-author title={authorTitle} style={{ alignSelf: 'flex-start', marginTop: 1 }}><Avatar email={author.email} name={author.name} size={24} card={false} /></span>}
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="nx-clamp-2" style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.35, color: NX.ink }}>{entry.title}</div>
           <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
@@ -1361,7 +1381,7 @@ function TimelineRow({ entry, selected, onClick, compact = false }) {
             <IssueChip entry={entry} />
             <span>{placeOf(entry).label}</span>
             {entry.prRef && <PrRef entry={entry} />}
-            <span style={{ color: NX.faint }}>{formatTime(releasedKey(entry))}</span>
+            <span data-row-time style={{ color: NX.faint, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{formatTime(releasedKey(entry))}</span>
             <RowResponse entry={entry} />
           </div>
         </div>
@@ -1375,7 +1395,17 @@ function TimelineRow({ entry, selected, onClick, compact = false }) {
       borderBottom: `1px solid ${NX.border}`, borderLeft: 'none', borderRight: 'none', borderTop: 'none',
       padding: '14px 16px', background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', fontFamily: FONT,
     }}>
-      <span style={{ width: 48, flexShrink: 0, fontFamily: 'monospace', fontSize: 12, color: NX.dim }}>{formatTime(releasedKey(entry))}</span>
+      <span data-row-author title={authorTitle} style={{ width: 132, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        {author && (<>
+          <Avatar email={author.email} name={author.name} size={26} card={false} />
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 600, color: NX.ink }}>
+            {author.name}
+          </span>
+          {author.more > 0 && <span style={{ flexShrink: 0, marginLeft: -4, fontSize: 12, color: NX.faint }}>+{author.more}</span>}
+        </>)}
+      </span>
+      {/* One line, the app's font (Neil, 11/05/2026: AM / PM wrapped and the time read as a typewriter). */}
+      <span data-row-time style={{ minWidth: 62, flexShrink: 0, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: 12, color: NX.dim }}>{formatTime(releasedKey(entry))}</span>
       <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: meta.color }} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1385,7 +1415,7 @@ function TimelineRow({ entry, selected, onClick, compact = false }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{placeOf(entry).label}</span>
-          {entry.version && (<><span>·</span><span style={{ fontFamily: 'monospace', flexShrink: 0 }}>{entry.version}</span></>)}
+          {entry.version && (<><span>·</span><span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', flexShrink: 0 }}>{entry.version}</span></>)}
           {entry.prRef && (<><span>·</span><PrRef entry={entry} /></>)}
           {stageOf(entry) && (<><span>·</span><StageChip entry={entry} /></>)}
           <RowResponse entry={entry} />
@@ -1411,7 +1441,7 @@ function DayHeader({ group }) {
     <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
       <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{date}</span>
       {versions.map((v) => (
-        <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: NX.dim }}>
+        <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 700, color: NX.dim }}>
           <GitBranch size={12} />{v}
         </span>
       ))}
@@ -1442,7 +1472,7 @@ function StickyDayHeader({ group }) {
       <span style={{ fontSize: 14, fontWeight: 700, color: NX.ink, whiteSpace: 'nowrap' }}>{rel || date}</span>
       {rel && rel !== date && <span style={{ fontSize: 12.5, color: NX.dim, whiteSpace: 'nowrap' }}>{date}</span>}
       {versions.map((v) => (
-        <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: NX.dim }}>
+        <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 700, color: NX.dim }}>
           <GitBranch size={12} style={{ flexShrink: 0 }} />{v}
         </span>
       ))}
@@ -1495,7 +1525,16 @@ function TimelineFilterSheet({ f, count, anyFilter, onClearAll, onClose, flash }
       </div>
       <div style={field}>
         <span style={lab}>Module</span>
-        {pick(f.moduleFilter, f.setModuleFilter, 'Module', <PlaceOptions places={f.modules} />)}
+        <ChipMultiSelect value={f.placeKeys} onChange={f.setPlaceKeys} options={f.moduleOptions}
+          placeholder="All Modules" searchPlaceholder="Search modules…" emptyText="No modules yet." />
+      </div>
+      <div style={{ ...field, display: 'flex', gap: 8 }}>
+        {[['Today', f.today], ['Yesterday', f.yesterday]].map(([label, day]) => (
+          <button key={label} type="button" aria-pressed={f.dayPick === label} onClick={() => f.pickDay(day)}
+            style={{ ...btn('outline'), minHeight: 44, flex: 1, ...(f.dayPick === label ? { borderColor: NX.blue, color: NX.blue } : null) }}>
+            {label}
+          </button>
+        ))}
       </div>
       <div style={field}>
         <span style={lab}>Category</span>
@@ -2017,10 +2056,10 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
         <h2 style={{ margin: 0, fontSize: isMobile ? 21 : 22, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title}</h2>
         <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: isMobile ? '6px 12px' : 12, fontSize: 13, color: NX.dim }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title={entry.module && entry.module !== placeOf(entry).label ? `Filed as ${entry.module}` : undefined}><Layers size={13} style={{ color: NX.faint }} />{placeOf(entry).label}</span>
-          {entry.version && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><GitBranch size={13} style={{ color: NX.faint }} /><span style={{ fontFamily: 'monospace' }}>{entry.version}</span></span>}
+          {entry.version && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><GitBranch size={13} style={{ color: NX.faint }} /><span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{entry.version}</span></span>}
           {entry.prRef && <PrRef entry={entry} link size={13} />}
           <StageChip entry={entry} />
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CalendarDays size={13} style={{ color: NX.faint }} />{formatDateTime(releasedKey(entry))}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><CalendarDays size={13} style={{ color: NX.faint }} />{formatDateTime(releasedKey(entry))}</span>
           {entry.republishedAt && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><RefreshCw size={12} style={{ color: NX.faint }} />Re-published</span>}
         </div>
         {(issueOf(entry) || entry.deprecation?.removeOn) && (
