@@ -13,6 +13,7 @@ import MobileNav from "./components/MobileNav";
 import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
 import { HeaderTabsProvider } from "./components/ModuleTabs";
+import { PageTrailProvider, ShellTrail } from "./components/PageTrail";
 import NotificationToasts from "./components/NotificationToasts";
 import PriorityBar from "./components/PriorityBar";
 import LocationNoticeBar from "./components/LocationNoticeBar";
@@ -919,6 +920,9 @@ function MainApp() {
           {/* HeaderTabsProvider: modules publish their tab strip into the header
               center via <ModuleTabs> (Work OS shell - Stella-style layout) */}
           <HeaderTabsProvider>
+          {/* The page trail (Neil, 11/04/2026): the module, then the pages above
+              a record, on a line above the page title - components/PageTrail.jsx. */}
+          <PageTrailProvider view={activeView} label={viewLabel(activeView)} onNavigate={navigate}>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             {/* The announcement bar - across the top of the page, above the
                 header: the weekly "New in Nexus" news, or "a new version is
@@ -959,6 +963,10 @@ function MainApp() {
               : activeView === 'dashboard' ? 'viewport viewport-desk'
               : activeView === 'documents' ? 'viewport viewport-tight'
               : 'viewport'}>
+              {/* A screen with no title row of its own gets the trail here; the
+                  dashboard's home is the start of every trail, so it has none. */}
+              <ShellTrail hidden={pdfHasDoc || (activeView === 'dashboard' && (!activeSub || activeSub === 'dashboard'))}
+                flush={activeView === 'pdf-editor' || activeView === 'whats-new'} />
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>
               <Suspense fallback={<ViewLoading />}>
                 <ProtectedView
@@ -972,6 +980,7 @@ function MainApp() {
               </ViewErrorBoundary>
             </div>
           </main>
+          </PageTrailProvider>
           </HeaderTabsProvider>
         </div>
         </InventoryProvider>

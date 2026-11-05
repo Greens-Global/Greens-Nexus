@@ -23,6 +23,7 @@ import { PersonSelect, Modal as SheetModal } from '../tasks/components';
 import RoleHiringDocs from '../components/RoleHiringDocs';
 import TeamsTargetPicker, { EMPTY_TEAMS_TARGET, teamsTargetLabel } from '../components/TeamsTargetPicker';
 import { registerTour } from '../lib/tours';
+import PageTrail from '../components/PageTrail';
 
 // ── Roles & Access - people-first restructure (Jul 27) ───────────────────────
 // One rule: a person's access = their ONE job role (baseline) + extra groups
@@ -454,6 +455,7 @@ export default function RolesAccess({ embedded = false }) {
       {!embedded && (
         <div className="view-header" style={{ marginBottom: 18 }}>
           <div className="view-title-group">
+            <PageTrail title="Roles & Access" />
             <h2>Roles &amp; Access</h2>
             <p>Access = job role + extra groups. Look up a person to see or change theirs.</p>
           </div>

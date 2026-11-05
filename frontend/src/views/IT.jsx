@@ -3,6 +3,7 @@ import { SkeletonBlocks, Spinner } from "../components/AsyncState";
 import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { api } from "../api";
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import PageTrail, { useTrailCrumbs } from "../components/PageTrail";
 
 // Asset Management tab removed Jun 12 (Visesh) - the legacy hardware_assets
 // flow is superseded by the Items module; equipment lives on the items table.
@@ -121,6 +122,9 @@ function NetworkDashboard() {
 
   const detailOfflineCount = detail ? (detail.offline_wired_devices || 0) + (detail.offline_wifi_devices || 0) : 0;
 
+  // A site sits under the Network Dashboard: IT / NETWORK DASHBOARD over its name.
+  useTrailCrumbs(view === "detail" ? [{ label: "Network Dashboard", onClick: backToOverview }] : null);
+
   return (
     <div>
       <div className="view-header">
@@ -131,6 +135,7 @@ function NetworkDashboard() {
             </button>
           )}
           <div className="view-title-group">
+            <PageTrail title={view === "detail" ? currentSite?.name : "Network Dashboard"} />
             <h2>
               {view === "detail" ? currentSite?.name : "Network Dashboard"}
               {view === "detail" && detail?.firmware_version && (

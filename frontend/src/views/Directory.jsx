@@ -39,6 +39,7 @@ import {
 } from '../directory/lib';
 import { exportDirectoryPdf } from '../directory/pdf';
 import { openPersonTasks } from '../lib/personTasksNav';
+import PageTrail from '../components/PageTrail';
 
 const REFRESH_MS = 60_000;
 const PRESENCE_MS = 30_000;   // Teams presence poll; the server holds one Graph answer per 30 s
@@ -336,6 +337,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
       , toolsTarget) : null) : (
       <div className="view-header" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div className="view-title-group">
+          <PageTrail title="Directory" />
           <h2>Directory</h2>
           <p>{data ? `${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Find and reach anyone in the company'}</p>
         </div>

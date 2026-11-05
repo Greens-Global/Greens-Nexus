@@ -9,6 +9,7 @@ import { SkeletonBlocks } from '../components/AsyncState';
 import { ViewNotice } from '../components/workforce/WorkforceViews';
 import { useWorkforceView } from '../components/workforce/viewContext';
 import { formatAccuracy } from '../lib/distance';
+import PageTrail from '../components/PageTrail';
 
 // Company-wide map of where each person LAST punched from. Pins are the person's
 // profile photo, ringed green when they're clocked in. Filter by company /
@@ -346,6 +347,7 @@ export default function Locations({ toastErr, embedded = false }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
             <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><MapPin size={19} /></span>
             <div className="view-title-group">
+              <PageTrail title="Locations" />
               <h2 style={{ margin: 0 }}>Locations</h2>
               <p style={{ margin: '2px 0 0' }}>Where each person last punched from</p>
             </div>

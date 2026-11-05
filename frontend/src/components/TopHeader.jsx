@@ -342,15 +342,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <ArrowLeft style={{ width: 15, height: 15 }} />
             </button>
           )}
-          {/* Back within one module (Settings > another subject) named the
-              same page twice - "Settings / Settings" (Oct 25); the arrow stays. */}
-          {canGoBack && prevLabel && prevLabel !== displayTitle && (
-            <>
-              <button className="breadcrumb-prev" onClick={onBack} title={`Back to ${prevLabel}`}>{prevLabel}</button>
-              <span style={{ color: "var(--muted)", opacity: 0.4, fontSize: 11, userSelect: "none" }}>/</span>
-            </>
-          )}
-          <span className="breadcrumb-current">{displayTitle}</span>
+          {/* The page trail (Neil, 11/04/2026) names the module and the pages
+              above a record, in the page above its title (PageTrail.jsx), so
+              the bar keeps only Back - the trail goes UP, this goes BACK. The
+              name stays for screen readers and Build Mode's capture. */}
+          <span className="breadcrumb-current sr-only">{displayTitle}</span>
         </div>
       </div>
 

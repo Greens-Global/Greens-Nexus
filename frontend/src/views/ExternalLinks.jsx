@@ -30,6 +30,7 @@ import {
   FolderPlus, Check, RefreshCw, SlidersHorizontal, Save,
   MoreHorizontal, Copy, ArrowUp, ArrowDown,
 } from 'lucide-react';
+import PageTrail from '../components/PageTrail';
 
 // Mirrors the old start.greensglobal.com department dropdown (Neil, Aug 12) -
 // "Development" deliberately excluded per that ask. Admin-managed now (Aug
@@ -883,6 +884,7 @@ export default function ExternalLinks() {
     <div>
       <div className="view-header links-dim">
         <div className="view-title-group">
+          <PageTrail title="Links" />
           <h2>Links</h2>
           <p>Every tool the company runs on, one launchpad.</p>
         </div>

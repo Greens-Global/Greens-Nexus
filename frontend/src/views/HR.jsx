@@ -77,6 +77,7 @@ import PayTab from '../people/PayTab';
 import ComplianceTab from '../people/ComplianceTab';
 import { guardRecordLeave } from '../people/useTabDraft';
 import { daysUntil } from '../people/lib';
+import PageTrail from '../components/PageTrail';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -4026,6 +4027,7 @@ export default function HR({ activeSub, onSubChange }) {
             <HeadIcon size={19} />
           </span>
           <div className="view-title-group">
+            <PageTrail title={headTab.label} />
             <h2 style={{ fontFamily: 'var(--wk-font)' }}>{headTab.label}</h2>
             <p>{TAB_LINES[headTab.key] || 'People, hiring, org structure and leave - one source of truth'}</p>
           </div>

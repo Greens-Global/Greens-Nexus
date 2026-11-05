@@ -17,6 +17,7 @@ import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { REPORTS, REPORT_VIEWS, parseActivitySub } from '../components/accounting/reportModel';
 import { STATEMENTS_SUB } from '../components/accounting/drill';
 import { BUILDER_PUBLISH_MIN_LEVEL, PAYROLL_SUMMARY_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
+import PageTrail from '../components/PageTrail';
 
 // Oct 24 (bundle budget, 10/23 meeting round 2): every screen behind the bar
 // is fetched the first time it is opened, not with the Accounting view - all
@@ -430,6 +431,7 @@ export default function Accounting({ activeSub, onSubChange }) {
           {/* The heading is the bar tab the page belongs to (Neil, 10/30):
               Dashboard on the dashboards, Reports on a statement, and so on -
               the sidebar already says Accounting. */}
+          <PageTrail title={headingFor(sub)} />
           <h2>{headingFor(sub)}</h2>
           <p title={subtitle}>{subtitle}</p>
         </div>
