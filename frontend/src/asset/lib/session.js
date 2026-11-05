@@ -27,5 +27,7 @@ export function useSession() {
     can: role?.can || (() => false),
     level,
     role: myRole,
+    // The Access Group grant on Asset Management ('' | viewer | editor | full | owner).
+    moduleLevel: role?.myGrantedModules?.get?.('property-asset') || '',
   };
 }

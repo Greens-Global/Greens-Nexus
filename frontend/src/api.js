@@ -913,6 +913,10 @@ export const api = {
   // Find Folder on an asset's Egnyte Folder (11/03/2026): the folders whose name could be
   // the asset's (or `q`'s) - { configured, site, roots, pinned, pinnedFound, match, why, candidates, message }.
   findAssetEgnyteFolders: (id, q = "") => req(`/property-assets/${encodeURIComponent(id)}/egnyte-folders${q ? `?q=${encodeURIComponent(q)}` : ""}`, { timeoutMs: 45_000 }),
+  // Plans & Docs from the asset's connected Egnyte folder (11/05/2026) - read only, viewers
+  // included: { connected, configured, folder, mayChange, missing?, error?, path, folders, files, webUrl }.
+  assetEgnyteFolder: (id, path = "") => req(`/property-assets/${encodeURIComponent(id)}/egnyte/folder${path ? `?path=${encodeURIComponent(path)}` : ""}`, { timeoutMs: 60_000 }),
+  assetEgnyteFile: (id, path, inline = false) => reqBlob(`/property-assets/${encodeURIComponent(id)}/egnyte/file?path=${encodeURIComponent(path)}${inline ? "&inline=true" : ""}`, { timeoutMs: 60_000 }),
 
   // External Links
   getExternalLinks: () => req("/external-links"),
