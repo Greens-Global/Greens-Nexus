@@ -23,7 +23,7 @@ Eric Mees reviewed walk-in mystery shops in 2020 (Inside Self-Storage) and found
 |---|---|
 | No urgency | Tie it to their date: "Your move is Saturday. Let's make sure this unit is yours." |
 | Assuming the customer knows storage | Explain the gate, the lock and the paperwork before they ask |
-| No stated difference from competitors | Say your site's one clear thing (the The Nine Parts of a Sales Call lesson) |
+| No stated difference from competitors | Say your site's one clear thing (the Nine Parts of a Sales Call lesson) |
 | No written quote | Hand-write a quote sheet for the units you showed, with the site's phone number and your name |
 | No contact capture | Ask for name, phone and email so you can send the quote and hold the unit |
 
@@ -37,7 +37,7 @@ Eric Mees reviewed walk-in mystery shops in 2020 (Inside Self-Storage) and found
 > [!NOTE]
 > "Hi, welcome to Greens Storage Valley Center. I'm Maria. What's your name? ... Nice to meet you, David. Did you call us earlier, or is this your first time talking with us?"
 
-Then do discovery (the The Nine Parts of a Sales Call lesson, part 3) at the counter. Recommend a size (the Recommending a Size lesson). Then offer to show it.
+Then do discovery (the Nine Parts of a Sales Call lesson, part 3) at the counter. Recommend a size (the Recommending a Size lesson). Then offer to show it.
 
 > [!NOTE]
 > "The best way to know it fits is to see it. Do you have ten minutes? I'll show you the 10x15 I have in mind."

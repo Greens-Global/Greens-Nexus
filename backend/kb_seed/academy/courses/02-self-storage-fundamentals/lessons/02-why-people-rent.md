@@ -58,7 +58,7 @@ A **segment** is a group of customers with similar needs. Knowing the segment he
 | Segment | Who they are | What to know |
 |---|---|---|
 | **Residential** | Households: movers, families, retirees, renters | The majority. Want clear prices, easy access, a clean site and to feel safe. |
-| **Business** | Contractors, pharmaceutical and sales reps with samples, online sellers, retailers with seasonal stock, offices storing records | Stay the longest. Storing business goods is normally fine; running a business out of the unit is not (the The Rental Agreement lesson). |
+| **Business** | Contractors, pharmaceutical and sales reps with samples, online sellers, retailers with seasonal stock, offices storing records | Stay the longest. Storing business goods is normally fine; running a business out of the unit is not (the Rental Agreement lesson). |
 | **Students** | Summer and study-abroad storage | Short stays; often a parent on the account. Confirm who is authorized. |
 | **Military** | Active-duty members, deploying or moving | Federal law protects them in the lien process. Ask about military status at move-in. |
 | **Vehicle owners** | RV, boat, trailer and car owners | Need the right space size and length, paperwork for the vehicle and their own insurance. Separate course. |
@@ -116,7 +116,7 @@ The Customer Service & Sales course goes deeper on conversations. Here, the poin
 
 ## Greens Scenarios
 
-**Escondido.** A man calls about emptying his late mother's three-bedroom house. He sounds tired. You offer condolences, ask what large furniture there is, and suggest a 10x15 or 10x20 (the The Product: Units and Sizes lesson). You mention climate control is worth asking about for wood furniture and photo albums.
+**Escondido.** A man calls about emptying his late mother's three-bedroom house. He sounds tired. You offer condolences, ask what large furniture there is, and suggest a 10x15 or 10x20 (the Product: Units and Sizes lesson). You mention climate control is worth asking about for wood furniture and photo albums.
 
 **Fairfield.** An Air Force sergeant at Travis is deploying in three weeks and wants to park a pickup and a small trailer. You ask about and record her military status at move-in (the Lines You Never Cross lesson explains why), and explain autopay so nothing lapses while she is away.
 

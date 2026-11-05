@@ -50,14 +50,14 @@ Active listening is a skill you can practice. Five habits:
 4. **Write it down.** In Cubby notes, so the next person knows.
 5. **Use their words back.** If they said "my mom's dresser," say "your mom's dresser," not "the furniture."
 
-The fifth habit matters most in sales. When you recommend a unit, tie every feature to something they said (the The Nine Parts of a Sales Call lesson). "You mentioned your mom's dresser is solid wood, so a climate-controlled unit keeps it out of the summer heat" is a reason. "We have climate control" is a brochure.
+The fifth habit matters most in sales. When you recommend a unit, tie every feature to something they said (the Nine Parts of a Sales Call lesson). "You mentioned your mom's dresser is solid wood, so a climate-controlled unit keeps it out of the summer heat" is a reason. "We have climate control" is a brochure.
 
 ## Before They Arrive: You, Your Voice and Your Office
 
 ### On the Phone
 
 - **Before you pick up:** finish chewing, put the drink down, stop typing, and smile. Callers can hear attitude.
-- **Pick up by the third ring.** The Why the Phone Wins or Loses Rentals lesson explains why.
+- **Pick up by the third ring.** The lesson Why the Phone Wins or Loses Rentals explains why.
 - **Slow down.** A calm, unhurried voice is the single best thing you can give a stressed caller.
 
 ### At the Counter

@@ -14,7 +14,7 @@ summary: Why reviews matter, how to ask every customer the same honest way with 
 
 ## Reviews Are the First Conversation
 
-The Who Walks Through Our Door lesson showed that customers read reviews and look at Google photos before they call. For many people, your reviews **are** the first conversation with Greens, and they happen before you get a chance to help.
+The lesson Who Walks Through Our Door showed that customers read reviews and look at Google photos before they call. For many people, your reviews **are** the first conversation with Greens, and they happen before you get a chance to help.
 
 Two things shape what a shopper sees:
 

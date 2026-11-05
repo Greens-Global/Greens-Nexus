@@ -16,7 +16,7 @@ summary: Calming an angry customer, a break-in report, damage from a leak, pests
 
 ## Angry Customers: De-Escalation
 
-Most anger at a storage counter is not about you. It is a code that failed after a long drive, a fee they did not expect, or a bad week landing on the nearest person. These steps are from Tocarro Williams (Inside Self-Storage, 05/2022), combined with the Greens recovery method from the The Greens Service Standard lesson.
+Most anger at a storage counter is not about you. It is a code that failed after a long drive, a fee they did not expect, or a bad week landing on the nearest person. These steps are from Tocarro Williams (Inside Self-Storage, 05/2022), combined with the Greens recovery method from the Greens Service Standard lesson.
 
 1. **Stay calm and lower your voice.** People match the volume around them. Let them finish.
 2. **Empathize and play it back.** "So you came to move your things and your code didn't work, after a long drive. I'd be upset too."

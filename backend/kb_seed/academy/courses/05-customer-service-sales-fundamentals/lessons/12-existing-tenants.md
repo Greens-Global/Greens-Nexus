@@ -35,7 +35,7 @@ If they cannot, be kind and firm: "I'm sorry, I'm not able to discuss an account
 
 ### "Why Is This On My Bill?"
 
-Open the ledger in Cubby with the tenant. Explain each line. If a charge is not on Greens Fees and Charges, do not guess: "Let me check that with my manager and call you back by 3:00 PM." Most "wrong bill" calls are a prorated first month, a late fee, or a protection charge they forgot they chose. Cubby Fundamentals, the How a Ledger Works and Ledger Worked Examples lessons cover reading the ledger.
+Open the ledger in Cubby with the tenant. Explain each line. If a charge is not on Greens Fees and Charges, do not guess: "Let me check that with my manager and call you back by 3:00 PM." Most "wrong bill" calls are a prorated first month, a late fee, or a protection charge they forgot they chose. Cubby Fundamentals covers reading the ledger in How a Ledger Works and Ledger Worked Examples.
 
 ## Rate-Increase Conversations
 
@@ -49,7 +49,7 @@ Rate increases after a low move-in rate were the number one complaint in Modern 
 
 ### When the Tenant Calls
 
-Use Hear, Own, Solve, Thank, Fix (the The Greens Service Standard lesson).
+Use Hear, Own, Solve, Thank, Fix (the Greens Service Standard lesson).
 
 1. **Hear.** Let them finish. They may have a lot to say.
 2. **Own.** Tocarro Williams' wording (2022): "I understand this increase is hard to hear. Here's what's driving it, and I'm glad to walk through your options."

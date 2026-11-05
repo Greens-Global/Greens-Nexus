@@ -51,7 +51,7 @@ An **ECRI** (Existing Customer Rate Increase) is a rent increase for a current t
 
 Why operators do it: moving out costs a tenant a truck, a day and a lot of work, so many will accept a modest increase rather than move. And a tenant who moved in on a promotional rate is often paying well under the street rate.
 
-Why it is risky: increases that are too large or too frequent drive move-outs, bad reviews and attention from lawmakers. California's SB 709 (the The Rental Agreement lesson) came out of that concern.
+Why it is risky: increases that are too large or too frequent drive move-outs, bad reviews and attention from lawmakers. California's SB 709 (the Rental Agreement lesson) came out of that concern.
 
 What you do:
 
@@ -117,7 +117,7 @@ A **concession** is a discount or promotion that brings in a move-in: a first mo
 | Bring in move-ins and win price shoppers | Lower economic occupancy while they last |
 | Fill units that have sat empty | Anchor the customer to a low rate, which is one reason a first rate increase can come early |
 
-In California, a promotional rate and its length must be disclosed on the first page of agreements signed on or after 01/01/2026 (SB 709, the The Rental Agreement lesson). At Greens, Cubby showed no active discount programs (From Greens' Cubby, 11/2026). Never invent a promotion. Offer only what the system shows.
+In California, a promotional rate and its length must be disclosed on the first page of agreements signed on or after 01/01/2026 (SB 709, the Rental Agreement lesson). At Greens, Cubby showed no active discount programs (From Greens' Cubby, 11/2026). Never invent a promotion. Offer only what the system shows.
 
 ## Fees
 

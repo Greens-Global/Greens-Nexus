@@ -43,7 +43,7 @@ Cubby Fundamentals (Leads and Reservations) covered the lead sources. The ones t
 Byrd's sequence for an online reservation (2021), adapted:
 
 1. **Call within 5 minutes.** During open hours, this comes before anything except a customer at the counter.
-2. **Confirm the size fits.** Run the discovery questions (the The Nine Parts of a Sales Call lesson). Online renters pick their own size, and often pick too small.
+2. **Confirm the size fits.** Run the discovery questions (the Nine Parts of a Sales Call lesson). Online renters pick their own size, and often pick too small.
 3. **Confirm the move-in date and time.**
 4. **If no answer:** leave a short voicemail, then send a text and an email right away.
 5. **Call again** later that day.

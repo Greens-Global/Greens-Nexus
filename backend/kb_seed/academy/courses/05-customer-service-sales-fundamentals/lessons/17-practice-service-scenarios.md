@@ -12,11 +12,11 @@ summary: Scenarios 11 to 20 - the wrong person answering a collections call, an 
 
 ## Using These Scenarios
 
-Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one person plays the customer, one plays Greens staff, and someone scores. Most of these are service and safety situations, not sales calls. Score them with Hear, Own, Solve, Thank, Fix (the The Greens Service Standard lesson) and the rules in the lesson each scenario points to. Scenario 20 is a sales call: use the 22-item sheet.
+Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one person plays the customer, one plays Greens staff, and someone scores. Most of these are service and safety situations, not sales calls. Score them with Hear, Own, Solve, Thank, Fix (the Greens Service Standard lesson) and the rules in the lesson each scenario points to. Scenario 20 is a sales call: use the 22-item sheet.
 
 ## Scenario 11: The Wrong Person Answers a Collections Call
 
-**Site:** Valley Center. **Lessons:** 13.
+**Site:** Valley Center. **Lessons:** Collections With Respect.
 
 **Prompt (customer):** You are the tenant's roommate. You pick up and ask, "What's this about? I can pass on a message."
 
@@ -29,7 +29,7 @@ Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one pe
 
 ## Scenario 12: The Ex Wants In
 
-**Site:** Temecula. **Lessons:** 14.
+**Site:** Temecula. **Lessons:** Difficult Situations.
 
 **Prompt (customer):** "My ex rented a unit here, but half the stuff in it is mine. Cut the lock." Get louder if told no.
 
@@ -43,7 +43,7 @@ Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one pe
 
 ## Scenario 13: A Break-In Discovered by the Tenant
 
-**Site:** Fairfield, trailer space. **Lessons:** 14, 12.
+**Site:** Fairfield, trailer space. **Lessons:** Difficult Situations; Existing Tenants: Payments, Rate Increases and Move-Outs.
 
 **Prompt (customer):** "The lock on my trailer is cut and my tools are gone!" You are upset and want to know what Greens is going to do about it.
 
@@ -58,7 +58,7 @@ Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one pe
 
 ## Scenario 14: Damage From a Roof Leak
 
-**Site:** Escondido. **Lessons:** 14.
+**Site:** Escondido. **Lessons:** Difficult Situations.
 
 **Prompt (customer):** Your boxes are soaked. "Your roof leaked. You're paying for this."
 
@@ -72,7 +72,7 @@ Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one pe
 
 ## Scenario 15: A Suspected Live-In
 
-**Site:** Murrieta. **Lessons:** 14.
+**Site:** Murrieta. **Lessons:** Difficult Situations.
 
 **Prompt (scorer reads this to the staff member):** The same car has been parked overnight three nights in a row, and you saw a light in a unit at 6:00 AM. What do you do?
 
@@ -85,7 +85,7 @@ Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one pe
 
 ## Scenario 16: Alone on Site, and the Prospect Wants You Inside
 
-**Site:** Valley Center. **Lessons:** 8, 14.
+**Site:** Valley Center. **Lessons:** Walk-Ins and the Tour; Difficult Situations.
 
 **Prompt (customer):** You are touring a far unit. You insist the staff member come inside with you to help measure. If asked, say "Are you here by yourself?"
 
@@ -98,7 +98,7 @@ Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one pe
 
 ## Scenario 17: A Spanish-Speaking Walk-In
 
-**Site:** A Texas site. **Lessons:** 4, 9, and the section below.
+**Site:** A Texas site. **Lessons:** The Nine Parts of a Sales Call; Move-In Done Right; and the section below.
 
 **Prompt (customer):** You speak limited English. You want a unit for your family's move. Your 10-year-old daughter offers to translate.
 
@@ -113,7 +113,7 @@ Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one pe
 
 ## Scenario 18: "They Sold My Stuff!"
 
-**Site:** Escondido. **Lessons:** 15.
+**Site:** Escondido. **Lessons:** Reviews and Reputation.
 
 **Prompt (scorer reads this):** A one-star review: "They sold everything I owned. Heartless. Stay away." The account went through the full lien process. Write the reply.
 
@@ -125,7 +125,7 @@ Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one pe
 
 ## Scenario 19: A Move-Out Notice
 
-**Site:** Temecula. **Lessons:** 12.
+**Site:** Temecula. **Lessons:** Existing Tenants: Payments, Rate Increases and Move-Outs.
 
 **Prompt (customer):** You emailed that you are leaving at the end of the month. If asked why: the rent went up and you only use half the unit.
 
@@ -138,7 +138,7 @@ Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one pe
 
 ## Scenario 20: An RV Owner Shopping Covered Parking
 
-**Site:** Temecula. **Lessons:** 4, and RV & Boat Storage Fundamentals, the Measuring for the Right Fit and Selling Vehicle Storage lessons.
+**Site:** Temecula. **Lessons:** The Nine Parts of a Sales Call; RV & Boat Storage Fundamentals, Measuring for the Right Fit and Selling Vehicle Storage.
 
 **Prompt (customer):** "Do you have a covered spot for a 34-foot fifth wheel?" You take it out about once a month, mostly in summer.
 
@@ -183,7 +183,7 @@ Before your Hands-On Check:
 1. Run every scenario once, as staff.
 2. Note the three you found hardest.
 3. Run those again, a week apart.
-4. Score yourself on five real calls a week with the the The Call Score Sheet lesson sheet.
+4. Score yourself on five real calls a week with the call score sheet.
 
 ## Key Points
 

@@ -6,19 +6,19 @@ summary: How to practice with a coworker using the call score sheet, and the fir
 ## What You'll Be Able to Do
 
 - Run a role-play with a coworker: caller, Greens staff and scorer.
-- Score a practice call with the 22-item call score sheet (the The Call Score Sheet lesson).
+- Score a practice call with the 22-item call score sheet (the Call Score Sheet lesson).
 - Handle the ten sales and tenant scenarios in this lesson the way a great Greens employee would.
 - Pick your own weak spots and practice them before your Hands-On Check.
 
 ## How to Practice
 
-Reading about a sales call does not make you good at one. Saying the words out loud, with someone pushing back, does. The Practice: Twenty Scenarios, Part 1 and Practice: Twenty Scenarios, Part 2 lessons give you twenty scenarios to practice. They are the same kinds of situations your trainer may use in the Hands-On Check's mock sales call.
+Reading about a sales call does not make you good at one. Saying the words out loud, with someone pushing back, does. The two Practice: Twenty Scenarios lessons (Parts 1 and 2) give you twenty scenarios to practice. They are the same kinds of situations your trainer may use in the Hands-On Check's mock sales call.
 
 ### Set Up
 
 - **Two or three people.** One plays the customer, one plays Greens staff, and (if you have three) one scores. With two, the customer scores after the call.
 - **Five to ten minutes a week.** DeFazio (2026) recommends short weekly practice; one scenario a week is plenty.
-- **Use the score sheet** from the The Call Score Sheet lesson for every sales scenario. For the service scenarios, score with Hear, Own, Solve, Thank, Fix (the The Greens Service Standard lesson) and the rules in the lesson the scenario points to.
+- **Use the score sheet** from the Call Score Sheet lesson for every sales scenario. For the service scenarios, score with Hear, Own, Solve, Thank, Fix (the Greens Service Standard lesson) and the rules in the lesson the scenario points to.
 
 ### The Customer's Job
 
@@ -39,7 +39,7 @@ Do not read the "what great looks like" section first. Handle the call, then com
 
 ## Scenario 1: The Price-Only Caller
 
-**Site:** Escondido. **Lessons:** 4, 5, 11.
+**Site:** Escondido. **Lessons:** The Nine Parts of a Sales Call; Recommending a Size; Objections, Honestly.
 
 **Prompt (customer):** "How much is your 10x10? That's all I need." You are clearing out a three-bedroom house next month. Do not say so unless asked.
 
@@ -54,7 +54,7 @@ Do not read the "what great looks like" section first. Handle the call, then com
 
 ## Scenario 2: The Hours Question
 
-**Site:** Valley Center. **Lessons:** 3, 4.
+**Site:** Valley Center. **Lessons:** Why the Phone Wins or Loses Rentals; The Nine Parts of a Sales Call.
 
 **Prompt (customer):** "How late are you open today?" You are actually thinking about renting a unit for a remodel, but you only asked about hours.
 
@@ -67,7 +67,7 @@ Do not read the "what great looks like" section first. Handle the call, then com
 
 ## Scenario 3: First-Time Renter After a Divorce
 
-**Site:** Fairfield, enclosed unit. **Lessons:** 1, 2, 4.
+**Site:** Fairfield, enclosed unit. **Lessons:** Who Walks Through Our Door; The Greens Service Standard; The Nine Parts of a Sales Call.
 
 **Prompt (customer):** You sound overwhelmed. You are moving out this weekend with about half of a two-bedroom apartment. You have never rented storage. You are not focused on price.
 
@@ -82,7 +82,7 @@ Do not read the "what great looks like" section first. Handle the call, then com
 
 ## Scenario 4: An Estate, and a Father's Unit
 
-**Site:** Escondido. **Lessons:** 4, 14.
+**Site:** Escondido. **Lessons:** The Nine Parts of a Sales Call; Difficult Situations.
 
 **Prompt (customer):** You need storage for your late father's furniture while the house is sold. Then you add: "Also, Dad had a unit here. Can you let me into it?"
 
@@ -95,7 +95,7 @@ Do not read the "what great looks like" section first. Handle the call, then com
 
 ## Scenario 5: The Competitor Is $20 Cheaper
 
-**Site:** Temecula, covered parking. **Lessons:** 11.
+**Site:** Temecula, covered parking. **Lessons:** Objections, Honestly.
 
 **Prompt (customer):** "The lot across town has boat parking for $20 less a month." Your boat is 24 feet, on a trailer, and you care about the sun on it, but only say so if asked.
 
@@ -110,7 +110,7 @@ Do not read the "what great looks like" section first. Handle the call, then com
 
 ## Scenario 6: "I'll Think About It"
 
-**Site:** Valley Center, walk-in. **Lessons:** 8, 11.
+**Site:** Valley Center, walk-in. **Lessons:** Walk-Ins and the Tour; Objections, Honestly.
 
 **Prompt (customer):** You toured a 10x15, liked it, and start to leave: "I'll think about it." The real reason: your house sale might close a week late.
 
@@ -125,7 +125,7 @@ Do not read the "what great looks like" section first. Handle the call, then com
 
 ## Scenario 7: Web Reservation, No Answer
 
-**Site:** A Texas site. **Lessons:** 10.
+**Site:** A Texas site. **Lessons:** Online Renters and Digital Leads.
 
 **Prompt (customer):** You reserved a unit online four minutes ago for a move-in tomorrow. Do not answer the first call. Answer the second.
 
@@ -139,7 +139,7 @@ Do not read the "what great looks like" section first. Handle the call, then com
 
 ## Scenario 8: Contactless Renter Cannot Get Through the Gate
 
-**Site:** Fairfield. **Lessons:** 10, 14.
+**Site:** Fairfield. **Lessons:** Online Renters and Digital Leads; Difficult Situations.
 
 **Prompt (customer):** It is 7:40 PM and the office is closed. You rented online this morning and your code will not open the gate. You are tired and annoyed.
 
@@ -153,7 +153,7 @@ Do not read the "what great looks like" section first. Handle the call, then com
 
 ## Scenario 9: Rate-Increase Anger
 
-**Site:** Escondido. **Lessons:** 12.
+**Site:** Escondido. **Lessons:** Existing Tenants: Payments, Rate Increases and Move-Outs.
 
 **Prompt (customer):** "You raised me 12% again! I've been here four years!" You are hurt more than angry. If offered a smaller unit, consider it.
 
@@ -168,7 +168,7 @@ Do not read the "what great looks like" section first. Handle the call, then com
 
 ## Scenario 10: Collections Call, Hardship
 
-**Site:** Murrieta, RV space. **Lessons:** 13.
+**Site:** Murrieta, RV space. **Lessons:** Collections With Respect.
 
 **Prompt (customer):** You are 20 days late on your RV space. You lost your job last month. You want to keep the space.
 

@@ -95,7 +95,7 @@ From your first day, Nexus expects a few habits. Each one has a full lesson late
 - **Punch in and out yourself, every shift**, and take your breaks on the clock (the Punching In, Breaks and Punching Out lesson).
 - **Check your Time Sheet** and sign it when your manager approves it. Only you sign your Time Sheet (the Your Time Sheet lesson).
 - **Confirm your schedule** when a manager shares a new one (the Schedules and Time Off lesson).
-- **Ask for things in Nexus**, not by text: time off, HR letters, reimbursements, equipment (the Schedules and Time Off, Ask HR, Reimbursements and Purchases and People, Equipment and Notes lessons).
+- **Ask for things in Nexus**, not by text: time off, HR letters, reimbursements, equipment (covered in the Schedules and Time Off lesson; the Ask HR, Reimbursements and Purchases lesson; and the People, Equipment and Notes lesson).
 - **Report problems with a ticket or a form**, with photos, so nothing is lost (the Getting Help: Tickets, Report a Problem and Forms lesson).
 - **Finish your training** by its due date (the Training and Policies lesson).
 

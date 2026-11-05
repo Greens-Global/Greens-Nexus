@@ -67,7 +67,7 @@ Across the top of every screen, from left to right on the right side:
 |---|---|
 | **Search Nexus** | Finds tasks, projects, people, items, purchase requests and pages. Press Ctrl+K (Cmd+K on a Mac) or the / key to jump to it from anywhere. |
 | **+ (Create)** | Starts something new from any screen: New Note, New Ticket, Request an Item, Fill a Form, New Email, New Event, and more. You only see the rows for modules open to you. |
-| **The bell** | Your notifications. A red number means unread alerts. The Your Dashboard and the Bell lesson covers it. |
+| **The bell** | Your notifications. A red number means unread alerts. The lesson Your Dashboard and the Bell covers it. |
 | **? (Help)** | The Help panel: Search for Help, What's New in Nexus, Help with This Page and Take the Tour. Pressing the ? key opens it too. |
 | **Your photo or initials** | Your profile menu. |
 

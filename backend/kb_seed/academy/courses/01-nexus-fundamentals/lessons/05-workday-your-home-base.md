@@ -20,7 +20,7 @@ Workday has four tabs:
 | Tab | What it is for | Lesson |
 |---|---|---|
 | **Overview** | The landing page: tiles, documents to sign, the Time Clock, your schedule, your profile, your equipment and your documents. | This lesson and the Punching In, Breaks and Punching Out lesson |
-| **Time Sheet** | Your hours for the pay period, day by day, and signing them. | The Your Time Sheet lesson |
+| **Time Sheet** | Your hours for the pay period, day by day, and signing them. | The lesson Your Time Sheet |
 | **Time Off** | Request time off and see your requests. | The Schedules and Time Off lesson |
 | **Performance** | My Numbers, My Goals, My Reviews and My 1:1s. | This lesson, briefly |
 

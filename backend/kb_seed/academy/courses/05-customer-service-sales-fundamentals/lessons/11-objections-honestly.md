@@ -22,7 +22,7 @@ Honesty is the whole method. You never need a trick to answer an objection, and 
 1. **Listen.** Let them finish. Do not jump in with an answer.
 2. **Find what is underneath.** Ask one question. "Is it the monthly price, or the move-in cost?" "Is it the size, the price, or the timing?"
 3. **Answer honestly.** With facts from Cubby and what the customer told you. Never invent urgency, never criticize a competitor, never promise what you cannot give.
-4. **Ask again.** Go back to the close (the The Nine Parts of a Sales Call lesson): a rental, a free reservation, or a set time.
+4. **Ask again.** Go back to the close (the Nine Parts of a Sales Call lesson): a rental, a free reservation, or a set time.
 
 ## The Objections Table
 

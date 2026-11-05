@@ -36,7 +36,7 @@ This page is the trainer's checklist and your study guide. The trainer works fro
 
 **How the trainer runs it:**
 
-- Pick a caller from the practice scenarios in the Practice: Twenty Scenarios, Part 1 and Part 2 lessons of that course, for example the Price-Only Caller, the Competitor Is $20 Cheaper or "I'll Think About It."
+- Pick a caller from the practice scenarios in the two Practice: Twenty Scenarios lessons (Parts 1 and 2) of that course, for example the Price-Only Caller, the Competitor Is $20 Cheaper or "I'll Think About It."
 - Play one caller who rents a unit and, if the site has vehicle spaces, one who stores an RV or a boat, such as Scenario 20, An RV Owner Shopping Covered Parking. Run at least one call; run both if time allows. The RV or boat caller is a good test of item 8, asking the length, the height and how often they use it.
 - Stay in character. Sit where you cannot see the learner's notes. Ask the questions a real caller would ask, and push back once when the learner asks for the rental.
 - Mark each item Yes, No or N/A. Not asking is a No. Score = Yes divided by the items that applied.

@@ -41,7 +41,7 @@ Three things drove the growth over the next fifty years:
 2. **Life events.** Deaths, divorces, downsizing and moves create sudden storage needs (the Why People Rent lesson covers these).
 3. **Business use.** Contractors, sales reps and online sellers found storage cheaper than warehouse space.
 
-Reality TV made storage auctions famous. As you will learn in the Delinquency and the Lien Process and Lines You Never Cross lessons, real lien sales are a strict legal process and a last resort, not entertainment.
+Reality TV made storage auctions famous. As you will learn in the Delinquency and the Lien Process lesson and the Lines You Never Cross lesson, real lien sales are a strict legal process and a last resort, not entertainment.
 
 ## How Big the Industry Is
 

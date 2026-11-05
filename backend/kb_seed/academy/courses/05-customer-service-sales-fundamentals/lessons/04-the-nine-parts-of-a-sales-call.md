@@ -14,7 +14,7 @@ summary: The nine parts of a storage sales call, from the greeting to the follow
 
 ## Scripts Set the Tone, Not the Words
 
-The scripts in this lesson are assembled from the trade sources behind this course (Ballard and Maxwell 2011, Weinman 2010, Mixon 2020, DeFazio 2026 and the Inside Self-Storage script articles) and adapted for Greens. Learn the **structure** by heart. Use the words as a starting point and make them yours. The Who Walks Through Our Door lesson told you callers can tell within seconds whether you sound scripted. A script you read sounds like a script. A structure you know lets you listen.
+The scripts in this lesson are assembled from the trade sources behind this course (Ballard and Maxwell 2011, Weinman 2010, Mixon 2020, DeFazio 2026 and the Inside Self-Storage script articles) and adapted for Greens. Learn the **structure** by heart. Use the words as a starting point and make them yours. The lesson Who Walks Through Our Door told you callers can tell within seconds whether you sound scripted. A script you read sounds like a script. A structure you know lets you listen.
 
 ## The Nine Parts at a Glance
 
@@ -46,7 +46,7 @@ That is it. No long speech, no "Greens Storage where we treat you like family, h
 
 ## Part 2: Find Out Why They Called
 
-Answer what they asked first. Then ask one question that opens the conversation. The Why the Phone Wins or Loses Rentals lesson gave you the hours, price and directions versions. The general form:
+Answer what they asked first. Then ask one question that opens the conversation. The lesson Why the Phone Wins or Loses Rentals gave you the hours, price and directions versions. The general form:
 
 > [!NOTE]
 > "Sure, I can help you with that. Are you looking at renting, or is this about an account you already have with us?"

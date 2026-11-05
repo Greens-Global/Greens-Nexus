@@ -94,7 +94,7 @@ The fastest way to turn an ordinary call into a rental is to ask why they called
 >
 > You: "We're at [address], near [landmark]. Are you coming out to see a unit? I'd love to have one ready for you. What time works?"
 
-Each of these answers the question first (never dodge it), then asks one question that opens the conversation. The The Nine Parts of a Sales Call lesson picks up from there.
+Each of these answers the question first (never dodge it), then asks one question that opens the conversation. The Nine Parts of a Sales Call lesson picks up from there.
 
 ## Voicemail and Callbacks
 
@@ -124,7 +124,7 @@ Many storage operators roll overflow and after-hours calls to a storage call cen
 
 ## Recorded Calls
 
-Reviewing your own recorded calls is the fastest way to get better (the The Call Score Sheet lesson). If your line records calls, the law decides what the caller must be told.
+Reviewing your own recorded calls is the fastest way to get better (the Call Score Sheet lesson). If your line records calls, the law decides what the caller must be told.
 
 > [!WARNING]
 > Training only, not legal advice. When in doubt, stop and ask your manager.

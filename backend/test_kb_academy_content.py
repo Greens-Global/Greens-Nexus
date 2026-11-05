@@ -68,6 +68,7 @@ CASES = {
     "lesson by number": (lambda c: c.update(lesson=c["lesson"] + "\nSee lesson 3 for more.\n"), "names a lesson by number"),
     "page lesson by number": (lambda c: c.update(page=c["page"] + "\nIn Lesson 2 you saw it.\n"), "names a lesson by number"),
     "question lesson by number": (lambda c: c["quiz"]["questions"][0].update(explanation="Covered in lesson 4."), "names a lesson by number"),
+    "bold lessons header": (lambda c: c.update(lesson=c["lesson"] + "\n**Lessons:** 4, 5.\n"), "names a lesson by number"),
     "plan order": (lambda c: c["plan"].update(courses=list(reversed(SLUGS))), "in order"),
     "too many lessons": (lambda c: c.update(lessons=[{"file": "01.md"}] * 61), "more than 60"),
 }

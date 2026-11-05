@@ -92,7 +92,7 @@ Before they leave the counter:
 - [ ] **Where to load**, the carts, the dumpster rule
 - [ ] **Their unit number**, said out loud and written down
 
-Then the second mile (the The Greens Service Standard lesson): carry the lock and boxes to the car, or walk them to the unit.
+Then the second mile (the Greens Service Standard lesson): carry the lock and boxes to the car, or walk them to the unit.
 
 ## After the Move-In
 
