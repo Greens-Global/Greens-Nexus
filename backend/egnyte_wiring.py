@@ -696,6 +696,19 @@ def provision_person_folder(emp, db) -> str:
                 other = "Employees" if ctx["bucket"] == "Contractors" else "Contractors"
                 parent = _match_path(fill(template, {**ctx, "bucket": other}).rpartition("/")[0])
             if parent is None:
+                # The match lists folders and reads any Egnyte error as "no
+                # such folder" - so a busy Egnyte (429, 11/06/2026: eight
+                # signed Time Sheets never filed) looked like a missing HR
+                # folder. Ask for the folder itself: there = use it, a 404 =
+                # really missing, anything else = Egnyte trouble, raised as
+                # such so the caller retries instead of giving up.
+                try:
+                    svc.list_folder(svc.norm(parent_t), count=1)
+                    parent = svc.norm(parent_t)
+                except svc.EgnyteError as e:
+                    if e.status != 404:
+                        raise
+            if parent is None:
                 raise ValueError(f"The parent folder for this person ({parent_t}) does not exist in Egnyte yet - create the entity's HR folders there first.")
             folder = svc.norm(f"{parent}/{leaf}")
         svc.create_folder(folder)
