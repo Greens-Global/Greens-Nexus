@@ -13,7 +13,8 @@ import { ALL_TEAMS } from './shifts/TeamPicker';
 import ShiftRequestDialog, { PENDING } from './shifts/ShiftRequestDialog';
 import { ShiftBlock, TimeOffBlock } from './shifts/ShiftBlock';
 import DateBlock from './shifts/DateBlock';
-import { isoDate, parseIso, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayShort, shortTime, shiftShortText, actualFor } from './shifts/shiftLib';
+import ScheduleMonth from './shifts/ScheduleMonth';
+import { isoDate, parseIso, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayShort, shortTime, shiftShortText, actualFor, viewDays } from './shifts/shiftLib';
 import { useShiftRequests } from './useShiftRequests';
 import MyAvailability from './MyAvailability';
 import { formsForShift, jobOfShift } from '../forms/formRules';
@@ -39,6 +40,8 @@ const FillForm = lazy(() => import('../forms/FillForm'));
 // One component, one fetch: the group grid is built from the same week.
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+// Team > Shifts' Week | Month choice (Neil, 11/04/2026), remembered in this browser.
+const RANGE_KEY = 'nexus.shifts.teamRange';
 
 // `embedded` (Pranshu, Oct 15 2026): the Workday Overview's My Schedule card.
 // A My Week | Team switch in the toolbar flips between the two parts, so your
@@ -63,8 +66,14 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
   const [teamId, setTeamId] = useState('');
+  const [range, setRangeState] = useState(() => { try { return localStorage.getItem(RANGE_KEY) === 'month' ? 'month' : 'week'; } catch { return 'week'; } });
+  const setRange = (r) => { setRangeState(r); try { localStorage.setItem(RANGE_KEY, r); } catch { /* private mode */ } };
+  // Month is Team > Shifts only: My Week (and the Workday card) stays a week.
+  const monthView = !mine && !embedded && range === 'month';
+  const monthDays = useMemo(() => (monthView ? viewDays('month', cursor) : null), [monthView, cursor]);
   const first = useMemo(() => weekStartOf(cursor, weekStart), [cursor, weekStart]);
-  const start = isoDate(first), end = isoDate(addDays(first, 6));
+  // Month loads just its own days: the calendar leaves the days around it blank.
+  const start = isoDate(monthDays ? monthDays[0] : first), end = isoDate(monthDays ? monthDays[monthDays.length - 1] : addDays(first, 6));
   const [reload, setReload] = useState(0);
   // The forms with Show On Shift Cards this person may fill (GET /forms/mine);
   // which ones a card offers is formsForShift. A failed load is no buttons.
@@ -95,14 +104,14 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   // until its own answer lands (no state reset inside the effect).
   const [fetched, setFetched] = useState(null);   // { key: 'start|end', data }
   useEffect(() => {
-    if (!data || start > todayIso()) return undefined;
+    if (!data || monthView || start > todayIso()) return undefined;
     let live = true;
     const key = `${start}|${end}`;
     Promise.resolve().then(() => api.timeSchedActuals(start, end))
       .then((r) => { if (live) setFetched({ key, data: r && typeof r === 'object' && r.cells ? r : null }); })
       .catch(() => { if (live) setFetched({ key, data: null }); });
     return () => { live = false; };
-  }, [data, start, end]);
+  }, [data, monthView, start, end]);
   const actuals = fetched && fetched.key === `${start}|${end}` ? fetched.data : null;
   const actualOf = useCallback((s, sole) => actualFor(actuals?.cells?.[`${s.email}|${s.date}`], s, sole), [actuals]);
   const [reqs, reloadReqs] = useShiftRequests(start, end);
@@ -221,8 +230,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
     for (const h of holList) if (h?.date) hol[h.date] = h.name || h.title || h.label || 'Company holiday';
     const dayNote = {};
     for (const n of (Array.isArray(data.dayNotes) ? data.dayNotes : [])) dayNote[n.date] = dayNote[n.date] ? `${dayNote[n.date]} · ${n.note}` : n.note;
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = addDays(first, i);
+    return (monthDays || Array.from({ length: 7 }, (_, i) => addDays(first, i))).map((d) => {
       const key = isoDate(d);
       const iso = String(d.getDay() === 0 ? 7 : d.getDay());
       const shifts = placed[key] || [];
@@ -230,8 +238,12 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       const usual = !shifts.length && p && (p.days || '').split(',').includes(iso) ? { start: p.start, end: p.end } : null;
       return { date: d, key, shifts, usual, timeoff: off.filter((t) => t.startDate <= key && t.endDate >= key), holiday: hol[key] || null, note: dayNote[key] || '', isToday: key === todayKey };
     });
-  }, [data, first, todayKey]);
-  const thisWeek = start === isoDate(weekStartOf(now, weekStart));
+  }, [data, first, monthDays, todayKey]);
+  const thisWeek = !monthView && start === isoDate(weekStartOf(now, weekStart));
+  const thisMonth = !!monthDays && start === isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  const atNow = monthView ? thisMonth : thisWeek;
+  const step = (n) => setCursor((c) => (monthView ? new Date(c.getFullYear(), c.getMonth() + n, 1) : addDays(c, 7 * n)));
+  const unit = monthView ? 'Month' : 'Week';
   const clockOf = useMemo(() => {
     const seen = {};
     return (s) => (seen[s.timeZone || s.timezone || ''] ||= zoneClock(s.timeZone || s.timezone || data?.timeZone, now));
@@ -319,18 +331,31 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden', background: 'var(--card)' }}>
-          <button type="button" onClick={() => setCursor((c) => addDays(c, -7))} title="Previous Week" aria-label="Previous week"
+          <button type="button" onClick={() => step(-1)} title={`Previous ${unit}`} aria-label={`Previous ${unit.toLowerCase()}`}
             style={{ border: 'none', background: 'none', padding: '7px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><ChevronLeft size={16} /></button>
-          <button type="button" onClick={() => setCursor(new Date())} disabled={thisWeek}
-            style={{ border: 'none', borderLeft: '1px solid var(--wk-line2)', borderRight: '1px solid var(--wk-line2)', background: 'none', padding: '7px 12px', cursor: thisWeek ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>
-            This Week
+          <button type="button" onClick={() => setCursor(new Date())} disabled={atNow}
+            style={{ border: 'none', borderLeft: '1px solid var(--wk-line2)', borderRight: '1px solid var(--wk-line2)', background: 'none', padding: '7px 12px', cursor: atNow ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>
+            This {unit}
           </button>
-          <button type="button" onClick={() => setCursor((c) => addDays(c, 7))} title="Next Week" aria-label="Next week"
+          <button type="button" onClick={() => step(1)} title={`Next ${unit}`} aria-label={`Next ${unit.toLowerCase()}`}
             style={{ border: 'none', background: 'none', padding: '7px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><ChevronRight size={16} /></button>
         </div>
         {/* The decorated date, same as the Schedule's: calendar tile, "Sep 28 - Oct 4",
             the year and week under it; a click picks a week from a month calendar. */}
-        <DateBlock view="week" first={start} last={end} weekStart={weekStart} compact={phone} onPick={(ds) => setCursor(parseIso(ds))} />
+        <DateBlock view={monthView ? 'month' : 'week'} first={start} last={end} weekStart={weekStart} compact={phone} onPick={(ds) => setCursor(parseIso(ds))} />
+        {/* Week | Month on Team > Shifts, the planner's view switch. Phones too, as the planner offers Month there. */}
+        {!mine && !embedded && (
+          <div role="group" aria-label="View" style={{ marginLeft: 'auto', display: 'inline-flex', border: '1px solid var(--line)', borderRadius: 9, overflow: 'hidden', background: 'var(--card)' }}>
+            {[['week', 'Week'], ['month', 'Month']].map(([k, label]) => {
+              const on = (monthView ? 'month' : 'week') === k;
+              return (
+                <button key={k} type="button" onClick={() => setRange(k)} aria-pressed={on}
+                  style={{ border: 'none', padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                    background: on ? 'var(--wk-brand-tint)' : 'transparent', color: on ? 'var(--wk-brand)' : 'var(--muted)' }}>{label}</button>
+              );
+            })}
+          </div>
+        )}
         {embedded && (
           <div role="tablist" aria-label="Whose week" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 2, background: 'var(--wk-line2)', borderRadius: 9, padding: 2 }}>
             {[['mine', 'My Week'], ['team', 'Team']].map(([k, label]) => (
@@ -463,7 +488,17 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       {mine ? null : data && team ? (
         <TeamShiftGrid teams={teams} team={team} allTeam={allTeam} onPickTeam={setTeamId} days={days} rows={teamRows} onNow={onNow}
           openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek} live={thisWeek ? liveMap : null} late={thisWeek ? liveLate : []}
-          timeZoneLabel={teamZoneLabel} teamZone={teamZone} />
+          timeZoneLabel={teamZoneLabel} teamZone={teamZone}
+          body={monthView ? (
+            // Read-only: a day opens its week, never an editor.
+            <ScheduleMonth days={days.map((d) => d.date)} shifts={team.members.flatMap((m) => m.scheduled || [])} openShifts={openList}
+              timeoff={team.members.flatMap((m) => (m.timeoff || []).map((t) => ({ status: 'approved', ...t, email: String(m.email || '').toLowerCase() })))}
+              holidayDates={new Set(days.filter((d) => d.holiday).map((d) => d.key))} holidayNames={Object.fromEntries(days.filter((d) => d.holiday).map((d) => [d.key, d.holiday]))}
+              notes={Object.fromEntries(days.filter((d) => d.note).map((d) => [d.key, d.note]))} visibleEmails={new Set(teamRows.map((r) => String(r.email || '').toLowerCase()))}
+              names={Object.fromEntries(teamRows.map((r) => [String(r.email || '').toLowerCase(), r.name]))}
+              people={Object.fromEntries(teamRows.map((r) => [String(r.email || '').toLowerCase(), { name: r.name, photoUrl: r.photoUrl }]))}
+              weekStart={weekStart} teamZone={teamZone} showHours={false} onOpenDay={(ds) => { setCursor(parseIso(ds)); setRange('week'); }} />
+          ) : null} />
       ) : data && teamZoneLabel ? (
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>
       ) : null}

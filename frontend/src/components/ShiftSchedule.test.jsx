@@ -463,8 +463,9 @@ describe('Menus, clipboard, keyboard and touch', () => {
     fireEvent.contextMenu(blockOf('s1'));
     fireEvent.click(screen.getByText('Move To Open Shifts'));
     await waitFor(() => expect(timeSchedMove).toHaveBeenCalledWith('s1', { employee_email: '', work_date: monday, duplicate: false }));
-    fireEvent.contextMenu(blockOf('s1'));
-    fireEvent.click(screen.getByText('Delete'));
+    // The move reloads the week; on a slow runner the block is re-rendered after it, so open the menu once it is back.
+    await waitFor(() => { fireEvent.contextMenu(blockOf('s1')); expect(screen.getByRole('menu', { name: 'Shift options' })).toBeTruthy(); });
+    fireEvent.click(within(screen.getByRole('menu', { name: 'Shift options' })).getByText('Delete'));
     await waitFor(() => expect(timeSchedDelete).toHaveBeenCalledWith('s1'));
   });
 

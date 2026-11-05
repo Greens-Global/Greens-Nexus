@@ -1,7 +1,8 @@
 // Month view (Oct 2026): a calendar, not 31 narrow columns. Each day says
 // how many shifts and hours are on it, how many open spots, who is off and
 // any holiday; click a day to open it. Time off, holidays and open shifts
-// used to be left out of the month entirely.
+// used to be left out of the month entirely. `showHours={false}` is Team >
+// Shifts' read-only month (hours are a manager's number, Pranshu Oct 21).
 import { formatDate, formatWeekday } from '../../lib/datetime';
 import { isoDate, fmtHrs, planMinutes, counts, weekStartOf, timeOffWhen, isAllDayOff } from './shiftLib';
 import { Avatar } from '../ShiftScheduleExtras';
@@ -28,7 +29,7 @@ function Faces({ list, people, names, off = false }) {
   );
 }
 
-export default function ScheduleMonth({ days, shifts, openShifts, timeoff, holidayDates, holidayNames, notes, visibleEmails, names, people = {}, weekStart = 'monday', onOpenDay, teamZone = '' }) {
+export default function ScheduleMonth({ days, shifts, openShifts, timeoff, holidayDates, holidayNames, notes, visibleEmails, names, people = {}, weekStart = 'monday', onOpenDay, teamZone = '', showHours = true }) {
   if (!days.length) return null;
   const first = weekStartOf(days[0], weekStart);
   const cells = [];
@@ -72,7 +73,7 @@ export default function ScheduleMonth({ days, shifts, openShifts, timeoff, holid
               </div>
               {st && (
                 <div style={{ display: 'grid', gap: 4, marginTop: 4, fontSize: 11 }}>
-                  {st.n > 0 && <div style={{ fontWeight: 700 }}>{st.n} shift{st.n === 1 ? '' : 's'} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>· {fmtHrs(st.min)}</span></div>}
+                  {st.n > 0 && <div style={{ fontWeight: 700 }}>{st.n} shift{st.n === 1 ? '' : 's'} {showHours && <span style={{ color: 'var(--muted)', fontWeight: 600 }}>· {fmtHrs(st.min)}</span>}</div>}
                   {st.open > 0 && <div style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>{st.open} open</div>}
                   <Faces list={st.working} people={people} names={names} />
                   <Faces list={st.offPeople} people={people} names={names} off />

@@ -22,6 +22,10 @@ vi.mock('../contexts/RoleContext', () => ({
 
 import { api } from '../api';
 import Changelog from './ChangelogView';
+import { PageTrailProvider } from '../components/PageTrail';
+
+// Manage goes back through the page trail's module part (11/04/2026).
+const inShell = () => <PageTrailProvider view="whats-new" label="What's New" onNavigate={(view, sub, after) => after?.()}><Changelog /></PageTrailProvider>;
 
 const at = (h, day = 15) => new Date(2026, 9, day, h, 0).toISOString();
 const released = (id, title, extra = {}) => ({
@@ -57,19 +61,19 @@ describe("What's New publishing", () => {
       published: 2, entries: [{ id: 'd1', title: 'Merged Draft', status: 'Released', releasedAt: at(12) },
         { id: 'd2', title: 'Second Draft', status: 'Released', releasedAt: at(12) }],
     });
-    render(<Changelog />);
+    render(inShell());
     await screen.findByText('Faster Lists');
     expect(screen.queryByText(/waiting to be published/)).toBeNull();
     expect(screen.queryByText('Merged Draft')).toBeNull();                 // still out of the feed
     fireEvent.click(screen.getByRole('button', { name: 'Manage' }));
     fireEvent.click(await screen.findByRole('button', { name: /Publish All/ }));
     await waitFor(() => expect(api.publishPendingTaskChangelog).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole('button', { name: /Back to What's New/ }));
+    fireEvent.click(screen.getByRole('button', { name: "What's New" }));
     expect(await screen.findByText('Merged Draft')).toBeTruthy();
   });
 
-  it('Manage is a button with the waiting count; Back returns to the tabs', async () => {
-    render(<Changelog />);
+  it('Manage is a button with the waiting count; the trail returns to the tabs', async () => {
+    render(inShell());
     const manage = await screen.findByRole('button', { name: 'Manage' });
     // The waiting count arrives after the button (its own request) - wait for it.
     await waitFor(() => expect(manage.textContent).toBe('Manage2'));
@@ -77,7 +81,7 @@ describe("What's New publishing", () => {
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
     expect(await screen.findByText('People Reached')).toBeTruthy();
     expect(screen.getByText('7')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Back to What's New/ }));
+    fireEvent.click(screen.getByRole('button', { name: "What's New" }));
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Latest', 'Timeline']);
   });
 

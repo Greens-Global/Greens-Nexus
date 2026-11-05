@@ -724,15 +724,17 @@ function MainApp() {
     if (sidebarPinned) setSidebarCollapsed(false);
   }, [sidebarPinned]);
 
-  function navigate(view, sub = null) {
+  function navigate(view, sub = null, after = null) {
     // A popup, or a Settings form, with unsaved work is open: ask before
     // leaving (Neil, Sep 22 - see lib/dialogGuard.js). The move goes ahead
-    // only on Discard.
+    // only on Discard. `after` runs only when it does (the page trail's
+    // module part resets a deep page with it).
     if (hasUnsavedWork()) {
-      askToLeave().then(ok => { if (ok) applyNavigate(view, sub); });
+      askToLeave().then(ok => { if (ok) { applyNavigate(view, sub); after?.(); } });
       return;
     }
     applyNavigate(view, sub);
+    after?.();
   }
   function applyNavigate(view, sub = null) {
     // Old view ids that no longer route on their own (folded into a tab of

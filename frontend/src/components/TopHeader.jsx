@@ -50,7 +50,7 @@ import { api } from "../api";
 import { useNexusSearch, SEARCH_PLACEHOLDER, SEARCH_HINT, SEARCH_LABEL } from './search/useNexusSearch';
 import SearchResults from './search/SearchResults';
 
-import { isSearchShortcut, isPhone } from '../lib/keys';
+import { isSearchShortcut, isFindShortcut, isPhone } from '../lib/keys';
 import { useBuildModeMenu, BuildModeChip } from '../devnotes/BuildModeChip';   // Build Mode (Oct 24 2026)
 import { ToolsSection, ActAsFinder } from './ToolsMenu';   // profile menu Tools (Oct 25 2026)
 import { useActionCounts } from '../lib/useActionCounts';
@@ -219,8 +219,30 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // runs before the sheet's window listener, which then sees defaultPrevented
   // and stands down; on a phone this does nothing and the sheet (GlobalSearch)
   // answers the same keys.
+  //
+  // Ctrl/Cmd+F lands here too (Neil, 11/04/2026), on a phone in the sheet, but
+  // only once every other keydown listener has had the key: a screen's own find
+  // (Accounting's ledger search, Vendors & Customers, the Report Library, the
+  // Audit Log) and a popup keep it. Pressed again inside a search it stays the
+  // browser's find, so the page text can still be searched.
   useEffect(() => {
     const onKey = (e) => {
+      if (isFindShortcut(e)) {
+        if (e.defaultPrevented) return;
+        // Added during the document's turn, so it runs after every window listener - Accounting's late one included.
+        const late = (ev) => {
+          if (ev !== e || e.defaultPrevented) return;
+          // Any open popup keeps the browser's find, marked modal or not (review, 11/04/2026).
+          if (document.querySelector('[aria-modal="true"], [role="dialog"], .modal-overlay, .cv-modal-overlay') || document.activeElement?.closest?.('[role="search"]')) return;
+          e.preventDefault();
+          if (isPhone()) { window.dispatchEvent(new Event('nexus:search-open')); return; }
+          searchInputRef.current?.focus();
+          setSearchOpen(true);
+        };
+        window.addEventListener('keydown', late, { once: true });
+        setTimeout(() => window.removeEventListener('keydown', late), 0);   // a key stopped on the way up never reaches it
+        return;
+      }
       if (!isSearchShortcut(e) || isPhone()) return;
       e.preventDefault();
       const own = e.key === '/' ? document.querySelector('input[data-slash-search]') : null;
@@ -286,8 +308,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
           ref={searchInputRef}
           placeholder={SEARCH_PLACEHOLDER}
           aria-label={SEARCH_LABEL}
-          title={`${SEARCH_LABEL} (${MOD_KEY} K)`}
-          aria-keyshortcuts="Control+K Meta+K /"
+          title={`${SEARCH_LABEL} (${MOD_KEY} K or ${MOD_KEY} F)`}
+          aria-keyshortcuts="Control+K Meta+K Control+F Meta+F /"
           value={searchQuery}
           onChange={e => { setSearchQuery(e.target.value); setSearchIdx(0); setSearchOpen(true); }}
           onFocus={() => setSearchOpen(true)}

@@ -17,7 +17,7 @@ import { useMsal } from '@azure/msal-react';
 import {
   X, Search, ChevronRight, ChevronLeft, ArrowUpRight, Home as HomeIcon, MessageSquare, CircleHelp,
   BookOpen, ListChecks, Layers, Lightbulb, ShieldCheck, FileText, GraduationCap, Send, Ticket as TicketIcon,
-  Compass, PlayCircle, Sparkles,
+  Compass, PlayCircle, Sparkles, Maximize2, Minimize2,
 } from 'lucide-react';
 import { api } from '../api';
 import { DOCS, DOC_GROUPS } from './docsContent';
@@ -51,6 +51,9 @@ const KIND_ICON = {
   'kb-doc': FileText, course: GraduationCap,
 };
 const KIND_LABEL = { module: 'Guide', walkthrough: 'How To', feature: 'Feature', tip: 'Tip', manager: 'For Managers' };
+// An Ask Nexus answer longer than this many words opens the panel to the
+// full-height sheet (Neil, 11/04/2026); a short one keeps the small panel.
+export const LONG_ANSWER_WORDS = 80;
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const nav = (view, sub) => window.dispatchEvent(
@@ -237,7 +240,7 @@ function ResultRow({ r, onPick }) {
   );
 }
 
-function HelpTab({ autoFocus, allowed, allow, query, setQuery, onPick, onOpenArticle, onOpenDocs, asked, setAsked, askMode, onFileTicket, onClose }) {
+function HelpTab({ autoFocus, allowed, allow, query, setQuery, onPick, onOpenArticle, onOpenDocs, asked, setAsked, askMode, onFileTicket, onAnswer, onClose }) {
   const inputRef = useRef(null);
   const kb = useKbCorpus(true);
   useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus]);
@@ -283,7 +286,7 @@ function HelpTab({ autoFocus, allowed, allow, query, setQuery, onPick, onOpenArt
         {q && kb.status === 'loading' && <div className="hw-note">Also searching the Knowledge Base...</div>}
 
         {showAnswer && (
-          <AskNexus question={q} allow={allow} onFileTicket={onFileTicket} onOpened={onClose} style={{ marginBottom: 12 }} />
+          <AskNexus question={q} allow={allow} onFileTicket={onFileTicket} onOpened={onClose} onAnswer={onAnswer} style={{ marginBottom: 12 }} />
         )}
         {q ? (
           results.length ? (
@@ -429,6 +432,12 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
   const [trail, setTrail] = useState([]);     // guide articles opened inline, newest last
   const [asked, setAsked] = useState('');     // the question Ask Nexus is answering
   const [askMode, setAskMode] = useState(false);
+  // Something long to read (an answer over LONG_ANSWER_WORDS, a guide article)
+  // opens the panel to a full-height sheet on the right; Shrink keeps
+  // it small until Help is closed and opened again (Neil, 11/04/2026).
+  const [expanded, setExpanded] = useState(false);
+  const [keptSmall, setKeptSmall] = useState(false);
+  const grow = () => { if (!keptSmall) setExpanded(true); };
   const panelRef = useRef(null);
 
   const setTab = (key, { search = false, ask = false } = {}) => {
@@ -476,7 +485,7 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
     return [...mods, ...inner].sort((x, y) => x.label.localeCompare(y.label));
   }, [can, allow, activeView, liveTour]);
 
-  const openArticle = (a) => { setTabState('help'); onTabChange?.('help'); setTrail((t) => [...t, a]); };
+  const openArticle = (a) => { setTabState('help'); onTabChange?.('help'); setTrail((t) => [...t, a]); grow(); };
   const pick = (r) => {
     if (r.source === 'kb') { onClose(false); openKb('doc', r.kbId); return; }
     if (r.source === 'course') { onClose(false); openKb('course', r.kbId); return; }
@@ -502,13 +511,28 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
 
   const article = trail[trail.length - 1];
   const title = tab === 'messages' ? 'Messages' : 'Help';
+  // Only the Help tab reads long text; Home and Messages are always the small panel.
+  const big = expanded && tab === 'help';
+  const canGrow = !!article || (tab === 'help' && !!asked);
 
   return (
-    <div className="help-widget" role="dialog" aria-label="Help" ref={panelRef} onKeyDown={onKeyDown}>
+    <>
+    {/* A click on the scrim does not close Help (HelpMenu skips .hw-scrim). */}
+    {big && <div className="hw-scrim" aria-hidden="true" />}
+    <div className={`help-widget${big ? ' is-expanded' : ''}`} data-expanded={big ? 'true' : 'false'}
+      role="dialog" aria-label="Help" ref={panelRef} onKeyDown={onKeyDown}>
       {tab !== 'home' && (
         <div className="hw-bar">
           <div className="dk-mark hw-mark-sm" aria-hidden="true">N</div>
           <div className="hw-bar-title">{title}</div>
+          {(big || canGrow) && (
+            <button type="button" className="hw-size" aria-pressed={big}
+              aria-label={big ? 'Shrink the help panel' : 'Expand the help panel'}
+              onClick={() => { if (big) { setExpanded(false); setKeptSmall(true); } else setExpanded(true); }}>
+              {big ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              <span>{big ? 'Shrink' : 'Expand'}</span>
+            </button>
+          )}
           <button type="button" className="hw-close" onClick={() => onClose(true)} aria-label="Close help"><X size={18} /></button>
         </div>
       )}
@@ -530,6 +554,7 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
         <HelpTab autoFocus={focusSearch} allowed={allowed} allow={allow}
           query={query} setQuery={setQuery} onPick={pick} onOpenArticle={openArticle}
           asked={asked} setAsked={setAsked} askMode={askMode} onFileTicket={fileTicket} onClose={() => onClose(false)}
+          onAnswer={(words) => { if (words > LONG_ANSWER_WORDS) grow(); }}
           onOpenDocs={() => { onClose(false); nav('support', 'documentation'); }} />
       ))}
 
@@ -543,5 +568,6 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
         ))}
       </nav>
     </div>
+    </>
   );
 }

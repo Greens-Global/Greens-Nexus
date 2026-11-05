@@ -25,7 +25,7 @@ import {
   ImageIcon, Search, ChevronRight, ChevronDown, GitBranch, Layers, CalendarDays,
   Link2, Maximize2, Minimize2, Pencil, Send, Bug, Flame, ShieldAlert, TrendingUp,
   Wrench, ArrowUpCircle, Upload, Eye, GitPullRequest, Trash2, AlertTriangle,
-  ArrowLeft, RefreshCw, MessageSquare, Pin, Copy, Lightbulb, Server,
+  RefreshCw, MessageSquare, Pin, Copy, Lightbulb, Server,
   SlidersHorizontal, MoreHorizontal, ChevronLeft, Bell, BellRing,
 } from 'lucide-react';
 import { api } from '../api';
@@ -43,13 +43,14 @@ import { MODULES } from '../contexts/RoleContext';
 import { placeOf, placeOptions, placeKeyFor, inPlace, placeLabel, allPlaceLabels } from '../lib/changelogPlaces';
 import {
   RichText, VideoEmbed, ActionRequired, CopyLinkButton, CommentThread, FeedbackRow, RelatedUpdates, RELATION_LABELS,
-  HistoryList, FollowDialog, FollowButton, AudiencePicker, InsightsPanel, FeedbackList, ExportButtons, exportCsv, buildPrintReport, nextVersions, plural,
+  HistoryList, FollowDialog, FollowButton, AudiencePicker, InsightsPanel, FeedbackList, WhatsNewExport, nextVersions, plural,
 } from './changelogExtras';
 import {
   MyRequestsDialog, IssueChip, IssueBanner, IssueDialog, issueOf, DeprecationChip, DeprecationNotice, StageChip, stageOf,
   AttentionStrip, MediaEditor, AttachmentList, TourEditor, TakeTourButton, uploadWhatsNewFile, readAsDataUrl as readFileAsDataUrl,
 } from './changelogLifecycle';
 import KnownIssuesBanner from '../support/KnownIssues';
+import PageTrail, { useTrailCrumbs } from '../components/PageTrail';
 
 // ── Change-type / environment / status metadata (ported from changelogMeta.ts) ──
 const CHANGE_TYPE_META = {
@@ -206,8 +207,10 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
   const openEntry = (id) => { setOpenId(id); writeQuery({ entry: id }); };
   const closeEntry = () => { setOpenId(null); writeQuery({ entry: '' }); if (activeSub) onSubChange?.(null); };
   // Manage is a button, not a tab (Pranshu, Oct 16 2026): it swaps the page
-  // body for the admin screen, and Back returns to the tab you were on.
+  // body for the admin screen; the page trail's WHAT'S NEW returns to the tabs.
   const [managing, setManaging] = useState(false);
+  // Manage sits under What's New in the page trail; its module part leaves Manage.
+  useTrailCrumbs([], () => setManaging(false));
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null); // entry being edited
   const [toast, setToast] = useState(null);   // { text, error }
@@ -369,6 +372,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
       <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 10 : 12, padding: isMobile ? '10px 12px' : '14px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
         <Sparkles size={isMobile ? 18 : 20} style={{ color: NX.blue, flexShrink: 0 }} />
         <div style={{ minWidth: 0 }}>
+          {!managing && <PageTrail title="What's New" />}
           <div style={{ fontSize: isMobile ? 17 : 20, fontWeight: 700 }}>What&apos;s New</div>
           {!isMobile && <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>}
         </div>
@@ -393,14 +397,8 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
         </div>
       </div>
 
-      {/* Tab strip - or, in Manage, the way back */}
-      {managing ? (
-        <div style={{ display: 'flex', alignItems: 'center', borderBottom: `1px solid ${NX.border}`, background: NX.surface, padding: isMobile ? '6px 8px' : '6px 12px' }}>
-          <button onClick={() => setManaging(false)} style={{ ...btn('ghost'), color: NX.dim, ...(isMobile ? { minHeight: 40 } : null) }}>
-            <ArrowLeft size={15} />Back to What&apos;s New
-          </button>
-        </div>
-      ) : (
+      {/* Tab strip - Manage has none: the page trail above its heading goes back. */}
+      {managing ? null : (
         // Phones (Oct 28 2026): Feature Request and Follow sit at the end of
         // the tab strip as icons - their own row above the content pushed
         // every update a row further down the screen.
@@ -448,7 +446,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
           {!managing && tab === 'timeline' && <TimelineTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} loading={!loaded} />}
           {managing && (
             <ManageTab entries={sorted} nameOf={nameOf} myEmail={myEmail} onSetStatus={setStatus} onEdit={setEditing} flash={flash}
-              onAdd={() => setAdding(true)} onGenerate={handleGenerate} onPublish={publishEntry} onPublishAll={publishAll} onBulk={bulk}
+              onGenerate={handleGenerate} onPublish={publishEntry} onPublishAll={publishAll} onBulk={bulk}
               onDelete={async (id) => { if (window.confirm('Delete this entry? This cannot be undone.')) await deleteEntry(id).catch(() => {}); }} />
           )}
         </div>
@@ -1619,7 +1617,7 @@ function AutoDraftStatus({ refreshKey }) {
 // Manage (admin, opened from the header's Manage button) - the publish queue,
 // reach and response, and every update
 // ═══════════════════════════════════════════════════════════════════════════
-function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGenerate, onPublish, onPublishAll, onDelete, onBulk, flash }) {
+function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onGenerate, onPublish, onPublishAll, onDelete, onBulk, flash }) {
   const { openEntry } = useContext(ChangelogActions);
   // Read rate, weekly trends, most reacted, helpful votes (changelog_extras.insights).
   const [insights, setInsights] = useState(null);
@@ -1681,7 +1679,10 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
     <div style={{ padding: isMobile ? '14px 12px' : '20px 16px' }}>
       {/* Phones: the title, then the two actions sharing a full-width row. */}
       <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 10 : 8, marginBottom: isMobile ? 10 : 4 }}>
-        <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700, color: NX.ink }}>Manage</h1>
+        <div style={{ minWidth: 0 }}>
+          <PageTrail title="Manage" />
+          <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700, color: NX.ink }}>Manage</h1>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, ...(isMobile ? { width: '100%' } : null) }}>
           {onGenerate && (
             <button style={{ ...btn('outline'), opacity: generating ? 0.6 : 1, ...(isMobile ? { flex: 1, justifyContent: 'center', minHeight: 40 } : null) }} disabled={generating} onClick={generate}>
@@ -1689,14 +1690,14 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
               {generating ? 'Checking…' : 'Check for Updates'}
             </button>
           )}
-          <button style={{ ...btn('primary'), ...(isMobile ? { flex: 1, justifyContent: 'center', minHeight: 40 } : null) }} onClick={onAdd}><Plus size={15} />{isMobile ? 'Add Update' : 'Add New Update'}</button>
+          {/* Add New Update lives once, in the page header (Neil, 11/04/2026). */}
           {!isMobile && (
             <button type="button" style={{ ...btn('outline'), opacity: checkingProd ? 0.6 : 1 }} disabled={checkingProd} onClick={checkProduction}
               title="Which merged updates have reached production">
               <Server size={15} />{checkingProd ? 'Checking…' : 'Check Production'}
             </button>
           )}
-          {!isMobile && <ExportButtons onCsv={() => exportCsv(entries, analytics, insights, statusOf)} onPrint={() => buildPrintReport(entries, analytics, insights, statusOf)} />}
+          {!isMobile && <WhatsNewExport entries={entries} analytics={analytics} insights={insights} statusOf={statusOf} />}
         </div>
       </div>
       <p style={{ margin: '0 0 20px', fontSize: 13, lineHeight: 1.55, color: NX.dim }}>

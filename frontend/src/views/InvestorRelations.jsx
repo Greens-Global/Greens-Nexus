@@ -11,7 +11,7 @@ import DistributionsTab from '../investor/DistributionsTab';
 import CapitalAccountsTab from '../investor/CapitalAccountsTab';
 import DocumentsTab from '../investor/DocumentsTab';
 import UpdatesTab from '../investor/UpdatesTab';
-import PageTrail from '../components/PageTrail';
+import PageTrail, { tabLabelOf } from '../components/PageTrail';
 
 // GP-side capital management: funds, LPs, commitments, capital calls,
 // distributions, capital-account statements, documents, and updates.
@@ -42,8 +42,9 @@ export default function InvestorRelations({ activeSub, onSubChange }) {
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div className="view-header">
         <div className="view-title-group">
-          <PageTrail title="Investor Relations" />
-          <h2>Investor Relations</h2>
+          {/* Staff: the heading names the open tab; the trail above it names the module. */}
+          <PageTrail title={isStaff ? tabLabelOf(TABS, sub) || 'Investor Relations' : 'Investor Relations'} />
+          <h2>{isStaff ? tabLabelOf(TABS, sub) || 'Investor Relations' : 'Investor Relations'}</h2>
           <p>{isStaff
             ? 'Raise, call, distribute, and report - the GP-side capital platform'
             : 'Your investments - statements, documents, and updates'}</p>

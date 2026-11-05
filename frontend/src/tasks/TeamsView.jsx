@@ -4,7 +4,7 @@
 // project. Not the project's People-module department, which is set elsewhere.
 import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
 import {
-  Users, X, Trash2, Check, Clock, UserPlus, ArrowLeft, ChevronRight,
+  Users, X, Trash2, Check, Clock, UserPlus, ChevronRight,
   FolderKanban, ListChecks, Plus,
   Building2, Cpu, HardHat, Cog, Code2, Calculator, Megaphone, Briefcase,
   Wrench, FlaskConical, ShieldCheck, Rocket, PenTool, Landmark, Truck,
@@ -13,6 +13,7 @@ import {
 import { NX, FONT, btn, input as inputStyle, STATUS_META, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, ChipMultiSelect, useIsMobile, ViewToggle, ExportMenu } from './components';
 import { useTasks } from './TasksContext';
+import { useTrailCrumbs } from '../components/PageTrail';
 import { useRole } from '../contexts/RoleContext';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import { topLevel, teamProjectIds, taskInProject } from './lib';
@@ -660,6 +661,8 @@ const DETAIL_TABS = [
 ];
 
 function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate }) {
+  // The page trail names the list above this team (TASKS / TEAMS).
+  useTrailCrumbs([{ label: 'Teams', onClick: onBack }], onBack);
   const { tasks, nameOf } = useTasks();
   const [tab, setTab] = useState('overview');
   const Icon = deptIcon(team.icon);
@@ -673,7 +676,6 @@ function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate }) {
     <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, background: NX.surface }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '18px 20px 0' }}>
-        <button onClick={onBack} title="Back to Teams" style={{ ...btn('ghost'), padding: 6, marginLeft: -6 }}><ArrowLeft size={18} /></button>
         <span style={{ width: 44, height: 44, borderRadius: 14, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${color}1a`, color }}>
           <Icon size={22} />
         </span>

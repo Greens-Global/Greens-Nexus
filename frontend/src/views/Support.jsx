@@ -575,18 +575,11 @@ export default function Support({ activeSub, onSubChange }) {
       style={{ display: 'flex', flexDirection: 'column', gap: isPhone ? 16 : 24, paddingBottom: isPhone ? 'calc(16px + env(safe-area-inset-bottom))' : undefined }}>
       <ModuleTabs tabs={SUPPORT_TABS} active="help" onChange={setTab} />
 
-      {/* Documentation has its own back arrow in its toolbar (Oct 15 2026). */}
-      {tab !== 'help' && tab !== 'documentation' && (
-        <button type="button" onClick={() => setTab('help')}
-          style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px 6px 8px', borderRadius: 8,
-            border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: -8 }}>
-          <ChevronLeft size={15} /> Back to Help Center
-        </button>
-      )}
-
       {tab === 'documentation' ? (
         <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
-          <SupportDocs canImplement={canImplement} startOnGuide={onGuide} onBack={() => setTab('help')} />
+          {/* HELP CENTER over Documentation: the trail goes back (11/04/2026). */}
+          <PageTrail title="Documentation" />
+          <SupportDocs canImplement={canImplement} startOnGuide={onGuide} />
         </Suspense>
       ) : (<>
       <div className="view-header">
