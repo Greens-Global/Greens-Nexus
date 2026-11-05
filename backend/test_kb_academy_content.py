@@ -17,6 +17,12 @@ import kb_academy  # noqa: E402
 SLUGS = kb_academy.ORDER
 
 
+@pytest.fixture(autouse=True)
+def _no_pinned_minimums(monkeypatch):
+    # the minimal package is tiny; the pinned-minimum tests restore the real values
+    monkeypatch.setattr(kb_academy, "MIN_READING", dict.fromkeys(SLUGS, 0))
+
+
 def _q(i):
     return {"type": "single", "q": f"Question {i}?", "options": ["A", "B"], "answer": [0], "explanation": "Because."}
 
@@ -37,7 +43,7 @@ def _pkg(tmp_path: Path, mutate=None) -> Path:
         d = tmp_path / "courses" / f"{n:02d}-{slug}"
         (d / "lessons").mkdir(parents=True)
         (d / "lessons" / "01.md").write_text(cfg["lesson"], encoding="utf-8")
-        c = {"slug": slug, "title": "Course", "description": "d", "overview": ["o"], "est_minutes": 60, "delivery": "online",
+        c = {"slug": slug, "title": "Course", "description": "d", "overview": ["o"], "est_minutes": kb_academy.EST_MINUTES[slug], "delivery": "online",
              "min_reading_minutes": 0, "lessons": cfg["lessons"], "quiz": cfg["quiz"]}
         if slug == "hands-on-check":
             c.update(delivery="in_person", quiz={})
@@ -76,7 +82,7 @@ CASES = {
     "long option": (lambda c: c["quiz"]["questions"][0].update(options=["x" * 301, "B"]), "over 300"),
     "long explanation": (lambda c: c["quiz"]["questions"][0].update(explanation="x" * 401), "over 400"),
     "seven options": (lambda c: c["quiz"]["questions"][0].update(options=list("ABCDEFG")), "more than 6"),
-    "reading minutes": (lambda c: None, "reading minutes"),
+    "empty checkpoint title": (lambda c: c["lessons"][2].update(checkpoint=""), "empty title"),
     "em dash": (lambda c: c.update(lesson=c["lesson"] + "\nA — B\n"), "banned copy"),
     "en dash in option": (lambda c: c["quiz"]["questions"][0].update(options=["A–Z", "B"]), "banned copy"),
     "iso date": (lambda c: c.update(page=c["page"] + "\nOn 2026-11-04 it began.\n"), "banned copy"),
@@ -92,7 +98,7 @@ CASES = {
 }
 
 
-@pytest.mark.parametrize("name", [n for n in CASES if n not in ("reading minutes", "order one item")])
+@pytest.mark.parametrize("name", [n for n in CASES if n != "order one item"])
 def test_problem_is_reported(tmp_path, name):
     mutate, text = CASES[name]
     _has(_probs(tmp_path, mutate), text)
@@ -111,7 +117,45 @@ def test_reading_minutes_below_minimum(tmp_path):
     _has(kb_academy.problems(kb_academy.load(pkg)), "reading minutes")
 
 
-def test_real_package_is_valid():
+def test_real_package_is_valid(monkeypatch):
+    monkeypatch.undo()  # the pinned minimums apply to the real package
     if not list((kb_academy.ROOT / "courses").glob("*/course.json")):
         pytest.skip("no courses authored yet")
     assert kb_academy.problems(kb_academy.load()) == []
+
+
+def test_dash_in_words_does_not_trip_admin_check(tmp_path):
+    def m(c):
+        c["page"] += "\nPlease submit administrators and audit admin notes.\n"
+    assert _probs(tmp_path, m) == []
+
+
+def test_load_errors_become_problems(tmp_path):
+    pkg = _pkg(tmp_path)
+    (pkg / "courses" / "01-nexus-fundamentals" / "lessons" / "01.md").unlink()
+    (pkg / "courses" / "02-self-storage-fundamentals" / "course.json").write_text("{not json")
+    (pkg / "courses" / "03-rv-boat-storage-fundamentals" / "course.json").write_text("{}")
+    probs = kb_academy.problems(kb_academy.load(pkg))
+    assert sum("cannot load" in p for p in probs) == 3, probs
+
+
+def test_pinned_minimums_are_enforced(tmp_path, monkeypatch):
+    monkeypatch.setattr(kb_academy, "MIN_READING", {"nexus-fundamentals": 70})
+    _has(_probs(tmp_path), "nexus-fundamentals: reading minutes")
+
+
+def test_est_minutes_pinned(tmp_path):
+    pkg = _pkg(tmp_path)
+    p = pkg / "courses" / "01-nexus-fundamentals" / "course.json"
+    c = json.loads(p.read_text())
+    c["est_minutes"] = 60
+    p.write_text(json.dumps(c))
+    _has(kb_academy.problems(kb_academy.load(pkg)), "est_minutes 60 must be 120")
+
+
+def test_tf_options(tmp_path):
+    tf = {"type": "tf", "q": "Is it?", "answer": [0], "explanation": "Yes."}
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    assert _probs(tmp_path / "a", lambda c: c["quiz"]["questions"].__setitem__(0, dict(tf))) == []
+    _has(_probs(tmp_path / "b", lambda c: c["quiz"]["questions"].__setitem__(0, dict(tf, options=["Yes", "No"]))), "normalizer changes")

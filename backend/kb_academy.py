@@ -50,29 +50,42 @@ class Academy:
 
 
 def load(root: Path = ROOT) -> Academy:
-    a = Academy(plan=json.loads((root / "plan.json").read_text(encoding="utf-8")))
+    a = Academy()
+    try:
+        a.plan = json.loads((root / "plan.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        a.errors.append(f"plan.json: {e}")
     for f in sorted((root / "pages").glob("*.md")):
         meta, body = kb_md.parse(f.read_text(encoding="utf-8"))
         if not meta.get("title"):
             a.errors.append(f"page {f.stem}: front matter has no title")
+        try:
+            blocks = kb_md.to_blocks(body)
+        except ValueError as e:
+            a.errors.append(f"page {f.stem}: {e}")
+            continue
         a.pages[f.stem] = PageSpec(f.stem, meta.get("title", ""), meta.get("summary", ""), meta.get("page_type", "reference"),
-                                   [t.strip() for t in meta.get("tags", "").split(",") if t.strip()], kb_md.to_blocks(body))
+                                   [t.strip() for t in meta.get("tags", "").split(",") if t.strip()], blocks)
     for d in sorted((root / "courses").glob("*/course.json")):
-        c = json.loads(d.read_text(encoding="utf-8"))
-        lessons = []
-        for L in c.get("lessons", []):
-            if "file" in L:
-                meta, body = kb_md.parse((d.parent / "lessons" / L["file"]).read_text(encoding="utf-8"))
-                if not meta.get("title"):
-                    a.errors.append(f"{c['slug']}/{L['file']}: front matter has no title")
-                lessons.append({"type": "text", "title": meta.get("title", ""), "summary": meta.get("summary", ""),
-                                "blocks": kb_md.to_blocks(body)})
-            elif "page" in L:
-                lessons.append({"type": "page", "page": L["page"], "title": L.get("title", ""), "summary": L.get("summary", "")})
-            else:
-                lessons.append({"type": "checkpoint", "title": L.get("checkpoint", ""), "questions": L.get("questions", [])})
-        a.courses.append(CourseSpec(c["slug"], c["title"], c.get("description", ""), c.get("overview", []), c.get("est_minutes", 0),
-                                    c.get("delivery", ""), c.get("min_reading_minutes", 0), lessons, c.get("quiz") or {}))
+        try:
+            c = json.loads(d.read_text(encoding="utf-8"))
+            slug = c["slug"]
+            lessons = []
+            for L in c.get("lessons", []):
+                if "file" in L:
+                    meta, body = kb_md.parse((d.parent / "lessons" / L["file"]).read_text(encoding="utf-8"))
+                    if not meta.get("title"):
+                        a.errors.append(f"{slug}/{L['file']}: front matter has no title")
+                    lessons.append({"type": "text", "title": meta.get("title", ""), "summary": meta.get("summary", ""),
+                                    "blocks": kb_md.to_blocks(body)})
+                elif "page" in L:
+                    lessons.append({"type": "page", "page": L["page"], "title": L.get("title", ""), "summary": L.get("summary", "")})
+                else:
+                    lessons.append({"type": "checkpoint", "title": L.get("checkpoint", ""), "questions": L.get("questions", [])})
+            a.courses.append(CourseSpec(slug, c["title"], c.get("description", ""), c.get("overview", []), c.get("est_minutes", 0),
+                                        c.get("delivery", ""), c.get("min_reading_minutes", 0), lessons, c.get("quiz") or {}))
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            a.errors.append(f"{d.parent.name}: cannot load ({type(e).__name__}: {e})")
     return a
 
 
@@ -102,7 +115,12 @@ def _all_text(node) -> list[str]:
 
 
 _SMALL = {"a", "an", "the", "and", "or", "but", "for", "nor", "of", "on", "in", "to", "at", "by", "as", "vs"}
-_BANNED = re.compile(r"[—–]|\b\d{4}-\d{2}-\d{2}\b|time ?card|timesheet|Global Admin|IT Admin", re.I)
+_BANNED = re.compile(r"[\u2014\u2013]|\b\d{4}-\d{2}-\d{2}\b|(?i:time ?card|timesheet)|\bGlobal Admin\b|\bIT Admin\b")
+# Global Constraints, pinned in code so a course.json cannot lower them.
+MIN_READING = {"nexus-fundamentals": 70, "self-storage-fundamentals": 120, "rv-boat-storage-fundamentals": 100,
+               "cubby-fundamentals": 95, "customer-service-sales-fundamentals": 120, "hands-on-check": 5}
+EST_MINUTES = {"nexus-fundamentals": 120, "self-storage-fundamentals": 210, "rv-boat-storage-fundamentals": 180,
+               "cubby-fundamentals": 180, "customer-service-sales-fundamentals": 210, "hands-on-check": 90}
 
 
 def _title_case(t: str) -> bool:
@@ -136,7 +154,9 @@ def _quiz_problems(where: str, qs: list, norm_fn) -> list[str]:
         out.append(f"{where}: normalizer changed the question count ({len(qs)} -> {len(norm)})")
         return out
     for i, (q, n) in enumerate(zip(qs, norm)):
-        want_opts = ["True", "False"] if q.get("type") == "tf" else list(q.get("options") or [])
+        want_opts = list(q.get("options") or [])
+        if q.get("type") == "tf" and not want_opts:
+            want_opts = ["True", "False"]
         if (q.get("type", "single"), list(q.get("answer") or []), want_opts) != (n["type"], n["answer"], n["options"]):
             out.append(f"{where} q{i + 1}: normalizer changes its type, answer or options")
     return out
@@ -162,7 +182,9 @@ def problems(a: Academy) -> list[str]:
             out.append(f"{c.slug}: more than 60 lessons")
         minutes = 0
         for L in c.lessons:
-            if not _title_case(L["title"]):
+            if not L["title"].strip():
+                out.append(f"{c.slug}: a {L['type']} lesson has an empty title")
+            elif not _title_case(L["title"]):
                 out.append(f"{c.slug}: lesson title not in Title Case: {L['title']!r}")
             texts = [L["title"], L.get("summary", "")] + (_all_text(L["blocks"]) if L["type"] == "text" else [])
             out += [f"{c.slug} {L['title']!r}: banned copy {m.group(0)!r}" for t in texts if (m := _BANNED.search(t))]
@@ -180,8 +202,11 @@ def problems(a: Academy) -> list[str]:
                 if len(qs) > 10:
                     out.append(f"{c.slug} {L['title']!r}: checkpoint has more than 10 questions")
                 out += _quiz_problems(f"{c.slug} {L['title']!r}", qs, _norm_quiz)
-        if minutes < c.min_reading_minutes:
-            out.append(f"{c.slug}: reading minutes {minutes} below {c.min_reading_minutes}")
+        need = max(c.min_reading_minutes, MIN_READING.get(c.slug, 0))
+        if minutes < need:
+            out.append(f"{c.slug}: reading minutes {minutes} below {need}")
+        if c.slug in EST_MINUTES and c.est_minutes != EST_MINUTES[c.slug]:
+            out.append(f"{c.slug}: est_minutes {c.est_minutes} must be {EST_MINUTES[c.slug]}")
         qs = c.quiz.get("questions") or []
         if c.delivery != "in_person":
             dc = c.quiz.get("drawCount", 0)
