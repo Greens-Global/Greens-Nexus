@@ -1,5 +1,5 @@
-// The line above the Time Sheet grid (Neil, 11/04/2026): four figures - Worked,
-// Overtime, Time Off, Gross Pay - and Needs Attention as grouped chips. At
+// The line above the Time Sheet grid (Neil, 11/04/2026): the figures - Worked,
+// Regular (added 11/05/2026), Overtime, Time Off, Gross Pay - and Needs Attention as grouped chips. At
 // most three chips show, worst first; the rest sit behind "+N More". A chip's
 // name jumps to its first day on the grid; its button (Fix / Show / Map) does
 // the thing. "Fix Next" is a quiet link to the first fix. No late or
@@ -32,7 +32,7 @@ export default function AttentionStrip({ figures, items, actionFor, onJump }) {
   const shown = items.slice(0, SHOWN), rest = items.slice(SHOWN);
   const next = items.find(it => it.tone === 'bad' && actionFor(it));
   return (
-    <div className={`ts-strip${figures.length < 4 ? ' no-pay' : ''}`} data-testid="ts-strip">
+    <div className="ts-strip" style={{ gridTemplateColumns: `repeat(${figures.length}, auto) minmax(0, 1fr)` }} data-testid="ts-strip">
       {figures.map(f => (
         <div key={f.label} className={`ts-fig${f.warn ? ' is-warn' : ''}`}>
           <span>{f.label}</span>
