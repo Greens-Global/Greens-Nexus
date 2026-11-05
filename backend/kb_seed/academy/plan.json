@@ -1,0 +1,6 @@
+{
+  "name": "New Hire: Facility Team",
+  "description": "The six courses every new facility hire completes, in order.",
+  "due_days": 30,
+  "courses": ["nexus-fundamentals", "self-storage-fundamentals", "rv-boat-storage-fundamentals", "cubby-fundamentals", "customer-service-sales-fundamentals", "hands-on-check"]
+}

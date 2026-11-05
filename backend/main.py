@@ -4177,6 +4177,15 @@ def _tier_seeds():
         except Exception as e:
             db.rollback()
             print(f"[startup] tier words pass skipped: {e}")
+        try:
+            import kb_academy_seed   # Storage Academy, imported once as drafts (11/04/2026)
+            res = kb_academy_seed.apply_once(db)
+            if res:
+                print(f"[startup] storage academy imported - pages: {res['pages']}, courses: {res['courses']}, "
+                      f"plan: {res['plan']}, owner: {res['owner']}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] storage academy import skipped: {e}")
         finally:
             db.close()
     except Exception as e:
