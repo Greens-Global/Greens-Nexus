@@ -124,4 +124,40 @@ describe('PayrollExportCodes', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
     expect(await screen.findByLabelText('Regular code')).toBeTruthy();
   });
+  it('reads a QuickBooks Timer Lists file into the boxes, unsaved until Save', async () => {
+    render(<PayrollExportCodes />);
+    await screen.findByLabelText('Regular code');
+    const text = ['!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME',
+      'TIMERHDR\t8\t0\tMCD Service, Inc.\tN\tN\t1475877092',
+      '!PAYITEM\tNAME\tHIDDEN',
+      'PAYITEM\tHourly Rate\tN',
+      'PAYITEM\tVacation Hourly\tN'].join('\r\n');
+    const file = new File([text], 'timer.iif');
+    fireEvent.change(screen.getByLabelText('QuickBooks Timer Lists file'), { target: { files: [file] } });
+    await waitFor(() => expect(screen.getByLabelText('Regular code').value).toBe('Hourly Rate'));
+    expect(screen.getByLabelText('Vacation code').value).toBe('Vacation Hourly');
+    expect(screen.getByLabelText('QuickBooks Company Name').value).toBe('MCD Service, Inc.');
+    expect(screen.getByLabelText('QuickBooks Company Create Time').value).toBe('1475877092');
+    expect(screen.getByText(/Read 2 payroll items/)).toBeTruthy();
+    expect(apiMock.timeExportCodesSet).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(apiMock.timeExportCodesSet).toHaveBeenCalled());
+    const [, codes, qb, created] = apiMock.timeExportCodesSet.mock.calls[0];
+    expect(codes.regular).toBe('Hourly Rate');
+    expect(qb).toBe('MCD Service, Inc.');
+    expect(created).toBe('1475877092');
+  });
+
+  it('saves Leave Customer:Job Blank on click and keeps the saved names', async () => {
+    apiMock.timeExportCodesGet.mockReset().mockResolvedValue(payload('co-a', { regular: 'Hourly Rate' }));
+    render(<PayrollExportCodes />);
+    fireEvent.click(await screen.findByRole('switch', { name: 'Leave Customer:Job Blank' }));
+    await waitFor(() => expect(apiMock.timeExportCodesSet).toHaveBeenCalled());
+    const [co, codes, qb, created, blank] = apiMock.timeExportCodesSet.mock.calls[0];
+    expect(co).toBe('co-a');
+    expect(codes.regular).toBe('Hourly Rate');
+    expect(qb).toBeUndefined();
+    expect(created).toBeUndefined();
+    expect(blank).toBe(true);
+  });
 });
