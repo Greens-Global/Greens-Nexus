@@ -142,6 +142,38 @@ class TestClassify(unittest.TestCase):
         self.assertIsNone(fr.classify(fr.parse_name("2019-09-07 - Sterling Ethanol Dividend.pdf")))
 
 
+class TestModifiedDateFallback(unittest.TestCase):
+    """11/05/2026: a file with no date in its name still gets a suggested
+    name, dated by Egnyte's last modified day - and is never auto-filed."""
+
+    def test_undated_name_takes_egnyte_modified_day(self):
+        out = fr.propose("corp-amdtstk - KGS.pdf", "/Shared/#Unsorted", {}, _maps(), {},
+                         modified="Wed, 01 Dec 2021 18:30:00 GMT")
+        self.assertEqual(out["canonicalName"], "2021-12-01 - corp - amdtstk - KGS.pdf")
+        self.assertFalse(out["labeled"])
+        self.assertTrue(any("last modified" in r for r in out["reasons"]))
+
+    def test_name_date_wins_over_modified(self):
+        out = fr.propose("Forms RC_2021-12-22.pdf", "/Shared/#Unsorted", {}, _maps(), {},
+                         modified="Wed, 01 Dec 2021 18:30:00 GMT")
+        self.assertTrue(out["canonicalName"].startswith("2021-12-22 - "))
+
+    def test_modified_formats(self):
+        self.assertEqual(fr.modified_day("2024-12-07T10:00:00Z"), (2024, 12, 7))
+        self.assertEqual(fr.modified_day(1733565600000), (2024, 12, 7))
+        self.assertIsNone(fr.modified_day(""))
+        self.assertIsNone(fr.modified_day("not a date"))
+
+    def test_egnyte_dated_row_is_never_auto(self):
+        out = fr.propose("Incident Report - Escondido Broken Pipe.pdf", "/Shared/#Unsorted",
+                         {}, _maps(), {"incident": True}, modified="Fri, 05 Jan 2024 09:00:00 GMT")
+        self.assertEqual(out["status"], "review")
+
+    def test_no_modified_keeps_old_behavior(self):
+        out = fr.propose("ee.png", "/Shared/#Unsorted", {}, _maps(), {})
+        self.assertEqual(out["canonicalName"], "")
+
+
 class TestPropose(unittest.TestCase):
     def test_not_confirmed_is_review(self):
         out = fr.propose("2024-01-05 - Incident Report - Escondido Broken Pipe.pdf",
