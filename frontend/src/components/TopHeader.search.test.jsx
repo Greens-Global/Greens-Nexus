@@ -122,6 +122,13 @@ describe('TopHeader search', () => {
     expect(fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })).toBe(true);
     expect(document.activeElement).not.toBe(bar());
     pop.remove();
+    // ...and so does a popup that is not marked modal (a role=dialog sheet, a class-styled overlay).
+    for (const make of [(d) => d.setAttribute('role', 'dialog'), (d) => { d.className = 'modal-overlay'; }, (d) => { d.className = 'cv-modal-overlay'; }]) {
+      const p2 = document.createElement('div'); make(p2); document.body.appendChild(p2);
+      expect(fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })).toBe(true);
+      expect(document.activeElement).not.toBe(bar());
+      p2.remove();
+    }
     cleanup();
     PHONE = true;
     header();

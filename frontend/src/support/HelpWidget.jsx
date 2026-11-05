@@ -511,8 +511,8 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
 
   const article = trail[trail.length - 1];
   const title = tab === 'messages' ? 'Messages' : 'Help';
-  // Home has no bar to carry the toggle, so it is always the small panel.
-  const big = expanded && tab !== 'home';
+  // Only the Help tab reads long text; Home and Messages are always the small panel.
+  const big = expanded && tab === 'help';
   const canGrow = !!article || (tab === 'help' && !!asked);
 
   return (

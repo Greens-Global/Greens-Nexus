@@ -232,7 +232,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         // Added during the document's turn, so it runs after every window listener - Accounting's late one included.
         const late = (ev) => {
           if (ev !== e || e.defaultPrevented) return;
-          if (document.querySelector('[aria-modal="true"]') || document.activeElement?.closest?.('[role="search"]')) return;
+          // Any open popup keeps the browser's find, marked modal or not (review, 11/04/2026).
+          if (document.querySelector('[aria-modal="true"], [role="dialog"], .modal-overlay, .cv-modal-overlay') || document.activeElement?.closest?.('[role="search"]')) return;
           e.preventDefault();
           if (isPhone()) { window.dispatchEvent(new Event('nexus:search-open')); return; }
           searchInputRef.current?.focus();
