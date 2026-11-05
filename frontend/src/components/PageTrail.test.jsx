@@ -10,7 +10,9 @@ function Record({ up }) {
   return <div><PageTrail title="Greens Storage, Fairfield" /><h2>Greens Storage, Fairfield</h2></div>;
 }
 
-const shell = (ui, nav = vi.fn()) => render(
+// The shell's navigate runs `after` once the move goes ahead (App.jsx).
+const go = () => vi.fn((view, sub, after) => after?.());
+const shell = (ui, nav = go()) => render(
   <PageTrailProvider view="property-asset" label="Asset Management" onNavigate={nav}>
     <ShellTrail />
     {ui}
@@ -20,11 +22,11 @@ const parts = () => [...document.querySelectorAll('.page-trail li')].map((li) =>
 
 describe('PageTrail', () => {
   it('names the module over a page title, and the module part goes to the module', () => {
-    const nav = vi.fn();
+    const nav = go();
     shell(<div><PageTrail title="Shift Planner" /><h2>Shift Planner</h2></div>, nav);
     expect(parts()).toEqual(['Asset Management']);
     fireEvent.click(screen.getByRole('button', { name: 'Asset Management' }));
-    expect(nav).toHaveBeenCalledWith('property-asset');
+    expect(nav).toHaveBeenCalledWith('property-asset', null, expect.any(Function));
     expect(document.querySelectorAll('.page-trail')).toHaveLength(1);   // the shell yields to the page's
   });
 
@@ -57,7 +59,7 @@ describe('PageTrail', () => {
   it('a page held in the module state names its parent and the module part takes it home', () => {
     const home = vi.fn();
     const up = vi.fn();
-    const nav = vi.fn();
+    const nav = go();
     function Detail() {
       useTrailCrumbs([{ label: 'Portfolios', onClick: up }], home);
       return <div><PageTrail title="West Coast" /><h2>West Coast</h2></div>;
@@ -69,12 +71,12 @@ describe('PageTrail', () => {
     expect(up).toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Asset Management' }));
     expect(home).toHaveBeenCalled();
-    expect(nav).toHaveBeenCalledWith('property-asset');
+    expect(nav).toHaveBeenCalledWith('property-asset', null, expect.any(Function));
   });
 
   it('a first crumb named like the module is the module part (Workflows > the Workflows list)', () => {
     const toList = vi.fn();
-    const nav = vi.fn();
+    const nav = go();
     function Builder() { useTrailCrumbs([{ label: 'asset management', onClick: toList }]); return <PageTrail title="My Flow" />; }
     shell(<Builder />, nav);
     expect(parts()).toEqual(['Asset Management']);
@@ -85,5 +87,17 @@ describe('PageTrail', () => {
 
   it('finds a tab label inside a dropdown', () => {
     expect(tabLabelOf([{ key: 'a', label: 'Overview' }, { key: 'g', label: 'Revenue', items: [{ key: 'r1', label: 'Rent Roll' }] }], 'r1')).toBe('Rent Roll');
+  });
+});
+
+describe('PageTrail and unsaved work', () => {
+  it('a deep page keeps its place when the move does not go ahead (Stay)', () => {
+    const home = vi.fn();
+    const stay = vi.fn();   // a navigate that was refused: never runs `after`
+    function Deep() { useTrailCrumbs([{ label: 'Portfolio', onClick: () => {} }], home); return <PageTrail title="One" />; }
+    shell(<Deep />, stay);
+    fireEvent.click(screen.getByRole('button', { name: /Asset Management/ }));
+    expect(stay).toHaveBeenCalled();
+    expect(home).not.toHaveBeenCalled();
   });
 });

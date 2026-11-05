@@ -39,7 +39,8 @@ export function PageTrailProvider({ view, label, onNavigate, children }) {
   useEffect(() => { navRef.current = onNavigate; });
   const value = useMemo(() => ({
     view, label, crumbs, setCrumbs, placed, setPlaced, homeRef,
-    goModule: () => { homeRef.current?.(); navRef.current?.(view); },
+    // The deep page resets only once the move really happens (Stay keeps it).
+    goModule: () => navRef.current?.(view, null, () => homeRef.current?.()),
   }), [view, label, crumbs, placed]);
   return <TrailCtx.Provider value={value}>{children}</TrailCtx.Provider>;
 }

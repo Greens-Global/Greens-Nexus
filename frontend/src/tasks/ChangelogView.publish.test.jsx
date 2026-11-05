@@ -25,7 +25,7 @@ import Changelog from './ChangelogView';
 import { PageTrailProvider } from '../components/PageTrail';
 
 // Manage goes back through the page trail's module part (11/04/2026).
-const inShell = () => <PageTrailProvider view="whats-new" label="What's New" onNavigate={() => {}}><Changelog /></PageTrailProvider>;
+const inShell = () => <PageTrailProvider view="whats-new" label="What's New" onNavigate={(view, sub, after) => after?.()}><Changelog /></PageTrailProvider>;
 
 const at = (h, day = 15) => new Date(2026, 9, day, h, 0).toISOString();
 const released = (id, title, extra = {}) => ({
