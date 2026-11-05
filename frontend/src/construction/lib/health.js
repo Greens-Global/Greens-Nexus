@@ -32,11 +32,16 @@ export function lastLogWords(h) {
 // The facts after the label, in the order they matter. `overBudget` (plan
 // phase 4) comes from the job's money - actual + requested, not yet billed
 // past the budget - and only for those who may see it (/construction/money/flags).
-export function healthFacts(h, { overBudget = false } = {}) {
+export function healthFacts(h, { overBudget = false, targetMoves = [] } = {}) {
   if (!h) return [];
   const out = [];
   if (h.daysPastTarget > 0) out.push({ key: 'late', text: `${plural(h.daysPastTarget, 'day')} past target`, tone: 'bad' });
   if (overBudget) out.push({ key: 'budget', text: 'Over Budget', tone: 'bad' });
+  if ((targetMoves || []).length > 0) {
+    // Round Two: every move of the target finish carries its reason.
+    const reasons = targetMoves.map((m) => `${formatDate(m.at, m.at)}: ${formatDate(m.from, m.from)} to ${formatDate(m.to, m.to)} - ${m.reason}`);
+    out.push({ key: 'moved', text: `Target moved ${plural(targetMoves.length, 'time')} (${targetMoves[targetMoves.length - 1].reason})`, title: reasons.join('\n') });
+  }
   if (h.nextMilestone) {
     out.push({ key: 'next', text: `${h.nextMilestone.name || 'Next milestone'} ${daysWords(h.nextMilestone.days)} (${formatDate(h.nextMilestone.targetDate, h.nextMilestone.targetDate)})` });
   }

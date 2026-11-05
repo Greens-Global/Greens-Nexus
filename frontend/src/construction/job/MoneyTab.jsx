@@ -142,6 +142,16 @@ export default function MoneyTab({ project, money, onEdit }) {
             <Figure testId="variance" label="Variance" value={m.variance} tone={m.variance < 0 ? 'hsl(var(--color-red))' : undefined}
               hint="Worked out: budget less the forecast." />
           )}
+          {/* Round Two (11/05/2026): the owner-builder's benchmark - the same
+              facility built many times, compared per unit and per square foot. */}
+          {project.units > 0 && m.forecast != null && (
+            <Figure testId="per-unit" label="Cost per Unit" value={Math.round(m.forecast / project.units)}
+              hint={`Worked out: forecast at completion over ${project.units.toLocaleString('en-US')} units${actual ? ` (actual so far ${usd(Math.round(actual.amount / project.units))})` : ''}.`} />
+          )}
+          {project.squareFeet > 0 && m.forecast != null && (
+            <Figure testId="per-sqft" label="Cost per Square Foot" value={Math.round((m.forecast / project.squareFeet) * 100) / 100}
+              hint={`Worked out: forecast at completion over ${project.squareFeet.toLocaleString('en-US')} sq ft${actual ? ` (actual so far ${usd(Math.round((actual.amount / project.squareFeet) * 100) / 100)})` : ''}.`} />
+          )}
         </div>
         {track && (
           <ProgressTrack value={track.value} state={track.state} label="Actual against budget"

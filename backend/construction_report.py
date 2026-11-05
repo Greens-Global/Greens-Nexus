@@ -138,8 +138,13 @@ def gather(db, project, week_start: str) -> dict:
            .filter(models.ConstructionChangeOrder.project_id == project.id,
                    models.ConstructionChangeOrder.deleted_at == "").all())
     delays = construction_field.delay_summary(logs)
+    import construction_health
     import construction_labor
     worked = construction_labor.hours(db, project, date_from=start, date_to=end)
+    # Round Two (11/05/2026): subs on site from the logs' sub lines, and every
+    # move of the target finish with its reason.
+    subs_on_site = construction_field.sub_summary(logs)
+    target_moves = construction_health.target_moves(db, project)
 
     photos = [m for m in media if m.kind == "photo"]
     videos = [m for m in media if m.kind == "video"]
@@ -148,6 +153,7 @@ def gather(db, project, week_start: str) -> dict:
         "milestones": milestones, "rfis": rfis, "submittals": subs,
         "pairs": pairs, "health": health, "punch": punch, "changeOrders": cos, "delays": delays,
         "labor": worked, "today": health.get("today") or end,
+        "subsOnSite": subs_on_site, "targetMoves": target_moves,
         "stats": {
             "logs": len(logs),
             "photos": len(photos),
@@ -171,6 +177,7 @@ def gather(db, project, week_start: str) -> dict:
             "changeOrdersSigned": len([c for c in cos if c.status == "signed"]),
             "changeOrdersPending": len([c for c in cos if c.status in ("draft", "awaiting_approval", "sent")]),
             "pairs": len(pairs),
+            "subCrewDays": subs_on_site["crewDays"], "subHours": subs_on_site["hours"],
         },
         "weekStart": start, "weekEnd": end,
     }
@@ -507,6 +514,13 @@ def assemble(db, project, data: dict, ai: dict) -> dict:
         st = data["stats"]
         lines.append(f"Crew-days from Time Clock punches: {st.get('crewDaysPunched', 0)} "
                      f"({st.get('hoursPunched', 0)} hours)")
+        sb = data.get("subsOnSite") or {}
+        if sb.get("crewDays") or sb.get("hours"):
+            by = ", ".join(f"{n} {h:g} h" for n, h in sorted((sb.get("byName") or {}).items()))
+            lines.append(f"Subcontractors on site: {sb['crewDays']} crew-days ({sb['hours']:g} hours)"
+                         + (f": {by}" if by else ""))
+        for mv in data.get("targetMoves") or []:
+            lines.append(f"Target finish moved {_us(mv['at'])}: {_us(mv['from'])} to {_us(mv['to'])} - {mv['reason']}")
         s["job_health"] = _section("\n".join(lines), [{"type": "milestone", "id": m.id} for m in data["milestones"]])
     else:
         s["job_health"] = _section("None currently.", [])

@@ -54,7 +54,8 @@ const { default: ReviewQueue } = await import('./ReviewQueue');
 const { default: WeeklyReports } = await import('./WeeklyReports');
 const { default: Registers } = await import('./Registers');
 const { default: HealthRow } = await import('./HealthRow');
-const { changesFor, savedOf } = await import('./lib/jobForm');
+const { changesFor, savedOf, invalidReason } = await import('./lib/jobForm');
+const { healthFacts } = await import('./lib/health');
 const { parseConstructionSub } = await import('./lib/navigation');
 const { weekChoices } = await import('./lib/weeks');
 const { isOverdue, daysOpen } = await import('./lib/registers');
@@ -144,6 +145,21 @@ describe('Edit Job sheet', () => {
       percent_complete: 96, contract_value: 1250000 });
     expect(changesFor(saved, draft, { canCost: false })).not.toHaveProperty('contract_value');
   });
+
+  it('a target finish that moves needs a reason, kept in the body (Round Two)', () => {
+    const saved = savedOf(project);
+    const moved = { ...saved, targetFinishOn: '2026-11-14' };
+    expect(invalidReason(moved, saved)).toBe('Say why the target finish moved.');
+    expect(invalidReason({ ...saved, targetFinishOn: '' , changeReason: '' }, { ...saved, targetFinishOn: '' })).toBe('');
+    const withReason = { ...moved, changeReason: 'Rain, two days', units: '420', squareFeet: '61000', jobType: 'work_order' };
+    expect(invalidReason(withReason, saved)).toBe('');
+    expect(changesFor(saved, withReason, { canCost: false })).toEqual({
+      job_type: 'work_order', target_finish_on: '2026-11-14', units: 420, square_feet: 61000, change_reason: 'Rain, two days' });
+    render(<EditJobSheet project={project} onClose={() => {}} />);
+    expect(screen.queryByLabelText('Why Did It Move?')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Job Type')).toBeInTheDocument();
+    expect(screen.getByLabelText('Square Feet')).toBeInTheDocument();
+  });
 });
 
 describe('AI is off', () => {
@@ -209,6 +225,17 @@ describe('Health row', () => {
     expect(screen.getByText('No log in 3 days')).toBeInTheDocument();
   });
 
+  it('says how many times the target moved, with the last reason (Round Two)', () => {
+    const moves = [
+      { from: '2026-10-15', to: '2026-10-24', reason: 'Rain', at: '2026-10-12T18:00:00Z', by: 'm@greensglobal.com' },
+      { from: '2026-10-24', to: '2026-10-31', reason: 'Inspection failed', at: '2026-10-28T18:00:00Z', by: 'm@greensglobal.com' },
+    ];
+    const fact = healthFacts(health, { targetMoves: moves }).find((f) => f.key === 'moved');
+    expect(fact.text).toBe('Target moved 2 times (Inspection failed)');
+    expect(fact.title).toContain('10/12/2026: 10/15/2026 to 10/24/2026 - Rain');
+    expect(healthFacts(health).some((f) => f.key === 'moved')).toBe(false);
+  });
+
   it('every project card carries it, and the progress track turns red past the target', async () => {
     const { container } = render(<ConstructionDashboard />);
     await waitFor(() => expect(container.querySelector('[data-project-card="p1"] [data-health-row]')).toBeTruthy());
@@ -251,12 +278,11 @@ describe('Holds', () => {
   });
 
   it('a register row\'s Remove is a hold too, and the row opens as a sheet', async () => {
-    api.getConstructionRegister.mockImplementation((_id, kind) => Promise.resolve(kind === 'milestones' ? [] : []));
-    api.getConstructionRegister.mockResolvedValue([{ id: 'm1', name: 'Final Inspection', targetDate: '2026-10-30', status: 'upcoming' }]);
+    api.getConstructionRegister.mockResolvedValue([{ id: 'm1', number: 'RFI-014', subject: 'Beam depth at grid C-4', dueOn: '2026-10-30', status: 'open' }]);
     const { container } = render(<Registers project={project} canReview />);
     await waitFor(() => expect(container.querySelector('[data-register-row="m1"] .nx-hold')).toBeTruthy());
     expect(within(container.querySelector('[data-register-row="m1"]')).getByText('Overdue')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Final Inspection'));
+    fireEvent.click(screen.getByText(/Beam depth at grid C-4/));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 });

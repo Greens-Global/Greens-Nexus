@@ -87,3 +87,15 @@ def sort_key(project_dict: dict):
     """Worst first: Late, At Risk, On Track, Complete; then by name."""
     h = project_dict.get("health") or {}
     return (ORDER.get(h.get("state"), 2), (project_dict.get("name") or "").lower())
+
+
+def target_moves(db, project) -> list:
+    """Every time the job's target finish moved (Round Two, 11/05/2026): the
+    activity rows Edit Job writes with the reason it asked for - a baseline
+    plus a logged reason for every slip. Oldest first."""
+    import models
+    A = models.ConstructionActivity
+    rows = (db.query(A).filter(A.project_id == project.id, A.entity_kind == "project", A.type == "target_moved")
+            .order_by(A.at).all())
+    return [{"from": (r.before or {}).get("target_finish_on", ""), "to": (r.after or {}).get("target_finish_on", ""),
+             "reason": (r.after or {}).get("reason", ""), "at": r.at or "", "by": r.actor_email or ""} for r in rows]

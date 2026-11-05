@@ -141,6 +141,16 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   const [temp, setTemp] = useState(log.temperatureF || '');
   const [weatherTyped, setWeatherTyped] = useState(false);
   const [delays, setDelays] = useState(log.delays || []);
+  const [subs, setSubs] = useState(log.subs || []);
+  // The job's own subs (Round Two item 7) as the names to pick from.
+  const [jobSubs, setJobSubs] = useState([]);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve().then(() => api.getJobSubs?.(project.id))
+      .then((d) => { if (live) setJobSubs(d?.subs || []); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [project.id]);
   const [signedName, setSignedName] = useState('');
   const [pre, setPre] = useState(null);
   const [preSaved, setPreSaved] = useState('');
@@ -289,6 +299,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
     ...(weatherTyped ? { weather_source: 'typed' } : {}),
     ...(temp !== '' && temp !== null ? { temperature_f: Number(temp) } : {}),
     delays: delays.filter((d) => d.cause).map((d) => ({ cause: d.cause, hours: Number(d.hours) || 0, note: d.note || '' })),
+    subs: subs.filter((s) => String(s.name || '').trim()).map((s) => ({ name: s.name.trim(), headcount: Number(s.headcount) || 0, hours: Number(s.hours) || 0 })),
     ...(crew !== '' ? { crew_size: Number(crew) } : {}),
     ...(hours !== '' ? { hours_worked: Number(hours) } : {}),
     ...(fix ? { gps_latitude: fix.lat, gps_longitude: fix.lng, gps_accuracy_m: fix.acc || 0 } : {}),
@@ -568,6 +579,32 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
                   onChange={(e) => setDelays((x) => x.map((y, j) => (j === i ? { ...y, note: e.target.value } : y)))} />
                 <button type="button" className="secondary-btn" aria-label="Remove this delay" style={{ padding: 8 }}
                   onClick={() => setDelays((x) => x.filter((_, j) => j !== i))}><Trash2 size={14} /></button>
+              </div>
+            ))}
+          </div>
+
+          {/* Subs on site (Round Two, 11/05/2026): one line per subcontractor -
+              sub manpower is the number a delay claim is argued with. */}
+          <div style={{ marginTop: 14 }} data-subs="">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="form-label" style={{ margin: 0 }}>Subs On Site</span>
+              <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }}
+                onClick={() => setSubs((s) => [...s, { name: '', headcount: '', hours: '' }])}>Add Sub</button>
+            </div>
+            {subs.length === 0 && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>No subcontractors on site today.</div>}
+            <datalist id="subs-on-job">{jobSubs.map((j) => <option key={j.vendorId} value={j.name} />)}</datalist>
+            {subs.map((s, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                <input className="form-input" aria-label="Subcontractor" placeholder="Subcontractor" value={s.name || ''} style={{ flex: '2 1 160px' }} list="subs-on-job"
+                  onChange={(e) => setSubs((x) => x.map((y, j) => (j === i ? { ...y, name: e.target.value } : y)))} />
+                <input className="form-input" aria-label="People on site" type="number" min="0" max="500" step="1" inputMode="numeric" placeholder="People"
+                  value={s.headcount} style={{ flex: '0 1 100px' }}
+                  onChange={(e) => setSubs((x) => x.map((y, j) => (j === i ? { ...y, headcount: e.target.value } : y)))} />
+                <input className="form-input" aria-label="Sub hours" type="number" min="0" step="0.25" inputMode="decimal" placeholder="Hours"
+                  value={s.hours} style={{ flex: '0 1 100px' }}
+                  onChange={(e) => setSubs((x) => x.map((y, j) => (j === i ? { ...y, hours: e.target.value } : y)))} />
+                <button type="button" className="secondary-btn" aria-label="Remove this sub" style={{ padding: 8 }}
+                  onClick={() => setSubs((x) => x.filter((_, j) => j !== i))}><Trash2 size={14} /></button>
               </div>
             ))}
           </div>

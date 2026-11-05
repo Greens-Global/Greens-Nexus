@@ -8,16 +8,16 @@ import { HEALTH, healthFacts } from './lib/health';
 
 const INK = { bad: 'hsl(var(--color-red))', warn: 'var(--text-primary)' };
 
-export default function HealthRow({ health, compact = false, overBudget = false }) {
+export default function HealthRow({ health, compact = false, overBudget = false, targetMoves = [] }) {
   if (!health) return null;
   const meta = HEALTH[health.state] || HEALTH.on_track;
-  const facts = healthFacts(health, { overBudget });
+  const facts = healthFacts(health, { overBudget, targetMoves });
   return (
     <div data-health-row="" style={{ display: 'flex', alignItems: 'center', gap: '6px 12px', flexWrap: 'wrap', fontSize: compact ? '0.78rem' : '0.82rem', color: 'var(--text-secondary)' }}>
       <StatusLabel label={meta.label} color={meta.color} size={compact ? 'sm' : 'md'}
         title={(health.reasons || []).join('; ') || undefined} />
       {facts.map((f, i) => (
-        <span key={f.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: INK[f.tone] || undefined, fontWeight: f.tone ? 600 : 400 }}>
+        <span key={f.key} title={f.title || undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: INK[f.tone] || undefined, fontWeight: f.tone ? 600 : 400 }}>
           {i > 0 && <span aria-hidden="true" style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>·</span>}
           {f.text}
         </span>

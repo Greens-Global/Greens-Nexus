@@ -174,6 +174,20 @@ class DraftAndSubmit(Base):
         taken = self.client.post("/construction/projects/pa/logs", json={"id": "log-phone-0001", "log_date": DAY})
         self.assertEqual(taken.status_code, 409)
 
+    def test_subs_on_site_are_kept_and_summed_and_bad_lines_refused(self):
+        """Round Two (11/05/2026): one line per subcontractor on site."""
+        import construction_field
+        self.as_(CREW)
+        lg = self.client.post("/construction/projects/pa/logs", json={"log_date": DAY}).json()
+        self.assertEqual(self.client.patch(f"/construction/logs/{lg['id']}", json={"subs": [{"name": "", "headcount": 3}]}).status_code, 422)
+        ok = self.client.patch(f"/construction/logs/{lg['id']}", json={"subs": [
+            {"name": "Acme Electric", "headcount": 3, "hours": 24}, {"name": " Valley Plumbing ", "headcount": "2", "hours": "15.5"}]})
+        self.assertEqual(ok.status_code, 200, ok.text)
+        self.assertEqual(ok.json()["subs"], [{"name": "Acme Electric", "headcount": 3, "hours": 24.0},
+                                             {"name": "Valley Plumbing", "headcount": 2, "hours": 15.5}])
+        self.assertEqual(construction_field.sub_summary([self.fresh(models.ConstructionDailyLog, lg["id"])]),
+                         {"crewDays": 5, "hours": 39.5, "byName": {"Acme Electric": 24.0, "Valley Plumbing": 15.5}})
+
     def test_delay_lines_tag_the_day_and_bad_ones_are_refused(self):
         self.as_(CREW)
         lg = self.client.post("/construction/projects/pa/logs", json={"log_date": DAY}).json()
