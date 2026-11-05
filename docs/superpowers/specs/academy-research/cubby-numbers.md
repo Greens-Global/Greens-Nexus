@@ -223,11 +223,16 @@ Totals: 1,038 parking spaces; 27 covered (all Temecula), 2 enclosed vehicle spac
 - Temecula: 10x15 1 (1), 10x18 6 (5), 10x20 74 (55; 3 covered), 10x25 14 (12), 10x30 34 (21; 17 pull-through), 10x35 1 (1), 10x40 3 (3), 11x15 4 (2), 11x18 5 (5), 11x20 15 (11), 11x25 16 (15), 11x28 4 (4), 11x30 69 (65; 6 covered, 1 pull-through), 11x35 84 (50; 1 pull-through), 11x40 109 (49; 9 pull-through), 11x45 23 (16), 12x35 6 (5, covered), 12x40 4 (4, covered), 12x50 8 (8, covered), 26x34 1 (1).
 - Valley Center: 11x35 1 (1), 12x38 2 (2, enclosed).
 
+**Q1b parking by pricing group with features** (`SELECT facility_name, pricing_group, unit_features::text, count(*), sum(is_leased) FROM units WHERE is_active = 1 AND unit_type = 'RENT_PARKING_SPACE' GROUP BY 1,2,3`):
+- Temecula covered ("Overhang - partial coverage") by size, spaces (leased): 10x20 3 (1), 11x30 6 (4), 12x35 6 (5), 12x40 4 (4), 12x50 8 (8).
+- "Security camera" appears in the features of every Fairfield parking pricing group (all 303 spaces) and of no other site's parking.
+- Surface comes from "Paved parking" / "Unpaved parking"; Greens' pricing group names say "Asphalt" or "Gravel". The course says "paved" and "gravel".
+
 **Q3 parking by depth band:** spaces (leased): Escondido under 30 ft 28 (27), 30-39 ft 46 (39), 40 ft and up 16 (14); Fairfield 159 (100), 114 (91), 30 (20); Murrieta 59 (56), 80 (73), 22 (21); Temecula 139 (110), 195 (143), 147 (80); Valley Center 30-39 ft 3 (3).
 
 **Q4 enclosed storage by size:** `units` active, `unit_type = 'RENT_ENCLOSED_STORAGE'`, pricing group not a mailbox, grouped by width x depth.
 - Escondido (717): 10x10 202, 5x10 122, 10x15 120, 10x20 100, 5x5 87, 10x25 48, 15x40 19, 15x44 6, 15x45 5, 2 with no size recorded, one each 5x15, 10x11, 10x35, 10x8, 12x20, 60x45.
-- Fairfield (4): 8x10 2, 8x20 2.
+- Fairfield (4): 8x10 2 (0 leased), 8x20 2 (1 leased).
 - Murrieta (8): 6 with no size recorded, 12x25 1, 25x25 1.
 - Temecula (34): 8x20 12, 8x16 8, 8x40 6, 8x12 3, 8x10 3, 8x30 1, 8x45 1.
 - Valley Center (568): 10x10 203, 5x10 91, 10x20 67, 8x10 49, 10x15 39, 12x35 30, 9x10 28, 12x25 26, 10x12 7, 5x5 7, 12x50 6, 4x10 3, 13x10 2, and 10 single units of other sizes.

@@ -22,7 +22,7 @@ All counts: From Greens' Cubby, 11/2026.
 
 | Kind | Size | Spaces | Street rate |
 |---|---|---|---|
-| Enclosed vehicle garage, asphalt, roll-up door | 12x38 | 2 | $289 |
+| Enclosed vehicle garage, paved, roll-up door | 12x38 | 2 | $289 |
 | Open, gravel | 11x35 | 1 | $149 |
 
 All three are leased (From Greens' Cubby, 11/2026). Valley Center's two enclosed garages are the only enclosed vehicle spaces at Greens. When a caller wants one, take their details for the waitlist and offer an open space at another site meanwhile.

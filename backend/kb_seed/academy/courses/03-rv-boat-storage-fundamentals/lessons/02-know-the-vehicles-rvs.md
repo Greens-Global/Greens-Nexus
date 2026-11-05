@@ -68,8 +68,8 @@ Ranges below are approximate. They vary a lot by model and year, and sources dif
 | **Diesel pusher** | A Class A with a diesel engine in the back. Usually a larger, more expensive coach. |
 | **Toad (or dinghy)** | A car towed behind a motorhome. It is a separate vehicle and usually needs its own space. |
 | **Slide-out (slide)** | A section of wall that moves out to make the room wider when parked. |
-| **Leveling jacks** | Legs that lower to level the motorhome. On hot asphalt they can sink; pads help. |
-| **Generator (genset)** | Built-in power. Never run while stored. |
+| **Leveling jacks** | Legs that lower to level the motorhome. On hot pavement they can sink; pads help. |
+| **Generator (genset)** | Built-in power. A common rule is no generators running on the lot; see Greens Vehicle Storage Rules. |
 | **House batteries and chassis batteries** | The living-area batteries and the engine's starting battery. Both drain while stored. |
 
 ## Trailer Words You Will Hear
@@ -125,7 +125,7 @@ When a caller names their RV, your follow-up shows you know the product.
 
 **Escondido.** A caller says "a 30-foot trailer." You ask whether that is the box or hitch to bumper. It is the box. With a 4 ft tongue and a rear bike rack, it is about 35 ft, so you look at Escondido's 12x38 spaces rather than the 12x30s.
 
-**Fairfield.** A family has a pop-up camper. Folded, it is about 13 ft with the tongue. You offer the shortest open space, which saves them money, and note that a pop-up is never opened up while stored.
+**Fairfield.** A family has a pop-up camper. Folded, it is about 13 ft with the tongue. You offer the shortest open space, which saves them money, and point them to Greens Vehicle Storage Rules for how it must be left while stored.
 
 **A Texas site.** A retiree asks for covered space for a Class A diesel pusher with three roof air conditioners. You ask for the height to the top of the air conditioners before you look at any covered space.
 

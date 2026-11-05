@@ -47,7 +47,7 @@ When a caller asks for RV or boat storage, there is almost always a reason they 
 
 ### HOAs and Deed Restrictions
 
-A growing number of homeowners associations bar oversized vehicles on members' lots (RV PRO, via RecNation). Much of the newer housing around our California sites, and around the Texas sites we are taking on, is in planned communities. A letter from the HOA is one of the most common reasons a customer calls.
+A growing number of homeowners associations bar oversized vehicles on members' lots (RV PRO, via RecNation). Many newer neighborhoods have HOAs. A letter from the HOA is one of the most common reasons a customer calls.
 
 ### City Rules
 
@@ -95,7 +95,7 @@ These profiles are common in the industry. Your site will have its own mix.
 | Full-timers | Rarely store; sometimes park between trips or during a home sale | Short-term flexibility |
 
 > [!WARNING]
-> A full-timer lives in the RV. Nobody may live or sleep in a vehicle on a Greens lot. If a caller says they need a place to "stay for a while," they need a campground, not a storage space.
+> A full-timer lives in the RV. Living or sleeping in a stored vehicle is against common industry rules; Greens' own rule is on Greens Vehicle Storage Rules. If a caller says they need a place to "stay for a while," check that page or ask your manager before you answer.
 
 ### Cubby's Vehicle Type Field
 
@@ -114,14 +114,14 @@ Unit storage moves with people's lives: moves, divorces, deaths, remodels. Vehic
 What this means for you:
 
 - **Seasonal move-outs.** An owner who takes the RV away for the season may cancel and expect to come back. The space may not be there. The Waitlists and Upgrades lesson covers how to handle that.
-- **Busy access times.** Vehicle tenants hitch up before dawn and come back on Sunday evening. Plan gate and camera checks with that in mind.
+- **Busy access times.** Vehicle tenants hitch up before dawn and come back on Sunday evening. Plan gate checks (and camera checks, where the site has cameras) with that in mind.
 - **Weather walks.** Wind, heat, rain and (in Texas) hail all damage vehicles and canopies. The Walking the Lot lesson covers what to check.
 
 ## Greens Scenarios
 
 **Temecula.** A caller says, "My HOA sent me a letter about my trailer. How fast can I get a space?" You do not comment on the HOA. You ask what the trailer is and how long it is hitch to bumper, check Cubby for open spaces that fit, and tell them what they need to bring.
 
-**Fairfield.** A walk-in asks why they should pay for a gravel space when they could park on the street. You do not quote city law. You ask what happens today. They mention a neighbor complaint and a stolen battery. You talk about the gate, the cameras and the site walks, and you give them the rate.
+**Fairfield.** A walk-in asks why they should pay for a gravel space when they could park on the street. You do not quote city law. You ask what happens today. They mention a neighbor complaint and a stolen battery. You talk about the gate, cameras where the site has them, and the site walks, and you give them the rate.
 
 **Valley Center.** A caller wants to store a 30 ft boat. Valley Center has three vehicle spaces and all are leased (From Greens' Cubby, 11/2026). You take their details, explain that Escondido and Temecula have open lots, and offer to check those sites in Cubby.
 
@@ -135,5 +135,5 @@ What this means for you:
 - Temecula, Fairfield and Murrieta are mostly vehicle sites; Escondido and Valley Center are mostly units.
 - People store vehicles because of HOAs, city rules, small lots, garage height, theft and neighbors. Never quote the rules; tell them to check.
 - Learn the profiles: retirees with big rigs, weekend families, anglers, contractors, collectors, powersports.
-- Nobody lives or sleeps on the lot.
+- Living or sleeping in a stored vehicle is against common industry rules; Greens' own rule is on Greens Vehicle Storage Rules.
 - Fill in Cubby's vehicle type at every move-in; it is blank on most leases today.

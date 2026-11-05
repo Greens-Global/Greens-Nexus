@@ -15,6 +15,8 @@ summary: Why a vehicle or boat is never sold through the normal unit auction, th
 > [!WARNING]
 > Training only, not legal advice. When in doubt, stop and ask your manager.
 
+This lesson is reviewed by counsel before it is published.
+
 ## Start Here
 
 Self-Storage Fundamentals taught the unit lien process: the lien, the notices, the sale (see its Delinquency and the Lien Process lesson). **A registered vehicle or vessel does not follow that path.** This lesson covers what is different. You will never run a vehicle lien yourself; your manager and Greens' advisers do. Your job is to know the shape, collect the right information at move-in, and never take a step on your own.

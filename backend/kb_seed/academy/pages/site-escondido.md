@@ -7,7 +7,7 @@ tags: site-profile, escondido, parking, vehicles
 
 ## Escondido at a Glance
 
-Escondido is mostly a storage-unit site with a vehicle lot beside it. It has the most enclosed units of any Greens site and a gravel and asphalt parking lot for RVs, boats, trailers and cars.
+Escondido is mostly a storage-unit site with a vehicle lot beside it. It has the most enclosed units of any Greens site and a gravel and paved parking lot for RVs, boats, trailers and cars.
 
 | What | Count | Leased |
 |---|---|---|
@@ -25,7 +25,7 @@ Every Escondido parking space is **open**: no canopy and no enclosed vehicle gar
 | Kind | Spaces (leased) | Depth | Street rate low / typical / high |
 |---|---|---|---|
 | Open, gravel | 80 (70) | 15 to 50 ft | $159 / $279 / $379 |
-| Open, asphalt | 10 (10) | 20 to 45 ft | $169 / $239 / $349 |
+| Open, paved | 10 (10) | 20 to 45 ft | $169 / $239 / $349 |
 
 Rates are the street rates in Cubby on the day these numbers were pulled (From Greens' Cubby, 11/2026). Always quote today's rate from Cubby, never this page.
 
@@ -81,7 +81,7 @@ Cubby records no heights. Measure and post them.
 
 - Gate hours and office hours: see Greens Site Hours and Access.
 - Gate width, turning room at the entry and stacking room for long rigs: [Greens to fill]
-- Lot layout (which rows are gravel, which are asphalt, one-way lanes): [Greens to fill]
+- Lot layout (which rows are gravel, which are paved, one-way lanes): [Greens to fill]
 
 ## Local Parking Rules
 
@@ -89,6 +89,6 @@ Escondido's Municipal Code has its own rules for parking recreational vehicles i
 
 ## Key Points
 
-- Escondido has 90 open parking spaces (80 gravel, 10 asphalt), no covered and no enclosed vehicle spaces (From Greens' Cubby, 11/2026).
+- Escondido has 90 open parking spaces (80 gravel, 10 paved), no covered and no enclosed vehicle spaces (From Greens' Cubby, 11/2026).
 - Only 16 spaces are 40 ft or longer; check Cubby before promising a big rig a space.
 - Most of the site is enclosed storage: 717 units, most of them 10x10.

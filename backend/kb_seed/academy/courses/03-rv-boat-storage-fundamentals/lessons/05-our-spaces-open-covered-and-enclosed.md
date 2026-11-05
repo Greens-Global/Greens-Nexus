@@ -9,7 +9,7 @@ summary: The three kinds of vehicle space, what each protects against and where 
 - Explain the canopy post and clearance limits of a covered space.
 - Explain why a "14 ft" door does not mean 14 ft of clearance.
 - Read a space size (width x depth) and match it to a vehicle.
-- Describe gravel versus asphalt, back-in versus pull-through, and why aisles matter.
+- Describe gravel versus paved, back-in versus pull-through, and why aisles matter.
 - Say what kinds of spaces Greens has at each site, from Cubby.
 
 ## The Three Products
@@ -24,7 +24,7 @@ Source for the layout and size figures in this lesson: Inside Self Storage (Mako
 
 ### Open Spaces
 
-An open space is a painted or marked rectangle on asphalt or gravel. It suits anything, because there is no roof to hit. It is the budget choice and the right choice for many trailers, work vehicles and boats that live under their own cover.
+An open space is a painted or marked rectangle on a paved or gravel lot. It suits anything, because there is no roof to hit. It is the budget choice and the right choice for many trailers, work vehicles and boats that live under their own cover.
 
 What to tell customers honestly: the sun, the rain and the wind reach the vehicle. A good fitted cover, tied down properly, helps a lot.
 
@@ -65,12 +65,12 @@ Width matters too. A 10 ft wide space is tight for a rig with wide mirrors, an a
 > [!TIP]
 > These ranges are a starting point. The vehicle's measured length (next lesson) decides the space, not its type.
 
-## Surface: Gravel and Asphalt
+## Surface: Gravel and Paved
 
-- **Asphalt** is easier to drive on and keep clean, but it softens in summer heat. Jacks and tongue jacks can sink into it unless they sit on pads.
+- **Paved** lots are easier to drive on and keep clean, but the pavement softens in summer heat. Jacks and tongue jacks can sink into it unless they sit on pads.
 - **Gravel** costs less to build, drains well and is common for big lots. It is dustier and can rut. Heavy trailer tongue jacks can sink in when it is wet.
 
-At Greens, Fairfield is all gravel, Murrieta is all asphalt, and Escondido and Temecula have both (From Greens' Cubby, 11/2026).
+At Greens, Fairfield is all gravel, Murrieta is all paved, and Escondido and Temecula have both (From Greens' Cubby, 11/2026).
 
 ## Back-In, Pull-Through and Angled Spaces
 
@@ -99,17 +99,17 @@ All counts: From Greens' Cubby, 11/2026.
 
 | Site | Open | Covered | Enclosed vehicle | Pull-through | Depths |
 |---|---|---|---|---|---|
-| Escondido | 90 (gravel and asphalt) | None | None | None | 15 to 50 ft |
+| Escondido | 90 (gravel and paved) | None | None | None | 15 to 50 ft |
 | Fairfield | 303 (gravel) | None | None | None | 20 to 48 ft |
-| Murrieta | 161 (asphalt) | None | None | 36 | 19 to 50 ft |
-| Temecula | 454 (gravel and asphalt) | 27 | None | 28 | 15 to 50 ft |
+| Murrieta | 161 (paved) | None | None | 36 | 19 to 50 ft |
+| Temecula | 454 (gravel and paved) | 27 | None | 28 | 15 to 50 ft |
 | Valley Center | 1 (gravel) | None | 2 (12x38 garages) | None | 35 to 38 ft |
 
 What this tells you:
 
 - **Covered space is scarce.** Temecula's 27 covered spaces are the only ones at Greens.
 - **Enclosed vehicle space is scarcer.** Two garages at Valley Center.
-- **Most of what you sell is open space**, so sell it well: the gate, the cameras, the walks, and an honest word about covers.
+- **Most of what you sell is open space**, so sell it well: the gate, cameras where the site has them, the walks, and an honest word about covers.
 - Cubby does not record heights for any space or door. Clear heights come from your manager's measurements on each Site Profile.
 
 > [!NOTE]

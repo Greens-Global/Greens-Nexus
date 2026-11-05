@@ -30,7 +30,7 @@ The rules below are common across the industry. Greens' own rule for each one is
 | **No generators running.** | Fire, fumes and noise. |
 | **No unapproved cords or chargers.** Batteries disconnected or on approved power only. | Heaters and chargers plugged in without approved power are a fire hazard and a liability (Good Sam). |
 | **Drip pans** under engines and generators where required. | Catches leaks before they stain the lot or reach the drain (Inside Self Storage, 2009). |
-| **Slides in, awnings in, jacks on pads.** | Slides and awnings block neighbors and catch wind; jacks sink into hot asphalt. |
+| **Slides in, awnings in, jacks on pads.** | Slides and awnings block neighbors and catch wind; jacks sink into hot pavement. |
 | **Covers tied down.** | A loose cover becomes a sail in the wind and damages neighbors. |
 | **Only the rented vehicle in the space.** Nothing beside or under it: no extra trailers, tires, furniture or canopies. | Spaces are sized for one vehicle, and loose items block aisles and hide hazards. |
 | **Speed limit, traffic flow, spotter when backing.** | Long rigs cannot see behind them. |
@@ -69,7 +69,7 @@ If a tenant pushes back, do not argue. Tell them you will pass it to your manage
 Two different problems look alike on a walk:
 
 - **A tenant's vehicle in default.** The tenant has a lease and stopped paying, or the rig shows signs of being abandoned: expired tags, flat tires, a cover rotting away, no visits. This follows the collections ladder and, if it goes that far, the vehicle lien process (the Vehicle and Boat Liens lesson).
-- **A vehicle with no lease.** Someone left a car or trailer in an empty space, or a tenant's second vehicle is parked where it does not belong. This is not a lien case. Photograph it, check Cubby, and tell your manager. A "Collection Fee - Unauthorized Use of Space" of $83.00 has been charged once, at Temecula (From Greens' Cubby, 11/2026).
+- **A vehicle with no lease.** Someone left a car or trailer in an empty space, or a tenant's second vehicle is parked where it does not belong. This is not a lien case. Photograph it, check Cubby, and tell your manager. A "Collection Fee - Unauthorized Use of Space" of $83.00 appears once in Temecula's Cubby records (From Greens' Cubby, 11/2026); ask your manager whether and when it applies.
 
 > [!WARNING]
 > Never tow, move, lock or tag a vehicle on your own. Towing from private property and enforcing a lien both have legal rules. Training only, not legal advice. When in doubt, stop and ask your manager.
@@ -97,9 +97,9 @@ A toy hauler or cargo trailer can hide fuel cans, propane cylinders and tools. Y
 
 **Murrieta.** You notice a dark stain spreading under a motorhome. You put down absorbent, photograph it, and call the tenant to say their rig is leaking.
 
-**Escondido.** At 9 PM the camera shows lights on inside a trailer. The next morning you tell your manager, who handles it. You do not knock on the door at night alone.
+**Escondido.** At closing time you notice lights on inside a trailer. The next morning you tell your manager, who handles it. You do not knock on the door at night alone.
 
-**Valley Center.** A customer asks to keep a spare can of gas in his enclosed garage "for the generator." You explain that extra fuel is not allowed and why.
+**Valley Center.** A customer asks to keep a spare can of gas in his enclosed garage "for the generator." You explain that extra fuel is a common industry restriction because of fire risk, check Greens Vehicle Storage Rules, and ask your manager before you give him an answer.
 
 **A Texas site.** After a spring hailstorm, you walk the lot, photograph damage to vehicles and the canopy, and report it to your manager without telling any tenant who is responsible.
 

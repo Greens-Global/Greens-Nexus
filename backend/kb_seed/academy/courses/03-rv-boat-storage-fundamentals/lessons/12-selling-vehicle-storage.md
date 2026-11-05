@@ -46,7 +46,7 @@ Quote from Cubby, never from memory. Here is the shape of Greens' parking prices
 |---|---|---|
 | Fairfield (open gravel) | $104 | $94 to $154 |
 | Temecula (open and covered) | $164 | $69 to $319 |
-| Murrieta (open asphalt) | $184 | $134 to $300 |
+| Murrieta (open paved) | $184 | $134 to $300 |
 | Escondido (open) | $279 | $159 to $379 |
 | Valley Center (3 spaces, 2 enclosed) | $289 | $149 to $289 |
 
@@ -66,7 +66,7 @@ Turn features into what they mean for this customer:
 | Feature | What it means for them |
 |---|---|
 | Gated access with a personal code | "Only people with a code get in, and every entry is logged." (Say "logged" only where the gate reports, such as Fairfield.) |
-| Cameras and regular lot walks | "We walk the lot and check every space; if something's wrong with your rig, we call you." |
+| Cameras (where the site has them) and regular lot walks | "We walk the lot and check every space; if something's wrong with your rig, we call you." |
 | Pull-through space | "You drive straight in and straight out. No backing up, no spotter." |
 | Covered space | "Your roof, seals and tires stay out of the sun, and hail never hits it." |
 | Paved space | "No mud, no dust, and your jacks sit on a solid surface (with pads)." |

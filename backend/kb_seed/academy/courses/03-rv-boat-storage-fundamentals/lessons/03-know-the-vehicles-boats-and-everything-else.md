@@ -94,7 +94,7 @@ A boat trailer is a vehicle in its own right:
 
 - It has its **own registration** separate from the boat. In Texas, boat trailers are titled and registered through the Texas DMV (the county tax office), while the boat is titled through Texas Parks and Wildlife (TPWD).
 - It has **bunks** (carpeted boards) or **rollers** the boat sits on, a winch at the front and a coupler on the tongue.
-- Its **tongue jack** carries weight. On soft ground or hot asphalt it can sink; a pad helps.
+- Its **tongue jack** carries weight. On soft ground or hot pavement it can sink; a pad helps.
 
 The Paperwork and Move-In lesson covers what to collect for the boat and the trailer.
 
@@ -111,7 +111,7 @@ Car collectors and owners of a second car usually want enclosed space. At Greens
 Contractors and small businesses store enclosed cargo trailers, utility trailers, equipment trailers and dump trailers.
 
 - Enclosed cargo trailers commonly run from 6x12 to 8.5x24 ft for the box, plus 3 to 4 ft for the V-nose and tongue.
-- Equipment and dump trailers are **heavy**. Their tongue jacks can sink into asphalt and gravel. Note it on site walks.
+- Equipment and dump trailers are **heavy**. Their tongue jacks can sink into pavement and gravel. Note it on site walks.
 - Watch for business use that is not allowed: working on site, or storing materials or fuel beside the trailer. The Lot Rules and Risks lesson covers this.
 
 ### Motorcycles
@@ -134,11 +134,11 @@ When you record a vehicle in Cubby, the vehicle type choices are trailer, RV, bo
 
 **Temecula.** A caller asks for a 20 ft space for a "20 ft bass boat." You ask for tongue tip to the back of the motor. It is 26 ft. You quote an 11x30 rather than a 10x20, and explain why.
 
-**Fairfield.** A customer with a 24 ft pontoon asks for the cheapest space. You ask for the length on the trailer (31 ft) and suggest the 12x32. Fairfield's lot is open, so the bimini height does not matter there, but you remind them to fold it and tie it down because wind can tear it.
+**Fairfield.** A customer with a 24 ft pontoon asks for the cheapest space. You ask for the length on the trailer: 31 ft. With a 3 ft margin that is 34 ft, so the 12x32 is too short and you suggest the 12x48 (From Greens' Cubby, 11/2026). Fairfield's lot is open, so the bimini height does not matter there, but you remind them to fold it and tie it down because wind can tear it.
 
-**Escondido.** A sailor with a 22 ft sailboat says the mast sticks out "a little." You ask how far past the stern. Three feet. The total is 30 ft on the trailer plus 3 ft of mast, so 33 ft. You look at Escondido's 12x35 spaces.
+**Escondido.** A sailor with a 22 ft sailboat says the mast sticks out "a little." You ask how far past the stern. Three feet. The total is 30 ft on the trailer plus 3 ft of mast, so 33 ft. With a 3 ft margin that is 36 ft, so you look at Escondido's 12x38 spaces (From Greens' Cubby, 11/2026).
 
-**Murrieta.** A contractor wants to store a 7x16 enclosed cargo trailer. With the V-nose and tongue it is about 20 ft. Murrieta's 10x24 is a good fit (From Greens' Cubby, 11/2026). You ask whether anything stored in it is hazardous, such as fuel or propane.
+**Murrieta.** A contractor wants to store a 7x16 enclosed cargo trailer. With the V-nose and tongue it is about 20 ft. With a 3 ft margin that is 23 ft, so Murrieta's 10x24 fits (From Greens' Cubby, 11/2026). You ask whether anything stored in it is hazardous, such as fuel or propane.
 
 **A Texas site.** A customer has a center console with twin outboards and a T-top and wants covered space. You ask for the height to the top of the T-top and the length to the back of the tilted-down motors, because both are bigger than the hull numbers.
 

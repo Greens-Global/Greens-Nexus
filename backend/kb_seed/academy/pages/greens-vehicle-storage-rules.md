@@ -45,6 +45,10 @@ All other fees are on Greens Fees and Charges.
 | Sleeping or staying overnight in a vehicle | [Greens to fill] |
 | Extra fuel cans, propane, hazardous materials | [Greens to fill] |
 | Leaving a car in the space while the RV is out | [Greens to fill] |
+| Slides in and awnings closed while stored | [Greens to fill] |
+| Truck campers stored off the truck on jacks | [Greens to fill] |
+| Renting only to the title holder (or a business they sign for) | [Greens to fill] |
+| Non-Operational Vehicle Deposit: when it applies | [Greens to fill] |
 
 Staff never drive or move a tenant's vehicle.
 

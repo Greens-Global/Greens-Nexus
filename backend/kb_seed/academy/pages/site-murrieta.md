@@ -7,7 +7,7 @@ tags: site-profile, murrieta, parking, vehicles
 
 ## Murrieta at a Glance
 
-Murrieta is a paved vehicle lot that runs nearly full. It is the only Greens site where every parking space is asphalt, and it has the most pull-through spaces.
+Murrieta is a paved vehicle lot that runs nearly full. It is the only Greens site where every parking space is paved, and it has the most pull-through spaces.
 
 | What | Count | Leased |
 |---|---|---|
@@ -19,7 +19,7 @@ All counts: From Greens' Cubby, 11/2026.
 
 ## Parking Spaces
 
-Every Murrieta space is **open asphalt**, with no canopy (From Greens' Cubby, 11/2026).
+Every Murrieta space is **open paved**, with no canopy (From Greens' Cubby, 11/2026).
 
 | Kind | Spaces (leased) | Depth | Street rate low / typical / high |
 |---|---|---|---|
@@ -88,6 +88,6 @@ The City of Murrieta lets residents bring an RV onto their lot only through a ci
 
 ## Key Points
 
-- Murrieta: 161 open asphalt spaces, 150 leased; 36 are pull-through (From Greens' Cubby, 11/2026).
+- Murrieta: 161 open paved spaces, 150 leased; 36 are pull-through (From Greens' Cubby, 11/2026).
 - It runs nearly full: check Cubby first, then offer a waitlist or Temecula.
 - Pull-through spaces are premium; sell the no-backing convenience.

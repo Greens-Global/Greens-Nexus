@@ -48,9 +48,9 @@ Where the numbers come from:
 
 | | California | Texas |
 |---|---|---|
-| Cars, RVs, trailers | California DMV | Texas DMV (through the county tax office) |
-| Boats | California DMV; the registration number (the "CF number") is shown on the bow | Texas Parks and Wildlife (TPWD); every motorized boat is titled whatever its length, outboard motors are titled too, and sailboats 14 ft and longer are registered |
-| Boat trailers | California DMV | Texas DMV, not TPWD |
+| Cars and RVs | California DMV | Texas DMV (through the county tax office) |
+| Boats | California registers most boats through the DMV; confirm the numbers to record with your manager | Texas Parks and Wildlife (TPWD); every motorized boat is titled whatever its length, outboard motors are titled too, and sailboats 14 ft and longer are registered |
+| Boat and other trailers | Confirm with your manager | Texas DMV, not TPWD (boat trailers) |
 
 Texas details: TPWD and Galveston County tax office pages, as of 2026.
 

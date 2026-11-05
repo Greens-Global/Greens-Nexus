@@ -77,7 +77,7 @@ Each Greens site is different, and a caller your lot cannot fit may fit another 
 | Enclosed vehicle space | Valley Center (2 garages; usually a waitlist) |
 | A pull-through | Murrieta or Temecula |
 | The lowest price | Fairfield |
-| Paved | Murrieta; asphalt rows at Temecula and Escondido |
+| Paved | Murrieta; paved rows at Temecula and Escondido |
 
 Check the other site's open spaces in Cubby before you send anyone. A caller you send to a sister site who finds it full is a caller lost twice.
 
@@ -119,7 +119,7 @@ A unit tenant who wants to leave has to empty a unit. A vehicle tenant hitches u
 
 **Temecula.** A caller wants a covered 12x50 for a 44 ft fifth wheel. All eight are leased (From Greens' Cubby, 11/2026). Temecula's open spaces stop at 45 ft, short of the 47 ft the rig needs with a margin (44 + 3). You check Cubby for an open 12x48 at Fairfield or 12x50 at Murrieta or Escondido, offer it, add the caller to Temecula's covered waitlist with the length and height, and explain the upgrade path.
 
-**Murrieta.** The lot has no 12x30 open. A caller has a 27 ft trailer. You check Temecula in Cubby, find an 11x35 open, and offer it.
+**Murrieta.** A caller has a 27 ft trailer; with a 3 ft margin it needs 30 ft, and Murrieta has no 30 ft space open. You check Temecula in Cubby, find an 11x35 open, and offer it.
 
 **Valley Center.** A caller wants one of the two enclosed garages. Both are leased. You take a full waitlist entry and mention Escondido's open lot for now.
 

@@ -71,7 +71,7 @@ Use these steps, in this order, on the phone or at the counter.
 4. **"Does it have slides? Do they stay in?"** For a boat: **"Does the tongue fold?"**
 5. **"How do you usually park it? Do you back in? Do you have someone to spot you?"** This tells you whether a pull-through is worth offering.
 6. **"How often will you take it out, and what time of day?"** Early launches and Sunday-night returns are about access hours, which are on Greens Site Hours and Access.
-7. **Offer the right size.** If the measured length plus margin is within 2 to 3 ft of a space's length, offer the next size up.
+7. **Offer the right size:** the smallest space at least as long as the measured length plus the margin.
 8. **Write the measurements in Cubby**, so the next person does not have to ask again.
 9. **Check it on move-in day with a tape and photos.**
 
@@ -127,7 +127,7 @@ On move-in day, before the tenant leaves:
 - [ ] Measure the vehicle with a tape: length hitch to bumper, and height for covered or enclosed.
 - [ ] Watch it go into the space. Is anything over the line or into the aisle?
 - [ ] Check the mirrors and anything on the sides against the neighbors.
-- [ ] Check slides are in and awnings closed (as Greens' rules require).
+- [ ] Check slides and awnings against Greens Vehicle Storage Rules.
 - [ ] Take the move-in photos (the next lessons cover which ones).
 - [ ] Update the measurements in Cubby if they differ from the phone call.
 

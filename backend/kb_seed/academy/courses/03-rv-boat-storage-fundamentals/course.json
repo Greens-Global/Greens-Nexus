@@ -164,7 +164,7 @@
   {
    "page": "site-murrieta",
    "title": "Know Your Site: Murrieta",
-   "summary": "Murrieta's asphalt lot by size, its pull-through spaces, and the site notes your manager fills in."
+   "summary": "Murrieta's paved lot by size, its pull-through spaces, and the site notes your manager fills in."
   },
   {
    "page": "site-temecula",
@@ -398,17 +398,17 @@
    },
    {
     "type": "single",
-    "q": "A caller says, \"I need somewhere to park my RV and stay in it for a few weeks.\" What do you tell them?",
+    "q": "A caller asks whether they can stay overnight in their RV on the lot. Where do you find Greens' answer?",
     "options": [
-     "Pick a space near the restroom",
-     "Nobody may live or sleep in a vehicle on our lot; they need a campground",
-     "It is fine if they are quiet",
-     "Only on weekends"
+     "Say yes if they are quiet",
+     "Greens Vehicle Storage Rules, or ask your manager",
+     "Make up a rule that sounds fair",
+     "The city code"
     ],
     "answer": [
      1
     ],
-    "explanation": "No living or sleeping on the lot. A storage facility is not a residence or a campground; it is a safety risk for everyone.",
+    "explanation": "Living or sleeping in a stored vehicle is against common industry rules, but Greens' own rule lives on Greens Vehicle Storage Rules. Check it or ask your manager; never invent a house rule.",
     "lesson": "01-why-vehicle-storage-matters.md"
    },
    {
@@ -550,10 +550,10 @@
     "type": "single",
     "q": "What kind of parking does Fairfield have?",
     "options": [
-     "Covered asphalt",
+     "Covered and paved",
      "All open gravel, 12 ft wide",
      "Enclosed garages",
-     "Mostly pull-through asphalt"
+     "Mostly pull-through and paved"
     ],
     "answer": [
      1
@@ -573,7 +573,7 @@
     "answer": [
      2
     ],
-    "explanation": "Murrieta has 36 pull-through spaces (18 at 12x33 and 18 at 12x50) on an all-asphalt lot of 161 (From Greens' Cubby, 11/2026).",
+    "explanation": "Murrieta has 36 pull-through spaces (18 at 12x33 and 18 at 12x50) on an all-paved lot of 161 (From Greens' Cubby, 11/2026).",
     "lesson": "site-murrieta"
    },
    {
@@ -603,7 +603,7 @@
     "answer": [
      0
     ],
-    "explanation": "Every Escondido parking space is open: 80 gravel and 10 asphalt (From Greens' Cubby, 11/2026).",
+    "explanation": "Every Escondido parking space is open: 80 gravel and 10 paved (From Greens' Cubby, 11/2026).",
     "lesson": "site-escondido"
    },
    {
@@ -1087,17 +1087,17 @@
    },
    {
     "type": "single",
-    "q": "What is the typical street rate for a Fairfield parking space?",
+    "q": "A caller asks the monthly price of a 12x32 space at Fairfield. Where do you get the rate you quote?",
     "options": [
-     "$104",
-     "$184",
-     "$279",
-     "$350"
+     "From memory",
+     "From the Site Profile page",
+     "From Cubby's current rate for that space",
+     "From a competitor's website"
     ],
     "answer": [
-     0
+     2
     ],
-    "explanation": "Fairfield's typical street rate was $104, with a range of $94 to $154 (From Greens' Cubby, 11/2026). Always quote today's rate from Cubby.",
+    "explanation": "Rates change. The Site Profile and lesson figures are a snapshot from 11/2026; always quote today's rate from Cubby.",
     "lesson": "12-selling-vehicle-storage.md"
    },
    {

@@ -25,26 +25,26 @@ Read it once now, then come back to it when a customer uses a word you do not kn
 | **Travel trailer** | An RV towed by a ball hitch | Ask whether the stated length includes the tongue |
 | **Fifth wheel** | A trailer with a raised front that hitches inside a pickup bed | The tallest towable; the pin box overhang may not be in the brochure length |
 | **Toy hauler** | A trailer or fifth wheel with a rear ramp and a garage for ATVs or motorcycles | No loading or unloading in an aisle |
-| **Pop-up (tent trailer)** | A folding canvas camper | Short and low; never opened while stored |
+| **Pop-up (tent trailer)** | A folding canvas camper | Short and low; how it is left while stored is on Greens Vehicle Storage Rules |
 | **Truck camper** | A camper that slides into a pickup bed | Ask whether it stays on the truck |
 | **Teardrop** | A tiny sleeping trailer | Short space |
 | **Toad (or dinghy)** | A car towed behind a motorhome | A separate vehicle, usually a separate space |
 | **Tow vehicle** | The truck or SUV pulling a trailer | Leaves with the owner or needs its own space |
 | **Coupler** | The front of a trailer tongue that fits over the hitch ball | Measure length from here |
 | **Kingpin (pin box)** | Where a fifth wheel hitches to the truck | Measure length from the front of it |
-| **Tongue jack** | The jack holding up the front of a trailer | Sinks into hot asphalt or wet gravel without a pad |
+| **Tongue jack** | The jack holding up the front of a trailer | Sinks into hot pavement or wet gravel without a pad |
 | **Stabilizer jacks and leveling jacks** | Legs that steady or level a parked RV | Pads under them; watch for sinking |
-| **Slide-out (slide)** | A wall section that moves out to widen the RV | Stays in while stored |
-| **Awning** | A roll-out shade on the side | Stays closed; wind tears it |
+| **Slide-out (slide)** | A wall section that moves out to widen the RV | Common rule: kept in while stored; see Greens Vehicle Storage Rules |
+| **Awning** | A roll-out shade on the side | Common rule: kept closed while stored; wind tears it |
 | **Holding tanks** | Fresh, gray (sink and shower) and black (toilet) water tanks | Emptied only at an approved dump station |
 | **Dump station** | A sewer inlet where RVs empty gray and black tanks | The most requested RV amenity |
 | **Shore power** | Plugging an RV into an outside outlet (30 or 50 amp RV plugs; 20 amp household) | Only on approved power |
 | **Battery tender (trickle charger)** | A small charger that keeps a battery topped up | Needs approved power |
 | **House and chassis batteries** | The living-area batteries and the engine's starting battery | Both drain in storage; theft target |
-| **LP (propane) tanks** | Fuel for stove, fridge and furnace | Valves closed while stored |
-| **Generator (genset)** | Built-in or portable power | Never run on the lot |
-| **Boondocking (dry camping)** | Camping with no hookups | Not something anyone does on our lot |
-| **Full-timer** | Someone who lives in an RV year-round | Cannot live on the lot |
+| **LP (propane) tanks** | Fuel for stove, fridge and furnace | Common rule: valves closed while stored |
+| **Generator (genset)** | Built-in or portable power | Common rule: not run on a storage lot |
+| **Boondocking (dry camping)** | Camping with no hookups | Common rule: no camping on a storage lot |
+| **Full-timer** | Someone who lives in an RV year-round | Common rule: no living on a storage lot; see Greens Vehicle Storage Rules |
 | **Snowbird** | Someone who travels south or to the desert for winter | Seasonal move-outs |
 | **Winterize** | Draining water lines and adding RV antifreeze before a freeze | Freeze damage if skipped |
 | **GVWR** | Gross vehicle weight rating, the most a vehicle may weigh loaded | Heavy rigs sink jacks |
@@ -73,7 +73,7 @@ Read it once now, then come back to it when a customer uses a word you do not kn
 | **Pontoon** | A flat-deck boat on tubes | Wide and can be tall |
 | **PWC (personal watercraft)** | A jet ski | Often two on one trailer |
 | **HIN (hull identification number)** | The boat's VIN, on the transom | Must match the registration |
-| **CF number and TX number** | The state registration number on the bow (California, Texas) | Record it |
+| **Boat registration number** | The state registration number shown on the bow | California registers most boats through the DMV; confirm with your manager which numbers to record |
 | **Swing (folding) tongue** | A trailer tongue that folds | Saves a few feet of length |
 | **Bunks and rollers** | The boards or rollers the boat sits on | Part of the trailer |
 
@@ -94,6 +94,9 @@ Read it once now, then come back to it when a customer uses a word you do not kn
 | **Drip pan** | A pan under an engine or generator | Catches leaks |
 
 ## Paperwork and Lien Words
+
+> [!WARNING]
+> Training only, not legal advice. When in doubt, stop and ask your manager.
 
 | Word | What it means | Why it matters to you |
 |---|---|---|

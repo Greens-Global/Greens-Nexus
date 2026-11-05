@@ -1,6 +1,6 @@
 ---
 title: Site Profile: Temecula
-summary: Temecula, Greens' biggest vehicle lot, by size and type from Greens' Cubby: open gravel and asphalt, covered spaces and pull-throughs, plus the clear heights, amenities, gate notes and local rules the site manager fills in.
+summary: Temecula, Greens' biggest vehicle lot, by size and type from Greens' Cubby: open gravel and paved, covered spaces and pull-throughs, plus the clear heights, amenities, gate notes and local rules the site manager fills in.
 page_type: reference
 tags: site-profile, temecula, parking, vehicles
 ---
@@ -24,8 +24,8 @@ All counts: From Greens' Cubby, 11/2026.
 | Covered, gravel | 27 (22) | 20 to 50 ft | $124 / $229 / $319 |
 | Open, gravel | 280 (181) | 15 to 45 ft | $69 / $164 / $289 |
 | Open, gravel, pull-through | 1 (1) | 30 ft | $194 |
-| Open, asphalt | 146 (114) | 15 to 45 ft | $74 / $124 / $214 |
-| Open, asphalt, pull-through | 27 (15) | 30 to 40 ft | $189 / $189 / $219 |
+| Open, paved | 146 (114) | 15 to 45 ft | $74 / $124 / $214 |
+| Open, paved, pull-through | 27 (15) | 30 to 40 ft | $189 / $189 / $219 |
 
 All from Greens' Cubby, 11/2026. Always quote today's rate from Cubby, never this page.
 
@@ -54,7 +54,7 @@ All from Greens' Cubby, 11/2026.
 
 What this means when you sell:
 
-- Temecula has the most open 40 ft and longer spaces of any Greens site: 147, with 80 leased. A big rig that Murrieta cannot fit can often come here.
+- Temecula has the most 40 ft and longer spaces of any Greens site: 147, with 80 leased. A big rig that Murrieta cannot fit can often come here.
 - Covered spaces are few and the long ones are full. Rent open now and offer the covered waitlist (see the Waitlists and Upgrades lesson).
 - Height matters under the covered roof. Never put a rig under it until you know its height and the posted clear height.
 
@@ -64,7 +64,7 @@ All 34 enclosed units are 8 ft wide and drive-up: 8x10 3, 8x12 3, 8x16 8, 8x20 1
 
 ## Fees Seen Only at Temecula
 
-A "Collection Fee - Unauthorized Use of Space" of $83.00 was charged once at Temecula (From Greens' Cubby, 11/2026). It is the kind of charge that follows a vehicle found in a space it does not rent. Ask your manager before you charge it.
+A "Collection Fee - Unauthorized Use of Space" of $83.00 appears once in Temecula's Cubby records (From Greens' Cubby, 11/2026). Ask your manager whether and when it applies.
 
 ## Clear Heights
 
@@ -88,7 +88,7 @@ A "Collection Fee - Unauthorized Use of Space" of $83.00 was charged once at Tem
 
 - Gate hours and office hours: see Greens Site Hours and Access.
 - Gate width, stacking room and turning room for long rigs: [Greens to fill]
-- Which rows are gravel, asphalt, covered and pull-through: [Greens to fill]
+- Which rows are gravel, paved, covered and pull-through: [Greens to fill]
 
 ## Local Parking Rules
 

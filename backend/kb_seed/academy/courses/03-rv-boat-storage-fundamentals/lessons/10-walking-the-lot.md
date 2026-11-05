@@ -38,7 +38,7 @@ Walk every row. At every space, check:
 - [ ] No flat or low tires, sinking jacks or a vehicle leaning to one side.
 - [ ] No leaks or new stains under the vehicle.
 - [ ] Covers are tied down and whole; no tarps holding water.
-- [ ] Windows, hatches and doors closed; slides in; awnings closed.
+- [ ] Windows, hatches and doors closed; slides and awnings as Greens Vehicle Storage Rules require.
 - [ ] No extension cords to outlets that are not part of the rental; no generators running.
 - [ ] No signs of anyone living there: lights at night, pets, trash, people sleeping.
 - [ ] Nothing stored beside or under the vehicle: tires, fuel cans, furniture, canopies.
@@ -48,7 +48,7 @@ Walk every row. At every space, check:
 And at the gate:
 
 - [ ] The gate opens, closes and holds long enough for a long rig.
-- [ ] The keypad works; cameras and lights work.
+- [ ] The keypad and lights work, and cameras where the site has them.
 - [ ] Nothing blocks the stacking area outside the gate.
 
 ## Recording What You Find
@@ -87,8 +87,8 @@ Walk the lot after any weather event, before tenants call you about it.
 | Weather | Where | What to look for |
 |---|---|---|
 | **Wind** | All sites; strong wind events in Southern California and across the open Fairfield lot | Loose or torn covers, awnings out, canopy roofing panels lifted, trash and debris in aisles |
-| **Heat** | All sites, and Texas summers | Soft asphalt with jacks and tongue jacks sinking (pads help); tires; batteries; seals |
-| **Rain and flooding** | Low spaces on gravel and asphalt | Drainage, standing water, boat covers pooling water, open bilges |
+| **Heat** | All sites, and Texas summers | Soft pavement with jacks and tongue jacks sinking (pads help); tires; batteries; seals |
+| **Rain and flooding** | Low spaces on gravel and paved lots | Drainage, standing water, boat covers pooling water, open bilges |
 | **Hail** | Texas sites especially | Dented roofs and fiberglass, canopy damage. Photograph the site and canopy damage. |
 | **Freezing nights** | Can happen at some sites | Burst water lines in RVs not winterized; tell tenants to winterize |
 
