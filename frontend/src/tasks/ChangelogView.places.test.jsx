@@ -37,7 +37,7 @@ beforeEach(() => {
   try { window.localStorage.clear(); } catch { /* no storage */ }
   window.history.replaceState(null, '', '/whats-new?tab=timeline');
   api.getTaskChangelog.mockResolvedValue([
-    rel('a', 'Clock Thing', 'Workday', { prNumber: 990, prRef: '#990', prUrl: 'https://github.com/Greens-Global/Greens-Nexus/pull/990' }),
+    rel('a', 'Clock Thing', 'Workday', { environment: 'Production', prNumber: 990, prRef: '#990', prUrl: 'https://github.com/Greens-Global/Greens-Nexus/pull/990' }),
     rel('b', 'Sheet Thing', 'Time Sheet', { releasedAt: at(9) }),
     rel('c', 'Review Thing', 'Time Sheets to Review', { releasedAt: at(8) }),
     rel('d', 'Approvals Thing', 'Dashboard > Approvals', { releasedAt: at(7) }),
@@ -152,11 +152,13 @@ describe('Timeline places', () => {
     }
   });
 
-  it('every row and the detail name the pull request; the detail links to it', async () => {
+  it('the detail names and links the pull request; the calm row leaves it out (Neil, 11/05/2026)', async () => {
     render(<Changelog />);
     await screen.findAllByText('Clock Thing');
     const link = await screen.findByRole('link', { name: '#990' });               // the detail
-    expect(screen.getAllByText('#990').length).toBeGreaterThanOrEqual(2);       // and the row
+    expect(screen.getAllByText('#990')).toHaveLength(1);                        // not on the row
+    const row = document.querySelector('[data-row-author]').closest('button');
+    expect(row.textContent).not.toMatch(/In Production|#990/);                  // shipped = no mark on the row
     expect(link.getAttribute('href')).toBe('https://github.com/Greens-Global/Greens-Nexus/pull/990');
     expect(screen.getAllByText('Workday - Time Sheet').length).toBeGreaterThan(0);  // the row's place
   });

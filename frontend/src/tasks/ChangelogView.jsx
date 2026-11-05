@@ -22,7 +22,7 @@ import { useDialogFocus } from '../lib/useDialogFocus';
 import { LoadingState } from '../components/AsyncState';
 import {
   Sparkles, Clock, ClipboardCheck, Plus, X, ArrowRight, CheckCircle2, User,
-  ImageIcon, Search, ChevronRight, ChevronDown, GitBranch, Layers, CalendarDays,
+  ImageIcon, Search, ChevronDown, GitBranch, Layers, CalendarDays,
   Link2, Maximize2, Minimize2, Pencil, Send, Bug, Flame, ShieldAlert, TrendingUp,
   Wrench, ArrowUpCircle, Upload, Eye, GitPullRequest, Trash2, AlertTriangle,
   RefreshCw, MessageSquare, Pin, Copy, Lightbulb, Server,
@@ -1361,103 +1361,75 @@ function TimelineRow({ entry, nameOf, selected, onClick, compact = false }) {
   const author = rowAuthor(entry, nameOf);
   const authorTitle = author ? `${author.name}${author.more ? ` and ${plural(author.more, 'other')}` : ''}` : '';
   const Icon = meta.icon;
-  const thumbnail = (entry.images && entry.images[0]) || entry.afterImageDataUrl;
-  if (compact) {
-    // Phones and tablets: the title gets the full width (two lines), the
-    // category, module and time sit under it - the desktop row's time column
-    // and thumbnail left the title one letter wide.
-    return (
-      <button onClick={onClick} style={{
-        display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer',
-        border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '12px 14px', minHeight: 56,
-        background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', fontFamily: FONT,
-      }}>
-        {/* card={false}: the row is itself a button. */}
-        {author && <span data-row-author title={authorTitle} style={{ alignSelf: 'flex-start', marginTop: 1 }}><Avatar email={author.email} name={author.name} size={24} card={false} /></span>}
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="nx-clamp-2" style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.35, color: NX.ink }}>{entry.title}</div>
-          <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
-            <span style={{ ...chip(meta.color, meta.tint), fontSize: 11 }}><Icon size={11} />{meta.label}</span>
-            <IssueChip entry={entry} />
-            <span>{placeOf(entry).label}</span>
-            {entry.prRef && <PrRef entry={entry} />}
-            <span data-row-time style={{ color: NX.faint, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{formatTime(releasedKey(entry))}</span>
-            <RowResponse entry={entry} />
-          </div>
-        </div>
-        <ChevronRight size={16} style={{ flexShrink: 0, color: NX.faint }} />
-      </button>
-    );
-  }
+  const thumbnail = !compact && ((entry.images && entry.images[0]) || entry.afterImageDataUrl);
+  const stage = stageOf(entry);
+  // Calm rows (Neil, 11/05/2026: "too busy"): the title is the hero and wraps
+  // to two lines; the photo says who (the name is its tooltip); one quiet
+  // category mark; the stage only when it is NOT in production yet. The PR
+  // number and the developer's name live in the detail.
   return (
-    <button onClick={onClick} style={{
-      display: 'flex', alignItems: 'center', gap: 16, width: '100%', textAlign: 'left', cursor: 'pointer',
-      borderBottom: `1px solid ${NX.border}`, borderLeft: 'none', borderRight: 'none', borderTop: 'none',
-      padding: '14px 16px', background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', fontFamily: FONT,
+    <button onClick={onClick} aria-current={selected ? 'true' : undefined} style={{
+      display: 'flex', alignItems: 'flex-start', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer',
+      border: 'none', borderBottom: `1px solid ${NX.border}`, padding: compact ? '12px 14px' : '14px 16px', minHeight: 56,
+      background: selected ? 'rgba(37,99,235,0.08)' : 'transparent', boxShadow: selected ? `inset 3px 0 0 ${NX.blue}` : 'none', fontFamily: FONT,
     }}>
-      <span data-row-author title={authorTitle} style={{ width: 132, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        {author && (<>
-          <Avatar email={author.email} name={author.name} size={26} card={false} />
-          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 600, color: NX.ink }}>
-            {author.name}
-          </span>
-          {author.more > 0 && <span style={{ flexShrink: 0, marginLeft: -4, fontSize: 12, color: NX.faint }}>+{author.more}</span>}
-        </>)}
+      {/* card={false}: the row is itself a button. */}
+      <span data-row-author title={authorTitle} aria-label={authorTitle || undefined}
+        style={{ position: 'relative', flexShrink: 0, width: 28, height: 28, marginTop: 1 }}>
+        {author && <Avatar email={author.email} name={author.name} size={28} card={false} />}
+        {author?.more > 0 && (
+          <span style={{ position: 'absolute', right: -6, bottom: -4, padding: '0 4px', borderRadius: 999, background: NX.surface, border: `1px solid ${NX.border}`, fontSize: 9.5, fontWeight: 700, lineHeight: '13px', color: NX.dim }}>+{author.more}</span>
+        )}
       </span>
-      {/* One line, the app's font (Neil, 11/05/2026: AM / PM wrapped and the time read as a typewriter). */}
-      <span data-row-time style={{ minWidth: 62, flexShrink: 0, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: 12, color: NX.dim }}>{formatTime(releasedKey(entry))}</span>
-      <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: meta.color }} />
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ ...chip(meta.color, meta.tint), fontSize: 11 }}><Icon size={11} />{meta.label}</span>
-          {issueOf(entry)?.active && <IssueChip entry={entry} />}
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14, fontWeight: 700, color: NX.ink }}>{entry.title}</span>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <span className="nx-clamp-2" style={{ minWidth: 0, flex: 1, fontSize: 14, fontWeight: 600, lineHeight: 1.35, color: NX.ink }}>{entry.title}</span>
+          {/* One line, the app's font (Neil, 11/05/2026). */}
+          <span data-row-time style={{ flexShrink: 0, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: 12, color: NX.faint }}>{formatTime(releasedKey(entry))}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{placeOf(entry).label}</span>
-          {entry.version && (<><span>·</span><span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', flexShrink: 0 }}>{entry.version}</span></>)}
-          {entry.prRef && (<><span>·</span><PrRef entry={entry} /></>)}
-          {stageOf(entry) && (<><span>·</span><StageChip entry={entry} /></>)}
+        <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 4, fontSize: 12, color: NX.dim }}>
+          <span data-row-category style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0, whiteSpace: 'nowrap' }}>
+            <Icon size={12} style={{ color: meta.color }} aria-hidden="true" />{meta.label}
+          </span>
+          <span aria-hidden="true" style={{ color: NX.faint }}>·</span>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{placeOf(entry).label}</span>
+          {issueOf(entry)?.active && <IssueChip entry={entry} />}
+          {stage && stage.key !== 'Production' && <StageChip entry={entry} />}
           <RowResponse entry={entry} />
         </div>
       </div>
-      {thumbnail && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 80, flexShrink: 0, aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 8, border: `1px solid ${NX.border}`, background: NX.surface2 }}>
+      {thumbnail && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 72, flexShrink: 0, aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 8, border: `1px solid ${NX.border}`, background: NX.surface2 }}>
         <img src={thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
       </div>}
-      <ChevronRight size={16} style={{ flexShrink: 0, color: NX.faint }} />
     </button>
   );
 }
 
-// A Timeline day: its date, the versions released on it, and how many of each
-// category - what the Version History tab used to show per version.
+// A Timeline day: its date (Today / Yesterday said the way people say them),
+// a typed version when there is one, and one muted count.
 function DayHeader({ group }) {
-  const date = formatFullDate(releasedKey(group[0]));
+  const iso = releasedKey(group[0]);
+  const date = formatFullDate(iso);
+  const rel = relativeDayLabel(iso);
   // A merge's version is its release day (MM/DD/YYYY); only a typed one adds anything.
   const versions = Array.from(new Set(group.map((e) => e.version).filter((v) => v && !/^\d{2}\/\d{2}\/\d{4}$/.test(v))));
-  const counts = new Map();
-  for (const e of group) counts.set(e.type, (counts.get(e.type) || 0) + 1);
   return (
-    <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{date}</span>
+    <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8, padding: '0 2px' }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{rel || date}</span>
+      {rel && rel !== date && <span style={{ fontSize: 12.5, color: NX.dim }}>{date}</span>}
       {versions.map((v) => (
-        <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 700, color: NX.dim }}>
+        <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 600, color: NX.dim }}>
           <GitBranch size={12} />{v}
         </span>
       ))}
-      <Badge label={`${group.length} update${group.length === 1 ? '' : 's'}`} />
-      {[...counts.entries()].map(([type, n]) => {
-        const meta = typeMeta(type);
-        return <Badge key={type} label={`${n} ${meta.label}`} color={meta.color} tint={meta.tint} />;
-      })}
+      <span style={{ marginLeft: 'auto', fontSize: 12, color: NX.faint }}>{plural(group.length, 'update')}</span>
     </div>
   );
 }
 
 // A day on the phone and tablet Timeline: pinned to the top of the list while
 // you scroll through it, its date said the way people say it (Today,
-// Yesterday, then the date), and its categories as colored dots rather than
-// a second row of pills.
+// Yesterday, then the date), and one muted count (the categories are its tooltip).
 function StickyDayHeader({ group }) {
   const iso = releasedKey(group[0]);
   const date = formatFullDate(iso);
@@ -1477,12 +1449,7 @@ function StickyDayHeader({ group }) {
         </span>
       ))}
       <span title={summary} aria-label={`${plural(group.length, 'update')}: ${summary}`}
-        style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, fontSize: 12, fontWeight: 600, color: NX.dim }}>
-        <span aria-hidden="true" style={{ display: 'inline-flex', gap: 3 }}>
-          {[...counts.keys()].map((t) => <span key={t} style={{ width: 7, height: 7, borderRadius: '50%', background: typeMeta(t).color }} />)}
-        </span>
-        {group.length} {group.length === 1 ? 'Update' : 'Updates'}
-      </span>
+        style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 12, color: NX.faint }}>{plural(group.length, 'update')}</span>
     </div>
   );
 }
