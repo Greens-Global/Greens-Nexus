@@ -207,7 +207,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
   const openEntry = (id) => { setOpenId(id); writeQuery({ entry: id }); };
   const closeEntry = () => { setOpenId(null); writeQuery({ entry: '' }); if (activeSub) onSubChange?.(null); };
   // Manage is a button, not a tab (Pranshu, Oct 16 2026): it swaps the page
-  // body for the admin screen, and Back returns to the tab you were on.
+  // body for the admin screen; the page trail's WHAT'S NEW returns to the tabs.
   const [managing, setManaging] = useState(false);
   // Manage sits under What's New in the page trail; its module part leaves Manage.
   useTrailCrumbs([], () => setManaging(false));
