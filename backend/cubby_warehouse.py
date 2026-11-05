@@ -198,63 +198,129 @@ def _run(sql: str, params: list) -> list[dict]:
         raise WarehouseError(f"BigQuery did not answer ({type(e).__name__}){': ' + msg[:200] if msg else ''}") from None
 
 
-def tasks_sql(stamp: str = "updated_at") -> str:
+# BigQuery's tables are NOT the Postgres mirror the Cubby MCP reads (prod,
+# 11/03-11/05/2026): `tasks` has no `updated_at`, and BigQuery checks a
+# query's filter before its column list, so each fix of a guessed column only
+# uncovered the next one. So every query is built from the table's REAL
+# columns and types, read from BigQuery itself (one cheap metadata call per
+# table, cached for the process): only columns that exist are selected, the
+# time window compares in the column's own type, and whatever is missing is
+# said in the run's note instead of failing the read.
+_COLUMNS_TTL_SEC = 3600
+_columns_cache: dict = {}
+NAME_COLUMNS = ("manager_name", "name", "full_name")
+EMAIL_COLUMNS = ("manager_email", "email", "work_email")
+_missing: dict = {}        # table -> columns the code wanted but the table lacks (for the run's note)
+
+
+def _columns(table: str) -> dict:
+    """{column name: BigQuery type} for `table`. Raises WarehouseError."""
+    import time as _time
+    hit = _columns_cache.get(table)
+    if hit and _time.monotonic() - hit[0] < _COLUMNS_TTL_SEC:
+        return hit[1]
+    client = _client()
+    try:
+        try:
+            schema = client.get_table(table).schema
+        except Exception:  # noqa: BLE001 - no metadata permission: ask a dry run instead
+            # A dry run is free, returns no rows, and needs only the query
+            # permission every read here already uses.
+            from google.cloud import bigquery
+            job = client.query(f"SELECT * FROM `{table}`", job_config=bigquery.QueryJobConfig(dry_run=True))
+            schema = job.schema
+        cols = {f.name: str(f.field_type or "").upper() for f in schema}
+    except WarehouseError:
+        raise
+    except Exception as e:  # noqa: BLE001 - never let the key into an error
+        msg = str(getattr(e, "message", "") or "").strip()
+        if "private_key" in msg or "BEGIN PRIVATE KEY" in msg:
+            msg = ""
+        raise WarehouseError(f"BigQuery would not describe {table.rsplit('.', 1)[-1]} "
+                             f"({type(e).__name__}){': ' + msg[:200] if msg else ''}") from None
+    _columns_cache[table] = (_time.monotonic(), cols)
+    return cols
+
+
+def _window(column: str, kind: str) -> str:
+    """`column` on or after @since (a TIMESTAMP), compared in the column's own
+    type - BigQuery will not compare a DATETIME or DATE with a TIMESTAMP."""
+    kind = (kind or "").upper()
+    if kind == "TIMESTAMP":
+        return f"{column} >= @since"
+    if kind == "DATETIME":
+        return f"{column} >= DATETIME(@since)"
+    if kind == "DATE":
+        return f"{column} >= DATE(@since)"
+    return f"SAFE_CAST({column} AS TIMESTAMP) >= @since"
+
+
+def _pick(cols: dict, wanted: tuple, table: str) -> list[str]:
+    have = [c for c in wanted if c in cols]
+    _missing[table] = [c for c in wanted if c not in cols]
+    return have
+
+
+def missing_note() -> str:
+    """What the last reads wanted and the warehouse does not have, for the
+    run's summary ('' when nothing is missing)."""
+    parts = [f"{t.rsplit('.', 1)[-1]} has no {', '.join(c)}" for t, c in _missing.items() if c]
+    return "; ".join(parts)
+
+
+def tasks_sql(cols: dict) -> str:
     # Every open task plus anything touched since @since, so a completion in
-    # Cubby is seen even after the task left the open list. `stamp` is the
-    # column that says when: `updated_at`, or `created_at` on a warehouse
-    # whose tasks table has no `updated_at` (prod, 11/03/2026: BigQuery
-    # answered "Unrecognized name: updated_at; Did you mean created_at?" and
-    # every task came in unassigned) - task_rows falls back by itself.
-    cols = ", ".join(c for c in TASK_COLUMNS if c != "updated_at" or stamp == "updated_at")
-    return (f"SELECT {cols} FROM `{TASKS_TABLE}` "
-            f"WHERE status = 'OPEN' OR {_since(stamp)} "
-            f"ORDER BY {stamp} DESC LIMIT {TASK_MAX_ROWS}")
+    # Cubby is seen even after the task left the open list.
+    if "task_id" not in cols:
+        raise WarehouseError("The warehouse's tasks table has no task_id")
+    have = _pick(cols, TASK_COLUMNS, TASKS_TABLE)
+    stamp = next((c for c in ("updated_at", "created_at") if c in cols), "")
+    where = "status = 'OPEN'" if "status" in cols else "TRUE"
+    if stamp:
+        where += f" OR {_window(stamp, cols[stamp])}"
+    return (f"SELECT {', '.join(have)} FROM `{TASKS_TABLE}` WHERE {where} "
+            f"ORDER BY {stamp or 'task_id'} DESC LIMIT {TASK_MAX_ROWS}")
 
 
-def _since(column: str) -> str:
-    # The warehouse's `created_at` / `updated_at` are DATETIME (no zone; the
-    # Postgres mirror shows them as "timestamp without time zone") and the
-    # parameter is a TIMESTAMP - BigQuery refuses to compare the two ("No
-    # matching signature for operator >="), and prod's tasks query only
-    # reached that check once the missing-column retry landed (11/04/2026:
-    # the assignees were still not read). Casting the column makes the
-    # comparison work whichever of the two types the column really is.
-    return f"CAST({column} AS TIMESTAMP) >= @since"
+def notes_sql(cols: dict) -> str:
+    if "task_id" not in cols or "message" not in cols:
+        raise WarehouseError("The warehouse's manager_notes table has no task_id or message")
+    have = _pick(cols, NOTE_COLUMNS, NOTES_TABLE)
+    where = "task_id IS NOT NULL AND task_id != ''"
+    if "created_at" in cols:
+        where += f" AND {_window('created_at', cols['created_at'])}"
+    order = "created_at" if "created_at" in cols else "task_id"
+    return f"SELECT {', '.join(have)} FROM `{NOTES_TABLE}` WHERE {where} ORDER BY {order} LIMIT {NOTE_MAX_ROWS}"
 
 
-def _missing_updated_at(err: Exception) -> bool:
-    return "unrecognized name: updated_at" in str(err).lower()
+def managers_sql(cols: dict) -> str:
+    name = next((c for c in NAME_COLUMNS if c in cols), "")
+    email = next((c for c in EMAIL_COLUMNS if c in cols), "")
+    if not name or not email:
+        _missing[MANAGERS_TABLE] = [c for c, ok in (("a name column", name), ("an email column", email)) if not ok]
+        raise WarehouseError(f"The warehouse's managers table has no {'name' if not name else 'email'} column "
+                             f"(it has: {', '.join(sorted(cols))[:200]})")
+    _missing[MANAGERS_TABLE] = []
+    return f"SELECT {name} AS manager_name, {email} AS manager_email FROM `{MANAGERS_TABLE}`"
 
 
-def notes_sql() -> str:
-    return (f"SELECT {', '.join(NOTE_COLUMNS)} FROM `{NOTES_TABLE}` "
-            f"WHERE task_id IS NOT NULL AND task_id != '' AND {_since('created_at')} "
-            f"ORDER BY created_at LIMIT {NOTE_MAX_ROWS}")
-
-
-def managers_sql() -> str:
-    return f"SELECT {', '.join(MANAGER_COLUMNS)} FROM `{MANAGERS_TABLE}`"
+def _since_param(since):
+    try:
+        from google.cloud import bigquery
+        return [bigquery.ScalarQueryParameter("since", "TIMESTAMP", since)]
+    except ImportError:
+        return [since]
 
 
 def task_rows(since) -> list[dict]:
     """Cubby tasks from the warehouse: open ones and those updated since
-    `since` (a datetime). Assignee columns come back as lists of names.
-    [] when the warehouse is not configured. Raises WarehouseError."""
+    `since` (a datetime). Assignee columns come back as lists of names; a
+    column the table lacks comes back empty. [] when the warehouse is not
+    configured. Raises WarehouseError."""
     if not configured():
         return []
-    try:
-        from google.cloud import bigquery
-        params = [bigquery.ScalarQueryParameter("since", "TIMESTAMP", since)]
-    except ImportError:
-        params = [since]
-    try:
-        rows = _run(tasks_sql(), params)
-    except WarehouseError as e:
-        if not _missing_updated_at(e):
-            raise
-        rows = _run(tasks_sql("created_at"), params)
     out = []
-    for r in rows:
+    for r in _run(tasks_sql(_columns(TASKS_TABLE)), _since_param(since)):
         row = dict(r)
         row["assigned_managers"] = _names(row.get("assigned_managers"))
         row["assigned_manager_groups"] = _names(row.get("assigned_manager_groups"))
@@ -271,13 +337,8 @@ def note_rows(since) -> list[dict]:
     WarehouseError."""
     if not configured():
         return []
-    try:
-        from google.cloud import bigquery
-        params = [bigquery.ScalarQueryParameter("since", "TIMESTAMP", since)]
-    except ImportError:
-        params = [since]
     out = []
-    for r in _run(notes_sql(), params):
+    for r in _run(notes_sql(_columns(NOTES_TABLE)), _since_param(since)):
         row = dict(r)
         v = row.get("created_at")
         row["created_at"] = v.isoformat() if hasattr(v, "isoformat") else (str(v) if v else "")
@@ -292,4 +353,4 @@ def manager_rows() -> list[dict]:
     """Cubby staff: name and work email. [] when not configured."""
     if not configured():
         return []
-    return [dict(r) for r in _run(managers_sql(), [])]
+    return [dict(r) for r in _run(managers_sql(_columns(MANAGERS_TABLE)), [])]

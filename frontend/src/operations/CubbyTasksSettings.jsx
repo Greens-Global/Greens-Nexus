@@ -92,7 +92,7 @@ export default function CubbyTasksSettings({ toastOk, toastErr }) {
           desc="Off (the default): completing a Cubby task in Nexus changes nothing in Cubby - a manager closes it there too. On: a Cubby task completed or reopened in Nexus is completed or reopened in Cubby within a minute. Needs the Manager-role Cubby key.">
           {s.closeInCubby && !s.writeConfigured && (
             <p className="ops-note" role="status" style={{ margin: 0, color: 'var(--warn-fg)' }}>
-              This server has no Cubby key with the Manager role ({s.writeKeyEnv}), so nothing is sent until an administrator adds it
+              This server has no Cubby key ({s.writeKeyEnv} or CUBBY_API_KEY), so nothing is sent until an administrator adds it
               in the API&apos;s app settings. Completions wait in the queue meanwhile.
             </p>
           )}
@@ -149,6 +149,8 @@ export default function CubbyTasksSettings({ toastOk, toastErr }) {
                   </div>
                 )}
                 {run.warehouse && run.warehouse !== 'ok' && <div>Assignees not read: {run.warehouse}.</div>}
+                {run.notesWarehouse && run.notesWarehouse !== 'ok' && <div>Notes not read: {run.notesWarehouse}.</div>}
+                {run.warehouseGaps && <div>Read without: {run.warehouseGaps}.</div>}
                 {unmapped.length > 0 && (
                   <div>Skipped, no project picked: {unmapped.map(([fid, n]) => `${facName(facById[fid]) || fid} (${n})`).join(', ')}.</div>
                 )}
