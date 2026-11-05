@@ -33,7 +33,11 @@ function shown(ed) {
   return runs.map(([tag, t]) => (tag ? `[${tag}${t}]` : t)).join('');
 }
 const select = (ed, from, to) => ed.view.dispatch(ed.state.tr.setSelection(TextSelection.create(ed.state.doc, from, to)));
-const backspace = (ed) => ed.view.dispatch(ed.state.tr.delete(ed.state.selection.from - 1, ed.state.selection.from));
+// A real key through the view's keymap (commands.keyboardShortcut replays
+// only the steps of what a handler dispatched and drops its selection).
+const press = (ed, key) => ed.view.someProp('handleKeyDown', (f) => f(ed.view, new KeyboardEvent('keydown', { key })));
+const backspace = (ed) => { if (!press(ed, 'Backspace')) ed.view.dispatch(ed.state.tr.delete(ed.state.selection.from - 1, ed.state.selection.from)); };
+const del = (ed) => press(ed, 'Delete');
 
 describe('tracking', () => {
   it('typing is an insertion by the person, and the cursor stays after it', () => {
@@ -56,6 +60,33 @@ describe('tracking', () => {
     expect(ed.state.selection.from).toBe(6);
     backspace(ed);
     expect(shown(ed)).toBe('Net [-30] days.');
+    expect(ed.state.selection.from).toBe(5);
+    // Already-deleted text is stepped over, not deleted twice.
+    select(ed, 7, 7);
+    backspace(ed); backspace(ed);
+    expect(shown(ed)).toBe('Net [-30] days.');
+    expect(ed.state.selection.from).toBe(5);
+    backspace(ed);
+    expect(shown(ed)).toBe('Net[- 30] days.');
+  });
+
+  it('delete strikes the next character and the caret moves past it', () => {
+    const ed = mount('Net 30 days.');
+    select(ed, 5, 5);
+    del(ed); del(ed);
+    expect(shown(ed)).toBe('Net [-30] days.');
+    expect(ed.state.selection.from).toBe(7);
+  });
+
+  it('keystrokes extend one change rather than starting one per character', () => {
+    const ed = mount('Net 30 days.');
+    ed.commands.focus('end');
+    ed.commands.insertContent('a');
+    ed.commands.insertContent('b');
+    const ats = new Set();
+    ed.state.doc.descendants((n) => { n.marks.forEach((m) => { if (m.type.name === 'insertion') ats.add(m.attrs.at); }); });
+    expect(ats.size).toBe(1);
+    expect(listChanges(ed.state.doc)).toHaveLength(1);
   });
 
   it('replacing a selection is a deletion followed by an insertion', () => {

@@ -95,13 +95,54 @@ function resolve(tr, change, accept) {
 
 function stateOf(editorState) { return trackKey.getState(editorState) || {}; }
 
+/** The attrs of a same-kind change by the same author touching `pos`, so
+ *  keystrokes extend one change instead of starting a new one each. */
+function neighborAttrs(doc, pos, typeName, author) {
+  const $pos = doc.resolve(pos);
+  for (const n of [$pos.nodeBefore, $pos.nodeAfter]) {
+    const m = n && n.isText && n.marks.find((x) => x.type.name === typeName && x.attrs.author === author);
+    if (m) return m.attrs;
+  }
+  return null;
+}
+
 function markAll(tr, from, to, markType, attrs, dropType) {
+  const use = neighborAttrs(tr.doc, from, markType.name, attrs.author) || neighborAttrs(tr.doc, to, markType.name, attrs.author) || attrs;
   tr.doc.nodesBetween(from, to, (node, pos) => {
     if (!node.isText) return;
     const a = Math.max(from, pos), b = Math.min(to, pos + node.nodeSize);
     if (dropType) tr.removeMark(a, b, dropType);
-    tr.addMark(a, b, markType.create(attrs));
+    tr.addMark(a, b, markType.create(use));
   });
+}
+
+/** Backspace (dir -1) / Delete (dir 1) with tracking on, the way Word does
+ *  it: a character already deleted is stepped over, your own insertion goes
+ *  for real, anything else is struck through and the caret moves on. Handled
+ *  here so the caret never depends on where the browser left it. */
+function trackedDelete(editor, dir) {
+  const { state } = editor;
+  const { on, user } = stateOf(state);
+  const { $from, empty } = state.selection;
+  if (!on || !empty || !$from.parent.isTextblock) return false;
+  if (dir < 0 ? $from.parentOffset === 0 : $from.parentOffset === $from.parent.content.size) return false;
+  const node = dir < 0 ? $from.nodeBefore : $from.nodeAfter;
+  if (!node || !node.isText) return false;
+  const pos = $from.pos, a = dir < 0 ? pos - 1 : pos, b = a + 1;
+  const author = (user || {}).email || '';
+  const tr = state.tr.setMeta(trackKey, 'tracked');
+  if (node.marks.some((m) => m.type.name === 'deletion')) {
+    tr.setSelection(TextSelection.create(tr.doc, dir < 0 ? a : b));
+  } else if (node.marks.some((m) => m.type.name === 'insertion' && m.attrs.author === author)) {
+    tr.delete(a, b);
+  } else {
+    const deletion = state.schema.marks.deletion;
+    const attrs = neighborAttrs(state.doc, dir < 0 ? b : a, 'deletion', author)
+      || { author, name: (user || {}).name || '', at: new Date().toISOString() };
+    tr.addMark(a, b, deletion.create(attrs)).setSelection(TextSelection.create(tr.doc, dir < 0 ? a : b));
+  }
+  editor.view.dispatch(tr.scrollIntoView());
+  return true;
 }
 
 /** Build the tracked version of a change on top of `newState` (which already
@@ -131,6 +172,8 @@ export function trackTransaction(maps, oldState, newState, user) {
         nodes.push(n.mark([...marks, deletion.create(n.marks.find((m) => m.type.name === 'deletion')?.attrs || attrs)]));
       });
       if (nodes.length) {
+        const share = neighborAttrs(out.doc, c.fromB, 'deletion', attrs.author);
+        if (share) nodes.forEach((n, i) => { if (n.isText) nodes[i] = n.mark(n.marks.map((m) => (m.type.name === 'deletion' && m.attrs.author === attrs.author ? deletion.create(share) : m))); });
         out.insert(c.fromB, nodes);
         touched = true;
         const delLen = nodes.reduce((s, n) => s + n.nodeSize, 0);
@@ -186,6 +229,13 @@ export const TrackChanges = Extension.create({
         if (dispatch) tr.setSelection(TextSelection.create(tr.doc, next.from, next.to)).scrollIntoView();
         return true;
       },
+    };
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      Backspace: () => trackedDelete(this.editor, -1),
+      Delete: () => trackedDelete(this.editor, 1),
     };
   },
 
