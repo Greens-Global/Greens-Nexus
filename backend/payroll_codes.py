@@ -274,3 +274,51 @@ def save_qb_create_time(db: Session, company_id: str, value, by: str) -> str:
     row.updated_by = by
     db.commit()
     return s
+
+
+# ── Leave Customer:Job blank (Charmi, 11/06/2026) ────────────────────────────
+# Neil's Aug 25 rule puts a one-site day's work site in the IIF's JOB column
+# (QuickBooks Customer:Job) and marks it billable. A QuickBooks company file
+# without those customers refuses the rows, so a company can switch it off:
+# JOB blank and not billable, hours and payroll items unchanged. Off (today's
+# behavior) unless HR turns it on. Stored as {company_id: true}.
+QB_BLANK_JOB_KEY = "quickbooks_iif_blank_job"
+
+
+def _blank_jobs(db: Session) -> dict:
+    row = db.query(NexusSetting).filter(NexusSetting.key == QB_BLANK_JOB_KEY).first()
+    try:
+        raw = json.loads(row.value) if row and row.value else {}
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): True for k, v in raw.items() if v is True}
+
+
+def blank_job_reader(db: Session):
+    """Read the setting once; returns company_id -> bool (JOB left blank)."""
+    on = _blank_jobs(db)
+    return lambda company_id: bool(on.get(company_id or ""))
+
+
+def blank_job(db: Session, company_id: str) -> bool:
+    return blank_job_reader(db)(company_id)
+
+
+def save_blank_job(db: Session, company_id: str, value: bool, by: str) -> bool:
+    """Turn one company's Leave Customer:Job Blank on or off. Commits."""
+    company_id = company_id or ""
+    stored = _blank_jobs(db)
+    if value:
+        stored[company_id] = True
+    else:
+        stored.pop(company_id, None)
+    row = db.query(NexusSetting).filter(NexusSetting.key == QB_BLANK_JOB_KEY).first()
+    if not row:
+        row = NexusSetting(key=QB_BLANK_JOB_KEY)
+        db.add(row)
+    row.value = json.dumps(stored, sort_keys=True)
+    row.updated_by = by
+    db.commit()
+    return bool(value)
