@@ -9,7 +9,7 @@
 // an Approvals row lands on RFIs And Submittals. Lazy: its own chunk, and the
 // Schedule tab (the Tasks timeline) a chunk of its own beyond that.
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { ArrowLeft, Pencil, Flag, ClipboardList, CheckSquare, Users, Ticket, Building2, Inbox, ExternalLink } from 'lucide-react';
+import { Pencil, Flag, ClipboardList, CheckSquare, Users, Ticket, Building2, Inbox, ExternalLink } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { StatusLabel } from '../../components/StatusLabel';
@@ -224,9 +224,6 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }} data-job-page={project.id}>
       <div className="view-header" style={{ marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 320px' }}>
-          <button className="secondary-btn" onClick={onBack} style={{ padding: 8 }} title="Back to Construction" aria-label="Back to Construction">
-            <ArrowLeft size={16} />
-          </button>
           <div className="view-title-group" style={{ minWidth: 0 }}>
             <PageTrail title={project.name} />
             <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

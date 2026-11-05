@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ArrowLeft, Briefcase, ExternalLink, File, FileImage, FileSpreadsheet, FileText, Pin } from 'lucide-react';
+import { Briefcase, ExternalLink, File, FileImage, FileSpreadsheet, FileText, Pin } from 'lucide-react';
 import { api } from '../api';
+import { useTrailCrumbs } from '../components/PageTrail';
 import { formatCurrency, formatDate, formatMultiple, formatPercent } from './lib/format';
 import { EmptyState, ErrorState, LoadingState, StatusText, ThinBar, useIrLoad } from './lib/ui';
 
@@ -95,6 +96,8 @@ function DealCard({ deal: d, onOpen }) {
 // documents, and updates - mirrors the GP-side statement modal's layout.
 function PortalDealDetail({ fundId, onBack }) {
   const { data: deal, loading, error, reload } = useIrLoad(() => api.getIrPortalDeal(fundId), [fundId]);
+  // With several deals the page trail names the list above this one (My Deals).
+  useTrailCrumbs(onBack ? [{ label: 'My Deals', onClick: onBack }] : [], onBack);
 
   if (loading) return <LoadingState label="Loading your deal…" />;
   if (error) return <ErrorState message={error} onRetry={reload} />;
@@ -119,12 +122,6 @@ function PortalDealDetail({ fundId, onBack }) {
 
   return (
     <div style={{ maxWidth: 860 }}>
-      {onBack && (
-        <button type="button" onClick={onBack}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: 0, marginBottom: 14, cursor: 'pointer', color: 'var(--muted)', fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
-          <ArrowLeft size={14} /> Back to My Deals
-        </button>
-      )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
