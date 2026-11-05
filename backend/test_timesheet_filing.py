@@ -44,6 +44,14 @@ class FilingRetryTests(ReviewCase):
         self.pushes = []
         self.ok = False
         esign._egnyte_push = self._push
+        # The 11/06 one-time refile is done here; its own test clears the mark.
+        self._mark(True)
+
+    def _mark(self, on):
+        self.db.query(models.NexusSetting).filter(models.NexusSetting.key == tf.REFILE_MARK).delete()
+        if on:
+            self.db.add(models.NexusSetting(key=tf.REFILE_MARK, value="x"))
+        self.db.commit()
 
     def tearDown(self):
         svc.configured = self._cfg
@@ -94,6 +102,29 @@ class FilingRetryTests(ReviewCase):
             models.NexusNotification.ref_id == f"ts_filing:{rid}").all()
         self.assertEqual(bell.title, "Time Sheet Not Filed in Egnyte")
         self.assertIn("file it by hand", bell.body)
+
+    def test_one_time_refile_files_a_given_up_time_sheet(self):
+        """Charmi, 11/06/2026: eight signed Time Sheets ran out of retries
+        before the 11/04 folder fix. Once, they are filed again; a filed one
+        is left alone; the mark stops a second run; no Egnyte = it waits."""
+        rid = self._signed()
+        for minutes in (6, 40, 130, 400):
+            tf.process_due(_later(minutes), self.db)
+        self.assertEqual(self._events(rid)[-1][0], tf.GAVE_UP)
+        self._mark(False)
+        svc.configured = lambda: False
+        self.assertIsNone(tf.refile_once(self.db))           # waits for Egnyte, mark not taken
+        svc.configured = lambda: True
+        self.ok = True
+        n = len(self.pushes)
+        tf.process_due(_later(500), self.db)
+        self.assertEqual(len(self.pushes), n + 1)
+        self.assertEqual(self._events(rid)[-1][0], "archived")
+        self.assertTrue(self._events(rid)[-1][1].startswith("Refile: filed in Egnyte"))
+        self.assertIsNone(tf.refile_once(self.db))           # once only
+        self._mark(False)
+        self.assertEqual(tf.refile_once(self.db), {"filed": 0, "failed": 0})   # filed ones are skipped
+        self.assertEqual(len(self.pushes), n + 1)
 
     def test_nothing_while_egnyte_is_not_connected(self):
         rid = self._signed()
