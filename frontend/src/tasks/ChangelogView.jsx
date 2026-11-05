@@ -43,7 +43,7 @@ import { MODULES } from '../contexts/RoleContext';
 import { placeOf, placeOptions, placeKeyFor, inPlace, placeLabel, allPlaceLabels } from '../lib/changelogPlaces';
 import {
   RichText, VideoEmbed, ActionRequired, CopyLinkButton, CommentThread, FeedbackRow, RelatedUpdates, RELATION_LABELS,
-  HistoryList, FollowDialog, FollowButton, AudiencePicker, InsightsPanel, FeedbackList, ExportButtons, exportCsv, buildPrintReport, nextVersions, plural,
+  HistoryList, FollowDialog, FollowButton, AudiencePicker, InsightsPanel, FeedbackList, WhatsNewExport, nextVersions, plural,
 } from './changelogExtras';
 import {
   MyRequestsDialog, IssueChip, IssueBanner, IssueDialog, issueOf, DeprecationChip, DeprecationNotice, StageChip, stageOf,
@@ -1696,7 +1696,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
               <Server size={15} />{checkingProd ? 'Checking…' : 'Check Production'}
             </button>
           )}
-          {!isMobile && <ExportButtons onCsv={() => exportCsv(entries, analytics, insights, statusOf)} onPrint={() => buildPrintReport(entries, analytics, insights, statusOf)} />}
+          {!isMobile && <WhatsNewExport entries={entries} analytics={analytics} insights={insights} statusOf={statusOf} />}
         </div>
       </div>
       <p style={{ margin: '0 0 20px', fontSize: 13, lineHeight: 1.55, color: NX.dim }}>
