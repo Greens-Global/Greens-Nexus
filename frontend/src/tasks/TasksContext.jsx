@@ -114,6 +114,8 @@ async function reloadTicketsInto(setTickets) {
   if (Array.isArray(rows)) setTickets(rows);
 }
 
+let pingChannelSeq = 0;
+
 export function TasksProvider({ children }) {
   const { myEmail } = useRole();
   const nameOf = useNameResolver();
@@ -269,7 +271,10 @@ export function TasksProvider({ children }) {
     const stopPoll = pollWhileVisible(() => { refetchTasks().catch(() => {}); }, 45000);
     let channel = null;
     if (supabase) {
-      channel = supabase.channel('task_event_pings')
+      // One topic per provider: Realtime returns the already-subscribed channel
+      // for a reused topic and `.on()` on it throws - the Tasks view's provider
+      // plus the header's New Task crashed the header (hotfix 11/05/2026).
+      channel = supabase.channel(`task_event_pings:${++pingChannelSeq}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_events' }, debounced)
         .subscribe();
     }
