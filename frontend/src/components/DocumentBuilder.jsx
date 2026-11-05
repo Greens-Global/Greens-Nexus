@@ -32,6 +32,7 @@ import { useRole } from '../contexts/RoleContext';
 import { canDictate, useDictation, spokenAfter } from '../lib/voice';
 import { DictationLive, showDictationLive } from '../lib/docDictationLive';
 import { listChanges } from '../lib/docTrackChanges';
+import { dialog } from '../ui/dialog';
 import FullScreenButton, { useFullScreen } from './FullScreenButton';
 import { api, API_BASE } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
@@ -869,7 +870,6 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // that says so (the pane's own Delete holds on the row).
   const deleteActiveComment = async () => {
     if (!activeComment) return;
-    const { dialog } = await import('../ui/dialog');
     dialog.confirm('Delete this comment thread and its replies?', {
       hold: true, confirmText: 'Delete', doneText: 'Deleted',
       onConfirm: async () => { await commentStore.remove(activeComment); setActiveComment(''); },
@@ -1828,7 +1828,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // candidate. Documents already out for signature never change.
   const publishTemplate = async () => {
     if (publishing) return;
-    if (!window.confirm(`Publish "${title}"? New documents and HR packets that have not been sent yet use this wording. Documents already made or out for signature do not change.`)) return;
+    if (!(await dialog.confirm(`Publish "${title}"? New documents and HR packets that have not been sent yet use this wording. Documents already made or out for signature do not change.`, { confirmText: 'Publish' }))) return;
     setPublishing(true);
     try {
       await flushPendingSave();
@@ -1861,8 +1861,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // uses - no new backend send path, no change to esign.py's compliance logic.
   // The PDF comes from /signing-pdf (Oct 14): rendered once with its signature
   // blocks measured, so each signer's fields arrive already placed.
-  const doSendForSignature = () => {
-    if (doc?.signRequestId && !window.confirm('This document was already sent for signature. Start a new envelope anyway?')) return;
+  const doSendForSignature = async () => {
+    if (doc?.signRequestId && !(await dialog.confirm('This document was already sent for signature. Start a new envelope anyway?', { confirmText: 'Start New Envelope' }))) return;
     setExporting('send');
     flushPendingSave().then(() => api.documentSigningPdf(docId)).then((out) => {
       window.__esignPrefill = { title, source: 'pdf', sourceDocumentId: docId, parties: [], signing: out };
@@ -1876,8 +1876,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // export time, never baked into literal text) into a brand-new DocTemplate
   // via the same create endpoint the Templates library itself uses.
   const [savingTemplate, setSavingTemplate] = useState(false);
-  const saveAsTemplate = () => {
-    const name = (window.prompt('Template name', title || 'Untitled Template') || '').trim();
+  const saveAsTemplate = async () => {
+    const name = ((await dialog.prompt('Template name', { defaultValue: title || 'Untitled Template' })) || '').trim();
     if (!name) return;
     setSavingTemplate(true);
     api.createDocTemplate({ name, category: 'general', requiresLetterhead, letterheadId, content: currentContent() })
@@ -2166,7 +2166,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const doImportFile = async (file) => {
     if (!file) return;
     const isEmpty = pages.length <= 1 && (activeEditor?.isEmpty ?? true);
-    if (!isEmpty && !window.confirm('This will replace the current document content. Continue?')) return;
+    if (!isEmpty && !(await dialog.confirm('This will replace the current document content. Continue?', { confirmText: 'Replace' }))) return;
     setImporting(true);
     try {
       const { html, json: directJson, pageSetup: importedPageSetup, header: importedHeader, footer: importedFooter, warnings } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
@@ -2560,7 +2560,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             </span>
             <button className="secondary-btn" disabled={unlocking}
               onClick={async () => {
-                if (!window.confirm('Unlock this document for editing? The change is recorded in its history.')) return;
+                if (!(await dialog.confirm('Unlock this document for editing? The change is recorded in its history.', { confirmText: 'Unlock' }))) return;
                 setUnlocking(true);
                 try {
                   const updated = await api.unlockDocument(docId);
