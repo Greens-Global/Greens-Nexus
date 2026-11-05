@@ -1834,6 +1834,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const offKinds = [['Sick', T?.sickMin], ['Vacation', T?.vacationMin], ['Personal', T?.personalMin]].filter(([, m]) => m > 0).map(([l]) => l);
   const figures = T ? [
     { label: 'Worked', value: hhmm((T.regMin || 0) + (T.otMin || 0) + (T.dtMin || 0)) },
+    { label: 'Regular', value: hhmm(T.regMin || 0) },
     { label: 'Overtime', value: (T.otMin || T.dtMin) ? otText(T.otMin, T.dtMin) : '0:00', warn: !!(T.otMin || T.dtMin) },
     { label: 'Time Off', value: hhmm(offMin), small: offKinds.join(', ') },
     ...(showPay ? [{ label: 'Gross Pay', value: fmtM(T.totalPay) }] : []),
