@@ -3,7 +3,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import TeamShiftGrid from './TeamShiftGrid';
 
 // The live team strip (Homebase lifts, Neil 11/02/2026): on this week's
-// Group Shifts the header carries four soft chips - In, On Break, Late, Not In -
+// group grid the header carries four soft chips - In, On Break, Late, Not In -
 // counted over the rows shown, in StatusLabel tones (never a solid fill).
 // Clicking a chip keeps only those people in the grid; clicking it again
 // clears. Late comes from the server (`late`), never worked out here.
