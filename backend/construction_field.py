@@ -572,7 +572,8 @@ async def field_loop():
             def _pass():
                 db = SessionLocal()
                 try:
-                    return reminder_tick(db) + inspection_tick(db)
+                    from vendor_compliance import expiry_tick
+                    return reminder_tick(db) + inspection_tick(db) + expiry_tick(db)
                 finally:
                     db.close()
             n = await asyncio.to_thread(_pass)
