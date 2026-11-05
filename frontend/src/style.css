@@ -9178,7 +9178,8 @@ body:has(.apv-phone) { overflow-x: clip; }
 /* Tasks and Tickets have no title row: the trail rides their tab bar, left
    of the tabs, with a hairline between (phones keep the bar for the tabs). */
 .page-trail--bar { flex-shrink: 0; margin: 0; padding-right: 12px; border-right: 1px solid var(--wk-line); }
-@media (max-width: 640px) { .page-trail--bar { display: none; } }
+/* A phone hides the bar's module-only trail (the tab strip says enough) but keeps a deep one: "< Portfolios". */
+@media (max-width: 640px) { .page-trail--bar:not(.page-trail--deep) { display: none; } .page-trail--bar.page-trail--deep { border-right: 0; } }
 /* The bar keeps the module's name for screen readers and Build Mode only. */
 .breadcrumb-current.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 

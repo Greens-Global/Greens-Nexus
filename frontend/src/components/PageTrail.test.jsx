@@ -54,6 +54,24 @@ describe('PageTrail', () => {
     expect(document.querySelector('.page-trail--standalone')).toBeTruthy();
   });
 
+  it('a page held in the module state names its parent and the module part takes it home', () => {
+    const home = vi.fn();
+    const up = vi.fn();
+    const nav = vi.fn();
+    function Detail() {
+      useTrailCrumbs([{ label: 'Portfolios', onClick: up }], home);
+      return <div><PageTrail title="West Coast" /><h2>West Coast</h2></div>;
+    }
+    shell(<Detail />, nav);
+    expect(parts()).toEqual(['Asset Management', 'Portfolios']);
+    expect(document.querySelector('.page-trail--deep')).toBeTruthy();   // a phone shows "< Portfolios"
+    fireEvent.click(screen.getByRole('button', { name: 'Portfolios' }));
+    expect(up).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Asset Management' }));
+    expect(home).toHaveBeenCalled();
+    expect(nav).toHaveBeenCalledWith('property-asset');
+  });
+
   it('finds a tab label inside a dropdown', () => {
     expect(tabLabelOf([{ key: 'a', label: 'Overview' }, { key: 'g', label: 'Revenue', items: [{ key: 'r1', label: 'Rent Roll' }] }], 'r1')).toBe('Rent Roll');
   });

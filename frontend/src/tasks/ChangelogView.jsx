@@ -25,7 +25,7 @@ import {
   ImageIcon, Search, ChevronRight, ChevronDown, GitBranch, Layers, CalendarDays,
   Link2, Maximize2, Minimize2, Pencil, Send, Bug, Flame, ShieldAlert, TrendingUp,
   Wrench, ArrowUpCircle, Upload, Eye, GitPullRequest, Trash2, AlertTriangle,
-  ArrowLeft, RefreshCw, MessageSquare, Pin, Copy, Lightbulb, Server,
+  RefreshCw, MessageSquare, Pin, Copy, Lightbulb, Server,
   SlidersHorizontal, MoreHorizontal, ChevronLeft, Bell, BellRing,
 } from 'lucide-react';
 import { api } from '../api';
@@ -50,6 +50,7 @@ import {
   AttentionStrip, MediaEditor, AttachmentList, TourEditor, TakeTourButton, uploadWhatsNewFile, readAsDataUrl as readFileAsDataUrl,
 } from './changelogLifecycle';
 import KnownIssuesBanner from '../support/KnownIssues';
+import PageTrail, { useTrailCrumbs } from '../components/PageTrail';
 
 // ── Change-type / environment / status metadata (ported from changelogMeta.ts) ──
 const CHANGE_TYPE_META = {
@@ -208,6 +209,8 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
   // Manage is a button, not a tab (Pranshu, Oct 16 2026): it swaps the page
   // body for the admin screen, and Back returns to the tab you were on.
   const [managing, setManaging] = useState(false);
+  // Manage sits under What's New in the page trail; its module part leaves Manage.
+  useTrailCrumbs([], () => setManaging(false));
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null); // entry being edited
   const [toast, setToast] = useState(null);   // { text, error }
@@ -369,6 +372,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
       <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 10 : 12, padding: isMobile ? '10px 12px' : '14px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
         <Sparkles size={isMobile ? 18 : 20} style={{ color: NX.blue, flexShrink: 0 }} />
         <div style={{ minWidth: 0 }}>
+          {!managing && <PageTrail title="What's New" />}
           <div style={{ fontSize: isMobile ? 17 : 20, fontWeight: 700 }}>What&apos;s New</div>
           {!isMobile && <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>}
         </div>
@@ -393,14 +397,8 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
         </div>
       </div>
 
-      {/* Tab strip - or, in Manage, the way back */}
-      {managing ? (
-        <div style={{ display: 'flex', alignItems: 'center', borderBottom: `1px solid ${NX.border}`, background: NX.surface, padding: isMobile ? '6px 8px' : '6px 12px' }}>
-          <button onClick={() => setManaging(false)} style={{ ...btn('ghost'), color: NX.dim, ...(isMobile ? { minHeight: 40 } : null) }}>
-            <ArrowLeft size={15} />Back to What&apos;s New
-          </button>
-        </div>
-      ) : (
+      {/* Tab strip - Manage has none: the page trail above its heading goes back. */}
+      {managing ? null : (
         // Phones (Oct 28 2026): Feature Request and Follow sit at the end of
         // the tab strip as icons - their own row above the content pushed
         // every update a row further down the screen.
@@ -1681,7 +1679,10 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onGenerate, 
     <div style={{ padding: isMobile ? '14px 12px' : '20px 16px' }}>
       {/* Phones: the title, then the two actions sharing a full-width row. */}
       <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 10 : 8, marginBottom: isMobile ? 10 : 4 }}>
-        <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700, color: NX.ink }}>Manage</h1>
+        <div style={{ minWidth: 0 }}>
+          <PageTrail title="Manage" />
+          <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700, color: NX.ink }}>Manage</h1>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, ...(isMobile ? { width: '100%' } : null) }}>
           {onGenerate && (
             <button style={{ ...btn('outline'), opacity: generating ? 0.6 : 1, ...(isMobile ? { flex: 1, justifyContent: 'center', minHeight: 40 } : null) }} disabled={generating} onClick={generate}>
