@@ -5,18 +5,24 @@ page_type: policy
 tags: access, gate, hours, greens-policy
 ---
 
+> [!NOTE]
+> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
+
 ## Office and Gate Hours
 
 | Site | Office hours | Gate hours | Time zone |
 |---|---|---|---|
-| Escondido | [Greens to fill] | [Greens to fill] | Pacific (From Greens' Cubby, 11/2026) |
-| Fairfield | [Greens to fill] | [Greens to fill] | Pacific (From Greens' Cubby, 11/2026) |
-| Murrieta | [Greens to fill] | [Greens to fill] | Pacific (From Greens' Cubby, 11/2026) |
-| Temecula | [Greens to fill] | [Greens to fill] | Pacific (From Greens' Cubby, 11/2026) |
-| Valley Center | [Greens to fill] | [Greens to fill] | Pacific (From Greens' Cubby, 11/2026) |
+| Escondido | Monday to Saturday 8:30 AM to 5:30 PM, closed Sunday (From greensstorage.com, 11/2026) | Every day 6:00 AM to 10:00 PM (From greensstorage.com, 11/2026) | Pacific (From Greens' Cubby, 11/2026) |
+| Fairfield | Monday to Saturday 8:30 AM to 5:30 PM, closed Sunday (From greensstorage.com, 11/2026) | Every day 6:00 AM to 10:00 PM (From greensstorage.com, 11/2026) | Pacific (From Greens' Cubby, 11/2026) |
+| Murrieta | Monday to Friday 8:30 AM to 5:30 PM, Saturday 8:30 AM to 4:00 PM, closed Sunday (From greensstorage.com, 11/2026) | Every day 6:00 AM to 10:00 PM (From greensstorage.com, 11/2026) | Pacific (From Greens' Cubby, 11/2026) |
+| Temecula | Monday to Saturday 8:30 AM to 5:30 PM, closed Sunday (From greensstorage.com, 11/2026) | Every day 6:00 AM to 10:00 PM (From greensstorage.com, 11/2026) | Pacific (From Greens' Cubby, 11/2026) |
+| Valley Center | Monday to Saturday 8:30 AM to 5:30 PM, closed Sunday (From greensstorage.com, 11/2026) | Every day 6:00 AM to 10:00 PM (From greensstorage.com, 11/2026) | Pacific (From Greens' Cubby, 11/2026) |
 | Texas sites | Set when the Texas sites join Cubby. Until then, ask your Area Manager. | Set when the Texas sites join Cubby. Until then, ask your Area Manager. | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 
-Gate hours are usually longer than office hours. Tell a new tenant both before they sign.
+Gate hours are longer than office hours. Tell a new tenant both before they sign. Greens' Rules and Regulations say a tenant still on site after gate hours is trespassing, a vehicle left after closing is locked in until the next business day, and access outside gate hours needs written permission (24-hour access upon approval) (From greensstorage.com, 11/2026).
+
+> [!NOTE]
+> **Pending:** confirm each site's gate hours. Owner: Operations Manager. The Fairfield, Murrieta and Temecula pages on greensstorage.com also show 6:00 AM to 7:00 PM in their features list, and the Escondido page lists "24 Hour Access" as an amenity (seen 11/2026). Confirm the real hours at each gate keypad and correct the website and this table to match.
 
 ## Gate Codes
 

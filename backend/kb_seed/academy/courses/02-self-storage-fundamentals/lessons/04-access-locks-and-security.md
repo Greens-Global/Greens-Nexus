@@ -3,6 +3,9 @@ title: Access, Locks and Security
 summary: Gate codes and keypads, gate hours versus office hours, disc, cylinder and padlocks, overlocks, smart entry, cameras and access logs, and the legal heart of self-storage, the tenant's exclusive control of the unit.
 ---
 
+> [!NOTE]
+> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
+
 ## What You'll Be Able to Do
 
 - Explain why the tenant, not Greens, holds the only key, and what "no bailment" means.

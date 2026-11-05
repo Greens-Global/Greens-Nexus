@@ -3,6 +3,9 @@ title: Collections With Respect
 summary: How Greens talks to tenants who are behind - the conduct rules every collections contact follows, why California's Rosenthal Act and Texas Finance Code chapter 392 likely apply, the calls on Greens' ladder with sample words, the wrong person answering, voicemail, and what to do when a tenant cannot pay.
 ---
 
+> [!NOTE]
+> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
+
 ## What You'll Be Able to Do
 
 - Explain why Greens trains debt-collection conduct rules for every collections contact, in California and Texas.

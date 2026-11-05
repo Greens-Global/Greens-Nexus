@@ -38,7 +38,8 @@ The balance moving across is why a transfer is safer than closing one lease and 
 4. For a parking space, check the fit again: vehicle length plus a margin, and height for covered or enclosed spaces.
 5. Tell the tenant the new rate and that their bill on the 1st will change.
 
-Screenshot: [Greens to add] (the site map with the new unit selected)
+> [!NOTE]
+> **Pending:** screenshot of the site map with the new unit selected from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Run the Transfer
 
@@ -50,7 +51,8 @@ Screenshot: [Greens to add] (the site map with the new unit selected)
 6. Confirm the transfer.
 7. Open the new lease and check that the balance moved across and the paid-through date is right.
 
-Screenshot: [Greens to add] (the transfer screen with the charges)
+> [!NOTE]
+> **Pending:** screenshot of the transfer screen with the charges from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: After the Transfer
 

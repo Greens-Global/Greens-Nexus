@@ -67,7 +67,7 @@ Greens' plan comes in two levels (From Greens' Cubby, 11/2026):
 | $2,500 | $9.00 or $14.00 |
 | $5,000 | $20.00 or $25.00 |
 
-Two prices are in use for each level. Which price applies to which customer is on the Greens Tenant Protection page once the owners fill it in. Until then, quote what Cubby shows on the lease, and ask your manager if you are unsure.
+Two prices are in use for each level. The higher one, $14.00 or $25.00, is today's price for a new customer (From greensstorage.com, 11/2026); the $9.00 and $20.00 prices sit on older leases brought over from the previous system (From Greens' Cubby, 11/2026). For an existing tenant, quote what Cubby shows on the lease, and ask your manager if you are unsure.
 
 ### Who Uses What at Greens
 

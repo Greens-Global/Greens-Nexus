@@ -5,6 +5,9 @@ page_type: how_to
 tags: cubby, cubby-how-to, gate, access
 ---
 
+> [!NOTE]
+> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
+
 ## What You'll Be Able to Do
 
 - Find a tenant's gate access code on the lease and see whether it is enabled.
@@ -47,7 +50,8 @@ Codes change often: Cubby recorded 411 code changes across Greens in 30 days (Fr
 7. At Fairfield, ask the tenant to try it and check the access log. At the other sites, test it at the keypad or as your manager shows you.
 8. Add a note: "Code changed at tenant's request, 11/12/2026."
 
-Screenshot: [Greens to add] (the access code on a lease)
+> [!NOTE]
+> **Pending:** screenshot of the access code on a lease from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: After a Late Tenant Pays
 
@@ -75,7 +79,8 @@ Fairfield's gate (its device is named "Entrance") reports every attempt to Cubby
 
 In 90 days to 11/2026 Fairfield's gate logged 816 allowed entries, 56 master code entries, 138 unknown codes and 10 outside-of-hours refusals (From Greens' Cubby, 11/2026).
 
-Screenshot: [Greens to add] (Fairfield's access log)
+> [!NOTE]
+> **Pending:** screenshot of Fairfield's access log from Greens' Cubby. Owner: Operations Manager.
 
 ## Example
 

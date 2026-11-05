@@ -51,9 +51,11 @@ Most tasks at Greens are made by Cubby's workflows. The number in the title is t
 5. Do the work: make the call, send the payment link, check the document.
 6. Complete the task (the button name in Greens' Cubby is on the screenshot), with a note: what you did and what happens next.
 
-Screenshot: [Greens to add] (the task list, today and overdue)
+> [!NOTE]
+> **Pending:** screenshot of the task list, today and overdue from Greens' Cubby. Owner: Operations Manager.
 
-Screenshot: [Greens to add] (completing a task with a note)
+> [!NOTE]
+> **Pending:** screenshot of completing a task with a note from Greens' Cubby. Owner: Operations Manager.
 
 ## Completed or Archived?
 

@@ -60,7 +60,10 @@ What this means when you sell:
 
 ## Storage Units
 
-All 34 enclosed units are 8 ft wide and drive-up: 8x10 3, 8x12 3, 8x16 8, 8x20 12, 8x30 1, 8x40 6, 8x45 1 (From Greens' Cubby, 11/2026). Door width and height and whether vehicles may go inside: [Greens to fill]
+All 34 enclosed units are 8 ft wide and drive-up: 8x10 3, 8x12 3, 8x16 8, 8x20 12, 8x30 1, 8x40 6, 8x45 1 (From Greens' Cubby, 11/2026).
+
+> [!NOTE]
+> **Pending:** Temecula's enclosed unit door width and height, and whether vehicles may go inside. Owner: Operations Manager. Measure the doors and ask the site manager.
 
 ## Fees Seen Only at Temecula
 
@@ -70,29 +73,41 @@ A "Collection Fee - Unauthorized Use of Space" of $83.00 appears once in Temecul
 
 | Place | Clear height |
 |---|---|
-| Covered rows (lowest beam, measured) | [Greens to fill] |
-| Enclosed unit doors (measured) | [Greens to fill] |
-| Entry gate or overhead obstructions | [Greens to fill] |
+| Covered rows (lowest beam, measured) | Pending (see the note below) |
+| Enclosed unit doors (measured) | Pending (see the note below) |
+| Entry gate or overhead obstructions | Pending (see the note below) |
+
+> [!NOTE]
+> **Pending:** measured clear heights at Temecula, the covered rows first. Owner: Operations Manager. greensstorage.com says Temecula offers covered RV spots but gives no height (11/2026); measure the lowest beam and post it here and on the covered rows.
 
 ## Amenities
 
 | Amenity | Temecula |
 |---|---|
-| Dump station | [Greens to fill] |
-| Wash bay | [Greens to fill] |
-| Power at spaces | [Greens to fill] |
-| Air for tires | [Greens to fill] |
-| Propane fill | [Greens to fill] |
+| Dump station | Not listed on greensstorage.com (Pending, see the note below) |
+| Wash bay | None. Tenants may not wash on site; an approved mobile detailer may (From greensstorage.com, 11/2026) |
+| Power at spaces | Not listed on greensstorage.com (Pending, see the note below) |
+| Air for tires | Not listed on greensstorage.com (Pending, see the note below) |
+| Propane fill | Not listed on greensstorage.com (Pending, see the note below) |
+
+> [!NOTE]
+> **Pending:** whether Temecula has a dump station, power at spaces, air and propane. Owner: Operations Manager. greensstorage.com lists none of them for this site and says they vary by location; ask the site manager.
 
 ## Gate and Access Notes
 
 - Gate hours and office hours: see Greens Site Hours and Access.
-- Gate width, stacking room and turning room for long rigs: [Greens to fill]
-- Which rows are gravel, paved, covered and pull-through: [Greens to fill]
+- Address: 47355 Rainbow Canyon Road, Temecula, CA 92592; rentals (951) 693-2343 (From greensstorage.com, 11/2026).
+- Each space's surface, cover and pull-through tag is in Cubby on the unit (From Greens' Cubby, 11/2026).
+
+> [!NOTE]
+> **Pending:** gate width, stacking and turning room for long rigs, and a row map (gravel, paved, covered, pull-through) at Temecula. Owner: Operations Manager. Measure and walk the lot with the site manager.
 
 ## Local Parking Rules
 
-City of Temecula rules on parking RVs and boats at home: [Greens to fill]. Many owners here also live under an HOA. Never quote city code or HOA rules to a customer; tell them to check.
+Many owners here also live under an HOA. Never quote city code or HOA rules to a customer; tell them to check.
+
+> [!NOTE]
+> **Pending:** a staff summary of City of Temecula rules on parking RVs and boats at home. Owner: Operations Manager. Optional; read it from the Temecula Municipal Code.
 
 ## Key Points
 

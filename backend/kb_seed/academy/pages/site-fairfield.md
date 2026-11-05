@@ -48,32 +48,47 @@ All four are tagged drive-up (From Greens' Cubby, 11/2026). A caller who needs a
 
 ## Clear Heights
 
-The lot is open, so height limits only matter where something overhead crosses the path. Entry gate or overhead obstructions: [Greens to fill]
+The lot is open, so height limits only matter where something overhead crosses the path. Entry gate or overhead obstructions: Pending (see the note below).
+
+> [!NOTE]
+> **Pending:** anything overhead on the path at Fairfield, with its measured clearance. Owner: Operations Manager. Walk the path from the gate with a tape.
 
 ## Amenities
 
 | Amenity | Fairfield |
 |---|---|
-| Dump station | [Greens to fill] |
-| Wash bay | [Greens to fill] |
-| Power at spaces | [Greens to fill] |
-| Air for tires | [Greens to fill] |
-| Propane fill | [Greens to fill] |
+| Dump station | Not listed on greensstorage.com (Pending, see the note below) |
+| Wash bay | None. Tenants may not wash on site; an approved mobile detailer may (From greensstorage.com, 11/2026) |
+| Power at spaces | Not listed on greensstorage.com (Pending, see the note below) |
+| Air for tires | Not listed on greensstorage.com (Pending, see the note below) |
+| Propane fill | Not listed on greensstorage.com (Pending, see the note below) |
+
+> [!NOTE]
+> **Pending:** whether Fairfield has a dump station, power at spaces, air and propane. Owner: Operations Manager. greensstorage.com lists none of them for this site and says they vary by location; ask the site manager.
 
 ## Gate and Access Notes
 
 - Fairfield's gate is the only Greens gate that reports to Cubby today: Cubby shows allowed entries, master code use, unknown codes and "outside of hours" refusals there (From Greens' Cubby, 11/2026).
 - Gate hours and office hours: see Greens Site Hours and Access.
-- Gate width, stacking room and turning room for long rigs: [Greens to fill]
-- Row numbering and lane directions: [Greens to fill]
+- Address: 5044 Peabody Road, Fairfield, CA 94533; rentals (707) 378-6500 (From greensstorage.com, 11/2026).
+- Every Fairfield parking space is tagged "Security camera" in Cubby (From Greens' Cubby, 11/2026).
+
+> [!NOTE]
+> **Pending:** gate width, stacking and turning room for long rigs, row numbering and lane directions at Fairfield. Owner: Operations Manager. Measure and walk the lot with the site manager.
 
 ## Weather Notes
 
-Gravel lots puddle after rain, and strong winds across the lot loosen covers and tarps. Site notes on wind, drainage and freezing nights: [Greens to fill]
+Gravel lots puddle after rain, and strong winds across the lot loosen covers and tarps.
+
+> [!NOTE]
+> **Pending:** Fairfield site notes on wind, drainage and freezing nights. Owner: Operations Manager. Ask the site manager what tenants should be told.
 
 ## Local Parking Rules
 
-City of Fairfield rules on parking RVs and trailers at home: [Greens to fill]. Never quote city code to a customer; tell them to check with the city and their HOA.
+Never quote city code to a customer; tell them to check with the city and their HOA.
+
+> [!NOTE]
+> **Pending:** a staff summary of City of Fairfield rules on parking RVs and trailers at home. Owner: Operations Manager. Optional; read it from the Fairfield Municipal Code.
 
 ## Key Points
 

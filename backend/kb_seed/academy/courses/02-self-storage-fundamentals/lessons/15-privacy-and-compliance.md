@@ -3,6 +3,9 @@ title: Privacy and Compliance
 summary: Who may be told what about a tenant, how to handle police requests, search warrants and subpoenas, deceased tenants and bankruptcy, the ADA basics for storage sites, and fair treatment for every customer.
 ---
 
+> [!NOTE]
+> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
+
 ## What You'll Be Able to Do
 
 - Protect tenant information and confirm identity before discussing any account.

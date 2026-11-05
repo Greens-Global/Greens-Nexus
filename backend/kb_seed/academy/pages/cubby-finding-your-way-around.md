@@ -27,7 +27,8 @@ tags: cubby, cubby-how-to, navigation
 3. If you work at more than one site, check which site you are looking at before you do anything. Cubby can show one site or several.
 4. On a phone, use Cubby's app with the same account. It can also send push notifications.
 
-Screenshot: [Greens to add] (the Cubby sign-in screen and the site picker)
+> [!NOTE]
+> **Pending:** screenshot of the Cubby sign-in screen and the site picker from Greens' Cubby. Owner: Operations Manager.
 
 ## The Home Page
 
@@ -43,7 +44,8 @@ The Home page is your starting point every shift. It shows counts of things that
 > [!NOTE]
 > Paperwork is a known gap at Greens. Most leases brought over from the old system show their documents as incomplete: 1,850 of 2,042 active leases at the last count, with 28 missing a signature (From Greens' Cubby, 11/2026). Every new move-in should leave nothing incomplete.
 
-Screenshot: [Greens to add] (the Home page with its counts)
+> [!NOTE]
+> **Pending:** screenshot of the Home page with its counts from Greens' Cubby. Owner: Operations Manager.
 
 ## The Site Map
 
@@ -55,7 +57,8 @@ Cubby's site map is a visual layout of the site. Each unit or parking space is d
 
 A unit's state is made of separate flags. A unit can be **leased** or not, and **rentable** or not. A **vacant** unit is one that is not leased **and** is rentable. A unit can be not leased and still not rentable, for one of Cubby's reasons: repairs required, cleaning required, under renovation, used by the facility, or other.
 
-Screenshot: [Greens to add] (the site map at your site)
+> [!NOTE]
+> **Pending:** screenshot of the site map at your site from Greens' Cubby. Owner: Operations Manager.
 
 ## The Lease Page
 
@@ -76,7 +79,8 @@ Almost everything about a rental lives on its lease. Learn where each part is.
 | **Activity** | Every change to the lease, who made it and when |
 | **Notes** | Notes from staff, newest first |
 
-Screenshot: [Greens to add] (a lease page, with the ledger, paid-through date and gate code visible)
+> [!NOTE]
+> **Pending:** screenshot of a lease page, with the ledger, paid-through date and gate code visible from Greens' Cubby. Owner: Operations Manager.
 
 ### Document Statuses
 
@@ -95,7 +99,8 @@ Each required document on a lease carries a status. These are Cubby's words:
 
 Cubby has a universal search. Type a name, a phone number, an email or a unit number to jump to a contact, a lease or a unit. Before you change anything, confirm you have the right person and the right lease: one contact can have several leases, at more than one site.
 
-Screenshot: [Greens to add] (search results for a unit number)
+> [!NOTE]
+> **Pending:** screenshot of search results for a unit number from Greens' Cubby. Owner: Operations Manager.
 
 ## The Task List
 
@@ -109,7 +114,8 @@ Cubby keeps **one shared task list** for the site, on the computer and the phone
 
 Most collection tasks at Greens are made by workflows, with the day of the delinquency count in the title, such as "2nd - Call Failed Autopay Tenants" and "6th - Call Past Due Tenants" (From Greens' Cubby, 11/2026). Staff also make their own tasks, such as a reminder to move a tenant out on a date. How to work a task is on Cubby How-To: Complete a Task.
 
-Screenshot: [Greens to add] (the task list filtered to today)
+> [!NOTE]
+> **Pending:** screenshot of the task list filtered to today from Greens' Cubby. Owner: Operations Manager.
 
 ## Walkthroughs
 

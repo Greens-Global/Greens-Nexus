@@ -30,7 +30,8 @@ tags: cubby, cubby-how-to, reports, open-close
 7. **Walk the site** with the walkthrough on your phone: lock check, vacant units, the vehicle lot. Compare what you see with Cubby: a vacant unit with a lock on it, or a leased unit standing open, is something to fix today.
 8. **Count the cash drawer** start amount.
 
-Screenshot: [Greens to add] (the Home page at opening)
+> [!NOTE]
+> **Pending:** screenshot of the Home page at opening from Greens' Cubby. Owner: Operations Manager.
 
 ## The Closing Routine
 
@@ -87,9 +88,11 @@ Card payments are not in Greens' bank the minute they are taken. The card proces
 4. Run it. Read it on screen or export it as your manager prefers.
 5. To get it regularly, schedule it if your role allows.
 
-Screenshot: [Greens to add] (the reports list)
+> [!NOTE]
+> **Pending:** screenshot of the reports list from Greens' Cubby. Owner: Operations Manager.
 
-Screenshot: [Greens to add] (the Aged Receivables report for one site)
+> [!NOTE]
+> **Pending:** screenshot of the Aged Receivables report for one site from Greens' Cubby. Owner: Operations Manager.
 
 ## Example
 

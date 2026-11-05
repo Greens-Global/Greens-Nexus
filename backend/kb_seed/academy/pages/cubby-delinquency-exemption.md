@@ -70,7 +70,8 @@ Before you make a collection call about a lien, overlock a unit or start a lien:
 8. Add a note: who approved it, what was agreed, what paperwork you have (a bankruptcy notice, military orders, a death report).
 9. Keep the paperwork where your manager says. Do not copy it into the note.
 
-Screenshot: [Greens to add] (adding a delinquency exemption)
+> [!NOTE]
+> **Pending:** screenshot of adding a delinquency exemption from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: End or Extend an Exemption
 

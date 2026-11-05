@@ -72,7 +72,7 @@ Self-Storage Fundamentals, Tenant Protection and Insurance covered how protectio
 
 1. **Kill the myth.** "Our property insurance doesn't cover what's inside your unit. Most people don't know that."
 2. **Tell a real story, not a disclosure.** "A common problem at storage sites is water: a roof leak or a neighbor's unit. Protection is what helps if that happens."
-3. **Give the choice.** Greens' plan, $2,500 or $5,000 of coverage, from $9.00 a month (From Greens' Cubby, 11/2026), or their own policy if it covers storage.
+3. **Give the choice.** Greens' plan, $2,500 or $5,000 of coverage, $14.00 or $25.00 a month for a new move-in (From greensstorage.com, 11/2026), or their own policy if it covers storage.
 4. **Record the choice in Cubby.** Plan, own policy with the policy number and expiration date, or (rarely) none. Industry guidance is to have the tenant initial or sign the choice, so it is on record.
 
 > [!NOTE]

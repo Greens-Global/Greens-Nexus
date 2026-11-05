@@ -5,6 +5,9 @@ page_type: how_to
 tags: cubby, cubby-how-to, delinquency, overlock, collections
 ---
 
+> [!NOTE]
+> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
+
 ## What You'll Be Able to Do
 
 - Place the overlock and the gate lockout in Greens' delinquency ladder.
@@ -76,9 +79,11 @@ At Greens, Cubby flags most overlocks at 12:00 AM on the 20th, and staff most of
 7. In Cubby, mark the overlock **applied** on the lease (the button name in Greens' Cubby is on the screenshot).
 8. Add a note: date, time, lock number, photo taken.
 
-Screenshot: [Greens to add] (the overlock needed list)
+> [!NOTE]
+> **Pending:** screenshot of the overlock needed list from Greens' Cubby. Owner: Operations Manager.
 
-Screenshot: [Greens to add] (marking an overlock applied)
+> [!NOTE]
+> **Pending:** screenshot of marking an overlock applied from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Remove an Overlock
 
@@ -89,7 +94,8 @@ Screenshot: [Greens to add] (marking an overlock applied)
 5. Check the gate code works.
 6. Add a note.
 
-Screenshot: [Greens to add] (marking an overlock removed)
+> [!NOTE]
+> **Pending:** screenshot of marking an overlock removed from Greens' Cubby. Owner: Operations Manager.
 
 ## Locks in Cubby
 

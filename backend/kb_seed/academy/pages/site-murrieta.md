@@ -56,7 +56,10 @@ Cubby's vehicle type is filled in on more Murrieta leases than at any other site
 
 ## Storage Units
 
-Murrieta has 8 enclosed units: one 12x25, one 25x25 and six with no size recorded in Cubby (From Greens' Cubby, 11/2026). What they are used for: [Greens to fill]
+Murrieta has 8 enclosed units in Cubby: one 12x25 drive-up storage unit, one 25x25 and six "Dump Station Agreement" entries (no size, $39.50 a month street rate, 4 leased). The six are not storage: they are how Cubby bills a customer for monthly use of Murrieta's dump station (Re-check 11/05/2026, From Greens' Cubby, 11/2026).
+
+> [!NOTE]
+> **Pending:** what the 25x25 at Murrieta is used for. Owner: Operations Manager. Ask the site manager.
 
 ## Fees Seen Only at Murrieta
 
@@ -64,27 +67,39 @@ A Non-Operational Vehicle Deposit of $350.00 was charged once at Murrieta (From 
 
 ## Clear Heights
 
-Open lot. Entry gate or overhead obstructions: [Greens to fill]
+Open lot. Entry gate or overhead obstructions: Pending (see the note below).
+
+> [!NOTE]
+> **Pending:** anything overhead on the path at Murrieta, with its measured clearance. Owner: Operations Manager. Walk the path from the gate with a tape.
 
 ## Amenities
 
 | Amenity | Murrieta |
 |---|---|
-| Dump station | [Greens to fill] |
-| Wash bay | [Greens to fill] |
-| Power at spaces | [Greens to fill] |
-| Air for tires | [Greens to fill] |
-| Propane fill | [Greens to fill] |
+| Dump station | Yes. Sold as a monthly Dump Station Agreement, $39.50 street rate; Cubby also posted a $10.00 Waste Dump Admin Fee once and raises "2nd - Call Failed Autopay Waste Dump User" tasks (From Greens' Cubby, 11/2026) |
+| Wash bay | None. Tenants may not wash on site; an approved mobile detailer may (From greensstorage.com, 11/2026) |
+| Power at spaces | At least one: one Murrieta lease is billed monthly for its electricity use (From Greens' Cubby, 11/2026). Which spaces have power: Pending (see the note below) |
+| Air for tires | Not listed on greensstorage.com (Pending, see the note below) |
+| Propane fill | Not listed on greensstorage.com (Pending, see the note below) |
+
+> [!NOTE]
+> **Pending:** which Murrieta spaces have power, how electricity is billed, and whether there is air and propane. Owner: Operations Manager. greensstorage.com lists none of them for this site; ask the site manager.
 
 ## Gate and Access Notes
 
 - Gate hours and office hours: see Greens Site Hours and Access.
-- Gate width, stacking room and turning room for long rigs: [Greens to fill]
-- Pull-through lane direction: [Greens to fill]
+- Address: 25698 Adams Avenue, Murrieta, CA 92562; rentals (951) 698-8577 (From greensstorage.com, 11/2026).
+- Murrieta's office closes at 4:00 PM on Saturday, earlier than the other sites (From greensstorage.com, 11/2026).
+
+> [!NOTE]
+> **Pending:** gate width, stacking and turning room for long rigs, and the pull-through lane direction at Murrieta. Owner: Operations Manager. Measure and walk the lot with the site manager.
 
 ## Local Parking Rules
 
-The City of Murrieta lets residents bring an RV onto their lot only through a city-permitted driveway opening. That is one reason Murrieta owners call us. Never quote city code to a customer; tell them to check with the city and their HOA. Site notes for staff: [Greens to fill]
+The City of Murrieta lets residents bring an RV onto their lot only through a city-permitted driveway opening. That is one reason Murrieta owners call us. Never quote city code to a customer; tell them to check with the city and their HOA.
+
+> [!NOTE]
+> **Pending:** Murrieta site notes for staff on local parking rules. Owner: Operations Manager. Optional; add any local notes the site manager wants staff to know.
 
 ## Key Points
 

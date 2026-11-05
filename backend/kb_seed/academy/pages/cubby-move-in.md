@@ -31,7 +31,8 @@ tags: cubby, cubby-how-to, move-in, leases
 3. For a parking space, check the fit: vehicle length plus a margin, and for covered or enclosed spaces the height.
 4. Confirm the move-in date (today, unless it is a future reservation).
 
-Screenshot: [Greens to add] (choosing the unit in the move-in)
+> [!NOTE]
+> **Pending:** screenshot of choosing the unit in the move-in from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Preview the Move-In Charges
 
@@ -50,7 +51,8 @@ The lines you can expect:
 2. Read each line to the customer.
 3. Check the total against what you quoted. If something looks wrong, stop and ask before you charge.
 
-Screenshot: [Greens to add] (the move-in charges preview)
+> [!NOTE]
+> **Pending:** screenshot of the move-in charges preview from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Coverage
 
@@ -68,7 +70,8 @@ Greens' plans in Cubby are $2,500 of protection at $9.00 or $14.00 a month and $
 2. Choose the coverage type and enter what the table says.
 3. For an own policy, check the expiration date is in the future. Cubby raises "Remind Tenant of POI Obligation" tasks when proof of insurance is missing or expires, and "Enroll Tenant in Protection Plan" tasks.
 
-Screenshot: [Greens to add] (the coverage step)
+> [!NOTE]
+> **Pending:** screenshot of the coverage step from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Discount
 
@@ -83,7 +86,8 @@ Screenshot: [Greens to add] (the coverage step)
 4. If it is **declined**, the lease is undone and nothing posts. Ask for another card or method and run the move-in again.
 5. If it shows **pending**, do not run it again. A pending payment has an unknown outcome and running it again can charge the customer twice. Ask your manager.
 
-Screenshot: [Greens to add] (the payment step)
+> [!NOTE]
+> **Pending:** screenshot of the payment step from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Turn On Autopay
 
@@ -105,7 +109,8 @@ Every lease has required documents, each with a status:
 2. Approve each document you checked.
 3. Fill the vehicle type. It is blank on 696 of Greens' 759 vehicle leases today (From Greens' Cubby, 11/2026), which makes it hard to know what is on the lot.
 
-Screenshot: [Greens to add] (the documents on a new lease)
+> [!NOTE]
+> **Pending:** screenshot of the documents on a new lease from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Gate Code, Lock and Notes
 

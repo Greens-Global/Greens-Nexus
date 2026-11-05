@@ -3,6 +3,9 @@ title: Vehicle and Boat Liens
 summary: Why a vehicle or boat is never sold through the normal unit auction, the California path through the DMV (Civil Code 3071 and Harbors and Navigation Code 503) and the tow option, the Texas path (Property Code 59.0445) and its 2021 towing option, side by side, and what you never do.
 ---
 
+> [!NOTE]
+> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
+
 ## What You'll Be Able to Do
 
 - Explain why a titled vehicle or boat follows a different lien path from a storage unit.
@@ -14,8 +17,6 @@ summary: Why a vehicle or boat is never sold through the normal unit auction, th
 
 > [!WARNING]
 > Training only, not legal advice. When in doubt, stop and ask your manager.
-
-This lesson is reviewed by counsel before it is published.
 
 ## Start Here
 

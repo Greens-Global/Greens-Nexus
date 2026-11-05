@@ -15,7 +15,7 @@ Courses are authored here as Markdown + JSON and imported as DRAFTS.
 `pages/<slug>.md` with front matter `title`, `summary`, `page_type`
 (policy|how_to|reference), `tags` (comma separated). A course uses it with
 `{"page": "<slug>", "title": "...", "summary": "..."}`. Tag `cubby-filled`
-pages may not keep a `[Greens to fill]` marker.
+pages may not keep a fill-in placeholder (the bracketed marker `problems()` in kb_academy.py looks for). Anything still missing is a `> [!NOTE]` "Pending:" callout, listed on pages/academy-launch-checklist.md.
 
 ## Add a question
 `{"type": "single|multi|tf|order|short", "q", "options", "answer": [indexes],

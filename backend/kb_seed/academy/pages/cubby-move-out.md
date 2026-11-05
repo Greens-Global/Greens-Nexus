@@ -50,7 +50,8 @@ Cubby also asks for a **time window**: Morning, Lunchtime, Afternoon, Evening or
 6. Save. Add a note with anything the tenant said.
 7. Tell the tenant what to do on the day: empty the unit, sweep it, remove their lock, and come to the office or call.
 
-Screenshot: [Greens to add] (scheduling a move-out)
+> [!NOTE]
+> **Pending:** screenshot of scheduling a move-out from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: On the Day
 
@@ -61,7 +62,8 @@ Screenshot: [Greens to add] (scheduling a move-out)
 5. **Gate code:** check the code is turned off. See Cubby How-To: Gate Code.
 6. **The unit:** if it is ready to rent, leave it rentable. If not, mark it unrentable with Cubby's reason: Cleaning Required, Repairs Required, Under Renovation, Used by Facility or Other.
 
-Screenshot: [Greens to add] (completing a move-out)
+> [!NOTE]
+> **Pending:** screenshot of completing a move-out from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Settle the Balance
 

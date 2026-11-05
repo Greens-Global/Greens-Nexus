@@ -22,11 +22,17 @@ Greens' property insurance does not cover a tenant's belongings. Many customers 
 | $2,500 | $9.00 or $14.00 (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 | $5,000 | $20.00 or $25.00 (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 
-Two prices are in use for each level. Which price applies to which customer: [Greens to fill]
+Two prices are in use for each level. The higher one is today's price: greensstorage.com offers the Protection Plan at $14 or $25 a month by coverage level (From greensstorage.com, 11/2026), and 60 of the 61 plan leases started in Cubby since 09/14/2026 pay $14.00 or $25.00. The $9.00 and $20.00 prices sit on older leases brought over from the previous system (532 of them) (From Greens' Cubby, 11/2026). Quote $14.00 or $25.00 to a new customer and never change an existing lease's price on your own.
 
-Plan names and the provider's name: [Greens to fill]
+> [!NOTE]
+> **Pending:** confirm that $9.00 and $20.00 are kept prices for older leases, and whether they ever move to today's price. Owner: Operations Manager. Check with the plan provider's agreement and Greens' pricing decision.
 
-The plan prorates at move-in like rent. On a move-in on 11/18, a $9.00 plan adds about $3.90 for the rest of November (check against a real Preview Charges in Cubby).
+Cubby stores only the level and the price, not the plan's name or provider (From Greens' Cubby, 11/2026), and greensstorage.com calls it the "Protection Plan" without naming the provider (From greensstorage.com, 11/2026).
+
+> [!NOTE]
+> **Pending:** the plan's official name and the provider or claims administrator. Owner: Operations Manager. Read it from Greens' protection plan addendum or the provider agreement.
+
+The plan prorates at move-in like rent. On a move-in on 11/18, a $14.00 plan adds about $6.07 for the rest of November (check against a real Preview Charges in Cubby).
 
 ## Who Uses What
 
@@ -39,9 +45,13 @@ Vehicles, RVs and boats carry the owner's own vehicle insurance. Only one vehicl
 
 ## What the Plan Does Not Cover
 
-Exclusions: [Greens to fill]
+> [!NOTE]
+> **Pending:** the plan's exclusions. Owner: Operations Manager. The provider is not named in any public Greens source or in Cubby, so its public terms could not be read. Once the provider is known, list its exclusions here from the plan document, labeled with the provider's name.
 
-Claim steps and the claim phone number: [Greens to fill]
+Until then, tell the tenant that every plan has exclusions, that the plan document they receive at move-in lists them, and that the claims administrator decides every claim.
+
+> [!NOTE]
+> **Pending:** claim steps and the claim phone number. Owner: Operations Manager. Take them from the plan document or the provider's claim form.
 
 ## How to Offer It
 
@@ -58,6 +68,6 @@ California's Supreme Court held in 2018 (Heckart v. A-1 Self Storage) that a pro
 ## Key Points
 
 - Every lease has protection: Greens' plan or the tenant's own policy.
-- $2,500 of protection costs $9.00 or $14.00 a month; $5,000 costs $20.00 or $25.00 (From Greens' Cubby, 11/2026).
+- $2,500 of protection costs $14.00 a month and $5,000 costs $25.00 for a new customer; older leases may pay $9.00 or $20.00 (From Greens' Cubby and greensstorage.com, 11/2026).
 - Vehicle tenants almost always carry their own policy; record its number and expiration date.
 - Never promise a claim will be paid.

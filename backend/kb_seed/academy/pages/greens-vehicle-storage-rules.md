@@ -5,6 +5,9 @@ page_type: policy
 tags: vehicles, rv, boat, parking, lien, greens-policy
 ---
 
+> [!NOTE]
+> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
+
 ## Vehicles Are a Big Part of Greens
 
 | Site | Parking spaces (leased) | California | Texas |
@@ -39,18 +42,21 @@ All other fees are on Greens Fees and Charges.
 
 | Rule | Greens' rule |
 |---|---|
-| Must the vehicle run and have current tags? | [Greens to fill] |
-| Working on vehicles on site (oil changes, repairs) | [Greens to fill] |
-| Washing, dumping tanks, running generators | [Greens to fill] |
-| Sleeping or staying overnight in a vehicle | [Greens to fill] |
-| Extra fuel cans, propane, hazardous materials | [Greens to fill] |
-| Leaving a car in the space while the RV is out | [Greens to fill] |
-| Slides in and awnings closed while stored | [Greens to fill] |
-| Truck campers stored off the truck on jacks | [Greens to fill] |
-| Renting only to the title holder (or a business they sign for) | [Greens to fill] |
-| Non-Operational Vehicle Deposit: when it applies | [Greens to fill] |
+| Must the vehicle run and have current tags? | Yes. It must be drivable, with no flat tires, broken windows or fluid leaks, and registered and insured in the tenant's name. No vehicle goes in until the documents are in (From greensstorage.com Rules and Regulations, 11/2026) |
+| Working on vehicles on site (oil changes, repairs) | Only what makes it road-ready, such as a tire or battery change (From greensstorage.com Vehicle Storage FAQs, 11/2026). No repairs or major mechanical work (From greensstorage.com Rules and Regulations, 11/2026) |
+| Washing, dumping tanks, running generators | No washing or rinsing by the tenant; an approved mobile detailer may wash on site (From greensstorage.com Vehicle Storage FAQs, 11/2026). No generators or other power sources without written permission (From greensstorage.com Rules and Regulations, 11/2026). Dump stations vary by site: see the site profile |
+| Sleeping or staying overnight in a vehicle | Never. A vehicle left after closing is locked in until the next business day (From greensstorage.com Rules and Regulations, 11/2026) |
+| Extra fuel cans, propane, hazardous materials | Fuel tanks under 1/4 full. No gasoline, diesel or propane containers unless empty and disconnected, and no flammables, paint, chemicals or hazardous waste (From greensstorage.com Rules and Regulations, 11/2026) |
+| Leaving a car in the space while the RV is out | DRAFT: no. Only the vehicle on the lease parks in the space. Tell the office if the vehicle will be away more than 24 hours (From greensstorage.com Rules and Regulations, 11/2026) |
+| Slides in and awnings closed while stored | DRAFT: yes, slides in and awnings closed and secured, so nothing reaches into a lane or the next space |
+| Truck campers stored off the truck on jacks | DRAFT: only with the manager's OK. Trailers must have a hitch lock and sit on wood blocks with wheels chocked (From greensstorage.com Rules and Regulations, 11/2026) |
+| Renting only to the title holder (or a business they sign for) | The vehicle must be registered and insured in the tenant's name (From greensstorage.com Rules and Regulations, 11/2026) |
+| Non-Operational Vehicle Deposit: when it applies | DRAFT: only when the manager approves storing a vehicle that does not run, which the rules otherwise refuse. Seen once, at Murrieta, $350.00 (From Greens' Cubby, 11/2026) |
 
 Staff never drive or move a tenant's vehicle.
+
+> [!NOTE]
+> **Pending:** confirm the four DRAFT rows above (a car in the space, slides and awnings, truck campers, the Non-Operational Vehicle Deposit) and add them to Greens' Rules and Regulations. Owner: Operations Manager. The other rows come from greensstorage.com, 11/2026.
 
 ## When a Vehicle Tenant Stops Paying
 

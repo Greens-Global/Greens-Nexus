@@ -5,6 +5,9 @@ page_type: policy
 tags: collections, delinquency, lien, cubby-filled, greens-policy
 ---
 
+> [!NOTE]
+> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
+
 ## How the Count Works
 
 Rent is due on the 1st of the month at every Greens site, and every site uses jump day 26 (From Greens' Cubby, 11/2026; check against a real Preview Charges). Day 1 is the due date. Cubby runs the ladder below by itself: it posts the fees, raises the tasks on the task list and flags the overlock. Your job is to do each task the day it appears and record what happened.

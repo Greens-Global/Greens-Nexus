@@ -70,7 +70,8 @@ You never set Reservation or Converted yourself. Cubby sets them when the reserv
 9. Add a short note: what they are storing, what they cared about, what you promised.
 10. Save.
 
-Screenshot: [Greens to add] (the new lead form)
+> [!NOTE]
+> **Pending:** screenshot of the new lead form from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Reserve a Unit
 
@@ -84,7 +85,8 @@ A reservation holds a specific unit for a future move-in.
 6. Save. Cubby sets the lead's status to Reservation.
 7. Tell the customer the unit number, the move-in date, the rate, and what to bring: photo ID and, for a vehicle, the registration and insurance.
 
-Screenshot: [Greens to add] (reserving a unit from a lead)
+> [!NOTE]
+> **Pending:** screenshot of reserving a unit from a lead from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Convert or Cancel a Reservation
 
@@ -100,7 +102,8 @@ Screenshot: [Greens to add] (reserving a unit from a lead)
 4. Assign it to yourself, or to whoever will be on shift.
 5. Save. It appears on the shared task list on that day.
 
-Screenshot: [Greens to add] (a follow-up task on a lead)
+> [!NOTE]
+> **Pending:** screenshot of a follow-up task on a lead from Greens' Cubby. Owner: Operations Manager.
 
 ## Leads From the Website
 

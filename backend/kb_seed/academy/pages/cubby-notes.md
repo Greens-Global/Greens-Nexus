@@ -46,7 +46,8 @@ Keep a pinned note short and current. Update it when it stops being true.
 3. Write it using the rules below.
 4. Save. Check it shows with your name and the time.
 
-Screenshot: [Greens to add] (adding a note to a lease)
+> [!NOTE]
+> **Pending:** screenshot of adding a note to a lease from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Pin a Note on a Contact
 
@@ -55,7 +56,8 @@ Screenshot: [Greens to add] (adding a note to a lease)
 3. Pin it (the button name in Greens' Cubby is on the screenshot).
 4. Open one of the contact's leases and check the pinned note shows.
 
-Screenshot: [Greens to add] (a pinned note showing on a lease)
+> [!NOTE]
+> **Pending:** screenshot of a pinned note showing on a lease from Greens' Cubby. Owner: Operations Manager.
 
 ## What Makes a Good Note
 

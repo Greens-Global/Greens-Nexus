@@ -27,15 +27,20 @@ A refund puts the money back on the lease as owed unless the charge is also waiv
 
 ## Who May Approve What
 
-| Action | Limit without approval | Who approves above it |
-|---|---|---|
-| Waive a late fee | [Greens to fill] | [Greens to fill] |
-| Waive a lien or auction fee | [Greens to fill] | [Greens to fill] |
-| Waive rent | [Greens to fill] | [Greens to fill] |
-| Refund | [Greens to fill] | [Greens to fill] |
-| Write off a balance | [Greens to fill] | [Greens to fill] |
+No Greens source sets these limits yet. The table is a DRAFT for the Operations Manager to confirm; until it is confirmed, ask your manager before any waive, refund or write-off.
 
-How many late-fee waives one tenant may get in a year: [Greens to fill]
+| Action | Limit without approval (DRAFT) | Who approves above it (DRAFT) |
+|---|---|---|
+| Waive a late fee | One late fee per tenant in any 12 months, with a real reason | Area Manager |
+| Waive a lien or auction fee | None | Area Manager, and the Operations Manager once a lien sale is advertised |
+| Waive rent | None | Area Manager up to one month's rent; Operations Manager above that |
+| Refund | An overpayment or a charge taken twice, up to $100.00 | Area Manager above $100.00 |
+| Write off a balance | None | Operations Manager |
+
+How many late-fee waives one tenant may get in a year: one (DRAFT).
+
+> [!NOTE]
+> **Pending:** confirm or change the DRAFT waiver limits and approvers above, and the one-waive-a-year rule. Owner: Operations Manager. For scale: the median fee waive since 09/2026 is $47.17 and the median rent waive $32.27 (From Greens' Cubby, 11/2026).
 
 ## Example
 

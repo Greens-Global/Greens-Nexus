@@ -59,7 +59,8 @@ In the same window about 285 autopay charges were declined. Those declines are w
 7. Offer a receipt.
 8. If the tenant was locked out for nonpayment, check that their gate code works again and that any overlock is set to come off (Cubby How-To: Overlock and Lockout).
 
-Screenshot: [Greens to add] (taking a payment on a lease)
+> [!NOTE]
+> **Pending:** screenshot of taking a payment on a lease from Greens' Cubby. Owner: Operations Manager.
 
 | Method | What you do |
 |---|---|
@@ -82,7 +83,8 @@ Cubby applies money to the **oldest charge first**. Charges that posted at the s
 4. Check the card's **expiration date**. An expired card makes autopay fail.
 5. Add a note: "Autopay moved to new card at tenant's request."
 
-Screenshot: [Greens to add] (the autopay setting on a lease)
+> [!NOTE]
+> **Pending:** screenshot of the autopay setting on a lease from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: The Failed Autopay Call (the 2nd)
 
@@ -107,7 +109,8 @@ A payment link is a link texted or emailed to the tenant so they can pay from th
 4. Send it by text or email to the contact details on file. Check they are current first.
 5. Note that you sent it, and set a task to check tomorrow if it is not paid.
 
-Screenshot: [Greens to add] (creating a payment link)
+> [!NOTE]
+> **Pending:** screenshot of creating a payment link from Greens' Cubby. Owner: Operations Manager.
 
 ## The Tenant Portal
 

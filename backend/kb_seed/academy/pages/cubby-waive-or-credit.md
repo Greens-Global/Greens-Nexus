@@ -49,7 +49,8 @@ Since Greens moved to Cubby, staff waived 185 fees totaling $12,904.41 and 42 re
 7. Save. Check the ledger shows the waive against that charge and the balance dropped by the amount.
 8. Tell the tenant the new balance and take the payment if they are paying.
 
-Screenshot: [Greens to add] (waiving a charge on the ledger)
+> [!NOTE]
+> **Pending:** screenshot of waiving a charge on the ledger from Greens' Cubby. Owner: Operations Manager.
 
 ## Steps: Issue a Credit
 
@@ -69,7 +70,8 @@ Greens does not use credits today, and credits must be switched on per site. If 
 5. Tell the tenant a card refund can take several days to show on their statement.
 6. Note what you did and why.
 
-Screenshot: [Greens to add] (refunding a payment)
+> [!NOTE]
+> **Pending:** screenshot of refunding a payment from Greens' Cubby. Owner: Operations Manager.
 
 > [!WARNING]
 > Never refund a payment for a charge the tenant still owes. The refund puts the charge back on their balance (check on a real refund).

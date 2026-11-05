@@ -5,6 +5,9 @@ page_type: how_to
 tags: cubby, cubby-how-to, lien, auction, delinquency
 ---
 
+> [!NOTE]
+> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
+
 ## What You'll Be Able to Do
 
 - Read the "liens to initiate" count and know which leases it lists.
@@ -69,7 +72,8 @@ Only if your manager has said you start liens at your site:
 4. Add a note: who started it and when.
 5. Complete any task that asked for it, with the note.
 
-Screenshot: [Greens to add] (starting a lien on a lease)
+> [!NOTE]
+> **Pending:** screenshot of starting a lien on a lease from Greens' Cubby. Owner: Operations Manager.
 
 ## Lien and Auction Statuses
 
@@ -86,7 +90,8 @@ At Greens most lease liens so far ended Cancelled: at Escondido 23 cancelled, 1 
 
 An auction itself has its own statuses in Cubby: **Listed**, **No Bids**, **Sold**, **Payment Received**, **Complete** and **Cancelled**. Settling an auction records whether the unit sold or did not. Completing it records whether a cleaning deposit is refunded or kept. Settling and completing auctions is your manager's job.
 
-Screenshot: [Greens to add] (a lease showing its lien status)
+> [!NOTE]
+> **Pending:** screenshot of a lease showing its lien status from Greens' Cubby. Owner: Operations Manager.
 
 ## The Vehicle Path
 

@@ -3,6 +3,9 @@ title: Delinquency and the Lien Process
 summary: How delinquency works, the California Self-Service Storage Facility Act lien process step by step, the Texas Property Code chapter 59 process beside it, how vehicles and vessels differ, and what Greens' Cubby does today.
 ---
 
+> [!NOTE]
+> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
+
 ## What You'll Be Able to Do
 
 - Describe the general shape of delinquency, from the due date to a lien sale.

@@ -251,3 +251,24 @@ Totals: 1,038 parking spaces; 27 covered (all Temecula), 2 enclosed vehicle spac
 | **Total** | **759** | **696** | 63 | 60 |
 
 Reading: Cubby's vehicle type is blank on 696 of 759 vehicle leases, so the mix of RVs, boats and trailers cannot be read from Cubby yet; the course teaches staff to fill it at move-in.
+
+## Re-check 11/05/2026
+
+Re-ran the queries above on 11/05/2026 (Cubby tables "as of" 11/05/2026 about 7:40 to 8:00 AM UTC), READ-ONLY aggregates only, same rules: no tenant name, contact, plate, unit-to-tenant link or payment detail selected. Note that no new monthly cycle has run since the first pull (the next late-fee night is 11/11/2026), so the monthly numbers could not move yet; re-run after the 11/11 and 11/20 events at the least.
+
+Unchanged: facilities and billing; inventory by unit kind (every count, leased count and street rate); named fee counts and amounts (Administration Fee 122, CA Preliminary Lien Notice 130, CA Lien Notice 29, Lock Removal/Inventory Fee 29, Auction Fee 26, Advertising Fee 25 + 2, Lien Processing Fee 17, Vehicle Lien Fee 6); late fees (149 CA, 7 Mailbox, 1 Commercial, last posted 10/11/2026 and 10/21/2026); LATE_FEE_CHARGED 155, OVERLOCK_NEEDED 90, OVERLOCK_APPLIED 39, LEASE_LIEN_STATUS_CHANGED 55, same days; workflow task counts (every title the same); coverage by facility, level and premium (961 plan, 1,078 own policy, 3 none); deposits (176, all dated 09/14/2026); WAIVED_FEES 185 / $12,904.41 / median $47.17; WAIVED_RENT 42 / $3,307.76 / median $32.27; BAD_DEBT 6 / $3,264.51 / median $373.50; payments (32 refunds, 402 declined with 285 autopay, 3 failure records); access log (Fairfield only: 816 / 56 / 138 / 10); parking totals (1,038 spaces, 27 covered, 64 pull-through, 2 enclosed, no heights); vehicle leases (759, type blank on 696, 60 out of state).
+
+Changed:
+
+| Number | 11/04/2026 | 11/05/2026 | Used on a page? |
+|---|---|---|---|
+| DISCOUNTS entries, last 365 days | 712, $16,660.34 | 717, $16,763.84 (median $9.98 unchanged) | No |
+
+New findings (not changes, read for the owner-filled items):
+
+- **Protection plan price by lease age.** `leases` active, `coverage_type = 'ORGANISATION'`, grouped by level, premium and `is_imported`: leases made in Cubby since 09/14/2026 pay $14.00 (58) or $25.00 (2), with one at $9.00; the $9.00 (518) and $20.00 (14) prices are on imported leases only. greensstorage.com's FAQ offers the Protection Plan at $14 or $25 a month. So $14.00 / $25.00 is today's price and $9.00 / $20.00 are older leases' prices. Pages updated: Greens Tenant Protection, the Tenant Protection and Insurance lesson, Move-In Done Right, and one quiz explanation.
+- **Murrieta dump station.** `units` active at Murrieta by `pricing_group`: the six enclosed units with no size are the pricing group "0' x 0' Dump Station Agreement" ($39.50 street rate, 4 leased), the Murrieta enclosed minimum of $39.50 above. FEES rows also show one "Waste Dump Admin Fee" of $10.00 at Murrieta, and the "2nd - Call Failed Autopay Waste Dump User" task matches. Page updated: Site Profile: Murrieta.
+- **Murrieta electricity.** Three monthly "Electricity Usage" FEES rows (July, August, September) on Murrieta, about $80 to $118 each: at least one space is metered and rebilled. Page updated: Site Profile: Murrieta (power).
+- Plan names are still not in the reporting data: INSURANCE rows carry no explanation text, only the amount.
+
+Public sources read the same day for the owner-filled items (cited on the pages as "From greensstorage.com, 11/2026"): the five facility pages (/facility/greens-storage-<site>), /rules-regulations, /vehicle-storage-faqs, /faq and /privacy-policy on greensstorage.com. They give office hours (Monday to Saturday 8:30 AM to 5:30 PM, Murrieta Saturday to 4:00 PM, closed Sunday), gate hours (every day 6:00 AM to 10:00 PM, with a conflicting 7:00 PM in three sites' feature lists), addresses and phones, Escondido's air, propane, water fill, vacuum and EV charging, Valley Center's enclosed RV units with 12 ft and 14 ft doors and an air and water station, and the vehicle house rules. No public source names the protection plan's provider, so its exclusions stay Pending.

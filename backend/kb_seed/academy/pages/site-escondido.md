@@ -56,7 +56,10 @@ What this means when you sell: the 12x38 is Escondido's most common space and ha
 
 Cubby tags 549 of the enclosed units "Climate controlled" and 164 "Drive-up" (From Greens' Cubby, 11/2026). Check the unit in Cubby before you quote climate control.
 
-The 30 units that are 15 ft wide and 40 to 45 ft deep are large enough for a vehicle, but none is tagged for vehicles in Cubby. Whether a vehicle may be stored in them: [Greens to fill]
+The 30 units that are 15 ft wide and 40 to 45 ft deep are large enough for a vehicle, but none is tagged for vehicles in Cubby. greensstorage.com offers "indoor and outdoor" RV parking at Escondido (From greensstorage.com, 11/2026), but which units count as indoor vehicle storage is not written down.
+
+> [!NOTE]
+> **Pending:** whether a vehicle may be stored in the 15 ft wide enclosed units, and how Cubby should tag them. Owner: Operations Manager. Ask the site manager and tag the units in Cubby.
 
 ## Clear Heights
 
@@ -64,28 +67,41 @@ Cubby records no heights. Measure and post them.
 
 | Place | Clear height |
 |---|---|
-| Lowest point on the entry gate or entry path | [Greens to fill] |
-| Large enclosed units (door opening, measured) | [Greens to fill] |
+| Lowest point on the entry gate or entry path | Pending (see the note below) |
+| Large enclosed units (door opening, measured) | Pending (see the note below) |
+
+> [!NOTE]
+> **Pending:** measured clear heights at Escondido. Owner: Operations Manager. Measure on site with a tape and post them here and at the gate.
 
 ## Amenities
 
 | Amenity | Escondido |
 |---|---|
-| Dump station | [Greens to fill] |
-| Wash bay | [Greens to fill] |
-| Power at spaces (battery tenders) | [Greens to fill] |
-| Air for tires | [Greens to fill] |
-| Propane fill | [Greens to fill] |
+| Dump station | Not listed on greensstorage.com (Pending, see the note below) |
+| Wash bay | None. Tenants may not wash on site; an approved mobile detailer may (From greensstorage.com, 11/2026) |
+| Power at spaces (battery tenders) | "Power access" is listed, with no detail on which spaces (From greensstorage.com, 11/2026) |
+| Air for tires | Air compressor station (From greensstorage.com, 11/2026) |
+| Propane fill | Propane filling station (From greensstorage.com, 11/2026) |
+| Other | Water fill station, vacuum station, EV charging (From greensstorage.com, 11/2026) |
+
+> [!NOTE]
+> **Pending:** whether Escondido has a dump station, and which spaces have power. Owner: Operations Manager. Ask the site manager.
 
 ## Gate and Access Notes
 
 - Gate hours and office hours: see Greens Site Hours and Access.
-- Gate width, turning room at the entry and stacking room for long rigs: [Greens to fill]
-- Lot layout (which rows are gravel, which are paved, one-way lanes): [Greens to fill]
+- Address: 25260 North Centre City Parkway, Escondido, CA 92026; rentals (760) 993-5550 (From greensstorage.com, 11/2026).
+- Lot surface by space is in Cubby: 80 gravel, 10 paved (From Greens' Cubby, 11/2026).
+
+> [!NOTE]
+> **Pending:** gate width, turning room at the entry, stacking room for long rigs and one-way lanes at Escondido. Owner: Operations Manager. Measure and walk the lot with the site manager.
 
 ## Local Parking Rules
 
-Escondido's Municipal Code has its own rules for parking recreational vehicles in residential zones, and the city tightened RV parking on streets and city lots in 2023 and 2024. Never quote the code to a customer: tell them to check with the city and their HOA. Site notes for staff: [Greens to fill]
+Escondido's Municipal Code has its own rules for parking recreational vehicles in residential zones, and the city tightened RV parking on streets and city lots in 2023 and 2024. Never quote the code to a customer: tell them to check with the city and their HOA.
+
+> [!NOTE]
+> **Pending:** Escondido site notes for staff on local parking rules. Owner: Operations Manager. Optional; add any local notes the site manager wants staff to know.
 
 ## Key Points
 
