@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { FileSignature, Folder, LayoutTemplate, FileText, ClipboardList, FolderInput } from 'lucide-react';
+import { FileSignature, Folder, LayoutTemplate, FileText, ClipboardList, FolderInput, Briefcase } from 'lucide-react';
+import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { useEntities } from '../lib/queries';
 import ESign from '../components/ESign';
@@ -44,6 +45,34 @@ const TABS = [
   { key: 'documents-esign', label: 'Nexus Sign', Icon: FileSignature },
   { key: 'documents-pdf', label: 'PDF Tools', Icon: FileText },
 ];
+// Hiring Documents (Pranshu, 11/04/2026: "through the document section only we
+// can just open and start adding all the documents for each company, each
+// role"): the SAME setup as Settings > Hiring & Onboarding > Hiring Documents -
+// one panel, one set of packets, so a change in either place is the change in
+// both. Shown to whoever may open it in Settings (an administrator or People
+// editor, never the manager tier's own-team view).
+const HIRING_TAB = { key: 'documents-hiring', label: 'Hiring Documents', Icon: Briefcase };
+const PacketsModal = lazy(() => import('../components/HiringPacket').then(m => ({ default: m.PacketsModal })));
+
+function HiringDocsTab({ toastOk, toastErr }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '20px 22px', background: 'var(--card)', marginTop: 12 }}>
+      <div style={{ fontSize: 16, fontWeight: 800 }}>Hiring Documents</div>
+      <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: '6px 0 14px', maxWidth: '70ch' }}>
+        Offer letters, hiring packets, promotion letters and separation packages: which documents each company sends, for which
+        roles and kind of hire, who signs, and Ready To Send. This is the same setup as Settings &gt; Hiring &amp; Onboarding &gt;
+        Hiring Documents - a change made here is there too, and the other way round.
+      </p>
+      <button type="button" className="primary-btn" onClick={() => setOpen(true)} style={{ fontSize: 12.5 }}>Open Hiring Documents</button>
+      {open && (
+        <Suspense fallback={<SkeletonBlocks count={4} height={44} />}>
+          <PacketsModal onClose={() => setOpen(false)} toastOk={toastOk} toastErr={toastErr} />
+        </Suspense>
+      )}
+    </div>
+  );
+}
 // Old links, bells and emails keep landing: these tabs live in the library now.
 const OLD_SUBS = { 'documents-dashboard': 'documents-browse', 'documents-hr-records': 'documents-browse' };
 
@@ -69,7 +98,9 @@ export default function Documents({ activeSub, onSubChange }) {
   const navSub = OLD_SUBS[activeSub] || CREATE_SUBS[activeSub] || (String(activeSub || '').startsWith('documents-esign') ? 'documents-esign'
     // Forms (11/02/2026): 'documents-forms:entry:<id>' is the Forms tab with that entry open.
     : String(activeSub || '').startsWith('documents-forms') ? 'documents-forms' : activeSub);
-  const tabs = TABS;
+  const { can, canAccessModule, hrTeam } = useRole();
+  const mayHire = !hrTeam && (can('administrator') || !!canAccessModule?.('hr', 'administrator', 'editor'));
+  const tabs = mayHire ? [...TABS.slice(0, 2), HIRING_TAB, ...TABS.slice(2)] : TABS;
   const sub = tabs.some(t => t.key === navSub) ? navSub : 'documents-browse';
   // The + menu's New Document asks the library to pop its create dialog open - a
   // bumped counter (not a bool) so a second click while already there re-triggers it.
@@ -203,6 +234,8 @@ export default function Documents({ activeSub, onSubChange }) {
       {sub === 'documents-templates' && (
         <DocumentTemplates employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr} />
       )}
+
+      {sub === 'documents-hiring' && <HiringDocsTab toastOk={toastOk} toastErr={toastErr} />}
 
       {sub === 'documents-forms' && (
         <Suspense fallback={<SkeletonBlocks count={6} height={44} />}>

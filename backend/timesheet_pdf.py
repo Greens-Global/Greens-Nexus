@@ -1,10 +1,12 @@
 """The time sheet pages of the signed Time Sheet PDF (Charmi, Oct 20 2026:
 "the way our timesheet UI is"). SwipeClock's Time Card Report, cell for cell
-what the Time Sheet screen draws (PayrollTimecard.jsx): one row per shift, a
-Break row under it for each break punched, the day's total on its last row,
-the week's total in a yellow band, the note line under a day, then the
-totals and the HOURS / WAGE summary. Hourly and salaried cards each get
-their own columns, as on screen.
+what the Time Sheet screen draws (PayrollTimecard.jsx): one row per punch
+pair, a Break line between them for each break punched, the day's total on
+its first row, the week's total on a centered light green line, the note line
+under a day, then the totals and the HOURS / WAGE summary. Hourly and
+salaried cards each get their own columns, as on screen. Every hours figure a
+person reads is hours:minutes only - never decimal hours (Neil, 11/04/2026;
+the IIF / CSV exports stay numeric).
 
 Landscape, built with platypus. Page 1 is the whole time sheet - header,
 grid and summary down to Missing Punches - shrunk to fit one page however
@@ -43,7 +45,7 @@ DIM = colors.HexColor("#6b6b75")
 LINE = colors.HexColor("#c4c7cd")
 HEAD = colors.HexColor("#e3e5e8")
 BAND = colors.HexColor("#f2f3f5")
-WEEK = colors.HexColor("#fdf3c4")
+WEEK = colors.HexColor("#e8f5ee")      # brand green tint (Neil, 11/04/2026: no yellow)
 EDITED = colors.HexColor("#1d4ed8")
 RED = colors.HexColor("#b91c1c")
 AMBER = colors.HexColor("#b45309")
@@ -54,6 +56,7 @@ _CELL = ParagraphStyle("cell", fontName="Helvetica", fontSize=7.5, leading=9, al
 _LEFT = ParagraphStyle("left", parent=_CELL, alignment=0)
 _RIGHT = ParagraphStyle("right", parent=_CELL, alignment=2)
 _HEAD = ParagraphStyle("head", parent=_CELL, fontName="Helvetica-Bold")
+_HEAD_R = ParagraphStyle("head_r", parent=_HEAD, alignment=2)
 
 # Page 1 holds the whole card (Charmi, Oct 20: "it should auto fit on one
 # page"). render steps down these (font size, leading, top / bottom cell
@@ -96,8 +99,10 @@ def hm(minutes) -> str:
 
 
 def hd(minutes) -> str:
-    """SwipeClock's '44:05 (44.08)': clock time and decimal hours."""
-    return f"{hm(minutes)} ({int(minutes or 0) / 60:.2f})"
+    """An hours figure on the summary: '44:05'. SwipeClock printed '44:05
+    (44.08)'; no decimal hours anywhere a person reads them (Neil,
+    11/04/2026), so this is hm by another name, kept for its callers."""
+    return hm(minutes)
 
 
 def money(v, currency: str = "USD") -> str:
@@ -141,8 +146,9 @@ def _reasons(seg: dict) -> list:
 class _Grid:
     """Rows and their TableStyle commands, built together."""
 
-    def __init__(self, header: list):
-        self.rows = [[_p(h, _HEAD) for h in header]]
+    def __init__(self, header: list, right: tuple = ()):
+        # `right`: the columns whose header sits right, over right-aligned figures.
+        self.rows = [[_p(h, _HEAD_R if c in right else _HEAD) for c, h in enumerate(header)]]
         self.cmds = [("BACKGROUND", (0, 0), (-1, 0), HEAD)]
         self.ncols = len(header)
 
@@ -167,10 +173,14 @@ class _Grid:
         if bottom > top:
             self.cmds.extend(("SPAN", (c, top), (c, bottom)) for c in cols)
 
-    def table(self, widths: list) -> LongTable:
+    def table(self, widths: list, hairlines: bool = False) -> LongTable:
         _fs, _ld, top, bottom = _LEVELS[_DENSITY.get()]
         t = LongTable(self.rows, colWidths=widths, repeatRows=1)
-        t.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, LINE),
+        # Hairlines (the hourly card, Neil, 11/04/2026): a thin line under each
+        # row and a firmer one under the header, instead of a box grid.
+        lines = ([("LINEBELOW", (0, 0), (-1, -1), 0.25, LINE), ("LINEBELOW", (0, 0), (-1, 0), 0.7, DIM)]
+                 if hairlines else [("GRID", (0, 0), (-1, -1), 0.4, LINE)])
+        t.setStyle(TableStyle([*lines,
                                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                                # Room to read (Charmi, Oct 20: "a little cramped"); a busy card
                                # still fits - render shrinks page 1 to one page.
@@ -180,13 +190,13 @@ class _Grid:
         return t
 
 
-def _time_cell(iso: str, pid: str, ctx: dict, *, missing: bool = True) -> Paragraph:
+def _time_cell(iso: str, pid: str, ctx: dict, *, missing: bool = True, style=_CELL) -> Paragraph:
     """A punch time; one someone entered or changed reads bold blue (SwipeClock)."""
     if not iso:
-        return _p("Missing", color=RED, bold=True) if missing else _p("-")
+        return _p("Missing", style, color=RED, bold=True) if missing else _p("-", style)
     meta = (ctx["punch_meta"] or {}).get(pid) or {}
     edited = bool(meta.get("manual") or meta.get("adjustedAt"))
-    return _p(ctx["time"](iso, pid), color=EDITED if edited else None, bold=edited)
+    return _p(ctx["time"](iso, pid), style, color=EDITED if edited else None, bold=edited)
 
 
 def _note_line(g: _Grid, ds: str, segs: list, ctx: dict, band: bool = False, indent: bool = True) -> None:
@@ -235,19 +245,39 @@ def _auto_line(g: _Grid, segs: list, band: bool = False) -> None:
                   _LEFT, color=RED, bold=True), BAND if band else None)
 
 
+# The hourly grid's columns (Neil, 11/04/2026 - the new Time Sheet screen):
+# times, durations and money sit right so the hours:minutes and AM / PM line up.
+HOURLY_COLUMNS = ["Date", "In", "Out", "Deducted Time", "Category", "Punch", "Day Total", "OT", "Location",
+                  "Pay Rate", "Wage"]
+_RIGHT_COLS = (1, 2, 3, 5, 6, 7, 9, 10)
+_BREAK = ParagraphStyle("break", parent=_LEFT, leftIndent=10)
+
+
+def _mmdd(d: date) -> str:
+    return f"{d.month:02d}/{d.day:02d}"
+
+
+def _holiday_words(d: dict) -> str:
+    name = d.get("holidayName") or "Company holiday"
+    kind = "Half-Day Holiday" if d.get("holidayType") == "half_day" else "Holiday"
+    return f"{kind}: {name}"
+
+
 def hourly_rows(card: dict, ctx: dict) -> Table:
     cur = card.get("currency") or "USD"
-    g = _Grid(["Date", "In", "Out", "Deducted Time", "Category", "Hours", "Hrs/Day", "OT", "Loc",
-               "Pay Rate", "Wage"])
+    g = _Grid(HOURLY_COLUMNS, right=_RIGHT_COLS)
     by_date = {d["date"]: d for d in card.get("days") or []}
     start, end = date.fromisoformat(ctx["start"]), date.fromisoformat(ctx["end"])
-    week, week_min = None, 0
+    week, wk_tot = None, {"min": 0, "ot": 0, "dt": 0, "wage": 0.0}
 
     def week_line():
+        # One centered full-width line (Neil, 11/04/2026): the week's hours,
+        # then its overtime and wage, on the brand's light green.
         ws = date.fromisoformat(week)
         we = ws + timedelta(days=6)
-        g.line(_p(f"Total hours clocked for week of {ws.month}/{ws.day} to {we.month}/{we.day}: {hm(week_min)}",
-                  bold=True), WEEK)
+        ot = hm(wk_tot["ot"]) + (f" (incl. {hm(wk_tot['dt'])} double time)" if wk_tot["dt"] else "")
+        g.line(_p(f"Total hours clocked for week of {_mmdd(ws)} to {_mmdd(we)}: {hm(wk_tot['min'])}"
+                  f"   ·   Overtime: {ot}   ·   Wage: {money(wk_tot['wage'], cur)}", bold=True), WEEK)
 
     for n in range((end - start).days + 1):
         ds = (start + timedelta(days=n)).isoformat()
@@ -255,24 +285,34 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
         wk = d.get("weekStart") or (start + timedelta(days=n - (start + timedelta(days=n)).isoweekday() % 7)).isoformat()
         if week and wk != week:
             week_line()
-            week_min = 0
+            wk_tot = {"min": 0, "ot": 0, "dt": 0, "wage": 0.0}
         week = wk
-        week_min += int(d.get("workedMin") or 0)
-        band = n % 2 == 1
         segs = d.get("segments") or []
+        wk_tot["min"] += int(d.get("workedMin") or 0)
+        wk_tot["ot"] += int(d.get("otMin") or 0) + int(d.get("dtMin") or 0)
+        wk_tot["dt"] += int(d.get("dtMin") or 0)
+        wk_tot["wage"] += sum(float(sg.get("amount") or 0) for sg in segs)
+        band = n % 2 == 1
         rate = money(d.get("rate", card.get("rate")), cur) + "/hr"
         if not segs:
-            g.add([_p(day_label(ds), _LEFT, bold=True, italic=True)] + [_p("-")] * 10, band)
+            g.add([_p(day_label(ds), _LEFT, bold=True, italic=True)]
+                  + [_p("-", _RIGHT if c in _RIGHT_COLS else _CELL) for c in range(1, 11)], band)
             if d.get("isHoliday"):
-                half = d.get("holidayType") == "half_day"
-                g.line(_p(f"{'Half-Day Holiday' if half else 'Holiday'}: {d.get('holidayName') or 'Company holiday'}"
-                          f" - not worked, paid {money(d.get('holidayPay'), cur)}{' (half day)' if half else ''}.",
-                          _LEFT, color=BLUE, bold=True), BAND if band else None)
+                # An hourly holiday is an unpaid day off (Neil, 11/04/2026).
+                g.line(_p(f"{_holiday_words(d)} - " + (f"not worked, paid {money(d.get('holidayPay'), cur)}."
+                                                       if d.get("holidayPay") else "office closed, not paid."),
+                          _LEFT, color=BLUE, bold=True),
+                       BAND if band else None)
             continue
         first_row = len(g.rows)
+        first_work_row = None
         # Punch pairs (Charmi / Visesh, Oct 20): one row per stretch of work -
         # In = the clock-in or a break end, Out = a break start or the
-        # clock-out - with its own hours, like SwipeClock and the Time Sheet screen.
+        # clock-out - with its own hours, like SwipeClock and the Time Sheet
+        # screen. A break is its own line between them (Neil, 11/04/2026, on
+        # every copy - it was HR's paper copy only since Pranshu, Oct 23):
+        # "Break" under Date, its start under In, its end under Out, and only
+        # its length under Category.
         from timesheet_review import punch_pairs   # lazy: timesheet_review imports this module
         for si, seg in enumerate(segs):
             leave = bool(seg.get("payClass"))
@@ -291,36 +331,38 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
                     out_iso = (seg.get("outR") or seg.get("out")) if is_last else x["out"]
                     i = g.add([
                         _p(day_label(ds), _LEFT, color=RED if leave else None, bold=True, italic=True) if (si == 0 and first) else "",
-                        _time_cell(in_iso, x.get("inId") or "", ctx),
-                        _p(ctx["time"](out_iso, x.get("outId") or "") + " (auto)", color=RED, bold=True) if out_auto
-                        else _time_cell(out_iso, x.get("outId") or "", ctx),
-                        _p(f"-{seg['deductedMin']}m", color=AMBER) if (first and seg.get("deductedMin")) else (_p("-") if first else ""),
-                        _p(seg.get("category") or "-", color=RED if leave else None) if first else "",
-                        _p(hm(x.get("min")), bold=True),
-                        "",   # Hrs/Day, filled below
-                        _p(ot, color=RED if seg.get("dtMin") else AMBER if seg.get("otMin") else None,
+                        _time_cell(in_iso, x.get("inId") or "", ctx, style=_RIGHT),
+                        _p(ctx["time"](out_iso, x.get("outId") or "") + " (auto)", _RIGHT, color=RED, bold=True) if out_auto
+                        else _time_cell(out_iso, x.get("outId") or "", ctx, style=_RIGHT),
+                        _p(f"-{seg['deductedMin']}m", _RIGHT, color=AMBER) if (first and seg.get("deductedMin"))
+                        else (_p("-", _RIGHT) if first else ""),
+                        _p(seg.get("category") or "-", _LEFT, color=RED if leave else None) if first else "",
+                        _p(hm(x.get("min")), _RIGHT, bold=True),
+                        "",   # Day Total, filled below
+                        _p(ot, _RIGHT, color=RED if seg.get("dtMin") else AMBER if seg.get("otMin") else None,
                            bold=bool(seg.get("otMin") or seg.get("dtMin"))) if first else "",
-                        _p(seg.get("workSite") or seg.get("workSiteOut") or "-") if first else "",
-                        _p(rate) if first else "",
-                        _p(money(seg.get("amount"), cur), bold=True) if first else "",
+                        _p(seg.get("workSite") or seg.get("workSiteOut") or "-", _LEFT) if first else "",
+                        _p(rate, _RIGHT) if first else "",
+                        _p(money(seg.get("amount"), cur), _RIGHT, bold=True) if first else "",
                     ], band)
+                    if first_work_row is None:
+                        first_work_row = i
                     if first:
                         top = i
-                elif ctx.get("paper_note") and x["kind"] == "break":
-                    # HR's paper copy shows every break, as the screen does (Pranshu,
-                    # Oct 23). The e-sign copy prints none (SwipeClock): the gap
-                    # between a row's Out and the next row's In is the break.
-                    paid = f", {x['paidMin']}m paid" if x.get("paidMin") else ""
-                    g.add(["", _time_cell(x.get("start") or "", x.get("startId") or "", ctx, missing=False),
-                           _time_cell(x.get("end") or "", x.get("endId") or "", ctx, missing=False), "", "",
-                           _p(f"Break {x.get('min') or 0}m{paid}", color=DIM, italic=True), "", "", "", "", ""], band)
-            # Deducted Time, Category, OT, Loc, Pay Rate and Wage merge down the shift, as on screen.
-            if top is not None:
-                g.span_down((3, 4, 7, 8, 9, 10), top, len(g.rows) - 1)
-        # Hrs/Day: the day's total on its last row, an arrow down to it above.
-        for i in range(first_row, len(g.rows)):
-            g.rows[i][6] = (_p(hm(d.get("workedMin")), bold=True) if i == len(g.rows) - 1
-                            else Paragraph('<font name="Symbol">↓</font>', _sz(_CELL)))
+                elif x["kind"] == "break":
+                    g.add([_p("Break", _BREAK, color=DIM, italic=True),
+                           _time_cell(x.get("start") or "", x.get("startId") or "", ctx, missing=False, style=_RIGHT),
+                           _time_cell(x.get("end") or "", x.get("endId") or "", ctx, missing=False, style=_RIGHT),
+                           "", _p(f"{int(x.get('min') or 0)} min"
+                                  + (f", {int(x['paidMin'])} min paid" if x.get("paidMin") else ""), _LEFT, color=DIM, italic=True),
+                           "", "", "", "", "", ""], band)
+        # Day Total: the day's total on its FIRST punch row, as the screen
+        # draws it; Deducted Time / Category / OT / Location / Pay Rate / Wage
+        # sit on each shift's first row (Neil, 11/04/2026).
+        if first_work_row is not None:
+            g.rows[first_work_row][6] = _p(hm(d.get("workedMin")), _RIGHT, bold=True)
+        elif len(g.rows) > first_row:
+            g.rows[first_row][6] = _p(hm(d.get("workedMin")), _RIGHT, bold=True)
         _auto_line(g, segs, band)
         if d.get("meal") or d.get("mealPremiumMin") or d.get("restPremiumMin"):
             bits = []
@@ -331,10 +373,15 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
                 if d.get(key):
                     bits.append(f"{label}: 1 hour of pay ({money(d.get(pay), cur)})")
             g.line(_p("   ".join(bits), _LEFT, color=AMBER, bold=True), BAND if band else None)
-        if d.get("holidayPay"):
-            g.line(_p(f"Half-Day Holiday: {d.get('holidayName') or 'Company holiday'} - worked the half day, plus "
-                      f"{money(d['holidayPay'], cur)} credited for the other half.", _LEFT, color=BLUE, bold=True),
-                   BAND if band else None)
+        if d.get("holidayName"):
+            # A company holiday on a day with punches. From 11/01/2026 an hourly
+            # holiday pays nothing on top (Neil, 11/04/2026); one before keeps the
+            # credit it was paid with. A Sick / PTO-only day was not worked.
+            words = (f"worked the half day, plus {money(d['holidayPay'], cur)} credited for the other half."
+                     if d.get("holidayPay") else
+                     "worked. Only the hours worked are paid; no holiday pay." if d.get("holidayWorked", True) else
+                     "office closed, not paid.")
+            g.line(_p(f"{_holiday_words(d)} - {words}", _LEFT, color=BLUE, bold=True), BAND if band else None)
         if d.get("diffMin") or d.get("callBackMin"):
             bits = [f"{x.get('name')}: {hm(x.get('min'))} worked in the window - {money(x.get('pay'), cur)}"
                     for x in d.get("differentials") or []]
@@ -350,18 +397,19 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
     worked = int(t.get("regMin") or 0) + int(t.get("otMin") or 0) + int(t.get("dtMin") or 0)
     ot = " · ".join(x for x in [hm(t["otMin"]) if t.get("otMin") else "",
                                 f"{hm(t['dtMin'])} 2x" if t.get("dtMin") else ""] if x) or "-"
-    i = g.add([_p("Total Worked", _LEFT, bold=True), "", "", _p(f"-{t['deductedMin']}m" if t.get("deductedMin") else "-", bold=True),
-               "", _p(hm(worked), bold=True), "", _p(ot, bold=True), "", "",
+    i = g.add([_p("Total Worked", _LEFT, bold=True), "", "",
+               _p(f"-{t['deductedMin']}m" if t.get("deductedMin") else "-", _RIGHT, bold=True),
+               "", _p(hm(worked), _RIGHT, bold=True), "", _p(ot, _RIGHT, bold=True), "", "",
                _p(money(float(t.get("regPay") or 0) + float(t.get("otPay") or 0) + float(t.get("dtPay") or 0), cur),
-                  bold=True)])
+                  _RIGHT, bold=True)])
     g.cmds += [("SPAN", (0, i), (2, i)), ("BACKGROUND", (0, i), (-1, i), HEAD)]
     for label, mk, pk in (("Sick", "sickMin", "sickPay"), ("Vacation", "vacationMin", "vacationPay"),
                           ("Personal", "personalMin", "personalPay")):
         if t.get(mk):
-            i = g.add([_p(f"Time Off - {label}", _LEFT, color=RED, bold=True), "", "", "", _p(label),
-                       _p(hm(t[mk]), bold=True), "", "", "", "", _p(money(t.get(pk), cur), bold=True)])
+            i = g.add([_p(f"Time Off - {label}", _LEFT, color=RED, bold=True), "", "", "", _p(label, _LEFT),
+                       _p(hm(t[mk]), _RIGHT, bold=True), "", "", "", "", _p(money(t.get(pk), cur), _RIGHT, bold=True)])
             g.cmds += [("SPAN", (0, i), (2, i)), ("BACKGROUND", (0, i), (-1, i), HEAD)]
-    return g.table([62, 54, 58, 48, 84, 48, 42, 54, 146, 58, 66])
+    return g.table([62, 56, 56, 48, 84, 44, 46, 54, 146, 58, 66], hairlines=True)
 
 
 def hourly_summary(card: dict, full: bool = False) -> list:
@@ -386,10 +434,16 @@ def hourly_summary(card: dict, full: bool = False) -> list:
              for x in t.get("differentials") or []]
     if t.get("callBackMin"):
         rows.append((f"Call-Back Pay (minimum not worked){at(1)}", hd(t["callBackMin"]), money(t.get("callBackPay"), cur)))
-    if t.get("holidayDays"):
-        n = int(t["holidayDays"])
+    if t.get("holidayPay"):
+        # A holiday before 11/01/2026 keeps the credit it was paid with.
+        n = int(t.get("holidayDays") or 0)
         rows.append((f"Company holiday{'' if n == 1 else 's'} ({n} day{'' if n == 1 else 's'}, not worked)", "-",
                      money(t.get("holidayPay"), cur)))
+    elif t.get("holidayDays"):
+        # An hourly holiday is an unpaid day off (Neil, 11/04/2026): counted, never priced.
+        n = int(t["holidayDays"])
+        rows.append((f"Company holiday{'' if n == 1 else 's'} ({n} day{'' if n == 1 else 's'}) - office closed, "
+                     "not paid", "-", "-"))
     if t.get("mealPremiumMin"):
         rows.append((f"Meal Premium ({int(t['mealPremiumMin']) // 60} x 1 hour of pay)", "-",
                      money(t.get("mealPremiumPay"), cur)))

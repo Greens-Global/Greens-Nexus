@@ -17,7 +17,7 @@
 // The builder renders only what the catalog serves - nothing about a
 // trigger, field or action is hard-coded here.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowLeft, Copy, FlaskConical, History, LayoutTemplate, List, Pause, Play, Save, Settings, Upload, Waypoints } from 'lucide-react';
+import { Archive, Copy, FlaskConical, History, LayoutTemplate, List, Pause, Play, Save, Settings, Upload, Waypoints } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
@@ -25,6 +25,7 @@ import { useRole } from '../contexts/RoleContext';
 import { dialog } from '../ui/dialog';
 import HoldButton from '../ui/HoldButton';
 import { useIsMobile } from '../lib/useIsMobile';
+import { useTrailCrumbs } from '../components/PageTrail';
 import { btn } from '../tasks/theme';
 import { useCatalog } from './lib/useCatalog';
 import { describeWorkflow } from './lib/text';
@@ -71,6 +72,8 @@ function companiesFromCatalog(catalog) {
 }
 
 export default function Builder({ id, go, runId = '' }) {
+  // The page trail's WORKFLOWS goes up to the Workflows list (11/04/2026).
+  useTrailCrumbs([{ label: 'Workflows', onClick: () => go('list') }]);
   const { catalog, loading: catalogLoading, error: catalogError, isNew } = useCatalog();
   const role = useRole() || {};
   const isMobile = useIsMobile();
@@ -343,7 +346,6 @@ export default function Builder({ id, go, runId = '' }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: isMobile ? '12px 16px 40px' : full ? '4px 4px 16px' : '16px 20px 40px', fontFamily: 'inherit' }}>
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <button type="button" onClick={() => go('list')} aria-label="Back to Workflows" style={{ ...btn('ghost'), padding: 6 }}><ArrowLeft size={16} /></button>
         <input type="text" value={meta.name} onChange={(e) => setMeta({ name: e.target.value })} aria-label="Workflow name" placeholder="Name this workflow" disabled={!workflow || !canEdit} style={{
           flex: '1 1 220px', minWidth: 160, fontSize: 18, fontWeight: 700, border: '1px solid transparent', borderRadius: 8, padding: '4px 8px',
           background: 'transparent', color: 'var(--nx-ink)', fontFamily: 'inherit',

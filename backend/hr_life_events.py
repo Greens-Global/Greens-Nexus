@@ -541,12 +541,17 @@ def role_paperwork(role) -> dict:
     Job Description prints, the role's own documents and its job description
     file (Neil, 11/03/2026), frozen into an offer's details."""
     if role is None:
-        return {"role_description": "", "role_docs": [], "role_jd_file": {}}
+        return {"role_description": "", "role_docs": [], "role_jd_file": {}, "role_jd_template": "",
+                "role_offer_docs": []}
     docs = [{"templateId": str(r.get("templateId") or ""), "replaces": str(r.get("replaces") or "")}
             for r in (getattr(role, "hiring_docs", None) or []) if isinstance(r, dict) and r.get("templateId")]
     f = getattr(role, "jd_file", None) or {}
     return {"role_description": (getattr(role, "job_description", "") or role.description or "").strip(),
-            "role_docs": docs, "role_jd_file": dict(f) if isinstance(f, dict) and f.get("path") else {}}
+            "role_docs": docs, "role_jd_file": dict(f) if isinstance(f, dict) and f.get("path") else {},
+            # A job description kept in Documents (11/04/2026): its published wording, live.
+            "role_jd_template": (getattr(role, "jd_template_id", "") or "") if not (isinstance(f, dict) and f.get("path")) else "",
+            # What goes with the offer letter, in order (11/04/2026), frozen into the offer.
+            "role_offer_docs": [dict(x) for x in (getattr(role, "offer_docs", None) or []) if isinstance(x, dict)]}
 
 
 def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
@@ -1162,14 +1167,15 @@ def offer_from_people(db: Session, company: str, department: str) -> dict:
 
 
 def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", role_id: str = "",
-              kind: str = "offer", role_docs=None) -> Optional[dict]:
+              kind: str = "offer", role_docs=None, offer_docs=None) -> Optional[dict]:
     """What a letter or packet needs from HR, for the offer form - with the
     documents it adds for this person's team and role (a hiring packet with
     the role's own documents filled in)."""
     if s is None:
         return None
     import hr_packet_docs as hpd
-    ids = hpd.template_ids_for(s, {"department": department, "role_id": role_id, "role_docs": role_docs or []}, kind)
+    ids = hpd.template_ids_for(s, {"department": department, "role_id": role_id, "role_docs": role_docs or [],
+                                   "jd_in_offer": True, "role_offer_docs": offer_docs or []}, kind)
     snaps, problems = hpd.load_snaps(db, ids)
     snaps = hpd.with_sources(s, snaps)
     tokens = {t for snap in snaps for t in snap.tokens}
@@ -1208,7 +1214,8 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
     from models import NexusGroup
     role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first() if role_id else None
     department = (role.department if role is not None else "") or department or cand.department or ""
-    out["offerLetter"] = _describe(db, letter, department, role_id)
+    out["offerLetter"] = _describe(db, letter, department, role_id,
+                                   offer_docs=role_paperwork(role)["role_offer_docs"])
     out["hiringPacket"] = _describe(db, packet, department, role_id, kind="hire",
                                     role_docs=role_paperwork(role)["role_docs"])
     from hr_packet_docs import name_of
@@ -1382,10 +1389,18 @@ def _build_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[
     if active_hire_event(db, cand.id):
         raise PacketError("An offer letter or hiring packet is already open for this candidate - void it first.", 409)
     opts = four_options(inputs or {})
+    # The role's job description kept in Documents wins over a pick (11/04/2026).
+    if d.get("role_jd_template") and not d.get("role_jd_file"):
+        opts["jd_template_id"] = d["role_jd_template"]
+        try:
+            _check_jd(db, opts["jd_template_id"])
+        except PacketError:
+            raise PacketError(f'{d["job_title"] or "This role"}\'s job description in Documents is archived or gone - '
+                              f"pick another under Settings > People & Access > Roles > Job Description / Documents.") from None
     _check_jd(db, opts["jd_template_id"])
     # The job description goes out WITH the offer, after the letter, and the
     # candidate ticks that they read it (Neil, 11/03/2026) - so never without one.
-    if not d.get("role_jd_file"):
+    if not d.get("role_jd_file") and not d.get("role_jd_template"):
         if not opts["jd_template_id"]:
             raise PacketError("Pick the Job Description document - it is printed after the offer letter.")
         if not d.get("role_description"):
@@ -1594,6 +1609,8 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
             "phone": (cand.phone if cand else "") or "", "role": (ev.inputs or {}).get("job_title", ""),
             "expiresOn": ev.intake_expires_on or "", "prefill": known,
             "afterOffer": bool((ev.inputs or {}).get("after_offer")), "kind": ev.kind or "",
+            # Submit And Continue (11/04/2026): back on this link, they carry on signing.
+            "signUrl": hpd.subject_sign_link(db, ev) if ev.intake_submitted_at else "",
             # An employee's name and address are on People already - only the documents' questions.
             "fields": intake_standard_fields(view.tokens) if ev.kind in CANDIDATE_KINDS else [],
             # The packet's own Details Form (Oct 14) - any country, any field.
@@ -1632,7 +1649,11 @@ def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
         try:
             p = hpd.event_plan(db, ev, setting, sender=ev.created_by, can_see_pay=True)
             hpd.sync_documents(db, ev, setting, p, ev.created_by)
-            _ask_verifier(db, ev, p)
+            db.commit()                  # their details and the documents are kept whatever comes next
+            # Submit And Continue (11/04/2026): straight on to signing, else HR's review as before.
+            if not hpd.release_after_intake(db, ev, setting, hpd.event_plan(db, ev, setting, sender=ev.created_by,
+                                                                            can_see_pay=True)):
+                _ask_verifier(db, ev, p)
         except Exception as e:   # noqa: BLE001 - the details are kept; HR sees the problem on review
             print(f"[life-events] intake {ev.id}: documents not generated: {type(e).__name__}: {e}")
             _notify(db, ev.created_by, f"Details Received - {ev.subject_name}",

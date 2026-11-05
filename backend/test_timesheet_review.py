@@ -418,7 +418,7 @@ class SigningTests(ReviewCase):
         for s_ in ("Salaried (monthly)", "Monthly Salary: $6,000.00", "Effect on Pay", "Day",
                    "NET PAY THIS MONTH", "Signed by employee - finalizes the time sheet"):
             self.assertIn(s_, text)
-        self.assertNotIn("Hrs/Day", text)
+        self.assertNotIn("Day Total", text)
         # Country or Region US: the meal and rest statement prints for salaried
         # staff too (Pranshu, Oct 20) - without Report a Missed Break, whose
         # premium pay only an hourly card pays.
@@ -496,7 +496,7 @@ class PaperPrintTests(ReviewCase):
         self.db.commit()
         self.addCleanup(lambda: (self.db.query(models.TimeApproval).filter_by(id="fin-paper").delete(), self.db.commit()))
         text = self._text(tsr.paper_pdf(self.db, EMP, ANCHOR, HR)[0])
-        self.assertIn("Break 30m", text)
+        self.assertIn("Break 7:00 PM 7:30 PM 30 min", " ".join(text.split()))   # its own line (Neil, 11/04/2026)
         self.assertIn("BREAK TIME", text)
         self.assertIn("Finalized by HR - period locked", text)
         self.assertIn("Signed by employee on paper", text)
@@ -505,7 +505,11 @@ class PaperPrintTests(ReviewCase):
         self.db.commit()
         r = tsr.submit(self.db, EMP, ANCHOR)
         esign_text = self._text(tsr.build_pdf(self.db, r)[0])
-        self.assertNotIn("Break 30m", esign_text)                    # the e-sign copy keeps its layout
+        # The e-sign copy shows the break line too - the PDF matches the screen
+        # (Neil, 11/04/2026; it was the paper copy only since Pranshu, Oct 23) -
+        # but not the paper copy's BREAK TIME summary line.
+        self.assertIn("Break 7:00 PM 7:30 PM 30 min", " ".join(esign_text.split()))
+        self.assertNotIn("BREAK TIME", esign_text)
         self.assertNotIn("on paper", esign_text)
 
     def test_a_finalized_time_sheet_still_prints_and_stays_as_it_was(self):
@@ -872,7 +876,33 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["title"], "Review Erin Test's Time Sheet")
         self.assertIn(f"{tsr.us_date(self.start)} - {tsr.us_date(self.end)} - 7h 00m", rows[0]["detail"])
-        self.assertTrue(rows[0]["url"].endswith("/hr/hr-time"))   # People > Time (Oct 22)
+        # That person's card on that period (11/05/2026: the bare /hr/hr-time
+        # link opened Payroll on whoever sorted first).
+        from urllib.parse import urlsplit, parse_qs
+        link = urlsplit(rows[0]["url"])
+        self.assertTrue(link.path.endswith("/hr/hr-time"))
+        q = parse_qs(link.query)
+        self.assertEqual(q["timecard"], [EMP])
+        self.assertEqual(q["start"], [str(self.start)])
+        self.assertIn("type", q)
+
+
+class BriefingSignLinkTests(ReviewCase):
+    def test_sign_your_updated_time_sheet_opens_that_period(self):
+        """11/05/2026: the row linked the employee's CURRENT Time Sheet; it
+        opens the changed period (?start=&type=, read by PayrollTimecard)."""
+        import daily_briefing
+        import uuid
+        from urllib.parse import urlsplit, parse_qs
+        self.db.add(models.TimesheetReview(id=str(uuid.uuid4()), employee_email=EMP, period_start=str(self.start),
+                                           period_end=str(self.end), pay_type="hourly", status="approved",
+                                           manager_email=MGR))
+        self.db.commit()
+        [row] = [r for r in daily_briefing._timesheet_review_rows(self.db, EMP)
+                 if r["title"] == "Sign Your Updated Time Sheet"]
+        link = urlsplit(row["url"])
+        self.assertTrue(link.path.endswith("/timeclock/timesheet"))
+        self.assertEqual(parse_qs(link.query), {"start": [str(self.start)], "type": ["hourly"]})
 
 
 class StaleReviewTests(ReviewCase):

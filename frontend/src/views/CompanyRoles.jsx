@@ -176,7 +176,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
 
               <div role="tablist" aria-label="Role details" className="scroll-tabs"
                 style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', margin: '12px 0 0' }}>
-                {[['access', 'Access & People'], ['hiring', 'Hiring Documents'], ['checklists', 'Checklists']].map(([key, label]) => {
+                {[['access', 'Access & People'], ['hiring', 'Job Description / Documents'], ['checklists', 'Checklists']].map(([key, label]) => {
                   const on = tab === key;
                   const n = key === 'checklists' ? stepTotal(selected.id) : 0;
                   return (

@@ -130,7 +130,7 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
     if (!open) return undefined;
     // The panel lives at the page root (below), so a click in it is not "outside".
     const onDown = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target) && !e.target.closest?.('.help-widget')) close(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target) && !e.target.closest?.('.help-widget, .hw-scrim')) close(false);
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);

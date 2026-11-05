@@ -993,7 +993,9 @@ def intake_submit(token: str, body: IntakeIn, request: Request, db: Session = De
     except hle.PacketError as e:
         db.rollback()
         _raise(e)
-    return {"ok": True}
+    db.refresh(ev)
+    # Submit And Continue (11/04/2026): the signing page, when the packet opened.
+    return {"ok": True, "signUrl": hpd.subject_sign_link(db, ev)}
 
 
 def _locked_event(db: Session, eid: str, user: dict) -> HrLifeEvent:

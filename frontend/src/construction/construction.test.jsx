@@ -176,7 +176,7 @@ describe('ConstructionDashboard', () => {
 
   it('renders the overview once loaded', async () => {
     render(<ConstructionDashboard />);
-    expect(screen.getByText('Construction Overview')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Project Dashboard' })).toBeInTheDocument();
     // Asserted on the address, not the name: the review queue renders above the
     // project list and names the same jobsite, so getByText(name) matches twice.
     await waitFor(() => expect(screen.getByText(project.address)).toBeInTheDocument());
@@ -189,7 +189,7 @@ describe('ConstructionDashboard', () => {
     // an in-flight fetch that renders the empty state reads as "our data is
     // gone". Skeletons carry no text, so the check is that the page has its
     // frame and the empty state is absent.
-    expect(screen.getByText('Construction Overview')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Project Dashboard' })).toBeInTheDocument();
     expect(screen.queryByText(/No jobs yet/i)).not.toBeInTheDocument();
   });
 
@@ -207,7 +207,7 @@ describe('ConstructionDashboard', () => {
     render(<ConstructionDashboard />);
     await waitFor(() => expect(screen.getByText('network down')).toBeInTheDocument());
     // The header must still be there - a failed fetch is a banner, not a blank screen.
-    expect(screen.getByText('Construction Overview')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Project Dashboard' })).toBeInTheDocument();
   });
 });
 

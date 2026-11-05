@@ -161,7 +161,21 @@ export default function FilingTab({ toastOk, toastErr }) {
           }
         }
       };
+      // 11/05/2026 ("38 folders could not be read - Egnyte was busy"): when
+      // Egnyte throttles, the server hands the unlisted folders back with a
+      // cool-down. The walk waits it out and carries on by itself - longer
+      // each time a folder comes back busy - and only a folder still busy
+      // after BUSY_TRIES pauses is set aside for Try Those Again.
+      const BUSY_TRIES = 4;
+      const busyCount = new Map();
+      let cooldown = 0;
       while (queue.length && !cancelRef.current) {
+        if (cooldown) {
+          setProgress((p) => ({ folders: 0, files: 0, waiting: queue.length, ...(p || {}), cooling: cooldown }));
+          await new Promise((res) => setTimeout(res, cooldown * 1000));
+          cooldown = 0;
+          if (cancelRef.current) break;
+        }
         if (folders >= WALK_FOLDER_CAP || all.length >= WALK_FILE_CAP) { truncated = true; break; }
         // One request in flight carrying up to 20 folders: the server paces
         // its Egnyte calls under the per-user limit and lists until its time
@@ -174,15 +188,28 @@ export default function FilingTab({ toastOk, toastErr }) {
         }
         if (!batch.length) continue;
         const r = await scanBatch(batch);
-        for (const d of (r.deferred || [])) seen.delete(d);
-        queue.unshift(...(r.deferred || []));
+        const back = [];
+        if (r.cooldownSec) {
+          // The first folder handed back is the one Egnyte refused; the rest were never asked.
+          const first = (r.deferred || [])[0];
+          const n = (busyCount.get(first) || 0) + 1;
+          busyCount.set(first, n);
+          if (first && n > BUSY_TRIES) { failed.push(first); seen.delete(first); }
+          cooldown = r.cooldownSec * Math.min(n, BUSY_TRIES);
+        }
+        for (const d of (r.deferred || [])) {
+          if (failed.includes(d)) continue;
+          seen.delete(d);
+          back.push(d);
+        }
+        queue.unshift(...back);
         if (r.truncated) truncated = true;   // one folder past the server's per-call cap
         folders += (r.scannedRoots || []).length;
         missing.push(...(r.missingRoots || []));
         failed.push(...(r.failedRoots || []));
         all = all.concat((r.proposals || []).filter(p => !known.has(p.sourcePath)));
         if (includeSub) queue.push(...(r.subfolders || []));
-        setProgress({ folders, files: all.filter(p => p.status !== 'skip').length, waiting: queue.length });
+        setProgress({ folders, files: all.filter(p => p.status !== 'skip').length, waiting: queue.length, cooling: 0 });
         setScan(assemble(all, missing, truncated, failed));
       }
       const stopped = cancelRef.current && queue.length > 0;
@@ -451,6 +478,7 @@ export default function FilingTab({ toastOk, toastErr }) {
         <LoadingState size="section" slowAfter={600000} minHeight={90} label={progress
           ? `Scanned ${progress.folders.toLocaleString('en-US')} folder${progress.folders === 1 ? '' : 's'} - ${progress.files.toLocaleString('en-US')} file${progress.files === 1 ? '' : 's'} so far`
             + (progress.waiting ? ` - ${progress.waiting.toLocaleString('en-US')} more found to read` : '')
+            + (progress.cooling ? ` - Egnyte is busy, waiting ${progress.cooling} seconds and carrying on` : '')
           : 'Reading the folders'} />
       )}
 

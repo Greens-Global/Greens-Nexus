@@ -310,7 +310,9 @@ def compensation_people(from_: str = Query(alias="from"), to: str = Query(...),
 _COSTS = ("cogs", "expense", "other_expense")
 _INCOME = ("income", "revenue", "other_income")
 
-PAYROLL_LINES = ("bonus", "payroll")
+# Overtime has its own line (Charmi, Teams 11/05/2026: "I do not see Overtime
+# Payroll"): account 61909 and any "overtime" / "double time" wage account.
+PAYROLL_LINES = ("bonus", "payroll", "overtime")
 # Intacct's report keeps Other Benefits (every other cost line carrying the
 # employee, item 12) as its own group after Payroll Taxes, outside Total
 # Benefits: Valinda 2026 = 5,770.06 Benefits + 1,087.16 Other Benefits.
@@ -324,7 +326,7 @@ LEDGER_LINES = PAYROLL_LINES + BENEFIT_LINES + TAX_LINES + OTHER_LINES + DEDUCTI
 # The accounts the payroll file posts to (payrollConvert.js DEFAULT_PAYROLL_MAPPING).
 ACCOUNT_LINES = {
     "61908": "bonus",
-    "61904": "payroll", "61905": "payroll", "61906": "payroll", "61907": "payroll", "61909": "payroll", "61910": "payroll",
+    "61904": "payroll", "61905": "payroll", "61906": "payroll", "61907": "payroll", "61909": "overtime", "61910": "payroll",
     "61903": "health",
     "62101": "futa", "62102": "medicare", "62104": "socsec", "62105": "suta", "62106": "ett",
     "23801": "fedWh", "23804": "medicareWh", "23807": "socsecWh", "23806": "sdi", "23811": "stateWh",
@@ -337,6 +339,7 @@ _PAY_TAX = re.compile(r"payroll tax|employer tax|\bfica\b|\bfuta\b|\bsuta\b|\bsu
 _BONUS = re.compile(r"\bbonus", re.I)
 _K401 = re.compile(r"401\s*\(?k|retirement|pension", re.I)
 _HEALTH = re.compile(r"health|medical|dental|vision", re.I)
+_OVERTIME = re.compile(r"overtime|double\s*time", re.I)
 _WAGE = re.compile(r"payroll|salar|wage|commission|overtime|hourly|holiday|\bpto\b|vacation|\bsick", re.I)
 
 
@@ -382,6 +385,8 @@ def comp_line(section: str, account_no: str, title: str) -> Optional[str]:
             return _tax_line(t)
         if _BONUS.search(t):
             return "bonus"
+        if _OVERTIME.search(t):
+            return "overtime"
         if _K401.search(t):
             return "k401"
         if _HEALTH.search(t):
@@ -427,7 +432,9 @@ def ledger_people(rows: list[dict], labels: dict) -> dict[str, dict]:
         debit, credit = _r2(r.get("debit")), _r2(r.get("credit"))
         # The company's premium is the debit; the employee's share, deducted from pay, the credit.
         parts = [("health", "d", debit), ("dedHealth", "c", -credit)] if line == "health" else [(line, "", _r2(debit - credit))]
-        p = out.setdefault(code, {"code": code, "name": str(labels.get(r.get("bucket")) or labels.get(code) or "").strip(), "lines": {}, "accounts": {}})
+        bucket = str(r.get("bucket") or "")
+        own = bucket.split("--", 1)[1] if "--" in bucket else ""   # "E-0084--Valinda Cranfill"
+        p = out.setdefault(code, {"code": code, "name": str(labels.get(r.get("bucket")) or labels.get(code) or own).strip(), "lines": {}, "accounts": {}})
         for key, side, amt in parts:
             if not amt:
                 continue
@@ -454,12 +461,12 @@ def with_totals(lines: dict, workers_comp: float = 0.0) -> dict:
 def rate_in_force(entries: list[tuple], year: int) -> Optional[tuple]:
     """(rate %, the year it is from) for `year` - the latest year on or before
     it, the newest entry for that year - or None. `entries` = [(effective_year,
-    rate_pct, set_at)]. Pure."""
+    rate_pct, set_at[, class_code])] - a class code rides along as a third item. Pure."""
     best = None
-    for y, rate, at in entries or []:
+    for y, rate, at, *rest in entries or []:
         if y <= year and (best is None or (y, at or "") > (best[0], best[2] or "")):
-            best = (y, rate, at)
-    return (best[1], best[0]) if best else None
+            best = (y, rate, at, *rest)
+    return (best[1], best[0], *best[3:]) if best else None
 
 
 def year_slices(months: list[str]) -> list[tuple[int, str, str]]:
@@ -496,17 +503,19 @@ def build_report(slices: list[tuple[str, int, dict]], rates: dict, people: dict)
             gross = _r2(sum(p["lines"].get(k, 0) for k in PAYROLL_LINES))
             hit = rate_in_force(rates.get(code.upper()) or [], year)
             if hit and gross:
-                t["wc"].append({"year": year, "ratePct": hit[0], "rateYear": hit[1], "gross": gross, "amount": _r2(gross * hit[0] / 100)})
+                t["wc"].append({"year": year, "ratePct": hit[0], "rateYear": hit[1], "gross": gross, "amount": _r2(gross * hit[0] / 100),
+                                **({"classCode": hit[2]} if len(hit) > 2 and hit[2] else {})})
     rows = []
     for code_u, e in per.items():
         cur = with_totals(e["cur"]["lines"], sum(w["amount"] for w in e["cur"]["wc"]))
         if not any(cur.values()):
             continue
-        info = people.get(code_u) or {}
+        info = match_person(people, code_u, e["name"])
         rows.append({
             "code": e["code"], "name": info.get("name") or e["name"] or e["code"], "email": info.get("email") or "",
             "company": info.get("company") or "", "companyName": info.get("companyName") or "",
             "department": info.get("department") or "", "title": info.get("title") or "", "inPeople": bool(info),
+            "active": info.get("active", True), "nameMismatch": info.get("mismatch") or "",
             "hasRate": bool(rates.get(code_u)),
             "cur": cur, "prior": with_totals(e["prior"]["lines"], sum(w["amount"] for w in e["prior"]["wc"])),
             "accounts": {"cur": e["cur"]["accounts"], "prior": e["prior"]["accounts"]},
@@ -516,6 +525,49 @@ def build_report(slices: list[tuple[str, int, dict]], rates: dict, people: dict)
     return rows
 
 
+def _name_key(s: str) -> str:
+    """'Shah, Nishita', 'E-0047--Nishita Shah' and 'nishita  shah' -> 'nishita shah'."""
+    s = str(s or "")
+    if "--" in s:
+        s = s.split("--", 1)[1]
+    s = " ".join(s.split())
+    if s.count(",") == 1:
+        last, _, first = s.partition(",")
+        s = f"{first} {last}"
+    return " ".join(re.sub(r"[^\w ]", "", s.lower()).split())
+
+
+def _same_person(a: str, b: str) -> bool:
+    """Loose on purpose (a middle name, a nickname's surname): the first and
+    last words of the shorter name both appear in the longer one."""
+    ka, kb = _name_key(a).split(), _name_key(b).split()
+    if not ka or not kb:
+        return True
+    short, long_ = (ka, kb) if len(ka) <= len(kb) else (kb, ka)
+
+    def has(w: str) -> bool:   # "c" stands for "cranfill" ("Valinda C." on the ledger)
+        return any(x == w or (len(w) == 1 and x.startswith(w)) or (len(x) == 1 and w.startswith(x)) for x in long_)
+    return has(short[0]) and has(short[-1])
+
+
+def match_person(people: dict, code_u: str, ledger_name: str) -> dict:
+    """The People record for a ledger employee. By employee code, unless the
+    ledger names somebody else (11/05/2026: Intacct's E-0047 carried Charmi's
+    email, so the code sync gave Charmi Nishita's code and the report showed
+    Nishita's pay under Charmi's name and photo) - then the ledger's own name
+    stands, with no photo, and the row says why. With no code match, an exact
+    name that only one person in People has (photos for people whose People
+    record has no Intacct code yet). Pure."""
+    by_code = people.get(code_u)
+    if by_code:
+        if ledger_name and not _same_person(by_code.get("name") or "", ledger_name):
+            return {"mismatch": by_code.get("name") or ""}
+        return by_code
+    key = _name_key(ledger_name)
+    hits = (people.get("__by_name__") or {}).get(key) or []
+    return hits[0] if key and len(hits) == 1 else {}
+
+
 def _people_and_rates() -> tuple[dict, dict]:
     """Nexus People by employee code (the Intacct employee ID - Valinda
     Cranfill is E-0084 in both), and the workers' comp rates by the same code.
@@ -523,21 +575,30 @@ def _people_and_rates() -> tuple[dict, dict]:
     db = database.SessionLocal()
     try:
         companies = {c.id: c.name or "" for c in db.query(models.HrEntity).all()}
-        people, ids = {}, {}
-        # An active record wins over an old one with the same code.
-        for e in sorted(db.query(models.NexusEmployee).all(), key=lambda e: e.status == "active"):
+        people, ids, by_name = {}, {}, {}
+        # An active record wins over an old one with the same code. Removed
+        # people count too (11/05/2026: Anthony Bell and Ricky Cotton were
+        # removed from People but still on the ledger) - as inactive, so
+        # Show Inactive Employees decides whether they show.
+        everyone = db.query(models.NexusEmployee).execution_options(include_deleted=True).all()
+        for e in sorted(everyone, key=lambda e: (e.status == "active" and not (e.deleted_at or ""))):
+            info = {"name": (e.display_name or f"{e.first_name or ''} {e.last_name or ''}").strip(), "email": (e.work_email or "").lower(),
+                    "company": e.company or "", "companyName": companies.get(e.company or "", ""),
+                    "department": e.department or "", "title": e.job_title or e.designation or "",
+                    "active": (e.status or "active") == "active" and not (e.deleted_at or "")}
+            for k in {_name_key(info["name"]), _name_key(f"{e.first_name or ''} {e.last_name or ''}")} - {""}:
+                by_name.setdefault(k, []).append(info)
             code = (e.employee_code or "").strip().upper()
             if not code:
                 continue
             ids[e.id] = code
-            people[code] = {"name": (e.display_name or f"{e.first_name or ''} {e.last_name or ''}").strip(), "email": (e.work_email or "").lower(),
-                            "company": e.company or "", "companyName": companies.get(e.company or "", ""),
-                            "department": e.department or "", "title": e.job_title or e.designation or ""}
+            people[code] = info
+        people["__by_name__"] = by_name
         rates: dict[str, list] = {}
         for r in db.query(models.WorkersCompRate).all():
             code = ids.get(r.employee_id)
             if code and r.rate_pct is not None:
-                rates.setdefault(code, []).append((int(r.effective_year), float(r.rate_pct), r.set_at or ""))
+                rates.setdefault(code, []).append((int(r.effective_year), float(r.rate_pct), r.set_at or "", r.class_code or ""))
         return people, rates
     finally:
         db.close()

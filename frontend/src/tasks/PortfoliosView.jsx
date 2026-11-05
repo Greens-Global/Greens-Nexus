@@ -3,12 +3,13 @@
 // the export's PortfoliosPage/PortfolioDetailPage into Nexus inline-style idiom.
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  Briefcase, Plus, Search, Pencil, Trash2, FolderKanban, ArrowLeft, ArrowRight,
+  Briefcase, Plus, Search, Pencil, Trash2, FolderKanban, ArrowRight,
   AlertTriangle, ArrowUp, ArrowDown, X, Archive, ArchiveRestore, ChevronRight, ArrowUpRight,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { taskStats, topLevel, portfolioRowTree, portfolioDeepProjectIds, todayISO } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
+import { useTrailCrumbs } from '../components/PageTrail';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, ChipMultiSelect, ViewToggle, ExportMenu } from './components';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import ProjectIcon from './ProjectIcon';
@@ -845,6 +846,8 @@ export function PortfolioCreateModal({ onClose, onCreated }) {
 
 // ── Detail view: member projects + add/remove/reorder ─────────────────────────
 function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit }) {
+  // The page trail names the list above this portfolio (TASKS / PORTFOLIOS).
+  useTrailCrumbs([{ label: 'Portfolios', onClick: onBack }], onBack);
   const { projectById, updatePortfolio } = store;
   const accent = pf.color || NX.purple;
   const [search, setSearch] = useState('');
@@ -880,7 +883,6 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
     <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       {/* Header */}
       <div style={{ padding: '12px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <button onClick={onBack} style={{ ...btn('ghost'), alignSelf: 'flex-start', padding: '4px 6px', fontSize: 13, color: NX.dim }}><ArrowLeft size={15} />Back to Portfolios</button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 42, height: 42, borderRadius: 11, flexShrink: 0, background: `${accent}1a`, color: accent }}><Briefcase size={21} /></span>
           <div style={{ minWidth: 0, flex: 1 }}>

@@ -17,6 +17,7 @@ import { isOffline } from '../../lib/offline/store';
 import { clientId } from '../lib/job';
 import { validate } from '../lib/upload';
 import { sendFieldTicket } from '../constructionOffline';
+import { formatHoursWords } from '../../lib/hoursText';
 
 const SignaturePad = lazy(() => import('../../components/ESign').then((m) => ({ default: m.SignaturePad })));
 
@@ -131,7 +132,7 @@ export default function FieldTicketSheet({ project, today, onClose, onSent }) {
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                <span className="form-label" style={{ margin: 0 }}>Labor {totalHours ? `(${totalHours} h)` : ''}</span>
+                <span className="form-label" style={{ margin: 0 }}>Labor {totalHours ? `(${formatHoursWords(totalHours, { compact: true })})` : ''}</span>
                 <span style={{ display: 'flex', gap: 6 }}>
                   <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }} onClick={usePunches}><Clock size={13} />Use Time Clock Hours</button>
                   <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }}

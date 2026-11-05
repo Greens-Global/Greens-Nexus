@@ -131,6 +131,12 @@ export function mutateFolderCache(path, fn) {
   }
 }
 
+// One page of a listing (Nov 3 - Priyanka/Urmi: the picker died with "Can't
+// reach Nexus" on Greens Global's and OSM's Vendors folders). Big enough that
+// ordinary folders arrive whole in one answer; a huge one paints its first
+// page fast and the browser offers Show More for the rest.
+export const FOLDER_PAGE = 400;
+
 export function getFolderCached(path, { force = false } = {}) {
   const key = normPath(path);
   if (!force) {
@@ -139,7 +145,7 @@ export function getFolderCached(path, { force = false } = {}) {
     const inflight = _folderInflight.get(key);
     if (inflight) return inflight;
   }
-  const p = api.egnyteFolder(key)
+  const p = api.egnyteFolder(key, { count: FOLDER_PAGE })
     .then(d => {
       if (_folderCache.size >= FOLDER_CACHE_MAX) _folderCache.delete(_folderCache.keys().next().value);
       _folderCache.set(key, { t: Date.now(), data: d });
@@ -150,6 +156,33 @@ export function getFolderCached(path, { force = false } = {}) {
     .catch(err => { _folderInflight.delete(key); throw err; });
   _folderInflight.set(key, p);
   return p;
+}
+
+// The next page of a folder whose listing said hasMore, appended into the
+// cached listing (deduped by path - an Egnyte that ignored the paging params
+// answers page 2 with the same full listing, which lands here as nothing new
+// and turns hasMore off). Resolves with the grown listing.
+export function fetchMoreFolder(path) {
+  const key = normPath(path);
+  const hit = _folderCache.get(key);
+  const base = hit?.data;
+  if (!base?.hasMore) return Promise.resolve(base || null);
+  return api.egnyteFolder(key, { count: FOLDER_PAGE, offset: base.nextOffset || 0 })
+    .then(page => {
+      const seen = new Set([...(base.folders || []), ...(base.files || [])].map(i => normPath(i.path)));
+      const newFolders = (page.folders || []).filter(f => !seen.has(normPath(f.path)));
+      const newFiles = (page.files || []).filter(f => !seen.has(normPath(f.path)));
+      const grown = {
+        ...base,
+        folders: [...(base.folders || []), ...newFolders],
+        files: [...(base.files || []), ...newFiles],
+        hasMore: !!page.hasMore && (newFolders.length + newFiles.length > 0),
+        nextOffset: page.nextOffset || 0,
+      };
+      _folderCache.set(key, { t: _folderCache.get(key)?.t ?? Date.now(), data: grown });
+      _persistSoon();
+      return grown;
+    });
 }
 
 export function invalidateFolder(path) {

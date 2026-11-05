@@ -826,9 +826,19 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
                                                or next(iter(by_key.get(_dept_key(r.department)) or []), "")),
                        # What goes after the offer letter (Neil, 11/03/2026): the role's file, else its duties.
                        "jdFile": ((r.jd_file or {}).get("name") or "") if (r.jd_file or {}).get("path") else "",
+                       # Or a Documents template, live (11/04/2026).
+                       "jdTemplateId": r.jd_template_id or "",
+                       # What goes with the offer letter, in order (11/04/2026) - its names for the offer form.
+                       "offerDocs": _offer_docs_of(db, r),
                        "hasDuties": bool((r.job_description or r.description or "").strip())}
                       for r in roles],
             "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES)}
+
+
+def _offer_docs_of(db: Session, role) -> list:
+    """[{kind, templateId, name}] the role sends with its offer, in order (11/04/2026)."""
+    from routers.jobroles import _ser_offer_docs
+    return _ser_offer_docs(db, getattr(role, "offer_docs", None) or [])
 
 
 def _cand_in_scope(c: Optional[HrCandidate], scope) -> HrCandidate:
@@ -2893,6 +2903,7 @@ class EntityIn(BaseModel):
     manager_email:      Optional[str] = ""   # legacy mirror - kept for callers still reading the single field
     manager_emails:     Optional[list] = None   # company manager(s) (Nexus people or external users, Sep 29) - source of truth
     hr_contact_email:   Optional[str] = ""      # signs + finalizes timesheets (timesheet_review.py)
+    it_contact_email:   Optional[str] = ""      # named in the new-hire welcome email (11/04/2026)
     signatory_email:    Optional[str] = ""      # the authorized signatory as a Nexus person (HR packets, Oct 14)
     invoice_recipients: Optional[list] = None   # who gets a contractor's approved invoice by email (Oct 21)
 
@@ -2921,6 +2932,7 @@ class EntityUpdate(BaseModel):
     manager_email:      Optional[str] = None
     manager_emails:     Optional[list] = None
     hr_contact_email:   Optional[str] = None
+    it_contact_email:   Optional[str] = None
     signatory_email:    Optional[str] = None
     invoice_recipients: Optional[list] = None
 
@@ -2981,6 +2993,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "managerEmail": e.manager_email or "",
         "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
         "hrContactEmail": e.hr_contact_email or "",
+        "itContactEmail": e.it_contact_email or "",
         "signatoryEmail": getattr(e, "signatory_email", "") or "",
         "invoiceRecipients": e.invoice_recipients or [],
         "createdAt": e.created_at, "updatedAt": e.updated_at,
@@ -3024,6 +3037,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         domains=_norm_domains(body.domains or ""),
         manager_email=mgr_email, manager_emails=mgr_emails,
         hr_contact_email=(body.hr_contact_email or "").strip().lower(),
+        it_contact_email=(body.it_contact_email or "").strip().lower(),
         signatory_email=_check_signatory_email(db, body.signatory_email or ""),
         invoice_recipients=_norm_emails(body.invoice_recipients),
         created_by=user["email"], created_at=now, updated_at=now,
@@ -3068,7 +3082,7 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             continue
         if key == "domains":
             value = _norm_domains(value)
-        elif key in ("manager_email", "hr_contact_email"):
+        elif key in ("manager_email", "hr_contact_email", "it_contact_email"):
             value = value.strip().lower()
         elif key == "signatory_email":
             value = _check_signatory_email(db, value)
@@ -5149,10 +5163,16 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
 # year wins, every earlier one stays as the history). Accounting >
 # Compensation charges rate x gross wages for each year of its period. The pay
 # record's grant: hr_comp viewers read, editors (HR and payroll) add a rate.
+# ratePct is the insurer's "rate per $100 of remuneration" (the same number as
+# a percent of wages); classCode / state / description are the insurer's class
+# (Charmi / Neil, 11/05/2026).
 class WorkersCompIn(BaseModel):
-    year:    int
-    ratePct: float
-    note:    Optional[str] = ""
+    year:        int
+    ratePct:     float
+    note:        Optional[str] = ""
+    classCode:   Optional[str] = ""
+    state:       Optional[str] = ""
+    description: Optional[str] = ""
 
 
 def workers_comp_out(db: Session, employee_id: str) -> dict:
@@ -5160,7 +5180,8 @@ def workers_comp_out(db: Session, employee_id: str) -> dict:
     from models import WorkersCompRate
     rows = (db.query(WorkersCompRate).filter(WorkersCompRate.employee_id == employee_id)
             .order_by(WorkersCompRate.effective_year.desc(), WorkersCompRate.set_at.desc()).all())
-    history = [{"year": r.effective_year, "ratePct": r.rate_pct, "note": r.note or "", "setBy": r.set_by or "", "setAt": r.set_at or ""} for r in rows]
+    history = [{"year": r.effective_year, "ratePct": r.rate_pct, "classCode": r.class_code or "", "state": r.state or "",
+                "description": r.description or "", "note": r.note or "", "setBy": r.set_by or "", "setAt": r.set_at or ""} for r in rows]
     rates, seen = [], set()
     for h in history:
         if h["year"] not in seen:
@@ -5191,8 +5212,15 @@ def add_workers_comp(eid: str, body: WorkersCompIn, user: dict = Depends(require
     if not 2000 <= body.year <= now.year + 1:
         raise HTTPException(400, f"Pick a year from 2000 to {now.year + 1}.")
     if not 0 <= body.ratePct <= 100:   # NaN fails both sides too
-        raise HTTPException(400, "The workers' comp rate is a percent of gross wages, from 0 to 100.")
+        raise HTTPException(400, "The workers' comp rate is per $100 of wages, from 0 to 100.")
+    state = (body.state or "").strip().upper()
+    if state and not re.fullmatch(r"[A-Z]{2}", state):
+        raise HTTPException(400, "The state is its two-letter code, e.g. CA.")
+    class_code = (body.classCode or "").strip()
+    if class_code and not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.\-]{0,19}", class_code):
+        raise HTTPException(400, "The class code is letters, digits and hyphens, e.g. 8810 or 9015-1.")
     db.add(WorkersCompRate(id=str(uuid.uuid4()), employee_id=row.id, effective_year=body.year, rate_pct=round(body.ratePct, 4),
+                           class_code=class_code, state=state, description=(body.description or "").strip()[:300],
                            note=(body.note or "").strip()[:200], set_by=user["email"], set_at=now.isoformat()))
     db.commit()
     return workers_comp_out(db, row.id)

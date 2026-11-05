@@ -49,7 +49,11 @@ async function openMissingOut() {
   render(<QueryClientProvider client={new QueryClient()}>
     <PayrollTimecard initialEmail="emp@x.com" initialStart={TODAY} toastOk={() => {}} toastErr={() => {}} />
   </QueryClientProvider>);
-  fireEvent.click(await screen.findByTitle('Add the missing clock-out'));
+  // A shift still open today reads In Progress, never Missing (11/04/2026);
+  // its row's Edit opens the form.
+  expect(await screen.findByText(/In Progress ·/)).toBeTruthy();
+  expect(screen.queryByTitle('Add the missing clock-out')).toBeNull();
+  fireEvent.click(await screen.findByTitle(/^Edit this shift/));
   return screen.findByRole('dialog', { name: 'Edit punch' });
 }
 

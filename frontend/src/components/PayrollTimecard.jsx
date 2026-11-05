@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, Info, SlidersHorizontal, Lock, Printer, ClipboardList, Coffee } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, Info, SlidersHorizontal, Lock, Printer, ClipboardList, FileText } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { useDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
@@ -12,6 +12,8 @@ import GuidedTour from './GuidedTour';
 import WorkLogDrawer, { WorkLogButton } from './WorkLogDrawer';
 import { useIsMobile } from '../lib/useIsMobile';
 import { PHONE_QUERY } from '../lib/keys';
+// Narrower than the team list + the whole grid: the list folds into the picker (11/04/2026).
+const NARROW_QUERY = '(max-width: 1439px)';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
@@ -31,7 +33,7 @@ import AddTimeFromRecordModal from './AddTimeFromRecordModal';
 import RecordTag from './RecordTag';
 import { recordOf } from '../lib/duplicateDay';
 import AnchoredMenu from './AnchoredMenu';
-import { Spinner } from './AsyncState';
+import { Spinner, SkeletonBlocks } from './AsyncState';
 import { Modal, DateField, AvatarName } from '../tasks/components';
 import EmployeeCombobox from './EmployeeCombobox';
 import { downloadBlob } from './accounting/reportModel';
@@ -41,6 +43,14 @@ import { moneyPrefix } from '../asset/lib/currency';
 import { registerTour } from '../lib/tours';
 import { confirmExportReadiness } from '../lib/payrollReadiness';
 import { checkLongShift, checkTypedPunches } from '../lib/longShift';
+import { applyTypedTime, orderIssue } from '../lib/timeTyping';
+import TimeText, { timeWords } from './timesheet/TimeText';
+import AttentionStrip from './timesheet/AttentionStrip';
+import ApproveBar from './timesheet/ApproveBar';
+import ReviewMark, { REVIEW_MARK, reviewDone } from './timesheet/ReviewMark';
+import { collectAttention } from './timesheet/attention';
+import useSheetKeys from './timesheet/useSheetKeys';
+import { useTableValue } from '../tasks/tableCols';
 import LongShiftWarning from './LongShiftWarning';
 import { readRefresh, saveRefresh } from '../lib/refreshState';
 
@@ -69,7 +79,6 @@ const DAY = 86400000;
 const isoDate = (d) => new Date(d).toISOString().slice(0, 10);
 const monthName = (d) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });   // "October 2026"
 const hhmm = (min) => `${Math.floor((min || 0) / 60)}:${String((min || 0) % 60).padStart(2, '0')}`;
-const dec = (min) => ((min || 0) / 60).toFixed(2);
 const money = (n, cur = 'USD') => `${moneyPrefix(cur)}${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // Punch kinds as they read in a request line. Breaks are requestable too
 // (BreakFixModal), so nothing here may assume in/out.
@@ -603,7 +612,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       fixedSnapped.current = true;   // stay on it - no first-load snap to this month
       setPStart(anchorForStart(d.start, type));
     };
-    go(takePendingOpen('myTimecard'));
+    // The Daily Briefing's "Sign Your Updated Time Sheet" link carries
+    // ?start=<period>&type=<pay type> (11/05/2026); used once, then dropped.
+    const q = new URLSearchParams(window.location.search);
+    const fromLink = q.get('start') ? { start: q.get('start'), payType: q.get('type') || '' } : null;
+    if (fromLink) {
+      q.delete('start'); q.delete('type');
+      const rest = q.toString();
+      window.history.replaceState(window.history.state, '', window.location.pathname + (rest ? `?${rest}` : ''));
+    }
+    go(takePendingOpen('myTimecard') || fromLink);
     const onOpen = (e) => { takePendingOpen('myTimecard'); go(e.detail); };
     window.addEventListener('nexus:open-my-timecard', onOpen);
     return () => window.removeEventListener('nexus:open-my-timecard', onOpen);
@@ -665,11 +683,19 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const dates = useMemo(() => Array.from({ length: 14 }, (_, i) => isoDate(pStart.getTime() + i * DAY)), [pStart]);
 
   // employee list (scoped) for the picker - per period, so someone who left
-  // before it is not on it (Neil, Oct 22)
+  // before it is not on it (Neil, Oct 22). Each row carries where its review
+  // stands (11/04/2026) and re-reads after any review decision.
+  const [teamTick, setTeamTick] = useState(0);
+  useEffect(() => {
+    if (self) return undefined;
+    const bump = () => setTeamTick(n => n + 1);
+    window.addEventListener('nexus:timesheet-review-changed', bump);
+    return () => window.removeEventListener('nexus:timesheet-review-changed', bump);
+  }, [self]);
   useEffect(() => {
     if (self) return;   // employee self-view has no picker / team list
     api.timeTeam(start, end).then(r => {
-      const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0, department: x.department || '', company: x.company || '', companyId: x.companyId || '' }));
+      const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0, department: x.department || '', company: x.company || '', companyId: x.companyId || '', review: x.review?.status || '' }));
       setPeople(list);
       setPeopleLoaded(true);
       // Someone remembered from before a reload who is no longer in scope
@@ -677,7 +703,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       setEmail(e => (e && (initialEmail === e || list.some(p => p.email === e))) ? e : list[0]?.email || '');
     }).catch(() => setPeopleLoaded(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [self, start, end]);
+  }, [self, start, end, teamTick]);
   useEffect(() => {
     if (self) saveRefresh(_SELF_KEY, { start: isoDate(pStart), payType: data?.payType || '' });
   }, [self, pStart, data?.payType]);
@@ -857,10 +883,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // HR is correcting it (Oct 22): only HR changes it until it is signed again.
   const corrLock = !!data?.review?.inCorrection && !data?.review?.isHr;
   const noEdit = !!fin || ownCard || corrLock;     // nothing on the card is editable here (finalized, your own, HR correcting)
-  // Full-width rows across the hourly table: Date, Edit, In, Out, Deducted
-  // Time, Category, Total Hours, OT, Loc, [Pay Rate], [Wage] - SwipeClock's
-  // order (Neil, Oct 16): the actions up front, the outputs at the end.
-  const span = 13 - (showPay ? 0 : 2);   // + Hrs/Day (Oct 18 2026)
+  // The hourly grid's columns (Neil, 11/04/2026 - the approved v9 layout,
+  // which moves the row actions from after the Date, Oct 16, to the row's
+  // end): Date, In, Out, Deducted Time, Category, Punch, Day Total, OT,
+  // Location, [Pay Rate], [Wage], then Edit / Add / Log.
+  const cols = showPay ? 12 : 10;
   const mgrAp = data?.approval;        // manager approval (step 1 of 2)
   // Never surface a raw email - fall back to a name formatted from the local-part.
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
@@ -922,17 +949,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     finally { setExporting(false); }
   }
 
-  // A leave day (Sick / Vacation / Personal block) reads red across its row
-  // (Pranshu, Oct 12) - the pr-leave class, styled in style.css.
-  // Numeric columns (Hours, OT, Wage) are right-aligned
-  // with tabular numerals so figures line up column by column (Charmi, Sep 30).
-  // The SwipeClock grid (Oct 16): every cell ruled, tight rows, centered text.
-  const gh = { fontSize: 12, fontWeight: 700, padding: '6px 8px', textAlign: 'center', border: '1px solid var(--line)', background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', whiteSpace: 'nowrap' };
-  const gc = { fontSize: 12.5, padding: '3px 8px', textAlign: 'center', border: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', verticalAlign: 'middle' };
-  // A break line between two rows of a shift: thinner and quieter than a row,
-  // dashed above and below, in the day's band.
-  const lineCell = (r) => ({ fontSize: 11, padding: '1px 8px', lineHeight: 1.45, borderTopStyle: 'dashed', borderBottomStyle: 'dashed',
-    background: r.band ? 'color-mix(in srgb, var(--wk-hover) 60%, transparent)' : undefined });
+  // The grid's look (thin lines, aligned times, the week line) is the
+  // "Time Sheet grid" block in style.css (11/04/2026).
   // Add Note in the toolbar (Pranshu, Oct 16): pick the day, write the note.
   const [noteModal, setNoteModal] = useState(false);
   const noteOf = (ds) => (self ? myNote(ds)?.note : notes[ds]?.note) || '';
@@ -987,6 +1005,55 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     } catch (e) { toastErr?.(e?.message || 'Could not update the request.'); }
   };
   const photos = usePhotoMap();
+
+  // ── The Time Sheet pass (Neil, 11/04/2026, plan https://claude.ai/artifact/V1YPriqxVi3graoHsG3iMN) ──
+  // The employee's own day (the card reads in their zone): today's date gets
+  // its box, later days read Upcoming and offer no Add.
+  const todayDs = utcToInputTz(new Date().toISOString().slice(0, 19)).slice(0, 10);
+  // Hide Empty Days: off by default, remembered per person (their profile).
+  const [hideEmpty, setHideEmpty] = useTableValue('timesheet', 'hideEmpty', false);
+  // The time a manager just changed flashes once the card reloads.
+  const [flashPunch, setFlashPunch] = useState('');
+  const [flashDay, setFlashDay] = useState('');
+  useEffect(() => { if (!flashPunch) return undefined; const t = setTimeout(() => setFlashPunch(''), 1800); return () => clearTimeout(t); }, [flashPunch]);
+  useEffect(() => { if (!flashDay) return undefined; const t = setTimeout(() => setFlashDay(''), 1800); return () => clearTimeout(t); }, [flashDay]);
+  const onTimeSaved = useCallback((pid) => { setFlashPunch(pid || ''); load(); }, [load]);
+  const gridRef = useRef(null);
+  const panelRef = useRef(null);
+  // A chip's day: scroll its first row (or its phone card) into view and flash it.
+  const jumpTo = (ds) => {
+    const el = document.querySelector(`[data-ts-day="${ds}"]`);
+    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    setFlashDay(ds);
+  };
+  // The shift in progress right now (no clock-out YET): never "Missing", it
+  // reads In Progress with its running time. The latest open shift, begun in
+  // the last 20 hours, with no clock-in or clock-out after it.
+  const toMs = (iso) => new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`).getTime();
+  const liveSeg = useMemo(() => {
+    const metas = Object.values(data?.punchMeta || {});
+    const now = Date.now();
+    for (const d of [...(data?.days || [])].reverse()) {
+      for (const sg of [...(d.segments || [])].reverse()) {
+        if (!sg.in) continue;
+        if (sg.out || (sg.flags || []).includes('auto_clock_out')) return null;
+        const t0 = toMs(sg.in);
+        if (!(now - t0 < 20 * 3600000)) return null;
+        if (metas.some(m => m?.at && (m.kind === 'in' || m.kind === 'out') && toMs(m.at) > t0 + 30000)) return null;
+        return sg;
+      }
+    }
+    return null;
+  }, [data]);
+  const [, setTick] = useState(0);
+  useEffect(() => { if (!liveSeg) return undefined; const t = setInterval(() => setTick(n => n + 1), 60000); return () => clearInterval(t); }, [liveSeg]);
+  const isLive = (sg) => !!liveSeg && sg === liveSeg;
+  const liveFor = () => (liveSeg ? hhmm(Math.max(0, Math.round((Date.now() - toMs(liveSeg.in)) / 60000))) : '');
+  // "Changed since you approved" (timesheet_review.state_for changedDays): the
+  // days whose hours moved after the approval, before and after.
+  const changed = data?.review?.changedDays || [];
+  const changedBy = Object.fromEntries(changed.map(c => [c.date, c]));
+
   // build rows: for each date, its segments (or one empty row); punch-note lines
   // under their day (SwipeClock); weekly subtotal after each SUNDAY-anchored week
   const rows = [];
@@ -1005,32 +1072,36 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     const band = (dayIdx++ % 2) === 1;
     const segs = d?.segments || [];
     if (!segs.length) {
-      rows.push({ type: 'day', ds, seg: null, band });
-      // A company holiday this employee didn't work (see _company_holidays_for_employee):
-      // hourly pay has no "missed day" deduction to exempt, so it's credited a paid
-      // day instead of just paying $0 for the day.
-      if (d?.isHoliday) rows.push({ type: 'holiday', ds, name: d.holidayName, pay: d.holidayPay, holidayType: d.holidayType });
+      // A company holiday this employee didn't work: the office was closed.
+      // Hourly staff are not paid for it (Neil, 11/04/2026: "Holidays are
+      // days off for hourly employees"), so the row says so and pays nothing.
+      rows.push({ type: 'day', ds, seg: null, band, first: true,
+        holiday: d?.isHoliday ? { name: d.holidayName, type: d.holidayType, pay: d.holidayPay || 0 } : null });
+      // A note on a day with no punches still reads under it.
+      if (noteOf(ds) || notes[ds]?.employeeNote) rows.push({ type: 'note', ds, band, text: '', recs: [] });
     }
     else {
       // SwipeClock punch pairs (Charmi / Visesh, Oct 20 - replaces Pranshu's
       // Oct 16 Break row): a shift with a lunch is two rows, 8:48am -> 1:08pm
-      // and 1:23pm -> 4:45pm, with a thin "Break 15 min" line between them.
+      // and 1:23pm -> 4:45pm, with the break as its own line between them.
       // `seg` is the row (what its In / Out cells show and edit), `base` the
-      // whole shift (what the merged Deducted / Category / OT / Loc / Pay Rate
-      // / Wage / Log cells read). `rs` = the shift's rows + lines, for rowSpan.
+      // whole shift (what the Deducted / Category / OT / Location / Pay Rate
+      // / Wage cells and the actions read, on the shift's first row).
+      let prevBase = null;
       segs.forEach((seg, i) => {
         const items = workStretches(seg, data?.punchMeta || {});
-        const rs = items.length;
         const nWork = items.filter(x => x.kind === 'work').length;
+        // Category and location show once per shift, and on a later shift of
+        // the day only when they differ from the one before (11/04/2026).
+        const sameCat = !!prevBase && (prevBase.category || '') === (seg.category || '') && (prevBase.payClass || '') === (seg.payClass || '');
+        const sameLoc = !!prevBase && (prevBase.workSite || '') === (seg.workSite || '') && (prevBase.geo || '') === (seg.geo || '') && (prevBase.geoOut || '') === (seg.geoOut || '');
         items.forEach((x, n) => {
           if (x.kind === 'work') rows.push({ type: 'day', ds, seg: x.seg, base: seg, band, k: x.k, fromBreak: x.fromBreak,
-            segFirst: n === 0, rs, first: i === 0 && n === 0, last: i === segs.length - 1 && x.k === nWork - 1 });
+            segFirst: n === 0, first: i === 0 && n === 0, last: i === segs.length - 1 && x.k === nWork - 1, sameCat, sameLoc });
           else rows.push({ type: 'line', line: x.kind, ds, brk: x.brk, at: x.at, now: x.now, min: x.min, base: seg, band });
         });
+        prevBase = seg;
       });
-      // Hrs/Day (Neil, Oct 18 2026 - SwipeClock's down arrow): the day's
-      // total sits on its LAST row; every row above it points down to it.
-      for (let j = rows.length - 1; j >= 0; j--) { if (rows[j].type === 'day') { rows[j].dayLast = true; break; } }
       // A shift Nexus auto-closed at end of day (no clock-out was recorded):
       // one loud line under the day - the segment above pays 0 until fixed.
       if (segs.some(s => (s.flags || []).includes('auto_clock_out'))) rows.push({ type: 'auto', ds });
@@ -1050,10 +1121,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       // repeated under "On the punches".
       const recs = recordOf(segs, data?.punchMeta || {});
       const notes = segs.flatMap(segReasons).filter(n => !recs.some(r => r.reason === n));
-      // Worked a half-day holiday: the OTHER half is credited on top of the
-      // punches above, not instead of them (Pranshu, Sep 22 - "half from
-      // holiday and half they worked").
-      if (d?.holidayPay) rows.push({ type: 'holiday', ds, name: d.holidayName, pay: d.holidayPay, holidayType: d.holidayType, worked: true });
+      // Worked a company holiday: the hours worked are paid as usual, nothing
+      // is credited on top (hourly holidays are unpaid, Neil 11/04/2026).
+      if (d?.holidayName) rows.push({ type: 'holiday', ds, name: d.holidayName, holidayType: d.holidayType, pay: d.holidayPay || 0,
+        worked: d.holidayWorked !== false });
       // Shift differentials / call-back pay (Oct 17): only on a company that
       // has them on - its own line under the day, never in the hours.
       if (d?.diffMin || d?.callBackMin) rows.push({ type: 'premium', ds, day: d });
@@ -1064,6 +1135,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     (reqsByDate[ds] || []).forEach(q => rows.push({ type: 'req', ds, req: q }));
   });
   if (prevWeek) rows.push({ type: 'wk', week: prevWeek });
+  // A day with nothing on it - no punches, no holiday, no note, no request -
+  // is the "empty" day Hide Empty Days takes away.
+  const emptyDay = (ds) => !(byDate[ds]?.segments || []).length && !byDate[ds]?.isHoliday && !(reqsByDate[ds] || []).length
+    && !noteOf(ds) && !notes[ds]?.employeeNote;
+  const shownRows = hideEmpty ? rows.filter(r => !(r.type === 'day' && !r.seg && emptyDay(r.ds))) : rows;
+  // Per week: the overtime and the wages, for the centered week line.
+  const weekStats = useMemo(() => {
+    const w = {};
+    (data?.days || []).forEach(d => {
+      const x = (w[d.weekStart] ||= { ot: 0, pay: 0 });
+      (d.segments || []).forEach(sg => { x.ot += (sg.otMin || 0) + (sg.dtMin || 0); x.pay += sg.amount || 0; });
+    });
+    return w;
+  }, [data]);
 
   // Always US month/day (Oct 16): [] took the browser's locale, so an India-locale
   // browser read 'Sun 11/10' for October 11.
@@ -1072,89 +1157,75 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // What a row's Edit opens: the shift's form on the row that starts with the
   // clock-in, the break fixer on a row that starts where a break ended.
   const isBreakRow = (r) => !!r.fromBreak;
-  // Hrs/Day: the day's total on its last row, an arrow down to it on the rows above.
-  const hrsDay = (r) => (r.dayLast
-    ? hhmm(byDate[r.ds]?.workedMin ?? r.base?.workedMin ?? 0)
-    : <ArrowDown size={12} aria-label="continues below" style={{ color: 'var(--muted)', verticalAlign: 'middle' }} />);
-  // The thin line between two rows of a shift: the break, the break still
-  // running, or the lunch Nexus took out of a shift with no break punched.
-  const hLine = (r) => {
-    const quiet = { color: 'var(--muted)', fontWeight: 500 };
-    const warn = { color: '#b45309', fontWeight: 600 };
-    const mark = (bad) => <Coffee size={12} aria-hidden="true" style={{ flexShrink: 0, color: bad ? '#b45309' : 'var(--muted)' }} />;
-    const row = (bad, kids) => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{mark(bad)}<span>{kids}</span></span>;
-    if (r.line === 'auto') return row(false, <><strong>Auto-Deducted {breakLen(r.min)}</strong><span style={quiet}> · no break was punched</span></>);
-    if (r.line === 'open') {
-      return r.now
-        ? row(false, <><strong>On Break since {t12(r.at)}</strong></>)
-        : row(true, <><strong style={warn}>Break started {t12(r.at)}</strong><span style={warn}> · never ended, no clock-out</span></>);
-    }
-    const b = r.brk;
-    const txt = b.implicit
-      ? row(true, <><strong>Break {breakLen(b.min)}</strong><span style={quiet}> ({t12(b.start)} - clock-out)</span><span style={warn}> · the break end was never punched</span></>)
-      : row(false, <><strong>Break {breakLen(b.min)}</strong><span style={quiet}> ({t12(b.start)} - {t12(b.end)}){b.paidMin > 0 ? ` · ${breakLen(b.paidMin)} paid` : ''}</span></>);
-    if (noEdit) return txt;
-    return (
-      <button type="button" className="pr-break-btn" onClick={() => setBreakFix({ date: r.ds, breaks: r.base?.breaks || [], shift: r.base })}
-        title={self ? 'Ask your approver to fix or remove this break' : 'Fix the start or end of this break, or delete it'}
-        style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
-        {txt}
-      </button>
-    );
-  };
   const editRow = (r) => isBreakRow(r) ? setBreakFix({ date: r.ds, breaks: r.base?.breaks || [], shift: r.base }) : setEditDay({ date: r.ds, seg: r.base || r.seg });
+  const fixBreak = (r) => setBreakFix({ date: r.ds, breaks: r.base?.breaks || [], shift: r.base });
+  const openGeo = (seg, ds) => { setGeoFocus({ seg, date: ds }); setGeoMap(data?.email || email || myEmail || ''); };
 
-  // ── A day's pieces, drawn by BOTH the desktop table and the phone day cards
+  // ── A day's pieces, drawn by BOTH the desktop grid and the phone day cards
   //    (Oct 14) - one copy of each, so the two can never disagree about what a
   //    cell says or offers. ──
-  const hIn = (r) => (
+  // The date: a fixed weekday column and MM/DD, today in its soft box, and
+  // what changed since the approval under it.
+  const DateCell = ({ ds }) => (
     <>
-                    {r.seg && !r.seg.in
-                    // A clock-out with no clock-in (Oct 1) - see the fixed-salary inCell.
-                    ? (((self && fin) || ownCard) ? <span title={ownCard ? OWN_CARD_HINT : 'Period finalized - locked'} style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
-                        : <button onClick={() => !fin && editRow(r)}
-                            title={fin ? 'Period finalized - locked' : isBreakRow(r) ? (self ? 'The break was never ended - ask your approver to add its end' : 'The break was never ended - set its real end, or delete the break')
-                              : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or delete the clock-out'}
-                            style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
-                    : r.seg
-                    ? <InlineTime seg={r.seg} k="in" meta={pm[r.seg.inId]} showRaw={showRaw} locked={noEdit} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
-                    : '-'}
+      <span className="ts-dw">{WEEKDAY[new Date(`${ds}T00:00`).getDay()]}</span>
+      <span className={`ts-dd${ds === todayDs ? ' is-today' : ''}`} title={ds === todayDs ? 'Today' : undefined}>{formatMonthDayNumeric(ds, true)}</span>
+      {changedBy[ds] && (
+        <span className="ts-chg" title="Changed since the hours were approved">Was {hhmm(changedBy[ds].before)}, now {hhmm(changedBy[ds].after)}</span>
+      )}
     </>
   );
-  const hOut = (r) => (
-    <>
-                    {r.seg ? (r.seg.out
-                      ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <InlineTime seg={r.seg} k="out" meta={pm[r.seg.outId]} showRaw={showRaw} locked={noEdit} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
-                          {(r.seg.flags || []).includes('auto_clock_out') && (
-                            <span title="Nexus closed this shift automatically - no clock-out was recorded. 0 paid hours until the real end time is set."
-                              style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '2px 7px', borderRadius: 6 }}>
-                              auto
-                            </span>
-                          )}
-                        </span>
-                      : ((self && fin) || ownCard)
-                        ? <span title={ownCard ? OWN_CARD_HINT : 'Period finalized - locked'} style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
-                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.base || r.seg })}
-                            title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-out - goes to your approver' : 'Add the missing clock-out'}
-                            style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>) : '-'}
-    </>
+  const lockedMiss = (self && fin) || ownCard;
+  const missing = (onClick, title) => (
+    <span className="ts-tc">
+      <span className="ts-gsp" aria-hidden="true" />
+      {lockedMiss
+        ? <span className="ts-miss" title={ownCard ? OWN_CARD_HINT : 'Period finalized - locked'}>Missing</span>
+        : <button type="button" className="ts-miss" disabled={!!fin} onClick={() => !fin && onClick()} title={fin ? 'Period finalized - locked' : title}>Missing</button>}
+    </span>
   );
+  const hIn = (r) => (r.seg && !r.seg.in
+    // A clock-out with no clock-in (Oct 1) - see the fixed-salary inCell.
+    ? missing(() => editRow(r), isBreakRow(r) ? (self ? 'The break was never ended - ask your approver to add its end' : 'The break was never ended - set its real end, or delete the break')
+      : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or delete the clock-out')
+    : r.seg
+    ? <InlineTime seg={r.seg} k="in" meta={pm[r.seg.inId]} showRaw={showRaw} locked={noEdit} onSaved={onTimeSaved} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} day={r.ds} flash={!!r.seg.inId && flashPunch === r.seg.inId} />
+    : '-');
+  const hOut = (r) => {
+    if (!r.seg) return '-';
+    if (r.seg.out) return (
+      <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
+        <InlineTime seg={r.seg} k="out" meta={pm[r.seg.outId]} showRaw={showRaw} locked={noEdit} onSaved={onTimeSaved} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} day={r.ds} flash={!!r.seg.outId && flashPunch === r.seg.outId} />
+        {(r.seg.flags || []).includes('auto_clock_out') && (
+          <span title="Nexus closed this shift automatically - no clock-out was recorded. 0 paid hours until the real end time is set."
+            style={{ fontSize: 10.5, fontWeight: 800, color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '1px 7px', borderRadius: 6 }}>
+            Auto
+          </span>
+        )}
+      </span>
+    );
+    if (isLive(r.base)) return <span className="ts-tc"><span className="ts-gsp" aria-hidden="true" /><span className="ts-live" title="Still clocked in - this shift is in progress">In Progress · {liveFor()}</span></span>;
+    return missing(() => setEditDay({ date: r.ds, seg: r.base || r.seg }), self ? 'Add the missing clock-out - goes to your approver' : 'Add the missing clock-out');
+  };
+  const missingOut = (r) => !!r.seg && !!r.seg.in && !r.seg.out && !isLive(r.base);
+  // The SHIFT has no clock-out (its first row's Out may be a break start).
+  const shiftMissingOut = (r) => { const b = r.base || r.seg; return !!b && !!b.in && !b.out && !isLive(b) && !(b.flags || []).includes('auto_clock_out'); };
   const hCategory = (r) => (
     <>
-                    {r.seg?.category || '-'}
-                    {r.seg?.payClass && (
-                      <span title={`${{ sick: 'Sick', vacation: 'Vacation', personal: 'Personal' }[r.seg.payClass] || 'Leave'} hours - paid at the base rate, not counted toward overtime`}
-                        style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', padding: '2px 7px', borderRadius: 6 }}>
-                        {r.seg.payClass}
-                      </span>
-                    )}
+      {r.base?.category || r.seg?.category || '-'}
+      {r.seg?.payClass && (
+        <span className="ts-tag ts-tag-leave" style={{ marginLeft: 6, marginRight: 0 }}
+          title={`${{ sick: 'Sick', vacation: 'Vacation', personal: 'Personal' }[r.seg.payClass] || 'Leave'} hours - paid at the base rate, not counted toward overtime`}>
+          Paid Leave
+        </span>
+      )}
     </>
   );
+  const otText = (o, d2) => [o ? hhmm(o) : '', d2 ? `${hhmm(d2)} 2×` : ''].filter(Boolean).join(' · ');
   const hAuto = () => (
     <>
-                    <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
-                    Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
+      <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: '-1px' }} />
+      Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
     </>
   );
   const hPremium = (r) => {
@@ -1162,24 +1233,24 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       ...(r.day.callBackMin ? [{ label: 'Call-Back Pay', text: `${hhmm(r.day.callBackMin)} short of the minimum, paid at the base rate`, pay: r.day.callBackPay }] : [])];
     const total = (r.day.diffPay || 0) + (r.day.callBackPay || 0);
     return (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                      <span>
-                        {parts.map((x, i) => (
-                          <span key={i} style={{ marginRight: 10, display: 'inline-block' }}>
-                            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(124,58,237,0.12)', color: '#7c3aed', marginRight: 6 }}>{x.label}</span>
-                            {x.text}{showPay && x.pay != null ? ` - ${fmtM(x.pay)}` : ''}
-                          </span>
-                        ))}
-                      </span>
-                      {showPay && <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{fmtM(total)}</span>}
-                    </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <span>
+          {parts.map((x, i) => (
+            <span key={i} style={{ marginRight: 10, display: 'inline-block' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(124,58,237,0.12)', color: '#7c3aed', marginRight: 6 }}>{x.label}</span>
+              {x.text}{showPay && x.pay != null ? ` - ${fmtM(x.pay)}` : ''}
+            </span>
+          ))}
+        </span>
+        {showPay && <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{fmtM(total)}</span>}
+      </div>
     );
   };
   const hMeal = (r) => (
     <>
       {r.d.meal && (
         <span style={{ marginRight: 10 }}>
-          <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
+          <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: '-1px' }} />
           <b>{r.d.meal.chip}</b> - {r.d.meal.label}.
         </span>
       )}
@@ -1189,109 +1260,230 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         ))}
     </>
   );
-  const hHoliday = (r) => (
-    <>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                      <span>
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>{r.holidayType === 'half_day' ? 'Half-day holiday' : 'Holiday'}</span>
-                        {r.name || 'Company holiday'}{r.worked
-                          ? <> - worked the half day, plus {showPay ? fmtM(r.pay) : 'the other half'} credited{showPay ? ' for the other half' : ''}.</>
-                          : <> - not worked, {showPay ? <>paid {fmtM(r.pay)}</> : 'paid holiday'}{r.holidayType === 'half_day' ? ' (half day)' : ''}.</>}
-                      </span>
-                      {/* The pay figure under its own text was easy to miss (Pranshu,
-                          Sep 22) - repeat it where the Wage column reads for every
-                          other row, so it scans the same way. */}
-                      <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{fmtM(r.pay)}</span>
-                    </div>
-    </>
+  // A company holiday. Hourly staff are not paid for it (Neil, 11/04/2026).
+  // A holiday before 11/01/2026 keeps the credit it was paid with (h.pay).
+  const holidayWords = (h, worked) => (h.pay > 0
+    ? (worked ? `${h.name || 'Company holiday'} - worked the half day, plus ${showPay ? fmtM(h.pay) : 'the other half'} credited${showPay ? ' for the other half' : ''}.`
+      : `${h.name || 'Company holiday'} - not worked, ${showPay ? `paid ${fmtM(h.pay)}` : 'paid holiday'}${h.type === 'half_day' ? ' (half day)' : ''}.`)
+    : worked
+    ? `${h.name || 'Company holiday'} - the office was closed; time worked is paid as usual.`
+    : h.type === 'half_day'
+      ? `${h.name || 'Company holiday'} - the office closed for half the day, no work and no pay.`
+      : `${h.name || 'Company holiday'} - office closed, no work and no pay.`);
+  const holidayTag = (h) => <span className="ts-tag ts-tag-hol">{h.type === 'half_day' ? 'Half-Day Holiday' : 'Holiday'}</span>;
+  const hReq = (r, inGrid = false) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      {!inGrid && <span style={{ fontWeight: 600, color: 'var(--ink)', minWidth: 70 }}><DayDate ds={r.ds} /></span>}
+      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(180,83,9,0.16)', color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <AlertTriangle size={10} /> Not Yet Approved
+      </span>
+      <span style={{ color: '#b45309', fontWeight: 700 }}>
+        {r.req.action === 'remove' ? 'Remove a punch' : `Add ${PR_KIND_LABEL[r.req.punchKind] || r.req.punchKind}`}{r.req.action === 'add' && r.req.at ? ` at ${timeWords(r.req.at)}` : ''}{r.req.category ? ` as ${r.req.category}` : ''}
+      </span>
+      {r.req.reason && <span style={{ color: '#b45309', fontStyle: 'italic' }}>{self ? 'Your reason' : (r.req.employeeName || 'Employee')}: “{r.req.reason}”</span>}
+      {r.req.createdAt && <span style={{ color: 'var(--muted)', fontSize: 11 }}>asked {formatDateTime(r.req.createdAt + (r.req.createdAt.endsWith('Z') ? '' : 'Z'))}</span>}
+      <span style={{ flex: 1 }} />
+      {self
+        ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>with your approver - not in your hours yet</span>
+        : !noEdit && (
+          <span style={{ display: 'inline-flex', gap: 6 }}>
+            <button onClick={() => decideReq(r.req.id, 'rejected')} title="Reject - the employee is notified"
+              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
+            <button onClick={() => decideReq(r.req.id, 'approved')} title="Approve - adds this punch to the time sheet"
+              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
+          </span>
+        )}
+    </div>
   );
-  const hReq = (r) => (
-    <>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--ink)', minWidth: 70 }}><DayDate ds={r.ds} /></span>
-                      <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: 'rgba(180,83,9,0.16)', color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <AlertTriangle size={10} /> Not Yet Approved
-                      </span>
-                      <span style={{ color: '#b45309', fontWeight: 700 }}>
-                        {r.req.action === 'remove' ? 'Remove a punch' : `Add ${PR_KIND_LABEL[r.req.punchKind] || r.req.punchKind}`}{r.req.action === 'add' && r.req.at ? ` at ${t12(r.req.at)}` : ''}{r.req.category ? ` as ${r.req.category}` : ''}
-                      </span>
-                      {r.req.reason && <span style={{ color: '#b45309', fontStyle: 'italic' }}>{self ? 'Your reason' : (r.req.employeeName || 'Employee')}: “{r.req.reason}”</span>}
-                      {r.req.createdAt && <span style={{ color: 'var(--muted)', fontSize: 11 }}>asked {formatDateTime(r.req.createdAt + (r.req.createdAt.endsWith('Z') ? '' : 'Z'))}</span>}
-                      <span style={{ flex: 1 }} />
-                      {self
-                        ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>with your approver - not in your hours yet</span>
-                        : !noEdit && (
-                          <span style={{ display: 'inline-flex', gap: 6 }}>
-                            <button onClick={() => decideReq(r.req.id, 'approved')} title="Approve - adds this punch to the time sheet"
-                              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
-                            <button onClick={() => decideReq(r.req.id, 'rejected')} title="Reject - the employee is notified"
-                              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
-                          </span>
-                        )}
-                    </div>
-    </>
+  // The day's notes on one line: the employee's, HR's (edited in place) and
+  // what was written on the punches.
+  const hNote = (r) => (
+    <div className="ts-note">
+      {!self && notes[r.ds]?.employeeNote && (
+        <span title={`${nameFor(email)}${notes[r.ds].employeeNoteAt ? `, ${formatDate(notes[r.ds].employeeNoteAt)}` : ''}`}>
+          <b>Note by employee:</b> {notes[r.ds].employeeNote}
+        </span>
+      )}
+      {noteOf(r.ds) && (
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+          <b style={{ whiteSpace: 'nowrap' }}>{self ? 'Your note:' : 'Note by HR:'}</b>
+          {self
+            ? <NoteCell date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" lines={1} maxWidth="none" />
+            : <NoteCell date={r.ds} note={notes[r.ds]} onSave={saveNote} lines={1} maxWidth="none" />}
+        </span>
+      )}
+      {r.recs?.length > 0 && <RecordTag recs={r.recs} batches={data?.recordBatches} toastErr={toastErr} />}
+      {r.text && <span><b>On the punches:</b> <span style={{ fontStyle: 'italic' }}>{namesIn(r.text, nameFor)}</span></span>}
+    </div>
   );
-  // SwipeClock's Edit / Add column (Neil, Oct 16), right after the date, in
-  // two FIXED slots on every row - Edit on the left, Add on the right - so
-  // they line up down the column (Charmi, Oct 20); a slot with nothing to
-  // offer stays empty, never shifting the other. Edit opens the shift (times,
-  // location, Type, delete) - on a row that starts where a break ended, the
-  // break fixer (its missing end, or delete it). Add on any row adds another
-  // block of time to that day: Regular, Break, Sick, Vacation or Personal
-  // (Neil, Aug 3: "no option to just add a punch"). An employee's Add and
-  // break fix go to their approver as requests.
-  const btn = { border: '1px solid var(--line-strong,var(--line))', borderRadius: 3, padding: '0 5px', background: 'var(--wk-hover)', color: 'var(--ink)', font: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', lineHeight: 1.6, width: '100%' };
-  const hEdit = (r) => !noEdit && (
-    <span className="pr-edit-slots" style={{ display: 'inline-grid', gridTemplateColumns: '36px 36px', gap: 4, alignItems: 'center' }}>
-      <span data-slot="edit">
-        {r.seg && (!self || isBreakRow(r)) && (
-          <button type="button" onClick={() => editRow(r)} style={btn}
-            title={isBreakRow(r) ? (self ? 'Ask your approver to fix or remove this break' : 'Fix the start or end of this break, or delete it')
-              : 'Edit this shift - its times, location or Type, or delete a punch'}>
-            Edit
+  const hasNote = (r) => !!(r.text || r.recs?.length || noteOf(r.ds) || notes[r.ds]?.employeeNote);
+  // A row's actions (A1, labeled): Edit the shift - or the red Add Clock-Out
+  // when its clock-out is missing - then Add (more time on the day: Regular,
+  // Break, Sick, Vacation or Personal) and the day's Work Log. An employee's
+  // Add and fixes go to their approver as requests. No Add on a day still
+  // ahead (Neil, 11/04/2026).
+  const hActs = (r, { log = true } = {}) => {
+    const ahead = r.ds > todayDs;
+    return (
+      <span className="ts-acts" data-tour={r.first ? 'pr-edit' : undefined}>
+        {!noEdit && r.seg && shiftMissingOut(r) && (
+          <button type="button" className="ts-btn is-bad" onClick={() => setEditDay({ date: r.ds, seg: r.base || r.seg })}
+            title={self ? 'Add the missing clock-out - goes to your approver' : 'Add the missing clock-out'}>
+            <Plus size={13} /> Add Clock-Out
+          </button>
+        )}
+        {!noEdit && r.seg && !self && !shiftMissingOut(r) && (
+          <button type="button" className="ts-btn" onClick={() => setEditDay({ date: r.ds, seg: r.base || r.seg })}
+            title="Edit this shift - its times, location or Type, or delete a punch">
+            <Pencil size={12} /> Edit
+          </button>
+        )}
+        {!noEdit && !ahead && (
+          <button type="button" className="ts-btn" onClick={() => setEditDay({ date: r.ds, seg: null })}
+            title={self ? 'Ask for time on this day - Regular, Break, Sick, Vacation or Personal - goes to your approver' : 'Add time to this day - Regular, Break, Sick, Vacation or Personal'}>
+            <Plus size={13} /> Add
+          </button>
+        )}
+        {log && !ahead && (
+          <button type="button" className="ts-log" onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`}>
+            <FileText size={13} /> Log
           </button>
         )}
       </span>
-      <span data-slot="add">
-        <button type="button" onClick={() => setEditDay({ date: r.ds, seg: null })} style={btn}
-          title={self ? 'Ask for time on this day - Regular, Break, Sick, Vacation or Personal - goes to your approver' : 'Add time to this day - Regular, Break, Sick, Vacation or Personal'}>
-          Add
-        </button>
-      </span>
-    </span>
-  );
+    );
+  };
 
-  // ── Phone: one card per day (Oct 14). The same rows the table draws, grouped
-  //    by date: the date, the day's hours (and OT and wage), each session as
-  //    In -> Out with its category and location, then the day's breaks,
-  //    holiday, auto-close and pending requests, then the note and Work Log.
-  //    The weekly total is a band between the weeks, as on the table. ──
+  // What needs attention (components/timesheet/attention.js) and what each chip does.
+  const attention = collectAttention(rows, { self, isLive: (sg) => isLive(sg), changed, mealsFor: !(self || ownCard) });
+  const actionFor = (it) => {
+    const first = it.refs[0]?.r;
+    if (it.kind === 'missing_out' || it.kind === 'auto_out') return noEdit ? null : () => setEditDay({ date: first.ds, seg: first.base || first.seg });
+    if (it.kind === 'missing_in') return noEdit ? null : () => editRow(first);
+    if (it.kind === 'break_open') return noEdit ? null : () => fixBreak(first);
+    if (it.kind === 'off_site' || it.kind === 'loc_off') return () => openGeo(first.base || first.seg, first.ds);
+    return () => jumpTo(it.refs[0].ds);
+  };
+
+  // ── Phone: one card per day (Oct 14), the same rows the grid draws. Since
+  //    11/04/2026: a summary card on top, the first thing to fix as a red
+  //    card with its button, a Week 1 / Week 2 switch that opens on the week
+  //    holding today, times lined up on both edges, a break as its own quiet
+  //    line, and (on your own sheet) Add Punch and Send to Manager in a bar
+  //    at the bottom. ──
+  const [phoneWeek, setPhoneWeek] = useState(null);
+  useEffect(() => { setPhoneWeek(null); }, [start, email]);
+  const [sending, setSending] = useState(false);
+  const phoneTodayRef = useRef('');
+  useEffect(() => {
+    if (!phone || !data || !dates.includes(todayDs) || phoneTodayRef.current === `${email}|${start}`) return;
+    phoneTodayRef.current = `${email}|${start}`;
+    const t = setTimeout(() => document.querySelector(`[data-ts-day="${todayDs}"]`)?.scrollIntoView?.({ block: 'nearest' }), 120);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phone, data, start, email]);
+  const PHONE_ACT = { missing_out: 'Add Clock-Out', missing_in: 'Add Clock-In', break_open: 'Fix Break', auto_out: 'Set Clock-Out' };
   const hourlyPhoneDays = () => {
-    const items = [];
-    let cur = null;
-    rows.forEach(r => {
-      if (r.type === 'wk') { cur = null; items.push(r); return; }
+    // Group the rows into weeks of day cards (a week's line comes after its days).
+    const weeks = [];
+    let buf = [], cur = null;
+    shownRows.forEach(r => {
+      if (r.type === 'wk') { weeks.push({ week: r.week, items: buf }); buf = []; cur = null; return; }
       // The day's note line: the card has its own footer for the note and Work
       // Log, so only the punch reasons follow their day here.
       if (r.type === 'note') { if (r.text || r.recs?.length) cur?.extra.push(r); return; }
-      if (!cur || cur.ds !== r.ds) { cur = { type: 'card', ds: r.ds, segs: [], extra: [] }; items.push(cur); }
+      if (!cur || cur.ds !== r.ds) { cur = { ds: r.ds, segs: [], extra: [], holiday: null }; buf.push(cur); }
+      if (r.type === 'day' && !r.seg && r.holiday) cur.holiday = r.holiday;
       // A shift's rows and the break lines between them stay in order.
       if (r.type === 'day' || r.type === 'line') cur.segs.push(r); else cur.extra.push(r);
     });
+    if (buf.length) weeks.push({ week: '', items: buf });
+    const todayWeek = weeks.find(w => w.items.some(x => x.ds === todayDs))?.week;
+    const shownWeek = weeks.find(w => w.week === phoneWeek) || weeks.find(w => w.week === todayWeek) || weeks[0];
     const small = { fontSize: 12, color: 'var(--muted)' };
+    const task = attention.find(it => it.tone === 'bad' && PHONE_ACT[it.kind] && actionFor(it));
+    const workedMin = (T?.regMin || 0) + (T?.otMin || 0) + (T?.dtMin || 0);
+    const offMin = (T?.sickMin || 0) + (T?.vacationMin || 0) + (T?.personalMin || 0);
+    const rv = data?.review;
+    const canSend = self && rv?.canSubmit && ['not_submitted', 'with_employee'].includes(rv.status);
+    const sendNow = async () => {
+      setSending(true);
+      try {
+        await api.timesheetReviewSubmit(perStart, '');
+        toastOk?.(rv.status === 'with_employee' ? 'Resubmitted to your manager.' : 'Sent to your manager.');
+        window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
+        load();
+      } catch (e) { toastErr?.(e?.message || 'Could not send it.'); }
+      finally { setSending(false); }
+    };
+    const addDay = dates.includes(todayDs) ? todayDs : dates.filter(d => d <= todayDs).pop() || '';
+    const weekLine = (w) => {
+      if (!w.week) return null;
+      const wkEnd = isoDate(new Date(`${w.week}T00:00Z`).getTime() + 6 * DAY);
+      const so = w.week <= todayDs && todayDs <= wkEnd;
+      return (
+        <div className="pr-days-week ts-pwk">
+          <span>Total hours clocked for week of {formatMonthDayNumeric(w.week, true)} to {formatMonthDayNumeric(wkEnd, true)}{so ? ' (so far)' : ''}: {hhmm(weekTotals[w.week]?.min || 0)}</span>
+          <small>Overtime {weekStats[w.week]?.ot ? hhmm(weekStats[w.week].ot) : '-'}{showPay ? ` · Est. Pay ${fmtM(weekStats[w.week]?.pay || 0)}` : ''}</small>
+        </div>
+      );
+    };
+    const phoneBreak = (r, key) => {
+      const click = !noEdit && r.line !== 'auto' ? () => fixBreak(r) : null;
+      const lbl = r.line === 'auto' ? `Auto-Deducted ${breakLen(r.min)}` : r.line === 'open' ? (r.now ? 'On Break' : 'Break Not Ended') : `Break ${breakLen(r.brk.min)}`;
+      const start0 = r.line === 'gap' ? r.brk.start : r.at;
+      return (
+        <div key={key} className="ts-pr is-brk">
+          {r.line === 'auto' ? <span style={{ gridColumn: '1 / 5' }}>{lbl} · no break was punched</span> : (
+            <>
+              <span className="ts-tc"><span className="ts-gsp" aria-hidden="true" /><TimeText iso={start0} day={r.ds} /></span>
+              <span className="ts-arrow" aria-hidden="true">·</span>
+              <span>{r.line === 'gap' && !r.brk.implicit
+                ? <span className="ts-tc"><span className="ts-gsp" aria-hidden="true" /><TimeText iso={r.brk.end} day={r.ds} /></span>
+                : <span className={r.now ? 'ts-live' : 'ts-warn'}>{r.now ? 'Now' : 'Not Ended'}</span>}</span>
+            </>
+          )}
+          {r.line !== 'auto' && <span className="ts-pr-end">
+            {click ? <button type="button" onClick={click} className="ts-log" style={{ padding: 0, fontWeight: 600 }}
+              title={self ? 'Ask your approver to fix or remove this break' : 'Fix the start or end of this break, or delete it'}>{lbl}</button>
+              : <span className={r.line === 'open' && !r.now ? 'ts-warn' : undefined}>{lbl}</span>}
+          </span>}
+        </div>
+      );
+    };
     return (
-      <div data-tour="pr-table" className="pr-days">
-        {items.map((it, i) => {
-          if (it.type === 'wk') {
-            const wkEnd = new Date(new Date(it.week + 'T00:00').getTime() + 6 * DAY);
-            return (
-              <div key={'wk' + i} className="pr-days-week">
-                <span>Week of {formatMonthDayNumeric(it.week)} to {formatMonthDayNumeric(wkEnd)}</span>
-                <span>{hhmm(weekTotals[it.week]?.min || 0)}</span>
-              </div>
-            );
-          }
+      <div data-tour="pr-table" className={`pr-days${self ? ' ts-self' : ''}`}>
+        {T && (
+          <div className="ts-psum">
+            {liveSeg && <div className="ts-ptask is-warn" style={{ margin: 0, borderRadius: 0, border: 'none', borderBottom: '1px solid var(--wk-live-line)', background: 'var(--wk-live-tint)' }}>
+              <div style={{ color: 'var(--wk-live-ink)' }}><span className="ts-live">Clocked in since {timeWords(liveSeg.in)}</span></div>
+              <b style={{ color: 'var(--wk-live-ink)', fontVariantNumeric: 'tabular-nums' }}>{liveFor()}</b>
+            </div>}
+            <div className="ts-psum-top">
+              <div><span>Worked This Period</span><b>{hhmm(workedMin)}</b></div>
+              {showPay && <div className="ts-psum-pay"><span>Est. Pay</span><b>{fmtM(T.totalPay)}</b></div>}
+            </div>
+            <div className="ts-psum-sub">
+              {[`${hhmm(T.regMin || 0)} regular`, (T.otMin || T.dtMin) ? `${otText(T.otMin, T.dtMin)} overtime` : '', offMin ? `${hhmm(offMin)} time off` : ''].filter(Boolean).join(' · ')}
+            </div>
+          </div>
+        )}
+        {task && (
+          <div className="ts-ptask">
+            <div>{task.label}<small>{task.days}{task.refs[0]?.r?.seg?.in ? ` · in at ${timeWords(task.refs[0].r.seg.in)}` : ''}</small></div>
+            <button type="button" onClick={() => actionFor(task)(task, task.refs[0])}>{PHONE_ACT[task.kind]}</button>
+          </div>
+        )}
+        {weeks.filter(w => w.week).length > 1 && (
+          <div className="ts-wsw" role="group" aria-label="Week">
+            {weeks.filter(w => w.week).map((w, i) => (
+              <button key={w.week} type="button" aria-pressed={w.week === shownWeek?.week} onClick={() => setPhoneWeek(w.week)}>Week {i + 1}</button>
+            ))}
+          </div>
+        )}
+        {shownWeek && weekLine(shownWeek)}
+        {(shownWeek?.items || []).map(it => {
           const ds = it.ds;
+          const ahead = ds > todayDs;
           const worked = it.segs.filter(r => r.seg);
           // The shift's figures, once per shift (its rows split only the hours).
           const shifts = worked.filter(r => r.segFirst).map(r => r.base);
@@ -1301,65 +1493,92 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           const dtMin = shifts.reduce((a, s) => a + (s.dtMin || 0), 0);
           const pay = shifts.reduce((a, s) => a + (s.amount || 0), 0);
           // A day with no punches is one line: its date, Add Note, the Work Log
-          // and Add Punch, as the table row offers them. A worked day, or one
+          // and Add Punch, as the grid row offers them. A worked day, or one
           // with a note, carries the note and Work Log in its own footer.
           const foot = worked.length > 0 || !!(self ? myNote(ds) : (notes[ds]?.note || notes[ds]?.employeeNote));
-          const inline = !foot;
-          const canAdd = !noEdit;
+          const inline = !foot && !ahead;
+          const canAdd = !noEdit && !ahead;
+          const miss = worked.find(r => r.segFirst && missingOut(r)) || worked.find(r => missingOut(r));
           const noteCell = self
             ? <NoteCell date={ds} note={myNote(ds)} onSave={saveMyNote} placeholder="Add a note for your manager" />
             : <><NoteCell date={ds} note={notes[ds]} onSave={saveNote} /><EmployeeNoteLine note={notes[ds]} /></>;
           return (
-            <section key={ds} className={`pr-dcard${leave ? ' pr-dcard-leave' : ''}${worked.length ? '' : ' pr-dcard-empty'}`} aria-label={dow(ds)}>
+            <section key={ds} data-ts-day={ds} aria-label={dow(ds)}
+              className={`pr-dcard${leave ? ' pr-dcard-leave' : ''}${worked.length ? '' : ' pr-dcard-empty'}${flashDay === ds ? ' ts-flash-t' : ''}`}
+              style={miss ? { boxShadow: 'inset 3px 0 0 #b91c1c, var(--wk-shadow)' } : undefined}>
               <div className="pr-dcard-head">
-                <span className="pr-dcard-date" style={{ color: leave ? '#b91c1c' : worked.length ? 'var(--ink)' : 'var(--muted)' }}><DayDate ds={ds} /></span>
+                <span className="pr-dcard-date" style={{ color: leave ? '#7c3aed' : undefined }}><DateCell ds={ds} /></span>
                 {inline && <span className="pr-dcard-inline-note">{noteCell}</span>}
                 <span style={{ flex: 1 }} />
                 {inline && <WorkLogButton onClick={() => setWorkLogDay(ds)} title={`View the Work Log for ${dow(ds)}`} />}
                 {worked.length > 0 ? (
                   <span className="pr-dcard-total">
-                    {(otMin > 0 || dtMin > 0) && (
-                      <span style={{ color: dtMin ? '#b91c1c' : '#b45309', fontWeight: 700, fontSize: 11.5 }}>
-                        OT {[otMin ? hhmm(otMin) : '', dtMin ? `${hhmm(dtMin)} 2×` : ''].filter(Boolean).join(' · ')}
-                      </span>
+                    {miss ? <span style={{ color: '#b91c1c', fontSize: 12.5 }}>Missing Out</span> : (
+                      <>
+                        {(otMin > 0 || dtMin > 0) && (
+                          <span style={{ color: dtMin ? '#b91c1c' : '#b45309', fontWeight: 700, fontSize: 11.5, background: 'rgba(180,83,9,0.1)', padding: '1px 7px', borderRadius: 999 }}>
+                            OT {otText(otMin, dtMin)}
+                          </span>
+                        )}
+                        {shifts.some(isLive)
+                          ? <span className="ts-live" title="Still clocked in">{liveFor()}</span>
+                          : <span>{hhmm(day?.workedMin ?? shifts.reduce((a, s) => a + (s.workedMin || 0), 0))}</span>}
+                        {showPay && <span style={{ fontWeight: 600, color: 'var(--muted)' }}>{fmtM(pay)}</span>}
+                      </>
                     )}
-                    <span>{hhmm(day?.workedMin ?? shifts.reduce((a, s) => a + (s.workedMin || 0), 0))}</span>
-                    {showPay && <span style={{ fontWeight: 600, color: 'var(--muted)' }}>{fmtM(pay)}</span>}
                   </span>
-                ) : canAdd ? (
+                ) : it.holiday ? holidayTag(it.holiday)
+                  : ahead ? <span style={small}>Upcoming</span>
+                  : canAdd ? (
                   <button type="button" className="pr-dcard-add" onClick={() => setEditDay({ date: ds, seg: null })}
                     title={self ? 'Add a punch for this day - goes to your approver' : 'Add a punch for this day'}>
                     <Plus size={13} /> Add Punch
                   </button>
                 ) : <span style={small}>No Punches</span>}
               </div>
-              {it.segs.filter(r => r.seg || r.type === 'line').map((r, si) => r.type === 'line' ? (
-                <div key={si} className="pr-dcard-break">{hLine(r)}</div>
-              ) : (
-                <div key={si} className="pr-dcard-seg">
-                  <div className="pr-dcard-times">
-                    <span>{hIn(r)}</span>
-                    <ArrowRight size={12} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                    <span>{hOut(r)}</span>
-                    <span style={{ flex: 1 }} />
-                    {worked.length > 1 && <span style={{ ...small, fontVariantNumeric: 'tabular-nums' }}>{hhmm(r.seg.workedMin)}</span>}
-                    {(!self || isBreakRow(r)) && !noEdit && (
-                      <button type="button" className="pr-dcard-icon" onClick={() => editRow(r)}
-                        title={isBreakRow(r) ? 'Fix or delete this break' : 'Edit punch'} aria-label={`Edit the punch on ${dow(ds)}`}>
-                        <Pencil size={14} />
-                      </button>
-                    )}
-                  </div>
-                  {r.segFirst && (r.seg.category || r.seg.payClass || r.base.deductedMin > 0 || r.base.workSite || r.base.geo || r.base.geoOut) && (
-                    <div className="pr-dcard-meta">
-                      {(r.seg.category || r.seg.payClass) && <span>{hCategory(r)}</span>}
-                      {r.base.deductedMin > 0 && <span style={{ color: '#b45309' }}>−{r.base.deductedMin}m deducted</span>}
-                      <LocCell seg={r.base} onOpen={(seg) => { setGeoFocus({ seg, date: ds }); setGeoMap(data?.email || email || myEmail || ''); }} />
-                    </div>
-                  )}
+              {it.holiday && !worked.length && <div className="pr-dcard-extra pr-dcard-holiday">{holidayWords(it.holiday, false)}</div>}
+              {worked.length > 0 && (
+                <div style={{ padding: '4px 12px 8px', borderTop: '1px solid var(--line)' }}>
+                  {it.segs.filter(r => r.seg || r.type === 'line').map((r, si, list) => {
+                    if (r.type === 'line') return phoneBreak(r, si);
+                    const nextR = list[si + 1];
+                    const shiftEnd = !nextR || (nextR.type === 'day' && nextR.segFirst);
+                    const head = worked.find(w => w.base === r.base && w.segFirst) || r;
+                    return (
+                      <div key={si}>
+                        <div className="ts-pr">
+                          <span>{hIn(r)}</span>
+                          <span className="ts-arrow" aria-hidden="true">→</span>
+                          <span>{hOut(r)}</span>
+                          <span className="ts-pr-end">
+                            {worked.length > 1 && r.seg.in && r.seg.out && <span>{hhmm(r.seg.workedMin)}</span>}
+                            {(!self || isBreakRow(r)) && !noEdit && r.seg.in && (r.seg.out || !missingOut(r)) && (
+                              <button type="button" className="pr-dcard-icon" onClick={() => editRow(r)}
+                                title={isBreakRow(r) ? 'Fix or delete this break' : 'Edit punch'} aria-label={`Edit the punch on ${dow(ds)}`}>
+                                <Pencil size={14} />
+                              </button>
+                            )}
+                          </span>
+                        </div>
+                        {shiftEnd && (head.base.category || head.seg.payClass || head.base.deductedMin > 0 || head.base.workSite || head.base.geo || head.base.geoOut) && (!(head.sameCat && head.sameLoc) || head.base.deductedMin > 0) && (
+                          <div className="pr-dcard-meta" style={{ padding: '2px 0 4px' }}>
+                            {(head.base.category || head.seg.payClass) && !head.sameCat && <span>{hCategory(head)}</span>}
+                            {head.base.deductedMin > 0 && <span style={{ color: '#b45309', fontWeight: 700 }}>−{head.base.deductedMin}m deducted</span>}
+                            {!head.sameLoc && <LocCell seg={head.base} onOpen={(seg) => openGeo(seg, ds)} />}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-              {worked.length > 0 && !self && !noEdit && (
+              )}
+              {miss && !noEdit && (
+                <button type="button" className="ts-pbig" onClick={() => setEditDay({ date: ds, seg: miss.base || miss.seg })}
+                  title={self ? 'Add the missing clock-out - goes to your approver' : 'Add the missing clock-out'}>
+                  <Plus size={15} /> Add Missing Clock-Out
+                </button>
+              )}
+              {worked.length > 0 && !self && !noEdit && !ahead && (
                 <button type="button" className="pr-dcard-add pr-dcard-add-more" onClick={() => setEditDay({ date: ds, seg: null })}
                   title="Add another punch for this day">
                   <Plus size={13} /> Add Another Punch
@@ -1369,9 +1588,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <div key={xi} className={`pr-dcard-extra pr-dcard-${r.type}`}>
                   {r.type === 'auto' ? hAuto()
                     : r.type === 'meal' ? hMeal(r)
-                    : r.type === 'holiday' ? hHoliday(r)
+                    : r.type === 'holiday' ? <>{holidayTag(r)}{holidayWords(r, r.worked)}</>
                     : r.type === 'premium' ? hPremium(r)
-                    : r.type === 'req' ? hReq(r)
+                    : r.type === 'req' ? hReq(r, true)
                     : <>{r.recs?.length > 0 && <RecordTag recs={r.recs} batches={data?.recordBatches} toastErr={toastErr} />}
                         {r.text && <><Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{r.text}</>}</>}
                 </div>
@@ -1385,6 +1604,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             </section>
           );
         })}
+        {self && !noEdit && (addDay || canSend) && (
+          <div className="ts-pbar">
+            {addDay && <button type="button" className="ts-pbar-add" onClick={() => setEditDay({ date: addDay, seg: null })}
+              title="Add a punch - goes to your approver"><Plus size={14} style={{ verticalAlign: '-2px' }} /> Add Punch</button>}
+            {canSend && (
+              <button type="button" className="ts-pbar-go" disabled={sending || !!rv.submitBlocker} onClick={sendNow}
+                title={rv.submitBlocker || undefined}>{rv.status === 'with_employee' ? 'Resubmit' : 'Send to Manager'}</button>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -1399,8 +1628,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const inFilter = (em) => (!company || byEmail[em]?.company === company) && (!dept || byEmail[em]?.department === dept);
   const companies = [...new Set(people.map(p => p.company).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const depts = [...new Set(people.filter(p => !company || p.company === company).map(p => p.department).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const pickable = people.filter(p => inFilter(p.email));
   const [onlyMissing, setOnlyMissing] = useState(false);   // sidebar: only people with missing punches
+  // On a laptop narrower than the whole layout (Neil, 11/04/2026) the list
+  // folds into the picker, which then carries its filter and review words.
+  const narrow = useIsMobile(NARROW_QUERY);
+  const showRail = !self && !phone && !narrow;
+  const pickable = people.filter(p => inFilter(p.email) && (showRail || !onlyMissing || (exByEmail[p.email]?.missing || 0) > 0));
   // Everyone on the period's team list (salaried people too - the exception
   // counts only cover hourly ones), with their counts; most to fix first
   // (Neil, Oct 22: pick the period, then all its people are listed).
@@ -1418,6 +1651,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // Charmi, Oct 16): the company picked, or the only one in the list. With
   // no company picked the file is the SELECTED PERSON's card instead
   // (Charmi, Teams 11/03/2026: "should also work on individual employees").
+  const pickLabel = (p) => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}${!showRail && REVIEW_MARK[p.review] ? ` · ${REVIEW_MARK[p.review].text}` : ''}`;
+  const missingOnly = !showRail && exceptions.length > 0 && (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+      <input type="checkbox" checked={onlyMissing} onChange={e => setOnlyMissing(e.target.checked)} /> Only People With Missing Punches
+    </label>
+  );
   const iifCompany = company || (companies.length === 1 ? companies[0] : '');
   const iifCompanyId = people.find(p => p.company === iifCompany)?.companyId || '';
   const iifEmail = iifCompanyId ? '' : (email || '');
@@ -1425,7 +1664,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // The employee master-detail list - shared by the hourly and fixed-salary views
   // so switching between them never rearranges the screen (hidden in self mode).
   // On a phone the list gives way to the card; the employee picker above the
-  // card still switches people.
+  // card still switches people. On a laptop narrower than the whole layout
+  // the list folds into that picker too (above), so the grid keeps its room.
   const iifButton = showPay && companies.length > 0 && (
     <button type="button" className="secondary-btn" disabled={(!iifCompanyId && !iifEmail) || exporting}
       title={iifCompanyId
@@ -1444,22 +1684,24 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     <div style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       {periodNav(true)}
       <EmployeeCombobox search people={pickable} value={email} onChange={setEmail} placeholder="Search by name"
-        labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`}
+        labelFor={pickLabel}
         style={{ flex: '0 1 240px', minWidth: 180 }} />
       {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
       {filterSel(dept, setDept, 'Department', depts)}
+      {missingOnly}
       <div style={{ flex: 1 }} />
+      {!narrow && <span className="ts-kbd" aria-hidden="true"><kbd>↑</kbd> <kbd>↓</kbd> People · <kbd>←</kbd> <kbd>→</kbd> Periods</span>}
       {iifButton}
     </div>
   ) : null;
-  const employeeSidebar = (!self && !phone) ? (
+  const employeeSidebar = showRail ? (
     <div data-tour="pr-sidebar" style={{ width: 240, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
         {!desk && (
         <div style={{ padding: '8px 10px 6px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 5, borderBottom: '1px solid var(--line)' }}>
           {periodNav(true)}
           {/* The person picker lives here, with the period and the list (Neil, Oct 29 2026). */}
           <EmployeeCombobox people={pickable} value={email} onChange={setEmail} placeholder="Find someone..."
-            labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`}
+            labelFor={pickLabel}
             style={{ minWidth: 0, border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '6px 9px', background: 'var(--card)' }} />
           {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
           {filterSel(dept, setDept, 'Department', depts)}
@@ -1472,17 +1714,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           <input type="checkbox" checked={onlyMissing} onChange={e => setOnlyMissing(e.target.checked)} /> Only People With Missing Punches
         </label>
       )}
-      <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex' }}>
-        <span style={{ flex: 1 }}>Employee</span><span title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
+      <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ flex: 1 }}>Employee</span>
+        <span className="ts-rmark" title="Where the time sheet is in review" aria-label="Review" />
+        <span style={{ width: 16, textAlign: 'center' }} title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
       </div>
       {!sidebar.length && <div style={{ padding: '12px', fontSize: 12, color: 'var(--muted)' }}>Nobody matches this filter.</div>}
       {sidebar.map(p => {
         const sel = p.email === email;
         return (
-          <button key={p.email} onClick={() => setEmail(p.email)}
+          <button key={p.email} onClick={() => setEmail(p.email)} aria-current={sel ? 'true' : undefined}
             style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', borderTop: '1px solid var(--line)', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12.5, background: sel ? 'var(--wk-brand-tint)' : 'transparent', fontWeight: sel ? 700 : 500, color: sel ? 'var(--wk-brand)' : 'var(--ink)' }}>
             <SideAvatar name={p.name} email={p.email} photos={photos} />
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+            <ReviewMark status={p.review} />
             <span style={{ width: 16, textAlign: 'center', color: '#b91c1c', fontWeight: 800 }}>{p.missing || ''}</span>
             <span style={{ width: 22, textAlign: 'right', color: '#b45309', fontWeight: 800 }}>{p.exceptions || ''}</span>
           </button>
@@ -1492,6 +1737,38 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     </div>
   ) : null;
 
+  // People in the order they are on screen: the list, else the picker's.
+  const order = showRail ? sidebar : pickable;
+  const at = order.findIndex(p => p.email === email);
+  // Approve and Next: the next person after this one still waiting for review.
+  const nextUp = (() => {
+    if (self || at < 0) return null;
+    for (let i = 1; i < order.length; i += 1) {
+      const p = order[(at + i) % order.length];
+      if (p.email !== email && !reviewDone(p.review)) return p;
+    }
+    return null;
+  })();
+  const next = nextUp ? { name: nextUp.name, go: () => setEmail(nextUp.email) } : null;
+  // ↑ ↓ step through the people, ← → through the pay periods (like the Tickets desk).
+  useSheetKeys({
+    enabled: !self && !phone && people.length > 0 && !workLogDay && !editDay && !breakFix && !geoMap && !addTime && !dupDay && !noteModal,
+    onPerson: (step) => { const p = order[at + step]; if (p) setEmail(p.email); },
+    onPeriod: (step) => (isFixed ? shiftMonth(step) : shift(step)),
+  });
+  // The next person's card loads in the background, so stepping to them is instant.
+  const prefetched = useRef(new Set());
+  useEffect(() => {
+    if (self || !data || at < 0) return;
+    const p = order[at + 1];
+    if (!p) return;
+    const key = _tcKey(false, p.email, start, end);
+    if (_timecardCache.has(key) || prefetched.current.has(key)) return;
+    prefetched.current.add(key);
+    api.timePayroll(p.email, start, end).then(d => _timecardCache.set(key, d)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, email, start, end, at]);
+
   // Fixed-salary employees get a dedicated MONTHLY card - the hourly SwipeClock
   // grid (OT split, weekly subtotals, $/hr) does not apply to them - but it lives
   // inside the SAME master-detail layout as the hourly view.
@@ -1500,7 +1777,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       <FixedTimecard data={data} self={self} email={email} people={people} setEmail={setEmail} photos={photos}
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
-        periodNav={employeeSidebar ? null : periodNav(false)}
+        periodNav={(employeeSidebar || payrollToolbar) ? null : periodNav(false)}
         onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
         setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard}
@@ -1523,10 +1800,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       </>
     );
   }
-  // Loading (first open, or switching employee/period): a neutral loader so the card
-  // never flashes the wrong pay-type shell (the hourly bi-weekly toolbar + $0.00)
-  // before the data reveals whether this employee is hourly or salaried. The HR
-  // sidebar stays so switching employees doesn't rearrange the screen.
+  // Loading (first open, or switching employee/period): a placeholder shaped
+  // like the card, so the card never flashes the wrong pay-type shell (the
+  // hourly bi-weekly toolbar + $0.00) and the page keeps its height and
+  // scroll (Neil, 11/04/2026). The HR sidebar stays so switching employees
+  // doesn't rearrange the screen.
   if (data === null && !stepLocked) {
     // Team mode with nobody in scope: say so instead of spinning forever
     // (Oct 16: a manager with no reports yet saw an endless loader).
@@ -1535,8 +1813,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         No one on your team yet. People whose manager is you, or who you back up, show here.
       </div>
     ) : (
-      <div style={{ fontFamily: 'var(--wk-font)', padding: '52px 0', textAlign: 'center', color: 'var(--muted)' }}>
-        <Spinner size="section" />
+      <div data-testid="ts-skeleton" aria-busy="true" aria-label="Loading the time sheet" style={{ fontFamily: 'var(--wk-font)', display: 'grid', gap: 12 }}>
+        <SkeletonBlocks count={1} height={56} borderRadius={12} />
+        <SkeletonBlocks count={1} height={72} borderRadius={12} />
+        <SkeletonBlocks count={1} height={phone ? 420 : 560} borderRadius={10} />
       </div>
     );
     return self ? spinner : (
@@ -1548,22 +1828,201 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     );
   }
 
+  const rv = data?.review;
+  const rvMark = rv && REVIEW_MARK[rv.status];
+  const offMin = (T?.sickMin || 0) + (T?.vacationMin || 0) + (T?.personalMin || 0);
+  const offKinds = [['Sick', T?.sickMin], ['Vacation', T?.vacationMin], ['Personal', T?.personalMin]].filter(([, m]) => m > 0).map(([l]) => l);
+  const figures = T ? [
+    { label: 'Worked', value: hhmm((T.regMin || 0) + (T.otMin || 0) + (T.dtMin || 0)) },
+    { label: 'Overtime', value: (T.otMin || T.dtMin) ? otText(T.otMin, T.dtMin) : '0:00', warn: !!(T.otMin || T.dtMin) },
+    { label: 'Time Off', value: hhmm(offMin), small: offKinds.join(', ') },
+    ...(showPay ? [{ label: 'Gross Pay', value: fmtM(T.totalPay) }] : []),
+  ] : [];
+  const wkEndOf = (w) => isoDate(new Date(`${w}T00:00Z`).getTime() + 6 * DAY);
+  // One desktop row. Every cell sits on one baseline; durations and money are
+  // right-aligned; a shift's Deducted / Category / OT / Location / Pay Rate /
+  // Wage and its actions read on its first row.
+  const deskRow = (r, i) => {
+    const flash = flashDay === r.ds ? ' is-flash' : '';
+    if (r.type === 'wk') {
+      const so = r.week <= todayDs && todayDs <= wkEndOf(r.week);
+      return (
+        <tr key={i} className="ts-wk">
+          <td colSpan={cols}>
+            Total hours clocked for week of {formatMonthDayNumeric(r.week, true)} to {formatMonthDayNumeric(wkEndOf(r.week), true)}{so ? ' (so far)' : ''}: <b>{hhmm(weekTotals[r.week]?.min || 0)}</b>
+            <span className="ts-wx">Overtime <b>{weekStats[r.week]?.ot ? hhmm(weekStats[r.week].ot) : '-'}</b></span>
+            {showPay && <span className="ts-wx">Wage <b>{fmtM(weekStats[r.week]?.pay || 0)}</b></span>}
+          </td>
+        </tr>
+      );
+    }
+    const line = (content, style) => (
+      <tr key={i} className={`ts-line${flash}`} data-ts-day={r.ds}>
+        <td className="ts-date" />
+        <td colSpan={cols - 1} style={style}>{content}</td>
+      </tr>
+    );
+    if (r.type === 'auto') return line(hAuto(), { color: '#b91c1c', fontWeight: 600 });
+    if (r.type === 'meal') return line(hMeal(r), { color: '#b45309', fontWeight: 600 });
+    if (r.type === 'premium') return line(hPremium(r), { color: '#6d28d9', fontWeight: 600 });
+    if (r.type === 'holiday') return line(<>{holidayTag(r)}{holidayWords(r, r.worked)}</>, { color: '#2563eb', fontWeight: 600 });
+    if (r.type === 'note') return hasNote(r) ? line(hNote(r)) : null;
+    if (r.type === 'req') return (
+      <tr key={i} className={`ts-req${flash}`} data-ts-day={r.ds}>
+        <td className="ts-date" />
+        <td colSpan={cols - 1}>{hReq(r, true)}</td>
+      </tr>
+    );
+    if (r.type === 'line') {
+      // A break is its own line: "Break" under the date, its start under In,
+      // its end under Out, its length under Category - never the word unpaid.
+      const click = !noEdit && r.line !== 'auto';
+      const fixTitle = self ? 'Ask your approver to fix or remove this break' : 'Fix the start or end of this break, or delete it';
+      const sp = <span className="ts-gsp" aria-hidden="true" />;
+      let inC, outC, catC;
+      if (r.line === 'auto') {
+        inC = null; outC = null;
+        catC = <span className="ts-bl">Auto-Deducted {breakLen(r.min)} · no break was punched</span>;
+      } else if (r.line === 'open') {
+        inC = <span className="ts-tc">{sp}<TimeText iso={r.at} day={r.ds} /></span>;
+        outC = <span className="ts-tc">{sp}{r.now ? <span className="ts-live">On Break</span> : <span className="ts-warn">Not Ended</span>}</span>;
+        catC = r.now ? null : <span className="ts-bl is-warn">never ended, no clock-out</span>;
+      } else {
+        const b = r.brk;
+        inC = <span className="ts-tc">{sp}<TimeText iso={b.start} day={r.ds} /></span>;
+        outC = <span className="ts-tc">{sp}{b.implicit ? <span className="ts-warn" title="The break end was never punched - the clock-out closed it">Not Ended</span> : <TimeText iso={b.end} day={r.ds} />}</span>;
+        catC = <span className="ts-bl">{breakLen(b.min)}{b.paidMin > 0 ? ` · ${breakLen(b.paidMin)} paid` : ''}</span>;
+      }
+      return (
+        <tr key={i} className={`ts-brk${click ? ' is-click' : ''}${flash}`} data-ts-day={r.ds}
+          onClick={click ? () => fixBreak(r) : undefined} title={click ? fixTitle : undefined}>
+          <td className="ts-date">
+            {click
+              ? <button type="button" className="ts-date-sub" onClick={(e) => { e.stopPropagation(); fixBreak(r); }} aria-label={`Break on ${dow(r.ds)} - ${fixTitle}`}
+                  style={{ background: 'none', border: 'none', font: 'inherit', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: 'var(--wk-faint)' }}>Break</button>
+              : <span className="ts-date-sub">Break</span>}
+          </td>
+          {r.line === 'auto' ? <td colSpan={4}>{catC}</td> : (
+            <>
+              <td>{inC}</td>
+              <td>{outC}</td>
+              <td />
+              <td>{catC}</td>
+            </>
+          )}
+          <td colSpan={cols - 5} />
+        </tr>
+      );
+    }
+    // A day with no punches: one quiet line - or its holiday.
+    if (!r.seg) {
+      const ahead = r.ds > todayDs;
+      if (r.holiday) return (
+        <tr key={i} className={`ts-first ts-holi${flash}`} data-ts-day={r.ds}>
+          <td className="ts-date"><DateCell ds={r.ds} /></td>
+          <td colSpan={cols - (showPay ? 3 : 2)}>{holidayTag(r.holiday)}{holidayWords(r.holiday, false)}</td>
+          {showPay && <td className="r">{r.holiday.pay > 0 ? fmtM(r.holiday.pay) : '-'}</td>}
+          <td className="ts-act">{hActs(r)}</td>
+        </tr>
+      );
+      return (
+        <tr key={i} className={`ts-first ts-quiet${flash}`} data-ts-day={r.ds}>
+          <td className="ts-date"><DateCell ds={r.ds} /></td>
+          <td colSpan={cols - 2}>{ahead ? 'Upcoming' : 'No punches'}</td>
+          <td className="ts-act">{hActs(r)}</td>
+        </tr>
+      );
+    }
+    const b = r.base || r.seg;
+    const head = r.segFirst;
+    const cls = ['ts-row', r.first ? 'ts-first' : '', !head ? 'ts-seg2' : '', r.seg.payClass ? 'ts-leave' : '',
+      (missingOut(r) || !r.seg.in) ? 'ts-fix' : '', isLive(b) ? 'ts-livew' : ''].filter(Boolean).join(' ');
+    const dayMin = byDate[r.ds]?.workedMin ?? 0;
+    return (
+      <tr key={i} className={`${cls}${flash}`} data-ts-day={r.first ? r.ds : undefined}
+        title={r.seg.payClass ? `${{ sick: 'Sick', vacation: 'Vacation', personal: 'Personal' }[r.seg.payClass] || 'Leave'} day` : undefined}>
+        <td className="ts-date">{r.first && <DateCell ds={r.ds} />}</td>
+        <td>{hIn(r)}</td>
+        <td>{hOut(r)}</td>
+        <td className="r">{head ? (b.deductedMin ? <span className="ts-num-warn" title="Lunch taken out of a long shift that recorded no break">−{b.deductedMin}m</span> : '-') : ''}</td>
+        <td className="ts-cat">{head && !r.sameCat ? hCategory(r) : ''}</td>
+        <td className="r">{r.seg.in && r.seg.out ? hhmm(r.seg.workedMin) : '-'}</td>
+        <td className="r" style={{ fontWeight: 800 }}>{r.first ? (dayMin ? hhmm(dayMin) : '-') : ''}</td>
+        <td className="r">{head ? ((b.otMin || b.dtMin) ? <span className={b.dtMin ? 'ts-num-bad' : 'ts-num-warn'}>{otText(b.otMin, b.dtMin)}</span> : '-') : ''}</td>
+        <td>{head && !r.sameLoc
+          ? (b.geo && b.geo !== 'no_location'
+            // Location Off shows (Pranshu, Oct 21: a skipped location ask must read on the card); No Location stays a dash.
+            ? <LocCell seg={b} onOpen={(seg) => openGeo(seg, r.ds)} />
+            : '-')
+          : ''}</td>
+        {showPay && <td className="r" style={{ color: 'var(--muted)' }}>{head ? `${fmtM(byDate[r.ds]?.rate ?? rate)}/hr` : ''}</td>}
+        {showPay && <td className="r" style={{ fontWeight: 700 }}>{head ? (b.amount ? fmtM(b.amount) : '-') : ''}</td>}
+        <td className="ts-act">{head ? hActs(r, { log: !!r.first }) : null}</td>
+      </tr>
+    );
+  };
+  // The Pay Summary lines - hours as hours:minutes only, never decimals
+  // (Neil, 11/04/2026; was SwipeClock's "58:30 (58.50)").
+  const paySummary = () => {
+    // With a rate change inside the period each day is priced at its
+    // own rate, so the lines name no single rate; the strip above shows the split.
+    const split = (data.rateSplits || []).length > 1;
+    const at = (mult) => (split || !showPay) ? '' : ` at ${fmtM(rate * mult)}/hr`;
+    const lines = [
+      [`Total Regular hours${at(1)}`, hhmm(T.regMin), fmtM(T.regPay)],
+      [`Total Overtime hours${at(1.5)}`, hhmm(T.otMin), fmtM(T.otPay)],
+      ...(T.dtMin ? [[`Total Double-time hours${at(2)}`, hhmm(T.dtMin), fmtM(T.dtPay)]] : []),
+      // Paid leave entered on the card as a Sick / Vacation category punch -
+      // its own line at the base rate, like SwipeClock (Charmi, Sep 21).
+      ...(T.sickMin ? [[`Total Sick hours${at(1)}`, hhmm(T.sickMin), fmtM(T.sickPay)]] : []),
+      ...(T.vacationMin ? [[`Total Vacation hours${at(1)}`, hhmm(T.vacationMin), fmtM(T.vacationPay)]] : []),
+      ...(T.personalMin ? [[`Total Personal hours${at(1)}`, hhmm(T.personalMin), fmtM(T.personalPay)]] : []),
+      // Shift differentials, one line per rule, and call-back pay (Oct 17):
+      // on top of the hours, never counted in them.
+      ...(T.differentials || []).map(x => [`${x.name} (shift differential)`, hhmm(x.min), fmtM(x.pay)]),
+      ...(T.callBackMin ? [[`Call-Back Pay (minimum not worked)${at(1)}`, hhmm(T.callBackMin), fmtM(T.callBackPay)]] : []),
+      // Hourly company holidays are unpaid (Neil, 11/04/2026); only a card the
+      // server still prices one on (none today) shows the line.
+      ...(T.holidayPay > 0 ? [[`Company holiday${T.holidayDays === 1 ? '' : 's'} (${T.holidayDays} day${T.holidayDays === 1 ? '' : 's'}, not worked)`, '-', fmtM(T.holidayPay)]] : []),
+      // CA meal / rest premiums: 1 hour of pay each, not hours worked.
+      ...(T.mealPremiumMin ? [[`Meal Premium (${T.mealPremiumMin / 60} x 1 hour of pay)`, '-', fmtM(T.mealPremiumPay)]] : []),
+      ...(T.restPremiumMin ? [[`Rest Premium (${T.restPremiumMin / 60} x 1 hour of pay)`, '-', fmtM(T.restPremiumPay)]] : []),
+      // Bonuses (Neil, Oct 22): one line each, with why; in totalPay.
+      ...(data.bonuses || []).map(b => [`Bonus: ${b.description}`, '-', showPay ? `+${fmtM(b.amount)}` : '']),
+      ['Totals', hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0))), fmtM(T.totalPay), true],
+      // Salary advance repayments (Oct 27 2026): off what is paid out, not the wages.
+      ...(T.advanceRepayment !== undefined ? [
+        ...(data.advanceRepayments || []).filter(x => x.applied > 0).map(x => ['Salary Advance Repayment', '-', `-${fmtM(x.applied)}`]),
+        ['Net Pay', '', fmtM(T.netPay), true],
+      ] : []),
+    ];
+    return lines.map(([lbl, hrs, amt, tot], i) => (
+      <div key={i} className={`ts-srow${tot ? ' is-total' : ''}`}><span>{lbl}</span><b>{hrs}</b><b>{amt}</b></div>
+    ));
+  };
+  const count = (label, value, color, title) => (
+    <div className="ts-crow" title={title}><span style={color ? { color, fontWeight: 700 } : undefined}>{label}</span><b style={color ? { color } : undefined}>{value}</b></div>
+  );
+
   return (
-    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)', flexWrap: 'wrap' }}>
+    <div className={self ? 'ts-self' : undefined} style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)', flexWrap: 'wrap' }}>
       {payrollToolbar}
-      {/* Employee sidebar - who has missing punches / exceptions this period */}
+      {/* Employee sidebar - who has missing punches / exceptions this period, and where each is in review */}
       {employeeSidebar}
 
       <div style={{ flex: 1, minWidth: 0 }}>
-      {/* Toolbar */}
+      {/* Toolbar: whose sheet, then every action labeled (nothing behind a menu - Neil, 11/04/2026). */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {self
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Time Sheet</span>
-          : employeeSidebar
+          : (employeeSidebar || payrollToolbar)
             ? (email && <PersonHeader name={nameFor(email)} email={email} photos={photos} period={label} />)
             : <EmployeeCombobox people={pickable} value={email} onChange={setEmail}
-                labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`} />}
-        {!employeeSidebar && periodNav(false)}
+                labelFor={pickLabel} />}
+        {!payrollToolbar && missingOnly}
+        {liveSeg && <span className="ts-pill-live" title="Still clocked in">Clocked In · {timeWords(liveSeg.in)}</span>}
+        {!employeeSidebar && !payrollToolbar && periodNav(false)}
+        <div style={{ flex: 1 }} />
         {!self && email && !noEdit && (
         <button data-tour="pr-add-time" onClick={() => setAddTime(true)} title="Add a shift, or several days of them, for someone who did not clock in right"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
@@ -1581,7 +2040,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </button>
         )}
         {mayPrint(self, ownCard, fin, data?.review) && <PrintTimeSheetButton email={email} start={perStart} toastErr={toastErr} />}
-        <div style={{ flex: 1 }} />
         {/* Options holds only display choices now: unrounded
             times. The pay rules that used to sit here (rounding, auto-lunch,
             CA paid breaks) are company settings under Settings > Global
@@ -1617,6 +2075,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               {rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`)}
             </span>
           )}
+          {/* Where the review stands, in words (the same mark as the team list). */}
+          {rvMark && (
+            <span data-testid="ts-review-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--wk-hover)', border: '1px solid var(--wk-line2)', color: 'var(--ink)', fontWeight: 700 }}>
+              <ReviewMark status={rv.status} /> {rvMark.text}
+            </span>
+          )}
           {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}>
             <CheckCircle size={12} /> Manager approved · <AvatarName email={mgrAp.by} name={nameFor(mgrAp.by)} size={16} /></span>}
           {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}>
@@ -1641,194 +2105,88 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <StepUpNeeded label="Payroll shows employees’ pay figures." onVerified={load} />
       ) : data === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>
-      ) : phone ? (
-        hourlyPhoneDays()
       ) : (
         <>
-        {!self && <TimeColorKey />}
-        <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 8, background: 'var(--card)' }}>
-          {/* SwipeClock's card, cell for cell (Neil / Pranshu, Oct 16): a tight
-              bordered grid - Date, Edit / Add, In, Out, Deducted Time, Category,
-              Hours, OT, Loc, Pay Rate, Wage, Log. One row per punch pair (a
-              lunch splits the shift in two, Oct 20), a thin break line between
-              them. The note pencil sits in the
-              Date cell; a note line appears under the day only when there is
-              a note. Nothing else rides under a day. */}
-          <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse' }}>
+        {/* Changed since the approval: which days moved, before and after. */}
+        {changed.length > 0 && (
+          <div className="ts-changed" role="note" data-testid="ts-changed">
+            <Info size={14} style={{ flexShrink: 0, marginTop: 2, color: 'var(--wk-brand)' }} />
+            <span>
+              <b>{self ? 'Changed since your manager approved it' : 'Changed since it was approved'}{data.review?.changedSince ? ` on ${formatDate(data.review.changedSince)}` : ''}:</b>{' '}
+              {changed.map((c, ci) => (
+                <span key={c.date}>{ci ? ' · ' : ''}<button type="button" onClick={() => jumpTo(c.date)}>{dow(c.date)}</button> {hhmm(c.before)} to {hhmm(c.after)}</span>
+              ))}
+            </span>
+          </div>
+        )}
+        {T && !phone && <AttentionStrip figures={figures} items={attention} actionFor={actionFor} onJump={jumpTo} />}
+        {phone ? hourlyPhoneDays() : (
+        <>
+        <div className="ts-legend">
+          <b>Days</b>
+          {!self && <>
+            <span className="ts-k"><i className="k-clock pt-time-clock" /> <span className="pt-time-clock">Clock Punch</span></span>
+            <span className="ts-k"><i className="k-hr pt-time-hr" /> <b className="pt-time-hr">Edited by HR</b></span>
+          </>}
+          <span className="ts-k"><span className="ts-dot"><span /></span> On Site</span>
+          <span className="ts-k"><span className="ts-dot is-off"><span /></span> Out of Location - click a dot for the punch map</span>
+          <label className="ts-hide">
+            <input type="checkbox" checked={!!hideEmpty} onChange={e => setHideEmpty(e.target.checked)} /> Hide Empty Days
+          </label>
+        </div>
+        <div ref={gridRef} data-tour="pr-table" className="ts-grid-wrap" tabIndex={0} role="region" aria-label="Time sheet days">
+          {/* One row per punch pair (a lunch splits the shift in two, Oct 20),
+              the break as its own line between them, the day's notes on a
+              line under it, the week's total centered after each week. */}
+          <table className="ts-grid">
             <thead>
               <tr>
-                <th style={{ ...gh, textAlign: 'left' }}>Date</th>
-                <th data-tour="pr-edit" style={gh}>Edit</th>
-                <th style={gh}>In</th>
-                <th style={gh}>Out</th>
-                <th title="Lunch taken out of a long shift that recorded no break" style={gh}>Deducted Time</th>
-                <th style={gh}>Category</th>
-                <th title="Hours on this row - its In to its Out; a shift's rows add up to its paid time" style={gh}>Total Hours</th>
-                <th title="The day's total, on its last row - the rows above point down to it" style={gh}>Hrs/Day</th>
-                <th title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×" style={gh}>OT</th>
-                <th style={gh}>Location</th>
-                {showPay && <th title="The rate in effect that day" style={gh}>{data.contractor ? 'Rate' : 'Pay Rate'}</th>}
-                {showPay && <th style={gh}>{data.contractor ? 'Amount' : 'Wage'}</th>}
-                <th title="What was planned, done, and left pending that day" style={gh}>Log</th>
+                <th className="ts-date">Date</th>
+                <th>In</th>
+                <th>Out</th>
+                <th className="r" title="Lunch taken out of a long shift that recorded no break">Deducted Time</th>
+                <th>Category</th>
+                <th className="r" title="Hours of this punch pair - its In to its Out; a shift's rows add up to its paid time">Punch</th>
+                <th className="r" title="The day's total">Day Total</th>
+                <th className="r" title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×">OT</th>
+                <th>Location</th>
+                {showPay && <th className="r" title="The rate in effect that day">{data.contractor ? 'Rate' : 'Pay Rate'}</th>}
+                {showPay && <th className="r">{data.contractor ? 'Amount' : 'Wage'}</th>}
+                <th><span className="dk-sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => r.type === 'wk' ? (
-                <tr key={i}>
-                  {/* The week's total stands out in a yellow tint (Pranshu, Oct 16). */}
-                  <td colSpan={span} style={{ ...gc, background: 'rgba(234,179,8,0.18)', fontWeight: 700, fontSize: 12 }}>
-                    Total hours clocked for week of {formatMonthDayNumeric(r.week)} to {formatMonthDayNumeric(new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY))}: {hhmm(weekTotals[r.week]?.min || 0)}
-                  </td>
-                </tr>
-              ) : r.type === 'auto' ? (
-                <tr key={i}>
-                  <td colSpan={span} style={{ ...gc, textAlign: 'left', color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
-                    {hAuto()}
-                  </td>
-                </tr>
-              ) : r.type === 'meal' ? (
-                <tr key={i}>
-                  <td colSpan={span} style={{ ...gc, textAlign: 'left', color: '#b45309', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
-                    {hMeal(r)}
-                  </td>
-                </tr>
-              ) : r.type === 'holiday' ? (
-                <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
-                  <td colSpan={span} style={{ ...gc, textAlign: 'left', color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
-                    {hHoliday(r)}
-                  </td>
-                </tr>
-              ) : r.type === 'premium' ? (
-                <tr key={i} style={{ background: 'rgba(124,58,237,0.05)' }}>
-                  <td colSpan={span} style={{ ...gc, textAlign: 'left', color: '#6d28d9', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
-                    {hPremium(r)}
-                  </td>
-                </tr>
-              ) : r.type === 'req' ? (
-                <tr key={i} style={{ background: 'rgba(180,83,9,0.07)' }}>
-                  <td colSpan={span} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
-                    {hReq(r)}
-                  </td>
-                </tr>
-              ) : r.type === 'note' ? (
-                /* SwipeClock's note line under a day ("Took lunch from
-                   12:05-1:05"): only when there is a note, an employee note
-                   or a punch reason. */
-                (r.text || r.recs?.length || noteOf(r.ds) || notes[r.ds]?.employeeNote) ? (
-                  <tr key={i} className={`pr-day-row${r.band ? ' pr-band' : ''}`}>
-                    <td colSpan={span} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12, paddingLeft: 26 }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                        {/* One line each (Pranshu, Oct 16): the employee's note,
-                            then HR's, then what was written on the punches - just
-                            "Note by employee" / "Note by HR", no name, no date
-                            (the who and when stay on hover). */}
-                        <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
-                          {!self && notes[r.ds]?.employeeNote && (
-                            <span title={`${nameFor(email)}${notes[r.ds].employeeNoteAt ? `, ${formatDate(notes[r.ds].employeeNoteAt)}` : ''}`}
-                              style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              <strong>Note by employee:</strong> {notes[r.ds].employeeNote}
-                            </span>
-                          )}
-                          {noteOf(r.ds) && (
-                            <span style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
-                              <strong style={{ whiteSpace: 'nowrap' }}>{self ? 'Your note' : 'Note by HR'}:</strong>
-                              {self
-                                ? <NoteCell date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" lines={1} maxWidth="none" />
-                                : <NoteCell date={r.ds} note={notes[r.ds]} onSave={saveNote} lines={1} maxWidth="none" />}
-                            </span>
-                          )}
-                          {r.recs?.length > 0 && <RecordTag recs={r.recs} batches={data?.recordBatches} toastErr={toastErr} />}
-                          {r.text && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{namesIn(r.text, nameFor)}</span></span>}
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                ) : null
-              ) : r.type === 'line' ? (
-                /* The thin line between a shift's rows (Charmi / Visesh, Oct 20):
-                   "Break 15 min (1:08pm - 1:23pm)", the break still running, or
-                   an auto-deducted lunch. Deducted Time, Category and the
-                   shift's columns from OT on are merged down across it. */
-                <tr key={i} className="pr-break-line">
-                  <td style={{ ...gc, ...lineCell(r) }}></td>
-                  {/* Under the day, set in a step: every line starts at the Edit
-                      column's left edge (Neil, Oct 28 2026), whatever its length. */}
-                  <td colSpan={3} style={{ ...gc, ...lineCell(r), textAlign: 'left', color: 'var(--ink)', fontWeight: 600 }}>{hLine(r)}</td>
-                  <td style={{ ...gc, ...lineCell(r) }}></td>
-                  <td style={{ ...gc, ...lineCell(r) }}></td>
-                </tr>
-              ) : (() => { const rs = r.rs || 1; const head = !r.seg || r.segFirst; return (
-                /* Alternate days, not rows (Pranshu, Oct 16): the shift, its
-                   rows, its break lines and its note line read as one block. */
-                <tr key={i} className={`pr-row pr-day-row${r.band ? ' pr-band' : ''}${r.seg?.payClass ? ' pr-leave' : ''}`}
-                  title={r.seg?.payClass ? `${{ sick: 'Sick', vacation: 'Vacation', personal: 'Personal' }[r.seg.payClass] || 'Leave'} day` : undefined}>
-                  <td style={{ ...gc, textAlign: 'left', fontWeight: 600, color: r.seg?.payClass ? '#b91c1c' : r.seg ? 'var(--wk-brand)' : 'var(--muted)' }}>
-                    {r.first !== false && <DayDate ds={r.ds} />}
-                  </td>
-                  <td style={gc}>{hEdit(r)}</td>
-                  {r.seg ? (
-                    <>
-                      <td style={gc}>{hIn(r)}</td>
-                      <td style={gc}>{hOut(r)}</td>
-                      {/* The shift's own columns, merged down over its rows and break lines. */}
-                      {head && <td rowSpan={rs} style={{ ...gc, color: r.base.deductedMin ? '#b45309' : undefined }}>{r.base.deductedMin ? `−${r.base.deductedMin}m` : '-'}</td>}
-                      {head && <td rowSpan={rs} style={gc}>{r.base.category || '-'}</td>}
-                      {/* Each row's own hours - the rows of a shift add up to its paid time. */}
-                      <td style={{ ...gc, fontWeight: 700 }}>{hhmm(r.seg.workedMin)}</td>
-                      <td style={{ ...gc, fontWeight: 700 }}>{hrsDay(r)}</td>
-                      {head && (
-                        <>
-                          <td rowSpan={rs} style={{ ...gc, color: r.base.dtMin ? '#b91c1c' : r.base.otMin ? '#b45309' : undefined, fontWeight: (r.base.otMin || r.base.dtMin) ? 700 : 400 }}>
-                            {(r.base.otMin || r.base.dtMin)
-                              ? [r.base.otMin ? hhmm(r.base.otMin) : '', r.base.dtMin ? `${hhmm(r.base.dtMin)} 2×` : ''].filter(Boolean).join(' · ')
-                              : '-'}
-                          </td>
-                          <td rowSpan={rs} style={gc}>
-                            {/* Location Off shows (Pranshu, Oct 21: a skipped location ask must read on the card); No Location stays a dash. */}
-                            {r.base.geo && r.base.geo !== 'no_location'
-                              ? <LocCell seg={r.base} onOpen={(seg) => { setGeoFocus({ seg, date: r.ds }); setGeoMap(data?.email || email || myEmail || ''); }} />
-                              : '-'}
-                          </td>
-                          {showPay && <td rowSpan={rs} style={gc}>{fmtM(byDate[r.ds]?.rate ?? rate)}/hr</td>}
-                          {showPay && <td rowSpan={rs} style={{ ...gc, fontWeight: 700 }}>{fmtM(r.base.amount)}</td>}
-                        </>
-                      )}
-                    </>
-                  ) : Array.from({ length: span - 3 }, (_, k) => <td key={k} style={gc}>-</td>)}
-                  {/* The Work Log, at the far right of the day's first row (Pranshu, Oct 16). */}
-                  {head && <td rowSpan={rs} style={gc}>{r.first !== false && <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />}</td>}
-                </tr>
-              ); })())}
+              {shownRows.map(deskRow)}
             </tbody>
             {T && (
               /* Totals (Pranshu, Oct 16): the hours worked on their own line,
                  then each kind of time off taken with its hours and pay. */
               <tfoot>
-                <tr style={{ background: 'var(--wk-hover)', fontWeight: 700 }}>
-                  <td colSpan={4} style={{ ...gc, textAlign: 'left' }}>Total Worked</td>
-                  <td style={{ ...gc, color: T.deductedMin ? '#b45309' : undefined }}>{T.deductedMin ? `−${T.deductedMin}m` : '-'}</td>
-                  <td style={gc}></td>
-                  <td style={gc}>{hhmm((T.regMin || 0) + (T.otMin || 0) + (T.dtMin || 0))}</td>
-                  <td style={gc}></td>
-                  <td style={gc}>{(T.otMin || T.dtMin) ? [T.otMin ? hhmm(T.otMin) : '', T.dtMin ? `${hhmm(T.dtMin)} 2×` : ''].filter(Boolean).join(' · ') : '-'}</td>
-                  <td style={gc}></td>
-                  {showPay && <td style={gc}></td>}
-                  {showPay && <td style={gc}>{fmtM((T.regPay || 0) + (T.otPay || 0) + (T.dtPay || 0))}</td>}
-                  <td style={gc}></td>
+                <tr>
+                  <td colSpan={3} className="ts-date" style={{ fontSize: 14 }}>Total Worked</td>
+                  <td className="r">{T.deductedMin ? <span className="ts-num-warn">−{T.deductedMin}m</span> : '-'}</td>
+                  <td />
+                  <td />
+                  <td className="r">{hhmm((T.regMin || 0) + (T.otMin || 0) + (T.dtMin || 0))}</td>
+                  <td className="r">{(T.otMin || T.dtMin) ? <span className="ts-num-warn">{otText(T.otMin, T.dtMin)}</span> : '-'}</td>
+                  <td />
+                  {showPay && <td />}
+                  {showPay && <td className="r">{fmtM((T.regPay || 0) + (T.otPay || 0) + (T.dtPay || 0))}</td>}
+                  <td />
                 </tr>
                 {[['Sick', T.sickMin, T.sickPay], ['Vacation', T.vacationMin, T.vacationPay], ['Personal', T.personalMin, T.personalPay]]
-                  .filter(([, min]) => min > 0).map(([label, min, pay]) => (
-                  <tr key={label} style={{ background: 'var(--wk-hover)', fontWeight: 600 }}>
-                    <td colSpan={4} style={{ ...gc, textAlign: 'left', color: '#b91c1c' }}>Time Off - {label}</td>
-                    <td style={gc}></td>
-                    <td style={gc}>{label}</td>
-                    <td style={gc}>{hhmm(min)}</td>
-                    <td style={gc}></td>
-                    <td style={gc}></td>
-                    <td style={gc}></td>
-                    {showPay && <td style={gc}></td>}
-                    {showPay && <td style={gc}>{fmtM(pay)}</td>}
-                    <td style={gc}></td>
+                  .filter(([, min]) => min > 0).map(([lbl, min, pay]) => (
+                  <tr key={lbl} className="ts-off">
+                    <td colSpan={3} className="ts-date">Time Off - {lbl}</td>
+                    <td />
+                    <td>{lbl}</td>
+                    <td />
+                    <td className="r">{hhmm(min)}</td>
+                    <td />
+                    <td />
+                    {showPay && <td />}
+                    {showPay && <td className="r">{fmtM(pay)}</td>}
+                    <td />
                   </tr>
                 ))}
               </tfoot>
@@ -1836,99 +2194,40 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           </table>
         </div>
         </>
+        )}
+        </>
       )}
 
-      {/* Summary + acknowledgment */}
+      {/* Under the grid: the pay summary, job costing and the period's counts
+          with the exports - one height, one grid. */}
       {T && (
-        <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <div data-tour="pr-summary" style={{ flex: '0 1 620px', minWidth: 300, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
-            {(() => {
-              // SwipeClock shows both clock time and decimal - "58:30 (58.50)" -
-              // so payroll can be keyed either way without converting by hand.
-              const hd = (min) => `${hhmm(min)} (${dec(min)})`;
-              // With a rate change inside the period each day is priced at its
-              // own rate, so the lines name no single rate; the strip above shows the split.
-              const split = (data.rateSplits || []).length > 1;
-              const at = (mult) => (split || !showPay) ? '' : ` at ${fmtM(rate * mult)}/hr`;
-              const rows = [
-                [`Total Regular hours${at(1)}`, hd(T.regMin), fmtM(T.regPay)],
-                [`Total Overtime hours${at(1.5)}`, hd(T.otMin), fmtM(T.otPay)],
-                ...(T.dtMin ? [[`Total Double-time hours${at(2)}`, hd(T.dtMin), fmtM(T.dtPay)]] : []),
-                // Paid leave entered on the card as a Sick / Vacation category punch -
-                // its own line at the base rate, like SwipeClock (Charmi, Sep 21).
-                ...(T.sickMin ? [[`Total Sick hours${at(1)}`, hd(T.sickMin), fmtM(T.sickPay)]] : []),
-                ...(T.vacationMin ? [[`Total Vacation hours${at(1)}`, hd(T.vacationMin), fmtM(T.vacationPay)]] : []),
-                ...(T.personalMin ? [[`Total Personal hours${at(1)}`, hd(T.personalMin), fmtM(T.personalPay)]] : []),
-                // Shift differentials, one line per rule, and call-back pay (Oct 17):
-                // on top of the hours, never counted in them.
-                ...(T.differentials || []).map(x => [`${x.name} (shift differential)`, hd(x.min), fmtM(x.pay)]),
-                ...(T.callBackMin ? [[`Call-Back Pay (minimum not worked)${at(1)}`, hd(T.callBackMin), fmtM(T.callBackPay)]] : []),
-                ...(T.holidayDays ? [[`Company holiday${T.holidayDays === 1 ? '' : 's'} (${T.holidayDays} day${T.holidayDays === 1 ? '' : 's'}, not worked)`, '-', fmtM(T.holidayPay)]] : []),
-                // CA meal / rest premiums: 1 hour of pay each, not hours worked.
-                ...(T.mealPremiumMin ? [[`Meal Premium (${T.mealPremiumMin / 60} x 1 hour of pay)`, '-', fmtM(T.mealPremiumPay)]] : []),
-                ...(T.restPremiumMin ? [[`Rest Premium (${T.restPremiumMin / 60} x 1 hour of pay)`, '-', fmtM(T.restPremiumPay)]] : []),
-                // Bonuses (Neil, Oct 22): one line each, with why; in totalPay.
-                ...(data.bonuses || []).map(b => [`Bonus: ${b.description}`, '-', showPay ? `+${fmtM(b.amount)}` : '']),
-                ['Totals', hd(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0))), fmtM(T.totalPay)],
-                // Salary advance repayments (Oct 27 2026): off what is paid out, not the wages.
-                ...(T.advanceRepayment !== undefined ? [
-                  ...(data.advanceRepayments || []).filter(x => x.applied > 0).map(x => ['Salary Advance Repayment', '-', `-${fmtM(x.applied)}`]),
-                  ['Net Pay', '', fmtM(T.netPay)],
-                ] : []),
-              ];
-              const last = rows.length - 1;
-              return rows.map(([lbl, hrs, amt], i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 110px 100px', gap: 8, padding: '8px 12px', borderTop: i ? '1px solid var(--line)' : 'none', background: i === last ? 'var(--wk-hover)' : 'transparent', fontWeight: i === last ? 700 : 500, fontSize: 12.5 }}>
-                  <span style={{ color: i === last ? 'var(--ink)' : 'var(--muted)' }}>{lbl}</span>
-                  <span style={{ textAlign: 'right' }}>{hrs}</span>
-                  <span style={{ textAlign: 'right' }}>{amt}</span>
-                </div>
-              ));
-            })()}
+        <div className="ts-below">
+          <div data-tour="pr-summary" className="ts-card">
+            <div className="ts-card-h">Pay Summary</div>
+            {paySummary()}
           </div>
-          <BreakPremiums card={data} self={self} locked={!!fin} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
           {(data?.byCategory || []).length > 1 && (
-            <div style={{ minWidth: 240, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
-              <div style={{ padding: '8px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)' }}>By category (job costing)</div>
+            <div className="ts-card">
+              <div className="ts-card-h">By Category (Job Costing)</div>
               {data.byCategory.map((c, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 90px', gap: 8, padding: '7px 12px', borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+                <div key={i} className="ts-srow">
                   <span style={{ color: c.category === 'Uncategorised' ? 'var(--muted)' : 'var(--ink)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.category}</span>
-                  <span style={{ textAlign: 'right' }}>{hhmm(c.workedMin)}</span>
-                  <span style={{ textAlign: 'right', fontWeight: 700 }}>{fmtM(c.pay)}</span>
+                  <b>{hhmm(c.workedMin)}</b>
+                  <b style={{ fontWeight: 700 }}>{fmtM(c.pay)}</b>
                 </div>
               ))}
             </div>
           )}
-          <div style={{ minWidth: 200, fontSize: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
-              <span>Missing punches</span><span style={{ fontWeight: 700, color: T.missingPunches ? '#b91c1c' : 'var(--ink)' }}>{T.missingPunches}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
-              <span>Edited punches</span><span style={{ fontWeight: 700 }}>{T.editedPunches}</span>
-            </div>
-            {T.pendingEdits > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: '#b45309', fontWeight: 700 }} title={self ? 'Your edits waiting for approval - not counted in pay yet' : 'Employee edits awaiting your review - approve/reject each in the In/Out column'}>
-                <span>Pending edits</span><span>{T.pendingEdits}</span>
-              </div>
-            )}
-            {T.deductedMin > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
-                <span>Auto-lunch deducted</span><span style={{ fontWeight: 700, color: '#b45309' }}>−{T.deductedMin}m</span>
-              </div>
-            )}
-            {T.breakMin > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
-                <span>Break time</span><span style={{ fontWeight: 700 }}>{hhmm(T.breakMin)}</span>
-              </div>
-            )}
-            {T.paidBreakMin > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}
-                title="CA rest-break credit - these break minutes stayed on the clock as paid time.">
-                <span>Paid breaks</span><span style={{ fontWeight: 700, color: 'hsl(var(--color-green))' }}>+{T.paidBreakMin}m</span>
-              </div>
-            )}
+          <div className="ts-card">
+            <div className="ts-card-h">This Period</div>
+            {count('Missing punches', T.missingPunches, T.missingPunches ? '#b91c1c' : '')}
+            {count('Edited punches', T.editedPunches)}
+            {T.pendingEdits > 0 && count('Pending edits', T.pendingEdits, '#b45309', self ? 'Your edits waiting for approval - not counted in pay yet' : 'Employee edits awaiting your review - approve or reject each under its time')}
+            {T.deductedMin > 0 && count('Auto-lunch deducted', `−${T.deductedMin}m`, '#b45309')}
+            {T.breakMin > 0 && count('Break time', hhmm(T.breakMin))}
+            {T.paidBreakMin > 0 && count('Paid breaks', `+${T.paidBreakMin}m`, 'hsl(var(--color-green))', 'CA rest-break credit - these break minutes stayed on the clock as paid time.')}
             {!self && showPay && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div className="ts-exp">
               <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV', [start, end])} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
               <button className="secondary-btn" disabled={exporting} title="Intacct General Ledger import of this period's payroll by employee - wages by pay class, with department and entity as dimensions. Same file layout as the accounting app's bank import."
                 onClick={() => setIntacctOpen((v) => !v)} aria-expanded={intacctOpen}
@@ -1947,10 +2246,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <span style={{ fontSize: 11, color: 'var(--muted)', flexBasis: '100%' }}>One entry for {formatDate(perStart)} to {formatDate(perEnd)}: a debit per employee per pay class, one credit per employee to the clearing account. Blank accounts are left for Intacct to ask.</span>
                 </form>
               )}
-              {/* Approving is now "Agree" in the review panel below; HR's
-                  signature there finalizes. Review + Nexus Sign is the only
-                  sign-off (Neil, 10/16). Unlock stays as HR's correction path
-                  for a signed period. */}
+              {/* Review + Nexus Sign is the only sign-off (Neil, 10/16). Unlock
+                  stays as HR's correction path for a signed period. */}
               {fin && data.review?.canUnlock && (
                 <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period to correct it - the employee signs it again"
                   style={{ fontSize: 12.5 }}>Unlock</button>)}
@@ -1959,6 +2256,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           </div>
         </div>
       )}
+      {T && <div style={{ marginTop: 14 }}><BreakPremiums card={data} self={self} locked={!!fin} onChanged={load} toastOk={toastOk} toastErr={toastErr} /></div>}
       {T && !self && (
         <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 12, fontStyle: 'italic' }}>
           Overtime rule: {rule === 'ca' ? 'California - over 8h/day (1.5×), over 12h/day (2×), the 7th consecutive day, and over 40h/week'
@@ -1971,12 +2269,19 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         onChanged={load} toastOk={toastOk} toastErr={toastErr} />}
       {T && <TimeSheetAdvances adv={adv} self={self} me={myEmail} toastOk={toastOk} toastErr={toastErr} />}
 
+      {/* Approve within reach while the review panel is off screen (11/04/2026). */}
+      {T && !self && !phone && (
+        <ApproveBar review={data.review} anchor={perStart} empName={nameFor(email)} next={next} panelRef={panelRef}
+          onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+      )}
       {/* Review + Nexus Sign (Sep 2026): the employee submits, the manager sends
-          back or agrees, then employee -> manager -> HR sign in Nexus Sign. */}
+          back or agrees, then the employee signs in Nexus Sign. */}
       {T && !self && (
-        <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={label}
-          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
+        <div data-tour="pr-approve">
+        <TimesheetReviewPanel ref={panelRef} review={data.review} self={self} anchor={perStart} periodLabel={label}
+          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} next={next}
           below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />
+        </div>
       )}
 
       {noteModal && (
@@ -2015,17 +2320,17 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       )}
       {tour && <GuidedTour onClose={() => setTour(false)} steps={[
         { target: 'pr-sidebar', title: 'Start with the employee list',
-          body: 'Everyone in this pay period. M = missing punches, E = exceptions - the red numbers are your to-do list each morning. Click a name to open their card.' },
+          body: 'Everyone in this pay period. M = missing punches, E = exceptions - the red numbers are your to-do list each morning. The mark beside a name says where the time sheet is in review: approved, signed or sent back. Click a name to open their card, or step through with the up and down arrow keys (left and right change the pay period).' },
         { target: 'pr-period', title: 'The pay period',
           body: 'Bi-weekly, Sunday to Saturday - the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period; click the dates to pick one. Pick it first - every employee you open stays on it.' },
-        { target: 'pr-table', title: 'The time sheet - same columns as SwipeClock',
-          body: 'Date, Edit, In, Out, Deducted Time, Category, Total Hours, OT (1.5× and, past 12 hours in California, 2×), Location, Pay Rate and Wage. A shift with a break reads as punch pairs, like SwipeClock - one row from the clock-in to the break, the next from the break end to the clock-out, each with its own hours - and a thin line between them gives the length and times of the break. Hrs/Day shows the total for the day on its last row. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Add Note in the toolbar leaves a note on a day; it reads on the line under that day. Weekly total rows appear after each week.' },
+        { target: 'pr-table', title: 'The time sheet, one row per punch pair',
+          body: 'Date, In, Out, Deducted Time, Category, Punch (the hours of that pair), Day Total, OT (1.5× and, past 12 hours in California, 2×), Location, Pay Rate and Wage, then Edit, Add and the Work Log. A shift with a break reads as two rows - the clock-in to the break, the break end to the clock-out - with the break as its own line between them, its start under In and its end under Out. Every time lines up: hours and minutes on the right, AM / PM in a column of its own; a clock-out after midnight carries +1. Click a time and type the new one - 730p, 7:30 or 1930 - and Undo puts it back. Hover a time for its punch history. The strip above the days groups what needs attention; click a chip to jump to its day. Each week ends with its total on a centered line.' },
         ...(rounds ? [{ target: 'pr-rounding', title: 'Options: rounded vs raw times',
           body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' }] : []),
         { target: 'pr-edit', title: 'Fix punches here',
-          body: 'Edit on a row opens that shift - set the real in/out, location and Type, or delete a punch; on a row that starts where a break ended (or on the break line itself) it fixes or deletes the break. Add on any row adds Regular, Break, Sick, Vacation or Personal time for someone. Originals stay on record with who changed what, like SwipeClock\'s audit log.' },
-        { target: 'pr-summary', title: 'Totals, in both formats',
-          body: 'Regular, overtime (1.5×), and double-time (2×) hours with wages - shown as clock time AND decimal ("58:30 (58.50)"), matching SwipeClock\'s summary, so payroll can key either format.' },
+          body: 'Edit on a shift opens it - set the real in/out, location and Type, or delete a punch; a missing clock-out shows a red Add Clock-Out instead. Click a break line to fix or delete the break. Add on any day adds Regular, Break, Sick, Vacation or Personal time; days still ahead have no Add. Originals stay on record with who changed what, like SwipeClock\'s audit log.' },
+        { target: 'pr-summary', title: 'Totals',
+          body: 'Regular, overtime (1.5×) and double-time (2×) hours with wages, in hours and minutes.' },
         { target: 'pr-approve', title: 'Review and sign',
           body: 'The employee submits the period, their approver sends it back or agrees, then the employee signs it in Nexus Sign. That signature locks the period (no more edits, like SwipeClock\'s "finalized" periods) and payroll runs from it. Unlock reopens it if a correction is truly needed. CSV exports the punches for records.' },
       // On a phone there is no employee list and no edit column (the day
@@ -2599,11 +2904,22 @@ const punchHistory = (meta, rounded) => !meta ? '' : [
     ? `${meta.editStatus === 'approved' ? 'Approved' : 'Rejected'}${meta.editReviewedBy ? ` by ${meta.editReviewedBy}` : ''} on ${_z(meta.editReviewedAt)}${meta.editNote ? `: ${meta.editNote}` : ''}` : '',
 ].filter(Boolean).join('\n');
 
-function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, locateEmail, onLocate }) {
+// The words for a punch kind, in a label or a reader's announcement.
+const PUNCH_WORD = { in: 'Clock-in', out: 'Clock-out', break_start: 'Break start', break_end: 'Break end' };
+
+// Since 11/04/2026 (Neil): the time is typed, not picked - "730p", "7:30",
+// "1930" (lib/timeTyping.js) - on the punch's own day. An Out before its In
+// warns in the cell before anything saves, with Next Day for a shift that
+// ran past midnight; the AM / PM long-shift guard (lib/longShift.js) still
+// runs after. A manager's change offers Undo for a few seconds, and the cell
+// it changed flashes once the card reloads (`flash`). Every time reads in
+// the aligned boxes of TimeText, with a label a screen reader can say.
+function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, locateEmail, onLocate, day = '', flash = false }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState('');
-  const [warn, setWarn] = useState(null);   // the AM / PM warning for the typed time
+  const [warn, setWarn] = useState(null);   // { message, nextDay?, value } | { long, value }
   const inputRef = useRef(null);
+  const doneRef = useRef(false);   // one save per edit: Enter, then the box unmounting, must not save twice
   const punchId = k === 'in' ? seg?.inId : seg?.outId;   // always available (for approve/reject)
   const id = (locked ? '' : punchId);                    // editable id (blank when locked)
   const raw = k === 'in' ? seg?.in : seg?.out;
@@ -2613,6 +2929,7 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
   const isPending = (k === 'in' ? seg?.inEditStatus : seg?.outEditStatus) === 'pending' && pendingAt;
   const adjustNote = k === 'in' ? seg?.inAdjustNote : seg?.outAdjustNote;   // why this punch was changed
   if (!raw) return <span style={{ color: 'var(--muted)' }}>-</span>;
+  const word = PUNCH_WORD[meta?.kind] || (k === 'in' ? 'Clock-in' : 'Clock-out');
 
   async function commit(atUtc, confirmLong = false) {
     if (self) {
@@ -2625,88 +2942,133 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
         placeholder: confirmLong ? 'Reason (required)' : 'Reason (optional)', confirmText: 'Send for Approval', required: confirmLong,
       });
       if (reason === null) return;   // cancelled
-      try { await api.timePunchEditCreate({ punch_id: id, at: atUtc, reason: reason || '', ...(confirmLong ? { confirm_long: true } : {}) }); onSaved?.(); }
+      try { await api.timePunchEditCreate({ punch_id: id, at: atUtc, reason: reason || '', ...(confirmLong ? { confirm_long: true } : {}) }); onSaved?.(punchId); }
       catch (err) { toastErr?.(err?.message || 'Could not send the edit.'); }
     } else {
-      try { await api.timeAdjustPunch(id, { at: atUtc }); onSaved?.(); }
-      catch (err) { toastErr?.(err?.message || 'Could not save the time.'); }
+      const before = raw;
+      try {
+        await api.timeAdjustPunch(id, { at: atUtc });
+        onSaved?.(punchId);
+        // Undo puts the time back through the same audited route - the punch
+        // history keeps both changes.
+        dialog.undo(`${word} changed to ${timeWords(atUtc)}.`, async () => {
+          try { await api.timeAdjustPunch(id, { at: before }); onSaved?.(punchId); }
+          catch (err) { toastErr?.(err?.message || 'Could not undo the change.'); }
+        });
+      } catch (err) { toastErr?.(err?.message || 'Could not save the time.'); }
     }
   }
+  const base = utcToInput(raw);
   // AM / PM guard (Charmi, Oct 21): the other end of this shift, to judge the typed time against.
   const otherEnd = k === 'in' ? (seg?.out && { kind: 'out', at: utcToInput(seg.out) }) : (seg?.in && { kind: 'in', at: utcToInput(seg.in) });
-  const finish = (v, confirmLong = false) => { setWarn(null); setEditing(false); return commit(inputToUtc(v), confirmLong); };
+  const cancel = () => { setVal(''); setWarn(null); setEditing(false); };
+  const finish = (v, confirmLong = false) => {
+    if (doneRef.current) return undefined;
+    doneRef.current = true;
+    setWarn(null); setEditing(false); return commit(inputToUtc(v), confirmLong);
+  };
+  const check = (v) => {
+    const issue = checkLongShift(otherEnd ? [otherEnd] : [], k, v);
+    if (issue) { setWarn({ long: issue, value: v }); return; }
+    finish(v);
+  };
+  const submit = () => {
+    if (doneRef.current) return;
+    const typed = val.trim();
+    if (!typed) { cancel(); return; }
+    const v = applyTypedTime(base, typed);
+    if (!v) { setWarn({ message: 'Type a time like 7:30 AM, 730p or 1930.' }); return; }
+    // The box opens on the time shown (the ROUNDED one when the company rounds):
+    // leaving it as it was changes nothing - never an edit of the raw punch.
+    if (v === base || v === utcToInput(rounded) || typed.replace(/\s+/g, ' ').toUpperCase() === timeWords(rounded)) { cancel(); return; }
+    const ord = orderIssue(k === 'in' ? 'in' : 'out', v, otherEnd?.at);
+    if (ord) { setWarn({ ...ord, value: v }); return; }
+    check(v);
+  };
+  const keep = (e) => e.preventDefault();   // a warning's buttons must not blur the box
 
   if (editing) return (
-    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-      <input ref={inputRef} autoFocus type="datetime-local" className="form-input" value={val}
+    <span className="ts-typed">
+      <input ref={inputRef} autoFocus type="text" inputMode="text" className="form-input" value={val}
+        aria-label={`${word} time`} placeholder="7:30 AM"
+        onFocus={e => e.currentTarget.select()}
         onChange={e => { setVal(e.target.value); setWarn(null); }}
-        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(''); setWarn(null); setEditing(false); } }}
-        onBlur={async () => {
-          const orig = utcToInput(raw);
-          if (!val || val === orig) { setWarn(null); setEditing(false); return; }
-          if (warn) return;   // the warning's buttons decide
-          const issue = checkLongShift(otherEnd ? [otherEnd] : [], k, val);
-          if (issue) { setWarn(issue); return; }
-          await finish(val);
-        }}
-        style={{ fontSize: 12, padding: '2px 4px', width: 172 }} />
-      <LongShiftWarning issue={warn} manager={!self} compact
-        onFix={() => { setWarn(null); inputRef.current?.focus(); }}
-        onUseSuggestion={(w) => { setVal(w.suggest); finish(w.suggest); }}
-        onConfirm={() => finish(val, true)} />
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } if (e.key === 'Escape') cancel(); }}
+        onBlur={() => { if (!warn) submit(); }} />
+      {warn?.long && (
+        <LongShiftWarning issue={warn.long} manager={!self} compact
+          onFix={() => { setWarn(null); inputRef.current?.focus(); }}
+          onUseSuggestion={(w) => finish(w.suggest)}
+          onConfirm={() => finish(warn.value, true)} />
+      )}
+      {warn && !warn.long && (
+        <span className="ts-typed-warn" role="alert">
+          {warn.message}
+          {warn.nextDay && <button type="button" onMouseDown={keep} onClick={() => check(warn.nextDay)}>Next Day</button>}
+          <button type="button" onMouseDown={keep} onClick={() => { setWarn(null); inputRef.current?.focus(); }}>Fix</button>
+          <button type="button" onMouseDown={keep} onClick={cancel}>Cancel</button>
+        </span>
+      )}
     </span>
   );
   // Each punch is judged on its own: the In dot is the in punch, the Out dot the out punch.
   const geo = (k === 'out' ? seg.geoOut : seg.geo) || '';
   const siteName = (k === 'out' ? seg.workSiteOut : seg.workSite) || '';
-  const mini = { border: 'none', background: 'none', cursor: 'pointer', padding: '0 2px', fontWeight: 800, fontSize: 12, lineHeight: 1 };
-  const dotColor = geo === 'in_fence' ? 'hsl(var(--color-green))' : geo === 'out_of_fence' ? '#b91c1c' : 'var(--line-strong,var(--line))';
   // Clicking the location dot opens the Geofence Punch view for this person and
   // period (SwipeClock-style map + punch table, Charmi Sep 25).
   const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; onLocate?.(); };
   const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Out of Location${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'no_site' ? 'No location mapped' : geo === 'low_accuracy' ? 'Approx. location - no GPS, too rough to tell which site' : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : geo === 'location_off' ? 'Location turned off' : 'GPS only');
+  // On site a ring, out of location a diamond (a shape, not only a color), anything else grey.
+  const dotCls = `ts-dot${geo === 'out_of_fence' ? ' is-off' : geo === 'in_fence' ? '' : ' is-other'}`;
+  const hasDot = geo && geo !== 'no_location' && geo !== 'location_off';
+  const who = meta?.byHr ? ', edited by HR' : (meta?.manual || meta?.adjustedAt) ? ', entered or changed by hand' : '';
+  const said = `${word} ${timeWords(rounded)}${who}${isPending ? `, change to ${timeWords(pendingAt)} waiting for approval` : ''}`;
+  const mini = { color: 'inherit' };
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-      {geo && geo !== 'no_location' && geo !== 'location_off' && (locateEmail
-        // The dot is drawn INSIDE the button: a phone card gives every button
-        // in the row a 32px tap height (style.css .pr-dcard-times button), and
-        // a button that was itself the 10px dot stretched into an oval (Neil,
-        // Oct 18). The button is the tap target; the span stays a circle.
-        ? <button onClick={openMap} aria-label="Open the geofence punch map" title={`${dotTitle} - click for the punch map`}
-            className="pr-geo-dot"
-            style={{ width: 20, height: 20, margin: -5, flexShrink: 0, padding: 0, cursor: 'pointer', border: 'none', background: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 0 2px var(--card), 0 0 0 3px ${dotColor}` }} />
-          </button>
-        : <span title={dotTitle}
-            style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: dotColor }} />)}
-      <button onClick={() => { if (!id) return; setVal(utcToInput(raw)); setEditing(true); }}
-        title={[punchHistory(meta, rounded), id ? (self ? 'Click to propose a new time - goes to your approver; pay unchanged until approved' : 'Click to edit this punch time - the original stays on record') : ''].filter(Boolean).join('\n')}
-        style={{ background: 'none', border: 'none', padding: 0, cursor: id ? 'pointer' : 'default', font: 'inherit', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        {/* A punch someone entered or changed reads bold, as on SwipeClock; on
-            the manager / HR card it is also color-banded: green straight off the
-            clock, blue entered or changed by HR (punchMeta.clock / .byHr). */}
-        <span className={!self ? (meta?.byHr ? 'pt-time-hr' : meta?.clock ? 'pt-time-clock' : undefined) : undefined}
-          style={{ borderBottom: id ? `1px dashed ${self ? 'var(--wk-brand)' : 'var(--line-strong,var(--line))'}` : '1px dashed var(--line-strong,var(--line))', color: self && id ? 'var(--wk-brand)' : undefined, fontWeight: (meta?.manual || meta?.adjustedAt) ? 800 : self && id ? 600 : undefined }}>{t12(rounded)}</span>
-        {self && id && <Pencil size={10} style={{ opacity: 0.7, flexShrink: 0, color: 'var(--wk-brand)' }} />}
+    <span className="ts-cell-t">
+      <span className="ts-tc">
+        {hasDot ? (locateEmail
+          // The dot is drawn INSIDE the button: a phone card gives every button
+          // a 32px tap height, and a button that was itself the dot stretched
+          // into an oval (Neil, Oct 18). The button is the tap target.
+          ? <button type="button" onClick={openMap} aria-label={`${dotTitle} - open the punch map`} title={`${dotTitle} - click for the punch map`}
+              className={`${dotCls} pr-geo-dot`}><span aria-hidden="true" /></button>
+          : <span className={dotCls} title={dotTitle} style={{ cursor: 'default' }}><span aria-hidden="true" /></span>)
+          : <span className="ts-gsp" aria-hidden="true" />}
+        <button type="button" onClick={() => { if (!id) return; doneRef.current = false; setVal(timeWords(rounded)); setWarn(null); setEditing(true); }}
+          aria-label={id ? `${said}. ${self ? 'Propose a new time' : 'Change the time'}` : said}
+          title={[punchHistory(meta, rounded), id ? (self ? 'Click to propose a new time - goes to your approver; pay unchanged until approved' : 'Click to type a new time - the original stays on record') : ''].filter(Boolean).join('\n')}
+          className={`${id ? 'ts-edit-t' : ''}${flash ? ' ts-flash-t' : ''}`}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: id ? 'pointer' : 'default', font: 'inherit', color: 'inherit', display: 'inline-flex', alignItems: 'baseline' }}>
+          {/* Entered or changed by hand reads bold, as on SwipeClock; on the
+              manager / HR card a time HR entered or changed is blue (punchMeta.byHr). */}
+          <span className={!self ? (meta?.byHr ? 'pt-time-hr' : meta?.clock ? 'pt-time-clock' : undefined) : undefined}
+            style={{ color: self && id ? 'var(--wk-brand)' : undefined, fontWeight: (meta?.manual || meta?.adjustedAt) ? 800 : self && id ? 600 : undefined }}>
+            <TimeText iso={rounded} day={day} />
+          </span>
+        </button>
         {showRaw && <span style={{ fontSize: 10.5, fontStyle: 'italic', color: 'var(--muted)' }}>{t12s(raw)}</span>}
-      </button>
-      {!isPending && adjustNote && (
-        /* This punch time was changed - hover the info dot for the reason on record. */
-        <span title={`Time changed: ${adjustNote}`} aria-label={`Time changed: ${adjustNote}`}
-          style={{ display: 'inline-flex', color: '#b45309', cursor: 'help', flexShrink: 0 }}>
-          <Info size={12} />
-        </span>
-      )}
+        {!isPending && adjustNote && (
+          /* This punch time was changed - hover the info dot for the reason on record. */
+          <span title={`Time changed: ${adjustNote}`} aria-label={`Time changed: ${adjustNote}`}
+            style={{ display: 'inline-flex', color: '#b45309', cursor: 'help', flexShrink: 0, alignSelf: 'center' }}>
+            <Info size={12} />
+          </span>
+        )}
+      </span>
       {isPending && (
-        <span className={self ? undefined : 'nx-needs-you--inline'} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: '#b45309', fontWeight: 700 }}
+        /* The proposed time sits UNDER the time it would replace, its arrow in the dot's place. */
+        <span className="ts-pend"
           title={`${self ? 'Your proposed time' : 'Proposed by employee'}${pendReason ? ': ' + pendReason : ''} - not counted until approved`}>
-          &rarr; {t12(pendingAt)} <span style={{ fontStyle: 'italic' }}>pending</span>
+          <span className="ts-pa" aria-hidden="true">&rarr;</span>
+          <TimeText iso={pendingAt} day={day} />
+          <em className={self ? undefined : 'nx-needs-you--inline'}>Pending</em>
           {!self && !locked && punchId && (
             <>
-              <button title="Approve this time" aria-label="Approve this edited time" style={{ ...mini, color: 'hsl(var(--color-green))' }}
-                onClick={async () => { try { await api.timePunchEditDecide(punchId, { status: 'approved' }); onSaved?.(); } catch (e) { toastErr?.(e?.message || 'Could not approve.'); } }}>&#10003;</button>
-              <button title="Reject this time" aria-label="Reject this edited time" style={{ ...mini, color: '#b91c1c' }}
-                onClick={async () => { const note = await dialog.prompt('', { title: 'Reject edit', message: 'Sent to the employee.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true }); if (note === null) return; try { await api.timePunchEditDecide(punchId, { status: 'rejected', note: note || '' }); onSaved?.(); } catch (e) { toastErr?.(e?.message || 'Could not reject.'); } }}>&#10007;</button>
+              <button type="button" title="Approve this time" aria-label="Approve this edited time" style={{ ...mini, color: 'hsl(var(--color-green))' }}
+                onClick={async () => { try { await api.timePunchEditDecide(punchId, { status: 'approved' }); onSaved?.(punchId); } catch (e) { toastErr?.(e?.message || 'Could not approve.'); } }}>&#10003;</button>
+              <button type="button" title="Reject this time" aria-label="Reject this edited time" style={{ ...mini, color: '#b91c1c' }}
+                onClick={async () => { const note = await dialog.prompt('', { title: 'Reject edit', message: 'Sent to the employee.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true }); if (note === null) return; try { await api.timePunchEditDecide(punchId, { status: 'rejected', note: note || '' }); onSaved?.(punchId); } catch (e) { toastErr?.(e?.message || 'Could not reject.'); } }}>&#10007;</button>
             </>
           )}
         </span>

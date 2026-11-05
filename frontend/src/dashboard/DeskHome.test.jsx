@@ -73,3 +73,14 @@ describe('DeskHome Favorites (Oct 28 2026)', () => {
     expect(await screen.findByText('Bookmark an app in Links and it shows up here.')).toBeTruthy();
   });
 });
+
+describe('DeskHome greeting (Neil, 11/04/2026)', () => {
+  it('puts the date on its own line above the greeting', async () => {
+    render(<DeskHome notifications={[]} />);
+    const h1 = await screen.findByRole('heading', { level: 1 });
+    const date = document.querySelector('.dk-head-date');
+    expect(date?.textContent).toMatch(/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), /);
+    expect(date.compareDocumentPosition(h1) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector('.dk-head-sub').textContent).not.toContain(date.textContent);
+  });
+});

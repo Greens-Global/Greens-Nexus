@@ -266,7 +266,8 @@ class ShiftsAndTimesheetFixesTests(_Case):
         return weekly_digest.build_sections(self.db, email, TODAY).get("pending", [])
 
     def test_a_reports_punch_fixes_are_one_row_for_the_manager(self):
-        self.db.add(models.PunchRequest(id=gen_id(), employee_email=BOB, action="add", punch_kind="out",
+        fix_id = gen_id()
+        self.db.add(models.PunchRequest(id=fix_id, employee_email=BOB, action="add", punch_kind="out",
                                         local_date="2026-09-25", reason="Forgot", status="pending"))
         self.db.add(models.TimePunch(id=gen_id(), employee_email=BOB, kind="in", at="2026-09-26T16:00:00",
                                      local_date="2026-09-26", pending_at="2026-09-26T15:30:00",
@@ -280,8 +281,23 @@ class ShiftsAndTimesheetFixesTests(_Case):
         [row] = [r for r in self._pending(BOSS) if r["module"] == "timecard" and r["title"].startswith("Approve:")]
         self.assertEqual(row["title"], "Approve: Bob's Time Sheet Fixes (2)")
         self.assertEqual(row["detail"], "add a clock-out on 09/25/2026; a new clock-in time on 09/26/2026")
-        self.assertTrue(row["url"].endswith("/hr/hr-time-requests"))
+        # Punch requests, on Bob's request itself (11/05/2026: the bare link
+        # left the reader to find it).
+        self.assertTrue(row["url"].endswith(f"/hr/hr-time-requests?punchRequest={fix_id}"))
         self.assertEqual([r for r in self._pending(AMY) if r["module"] == "timecard"], [])   # not Amy's to decide
+
+    def test_a_proposed_time_alone_opens_that_persons_card_on_its_period(self):
+        from urllib.parse import urlsplit, parse_qs
+        import timesheet_review
+        self.db.add(models.TimePunch(id=gen_id(), employee_email=BOB, kind="in", at="2026-09-26T16:00:00",
+                                     local_date="2026-09-26", pending_at="2026-09-26T15:30:00",
+                                     edit_status="pending"))
+        self.db.commit()
+        [row] = [r for r in self._pending(BOSS) if r["module"] == "timecard" and r["title"].startswith("Approve:")]
+        link = urlsplit(row["url"])
+        self.assertTrue(link.path.endswith("/hr/hr-time"))
+        start, _, pay_type = timesheet_review.period_for(self.db, BOB, "2026-09-26")
+        self.assertEqual(parse_qs(link.query), {"timecard": [BOB], "start": [start], "type": [pay_type]})
 
     def test_shift_requests_reach_the_manager_and_the_teammate(self):
         common = dict(shift_id=gen_id(), shift_date="2026-10-01", shift_start="09:00", shift_end="17:00",

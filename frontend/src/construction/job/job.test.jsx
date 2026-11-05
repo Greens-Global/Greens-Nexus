@@ -118,7 +118,7 @@ describe('Job tabs and the URL', () => {
     expect(await screen.findByText(/2 RFIs to answer/)).toBeInTheDocument();
     expect(screen.getByText(/1 punch item assigned to you/)).toBeInTheDocument();
     expect(container.querySelector('[data-job-card="crew"]').textContent).toContain('Ana Lopez');
-    expect(container.querySelector('[data-job-card="crew"]').textContent).toContain('2 days · 16 h');
+    expect(container.querySelector('[data-job-card="crew"]').textContent).toContain('2 days · 16h');
     expect(container.querySelector('[data-job-card="tickets"]').textContent).toContain('TK-12');
     expect(container.querySelector('[data-job-card="tickets"]').textContent).toContain('Requested by Sam Lee');
     expect(container.querySelector('[data-job-card="property"]').textContent).toContain('Escondido Yard');

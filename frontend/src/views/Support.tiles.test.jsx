@@ -26,7 +26,7 @@ describe('Support page tiles', () => {
     expect(await screen.findByText('Submit a Ticket', { selector: '.support-card-title' })).toBeTruthy();
     // Not a tile of its own (it is one of the "How Do I..." questions, a ticket of the Bug type).
     expect(screen.queryByText('Report a Bug', { selector: '.support-card-title' })).toBeNull();
-    expect(within(document.querySelector('.how-do-i')).getByText('Report a Bug')).toBeTruthy();
+    expect(within(document.querySelector('.how-do-i')).queryByText('Report a Bug')).toBeNull();
     expect(document.querySelector('[data-tour="support-report-bug"]')).toBeNull();
     // The bug path is named on the ticket tile instead.
     expect(screen.getByText(/Report an issue or a bug/)).toBeTruthy();

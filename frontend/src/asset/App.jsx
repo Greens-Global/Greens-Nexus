@@ -53,6 +53,7 @@ import { AddItemModal } from '../views/InventoryManagement.jsx';
 import PropertyLoans from '../components/PropertyLoans.jsx';
 // A property's construction Jobs, read only (Neil, 11/03/2026, construction plan phase 2).
 import PropertyJobs from '../components/PropertyJobs.jsx';
+import PageTrail, { useTrailCrumbs } from '../components/PageTrail';
 
 const cityRegion = (p) => (p.city || '') + (p.state ? ', ' + p.state : '');
 
@@ -800,6 +801,9 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     navigate(recordViews.includes(lastRecord) ? lastRecord : (recordViews.find((k) => tabCount(k) > 0) || recordViews[0]));
   };
   const backToPortfolio = () => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')));
+  // An open asset sits under the portfolio: ASSET MANAGEMENT / PORTFOLIO over
+  // its name (the page trail, Neil, 11/04/2026); the name is never repeated.
+  useTrailCrumbs(active ? [{ label: 'Portfolio', onClick: backToPortfolio }] : null);
   const filterKeysForTab = SHARED_FILTER_GROUPS[view] || [view];
   const showTabSearch = view !== 'property' && (filterKeysForTab.length > 0 || ['timeline', 'permit'].includes(view));
   const searchValue = filterKeysForTab.length ? (filters[filterKeysForTab[0]] || '') : '';
@@ -817,6 +821,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       {!active && pulse && (
         <div className="view-header" style={{ alignItems: 'center', marginBottom: 16 }}>
           <div className="view-title-group" style={{ minWidth: 0 }}>
+            <PageTrail title="Asset Management" />
             <h2 style={{ fontFamily: 'var(--wk-font)' }}>Asset Management</h2>
             <p>{loading && !visibleProperties.length ? 'Loading the portfolio…' : `${pulse.assets} ${pulse.assets === 1 ? 'asset' : 'assets'} in the portfolio`}</p>
           </div>
@@ -863,6 +868,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
               />
             )}
             <div className="view-title-group" style={{ minWidth: 0 }}>
+              <PageTrail title={active.name} />
               <h2 style={{ fontFamily: 'var(--wk-font)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{active.name}</span>
                 {active.private && <StatusLabel label="Private" color="hsl(var(--color-red))" size="sm" title="Hidden from everyone but officers" />}

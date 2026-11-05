@@ -1108,7 +1108,13 @@ async def egnyte_suggest(vendor: str, user: dict = Depends(_edit)):
         found: list[dict] = []
         if root:
             try:
-                found += eg._call(svc.list_folder, root, token=tok).get("folders") or []
+                # One PAGE of the root, not all of it (Nov 3 hotfix): Greens
+                # Global's and OSM's Vendors folders are big enough that a
+                # full listing ran past the 15s client timeout and the person
+                # read "Can't reach Nexus". The name-ranked search below is
+                # what actually finds a vendor beyond the first page anyway.
+                found += eg._call(svc.list_folder, root, token=tok,
+                                  count=500, timeout=eg._BROWSE_TIMEOUT).get("folders") or []
             except HTTPException as e:
                 if e.status_code != 404:
                     raise

@@ -40,7 +40,8 @@ describe('Team module', () => {
     role.level = 1;
     const onSubChange = vi.fn();
     const { rerender } = render(<Shifts activeSub={null} onSubChange={onSubChange} />);
-    expect(screen.getByRole('heading', { name: 'Team' })).toBeTruthy();
+    // The title is the tab you are on; TEAM is the page trail above it (11/04/2026).
+    expect(screen.getByRole('heading', { name: 'Shifts' })).toBeTruthy();
     expect(screen.getByText('Group week')).toBeTruthy();
     expect(tabNames()).toEqual(['Shifts', 'Directory']);
     rerender(<Shifts activeSub="contact" onSubChange={onSubChange} />);
@@ -108,7 +109,7 @@ describe('Team module', () => {
 
     role.level = 3; role.grants = new Set(['employee-tracking']);
     const g = render(<Shifts activeSub={null} onSubChange={vi.fn()} />);
-    expect(tabNames()).toEqual(['Shifts', 'Shift Planner', 'Workforce Analytics', 'Directory']);
+    expect(tabNames()).toEqual(['Shifts', 'Shift Planner', 'Directory', 'Workforce Analytics']);
     g.unmount();
 
     role.level = ADMIN; role.grants = new Set();

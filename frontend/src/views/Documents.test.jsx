@@ -41,7 +41,10 @@ vi.mock('../api', () => ({
 }));
 
 vi.mock('../lib/queries', () => ({ useEntities: () => ({ data: [] }) }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
+const roleNow = { current: { can: () => true } };
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => roleNow.current }));
+// Hiring Documents (11/04/2026) is the Settings panel itself - stubbed, it is HiringPacket's own test's job.
+vi.mock('../components/HiringPacket', () => ({ PacketsModal: () => <div>hiring documents panel</div> }));
 
 // E-Sign and the PDF editor are separate subsystems (pdf.js worker, an
 // iframed vanilla engine) - neither is renderable in jsdom, and neither is
@@ -76,11 +79,21 @@ beforeEach(() => {
 
 describe('Documents module', () => {
   it('opens on the library, with the six tabs (Neil, 10/31/2026; Forms 11/02/2026; Filing & Sorting 11/04/2026)', async () => {
-    renderDocs('');
-    // The module title band was removed (Sep 17) - the tab strip is the proof
-    // that the shell rendered.
-    expect(publishedTabs()).toBe('Documents|Templates|Forms|Filing & Sorting|Nexus Sign|PDF Tools');
-    await waitFor(() => expect(getDocumentLibrary).toHaveBeenCalled());
+    roleNow.current = { can: () => false, canAccessModule: () => false };
+    try {
+      renderDocs('');
+      // The module title band was removed (Sep 17) - the tab strip is the proof
+      // that the shell rendered.
+      expect(publishedTabs()).toBe('Documents|Templates|Forms|Filing & Sorting|Nexus Sign|PDF Tools');
+      await waitFor(() => expect(getDocumentLibrary).toHaveBeenCalled());
+    } finally { roleNow.current = { can: () => true }; }
+  });
+
+  it('Hiring Documents opens the same setup as Settings for whoever may set it up (Pranshu, 11/04/2026)', async () => {
+    renderDocs('documents-hiring');
+    expect(publishedTabs()).toBe('Documents|Templates|Hiring Documents|Forms|Filing & Sorting|Nexus Sign|PDF Tools');
+    expect(await screen.findByText('hiring documents panel')).toBeTruthy();
+    expect(screen.getByText(/same setup as Settings/)).toBeTruthy();
   });
 
   it('renders Filing & Sorting, explaining itself when Egnyte is unconfigured', async () => {

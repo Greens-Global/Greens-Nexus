@@ -136,16 +136,19 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
   return (
     <div className="dk-head dk-rise" style={{ '--i': 0 }}>
       <div className="dk-head-left">
+        {/* The date sits ABOVE the greeting, small, like a dateline (Neil,
+            11/04/2026); the line under the greeting is the summary. */}
+        <div className="dk-head-date">{dateLine}</div>
         <h1>{greeting}, {firstName}!</h1>
         <div className="dk-head-sub">
-          {dateLine}{summary && <> · {summary}</>}
+          {summary}
           {/* On a phone the small zones beside the big clock are hidden and
               California (when different) rides here instead (Sep 23 / Oct 7)
               - one line, no separate row. The viewer's own time is the big
               clock at every width now, so it is not repeated here; the My
               Profile picks stay on the wider layout. */}
-          {clocks.filter((c) => c.home && c.label).map((c) => (
-            <span key={c.tz} className="dk-sub-local"> · <ZoneClock clock={c} now={now} /></span>
+          {clocks.filter((c) => c.home && c.label).map((c, i) => (
+            <span key={c.tz} className="dk-sub-local">{summary || i ? ' · ' : ''}<ZoneClock clock={c} now={now} /></span>
           ))}
         </div>
       </div>

@@ -17,6 +17,7 @@ import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { REPORTS, REPORT_VIEWS, parseActivitySub } from '../components/accounting/reportModel';
 import { STATEMENTS_SUB } from '../components/accounting/drill';
 import { BUILDER_PUBLISH_MIN_LEVEL, PAYROLL_SUMMARY_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
+import PageTrail from '../components/PageTrail';
 
 // Oct 24 (bundle budget, 10/23 meeting round 2): every screen behind the bar
 // is fetched the first time it is opened, not with the Accounting view - all
@@ -256,6 +257,16 @@ const reportOf = (key) => {
 };
 const viewOf = (key) => (REPORT_VIEWS[rptKey(key)] ? rptKey(key) : null);
 const DASH_SUBS = ['overview', 'cash', 'performance', 'close'];
+/** The bar tab the open page belongs to - its word is the page heading (Neil,
+ *  10/30: "If we are on dashboard it should say Dashboard here, not
+ *  accounting. This wiring is wrong or incomplete"). Unknown subs keep the
+ *  module's name. */
+// Urmi, Teams 11/05/2026: an older statement key (rpt-pnl) or an alias still
+// says which tab it is under - every `rpt-` key is Reports.
+const headingFor = (sub) => {
+  const k = menuKey(ALIAS[sub] || sub);
+  return TABS.find((t) => leafKeys([t]).includes(k))?.label || (isReports(k) ? 'Reports' : 'Accounting');
+};
 
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
@@ -417,7 +428,11 @@ export default function Accounting({ activeSub, onSubChange }) {
           last. One line, one height, everywhere. */}
       <div className="view-header acct-header">
         <div className="acct-header-title">
-          <h2>Accounting</h2>
+          {/* The heading is the bar tab the page belongs to (Neil, 10/30):
+              Dashboard on the dashboards, Reports on a statement, and so on -
+              the sidebar already says Accounting. */}
+          <PageTrail title={headingFor(sub)} />
+          <h2>{headingFor(sub)}</h2>
           <p title={subtitle}>{subtitle}</p>
         </div>
         {/* Oct 7 (Neil, comment 6: "Remove Nexus Accounting"): the "Open Nexus

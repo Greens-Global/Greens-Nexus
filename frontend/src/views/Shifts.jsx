@@ -7,6 +7,7 @@ import { SkeletonBlocks } from '../components/AsyncState';
 import ShiftSchedule from '../components/ShiftSchedule';
 import { hasUnsavedWork, askToLeave } from '../lib/dialogGuard';
 import { canOpenWorkforceAnalytics } from '../lib/workforceAccess';
+import PageTrail from '../components/PageTrail';
 
 // Team (Neil, Oct 13 2026; was Shifts, Sep 29): everything about the people
 // you work with. Contact (the Contact Directory, moved out of Support) and
@@ -35,16 +36,17 @@ const HeadcountRequests = lazy(() => import('../components/hiring/HeadcountReque
 // anyone else.
 const WorkforceAnalytics = lazy(() => import('../components/TimeTrackingAdmin'));
 
-// Contact last (Pranshu, Oct 15 2026); Team opens on Shifts.
+// Directory right after Shift Planner (Neil, 11/04/2026 - it was last,
+// Pranshu, Oct 15 2026); Team opens on Shifts.
 const TABS = [
   ['shifts', 'Shifts', CalendarClock, false],
   ['schedule', 'Shift Planner', CalendarDays, true],
+  ['contact', 'Directory', Contact, false],
   ['analytics', 'Workforce Analytics', MonitorDot, false],
   // A role's own checklist steps, for department heads (Neil, Oct 19) - only
   // shown to someone who keeps at least one role.
   ['role-checklists', 'Role Checklists', ListChecks, false],
   ['headcount', 'Headcount', UserPlus, false],
-  ['contact', 'Directory', Contact, false],
 ];
 const SUBTITLE = {
   contact: 'Find and reach anyone in the company',
@@ -87,6 +89,7 @@ export default function Shifts({ activeSub, onSubChange }) {
   // Workforce Analytics reads the part after the colon as its own tab:
   // "analytics:scorecard" (the Monday email), "analytics:coverage" (alerts).
   const tab = tabs.some(([k]) => k === subKey) ? subKey : (tabs[0]?.[0] || '');
+  const tabTitle = tabs.find(([k]) => k === tab)?.[1] || 'Team';
   const focus = tab === 'schedule' && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? { date: focusDate, groupId: focusGroup, place: focusPlace } : null;
   // A publish or nudge bell's "mine:confirm:<publish id>" (Shifts Phase 3a)
   // is your OWN week, so App.jsx sends it to Workday's My Schedule (Oct 15).
@@ -119,7 +122,9 @@ export default function Shifts({ activeSub, onSubChange }) {
             <Handshake size={19} />
           </span>
           <div className="view-title-group">
-            <h2 style={{ fontFamily: 'var(--wk-font)' }}>Team</h2>
+            {/* TEAM over the tab you are on (the page trail, Neil, 11/04/2026). */}
+            <PageTrail title={tabTitle} />
+            <h2 style={{ fontFamily: 'var(--wk-font)' }}>{tabTitle}</h2>
             <p>{SUBTITLE[tab]}</p>
           </div>
         </div>

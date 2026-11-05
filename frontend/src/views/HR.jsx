@@ -77,6 +77,7 @@ import PayTab from '../people/PayTab';
 import ComplianceTab from '../people/ComplianceTab';
 import { guardRecordLeave } from '../people/useTabDraft';
 import { daysUntil } from '../people/lib';
+import PageTrail from '../components/PageTrail';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -2461,7 +2462,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', region: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', region: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', it_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const { can, hrScope } = useRole();
@@ -2521,6 +2522,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       signatory: en.signatory || '', signatory_email: en.signatoryEmail || '', notes: en.notes || '', domains: en.domains || '',
       manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
       hr_contact_email: en.hrContactEmail || '',
+      it_contact_email: en.itContactEmail || '',
       invoice_recipients: (en.invoiceRecipients || []).join(', '),
       logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
     setF(seeded); formSnapshotRef.current = seeded; setTab(firstTab); setMode(en.id);
@@ -2704,6 +2706,14 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                     people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"
                     ariaLabel="HR Contact" style={PICK_BOX} />
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
+                </div>
+                {/* Named in the welcome email once a new hire's paperwork is signed (Pranshu, 11/04/2026). */}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL}>IT SUPPORT CONTACT</label>
+                  <PersonSelect value={(f.it_contact_email || '').toLowerCase() || null} onChange={v => set('it_contact_email', v || '')}
+                    people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"
+                    ariaLabel="IT Support Contact" style={PICK_BOX} />
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Named in the welcome email a new hire gets once their hiring packet is signed - beside their manager and the HR contact - for their work email, sign-in and equipment.</div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL} htmlFor="entity-invoice-recipients">CONTRACTOR INVOICE RECIPIENTS</label>
@@ -4017,6 +4027,7 @@ export default function HR({ activeSub, onSubChange }) {
             <HeadIcon size={19} />
           </span>
           <div className="view-title-group">
+            <PageTrail title={headTab.label} />
             <h2 style={{ fontFamily: 'var(--wk-font)' }}>{headTab.label}</h2>
             <p>{TAB_LINES[headTab.key] || 'People, hiring, org structure and leave - one source of truth'}</p>
           </div>

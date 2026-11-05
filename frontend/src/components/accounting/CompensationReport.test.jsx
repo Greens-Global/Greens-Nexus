@@ -97,7 +97,7 @@ describe('CompensationReport', () => {
     expect(row.textContent).toContain('52,123.06');
     expect(row.textContent).toContain('850.00');
     expect(row.textContent).toContain('1,854.06');      // workers' comp
-    await waitFor(() => expect(row.textContent).toContain('100.00'));   // 6,000 minutes of regular time
+    await waitFor(() => expect(row.textContent).toContain('100:00'));   // 6,000 minutes of regular time, as H:MM
     expect(screen.getByText('Regular Hours (Time Clock)')).toBeTruthy();
     expect(screen.getByText('Salaried / Hourly Payroll')).toBeTruthy();
     expect(screen.getByText('Total Employer Expenses')).toBeTruthy();
@@ -162,7 +162,7 @@ describe('CompensationReport', () => {
     expect(groups).toEqual(['Employee Metrics', 'Rates', 'Hours Worked', 'Accruals', 'Employer Expenses', 'Payroll Expenses', 'Benefits', 'Employer Payroll Taxes', 'Other Benefits',
       'Employee Net Pay', 'Payroll Expenses', 'Deductions from Gross Pay', 'Employee Taxes Withheld']);
     expect(within(table).getByText('Fixed (per month)').closest('tr').textContent).toContain('5,133.33');   // the pay setup rate
-    expect(within(table).getByText('Regular').closest('tr').textContent).toContain('100.00');   // Time Clock hours
+    expect(within(table).getByText('Regular').closest('tr').textContent).toContain('100:00');   // Time Clock hours, as H:MM
     expect(within(table).getAllByText('Salaried / Hourly Payroll')[0].closest('tr').textContent).toContain('57,176.84');
     expect(within(table).getByText('63203 Fuel')).toBeTruthy();   // Other Benefits by account (item 12)
     expect(within(p).getByText(/2026: 3.5% of 52,973.06 gross wages = 1,854.06/)).toBeTruthy();
@@ -230,7 +230,7 @@ describe('CompensationReport', () => {
   it('from the person\'s report, a figure opens its lines with a way back; the health split asks for one side only', async () => {
     render(<CompensationReport />);
     fireEvent.click(await screen.findByTitle("Open Valinda Cranfill's compensation report"));
-    fireEvent.click(within(panel()).getByRole('button', { name: /^Health Insurance \(Employee\) for Valinda Cranfill, Year Ending 12\/31\/2026/ }));
+    fireEvent.click(within(panel()).getByRole('button', { name: /^Health Insurance \(Employee Deduction\) for Valinda Cranfill, Year Ending 12\/31\/2026/ }));
     await waitFor(() => expect(api.getCompensationLines).toHaveBeenCalledWith(expect.objectContaining({ accounts: ['61903:c'] })));
     fireEvent.click(within(panel()).getByRole('button', { name: "Back to Valinda Cranfill's report" }));
     expect(within(panel()).getByRole('table', { name: /Employee Compensation Report/ })).toBeTruthy();
@@ -264,12 +264,23 @@ describe('CompensationReport', () => {
     expect(await screen.findByText(/No payroll on the ledger carries an employee in these months/)).toBeTruthy();
   });
 
+  // 10/30 (Neil): no Run Report button - a valid range runs itself; a bad
+  // one shows why and never reads the ledger.
   it('refuses a range longer than a year', async () => {
     render(<CompensationReport />);
     await screen.findByText('Valinda Cranfill');
     fireEvent.change(screen.getByLabelText('From Month'), { target: { value: '2024-01' } });
     expect(screen.getByText('Pick at most 12 months.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Run Report' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Run Report' })).toBeNull();
+    expect(api.getCompensationReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('a changed range runs by itself after a beat', async () => {
+    render(<CompensationReport />);
+    await screen.findByText('Valinda Cranfill');
+    fireEvent.change(screen.getByLabelText('From Month'), { target: { value: '2026-03' } });
+    await waitFor(() => expect(api.getCompensationReport).toHaveBeenCalledTimes(2), { timeout: 2500 });
+    expect(api.getCompensationReport).toHaveBeenLastCalledWith('2026-03', expect.any(String));
   });
 });
 

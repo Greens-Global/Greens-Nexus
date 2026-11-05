@@ -33,6 +33,17 @@ const ScheduleCMapping = lazy(() => import('./ScheduleCMapping'));
 // 10/27 item 17: Spend by Vendor's own Vendors button - the Filters vendor list on its own.
 const VENDOR_KINDS = POPOVER_DIMS.filter((k) => k.key === 'vendor');
 
+// 10/30 (Charmi: "While selecting Income St by Customer, I do not see the
+// ability to select a specific customer"; Neil: the filters must be VISIBLE
+// on the screens, not only behind the Filters funnel): a report whose
+// columns are a dimension carries that dimension's own picker on the bar,
+// named for it - the same narrowing Filters does, one click closer.
+const DIM_COL_KINDS = Object.fromEntries(
+  [['customer', 'Customers'], ['project', 'Jobs'], ['department', 'Departments'],
+    ['vendor', 'Vendors'], ['employee', 'Employees'], ['item', 'Items']]
+    .map(([kind, label]) => [kind, { label, kinds: POPOVER_DIMS.filter((k) => k.kind === kind) }]),
+);
+
 // Accounting -> Reports. Pull any statement for any entity straight from the
 // ledger without opening Nexus Accounting: Income Statement, Balance Sheet,
 // Trial Balance, Cash Position. Read-only, served by the accounting app's
@@ -579,20 +590,47 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     const keep = new Set(matched);
     return rows.filter((r) => keep.has(r) || (r.kind === 'section' && (keepSections.has(r.section) || hit(r))) || (r.kind === 'group' && keepGroups.has(r.group)) || r.kind === 'grand');
   }, [shown, colFilters, filterOn]);
+  // Urmi, Teams 11/05/2026 ("Sorting ... on every column header is not
+  // showing"): a heading sorts the lines inside each section and group -
+  // ascending, descending, then back to the report's order - so headings,
+  // subtotals and the grand total stay where they are.
+  const [sort, setSort] = useState({ key: '', dir: 0 });
+  useEffect(() => { setSort({ key: '', dir: 0 }); }, [config.report]);
+  const cycleSort = (k) => setSort((cur) => (cur.key !== k ? { key: k, dir: 1 } : cur.dir === 1 ? { key: k, dir: -1 } : { key: '', dir: 0 }));
+  const sortedRows = useMemo(() => {
+    if (!sort.key || !shown) return visibleRows;
+    const i = sort.key === '__label' ? -1 : shown.columns.findIndex((c) => c.key === sort.key);
+    const val = (r) => (i < 0 ? `${r.title || r.label || ''} ${r.code || ''}`.trim().toLowerCase() : r.values?.[i]);
+    const cmp = (a, b) => {
+      const x = val(a); const y = val(b);
+      if (typeof x === 'number' || typeof y === 'number') return ((Number(x) || 0) - (Number(y) || 0)) * sort.dir;
+      return String(x ?? '').localeCompare(String(y ?? ''), 'en-US', { numeric: true }) * sort.dir;
+    };
+    const out = [];
+    let run = [];
+    const flush = () => { out.push(...run.sort(cmp)); run = []; };
+    visibleRows.forEach((r) => {
+      const leaf = r.kind === 'account' || r.kind === 'line';
+      if (leaf && run.length && (run[0].section !== r.section || run[0].group !== r.group)) flush();
+      if (leaf) run.push(r); else { flush(); out.push(r); }
+    });
+    flush();
+    return out;
+  }, [visibleRows, sort, shown]);
   const matchedCount = filterOn ? visibleRows.filter((r) => r.kind === 'account' || r.kind === 'line').length : 0;
 
   // Folded groups and accounts, then pages (item 21): a General Ledger page
   // never splits a group heading from its accounts; the totals under the
   // table are over every row, on every page. Exports always take everything.
   const groupKey = (g) => `g:${g}`;
-  const openRows = useMemo(() => visibleRows.filter((r) => {
+  const openRows = useMemo(() => sortedRows.filter((r) => {
     if (filterOn) return true;
     if (r.group && r.kind !== 'group' && collapsed.has(groupKey(r.group))) return false;
     if (r.kind !== 'section' && r.kind !== 'group' && r.section && collapsed.has(r.section)) return false;
     return true;
-  }), [visibleRows, collapsed, filterOn]);
+  }), [sortedRows, collapsed, filterOn]);
   const paged = useMemo(() => reportPages(openRows, custom.pageSize), [openRows, custom.pageSize]);
-  const pageKey = `${key}|${custom.pageSize}|${JSON.stringify(colFilters)}|${config.report}`;
+  const pageKey = `${key}|${custom.pageSize}|${JSON.stringify(colFilters)}|${config.report}|${sort.key}${sort.dir}`;
   const [pageState, setPageState] = useState({ page: 1, key: pageKey });
   let page = pageState.page;
   if (pageState.key !== pageKey) { page = 1; setPageState({ page: 1, key: pageKey }); }
@@ -682,6 +720,13 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         {/* Item 17 (Charmi, 10/26): pull the report by vendor name - type a name or number, tick several. */}
         {config.report === 'vendor-spend' && (
           <FiltersButton dims={config.dims} onNames={onNames} showHistorical={!!prefs.showHistoricalAccounts} kinds={VENDOR_KINDS} label="Vendors" onChange={(dims) => patch({ dims })} />
+        )}
+        {/* 10/30: Income Statement by Customer (or any by-dimension columns)
+            shows that dimension's picker right on the bar. Vendor Spend
+            already carries its own above. */}
+        {config.report !== 'vendor-spend' && canUseDims(config) && DIM_COL_KINDS[cols] && (
+          <FiltersButton dims={config.dims} onNames={onNames} showHistorical={!!prefs.showHistoricalAccounts}
+            kinds={DIM_COL_KINDS[cols].kinds} label={DIM_COL_KINDS[cols].label} onChange={(dims) => patch({ dims })} />
         )}
         {/* Item 18: which Schedule C line each account adds into. */}
         {config.report === 'schedule-c' && (
@@ -900,8 +945,12 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
                     const size = w ? { width: w, minWidth: w, maxWidth: w } : {};
                     return (
                       <th key={c.key} aria-label={c.label} title={c.hint || undefined} className={i === 0 ? 'acct-label acct-head' : c.type === 'date' || c.type === 'text' ? undefined : 'acct-num'}
+                        aria-sort={sort.key === c.key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}
                         style={{ ...size, ...(c.emphasis ? EMPHASIS : {}), ...(c.hint ? { cursor: 'help' } : {}) }}>
-                        {c.label}
+                        <button type="button" className="acct-sort-head" onClick={() => cycleSort(c.key)} title={`Sort by ${c.label}`}>
+                          {c.label}
+                          <span aria-hidden="true" className={`acct-sort-mark${sort.key === c.key ? (sort.dir === 1 ? ' on asc' : ' on desc') : ''}`} />
+                        </button>
                         <ColumnResizer {...widths.resizer(c.key, c.label)} />
                       </th>
                     );

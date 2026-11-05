@@ -759,6 +759,16 @@ class NexusGroup(Base):
     # in place of the typed duties. {path (in the HR documents bucket), name,
     # pages, size, uploadedAt, uploadedBy}; {} = the typed duties are used.
     jd_file         = Column(JSON, default=dict)
+    # Or the job description is a Documents template (Pranshu, 11/04/2026:
+    # "whatever change we do in the document ... should automatically get
+    # updated"): its PUBLISHED wording prints after the offer letter, read
+    # when each offer is made. '' = the typed duties or the file.
+    jd_template_id  = Column(String, default="")
+    # What goes WITH the offer letter, in order (Pranshu, 11/04/2026: "if we
+    # put NDA at 1st order then in offer letter candidate will see offer
+    # letter, NDA then Job description"): [{"kind": "jd"} | {"kind": "doc",
+    # "templateId"}]. The job description is one item, once; [] = it alone.
+    offer_docs      = Column(JSON, default=list)
 
 
 class NexusGroupMember(Base):
@@ -1557,6 +1567,10 @@ class HrEntity(Base):
     # single column keeps working.
     manager_email      = Column(String, default="")
     manager_emails     = Column(JSON, default=list)
+    # The company's IT Support Contact (Pranshu, 11/04/2026): named in the
+    # welcome email a new hire gets once their hiring packet is signed, beside
+    # their manager and HR. A Nexus person's email ('' = none named).
+    it_contact_email   = Column(String, default="")
     # The company's HR contact (a Nexus person): signs every employee's
     # timesheet last and finalizes it for payroll (timesheet_review.py).
     hr_contact_email   = Column(String, default="")
@@ -5498,6 +5512,10 @@ class Lease(Base):
     stale_since      = Column(String, default="")
     stale_last_paid  = Column(String, default="")
     stale_task_id    = Column(String, default="")
+    # Nov 3 (Urmi, Teams: "no Browse folder for us to connect the lease
+    # documents" in MRI): the lease's Egnyte folder, the same idea as MRE's
+    # per-vendor egnyte_folder. A path only - the documents stay in Egnyte.
+    egnyte_folder    = Column(String, default="")
 
 
 class LeaseRate(Base):
@@ -9231,6 +9249,13 @@ class WorkersCompRate(Base):
     note           = Column(String, default="")
     set_by         = Column(String, default="")
     set_at         = Column(String, default="")                       # ISO timestamp, UTC
+    # The insurer's class (Charmi / Neil, 11/05/2026, Teams Nexus - Accounting):
+    # "State | Class Code | Description | Rate Per $100 of Remuneration", e.g.
+    # CA 8810 "CLERICAL OFFICE EMPLOYEES-NOC" 0.84. rate_pct above IS the rate
+    # per $100 (a percent of wages), so stored rates keep their meaning.
+    class_code     = Column(String, default="")                       # e.g. "8810", "9015-1"
+    state          = Column(String, default="")                       # 2-letter, '' = not given
+    description    = Column(String, default="")                       # the insurer's class description
 
 
 # ─────────────────────────────────────────────────────────────────────────────

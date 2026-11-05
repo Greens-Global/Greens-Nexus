@@ -43,6 +43,7 @@ import { CredentialForm, ImportWizard, ShareModal, RequestModal } from "./Creden
 import PersonalVault from "./PersonalVault";
 import { Pager } from "./vaultShared";
 import "./credvault.css";
+import PageTrail, { tabLabelOf } from '../components/PageTrail';
 
 const LOG_ACTIONS = ["All", "Revealed", "Copied", "Created", "Edited", "Shared", "Requested", "Denied", "Revoked", "Transferred", "Removed", "Recovered", "Imported", "Offboarded"];
 const TAB_KEYS = ["all", "mine", "shared", "favorites", "attention", "nobackup", "trash"];
@@ -370,7 +371,9 @@ export default function CredentialVaultApp({ activeSub }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
           <span className="cv-module-chip"><KeyRound size={19} /></span>
           <div className="view-title-group">
-            <h2>Credentials</h2>
+            {/* The heading names the open tab; the trail above it names the module. */}
+            <PageTrail title={tabLabelOf(tabs, tab) || "Credentials"} />
+            <h2>{tabLabelOf(tabs, tab) || "Credentials"}</h2>
             <p>Company logins, kept by their owners and opened by the people who need them</p>
           </div>
         </div>

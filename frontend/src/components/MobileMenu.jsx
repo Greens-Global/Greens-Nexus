@@ -46,13 +46,13 @@ export const SUBMENUS = {
     manager: [
       { sub: 'shifts', label: 'Shifts' },
       { sub: 'schedule', label: 'Shift Planner' },
-      { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
       { sub: 'contact', label: 'Directory' },
+      { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
     ],
     employee: [
       { sub: 'shifts', label: 'Shifts' },
-      { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
       { sub: 'contact', label: 'Directory' },
+      { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
     ],
   },
   inventory: {

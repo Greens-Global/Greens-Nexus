@@ -272,6 +272,107 @@ def _steps(title: str, steps: list, accent: str) -> str:
             + f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>{"".join(tiles)}</tr></table>')
 
 
+# ── Welcome aboard (Pranshu, 11/04/2026) ─────────────────────────────────────
+# "Once the candidate has signed the hiring packet and everything is done ...
+# welcome to our team and here is a person for point of contact if you face
+# any issue" - the manager, HR and IT, each with how to reach them, so a new
+# hire is never left wondering whom to ask. Neil's three points of contact.
+
+CONTACT_FOR = {
+    "manager": ("Your Manager", "Your first week, your work and anything day to day."),
+    "hr": ("Human Resources", "Pay, benefits, time off, your documents - anything about your employment."),
+    "it": ("IT Support", "Your work email, signing in, your laptop and access to Nexus."),
+}
+
+
+def _people(contacts: list, accent: str) -> str:
+    """One row per point of contact: who they are to you, then how to reach them."""
+    rows = []
+    for c in contacts:
+        role, why = CONTACT_FOR.get(c.get("kind"), ("", ""))
+        reach = []
+        if c.get("email"):
+            reach.append(f'<a href="mailto:{escape(c["email"])}" style="color:{accent};text-decoration:none">{escape(c["email"])}</a>')
+        if c.get("phone"):
+            reach.append(f'<a href="tel:{escape(c["phone"])}" style="color:{accent};text-decoration:none">{escape(c["phone"])}</a>')
+        title = f' &middot; {escape(c["title"])}' if c.get("title") else ""
+        top = f"border-top:1px solid {_tint(accent, 0.8)};" if rows else ""
+        rows.append(
+            f'<tr><td style="padding:16px 0;{top}vertical-align:top">'
+            f'<div style="font-family:{FONT};font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:{MUTED}">{escape(role)}</div>'
+            f'<div style="font-family:{FONT};font-size:16.5px;font-weight:700;color:{INK};margin-top:5px">{escape(c.get("name") or "")}'
+            f'<span style="font-weight:500;color:{MUTED};font-size:14px">{title}</span></div>'
+            + (f'<div style="font-family:{FONT};font-size:14.5px;margin-top:3px">{" &middot; ".join(reach)}</div>' if reach else "")
+            + f'<div style="font-family:{FONT};font-size:13.5px;color:{MUTED};margin-top:4px;line-height:1.5">{escape(why)}</div>'
+            f'</td></tr>')
+    if not rows:
+        return ""
+    tint, rule = _tint(accent), _tint(accent, 0.8)
+    return (_heading("Your People", accent)
+            + f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{tint}" '
+              f'style="background:{tint};border-radius:12px;border:1px solid {rule}"><tr><td style="padding:4px 28px">'
+              f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">{"".join(rows)}</table>'
+              f'</td></tr></table>')
+
+
+def _welcome(*, first: str, company: str, start: str, manager: str, contacts: list, offer: str, sender: dict,
+             green: str, party, req) -> tuple:
+    mgr = next((c for c in contacts if c.get("kind") == "manager"), None)
+    mgr_name = escape((mgr or {}).get("name") or manager or "")
+    return (f"Welcome to the team, {first}! Here is who is here for you 🎉",
+            _shell(preheader="Your paperwork is done - meet the people who will help you settle in.",
+                   company=company, accent=green, hero_bg="#14532d", hero_emoji="&#127881;",
+                   hero_title=f"You're all set, {first}!",
+                   hero_sub=f"Every document is signed. Welcome to {escape(company)} - we are so glad you are joining us.",
+                   sections=[
+                       _p(f"Hi {first},<br><br>Thank you for completing your paperwork - that was the last step on your side, "
+                          f"and a copy of everything you signed is attached for your records. From here our team takes over to "
+                          f"have everything ready for you{f' on {escape(start)}' if start else ''}."),
+                       _p("Starting somewhere new comes with plenty of questions, and there are people here whose job is to "
+                          "help you with every one of them. Save their details - no question is too small, and you are "
+                          "never on your own."),
+                       _people(contacts, green),
+                       _steps("Before your first day", [
+                           ("Your accounts", "IT sets up your work email and sign-in and sends the details to this email "
+                                             "address before you start."),
+                           ("Your first day", f"{escape(start) if start else 'On your start date'} - "
+                                              f"{mgr_name + ' will welcome you and' if mgr_name else 'your manager will'} "
+                                              "walk you through your first week."),
+                           ("Your documents", "Everything you signed is saved to My Documents in Nexus once you sign in."),
+                       ], green),
+                       offer,
+                       _p(f"We can't wait to work with you, {first}. Welcome aboard!"),
+                       _contact(sender, green)],
+                   party=party, req=req, sender=sender, security=False))
+
+
+def welcome_contacts(db: Session, ev) -> list:
+    """The new hire's manager, the company's HR contact(s) and its IT Support
+    Contact - people still here, each once, with their work email and phone."""
+    import hr_access
+    from models import HrEntity
+    d = ev.inputs or {}
+    mgr = (d.get("manager_email") or "").lower()
+    if not mgr and ev.employee_id:
+        emp = db.query(NexusEmployee).filter(NexusEmployee.id == ev.employee_id).first()
+        mgr = (emp.manager_email or "").lower() if emp else ""
+    entity = db.query(HrEntity).filter(HrEntity.id == ev.entity_id).first() if ev.entity_id else None
+    it = [e.strip().lower() for e in ((entity.it_contact_email if entity else "") or "").split(",") if e.strip()]
+    wanted = [("manager", mgr)] + [("hr", e) for e in hr_access.hr_contacts(db, ev.entity_id or "")] + [("it", e) for e in it]
+    out, seen = [], set()
+    for kind, email in wanted:
+        if not email or (kind, email) in seen or email == (ev.subject_email or "").lower():
+            continue
+        seen.add((kind, email))
+        p = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+        if p is None or (p.status or "active") in ("inactive", "offboarded") or (p.deleted_at or ""):
+            continue
+        out.append({"kind": kind, "email": email,
+                    "name": (p.display_name or f"{p.first_name} {p.last_name}").strip(),
+                    "title": (p.job_title or p.designation or "").strip(), "phone": (p.phone or "").strip()})
+    return out
+
+
 def _contact(sender: dict, accent: str) -> str:
     """A signature, the way a person signs a letter."""
     name = sender.get("name") or ""
@@ -367,7 +468,8 @@ def _after_me(after_me: list, fallback: str) -> str:
 
 def compose(kind: str, *, stage: str, role: str, first_name: str, company: str, location: str, inputs: dict,
             pay: dict, manager: str, note: str, docs: list, link: str, sender: dict, party, req,
-            subject_name: str = "", signed_by: Optional[list] = None, after_me: Optional[list] = None) -> tuple:
+            subject_name: str = "", signed_by: Optional[list] = None, after_me: Optional[list] = None,
+            contacts: Optional[list] = None) -> tuple:
     """(subject, html). stage: 'invite' (sign now) or 'completed' (all signed).
     signed_by: [(name, signed_at)] who signed before this person; after_me:
     names still to sign after them."""
@@ -430,6 +532,9 @@ def compose(kind: str, *, stage: str, role: str, first_name: str, company: str, 
                                  f'{_after_me(after_me or [], "")}</div>',
                                _contact(sender, green)],
                            party=party, req=req, sender=sender))
+        if stage == "completed" and kind == "hire":
+            return _welcome(first=first, company=company, start=start, manager=manager, contacts=contacts or [],
+                            offer=offer, sender=sender, green=green, party=party, req=req)
         if stage == "completed":
             return (f"You're officially part of {company} 🎉",
                     _shell(preheader=f"Everything is signed - here is what happens before {_short(d.get('start_date'))}.",
@@ -711,7 +816,8 @@ def _event_email(db: Session, req: HrSignRequest, party, sender: dict, link: str
     return compose(ev.kind, stage=stage, role=role, first_name=(getattr(party, "name", "") or "").split(" ")[0],
                    company=company, location=location, inputs=ev.inputs or {}, pay=ev.pay or {}, manager=manager,
                    note=(req.message or "") if is_subject else "", docs=_docs_of(req), link=link, sender=sender,
-                   party=party, req=req, subject_name=ev.subject_name, signed_by=signed_by, after_me=after_me)
+                   party=party, req=req, subject_name=ev.subject_name, signed_by=signed_by, after_me=after_me,
+                   contacts=welcome_contacts(db, ev) if (ev.kind == "hire" and stage == "completed") else None)
 
 
 def invite_email(db: Session, req: HrSignRequest, party: HrSignParty, sender: dict, link: str):

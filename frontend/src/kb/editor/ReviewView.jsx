@@ -2,12 +2,13 @@
 // Changes Only / Whole Page / Side by Side, the checklist, Approve or
 // Request Changes with a note.
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Check, X, AlertTriangle, Plus, Minus } from 'lucide-react';
+import { Check, X, AlertTriangle, Plus, Minus } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection from '../../components/AsyncState';
 import Blocks from '../components/Blocks';
 import { TypeChip, Chip, Banner, Av } from '../components/Chips';
 import { useToast, errText } from '../components/Toast';
+import { useTrailCrumbs } from '../../components/PageTrail';
 import { goKb, fmtDateTime, PAGE_TYPES } from '../lib';
 
 function ChangesOnly({ diff }) {
@@ -39,6 +40,8 @@ export default function ReviewView({ kind, id, me }) {
 
   const isRev = kind === 'revision';
   const page = isRev ? data?.page : data;
+  // The page trail: KNOWLEDGE BASE / MANAGE / <page> over the review (11/04/2026).
+  useTrailCrumbs(page ? [{ label: 'Manage', onClick: () => goKb('health') }, { label: page.title, onClick: () => goKb('page', page.id) }] : []);
   const canReview = isRev ? data?.can_review : data?.can_review;
   const decide = async (decision) => {
     if (decision === 'request_changes' && !note.trim()) { toast('Say what needs to change', 'err'); return; }
@@ -60,10 +63,6 @@ export default function ReviewView({ kind, id, me }) {
     <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
       {data && page && (
         <div className="kb-page">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }} className="kb-meta">
-            <button type="button" className="kb-ibtn" style={{ width: 30, height: 30 }} aria-label="Back" onClick={() => goKb('page', page.id)}><ArrowLeft /></button>
-            <a href="#h" onClick={(e) => { e.preventDefault(); goKb('health'); }}>Manage</a> / Review / <b style={{ color: 'var(--kb-ink)' }}>{isRev ? data.title : page.title}</b>
-          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <TypeChip type={page.page_type} />
             <h1 className="kb-h1" style={{ margin: 0, fontSize: 24 }}>{isRev ? data.title : page.title}</h1>

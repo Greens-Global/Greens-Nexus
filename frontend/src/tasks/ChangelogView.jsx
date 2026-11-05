@@ -22,10 +22,10 @@ import { useDialogFocus } from '../lib/useDialogFocus';
 import { LoadingState } from '../components/AsyncState';
 import {
   Sparkles, Clock, ClipboardCheck, Plus, X, ArrowRight, CheckCircle2, User,
-  ImageIcon, Search, ChevronRight, ChevronDown, GitBranch, Layers, CalendarDays,
+  ImageIcon, Search, ChevronDown, GitBranch, Layers, CalendarDays,
   Link2, Maximize2, Minimize2, Pencil, Send, Bug, Flame, ShieldAlert, TrendingUp,
   Wrench, ArrowUpCircle, Upload, Eye, GitPullRequest, Trash2, AlertTriangle,
-  ArrowLeft, RefreshCw, MessageSquare, Pin, Copy, Lightbulb, Server,
+  RefreshCw, MessageSquare, Pin, Copy, Lightbulb, Server,
   SlidersHorizontal, MoreHorizontal, ChevronLeft, Bell, BellRing,
 } from 'lucide-react';
 import { api } from '../api';
@@ -38,17 +38,19 @@ import { useVisualViewport } from '../lib/useVisualViewport';
 import { BottomSheet } from './MobileTaskBar';
 import { canEditWhatsNew } from '../lib/whatsNewAccess';
 import { NX, FONT, chip, card, btn, input as inputStyle } from './theme';
-import { Avatar, Modal, usePeople, PersonSelect, useClickOutside, useIsMobile, DateField, TimeField, localTodayISO } from './components';
+import { Avatar, ChipMultiSelect, Modal, usePeople, PersonSelect, useClickOutside, useIsMobile, DateField, TimeField, localTodayISO } from './components';
 import { MODULES } from '../contexts/RoleContext';
 import { placeOf, placeOptions, placeKeyFor, inPlace, placeLabel, allPlaceLabels } from '../lib/changelogPlaces';
 import {
   RichText, VideoEmbed, ActionRequired, CopyLinkButton, CommentThread, FeedbackRow, RelatedUpdates, RELATION_LABELS,
-  HistoryList, FollowDialog, FollowButton, AudiencePicker, InsightsPanel, FeedbackList, ExportButtons, exportCsv, buildPrintReport, nextVersions, plural,
+  HistoryList, FollowDialog, FollowButton, AudiencePicker, InsightsPanel, FeedbackList, WhatsNewExport, nextVersions, plural,
 } from './changelogExtras';
 import {
   MyRequestsDialog, IssueChip, IssueBanner, IssueDialog, issueOf, DeprecationChip, DeprecationNotice, StageChip, stageOf,
   AttentionStrip, MediaEditor, AttachmentList, TourEditor, TakeTourButton, uploadWhatsNewFile, readAsDataUrl as readFileAsDataUrl,
 } from './changelogLifecycle';
+import KnownIssuesBanner from '../support/KnownIssues';
+import PageTrail, { useTrailCrumbs } from '../components/PageTrail';
 
 // ── Change-type / environment / status metadata (ported from changelogMeta.ts) ──
 const CHANGE_TYPE_META = {
@@ -205,8 +207,10 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
   const openEntry = (id) => { setOpenId(id); writeQuery({ entry: id }); };
   const closeEntry = () => { setOpenId(null); writeQuery({ entry: '' }); if (activeSub) onSubChange?.(null); };
   // Manage is a button, not a tab (Pranshu, Oct 16 2026): it swaps the page
-  // body for the admin screen, and Back returns to the tab you were on.
+  // body for the admin screen; the page trail's WHAT'S NEW returns to the tabs.
   const [managing, setManaging] = useState(false);
+  // Manage sits under What's New in the page trail; its module part leaves Manage.
+  useTrailCrumbs([], () => setManaging(false));
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null); // entry being edited
   const [toast, setToast] = useState(null);   // { text, error }
@@ -368,6 +372,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
       <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 10 : 12, padding: isMobile ? '10px 12px' : '14px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
         <Sparkles size={isMobile ? 18 : 20} style={{ color: NX.blue, flexShrink: 0 }} />
         <div style={{ minWidth: 0 }}>
+          {!managing && <PageTrail title="What's New" />}
           <div style={{ fontSize: isMobile ? 17 : 20, fontWeight: 700 }}>What&apos;s New</div>
           {!isMobile && <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>}
         </div>
@@ -392,14 +397,8 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
         </div>
       </div>
 
-      {/* Tab strip - or, in Manage, the way back */}
-      {managing ? (
-        <div style={{ display: 'flex', alignItems: 'center', borderBottom: `1px solid ${NX.border}`, background: NX.surface, padding: isMobile ? '6px 8px' : '6px 12px' }}>
-          <button onClick={() => setManaging(false)} style={{ ...btn('ghost'), color: NX.dim, ...(isMobile ? { minHeight: 40 } : null) }}>
-            <ArrowLeft size={15} />Back to What&apos;s New
-          </button>
-        </div>
-      ) : (
+      {/* Tab strip - Manage has none: the page trail above its heading goes back. */}
+      {managing ? null : (
         // Phones (Oct 28 2026): Feature Request and Follow sit at the end of
         // the tab strip as icons - their own row above the content pushed
         // every update a row further down the screen.
@@ -447,7 +446,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
           {!managing && tab === 'timeline' && <TimelineTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} loading={!loaded} />}
           {managing && (
             <ManageTab entries={sorted} nameOf={nameOf} myEmail={myEmail} onSetStatus={setStatus} onEdit={setEditing} flash={flash}
-              onAdd={() => setAdding(true)} onGenerate={handleGenerate} onPublish={publishEntry} onPublishAll={publishAll} onBulk={bulk}
+              onGenerate={handleGenerate} onPublish={publishEntry} onPublishAll={publishAll} onBulk={bulk}
               onDelete={async (id) => { if (window.confirm('Delete this entry? This cannot be undone.')) await deleteEntry(id).catch(() => {}); }} />
           )}
         </div>
@@ -598,7 +597,10 @@ function WhatsNewTab({ entries: allPublished, nameOf, myEmail, isAdmin, onSetSta
     onEdit={isAdmin ? () => onEdit(e) : undefined} />;
   return (
     <div style={{ padding: isMobile ? '14px 12px' : '16px 16px 20px' }}>
-      {/* Open known issues and coming removals, whatever their day (Oct 18 2026). */}
+      {/* What is broken right now (Neil, 11/04/2026: moved here from the
+          Help Center), then open known issues and coming removals on
+          updates, whatever their day (Oct 18 2026). */}
+      <KnownIssuesBanner />
       <AttentionStrip entries={allPublished} onOpen={openEntry} />
       <div role="group" aria-label="Show" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
         <button type="button" aria-pressed={mineOnly} onClick={() => { setMineOnly((v) => !v); writeQuery({ for: mineOnly ? '' : 'me' }); }} style={toggle(mineOnly)}>
@@ -736,7 +738,7 @@ function EntryCard({ entry, nameOf, onViewDetails, onEdit }) {
           </div>
           <h3 style={{ margin: 0, fontSize: isMobile ? 17 : 18, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title || 'Untitled'}</h3>
           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: NX.dim }}>
-            {entry.version && <span style={{ fontFamily: 'monospace' }}>{entry.version}</span>}
+            {entry.version && <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{entry.version}</span>}
             <StageChip entry={entry} />
           </div>
           <IssueBanner entry={entry} all={all} onOpen={openEntry} />
@@ -928,18 +930,6 @@ function PaneDivider({ value, onChange, containerRef }) {
   );
 }
 
-// The Module filter's options: every section of the site that has updates,
-// each followed by its pages ("Workday", then "Workday - Time Sheet"), in the
-// left navigation's order, with how many updates each holds.
-function PlaceOptions({ places }) {
-  return (<>
-    <option value={ALL}>All Modules</option>
-    {places.map((p) => (
-      <option key={p.key} value={p.key}>{p.depth ? ' ' : ''}{p.label} ({p.count})</option>
-    ))}
-  </>);
-}
-
 function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, loading = false }) {
   const { forYou, flash } = useContext(ChangelogActions);
   // Every filter starts from the address bar and writes back to it, so a
@@ -969,7 +959,17 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
   // left navigation's order, with counts - lib/changelogPlaces.js. An old
   // link that still carries a raw module name lands on its place.
   const modules = useMemo(() => placeOptions(entries), [entries]);
-  const placeKey = moduleFilter === ALL ? ALL : placeKeyFor(moduleFilter);
+  // Several modules at once (Neil, 11/05/2026): the address bar keeps them
+  // comma-separated under the same `module` key; none picked = every module.
+  const placeKeys = useMemo(() => (moduleFilter === ALL ? [] : String(moduleFilter).split(',').filter(Boolean).map(placeKeyFor)), [moduleFilter]);
+  const setPlaceKeys = (keys) => setModuleFilter(keys.length ? keys.join(',') : ALL);
+  const moduleOptions = useMemo(() => modules.map((m) => ({ id: m.key, label: `${m.label} (${m.count})` })), [modules]);
+  // Today / Yesterday (Neil, 11/05/2026): a one-day From-To range in the
+  // person's own day, so it lives in the same URL state as the date boxes.
+  const today = localTodayISO();
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return localDayKey(d.toISOString()); })();
+  const dayPick = fromDate && fromDate === toDate ? (fromDate === today ? 'Today' : fromDate === yesterday ? 'Yesterday' : '') : '';
+  const pickDay = (day) => { const on = fromDate === day && toDate === day; setFromDate(on ? '' : day); setToDate(on ? '' : day); };
   // Newest release first, as Version History listed them.
   const versions = useMemo(() => Array.from(new Set(entries.map((e) => e.version).filter(Boolean))), [entries]);
   // When each version went out: its latest update's release time.
@@ -982,7 +982,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return entries.filter((e) => {
-      if (placeKey !== ALL && !inPlace(placeOf(e), placeKey)) return false;
+      if (placeKeys.length && !placeKeys.some((k) => inPlace(placeOf(e), k))) return false;
       if (typeFilter !== ALL && e.type !== typeFilter) return false;
       if (envFilter !== ALL && stageOf(e)?.key !== envFilter) return false;
       if (versionFilter !== ALL && e.version !== versionFilter) return false;
@@ -1000,7 +1000,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries, query, placeKey, typeFilter, envFilter, versionFilter, fromDate, toDate, comparing, compareFrom, compareTo, breakingOnly, mineOnly, versionAt]);
+  }, [entries, query, placeKeys, typeFilter, envFilter, versionFilter, fromDate, toDate, comparing, compareFrom, compareTo, breakingOnly, mineOnly, versionAt]);
   const anyFilter = query || moduleFilter !== ALL || typeFilter !== ALL || envFilter !== ALL || versionFilter !== ALL
     || fromDate || toDate || (comparing && (compareFrom || compareTo)) || breakingOnly || mineOnly;
   const clearAll = () => {
@@ -1051,12 +1051,13 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
     const chips = [
       mineOnly && { key: 'for', label: 'For You', clear: () => setMineOnly('') },
       breakingOnly && { key: 'breaking', label: 'Breaking / Action Required', clear: () => setBreakingOnly('') },
-      moduleFilter !== ALL && { key: 'module', label: placeLabel(placeKey), clear: () => setModuleFilter(ALL) },
+      ...placeKeys.map((k) => ({ key: `module-${k}`, label: placeLabel(k), clear: () => setPlaceKeys(placeKeys.filter((x) => x !== k)) })),
       typeFilter !== ALL && { key: 'category', label: typeMeta(typeFilter).label, clear: () => setTypeFilter(ALL) },
       envFilter !== ALL && { key: 'env', label: envLabel(envFilter), clear: () => setEnvFilter(ALL) },
       versionFilter !== ALL && { key: 'version', label: `Version ${versionFilter}`, clear: () => setVersionFilter(ALL) },
-      fromDate && { key: 'from', label: `From ${formatFullDate(fromDate)}`, clear: () => setFromDate('') },
-      toDate && { key: 'to', label: `To ${formatFullDate(toDate)}`, clear: () => setToDate('') },
+      dayPick && { key: 'day', label: dayPick, clear: () => pickDay(fromDate) },
+      !dayPick && fromDate && { key: 'from', label: `From ${formatFullDate(fromDate)}`, clear: () => setFromDate('') },
+      !dayPick && toDate && { key: 'to', label: `To ${formatFullDate(toDate)}`, clear: () => setToDate('') },
       comparing && (compareFrom || compareTo) && {
         key: 'compare',
         label: `${compareFrom ? `After ${compareFrom}` : 'From the Start'} to ${compareTo || 'Now'}`,
@@ -1064,7 +1065,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
       },
     ].filter(Boolean);
     const filterState = {
-      modules, versions, moduleFilter: placeKey, setModuleFilter, typeFilter, setTypeFilter, envFilter, setEnvFilter,
+      moduleOptions, placeKeys, setPlaceKeys, today, yesterday, pickDay, dayPick, versions, typeFilter, setTypeFilter, envFilter, setEnvFilter,
       versionFilter, setVersionFilter, fromDate, setFromDate, toDate, setToDate, comparing, setComparing,
       compareFrom, setCompareFrom, compareTo, setCompareTo, breakingOnly, setBreakingOnly, mineOnly, setMineOnly,
     };
@@ -1141,7 +1142,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
                 <StickyDayHeader group={group} />
                 <div style={{ ...card, overflow: 'hidden' }}>
                   {group.map((entry) => (
-                    <TimelineRow key={entry.id} entry={entry} compact onClick={() => setSheet(entry)} />
+                    <TimelineRow key={entry.id} entry={entry} nameOf={nameOf} compact onClick={() => setSheet(entry)} />
                   ))}
                 </div>
               </section>
@@ -1184,9 +1185,10 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
         </div>
         {/* Phones: the three filters share one row that swipes sideways. */}
         <div className={isMobile ? 'scroll-tabs' : undefined} style={isMobile ? { display: 'flex', gap: 8, overflowX: 'auto', width: '100%' } : { display: 'contents' }}>
-          <select value={placeKey} onChange={(e) => setModuleFilter(e.target.value)} style={selStyle} aria-label="Module">
-            <PlaceOptions places={modules} />
-          </select>
+          <div role="group" aria-label="Module" style={{ minWidth: isMobile ? 180 : 200, flexShrink: 0 }}>
+            <ChipMultiSelect value={placeKeys} onChange={setPlaceKeys} options={moduleOptions}
+              placeholder="All Modules" searchPlaceholder="Search modules…" emptyText="No modules yet." />
+          </div>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={selStyle} aria-label="Category">
             <option value={ALL}>All Categories</option>
             {CHANGE_TYPES.map((t) => <option key={t} value={t}>{CHANGE_TYPE_META[t].label}</option>)}
@@ -1211,6 +1213,12 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>To
           <DateField value={toDate || null} onChange={(v) => setToDate(v || '')} placeholder="MM/DD/YYYY" title="To date" style={{ ...inputStyle, width: 'auto', minWidth: 132, padding: '6px 10px', display: 'inline-flex' }} />
         </label>
+        {[['Today', today], ['Yesterday', yesterday]].map(([label, day]) => (
+          <button key={label} type="button" aria-pressed={dayPick === label} onClick={() => pickDay(day)}
+            style={{ ...btn('outline'), padding: '5px 10px', ...(dayPick === label ? { borderColor: NX.blue, color: NX.blue } : null) }}>
+            {label}
+          </button>
+        ))}
         <button type="button" aria-pressed={comparing} onClick={() => { if (comparing) { setCompareFrom(''); setCompareTo(''); } setComparing(!comparing); }}
           style={{ ...btn('outline'), padding: '5px 10px', ...(comparing ? { borderColor: NX.blue, color: NX.blue } : null) }}>
           <GitBranch size={13} />Compare Versions
@@ -1259,7 +1267,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
               <DayHeader group={group} />
               <div style={{ ...card, overflow: 'hidden' }}>
                 {group.map((entry) => (
-                  <TimelineRow key={entry.id} entry={entry} compact={compactRows} selected={!isMobile && entry.id === selectedId}
+                  <TimelineRow key={entry.id} entry={entry} nameOf={nameOf} compact={compactRows} selected={!isMobile && entry.id === selectedId}
                     onClick={() => (isMobile ? setSheet(entry) : setSelectedId(entry.id))} />
                 ))}
               </div>
@@ -1338,94 +1346,92 @@ function RowResponse({ entry }) {
   );
 }
 
-function TimelineRow({ entry, selected, onClick, compact = false }) {
+// Who built an update (Neil, 11/05/2026): the PR's first developer (the
+// server adds the Nexus email for our own, which brings the photo), else the
+// person who wrote it by hand. No match = the GitHub name with initials.
+function rowAuthor(entry, nameOf) {
+  const devs = entry.developers || [];
+  if (devs.length) return { email: devs[0].email || '', name: devs[0].name || devs[0].login, more: devs.length - 1 };
+  if (entry.authorId) return { email: entry.authorId, name: nameOf ? nameOf(entry.authorId) : entry.authorId, more: 0 };
+  return null;
+}
+
+function TimelineRow({ entry, nameOf, selected, onClick, compact = false }) {
   const meta = typeMeta(entry.type);
+  const author = rowAuthor(entry, nameOf);
+  const authorTitle = author ? `${author.name}${author.more ? ` and ${plural(author.more, 'other')}` : ''}` : '';
   const Icon = meta.icon;
-  const thumbnail = (entry.images && entry.images[0]) || entry.afterImageDataUrl;
-  if (compact) {
-    // Phones and tablets: the title gets the full width (two lines), the
-    // category, module and time sit under it - the desktop row's time column
-    // and thumbnail left the title one letter wide.
-    return (
-      <button onClick={onClick} style={{
-        display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer',
-        border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '12px 14px', minHeight: 56,
-        background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', fontFamily: FONT,
-      }}>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="nx-clamp-2" style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.35, color: NX.ink }}>{entry.title}</div>
-          <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
-            <span style={{ ...chip(meta.color, meta.tint), fontSize: 11 }}><Icon size={11} />{meta.label}</span>
-            <IssueChip entry={entry} />
-            <span>{placeOf(entry).label}</span>
-            {entry.prRef && <PrRef entry={entry} />}
-            <span style={{ color: NX.faint }}>{formatTime(releasedKey(entry))}</span>
-            <RowResponse entry={entry} />
-          </div>
-        </div>
-        <ChevronRight size={16} style={{ flexShrink: 0, color: NX.faint }} />
-      </button>
-    );
-  }
+  const thumbnail = !compact && ((entry.images && entry.images[0]) || entry.afterImageDataUrl);
+  const stage = stageOf(entry);
+  // Calm rows (Neil, 11/05/2026: "too busy"): the title is the hero and wraps
+  // to two lines; the photo says who (the name is its tooltip); one quiet
+  // category mark; a faint PR number; the stage only when it is NOT in
+  // production yet. The developer's name is the photo's tooltip.
   return (
-    <button onClick={onClick} style={{
-      display: 'flex', alignItems: 'center', gap: 16, width: '100%', textAlign: 'left', cursor: 'pointer',
-      borderBottom: `1px solid ${NX.border}`, borderLeft: 'none', borderRight: 'none', borderTop: 'none',
-      padding: '14px 16px', background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', fontFamily: FONT,
+    <button onClick={onClick} aria-current={selected ? 'true' : undefined} style={{
+      display: 'flex', alignItems: 'flex-start', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer',
+      border: 'none', borderBottom: `1px solid ${NX.border}`, padding: compact ? '12px 14px' : '14px 16px', minHeight: 56,
+      background: selected ? 'rgba(37,99,235,0.08)' : 'transparent', boxShadow: selected ? `inset 3px 0 0 ${NX.blue}` : 'none', fontFamily: FONT,
     }}>
-      <span style={{ width: 48, flexShrink: 0, fontFamily: 'monospace', fontSize: 12, color: NX.dim }}>{formatTime(releasedKey(entry))}</span>
-      <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: meta.color }} />
+      {/* card={false}: the row is itself a button. */}
+      <span data-row-author title={authorTitle} aria-label={authorTitle || undefined}
+        style={{ position: 'relative', flexShrink: 0, width: 28, height: 28, marginTop: 1 }}>
+        {author && <Avatar email={author.email} name={author.name} size={28} card={false} />}
+        {author?.more > 0 && (
+          <span style={{ position: 'absolute', right: -6, bottom: -4, padding: '0 4px', borderRadius: 999, background: NX.surface, border: `1px solid ${NX.border}`, fontSize: 9.5, fontWeight: 700, lineHeight: '13px', color: NX.dim }}>+{author.more}</span>
+        )}
+      </span>
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ ...chip(meta.color, meta.tint), fontSize: 11 }}><Icon size={11} />{meta.label}</span>
-          {issueOf(entry)?.active && <IssueChip entry={entry} />}
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14, fontWeight: 700, color: NX.ink }}>{entry.title}</span>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <span className="nx-clamp-2" style={{ minWidth: 0, flex: 1, fontSize: 14, fontWeight: 600, lineHeight: 1.35, color: NX.ink }}>{entry.title}</span>
+          {/* One line, the app's font (Neil, 11/05/2026). */}
+          <span data-row-time style={{ flexShrink: 0, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: 12, color: NX.faint }}>{formatTime(releasedKey(entry))}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{placeOf(entry).label}</span>
-          {entry.version && (<><span>·</span><span style={{ fontFamily: 'monospace', flexShrink: 0 }}>{entry.version}</span></>)}
-          {entry.prRef && (<><span>·</span><PrRef entry={entry} /></>)}
-          {stageOf(entry) && (<><span>·</span><StageChip entry={entry} /></>)}
+        <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 4, fontSize: 12, color: NX.dim }}>
+          <span data-row-category style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0, whiteSpace: 'nowrap' }}>
+            <Icon size={12} style={{ color: meta.color }} aria-hidden="true" />{meta.label}
+          </span>
+          <span aria-hidden="true" style={{ color: NX.faint }}>·</span>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{placeOf(entry).label}</span>
+          {/* Faint, after the place (Neil, 11/05/2026); the row is a button, so it is text - the detail links it. */}
+          {entry.prRef && <span style={{ color: NX.faint, display: 'inline-flex' }}><PrRef entry={entry} /></span>}
+          {issueOf(entry)?.active && <IssueChip entry={entry} />}
+          {stage && stage.key !== 'Production' && <StageChip entry={entry} />}
           <RowResponse entry={entry} />
         </div>
       </div>
-      {thumbnail && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 80, flexShrink: 0, aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 8, border: `1px solid ${NX.border}`, background: NX.surface2 }}>
+      {thumbnail && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 72, flexShrink: 0, aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 8, border: `1px solid ${NX.border}`, background: NX.surface2 }}>
         <img src={thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
       </div>}
-      <ChevronRight size={16} style={{ flexShrink: 0, color: NX.faint }} />
     </button>
   );
 }
 
-// A Timeline day: its date, the versions released on it, and how many of each
-// category - what the Version History tab used to show per version.
+// A Timeline day: its date (Today / Yesterday said the way people say them),
+// a typed version when there is one, and one muted count.
 function DayHeader({ group }) {
-  const date = formatFullDate(releasedKey(group[0]));
+  const iso = releasedKey(group[0]);
+  const date = formatFullDate(iso);
+  const rel = relativeDayLabel(iso);
   // A merge's version is its release day (MM/DD/YYYY); only a typed one adds anything.
   const versions = Array.from(new Set(group.map((e) => e.version).filter((v) => v && !/^\d{2}\/\d{2}\/\d{4}$/.test(v))));
-  const counts = new Map();
-  for (const e of group) counts.set(e.type, (counts.get(e.type) || 0) + 1);
   return (
-    <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{date}</span>
+    <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8, padding: '0 2px' }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{rel || date}</span>
+      {rel && rel !== date && <span style={{ fontSize: 12.5, color: NX.dim }}>{date}</span>}
       {versions.map((v) => (
-        <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: NX.dim }}>
+        <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 600, color: NX.dim }}>
           <GitBranch size={12} />{v}
         </span>
       ))}
-      <Badge label={`${group.length} update${group.length === 1 ? '' : 's'}`} />
-      {[...counts.entries()].map(([type, n]) => {
-        const meta = typeMeta(type);
-        return <Badge key={type} label={`${n} ${meta.label}`} color={meta.color} tint={meta.tint} />;
-      })}
+      <span style={{ marginLeft: 'auto', fontSize: 12, color: NX.faint }}>{plural(group.length, 'update')}</span>
     </div>
   );
 }
 
 // A day on the phone and tablet Timeline: pinned to the top of the list while
 // you scroll through it, its date said the way people say it (Today,
-// Yesterday, then the date), and its categories as colored dots rather than
-// a second row of pills.
+// Yesterday, then the date), and one muted count (the categories are its tooltip).
 function StickyDayHeader({ group }) {
   const iso = releasedKey(group[0]);
   const date = formatFullDate(iso);
@@ -1440,17 +1446,12 @@ function StickyDayHeader({ group }) {
       <span style={{ fontSize: 14, fontWeight: 700, color: NX.ink, whiteSpace: 'nowrap' }}>{rel || date}</span>
       {rel && rel !== date && <span style={{ fontSize: 12.5, color: NX.dim, whiteSpace: 'nowrap' }}>{date}</span>}
       {versions.map((v) => (
-        <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: NX.dim }}>
+        <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 700, color: NX.dim }}>
           <GitBranch size={12} style={{ flexShrink: 0 }} />{v}
         </span>
       ))}
       <span title={summary} aria-label={`${plural(group.length, 'update')}: ${summary}`}
-        style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, fontSize: 12, fontWeight: 600, color: NX.dim }}>
-        <span aria-hidden="true" style={{ display: 'inline-flex', gap: 3 }}>
-          {[...counts.keys()].map((t) => <span key={t} style={{ width: 7, height: 7, borderRadius: '50%', background: typeMeta(t).color }} />)}
-        </span>
-        {group.length} {group.length === 1 ? 'Update' : 'Updates'}
-      </span>
+        style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 12, color: NX.faint }}>{plural(group.length, 'update')}</span>
     </div>
   );
 }
@@ -1493,7 +1494,16 @@ function TimelineFilterSheet({ f, count, anyFilter, onClearAll, onClose, flash }
       </div>
       <div style={field}>
         <span style={lab}>Module</span>
-        {pick(f.moduleFilter, f.setModuleFilter, 'Module', <PlaceOptions places={f.modules} />)}
+        <ChipMultiSelect value={f.placeKeys} onChange={f.setPlaceKeys} options={f.moduleOptions}
+          placeholder="All Modules" searchPlaceholder="Search modules…" emptyText="No modules yet." />
+      </div>
+      <div style={{ ...field, display: 'flex', gap: 8 }}>
+        {[['Today', f.today], ['Yesterday', f.yesterday]].map(([label, day]) => (
+          <button key={label} type="button" aria-pressed={f.dayPick === label} onClick={() => f.pickDay(day)}
+            style={{ ...btn('outline'), minHeight: 44, flex: 1, ...(f.dayPick === label ? { borderColor: NX.blue, color: NX.blue } : null) }}>
+            {label}
+          </button>
+        ))}
       </div>
       <div style={field}>
         <span style={lab}>Category</span>
@@ -1615,7 +1625,7 @@ function AutoDraftStatus({ refreshKey }) {
 // Manage (admin, opened from the header's Manage button) - the publish queue,
 // reach and response, and every update
 // ═══════════════════════════════════════════════════════════════════════════
-function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGenerate, onPublish, onPublishAll, onDelete, onBulk, flash }) {
+function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onGenerate, onPublish, onPublishAll, onDelete, onBulk, flash }) {
   const { openEntry } = useContext(ChangelogActions);
   // Read rate, weekly trends, most reacted, helpful votes (changelog_extras.insights).
   const [insights, setInsights] = useState(null);
@@ -1677,7 +1687,10 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
     <div style={{ padding: isMobile ? '14px 12px' : '20px 16px' }}>
       {/* Phones: the title, then the two actions sharing a full-width row. */}
       <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 10 : 8, marginBottom: isMobile ? 10 : 4 }}>
-        <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700, color: NX.ink }}>Manage</h1>
+        <div style={{ minWidth: 0 }}>
+          <PageTrail title="Manage" />
+          <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700, color: NX.ink }}>Manage</h1>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, ...(isMobile ? { width: '100%' } : null) }}>
           {onGenerate && (
             <button style={{ ...btn('outline'), opacity: generating ? 0.6 : 1, ...(isMobile ? { flex: 1, justifyContent: 'center', minHeight: 40 } : null) }} disabled={generating} onClick={generate}>
@@ -1685,14 +1698,14 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
               {generating ? 'Checking…' : 'Check for Updates'}
             </button>
           )}
-          <button style={{ ...btn('primary'), ...(isMobile ? { flex: 1, justifyContent: 'center', minHeight: 40 } : null) }} onClick={onAdd}><Plus size={15} />{isMobile ? 'Add Update' : 'Add New Update'}</button>
+          {/* Add New Update lives once, in the page header (Neil, 11/04/2026). */}
           {!isMobile && (
             <button type="button" style={{ ...btn('outline'), opacity: checkingProd ? 0.6 : 1 }} disabled={checkingProd} onClick={checkProduction}
               title="Which merged updates have reached production">
               <Server size={15} />{checkingProd ? 'Checking…' : 'Check Production'}
             </button>
           )}
-          {!isMobile && <ExportButtons onCsv={() => exportCsv(entries, analytics, insights, statusOf)} onPrint={() => buildPrintReport(entries, analytics, insights, statusOf)} />}
+          {!isMobile && <WhatsNewExport entries={entries} analytics={analytics} insights={insights} statusOf={statusOf} />}
         </div>
       </div>
       <p style={{ margin: '0 0 20px', fontSize: 13, lineHeight: 1.55, color: NX.dim }}>
@@ -2012,10 +2025,10 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
         <h2 style={{ margin: 0, fontSize: isMobile ? 21 : 22, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title}</h2>
         <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: isMobile ? '6px 12px' : 12, fontSize: 13, color: NX.dim }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title={entry.module && entry.module !== placeOf(entry).label ? `Filed as ${entry.module}` : undefined}><Layers size={13} style={{ color: NX.faint }} />{placeOf(entry).label}</span>
-          {entry.version && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><GitBranch size={13} style={{ color: NX.faint }} /><span style={{ fontFamily: 'monospace' }}>{entry.version}</span></span>}
+          {entry.version && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><GitBranch size={13} style={{ color: NX.faint }} /><span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{entry.version}</span></span>}
           {entry.prRef && <PrRef entry={entry} link size={13} />}
           <StageChip entry={entry} />
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CalendarDays size={13} style={{ color: NX.faint }} />{formatDateTime(releasedKey(entry))}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><CalendarDays size={13} style={{ color: NX.faint }} />{formatDateTime(releasedKey(entry))}</span>
           {entry.republishedAt && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><RefreshCw size={12} style={{ color: NX.faint }} />Re-published</span>}
         </div>
         {(issueOf(entry) || entry.deprecation?.removeOn) && (

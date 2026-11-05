@@ -50,13 +50,12 @@ import { api } from "../api";
 import { useNexusSearch, SEARCH_PLACEHOLDER, SEARCH_HINT, SEARCH_LABEL } from './search/useNexusSearch';
 import SearchResults from './search/SearchResults';
 
-import { isSearchShortcut, isPhone } from '../lib/keys';
+import { isSearchShortcut, isFindShortcut, isPhone } from '../lib/keys';
 import { useBuildModeMenu, BuildModeChip } from '../devnotes/BuildModeChip';   // Build Mode (Oct 24 2026)
 import { ToolsSection, ActAsFinder } from './ToolsMenu';   // profile menu Tools (Oct 25 2026)
 import { useActionCounts } from '../lib/useActionCounts';
 import { clearOfflineReadCache } from '../lib/offline/read';
 
-const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
 
 export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel }) {
   const { instance, accounts } = useMsal();
@@ -219,8 +218,30 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // runs before the sheet's window listener, which then sees defaultPrevented
   // and stands down; on a phone this does nothing and the sheet (GlobalSearch)
   // answers the same keys.
+  //
+  // Ctrl/Cmd+F lands here too (Neil, 11/04/2026), on a phone in the sheet, but
+  // only once every other keydown listener has had the key: a screen's own find
+  // (Accounting's ledger search, Vendors & Customers, the Report Library, the
+  // Audit Log) and a popup keep it. Pressed again inside a search it stays the
+  // browser's find, so the page text can still be searched.
   useEffect(() => {
     const onKey = (e) => {
+      if (isFindShortcut(e)) {
+        if (e.defaultPrevented) return;
+        // Added during the document's turn, so it runs after every window listener - Accounting's late one included.
+        const late = (ev) => {
+          if (ev !== e || e.defaultPrevented) return;
+          // Any open popup keeps the browser's find, marked modal or not (review, 11/04/2026).
+          if (document.querySelector('[aria-modal="true"], [role="dialog"], .modal-overlay, .cv-modal-overlay') || document.activeElement?.closest?.('[role="search"]')) return;
+          e.preventDefault();
+          if (isPhone()) { window.dispatchEvent(new Event('nexus:search-open')); return; }
+          searchInputRef.current?.focus();
+          setSearchOpen(true);
+        };
+        window.addEventListener('keydown', late, { once: true });
+        setTimeout(() => window.removeEventListener('keydown', late), 0);   // a key stopped on the way up never reaches it
+        return;
+      }
       if (!isSearchShortcut(e) || isPhone()) return;
       e.preventDefault();
       const own = e.key === '/' ? document.querySelector('input[data-slash-search]') : null;
@@ -286,8 +307,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
           ref={searchInputRef}
           placeholder={SEARCH_PLACEHOLDER}
           aria-label={SEARCH_LABEL}
-          title={`${SEARCH_LABEL} (${MOD_KEY} K)`}
-          aria-keyshortcuts="Control+K Meta+K /"
+          title={`${SEARCH_LABEL} (Ctrl+F)`}
+          aria-keyshortcuts="Control+K Meta+K Control+F Meta+F /"
           value={searchQuery}
           onChange={e => { setSearchQuery(e.target.value); setSearchIdx(0); setSearchOpen(true); }}
           onFocus={() => setSearchOpen(true)}
@@ -295,7 +316,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         />
         {searchQuery
           ? <button className="search-clear" onClick={() => closeSearch(true)} title="Clear" aria-label="Clear search"><X size={13} /></button>
-          : <kbd className="hdr-search-kbd" aria-hidden="true">{MOD_KEY} K</kbd>}
+          // One hint on every computer (Neil, 11/05/2026): Ctrl+F works on a Mac too.
+          : <kbd className="hdr-search-kbd" aria-hidden="true">Ctrl+F</kbd>}
       </div>
       {searchOpen && (
         <div className="hdr-search-panel">
@@ -342,15 +364,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <ArrowLeft style={{ width: 15, height: 15 }} />
             </button>
           )}
-          {/* Back within one module (Settings > another subject) named the
-              same page twice - "Settings / Settings" (Oct 25); the arrow stays. */}
-          {canGoBack && prevLabel && prevLabel !== displayTitle && (
-            <>
-              <button className="breadcrumb-prev" onClick={onBack} title={`Back to ${prevLabel}`}>{prevLabel}</button>
-              <span style={{ color: "var(--muted)", opacity: 0.4, fontSize: 11, userSelect: "none" }}>/</span>
-            </>
-          )}
-          <span className="breadcrumb-current">{displayTitle}</span>
+          {/* The page trail (Neil, 11/04/2026) names the module and the pages
+              above a record, in the page above its title (PageTrail.jsx), so
+              the bar keeps only Back - the trail goes UP, this goes BACK. The
+              name stays for screen readers and Build Mode's capture. */}
+          <span className="breadcrumb-current sr-only">{displayTitle}</span>
         </div>
       </div>
 

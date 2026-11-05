@@ -585,7 +585,7 @@ def create_assignment(body: AssignIn, user: dict = Depends(require_qa_write), db
     due_txt = f" - due {us_date(row.due_date)}" if row.due_date else ""
     title = f"{n} Test Case{'s' if n != 1 else ''} Assigned to You"
     body_txt = (f"You've been assigned {n} test case{'s' if n != 1 else ''} in run "
-                f"“{run.name}”{due_txt}. Open Testing → Run tests to complete them."
+                f"“{run.name}”{due_txt}. Open Testing → Run Tests to complete them."
                 + (f" Note: {row.note}" if row.note else ""))
     # Targeted bell (server-side only - employees can't POST notifications).
     db.add(NexusNotification(id=str(uuid.uuid4()), type="qa_assignment", recipient=email,
@@ -608,7 +608,7 @@ def create_assignment(body: AssignIn, user: dict = Depends(require_qa_write), db
                     f"<p>{assigner_name} assigned you {n} test case{'s' if n != 1 else ''} in "
                     f"<b>{run.name}</b>{due_txt}.</p>"
                     + (f"<p><i>{row.note}</i></p>" if row.note else "")
-                    + "<p>Open <b>Nexus → Testing → Run tests</b> to complete them.</p></div>")
+                    + "<p>Open <b>Nexus → Testing → Run Tests</b> to complete them.</p></div>")
             resp = httpx.post(
                 f"https://graph.microsoft.com/v1.0/users/{from_email}/sendMail",
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
@@ -630,7 +630,7 @@ def create_assignment(body: AssignIn, user: dict = Depends(require_qa_write), db
             "assignedBy": row.assigned_by, "createdAt": row.created_at,
             "emailSent": email_sent, "emailError": email_error,
             "teamsSummary": f"\U0001F9EA {title} - run “{run.name}”{due_txt}. "
-                            f"Open Nexus → Testing → Run tests."}
+                            f"Open Nexus → Testing → Run Tests."}
 
 
 # ── Excel export / import ─────────────────────────────────────────────────────

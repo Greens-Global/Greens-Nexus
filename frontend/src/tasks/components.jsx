@@ -1866,7 +1866,9 @@ export function ViewToggle({ view, onChange, isMobile = false, style }) {
 // Exports what is on screen, filters and sort included - see exporting.js for
 // why that is client-side. Disabled with nothing to export rather than
 // producing an empty file.
-export function ExportMenu({ title, subtitle, columns, rows, filenameBase, compact = false }) {
+// `extra` adds a screen's own formats under the two shared ones -
+// [{ key, label, icon, run }], `run` may return a promise (What's New: CSV, Print).
+export function ExportMenu({ title, subtitle, columns, rows, filenameBase, compact = false, extra = [] }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
@@ -1887,6 +1889,10 @@ export function ExportMenu({ title, subtitle, columns, rows, filenameBase, compa
     } finally {
       setBusy('');
     }
+  };
+  const runExtra = async (x) => {
+    setBusy(x.key); setErr('');
+    try { await x.run(); setOpen(false); } catch (e) { setErr(e?.message || 'Export failed.'); } finally { setBusy(''); }
   };
 
   const empty = !rows || rows.length === 0;
@@ -1913,6 +1919,12 @@ export function ExportMenu({ title, subtitle, columns, rows, filenameBase, compa
           <Sheet size={15} style={{ color: NX.green, flexShrink: 0 }} />
           {busy === 'excel' ? 'Building Excel…' : 'Export as Excel'}
         </button>
+        {extra.map((x) => (
+          <button key={x.key} role="menuitem" className="nx-menu-row" disabled={!!busy} onClick={() => runExtra(x)}
+            style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 9 }}>
+            {x.icon}{x.label}
+          </button>
+        ))}
         <div style={{ padding: '4px 9px 5px', fontSize: 11, color: NX.faint }}>
           {rows.length} row{rows.length === 1 ? '' : 's'}, as shown
         </div>

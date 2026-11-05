@@ -9,7 +9,7 @@
 // an Approvals row lands on RFIs And Submittals. Lazy: its own chunk, and the
 // Schedule tab (the Tasks timeline) a chunk of its own beyond that.
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { ArrowLeft, Pencil, Flag, ClipboardList, CheckSquare, Users, Ticket, Building2, Inbox, ExternalLink } from 'lucide-react';
+import { Pencil, Flag, ClipboardList, CheckSquare, Users, Ticket, Building2, Inbox, ExternalLink } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { StatusLabel } from '../../components/StatusLabel';
@@ -29,6 +29,8 @@ import FieldTab from './FieldTab';
 import MoneyLine from './MoneyLine';
 import { useJobMoney } from '../lib/money';
 import { prefetchJob } from '../constructionOffline';
+import PageTrail, { useTrailCrumbs } from '../../components/PageTrail';
+import { formatHoursWords } from '../../lib/hoursText';
 
 const ScheduleTab = lazy(() => import('./ScheduleTab'));
 // Field and Closeout (11/03/2026, phase 3): each its own chunk, beyond the
@@ -138,7 +140,7 @@ function Overview({ project, onTab, money }) {
                 <Line left={<>{formatDate(data.lastLog.logDate, data.lastLog.logDate)}{data.lastLog.authorName ? ` - ${data.lastLog.authorName}` : ''}</>}
                   right={<StatusLabel size="sm" label={(LOG_STATUS[data.lastLog.status] || LOG_STATUS.submitted).label} color={(LOG_STATUS[data.lastLog.status] || LOG_STATUS.submitted).color} />} />
                 {(data.lastLog.crewSize > 0 || data.lastLog.hoursWorked > 0) && (
-                  <div style={quiet}>{[data.lastLog.crewSize ? `${data.lastLog.crewSize} ${data.lastLog.crewSize === 1 ? 'person' : 'people'}` : '', data.lastLog.hoursWorked ? `${data.lastLog.hoursWorked} h` : ''].filter(Boolean).join(' · ')}</div>
+                  <div style={quiet}>{[data.lastLog.crewSize ? `${data.lastLog.crewSize} ${data.lastLog.crewSize === 1 ? 'person' : 'people'}` : '', data.lastLog.hoursWorked ? formatHoursWords(data.lastLog.hoursWorked, { compact: true }) : ''].filter(Boolean).join(' · ')}</div>
                 )}
               </>
             ) : <div style={quiet}>No daily log filed yet.</div>}
@@ -149,7 +151,7 @@ function Overview({ project, onTab, money }) {
               ? <div style={quiet}>No one is scheduled on this jobsite this week. Place the crew here in Shifts.</div>
               : data.crew.people.slice(0, 8).map((c) => (
                 <Line key={c.email} left={c.name || personName(c.email, names)}
-                  right={`${plural(c.days.length, 'day')} · ${c.plannedHours} h`} />
+                  right={`${plural(c.days.length, 'day')} · ${formatHoursWords(c.plannedHours, { compact: true })}`} />
               ))}
           </Card>
           {(data.tickets || []).length > 0 && (
@@ -215,15 +217,15 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
   // Keep what the field needs on the phone while there is signal (the punch
   // list, today's log prefill, the photos, the changes) - offline tomorrow.
   useEffect(() => { prefetchJob(project); }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // CONSTRUCTION / PROJECT DASHBOARD over the job's name (the page trail).
+  useTrailCrumbs([{ label: 'Project Dashboard', onClick: onBack }]);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }} data-job-page={project.id}>
       <div className="view-header" style={{ marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 320px' }}>
-          <button className="secondary-btn" onClick={onBack} style={{ padding: 8 }} title="Back to Construction" aria-label="Back to Construction">
-            <ArrowLeft size={16} />
-          </button>
           <div className="view-title-group" style={{ minWidth: 0 }}>
+            <PageTrail title={project.name} />
             <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ overflowWrap: 'anywhere' }}>{project.name}</span>
               <StatusLabel size="sm" label={type.label} color={type.color} />

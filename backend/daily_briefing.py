@@ -41,6 +41,7 @@ import re
 import uuid
 from datetime import datetime, timezone, timedelta, time as dtime
 from html import escape
+from urllib.parse import urlencode
 
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -503,6 +504,13 @@ def _esign_action_rows(db: Session, email: str) -> list:
     return rows
 
 
+def _envelope_url(request_id: str) -> str:
+    """That envelope, opened - the ?request= link Nexus Sign's own
+    completion email uses (ESign reads it on mount). The bare signatures page
+    left the reader to find which document the row meant (11/05/2026)."""
+    return f"{app_url()}/documents/documents-esign-requests?request={request_id}"
+
+
 def _esign_needs_to_know_rows(db: Session, email: str, since_iso: str) -> list:
     """Envelopes you sent where a party declined since your last briefing -
     the one mid-flight esign event that needs your attention without waiting
@@ -526,7 +534,7 @@ def _esign_needs_to_know_rows(db: Session, email: str, since_iso: str) -> list:
         rows.append({
             "title": f"Declined: {req.title}",
             "detail": "A signer declined - review and re-send if needed",
-            "url": f"{app_url()}{_ESIGN_URL}",
+            "url": _envelope_url(req.id),
             "module": "documents",
         })
     return rows
@@ -545,7 +553,7 @@ def _esign_completed_rows(db: Session, email: str, since_iso: str) -> list:
         rows.append({
             "title": f"Fully Executed: {req.title}",
             "detail": "Completed",
-            "url": f"{app_url()}{_ESIGN_URL}",
+            "url": _envelope_url(req.id),
             "module": "documents",
         })
     return rows
@@ -679,15 +687,16 @@ def _punch_fix_rows(db: Session, my_reports: dict) -> list:
         if locked(r.employee_email, r.local_date):
             continue
         what = (f"add a {_PUNCH_KIND.get(r.punch_kind, r.punch_kind)}" if r.action == "add" else "remove a punch")
-        got = by_person.setdefault((r.employee_email or "").lower(), {"req": [], "edit": [], "since": []})
+        got = by_person.setdefault((r.employee_email or "").lower(), {"req": [], "edit": [], "since": [], "ids": []})
         got["req"].append((r.local_date or "", f"{what} on {_fmt_date(r.local_date)}"))
+        got["ids"].append((r.local_date or "", r.id))
         got["since"].append(r.created_at)
     for p in (db.query(models.TimePunch)
               .filter(models.TimePunch.edit_status == "pending",
                       func.lower(models.TimePunch.employee_email).in_(reports)).all()):
         if p.voided or not p.pending_at or locked(p.employee_email, p.local_date):
             continue
-        got = by_person.setdefault((p.employee_email or "").lower(), {"req": [], "edit": [], "since": []})
+        got = by_person.setdefault((p.employee_email or "").lower(), {"req": [], "edit": [], "since": [], "ids": []})
         got["edit"].append((p.local_date or "", f"a new {_PUNCH_KIND.get(p.kind, p.kind)} time on {_fmt_date(p.local_date)}"))
         got["since"].append(p.edited_at)
     rows = []
@@ -700,14 +709,26 @@ def _punch_fix_rows(db: Session, my_reports: dict) -> list:
             "title": f"Approve: {name}'s Time Sheet Fix" + (f"es ({n})" if n > 1 else ""),
             "detail": ("Asked to " + items[0][1]) if n == 1 else "; ".join(t for _, t in items[:3]) +
                       (f"; and {n - 3} more" if n > 3 else ""),
-            # People > Time > Punch requests (the bell's own target) when there
-            # is a request; a proposed time sits on the person's time card.
-            "url": f"{app_url()}/hr/{'hr-time-requests' if got['req'] else 'hr-time'}",
+            # People > Time > Punch requests on THIS person's earliest request
+            # (the bell's own target, punchRequestId) when there is one; a
+            # proposed time sits on the person's card, opened on that period
+            # (11/05/2026: the bare links opened the list or Payroll on
+            # whoever sorted first).
+            "url": _punch_fix_url(db, em, got),
             "module": "timecard",
             # One row per person: it has waited as long as the oldest fix.
             **_since(min((x for x in got["since"] if x), default="")),
         })
     return rows
+
+
+def _punch_fix_url(db: Session, email: str, got: dict) -> str:
+    if got["ids"]:
+        return f"{app_url()}/hr/hr-time-requests?punchRequest={min(got['ids'])[1]}"
+    import timesheet_review
+    day = min(d for d, _ in got["edit"]) if got["edit"] else ""
+    start, _, pay_type = timesheet_review.period_for(db, email, day) if day else ("", "", "")
+    return _timecard_url(email, start, pay_type)
 
 
 def _shift_request_rows(db: Session, email: str, my_reports: dict) -> list:
@@ -744,6 +765,21 @@ def _shift_request_rows(db: Session, email: str, my_reports: dict) -> list:
     return rows
 
 
+def _timecard_url(email: str, start, pay_type) -> str:
+    """People > Time opened on THIS person's card for THIS period - the
+    ?timecard / start / type link TimeAdmin reads on mount, the same target
+    the bell's action names (timesheet_review._reviewer_action). The bare
+    /hr/hr-time link landed on Payroll with whoever sorts first selected
+    (11/05/2026: "it takes me to the payroll screen but not the particular
+    employee")."""
+    q = {"timecard": email or ""}
+    if start:
+        q["start"] = str(start)
+    if pay_type:
+        q["type"] = str(pay_type)
+    return f"{app_url()}/hr/hr-time?{urlencode(q)}"
+
+
 def _timesheet_review_rows(db: Session, email: str) -> list:
     """Timesheets submitted to this person for review (Sep 29) - one row each,
     opening People > Time's Time Sheets to Review list (Oct 22). Send Back
@@ -758,8 +794,8 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
             "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - {hours}"
                       + (" - resubmitted" if q["resubmitted"] else ""),
-            # People > Time, where Time Sheets to Review sits - the same place the bell opens.
-            "url": f"{app_url()}/hr/hr-time",
+            # That person's card on that period - the same place the bell opens.
+            "url": _timecard_url(r.employee_email, r.period_start, r.pay_type),
             "module": "timecard",
             **_since(q.get("submittedAt")),
         })
@@ -770,7 +806,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
         rows.append({
             "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(q['periodStart'])} - {_fmt_date(q['periodEnd'])} - {hours} - not submitted",
-            "url": f"{app_url()}/hr/hr-time",
+            "url": _timecard_url(q.get("employeeEmail"), q.get("periodStart"), q.get("payType")),
             "module": "timecard",
             **_since(q["periodEnd"]),
         })
@@ -780,7 +816,8 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
         rows.append({
             "title": "Sign Your Updated Time Sheet",
             "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - HR changed your time sheet",
-            "url": f"{app_url()}/timeclock/timesheet",
+            # Your own Time Sheet on THAT period, not the current one.
+            "url": f"{app_url()}/timeclock/timesheet?{urlencode({'start': r.period_start, 'type': r.pay_type or ''})}",
             "module": "timecard",
             **_since(r.updated_at),
         })

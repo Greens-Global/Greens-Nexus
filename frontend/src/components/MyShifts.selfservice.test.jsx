@@ -78,6 +78,7 @@ const reqs = (over = {}) => ({
 });
 
 beforeEach(() => {
+  try { localStorage.removeItem('nexus.shifts.teamRange'); } catch { /* jsdom */ }   // Week | Month is remembered
   timeMySchedule.mockReset().mockResolvedValue(sched);
   weatherCallMine.mockReset().mockResolvedValue({ calls: [] });
   weatherCallMyPrefs.mockReset().mockResolvedValue(null);
@@ -183,7 +184,7 @@ describe('MyShifts week and group grid', () => {
   it('says the week in one line, and nothing repeats the date range', async () => {
     render(<MyShifts />);
     const line = await screen.findByRole('status', { name: 'Week summary' });
-    expect(line.textContent).toMatch(/^This week: 1 shift · 8 Hrs · no time off · (on shift now until 5:00p|next shift today 9:00a - 5:00p|next shift none)$/);
+    expect(line.textContent).toMatch(/^This week: 1 shift · 8:00 Hrs · no time off · (on shift now until 5:00p|next shift today 9:00a - 5:00p|next shift none)$/);
     expect(document.querySelectorAll('[data-range-title]')).toHaveLength(1);   // the decorated date, once
     expect(document.querySelector('.date-block').getAttribute('title')).toMatch(new RegExp(`^${monday.slice(5, 7)}/${monday.slice(8, 10)}/${monday.slice(0, 4)} - `));
     expect(screen.queryByText('NEXT SHIFT')).toBeNull();
@@ -224,7 +225,7 @@ describe('MyShifts week and group grid', () => {
     render(<MyShifts />);
     await waitFor(() => expect(document.querySelector('[data-timeoff="to1"]')).toBeTruthy());
     expect(document.querySelector('[data-timeoff="to1"]').textContent).toContain('Personal');
-    expect(screen.getAllByText('8 Hrs').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('8:00 Hrs').length).toBeGreaterThan(0);
   });
 
   it('shows nothing, not "Off", on a day with nothing shared; usual hours as a reminder', async () => {
@@ -234,7 +235,7 @@ describe('MyShifts week and group grid', () => {
     await screen.findAllByText('Usual Hours');
     expect(screen.getAllByText('Usual Hours')).toHaveLength(6);
     expect(screen.queryByText('Off')).toBeNull();
-    expect(screen.getAllByText('8 Hrs').length).toBeGreaterThan(0);   // only the shared shift counts
+    expect(screen.getAllByText('8:00 Hrs').length).toBeGreaterThan(0);   // only the shared shift counts
     unmount();
     // In the group grid (Team > Shifts), usual hours are one line under the name - the cells stay empty.
     render(<MyShifts part="team" />);
@@ -282,6 +283,33 @@ describe('MyShifts parts (Workday vs Team, Oct 13 2026)', () => {
     await screen.findByRole('table', { name: 'Store schedule' });
     expect(screen.queryByRole('status', { name: 'Week summary' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Request a swap/ })).toBeNull();
+  });
+});
+
+describe('MyShifts Team > Shifts Month view (Neil, 11/04/2026)', () => {
+  it('offers Week | Month on Team only; Month loads the month and draws the calendar; a day opens its week', async () => {
+    const { unmount } = render(<MyShifts />);
+    await screen.findByRole('status', { name: 'Week summary' });
+    expect(screen.queryByRole('button', { name: 'Month' })).toBeNull();   // My Week stays a week
+    unmount();
+    render(<MyShifts part="team" />);
+    await screen.findByRole('table', { name: 'Store schedule' });
+    expect(screen.queryByText('Group Shifts')).toBeNull();
+    expect(screen.getByText(/^Store · 2 members/)).toBeTruthy();         // the group line stays
+    fireEvent.click(screen.getByRole('button', { name: 'Month' }));
+    const now = new Date();
+    const firstOfMonth = iso(new Date(now.getFullYear(), now.getMonth(), 1));
+    const lastOfMonth = iso(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+    await waitFor(() => expect(timeMySchedule).toHaveBeenLastCalledWith(firstOfMonth, lastOfMonth));
+    const today = await screen.findByRole('button', { name: `Open ${DAY.slice(5, 7)}/${DAY.slice(8, 10)}/${DAY.slice(0, 4)}` });
+    expect(today.textContent).toContain('1 shift');                         // Bob's, with his face
+    expect(today.textContent).not.toMatch(/Hrs/);                         // hours stay a manager's number
+    expect(screen.queryByRole('table', { name: 'Store schedule' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'This Month' }).disabled).toBe(true);
+    expect(localStorage.getItem('nexus.shifts.teamRange')).toBe('month');
+    fireEvent.click(today);
+    await screen.findByRole('table', { name: 'Store schedule' });
+    expect(screen.getByRole('button', { name: 'Week' }).getAttribute('aria-pressed')).toBe('true');
   });
 });
 

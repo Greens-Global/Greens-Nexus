@@ -225,7 +225,21 @@ def _lease_out(l: models.Lease, rates: list[models.LeaseRate], names: Optional[d
         **_term_out(l),
         **_frequency_out(l),
         "possiblyEnded": _stale_out(l),
+        # Nov 3 (Urmi): the lease's documents folder in Egnyte, like MRE's
+        # per-vendor one - a path Nexus keeps, the documents stay in Egnyte.
+        "egnyteFolder": getattr(l, "egnyte_folder", "") or "",
+        "egnyteUrl": _egnyte_url(getattr(l, "egnyte_folder", "") or ""),
     }
+
+
+def _egnyte_url(path: str) -> Optional[str]:
+    from routers.accounting_loans import _egnyte_web
+    return _egnyte_web(path)
+
+
+def _folder(value: str) -> str:
+    from routers.accounting_loans import egnyte_folder
+    return egnyte_folder(value)
 
 
 class RateBody(BaseModel):
@@ -265,6 +279,9 @@ class LeaseBody(BaseModel):
     # Oct 22: None (an older screen that does not send it) keeps what is saved.
     frequency: Optional[str] = None
     frequencyMonths: Optional[int] = None
+    # Nov 3 (Urmi): the lease documents folder in Egnyte. None (an older
+    # screen) keeps what is saved; "" clears it.
+    egnyteFolder: Optional[str] = None
 
 
 def _clean(body: LeaseBody) -> dict:
@@ -295,6 +312,7 @@ def _clean(body: LeaseBody) -> dict:
         "status": status, "notes": (body.notes or "")[:1000], "income_type": kind,
         **_clean_term(body),
         **_clean_frequency(body),
+        **({} if body.egnyteFolder is None else {"egnyte_folder": _folder(body.egnyteFolder)}),
     }
 
 

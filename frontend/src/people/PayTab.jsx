@@ -13,6 +13,7 @@ import MealWaiverCard from '../components/MealWaiverCard';
 import { useTabDraft } from './useTabDraft';
 import { Row, SectionHead, Field, EditButton, TabSaveRow } from './shared';
 import { BOX, DATE_BOX, GRID, HINT, maskId } from './lib';
+import { formatHoursWords } from '../lib/hoursText';
 
 // ── Pay & Benefits (HR Section B - gated by hr_comp grant / owner) ───────────
 // Read and edited in place (11/03/2026; it was the Pay, Benefits & Bank
@@ -36,6 +37,8 @@ const COMP_DEFAULTS = { base: '', payBasis: 'salary', frequency: 'biweekly', cur
 const label = (list, v) => (list.find(([x]) => x === v) || [])[1] || v || '';
 const money = (v, cur) => (v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-');
 const otName = (k) => label(OT_RULES, k).split(' (')[0];
+/** "CA 8810 · " for a workers' comp entry with a state / class code, else ''. */
+const wcClassText = (r) => { const s = [r?.state, r?.classCode].filter(Boolean).join(' '); return s ? `${s} · ` : ''; };
 
 export default function PayTab({ employee, readOnly = false, onGoCompliance, toastOk, toastErr }) {
   const [data, setData] = useState(null);
@@ -75,14 +78,26 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
     if (comp.overtimeRule === undefined || comp.overtimeRule === null) comp.overtimeRule = '';
     // A record saved before Sep 30 has no hours of its own - start from what the time sheet uses today.
     if (!data.comp.fullDayHours && data.payroll?.fullDayHours) comp.fullDayHours = String(data.payroll.fullDayHours);
-    return { comp, bank: data.bank, gstin: data.gstin || '', wcYear: String(thisYear), wcRate: '' };
+    return { comp, bank: data.bank, gstin: data.gstin || '', wcYear: String(thisYear), wcRate: '', wcClass: '', wcState: '', wcDesc: '' };
   }, [data, thisYear]);
 
   const t = useTabDraft(saved, {
     label: 'Pay & Benefits',
     onSave: async (draft) => {
-      const wcRate = draft.wcRate === '' ? null : Number(draft.wcRate);
-      if (wcRate !== null && !(wcRate >= 0 && wcRate <= 100)) { toastErr("The workers' comp rate is a percent of gross wages, from 0 to 100."); return false; }
+      // The insurer's sheet (Charmi / Neil, 11/05/2026): State | Class Code |
+      // Description | Rate Per $100. A box left empty keeps what is in force
+      // for that year, so a new year's rate keeps its class and a new class
+      // keeps its rate.
+      const base = (wc.rates || []).find(r => r.year <= Number(draft.wcYear));
+      const classTyped = [draft.wcClass, draft.wcState, draft.wcDesc].some(v => (v || '').trim());
+      let wcRate = draft.wcRate === '' ? null : Number(draft.wcRate);
+      if (wcRate === null && classTyped) {
+        if (!base) { toastErr("Enter the workers' comp Rate Per $100 of Wages too."); return false; }
+        wcRate = base.ratePct;
+      }
+      if (wcRate !== null && !(wcRate >= 0 && wcRate <= 100)) { toastErr("The workers' comp rate is per $100 of wages, from 0 to 100."); return false; }
+      const wcState = (draft.wcState || '').trim().toUpperCase();
+      if (wcState && !/^[A-Z]{2}$/.test(wcState)) { toastErr('The workers\' comp state is its two-letter code, e.g. CA.'); return false; }
       const up = await ensureStepUp();
       if (!up.ok) { if (!up.cancelled) toastErr('Identity check did not complete.'); return false; }
       const payDirty = JSON.stringify({ comp: draft.comp, bank: draft.bank, gstin: draft.gstin }) !== JSON.stringify({ comp: saved.comp, bank: saved.bank, gstin: saved.gstin });
@@ -92,7 +107,14 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
           // The PAN is left out: Compliance is where it changes (null = unchanged on the server).
           await api.saveCompensation(employee.id, { compensation: clean, bank: draft.bank, gstin: draft.gstin });
         }
-        if (wcRate !== null) await api.addWorkersCompRate(employee.id, { year: Number(draft.wcYear), ratePct: wcRate });
+        if (wcRate !== null) {
+          await api.addWorkersCompRate(employee.id, {
+            year: Number(draft.wcYear), ratePct: wcRate,
+            classCode: (draft.wcClass || '').trim() || base?.classCode || '',
+            state: wcState || base?.state || '',
+            description: (draft.wcDesc || '').trim() || base?.description || '',
+          });
+        }
         toastOk('Pay & Benefits saved.');
         setReload(n => n + 1);
         return true;
@@ -206,7 +228,7 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
                   : ' (company default)')}`} />
               {/* Where they work decides the default rule (Charmi, Oct 20): California work state -> California rule. */}
               {payroll.workState?.byWorkState && <Row label="Work State" value={workStateText(payroll.workState)} />}
-              <Row label="Full Day Hours" value={payroll.fullDayHours ? `${payroll.fullDayHours} h` : ''} />
+              <Row label="Full Day Hours" value={payroll.fullDayHours ? formatHoursWords(payroll.fullDayHours, { compact: true }) : ''} />
             </div>
           )}
           {/* Read only: set on the person's role in Settings > Access, beside the screen-share exemption (Visesh, 10/02). */}
@@ -223,21 +245,32 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
                     <Field label="Effective Year" htmlFor="comp-wc-year">
                       <input id="comp-wc-year" className="form-input" type="number" min="2000" max={thisYear + 1} step="1" style={BOX} value={d.wcYear} onChange={ev => t.patch({ wcYear: ev.target.value })} />
                     </Field>
-                    <Field label="Rate (% of Gross Wages)" htmlFor="comp-wc-rate">
-                      <input id="comp-wc-rate" className="form-input" type="number" min="0" max="100" step="0.01" style={BOX} value={d.wcRate} onChange={ev => t.patch({ wcRate: ev.target.value })} placeholder={wcNow ? `In force: ${wcNow.ratePct}%` : 'e.g. 3.5'} />
+                    <Field label="State" htmlFor="comp-wc-state">
+                      <input id="comp-wc-state" className="form-input" maxLength={2} style={BOX} value={d.wcState} onChange={ev => t.patch({ wcState: ev.target.value.toUpperCase() })} placeholder={wcNow?.state || 'e.g. CA'} />
+                    </Field>
+                    <Field label="Class Code" htmlFor="comp-wc-class">
+                      <input id="comp-wc-class" className="form-input" maxLength={20} style={BOX} value={d.wcClass} onChange={ev => t.patch({ wcClass: ev.target.value })} placeholder={wcNow?.classCode || 'e.g. 8810'} />
+                    </Field>
+                    <Field label="Rate Per $100 of Wages" htmlFor="comp-wc-rate">
+                      <input id="comp-wc-rate" className="form-input" type="number" min="0" max="100" step="0.01" style={BOX} value={d.wcRate} onChange={ev => t.patch({ wcRate: ev.target.value })} placeholder={wcNow ? `In force: ${wcNow.ratePct}` : 'e.g. 0.84'} />
+                    </Field>
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <Field label="Description" htmlFor="comp-wc-desc">
+                      <input id="comp-wc-desc" className="form-input" maxLength={300} style={BOX} value={d.wcDesc} onChange={ev => t.patch({ wcDesc: ev.target.value })} placeholder={wcNow?.description || 'The insurer\'s class description, e.g. Clerical Office Employees-NOC'} />
                     </Field>
                   </div>
                 </fieldset>
               )}
               <div style={HINT}>
-                Accounting &gt; Compensation charges this percent of Bonus plus Salaried / Hourly Payroll from the effective year on, until a later year has its own rate.
-                {wcNow ? ` In force now: ${wcNow.ratePct}% (from ${wcNow.year}).` : ' No rate set yet.'} A new rate for a year replaces it there; every earlier entry stays below.
+                As on the insurer&apos;s sheet: State, Class Code, Description and Rate Per $100 of Wages. Accounting &gt; Compensation charges this rate on every $100 of Bonus plus Salaried / Hourly Payroll from the effective year on, until a later year has its own rate.
+                {wcNow ? ` In force now: ${wcClassText(wcNow)}$${wcNow.ratePct} per $100 (from ${wcNow.year}).` : ' No rate set yet.'} A new entry for a year replaces it there (a box left empty keeps what is in force); every earlier entry stays below.
               </div>
               {wc.history?.length > 0 && wc.history.map((h, i) => {
                 const inForce = wc.rates.some(r => r.year === h.year && r.setAt === h.setAt);
                 return (
-                  <div key={`${h.year}-${h.setAt}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--line)', color: inForce ? 'var(--ink)' : 'var(--muted)' }}>
-                    <span>{h.year} · {h.ratePct}%{inForce ? '' : ' (replaced)'}</span>
+                  <div key={`${h.year}-${h.setAt}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--line)', color: inForce ? 'var(--ink)' : 'var(--muted)' }}>
+                    <span>{h.year} · {wcClassText(h)}${h.ratePct} per $100{h.description ? ` · ${h.description}` : ''}{inForce ? '' : ' (replaced)'}</span>
                     <span>{h.setBy ? nameOf(h.setBy) : ''}{h.setAt ? ` · ${formatDate(h.setAt.slice(0, 10))}` : ''}</span>
                   </div>
                 );
