@@ -20,6 +20,7 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner } from '../components/AsyncState';
 import { PersonSelect } from '../tasks/components';
 import { formatDate, formatPacificDateTime } from '../lib/datetime';
+import PageTrail from '../components/PageTrail';
 
 // ── Testing module - interactive QA runs over the audit test cases, bug
 // reports with recorded steps + AI conversion, assignments with due dates.
@@ -925,6 +926,7 @@ export default function Testing() {
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div className="view-header" style={{ marginBottom: 18 }}>
         <div className="view-title-group">
+          <PageTrail title="Testing" />
           <h2>Testing</h2>
           <p>Run the QA test cases, report what you find, and turn bugs into new cases. Dev environment only.</p>
         </div>

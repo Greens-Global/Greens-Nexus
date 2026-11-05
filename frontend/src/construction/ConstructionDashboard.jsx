@@ -44,6 +44,7 @@ import { PersonMultiSelect } from '../tasks/components';
 import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
 import WorkSiteAddressMap from '../components/WorkSiteAddressMap';
 import { googleMapsUrl } from '../lib/addressSearch';
+import PageTrail from '../components/PageTrail';
 
 function Stat({ label, value, helper }) {
   return (
@@ -400,6 +401,7 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
     <>
       <div className="view-header" style={{ marginBottom: 24 }}>
         <div className="view-title-group">
+          <PageTrail title="Construction Overview" />
           <h2>Construction Overview</h2>
           <p>Jobsite daily logs, media and weekly reporting</p>
         </div>

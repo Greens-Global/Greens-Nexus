@@ -35,6 +35,7 @@ import { EMPTY_FILTER, taskIdFromUrl, projectIdFromUrl } from '../tasks/lib';
 import { buildTaskTourSteps } from '../tasks/taskTourSteps';
 import { api } from '../api';
 import { registerTour } from '../lib/tours';
+import PageTrail from '../components/PageTrail';
 
 // Tour id this module reports to the server (routers/user_tours.py). "Seen"
 // is per person, not per browser or machine - see GET/POST /tours.
@@ -278,6 +279,10 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
         <div className="nx-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)', flexShrink: 0 }}>
           {/* Phones get the module's tabs from MobileNav's bottom bar instead,
               so the strip is only rendered from ~641px up. */}
+          {/* The page trail rides the bar here (Neil, 11/04/2026): Tasks has no
+              title row, and a line of its own would cost the busiest screen
+              a row. */}
+          <PageTrail className="page-trail--bar" />
           <div data-tour="task-tabs" style={{ flex: 1, minWidth: 0 }}>
             {!isMobile && (
               <ModuleTabs inline

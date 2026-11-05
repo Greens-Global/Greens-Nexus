@@ -29,6 +29,7 @@ import FacilityPicker, { StatePicker } from '../operations/FacilityPicker';
 import { useRole } from '../contexts/RoleContext';
 import FullScreenButton, { useFullScreen } from '../components/FullScreenButton';
 import '../operations/ops.css';
+import PageTrail, { tabLabelOf } from '../components/PageTrail';
 // Ops Budget (Oct 21): results vs budget and last year per site. Lazy, its own chunk.
 const OpsBudget = lazy(() => import('../operations/OpsBudget'));
 // Site Map (Oct 20): the 3D site model with layers. Lazy, so three.js loads only on that tab.
@@ -291,7 +292,9 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
 
       <div className="view-header">
         <div className="view-title-group">
-          <h2>Operations</h2>
+          {/* OPERATIONS over the tab you are on (the page trail, Neil, 11/04/2026). */}
+          <PageTrail title={tabLabelOf(tabs, sub) || 'Operations'} />
+          <h2>{tabLabelOf(tabs, sub) || 'Operations'}</h2>
           <p>
             {state.data
               ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
