@@ -3602,7 +3602,6 @@ api.addPunchItem = (jobId, data) => req(`/construction/projects/${encodeURICompo
 api.setPunchDone = (taskId, done) => req(`/construction/punch/${encodeURIComponent(taskId)}/done`, { method: 'POST', body: JSON.stringify({ done: !!done }) });
 api.setPunchVerified = (taskId, verified) => req(`/construction/punch/${encodeURIComponent(taskId)}/verify`, { method: 'POST', body: JSON.stringify({ verified: !!verified }) });
 api.getJobConnected = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/connected`);
-api.getJobCrew = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/crew`);
 api.getJobLabor = (jobId, from = '', to = '') => req(`/construction/projects/${encodeURIComponent(jobId)}/labor?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(to)}`);
 api.getJobForms = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/forms`);
 api.getJobPhotos = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/photos`);
@@ -3660,6 +3659,7 @@ api.voidChangeOrder = (coId, note = '') => _post(`/construction/change-orders/${
 api.getJobCloseout = (jobId) => req(`${_jp(jobId)}/closeout`);
 api.addCloseoutRecord = (jobId, data, opts = {}) => _post(`${_jp(jobId)}/closeout/records`, data, opts);
 api.removeCloseoutRecord = (recordId) => req(`/construction/closeout/records/${encodeURIComponent(recordId)}`, { method: 'DELETE' });
+api.updateCloseoutRecord = (recordId, data) => req(`/construction/closeout/records/${encodeURIComponent(recordId)}`, { method: 'PATCH', body: JSON.stringify(data) });
 api.closeOutJob = (jobId) => _post(`${_jp(jobId)}/closeout`, { write_back: true });
 api.sendOwnerSignoff = (jobId, data) => _post(`${_jp(jobId)}/closeout/signoff`, data);
 

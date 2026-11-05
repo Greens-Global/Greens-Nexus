@@ -402,6 +402,26 @@ class ProjectEditTests(_Base):
                     {"start_on": "2026-12-20", "target_finish_on": "2026-12-01"}):
             self.assertEqual(self.client.patch("/construction/projects/pa", json=bad).status_code, 422, bad)
 
+    def test_a_target_finish_that_moves_needs_a_reason_kept_on_the_record(self):
+        """Round Two (11/05/2026): the first date needs no reason; a move
+        does, and it is kept with before and after, said on the job and
+        sized by units and square feet."""
+        P = models.ConstructionProject
+        self.db.query(P).filter(P.id == "pa").update({"target_finish_on": ""})
+        self.db.commit()
+        self._as(MGR_A)
+        self.assertEqual(self.client.patch("/construction/projects/pa", json={"target_finish_on": "2026-12-15"}).status_code, 200)
+        self.assertEqual(self.client.patch("/construction/projects/pa", json={"target_finish_on": "2026-12-22"}).status_code, 422)
+        r = self.client.patch("/construction/projects/pa", json={
+            "target_finish_on": "2026-12-22", "change_reason": "Rain, two days", "units": 420, "square_feet": 61000})
+        self.assertEqual(r.status_code, 200, r.text)
+        j = r.json()
+        self.assertEqual((j["units"], j["squareFeet"], j["targetFinishOn"]), (420, 61000, "2026-12-22"))
+        self.assertEqual([(m["from"], m["to"], m["reason"], m["by"]) for m in j["targetMoves"]],
+                         [("2026-12-15", "2026-12-22", "Rain, two days", MGR_A)])
+        self.assertEqual(self.client.patch("/construction/projects/pa", json={"units": -1}).status_code, 422)
+        self.assertEqual(self.client.get("/construction/projects").json()[0]["targetMoves"][0]["reason"], "Rain, two days")
+
 
 class ReviewFollowUpTests(_Base):
     """The code review of 11/03/2026 (M2, M4, M5, L6, L8, L9, L10)."""

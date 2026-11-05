@@ -124,6 +124,11 @@ class ConstructionProject(Base):
     # {closedOutAt, closedOutBy, signoff: {requestId, status, signerName,
     # signerEmail, sentAt, signedAt}}. {} = not closed out.
     closeout           = Column(JSON, default=dict)
+    # Size (Round Two, 11/05/2026): the owner-builder's benchmark - cost per
+    # unit and per square foot across the same facility built many times.
+    # 0 = not known.
+    units              = Column(Integer, default=0)
+    square_feet        = Column(Integer, default=0)
 
 
 class ConstructionDailyLog(Base):
@@ -177,6 +182,10 @@ class ConstructionDailyLog(Base):
     delays         = Column(JSON, default=list)
     prefill        = Column(JSON, default=dict)
     weather_source = Column(String, default="")
+    # Subs on site (Round Two, 11/05/2026): [{name, headcount, hours}] - one
+    # line per subcontractor on site that day. Sub manpower is the number a
+    # delay claim is argued with; the weekly report sums it beside crew hours.
+    subs           = Column(JSON, default=list)
     signed_name    = Column(String, default="")
     signed_at      = Column(String, default="")
     # ── AI-derived (write-once) ──
@@ -682,6 +691,10 @@ class ConstructionCloseoutRecord(Base):
     number      = Column(String, default="")       # permit number
     result      = Column(String, default="")       # passed | failed | partial | pending
     date_on     = Column(String, default="")       # issued / inspected / document date
+    # Live from day one (Round Two, 11/05/2026): an inspection's scheduled
+    # day. The day before, the superintendent is belled; a Failed one bells
+    # the managers. '' = not scheduled.
+    due_on      = Column(String, default="")
     category    = Column(String, default="")       # document: as_built | om_manual | certificate | other
     doc_url     = Column(String, default="")       # construction-media, this job's folder
     doc_name    = Column(String, default="")

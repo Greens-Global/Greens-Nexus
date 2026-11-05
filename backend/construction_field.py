@@ -145,6 +145,49 @@ def delay_summary(logs) -> dict:
             "lines": sorted(lines, key=lambda x: x["date"])}
 
 
+# ── Subs on site (Round Two, 11/05/2026) ─────────────────────────────────────
+# A log's `subs` is [{name, headcount, hours}] - one line per subcontractor on
+# site that day. Free text for the name until the job's subs are Intacct
+# vendors (plan item 7); the weekly report sums them beside the crew.
+MAX_SUBS = 12
+
+
+def clean_subs(value) -> list:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list):
+        raise ValueError("Subs on site must be a list.")
+    if len(value) > MAX_SUBS:
+        raise ValueError(f"A daily log holds at most {MAX_SUBS} subcontractor lines.")
+    out = []
+    for s in value:
+        if not isinstance(s, dict) or not str(s.get("name") or "").strip():
+            raise ValueError("Each subcontractor line needs the sub's name.")
+        try:
+            headcount = int(s.get("headcount") or 0)
+            hours = round(float(s.get("hours") or 0), 2)
+        except (TypeError, ValueError):
+            raise ValueError("A sub's headcount and hours must be numbers.")
+        if not (0 <= headcount <= 500) or not (0 <= hours <= 24 * 500):
+            raise ValueError("A sub's headcount is 0 to 500 and its hours 0 to 12,000.")
+        out.append({"name": str(s["name"]).strip()[:120], "headcount": headcount, "hours": hours})
+    return out
+
+
+def sub_summary(logs) -> dict:
+    """{crewDays, hours, byName: {name: hours}} over these logs' sub lines."""
+    days, hours, by = 0, 0.0, {}
+    for lg in logs:
+        for s in (getattr(lg, "subs", None) or []):
+            if not isinstance(s, dict):
+                continue
+            days += int(s.get("headcount") or 0)
+            h = float(s.get("hours") or 0)
+            hours += h
+            by[s.get("name") or "?"] = round(by.get(s.get("name") or "?", 0) + h, 2)
+    return {"crewDays": days, "hours": round(hours, 2), "byName": by}
+
+
 # ── The self-drafting log ────────────────────────────────────────────────────
 
 def _weather_text(o: dict) -> str:
@@ -484,6 +527,41 @@ def reminder_tick(db: Session, now: datetime | None = None) -> int:
     return n
 
 
+def inspection_tick(db: Session, now: datetime | None = None) -> int:
+    """The day before an inspection is due (Round Two, 11/05/2026): one bell
+    to the superintendent, else the managers - once per record and due date
+    (the same marks as the missing-log bell, keyed insp:<record id>)."""
+    import construction_notify
+    R, P = models.ConstructionCloseoutRecord, models.ConstructionProject
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    jobs = {p.id: p for p in db.query(P).filter(P.deleted_at == "", P.status == "active").all()}
+    recs = (db.query(R).filter(R.project_id.in_(list(jobs) or [""]), R.deleted_at == "", R.kind == "inspection",
+                               R.result.in_(("", "pending")), R.due_on != "").all()) if jobs else []
+    marks = _marks(db)
+    n = 0
+    for r in recs:
+        p = jobs[r.project_id]
+        local = now.astimezone(_zone(db, p))
+        key = f"insp:{r.id}"
+        if local.hour < REMIND_FROM_HOUR or r.due_on != (local.date() + timedelta(days=1)).isoformat() \
+                or marks.get(key) == r.due_on:
+            continue
+        for em in reminder_recipients(db, p):
+            construction_notify.bell(
+                db, kind="inspection_due", family=("inspection_due",), recipient=em, ref_id=f"inspection:{r.id}",
+                title="Inspection Tomorrow",
+                body=f"{r.title or 'Inspection'}{' with ' + r.ahj if r.ahj else ''} on {p.name} is scheduled for {_us(r.due_on)}.",
+                label="Open Permits And Inspections", sub=f"project:{p.id}:permits",
+                company=getattr(p, "company_id", "") or "")
+        marks[key] = r.due_on
+        n += 1
+    _save_marks(db, marks)
+    db.commit()
+    return n
+
+
 async def field_loop():
     """The morning reminder, every TICK_SEC on the leader - DB work, in a
     thread (never on the event loop)."""
@@ -494,7 +572,7 @@ async def field_loop():
             def _pass():
                 db = SessionLocal()
                 try:
-                    return reminder_tick(db)
+                    return reminder_tick(db) + inspection_tick(db)
                 finally:
                     db.close()
             n = await asyncio.to_thread(_pass)

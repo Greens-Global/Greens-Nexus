@@ -1574,6 +1574,96 @@
       ]
     },
     {
+      "dates": [
+        {
+          "key": "work_date",
+          "label": "Work Date",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "job",
+          "label": "Job",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "number",
+          "label": "Number",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "work_date",
+          "label": "Work Date",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "description",
+          "label": "Description",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "labor_hours",
+          "label": "Labor Hours",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Open",
+              "value": "open"
+            },
+            {
+              "label": "Signed",
+              "value": "signed"
+            },
+            {
+              "label": "Priced",
+              "value": "priced"
+            },
+            {
+              "label": "Void",
+              "value": "void"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "signed_name",
+          "label": "Signed By",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "signed_at",
+          "label": "Signed At",
+          "type": "datetime",
+          "visibility": "all"
+        }
+      ],
+      "key": "field_ticket",
+      "label": "Field Ticket",
+      "module": "construction",
+      "people": [
+        {
+          "key": "creator",
+          "label": "Written By"
+        },
+        {
+          "key": "manager",
+          "label": "Job Managers"
+        }
+      ]
+    },
+    {
       "dates": [],
       "fields": [
         {
@@ -4138,6 +4228,88 @@
           "label": "Crew"
         }
       ]
+    },
+    {
+      "dates": [
+        {
+          "key": "week_start",
+          "label": "Week Of",
+          "yearly": false
+        }
+      ],
+      "fields": [
+        {
+          "key": "job",
+          "label": "Job",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "week_start",
+          "label": "Week Of",
+          "type": "date",
+          "visibility": "all"
+        },
+        {
+          "key": "version",
+          "label": "Version",
+          "type": "number",
+          "visibility": "all"
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "options": [
+            {
+              "label": "Draft",
+              "value": "draft"
+            },
+            {
+              "label": "In Review",
+              "value": "in_review"
+            },
+            {
+              "label": "Approved",
+              "value": "approved"
+            },
+            {
+              "label": "Published",
+              "value": "published"
+            },
+            {
+              "label": "Superseded",
+              "value": "superseded"
+            }
+          ],
+          "type": "select",
+          "visibility": "all"
+        },
+        {
+          "key": "title",
+          "label": "Title",
+          "type": "text",
+          "visibility": "all"
+        },
+        {
+          "key": "published_at",
+          "label": "Published At",
+          "type": "datetime",
+          "visibility": "all"
+        }
+      ],
+      "key": "weekly_report",
+      "label": "Weekly Report",
+      "module": "construction",
+      "people": [
+        {
+          "key": "manager",
+          "label": "Job Managers"
+        },
+        {
+          "key": "publisher",
+          "label": "Published By"
+        }
+      ]
     }
   ],
   "events": [
@@ -4161,6 +4333,42 @@
       "key": "candidate.stage_changed",
       "label": "Candidate Moves Stage",
       "module": "hr",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "change_order",
+      "group": "Construction",
+      "key": "change_order.approved",
+      "label": "Change Order Is Approved Internally",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "change_order",
+      "group": "Construction",
+      "key": "change_order.declined",
+      "label": "Change Order Is Declined",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "change_order",
+      "group": "Construction",
+      "key": "change_order.sent",
+      "label": "Change Order Is Sent for Signature",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "change_order",
+      "group": "Construction",
+      "key": "change_order.sent_back",
+      "label": "Change Order Is Sent Back",
+      "module": "construction",
       "volume": "normal"
     },
     {
@@ -4268,6 +4476,15 @@
       "volume": "normal"
     },
     {
+      "changes": [],
+      "entity": "field_ticket",
+      "group": "Construction",
+      "key": "field_ticket.signed",
+      "label": "Field Ticket Is Signed",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
       "changes": [
         "status"
       ],
@@ -4347,6 +4564,15 @@
       "key": "item_checkout.field_changed",
       "label": "Checkout Status Changes",
       "module": "items",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "job",
+      "group": "Construction",
+      "key": "job.closed_out",
+      "label": "Job Is Closed Out",
+      "module": "construction",
       "volume": "normal"
     },
     {
@@ -4478,6 +4704,24 @@
       "label": "Person Punches Out",
       "module": "time",
       "volume": "high"
+    },
+    {
+      "changes": [],
+      "entity": "job",
+      "group": "Construction",
+      "key": "punch.verified",
+      "label": "Punch Item Is Verified",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
+      "entity": "weekly_report",
+      "group": "Construction",
+      "key": "report.published",
+      "label": "Weekly Report Is Published",
+      "module": "construction",
+      "volume": "normal"
     },
     {
       "changes": [

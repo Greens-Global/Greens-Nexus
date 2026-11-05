@@ -218,6 +218,43 @@ class Closeout(Base):
         self.assertEqual(p.status_code, 201, p.text)
         return w.json(), p.json()
 
+    def test_an_inspection_is_scheduled_belled_the_day_before_and_a_failed_one_bells_the_managers(self):
+        """Round Two (11/05/2026): permits and inspections live from day one."""
+        from datetime import datetime
+        import construction_field
+        self.as_(CREW)
+        r = self.client.post("/construction/projects/pa/closeout/records", json={
+            "kind": "inspection", "title": "Final building", "ahj": "City of Escondido", "due_on": "2026-11-20"})
+        self.assertEqual(r.status_code, 201, r.text)
+        rec = r.json()
+        self.assertEqual(rec["dueOn"], "2026-11-20")
+        self.assertEqual(self.client.post("/construction/projects/pa/closeout/records", json={
+            "kind": "inspection", "title": "Bad", "due_on": "11/20/2026"}).status_code, 422)
+        self.as_(MGR_A)
+        conn = self.client.get("/construction/projects/pa/connected").json()
+        self.assertEqual((conn["inspections"]["next"]["title"], conn["inspections"]["open"]), ("Final building", 1))
+        self.assertEqual(self.client.get("/construction/projects/pa").json()["nextInspection"]["dueOn"], "2026-11-20")
+        # The day before, once the jobsite's morning has started: one bell, once.
+        job = self.fresh(models.ConstructionProject, "pa")
+        at = datetime(2026, 11, 19, 8, 0, tzinfo=construction_field._zone(self.db, job))
+        self.assertEqual(construction_field.inspection_tick(self.db, now=at), 1)
+        self.assertEqual(construction_field.inspection_tick(self.db, now=at), 0)
+        self.db.expire_all()
+        bells = self.db.query(models.NexusNotification).filter_by(ref_id=f"inspection:{rec['id']}").all()
+        self.assertTrue(bells)
+        self.assertTrue(all(b.title == "Inspection Tomorrow" for b in bells))
+        # Failed: the managers are told (never the one who marked it), and the Overview counts it.
+        self.as_(CREW)
+        f = self.client.patch(f"/construction/closeout/records/{rec['id']}", json={"result": "failed", "date_on": "2026-11-20"})
+        self.assertEqual(f.status_code, 200, f.text)
+        self.db.expire_all()
+        failed = [b for b in self.db.query(models.NexusNotification).filter_by(ref_id=f"inspection:{rec['id']}").all()
+                  if b.title == "Inspection Failed"]
+        self.assertTrue(failed)
+        self.assertNotIn(CREW, {b.recipient for b in failed})
+        self.as_(MGR_A)
+        self.assertEqual(self.client.get("/construction/projects/pa/connected").json()["inspections"]["failed"], 1)
+
     def test_no_asset_grant_keeps_the_reason_and_writes_nothing(self):
         self._records()
         self.as_(MGR_A)

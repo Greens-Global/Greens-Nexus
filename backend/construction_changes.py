@@ -340,6 +340,12 @@ def on_declined(db: Session, req, party=None, reason: str = "") -> None:
     _tell_owners(db, job, co, "Change Order Declined",
                  f"{getattr(party, 'name', '') or co.signer_name or 'The owner'} declined {co.number} {co.title} on {job.name}"
                  + (f": {co.decline_reason[:200]}" if co.decline_reason else "."))
+    try:
+        import workflows
+        workflows.emit(db, "change_order.declined", subject=co, actor="",
+                       extra={"job_id": job.id, "reason": co.decline_reason or ""})
+    except Exception as e:   # noqa: BLE001 - an automation never costs a decision
+        print(f"[construction-changes] emit: {e}")
 
 
 def on_voided(db: Session, req, actor: str = "") -> None:

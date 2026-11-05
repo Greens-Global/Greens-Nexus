@@ -32,8 +32,8 @@ import models
 from auth import get_current_user
 from database import get_db
 from idempotency import Idem, idempotency
-from routers.construction import (_DAY, _EMAIL, _log_activity, _may_log, _may_read, _may_review, _may_see_cost,
-                                  _me, _project)
+from routers.construction import (_DAY, _EMAIL, _emit, _log_activity, _may_log, _may_read, _may_review,
+                                  _may_see_cost, _me, _project)
 from services import construction_storage as storage
 
 router = APIRouter(prefix="/construction", tags=["Construction"],
@@ -264,6 +264,7 @@ def sign_field_ticket(ticket_id: str, body: SignBody, user: dict = Depends(get_c
     t.modified_at = cc.now()
     _log_activity(db, project_id=p.id, entity_kind="field_ticket", entity_id=t.id, type="signed",
                   actor_email=_me(user), detail=f"{t.signed_name} signed field ticket {t.number}")
+    _emit(db, "field_ticket.signed", t, user, extra={"job_id": p.id})
     return _finish(idem, db, user, cc.ticket_to_dict(t))
 
 
@@ -473,6 +474,7 @@ def send_change_order(co_id: str, body: COBody = None, user: dict = Depends(get_
         _claim_co(db, c, "sending", "draft")
         raise HTTPException(502, str(e))
     c = db.get(models.ConstructionChangeOrder, co_id)
+    _emit(db, "change_order.sent", c, user, extra={"job_id": p.id})
     return _finish(idem, db, user, cc.co_to_dict(c))
 
 
@@ -505,6 +507,7 @@ def approve_change_order(co_id: str, user: dict = Depends(get_current_user), db:
         _claim_co(db, c, "sending", "awaiting_approval", approved_by="", approved_at="")
         raise HTTPException(502, str(e))
     c = db.get(models.ConstructionChangeOrder, co_id)
+    _emit(db, "change_order.approved", c, user, extra={"job_id": p.id})
     return _finish(idem, db, user, cc.co_to_dict(c))
 
 
@@ -527,6 +530,7 @@ def send_back_change_order(co_id: str, body: DecideBody, user: dict = Depends(ge
         cc._bell(db, p, c, c.created_by, "Change Order Sent Back",
                  f"{c.number} {c.title} on {p.name} was sent back: {note}")
     cc._activity(db, p, c, "sent_back", _me(user), f"sent {c.number} back: {note}")
+    _emit(db, "change_order.sent_back", c, user, extra={"job_id": p.id, "note": note})
     db.commit()
     return cc.co_to_dict(c)
 
@@ -604,6 +608,7 @@ class RecordBody(BaseModel):
     number: Optional[str] = None
     result: Optional[str] = None
     date_on: Optional[str] = None
+    due_on: Optional[str] = None      # an inspection's scheduled day (Round Two)
     category: Optional[str] = None
     doc_url: Optional[str] = None
     doc_name: Optional[str] = None
@@ -611,7 +616,7 @@ class RecordBody(BaseModel):
 
 
 def _apply_record(db, user, p, r, data: dict) -> None:
-    for k in ("start_on", "end_on", "date_on"):
+    for k in ("start_on", "end_on", "date_on", "due_on"):
         if data.get(k) and not _DAY.match(data[k]):
             raise HTTPException(422, "Dates must be full dates.")
     if data.get("result") is not None and data["result"] not in cx.RESULTS:
@@ -683,8 +688,11 @@ def update_closeout_record(record_id: str, body: RecordBody, user: dict = Depend
     r, p = _record(db, record_id, user)
     if (r.written or {}).get("asset"):
         raise HTTPException(409, "This record is already in Asset Management - change it there.")
+    was = r.result or ""
     _apply_record(db, user, p, r, body.model_dump(exclude_unset=True))
     r.modified_at = cx.now()
+    if r.kind == "inspection" and (r.result or "") == "failed" and was != "failed":
+        cx.failed_bell(db, p, r, _me(user))
     db.commit()
     return cx.record_to_dict(r)
 
@@ -726,8 +734,8 @@ def close_out(job_id: str, body: CloseBody = None, user: dict = Depends(get_curr
         _log_activity(db, project_id=p.id, entity_kind="project", entity_id=p.id, type="closed_out",
                       actor_email=_me(user), detail=f"closed the job out ({len(recs)} record(s) handed over)")
         if was != "complete":
-            from routers.construction import _emit
             _emit(db, "job.status_changed", p, user, changes={"status": (was, "complete")})
+        _emit(db, "job.closed_out", p, user, extra={"records": len(recs)})
     db.commit()
     return {"closeout": dict(p.closeout or {}), "status": p.status,
             "records": [cx.record_to_dict(r) for r in recs]}

@@ -1021,6 +1021,24 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   /workspace. "Done needs a photo" is enforced on the construction punch
   route only - completing a punch task from Tasks does not ask (known gap).
   AI stays off: nothing in the module waits on it.
+  **Round Two (Neil, 11/05/2026, plan
+  https://claude.ai/artifact/EpG2gQr8KVi1ZZRaM6zVBE):** a Target Finish
+  that moves needs a reason (`change_reason` on the PATCH; kept as a
+  `target_moved` activity row with before / after, read by
+  `construction_health.target_moves` for the health row and the weekly
+  report); a job carries `units` / `square_feet` (cost per unit and per
+  square foot on Money and the dashboard's Program table, which reads the
+  same `/construction/money/flags` figures as the tab); permits and
+  inspections are the closeout records live from day one (`due_on` on an
+  inspection = its scheduled day; the Permits And Inspections tab on a
+  Project; `construction_field.inspection_tick` bells the superintendent the
+  day before, a Failed result bells the managers); a daily log's `subs`
+  lines are the subcontractors on site (`construction_field.clean_subs`);
+  punch.verified, field_ticket.signed, change_order.sent / approved /
+  sent_back / declined, job.closed_out and report.published are Workflows
+  events, so a change-order threshold is an automation rule, never code.
+  Vendors are Intacct's, through Accounting > Vendors & Customers - never a
+  Construction vendor directory (Neil, 11/05/2026).
 
 ## Gotchas
 

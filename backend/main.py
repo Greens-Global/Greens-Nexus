@@ -1551,6 +1551,12 @@ def _run_migrations():
             "ALTER TABLE construction_projects ADD COLUMN superintendent_email VARCHAR DEFAULT ''",
             "ALTER TABLE construction_projects ADD COLUMN closeout JSON DEFAULT '{}'",
             "ALTER TABLE construction_daily_logs ADD COLUMN delays JSON DEFAULT '[]'",
+            # Construction Round Two (11/05/2026): the job's size, subs on
+            # site on a daily log, an inspection's scheduled day.
+            "ALTER TABLE construction_projects ADD COLUMN units INTEGER DEFAULT 0",
+            "ALTER TABLE construction_projects ADD COLUMN square_feet INTEGER DEFAULT 0",
+            "ALTER TABLE construction_daily_logs ADD COLUMN subs JSON DEFAULT '[]'",
+            "ALTER TABLE construction_closeout_records ADD COLUMN due_on VARCHAR DEFAULT ''",
             "ALTER TABLE construction_daily_logs ADD COLUMN prefill JSON DEFAULT '{}'",
             "ALTER TABLE construction_daily_logs ADD COLUMN weather_source VARCHAR DEFAULT ''",
             "ALTER TABLE construction_daily_logs ADD COLUMN signed_name VARCHAR DEFAULT ''",
@@ -3719,6 +3725,14 @@ def _run_migrations():
         "ALTER TABLE construction_media ADD COLUMN IF NOT EXISTS source_media_id VARCHAR DEFAULT ''",
         "ALTER TABLE construction_media ADD COLUMN IF NOT EXISTS task_id VARCHAR DEFAULT ''",
         "ALTER TABLE construction_weekly_reports ADD COLUMN IF NOT EXISTS pair_ids JSON DEFAULT '[]'",
+        # Construction Round Two (11/05/2026): the job's size (cost per unit
+        # and per square foot), subs on site on a daily log, an inspection's
+        # scheduled day. models.ConstructionProject / ConstructionDailyLog /
+        # ConstructionCloseoutRecord.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS units INTEGER DEFAULT 0",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS square_feet INTEGER DEFAULT 0",
+        "ALTER TABLE construction_daily_logs ADD COLUMN IF NOT EXISTS subs JSON DEFAULT '[]'",
+        "ALTER TABLE construction_closeout_records ADD COLUMN IF NOT EXISTS due_on VARCHAR DEFAULT ''",
         "ALTER TABLE construction_photo_pairs ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_punch_meta ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_field_tickets ENABLE ROW LEVEL SECURITY",

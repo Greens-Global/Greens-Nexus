@@ -1,25 +1,25 @@
-// Construction - milestones, RFIs and submittals for one jobsite.
+// Construction - RFIs and submittals for one jobsite.
 //
-// One component for three registers rather than three files. They differ in
+// One component for the registers rather than one file each. They differ in
 // their fields and their status vocabulary and in nothing else: same
 // permissions (manager writes, project members read), same soft delete, same
 // row shape, and the API already serves them through one set of endpoints. The
-// per-kind differences live in REGISTERS below, so adding a fourth register is
-// a config entry rather than another 200 lines.
+// per-kind differences live in REGISTERS below, so adding a register is a
+// config entry rather than another 200 lines.
 //
-// These three are what the weekly report's Critical Milestones, RFIs and
-// Submittals sections print. Until now nothing could populate them, so those
-// sections came out empty on every report.
+// These are what the weekly report's RFIs and Submittals sections print.
+// Milestones left this screen in Round Two (11/05/2026): they live on the
+// job's task project (the Schedule tab) since 11/03/2026, and the old rows
+// were moved there.
 //
 // 11/03/2026 (Neil, plan item 14): soft status labels; a row opens as a sheet
 // with its fields editable (an RFI's answer, responder and due date, a
 // submittal's dates and revision) and one Save row; days open and a red
 // Overdue label from the row's own dates against the jobsite's today; dates
 // are DateField boxes, never the browser's; Remove is pressed and held
-// (ui/HoldButton.jsx, HOLD_RECORD_MS) and is a soft delete server-side; the
-// AI's milestone suggestion shows only while AI is on.
+// (ui/HoldButton.jsx, HOLD_RECORD_MS) and is a soft delete server-side.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Flag, HelpCircle, FileCheck, Plus, Sparkles, AlertTriangle, ChevronRight } from 'lucide-react';
+import { HelpCircle, FileCheck, Plus, AlertTriangle, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
@@ -32,46 +32,15 @@ import { useRole } from '../contexts/RoleContext';
 import { useNexusPeople } from './lib/jobForm';
 import { formatDate } from '../lib/datetime';
 import { CARD, TONE, personName } from './ui';
-import { useConstructionMeta } from './lib/meta';
 import { isOverdue, daysOpen, browserTodayISO } from './lib/registers';
 
 // What a status MEANS to a manager scanning the list, the same palette across
-// all three: red is "someone is blocked or a date was missed", yellow is "at
+// both: red is "someone is blocked or a date was missed", yellow is "at
 // risk", green is "closed out", slate is "not started / open", blue is "out
 // with someone". Never orange - that is in progress only (style.css).
+// `key` is the request field (snake_case, matching _REGISTER_FIELDS on the
+// server); `read` pulls the same value back off the camelCase response.
 const REGISTERS = {
-  milestones: {
-    label: 'Milestones',
-    icon: Flag,
-    blurb: 'Schedule milestones for this jobsite. They print in the weekly report under Critical Milestones.',
-    blurbAi: 'Schedule milestones for this jobsite. AI can suggest one looks hit; only you can confirm it.',
-    emptyTitle: 'No milestones yet',
-    emptyHint: 'Add the dates this job is measured against. They print in the weekly report under Critical Milestones.',
-    addLabel: 'Add Milestone',
-    noun: 'Milestone',
-    statuses: {
-      upcoming: ['Upcoming', TONE.slate],
-      at_risk:  ['At Risk', TONE.yellow],
-      hit:      ['Hit', TONE.green],
-      missed:   ['Missed', TONE.red],
-    },
-    // `key` is the request field (snake_case, matching _REGISTER_FIELDS on the
-    // server); `read` pulls the same value back off the camelCase response.
-    fields: [
-      { key: 'name', read: 'name', label: 'Milestone', placeholder: 'e.g. Foundation pour complete', required: true },
-      { key: 'target_date', read: 'targetDate', label: 'Target Date', type: 'date' },
-      { key: 'actual_date', read: 'actualDate', label: 'Actual Date', type: 'date' },
-      { key: 'critical', read: 'critical', label: 'Critical Path', type: 'switch', sheetOnly: true },
-      { key: 'description', read: 'description', label: 'Notes', placeholder: 'Optional', multiline: true },
-    ],
-    title: (r) => r.name,
-    meta: (r, names) => [
-      r.targetDate && `Target ${formatDate(r.targetDate, r.targetDate)}`,
-      r.actualDate && `Actual ${formatDate(r.actualDate, r.actualDate)}`,
-      r.critical && 'Critical Path',
-      r.confirmedBy && `Confirmed by ${personName(r.confirmedBy, names)}`,
-    ],
-  },
   rfis: {
     label: 'RFIs',
     icon: HelpCircle,
@@ -329,9 +298,7 @@ function RegisterSheet({ kind, row, canReview, today, onClose, onSaved, onRemove
 }
 
 // ── Register list ───────────────────────────────────────────────────────────
-// `kinds` (11/03/2026): the Job page's RFIs And Submittals tab shows those two
-// only - its milestones live in the job's task project (the Schedule tab).
-export default function Registers({ project, canReview, onChanged, kinds = KINDS, title = 'Schedule And Correspondence' }) {
+export default function Registers({ project, canReview, onChanged, kinds = KINDS, title = 'RFIs And Submittals' }) {
   const [kind, setKind] = useState(kinds[0]);
   const { myEmail } = useRole();
   const people = useNexusPeople();
@@ -341,7 +308,6 @@ export default function Registers({ project, canReview, onChanged, kinds = KINDS
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
   const [openRow, setOpenRow] = useState(null);
-  const { aiEnabled } = useConstructionMeta();
   const cfg = REGISTERS[kind];
   const today = project.today || browserTodayISO();
 
@@ -374,7 +340,7 @@ export default function Registers({ project, canReview, onChanged, kinds = KINDS
           <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>
             {title}
           </h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>{(aiEnabled && cfg.blurbAi) || cfg.blurb}</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>{cfg.blurb}</p>
         </div>
         {canReview && !adding && (
           <button className="primary-btn" onClick={() => setAdding(true)} style={{ flexShrink: 0 }}>
@@ -437,17 +403,6 @@ export default function Registers({ project, canReview, onChanged, kinds = KINDS
                     {late && <StatusLabel size="sm" label="Overdue" color={TONE.red} />}
                     {days != null && (
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{days} day{days === 1 ? '' : 's'} open</span>
-                    )}
-                    {/* A suggestion, never a state change - see ConstructionMilestone.
-                        Shown next to the status so the manager can act on it in place. */}
-                    {aiEnabled && kind === 'milestones' && r.aiDetectedAt && !r.confirmedBy && (
-                      <span title="AI saw evidence this milestone was reached. Set the status to confirm."
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.75rem',
-                          fontWeight: 600, color: 'hsl(var(--color-blue))',
-                        }}>
-                        <Sparkles size={11} />AI suggests this is hit
-                      </span>
                     )}
                   </div>
                   {meta.length > 0 && (
