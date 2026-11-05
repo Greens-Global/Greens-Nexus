@@ -1,0 +1,1590 @@
+{
+  "slug": "self-storage-fundamentals",
+  "title": "Self-Storage Fundamentals",
+  "description": "How the self-storage industry works and who our customers are, every unit type and size, how a site earns money, the rental agreement, delinquency and the lien process in California and Texas, the lines you never cross, running the site safely, and the privacy rules that protect tenants and Greens. Course 2 of the Greens Storage Academy.",
+  "overview": [
+    "How the industry works, who runs it and where Greens fits",
+    "Why people rent and how long they stay",
+    "Every unit size and type and what fits in it",
+    "Gates, locks, overlocks and the tenant's exclusive control",
+    "Street and in-place rates, occupancy, fees and protection",
+    "The rental agreement, including California's SB 709 disclosures",
+    "Delinquency and the lien process in California and Texas, side by side",
+    "The lines you never cross, running the site, safety and privacy"
+  ],
+  "est_minutes": 210,
+  "delivery": "online",
+  "min_reading_minutes": 120,
+  "lessons": [
+    {
+      "file": "01-welcome-to-self-storage.md"
+    },
+    {
+      "file": "02-why-people-rent.md"
+    },
+    {
+      "file": "03-the-product-units-and-sizes.md"
+    },
+    {
+      "file": "04-access-locks-and-security.md"
+    },
+    {
+      "page": "greens-site-hours-and-access",
+      "title": "Greens Site Hours and Access",
+      "summary": "Office and gate hours for each Greens site, how gate codes work in Cubby, and when Cubby changes a delinquent tenant's gate code."
+    },
+    {
+      "checkpoint": "Checkpoint: The Product",
+      "questions": [
+        {
+          "type": "single",
+          "q": "A caller is moving out of a one-bedroom apartment: a queen bed, a couch, a dresser, a small table and about 25 boxes. They do not need an aisle. Which size do you suggest first?",
+          "options": [
+            "5x5",
+            "5x10",
+            "10x10",
+            "10x30"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "A 10x10 holds a one-bedroom apartment with furniture and 20 to 30 medium boxes, and it is the most popular size. A 5x10 is too small for this; a 10x30 is far too big and invites an early move-out.",
+          "lesson": "03-the-product-units-and-sizes.md"
+        },
+        {
+          "type": "single",
+          "q": "How many square feet is a 10x15 unit?",
+          "options": [
+            "25",
+            "100",
+            "150",
+            "300"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "Square feet = width times depth: 10 x 15 = 150. A 10x10 is 100 and a 10x30 is 300.",
+          "lesson": "03-the-product-units-and-sizes.md"
+        },
+        {
+          "type": "tf",
+          "q": "Greens staff keep a spare key to each rented unit in case the tenant needs help.",
+          "options": [
+            "True",
+            "False"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "The tenant supplies the lock and keeps the only key. That exclusive control is why the agreement creates no bailment. Never keep a tenant's key, even if they offer.",
+          "lesson": "04-access-locks-and-security.md"
+        },
+        {
+          "type": "single",
+          "q": "A new tenant asks which lock to buy. Which lock is the industry's standard recommendation because its shackle is hard to cut?",
+          "options": [
+            "Padlock",
+            "Disc lock",
+            "Combination bike lock",
+            "No lock; the gate is enough"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "A disc lock's round body hides most of the shackle, so bolt cutters cannot get a grip. A padlock's exposed shackle is the weakest choice.",
+          "lesson": "04-access-locks-and-security.md"
+        },
+        {
+          "type": "multi",
+          "q": "When does an overlock go on a unit? Pick all that apply.",
+          "options": [
+            "On a delinquent unit at the step the management system flags",
+            "On a vacant unit",
+            "On a rented unit found unlocked, until the tenant re-locks it",
+            "On a paid-up tenant's unit after an argument at the counter"
+          ],
+          "answer": [
+            0,
+            1,
+            2
+          ],
+          "explanation": "Overlocks go on delinquent units only where the system flags them, on vacant units, and on unlocked rented units for security. Never on a paid-up unit, and never by hand outside the system's list.",
+          "lesson": "04-access-locks-and-security.md"
+        },
+        {
+          "type": "single",
+          "q": "A Fairfield tenant says the gate refused his code at 11:00 PM. Cubby's access log shows his try as \"outside of hours.\" What do you do?",
+          "options": [
+            "Reset his gate code",
+            "Give him the master code for night visits",
+            "Explain the gate hours; his code is fine",
+            "Report the gate as broken"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "\"Outside of hours\" means the gate was closed, not that the code is wrong. Tell him the gate hours. Never give out a master code.",
+          "lesson": "greens-site-hours-and-access"
+        },
+        {
+          "type": "single",
+          "q": "A customer asks if a climate-controlled unit at your site keeps humidity low. Your manager told you the building's temperature is regulated but did not mention humidity. What do you say?",
+          "options": [
+            "\"Yes, it's humidity-controlled too.\"",
+            "\"The temperature in this building is regulated. Let me confirm about humidity before I promise it.\"",
+            "\"It stays at 70 degrees year round.\"",
+            "\"Climate control is the same as humidity control.\""
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "Say only what the unit really does. Climate-controlled is not humidity-controlled unless it is, and never quote a temperature you have not confirmed.",
+          "lesson": "03-the-product-units-and-sizes.md"
+        },
+        {
+          "type": "single",
+          "q": "A man at the Temecula counter says he is a tenant's brother and needs the gate code to pick up tools. He is not on the account. What do you do?",
+          "options": [
+            "Give him the code since he knows the unit number",
+            "Call the tenant on speaker with him there and read the code",
+            "Do not give the code and do not confirm that his brother rents at Greens",
+            "Let him in on your own code"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "Gate codes are passwords and only people on the account get access. Do not confirm the person is a tenant, and never let anyone in on your own code.",
+          "lesson": "04-access-locks-and-security.md"
+        }
+      ]
+    },
+    {
+      "file": "06-how-a-storage-site-makes-money.md"
+    },
+    {
+      "page": "greens-fees-and-charges",
+      "title": "Greens Fees and Charges",
+      "summary": "Every fee Greens charges in California, with its amount from Greens' Cubby, and what to tell a customer about each one."
+    },
+    {
+      "file": "07-tenant-protection-and-insurance.md"
+    },
+    {
+      "page": "greens-tenant-protection",
+      "title": "Greens Tenant Protection",
+      "summary": "Greens' protection plan levels and prices from Cubby, the own-policy option, and how to offer protection at every move-in."
+    },
+    {
+      "file": "08-the-rental-agreement.md"
+    },
+    {
+      "checkpoint": "Checkpoint: Money and the Agreement",
+      "questions": [
+        {
+          "type": "single",
+          "q": "A tenant's monthly rent is $180. Under California's late-fee cap, what is the most the late fee can be?",
+          "options": [
+            "$15.00",
+            "$20.00",
+            "$27.00",
+            "$36.00"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "For rent of $100 or more the cap is the greater of $20 or 15% of rent. 15% of $180 is $27, which is more than $20, so the cap is $27.00 (Bus. & Prof. Code 21713.5).",
+          "lesson": "06-how-a-storage-site-makes-money.md"
+        },
+        {
+          "type": "single",
+          "q": "A tenant's monthly rent is $120. Under California's cap, what is the most the late fee can be?",
+          "options": [
+            "$15.00",
+            "$18.00",
+            "$20.00",
+            "$24.00"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "15% of $120 is $18, but for rent of $100 or more the cap is the GREATER of $20 or 15%. $20 is greater, so the cap is $20.00.",
+          "lesson": "06-how-a-storage-site-makes-money.md"
+        },
+        {
+          "type": "single",
+          "q": "Ten 5x10s have a street rate of $50 each. All are rented: eight pay $50, one pays $45 and one is given free to a charity. What is the economic occupancy?",
+          "options": [
+            "100%",
+            "99%",
+            "90%",
+            "89%"
+          ],
+          "answer": [
+            3
+          ],
+          "explanation": "Gross potential rent is 10 x $50 = $500. Rent achieved is 8 x $50 + $45 + $0 = $445. $445 / $500 = 89%, even though unit occupancy is 100%.",
+          "lesson": "06-how-a-storage-site-makes-money.md"
+        },
+        {
+          "type": "single",
+          "q": "What is the in-place rate?",
+          "options": [
+            "Today's advertised price for a new customer",
+            "What an existing tenant actually pays now",
+            "The rate shown only online",
+            "The maximum rent allowed by law"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "The street rate is today's price for a new customer. The in-place rate is what an existing tenant pays now; the two can differ a lot.",
+          "lesson": "06-how-a-storage-site-makes-money.md"
+        },
+        {
+          "type": "tf",
+          "q": "In California, a self-storage tenant protection plan is legally a form of insurance.",
+          "options": [
+            "True",
+            "False"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "California's Supreme Court held in 2018 (Heckart v. A-1 Self Storage) that a protection plan is not insurance. Never call Greens' plan insurance.",
+          "lesson": "07-tenant-protection-and-insurance.md"
+        },
+        {
+          "type": "single",
+          "q": "California's SB 709 first-page disclosures apply to rental agreements signed on or after which date?",
+          "options": [
+            "01/01/2018",
+            "01/01/2024",
+            "01/01/2025",
+            "01/01/2026"
+          ],
+          "answer": [
+            3
+          ],
+          "explanation": "SB 709 (Bus. & Prof. Code 21715.2) applies to agreements signed on or after 01/01/2026. 01/01/2018 is when AB 1108 allowed email notices and online sales.",
+          "lesson": "08-the-rental-agreement.md"
+        },
+        {
+          "type": "multi",
+          "q": "Which must appear on the first page of a California agreement signed on or after 01/01/2026 under SB 709? Pick all that apply.",
+          "options": [
+            "Whether the move-in rate is promotional and for how long",
+            "The maximum rent the owner could charge in the first 12 months",
+            "Every step needed to end the agreement",
+            "The owner's contact information",
+            "A list of everything the tenant is storing"
+          ],
+          "answer": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "explanation": "SB 709 requires the term, any promotion and its length, whether the rate can change and the 12-month maximum, the steps to terminate, and the owner's contact information. Storage creates no bailment, so no inventory is taken.",
+          "lesson": "08-the-rental-agreement.md"
+        },
+        {
+          "type": "single",
+          "q": "A Valley Center contractor wants a unit. Which use is normally allowed?",
+          "options": [
+            "Storing his tools and materials",
+            "Having customers meet him at the unit to buy materials",
+            "Running a table saw off the unit's power on weekends",
+            "Letting an employee work in the unit"
+          ],
+          "answer": [
+            0
+          ],
+          "explanation": "Storing business goods is normally fine. Operating a business from the unit, with customers, employees, repairs or equipment running, is not.",
+          "lesson": "08-the-rental-agreement.md"
+        },
+        {
+          "type": "tf",
+          "q": "At Greens, rent is due on the 1st and Cubby posts the late fee at 12:00 AM on the 11th, after 10 full days unpaid.",
+          "options": [
+            "True",
+            "False"
+          ],
+          "answer": [
+            0
+          ],
+          "explanation": "Rent is due on the 1st at every Greens site, and the late fee posts on the 11th (From Greens' Cubby, 11/2026). That respects California's rule of no late fee before 10 days unpaid.",
+          "lesson": "greens-fees-and-charges"
+        },
+        {
+          "type": "single",
+          "q": "Under Texas Property Code 59.041, what must the lien language in a written rental agreement look like for a facility to sell without a court judgment?",
+          "options": [
+            "Initialed by a notary",
+            "Underlined or in conspicuous bold print",
+            "On a separate page signed twice",
+            "Written in both English and Spanish"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "Texas allows sale without a court only if the contractual landlord's lien is underlined or in conspicuous bold print in a written agreement, and chapter 59 is followed.",
+          "lesson": "08-the-rental-agreement.md"
+        }
+      ]
+    },
+    {
+      "file": "10-delinquency-and-the-lien-process.md"
+    },
+    {
+      "page": "greens-delinquency-timeline",
+      "title": "Greens Delinquency Timeline",
+      "summary": "Day by day, what Cubby does and what you do when a California tenant does not pay, from the failed autopay call to the lien sale ad."
+    },
+    {
+      "file": "11-lines-you-never-cross.md"
+    },
+    {
+      "checkpoint": "Checkpoint: Liens",
+      "questions": [
+        {
+          "type": "order",
+          "q": "Put these California lien steps in order.",
+          "options": [
+            "Rent unpaid for 14 consecutive days",
+            "Preliminary Lien Notice mailed to the last known and alternate addresses",
+            "Termination date passes unpaid; the lien attaches and access may be denied",
+            "Notice of Lien Sale sent with a blank Declaration in Opposition",
+            "The sale is advertised",
+            "Commercially reasonable sale; excess held one year"
+          ],
+          "answer": [],
+          "explanation": "Under Bus. & Prof. Code 21703-21707: 14 days unpaid, the preliminary notice to both addresses, the lien attaches on the termination date, the Notice of Lien Sale with a blank declaration, advertising, then the sale with excess held one year.",
+          "lesson": "10-delinquency-and-the-lien-process.md"
+        },
+        {
+          "type": "single",
+          "q": "In California, how long must rent or other charges be unpaid before the owner may send the Preliminary Lien Notice?",
+          "options": [
+            "5 consecutive days",
+            "10 consecutive days",
+            "14 consecutive days",
+            "30 consecutive days"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "Bus. & Prof. Code 21703 allows the Preliminary Lien Notice once any part of the charges has been unpaid for 14 consecutive days. Greens' fee posts on the 15th (From Greens' Cubby, 11/2026).",
+          "lesson": "10-delinquency-and-the-lien-process.md"
+        },
+        {
+          "type": "single",
+          "q": "A certified envelope arrives at Temecula with a signed Declaration in Opposition for a unit scheduled for sale. What happens?",
+          "options": [
+            "The sale goes ahead; declarations are only advisory",
+            "Stop and give it to your manager the same day; Greens may not sell and must go to court instead",
+            "Call the tenant to ask if they really meant it",
+            "Move the sale date up a week"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "A valid Declaration in Opposition stops a California lien sale (21706, 21710). The owner must sue to enforce the lien. Selling after one arrives is a serious violation.",
+          "lesson": "11-lines-you-never-cross.md"
+        },
+        {
+          "type": "multi",
+          "q": "Which are lawful ways to send a California Preliminary Lien Notice? Pick all that apply.",
+          "options": [
+            "Certified mail",
+            "First-class mail with a certificate of mailing",
+            "Email, if the agreement allows it and the tenant signed consent",
+            "A text message",
+            "A note taped to the unit door"
+          ],
+          "answer": [
+            0,
+            1,
+            2
+          ],
+          "explanation": "21703 allows certified mail, first-class mail with a certificate of mailing, or email when 21712's consent rules are met, to both the last known and alternate addresses.",
+          "lesson": "10-delinquency-and-the-lien-process.md"
+        },
+        {
+          "type": "single",
+          "q": "After a California lien sale, what happens to money left over once the lien and sale costs are paid?",
+          "options": [
+            "Greens keeps it",
+            "It is held one year for the tenant, then paid to the county",
+            "It is held two years, then Greens keeps it",
+            "It goes to the buyer"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "California holds excess proceeds one year for the occupant or a court-order holder, then pays the county treasury. Texas holds them two years, after which the lessor keeps them.",
+          "lesson": "10-delinquency-and-the-lien-process.md"
+        },
+        {
+          "type": "single",
+          "q": "Under the federal SCRA, for how long after military service ends is a storage lien still protected from enforcement without a court order?",
+          "options": [
+            "30 days",
+            "60 days",
+            "90 days",
+            "One year"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "50 U.S.C. 3958 bars enforcing a storage lien on a servicemember's property during service or for 90 days after, without a court order. DOJ treats it as strict liability.",
+          "lesson": "11-lines-you-never-cross.md"
+        },
+        {
+          "type": "tf",
+          "q": "At Greens, a partial payment stops the delinquency ladder.",
+          "options": [
+            "True",
+            "False"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "Only payment in full stops the ladder. Cubby applies money to the oldest charge first, so after a partial payment the lease stays past due (Greens Delinquency Timeline).",
+          "lesson": "greens-delinquency-timeline"
+        },
+        {
+          "type": "single",
+          "q": "California's email lien notices and sales on auction websites come from AB 1108. When did it take effect?",
+          "options": [
+            "01/01/2016",
+            "01/01/2018",
+            "01/01/2022",
+            "01/01/2024"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "AB 1108 took effect 01/01/2018 and was made permanent by AB 2960 in 2022. AB 542 added the newspaper-plus-online advertising option effective 01/01/2024.",
+          "lesson": "10-delinquency-and-the-lien-process.md"
+        },
+        {
+          "type": "single",
+          "q": "The morning of an online lien auction, a tenant's attorney emails a bankruptcy case number. What do you do?",
+          "options": [
+            "Let the auction finish, then call the attorney",
+            "Stop: pull the unit from the sale, stop collection contact and call your manager",
+            "Ask the tenant to pay the balance first",
+            "Ignore it until the court calls"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "A bankruptcy filing creates an automatic stay (11 U.S.C. 362): stop the sale, even on auction day, stop collection calls and fees, record the case details and escalate.",
+          "lesson": "11-lines-you-never-cross.md"
+        },
+        {
+          "type": "single",
+          "q": "Under Texas Property Code 59.043, by what day after delivery of the notice of claim must the tenant pay before the property may be sold?",
+          "options": [
+            "The 5th day",
+            "The 10th day",
+            "The 14th day",
+            "The 30th day"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "The Texas notice of claim states that if the claim is not satisfied by the 14th day after delivery, the property may be sold at public auction (or a vehicle towed).",
+          "lesson": "10-delinquency-and-the-lien-process.md"
+        }
+      ]
+    },
+    {
+      "file": "13-running-the-site-open-to-close.md"
+    },
+    {
+      "file": "14-safety-and-emergencies.md"
+    },
+    {
+      "file": "15-privacy-and-compliance.md"
+    },
+    {
+      "page": "greens-privacy-and-records",
+      "title": "Greens Privacy and Records",
+      "summary": "Who may hear about an account, how to answer police, process servers and family, and what Greens keeps in Cubby."
+    },
+    {
+      "file": "16-numbers-that-matter-and-words-to-know.md"
+    }
+  ],
+  "quiz": {
+    "passPct": 80,
+    "drawCount": 35,
+    "maxTries": 3,
+    "shuffle": true,
+    "questions": [
+      {
+        "type": "single",
+        "q": "About what share of U.S. households rent self-storage, according to the Self Storage Association's 2025 Demand Study?",
+        "options": [
+          "About 1 in 50",
+          "About 1 in 8",
+          "About 1 in 3",
+          "About half"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The SSA 2025 Demand Study puts it at about 12.6% of U.S. households in 2024: roughly 1 in 8.",
+        "lesson": "01-welcome-to-self-storage.md"
+      },
+      {
+        "type": "single",
+        "q": "Where and when was Public Storage founded?",
+        "options": [
+          "Odessa, Texas, in 1964",
+          "El Cajon, California, on 08/14/1972",
+          "Dallas, Texas, in 1980",
+          "Frisco, Texas, in 1995"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Public Storage was founded on 08/14/1972 in El Cajon, in San Diego County, not far from Greens' Escondido and Valley Center sites.",
+        "lesson": "01-welcome-to-self-storage.md"
+      },
+      {
+        "type": "single",
+        "q": "Which best describes Greens Storage?",
+        "options": [
+          "A publicly traded REIT",
+          "A private regional operator",
+          "A third-party management company only",
+          "A franchise of a national brand"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Greens owns and runs its own sites as a private regional operator: five California sites on Cubby today, with Texas sites coming.",
+        "lesson": "01-welcome-to-self-storage.md"
+      },
+      {
+        "type": "single",
+        "q": "You are helping at a site run by a third-party manager. Before you act on a procedure from this course, what do you do?",
+        "options": [
+          "Follow this course; it applies everywhere",
+          "Ask your manager which procedures apply at that site",
+          "Follow whatever the tenant prefers",
+          "Use the Texas rules"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A third-party-managed site follows its manager's procedures. Who employs the staff and whose rental agreement applies decide which rules you follow.",
+        "lesson": "01-welcome-to-self-storage.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which are the 4 Ds of self-storage demand? Pick all that apply.",
+        "options": [
+          "Death",
+          "Divorce",
+          "Downsizing",
+          "Dislocation",
+          "Delivery"
+        ],
+        "answer": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "explanation": "The 4 Ds are Death, Divorce, Downsizing and Dislocation (moves, job loss, disasters). Some operators use Disaster as the fourth D; Delivery is not one.",
+        "lesson": "02-why-people-rent.md"
+      },
+      {
+        "type": "single",
+        "q": "About how long does the average self-storage tenant stay?",
+        "options": [
+          "About 1 month",
+          "About 4 months",
+          "About a year and a half",
+          "About 10 years"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "Reported averages run from about 16 months (Extra Space, 2022) to 19.3 months (Storable, Q1 2026). Remember \"about a year and a half, and it varies a lot.\"",
+        "lesson": "02-why-people-rent.md"
+      },
+      {
+        "type": "single",
+        "q": "Which customer segment tends to stay the longest?",
+        "options": [
+          "College students",
+          "Business renters",
+          "People between apartments",
+          "Holiday decorators"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "47.5% of business renters stay more than two years, versus about 24% of all renters (SSA Demand Study, 2023).",
+        "lesson": "02-why-people-rent.md"
+      },
+      {
+        "type": "single",
+        "q": "A tenant pays $129 a month and stays 18 months. About how much rent is that from one move-in?",
+        "options": [
+          "$1,290",
+          "$1,548",
+          "$2,322",
+          "$3,096"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "$129 x 18 = $2,322. Every call you answer well can be worth thousands of dollars over a typical stay.",
+        "lesson": "02-why-people-rent.md"
+      },
+      {
+        "type": "single",
+        "q": "Which size is about the size of a one-car garage and typically holds a three-bedroom home with a washer, dryer and refrigerator?",
+        "options": [
+          "5x10",
+          "10x10",
+          "10x15",
+          "10x20"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "A 10x20 is 200 square feet, about a one-car garage: a three-bedroom home with appliances, or a car where the site allows it.",
+        "lesson": "03-the-product-units-and-sizes.md"
+      },
+      {
+        "type": "single",
+        "q": "What is the best first question when sizing a customer?",
+        "options": [
+          "\"How much do you want to spend?\"",
+          "\"What is the largest thing you are storing?\"",
+          "\"Why are you moving?\"",
+          "\"Do you want our biggest unit?\""
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The largest item (a sectional, a king bed, a refrigerator) decides the minimum size more than boxes do. Then ask about rooms, appliances and access.",
+        "lesson": "03-the-product-units-and-sizes.md"
+      },
+      {
+        "type": "single",
+        "q": "Nationally, what share of storage rentals are exterior drive-up units?",
+        "options": [
+          "About 10%",
+          "About 25%",
+          "About 55.7%",
+          "About 90%"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "The SSA Demand Study (2023) found 55.7% of rentals are exterior drive-up units. Many customers want to park at the door.",
+        "lesson": "03-the-product-units-and-sizes.md"
+      },
+      {
+        "type": "tf",
+        "q": "Ground-floor and drive-up units usually rent for more than upper-floor units.",
+        "options": [
+          "True",
+          "False"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "They are easier to load, so they usually command higher rents. An upper-floor unit is a good option for a price-sensitive customer.",
+        "lesson": "03-the-product-units-and-sizes.md"
+      },
+      {
+        "type": "single",
+        "q": "How many vehicle parking spaces does Greens have active in Cubby across its five sites?",
+        "options": [
+          "356",
+          "777",
+          "1,038",
+          "1,331"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "1,038 parking spaces (777 leased), mostly at Temecula, Fairfield and Murrieta (From Greens' Cubby, 11/2026). 1,331 is enclosed units; 356 is mailboxes.",
+        "lesson": "01-welcome-to-self-storage.md"
+      },
+      {
+        "type": "tf",
+        "q": "A self-storage rental agreement creates a bailment, so Greens is responsible for the goods in each unit.",
+        "options": [
+          "True",
+          "False"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The agreement says it creates no bailment: Greens never takes custody, the tenant has exclusive control and the only key. That is why tenants need their own protection.",
+        "lesson": "04-access-locks-and-security.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which steps belong to every authorized lock cut? Pick all that apply.",
+        "options": [
+          "The right authorization (a lien step, a court order or warrant, or a signed tenant request with ID)",
+          "A witness",
+          "Photos before and after",
+          "A new facility lock afterward",
+          "Keeping anything valuable found inside"
+        ],
+        "answer": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "explanation": "A lock is cut only under an authorized process, with a witness, photos, an inventory where required and a new facility lock. Nothing inside is ever kept.",
+        "lesson": "04-access-locks-and-security.md"
+      },
+      {
+        "type": "single",
+        "q": "A Valley Center tenant pays her full balance at 10:00 AM. Her unit has an overlock. When should it come off?",
+        "options": [
+          "After the next billing cycle",
+          "Promptly, that day, recorded in the system, with her gate code checked",
+          "When she asks twice",
+          "She can remove it herself"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Remove overlocks promptly when paid; a paid tenant finding an overlock is a top complaint. Staff remove it, never the tenant.",
+        "lesson": "04-access-locks-and-security.md"
+      },
+      {
+        "type": "single",
+        "q": "What does Cubby do today at 12:00 AM on the 11th for a tenant who has not paid?",
+        "options": [
+          "Nothing until the 30th",
+          "Posts the late fee and changes the tenant's gate code",
+          "Sells the unit",
+          "Sends the Notice of Lien Sale"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Cubby posts the late fee and changes the gate code on the 11th (From Greens' Cubby, 11/2026). This timing is under review with counsel; never defend it to a tenant as the law.",
+        "lesson": "greens-site-hours-and-access"
+      },
+      {
+        "type": "single",
+        "q": "After a break-in, what must happen to the camera footage?",
+        "options": [
+          "Post it online to find the thief",
+          "Preserve it so automatic deletion does not erase it, and tell your manager",
+          "Show it to other tenants",
+          "Delete it to protect privacy"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Once there is an incident, claim or subpoena, footage must be saved. Never share it with the public or other tenants; police get it through the proper process.",
+        "lesson": "04-access-locks-and-security.md"
+      },
+      {
+        "type": "single",
+        "q": "A site has 200 units and 100 are rented, but the rented units are the large ones and make up 80% of the rentable square feet. What is the physical occupancy?",
+        "options": [
+          "50%",
+          "80%",
+          "100%",
+          "20%"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Physical occupancy is rented square feet over total rentable square feet: 80%. Unit occupancy is 100 / 200 = 50%. The two can be very different.",
+        "lesson": "06-how-a-storage-site-makes-money.md"
+      },
+      {
+        "type": "single",
+        "q": "Escondido has 717 active enclosed units and 697 leased. What is the unit occupancy, rounded?",
+        "options": [
+          "69.2%",
+          "81.9%",
+          "93.2%",
+          "97.2%"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "697 / 717 = 97.2% (From Greens' Cubby, 11/2026). With so few empty units, turning vacant units fast matters a lot.",
+        "lesson": "06-how-a-storage-site-makes-money.md"
+      },
+      {
+        "type": "single",
+        "q": "What is economic occupancy?",
+        "options": [
+          "Units rented / total units",
+          "Rented square feet / total square feet",
+          "Rent actually achieved / gross potential rent at street rates",
+          "Move-ins minus move-outs"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "Economic occupancy measures money: rent achieved over gross potential rent. Discounts, free units and unpaid rent pull it down.",
+        "lesson": "06-how-a-storage-site-makes-money.md"
+      },
+      {
+        "type": "single",
+        "q": "A tenant's monthly rent is $75. What is the most a California late fee can be?",
+        "options": [
+          "$10.00",
+          "$11.25",
+          "$15.00",
+          "$20.00"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "Rent over $60 and under $100 is capped at $15 (Bus. & Prof. Code 21713.5). $10 applies only at $60 or less.",
+        "lesson": "06-how-a-storage-site-makes-money.md"
+      },
+      {
+        "type": "single",
+        "q": "A tenant calls upset about a rent increase and asks you to promise it will not happen again. What do you say?",
+        "options": [
+          "\"I promise it won't go up again.\"",
+          "\"I can't promise that; rates can change with notice under your agreement. Let me look at options with you, and my manager can review a request.\"",
+          "\"Your neighbor pays less, so I'll match that.\"",
+          "\"Rent is fixed by law.\""
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Agreements are month-to-month and rates change with notice. Never promise a rate will not change, never compare tenants' rates, and send exception requests to your manager.",
+        "lesson": "06-how-a-storage-site-makes-money.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which are concessions? Pick all that apply.",
+        "options": [
+          "A first month free",
+          "$1 for the first month",
+          "Half off for two months",
+          "A late fee"
+        ],
+        "answer": [
+          0,
+          1,
+          2
+        ],
+        "explanation": "Concessions are discounts or promotions that bring move-ins. They also lower economic occupancy while they last. A late fee is a fee, not a concession.",
+        "lesson": "06-how-a-storage-site-makes-money.md"
+      },
+      {
+        "type": "single",
+        "q": "What is Greens' Administration Fee at move-in for a storage unit or parking space?",
+        "options": [
+          "$10.00",
+          "$20.00",
+          "$25.00",
+          "$35.00"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "The Administration Fee is $25.00, charged once at move-in (From Greens' Cubby, 11/2026). Mailboxes have a $10.00 Mailbox Administration Fee.",
+        "lesson": "greens-fees-and-charges"
+      },
+      {
+        "type": "single",
+        "q": "A Temecula RV space rents for $180 a month and is unpaid on the 11th. What late fee does Cubby post?",
+        "options": [
+          "$15.00",
+          "$20.00",
+          "$27.00",
+          "$30.00"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "Greens' CA Late Fee is set at the California maximum: the greater of $20 or 15% of rent. 15% of $180 is $27.00 (From Greens' Cubby, 11/2026).",
+        "lesson": "greens-fees-and-charges"
+      },
+      {
+        "type": "single",
+        "q": "A new tenant says, \"The facility is insured, so my things are covered.\" What is true?",
+        "options": [
+          "They are right",
+          "Greens' insurance covers the building, not the tenant's belongings",
+          "Only electronics are covered",
+          "Coverage starts after 30 days"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The facility's insurance covers the facility. The agreement releases Greens from liability for stored goods, so the tenant needs Greens' plan or their own policy.",
+        "lesson": "07-tenant-protection-and-insurance.md"
+      },
+      {
+        "type": "single",
+        "q": "Which phrase should you never use about Greens' protection plan?",
+        "options": [
+          "\"Our protection plan\"",
+          "\"You can file a claim and the administrator reviews it\"",
+          "\"Our insurance will cover that\"",
+          "\"It covers common losses, subject to the terms\""
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "A protection plan is not insurance, and only the claims administrator decides what a claim pays. Never call it insurance and never promise coverage.",
+        "lesson": "07-tenant-protection-and-insurance.md"
+      },
+      {
+        "type": "single",
+        "q": "What do $2,500 of Greens' protection cost per month in California?",
+        "options": [
+          "$5.00",
+          "$9.00 or $14.00",
+          "$20.00 or $25.00",
+          "$45.00"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "$2,500 costs $9.00 or $14.00 a month; $5,000 costs $20.00 or $25.00 (From Greens' Cubby, 11/2026). Quote what Cubby shows for the lease.",
+        "lesson": "greens-tenant-protection"
+      },
+      {
+        "type": "single",
+        "q": "Cubby raises \"Remind Tenant of POI Obligation\" on a lease. What does it mean?",
+        "options": [
+          "The tenant owes a late fee",
+          "The tenant's proof of insurance is missing or expired; call for the current policy details",
+          "The tenant must move out",
+          "The tenant's gate code changed"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "POI is proof of insurance. Call for the policy number and expiration date. If the policy lapsed, \"Enroll Tenant in Protection Plan\" prompts you to offer Greens' plan.",
+        "lesson": "07-tenant-protection-and-insurance.md"
+      },
+      {
+        "type": "tf",
+        "q": "A Temecula RV owner's motorhome is normally protected by his own vehicle insurance, not by a storage protection plan.",
+        "options": [
+          "True",
+          "False"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "Vehicles, RVs and boats carry the owner's own insurance. Only one Greens vehicle lease is on a Greens plan (From Greens' Cubby, 11/2026).",
+        "lesson": "07-tenant-protection-and-insurance.md"
+      },
+      {
+        "type": "single",
+        "q": "Which laws govern self-storage instead of residential landlord-tenant law?",
+        "options": [
+          "The Fair Housing Act in both states",
+          "California Bus. & Prof. Code 21700-21716 and Texas Property Code chapter 59",
+          "Only the federal SCRA",
+          "California Civil Code 51 only"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Storage has its own statutes: the California Self-Service Storage Facility Act (21700-21716) and Texas Property Code chapter 59.",
+        "lesson": "08-the-rental-agreement.md"
+      },
+      {
+        "type": "single",
+        "q": "In California, what must the rental agreement request so lien notices can also go to a second person?",
+        "options": [
+          "A co-signer's credit report",
+          "An alternate contact with a mailing or email address",
+          "A spouse's signature",
+          "A bank reference"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Bus. & Prof. Code 21712 requires the agreement to request an alternate contact. If given, every lien notice goes to the tenant AND the alternate.",
+        "lesson": "08-the-rental-agreement.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which are prohibited in storage units? Pick all that apply.",
+        "options": [
+          "Living in the unit, even for one night",
+          "Gasoline and propane",
+          "Food and animal feed",
+          "Boxes of clothing"
+        ],
+        "answer": [
+          0,
+          1,
+          2
+        ],
+        "explanation": "Living in a unit, hazardous materials and food are prohibited. Texas law forbids residential use outright (59.009). Boxed clothing is ordinary storage.",
+        "lesson": "08-the-rental-agreement.md"
+      },
+      {
+        "type": "tf",
+        "q": "Texas Property Code chapter 59 sets a specific cap on self-storage late fees.",
+        "options": [
+          "True",
+          "False"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "No specific late-fee cap was found in chapter 59 (as of 2026). Never quote a Texas late-fee number; Greens' Texas amounts come when the Texas sites join Cubby.",
+        "lesson": "08-the-rental-agreement.md"
+      },
+      {
+        "type": "single",
+        "q": "In Texas, what must a rental agreement say before a facility may tow a tenant's vehicle under chapter 59?",
+        "options": [
+          "Nothing; towing is always allowed",
+          "It must expressly authorize towing",
+          "It must be notarized",
+          "The tenant must initial every page"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Since SB 1181 (2021), a Texas facility may tow a vehicle, boat or trailer only if towing is authorized in the agreement (59.052).",
+        "lesson": "08-the-rental-agreement.md"
+      },
+      {
+        "type": "single",
+        "q": "Which of these may Greens NOT do under the rental agreement?",
+        "options": [
+          "Change rent with proper notice",
+          "Enforce the lien by the statutory process",
+          "Throw out \"obvious junk\" from a delinquent unit",
+          "Enforce the rules equally for everyone"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "Nothing leaves a unit outside the statutory process, even junk. Greens may change rent with notice, enforce a lien lawfully and enforce rules equally.",
+        "lesson": "08-the-rental-agreement.md"
+      },
+      {
+        "type": "order",
+        "q": "Put the general shape of delinquency in order.",
+        "options": [
+          "Rent is due",
+          "A late fee posts",
+          "The formal statutory notice",
+          "Access is denied as the law allows",
+          "The sale is advertised",
+          "The public sale"
+        ],
+        "answer": [],
+        "explanation": "Both states follow the same shape: due date, late fee (after reminder calls), a statutory notice, lien or seizure with access denied, advertising, then the sale. Paying in full stops it.",
+        "lesson": "10-delinquency-and-the-lien-process.md"
+      },
+      {
+        "type": "single",
+        "q": "In California, how soon after the Preliminary Lien Notice is mailed may the right to use the space end?",
+        "options": [
+          "The next day",
+          "At least 7 days after mailing",
+          "At least 14 days after mailing",
+          "At least 60 days after mailing"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "The notice must give a termination date not less than 14 days after mailing (21703). If still unpaid then, the lien attaches and access may be denied (21705(a)).",
+        "lesson": "10-delinquency-and-the-lien-process.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which California advertising options satisfy 21707 before a lien sale? Pick all that apply.",
+        "options": [
+          "Once a week for two consecutive weeks in a newspaper of general circulation",
+          "Once in a newspaper AND on a public online auction website for at least 7 days",
+          "A single social media post",
+          "A sign on the unit door only"
+        ],
+        "answer": [
+          0,
+          1
+        ],
+        "explanation": "21707 allows two weeks of newspaper ads, or one newspaper ad plus at least 7 days online (AB 542, effective 01/01/2024). Posting in six places applies only with no newspaper.",
+        "lesson": "10-delinquency-and-the-lien-process.md"
+      },
+      {
+        "type": "single",
+        "q": "What must a California lien sale be?",
+        "options": [
+          "Private, to the first buyer who asks",
+          "Commercially reasonable: an in-person auction or a public auction website",
+          "Held only at the county courthouse",
+          "Approved by the tenant"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "21707 requires a commercially reasonable sale, in person or on a publicly accessible auction website.",
+        "lesson": "10-delinquency-and-the-lien-process.md"
+      },
+      {
+        "type": "single",
+        "q": "When does the Texas self-storage lien attach to the property?",
+        "options": [
+          "When the goods are placed in the facility",
+          "On the termination date in a preliminary notice",
+          "When the sale is advertised",
+          "Only after a court order"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "In Texas the lien attaches when the property is placed in the facility (59.006). In California it attaches on the termination date after the preliminary notice.",
+        "lesson": "10-delinquency-and-the-lien-process.md"
+      },
+      {
+        "type": "single",
+        "q": "How long does Texas hold excess proceeds from a lien sale for the tenant?",
+        "options": [
+          "One year, then the county",
+          "Two years, then the lessor keeps them",
+          "90 days",
+          "Forever"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Texas: the lessor pays the excess if the tenant asks within two years of the sale; after that the lessor keeps it (59.046). California holds one year, then the county.",
+        "lesson": "10-delinquency-and-the-lien-process.md"
+      },
+      {
+        "type": "single",
+        "q": "A Murrieta boat tenant is 61 days behind. What path does the boat follow?",
+        "options": [
+          "The normal unit auction",
+          "A separate vehicle and vessel lien path; the Cubby task is \"61st - Vehicle Lien Filing/Tow Notice\"",
+          "Staff may sell it privately",
+          "No action is allowed on boats"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Vehicles and vessels follow their own path (California 21702.5, Civil Code 3071, Harbors and Navigation Code 503). The RV & Boat course covers it.",
+        "lesson": "10-delinquency-and-the-lien-process.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which may deliver a Texas notice of claim under chapter 59? Pick all that apply.",
+        "options": [
+          "In person",
+          "Verified mail",
+          "Email, if the agreement has underlined or bold email language",
+          "A phone call only"
+        ],
+        "answer": [
+          0,
+          1,
+          2
+        ],
+        "explanation": "59.042 and 59.043 allow delivery in person, by verified mail or by email (only with the bold or underlined email clause). A phone call is not notice.",
+        "lesson": "10-delinquency-and-the-lien-process.md"
+      },
+      {
+        "type": "single",
+        "q": "On which day does Greens' CA Preliminary Lien Notice fee post and the notice go out?",
+        "options": [
+          "The 2nd",
+          "The 11th",
+          "The 15th",
+          "The 35th"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "The $25.00 CA Preliminary Lien Notice fee posts on the 15th, after 14 days unpaid (From Greens' Cubby, 11/2026).",
+        "lesson": "greens-delinquency-timeline"
+      },
+      {
+        "type": "single",
+        "q": "Which statement about Cubby's day-20 overlock is right?",
+        "options": [
+          "It is required by California law on day 20",
+          "It is what Cubby does today and is under review with counsel; follow Cubby and send disputes to the manager",
+          "Staff may skip it if busy",
+          "Tenants remove it themselves"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The day-11 gate change and day-20 overlock are Cubby's current behavior, under review with counsel. Never explain the timing to a tenant as the law.",
+        "lesson": "greens-delinquency-timeline"
+      },
+      {
+        "type": "multi",
+        "q": "Which are on the never-do list for liens? Pick all that apply.",
+        "options": [
+          "Back-dating a notice",
+          "Letting friends or family bid at a Greens lien sale",
+          "Taking a box from a liened unit",
+          "Escalating a Declaration in Opposition the same day"
+        ],
+        "answer": [
+          0,
+          1,
+          2
+        ],
+        "explanation": "Never back-date, never let friends or family bid, never take anything from a liened unit. Escalating a declaration the same day is exactly what you should do.",
+        "lesson": "11-lines-you-never-cross.md"
+      },
+      {
+        "type": "single",
+        "q": "A Fairfield tenant 25 days behind says he just got back from deployment. What do you do?",
+        "options": [
+          "Continue the lien steps; he is back now",
+          "Record his military status, stop and call your manager the same day",
+          "Ask him to waive his rights by phone",
+          "Charge an extra fee"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The SCRA protects him during service and for 90 days after. No enforcement without a court order. Record it, stop and escalate.",
+        "lesson": "11-lines-you-never-cross.md"
+      },
+      {
+        "type": "single",
+        "q": "What does Texas Property Code 59.010 add to military protection?",
+        "options": [
+          "Nothing",
+          "Texas State Guard and National Guard members on active duty get the same protection as federal servicemembers",
+          "It removes SCRA protection in Texas",
+          "It applies only to retirees"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "59.010 extends SCRA-level protection to Texas State Guard and National Guard on active duty. Texas notices must also carry a bold military-status request.",
+        "lesson": "11-lines-you-never-cross.md"
+      },
+      {
+        "type": "single",
+        "q": "A daughter says her father, a tenant, died last week and asks for access. What is generally needed first?",
+        "options": [
+          "Nothing; family always has access",
+          "A death certificate plus proof of authority over the estate, such as letters testamentary",
+          "A photo of the father",
+          "The father's gate code"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Access and details need a death certificate and proof of authority (letters testamentary or of administration, or a small-estate affidavit). Escalate to your manager.",
+        "lesson": "11-lines-you-never-cross.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which events mean you stop the ladder and call your manager the same day? Pick all that apply.",
+        "options": [
+          "A Declaration in Opposition arrives",
+          "A bankruptcy notice",
+          "A death report",
+          "The tenant disputes the balance in writing",
+          "The tenant pays by card on the 2nd"
+        ],
+        "answer": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "explanation": "Declarations, bankruptcy, military service, death reports and written disputes all stop the ladder for escalation. A payment on the 2nd is the good outcome.",
+        "lesson": "11-lines-you-never-cross.md"
+      },
+      {
+        "type": "tf",
+        "q": "Under the SCRA, a storage operator that honestly did not know a tenant was on active duty is excused if it sold the unit without a court order.",
+        "options": [
+          "True",
+          "False"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The Department of Justice treats SCRA lien violations as strict liability: good intentions are no defense. Check military status before every sale.",
+        "lesson": "11-lines-you-never-cross.md"
+      },
+      {
+        "type": "single",
+        "q": "On your walk, a unit Cubby shows as vacant has a tenant's lock on it. What does that most likely mean?",
+        "options": [
+          "Nothing; ignore it",
+          "Possible unauthorized use; photograph it, follow the process and report to your manager",
+          "Cut the lock right away",
+          "Mark the unit rented"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A vacant unit with a lock is an audit issue: someone may be using it without paying. Reconcile the walk to the system and follow the process.",
+        "lesson": "13-running-the-site-open-to-close.md"
+      },
+      {
+        "type": "order",
+        "q": "Put these vacant unit prep steps in order.",
+        "options": [
+          "Confirm the tenant removed their lock and everything",
+          "Photograph the empty unit",
+          "Sweep and clean",
+          "Check the door and look for damage or pests",
+          "Put on the facility lock",
+          "Mark the unit rent-ready in the system"
+        ],
+        "answer": [],
+        "explanation": "Confirm empty, photograph, clean, inspect and repair or report, lock it, then mark it rent-ready so it can be sold.",
+        "lesson": "13-running-the-site-open-to-close.md"
+      },
+      {
+        "type": "single",
+        "q": "The cash drawer is $20 short at close. What do you do?",
+        "options": [
+          "Cover it from your own pocket",
+          "Recount with your manager, check receipts against the system and write up what you found",
+          "Change the report to match",
+          "Ignore it"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Never cover or hide a shortage. Recount, reconcile to the system and document it. Every payment needs a system receipt.",
+        "lesson": "13-running-the-site-open-to-close.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which belong to good key and code control? Pick all that apply.",
+        "options": [
+          "Master keys are signed out and tracked",
+          "Codes are changed when staff leave",
+          "Never let a tenant in on your own code",
+          "Give a locked-out tenant the master code at 6:00 AM"
+        ],
+        "answer": [
+          0,
+          1,
+          2
+        ],
+        "explanation": "Track master keys, change codes when staff leave and never let anyone in on your code. Never give out a master code.",
+        "lesson": "13-running-the-site-open-to-close.md"
+      },
+      {
+        "type": "single",
+        "q": "You see someone cutting a lock at 7:00 AM. What do you do?",
+        "options": [
+          "Confront them",
+          "Chase them off the property",
+          "Get somewhere safe, lock the office, call 911, then your manager",
+          "Wait until they leave, then check the unit"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "Never confront a suspected thief. Get safe, call 911 first, then your manager, and note what you saw.",
+        "lesson": "14-safety-and-emergencies.md"
+      },
+      {
+        "type": "tf",
+        "q": "An employee without training may repair a roll-up door spring if it saves a service call.",
+        "options": [
+          "True",
+          "False"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Roll-up door springs are under heavy tension and can cause serious injury. Never repair one without training; report it.",
+        "lesson": "14-safety-and-emergencies.md"
+      },
+      {
+        "type": "single",
+        "q": "After a flood at a Texas site, what do you do before any cleanup?",
+        "options": [
+          "Let tenants in to check their units",
+          "Photograph the damage, inside and out",
+          "Throw out wet items",
+          "Open every unit to air them out"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Photograph damage before cleanup for insurance and protection claims. Never let tenants into a damaged building until it is cleared.",
+        "lesson": "14-safety-and-emergencies.md"
+      },
+      {
+        "type": "single",
+        "q": "Which Greens California sites are in wildfire-prone inland San Diego and Riverside counties?",
+        "options": [
+          "Valley Center, Escondido, Temecula and Murrieta",
+          "Fairfield only",
+          "None",
+          "Only the Texas sites"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "Valley Center, Escondido, Temecula and Murrieta are in wildfire-prone inland areas. If officials order an evacuation, leave.",
+        "lesson": "14-safety-and-emergencies.md"
+      },
+      {
+        "type": "single",
+        "q": "A caller says, \"My husband rents there. What's his balance?\" She is not on the account. What do you say?",
+        "options": [
+          "\"He owes $164.\"",
+          "\"I'm not able to share whether that person is a customer.\"",
+          "\"He's in unit 1142, but I can't tell you the balance.\"",
+          "\"I'll have him call you back.\""
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Everything about a tenant is private, even that they rent. Use the same kind sentence every time and confirm nothing.",
+        "lesson": "15-privacy-and-compliance.md"
+      },
+      {
+        "type": "order",
+        "q": "Put these search warrant steps in order.",
+        "options": [
+          "Ask to see the warrant and check it names the facility and unit",
+          "Note the officer's name, agency, badge and warrant number",
+          "Get a copy of the warrant",
+          "Open the gate and step back",
+          "Call your manager and write an incident report"
+        ],
+        "answer": [],
+        "explanation": "Read and check the warrant, record the details, get a copy, provide access without helping or obstructing, then call your manager and document it. Do not tip off the tenant.",
+        "lesson": "15-privacy-and-compliance.md"
+      },
+      {
+        "type": "single",
+        "q": "A facility has 180 units. Under the 2010 ADA Standards, how many accessible units are required?",
+        "options": [
+          "1",
+          "5",
+          "9",
+          "18"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "For 1 to 200 units, 5% are required (at least 1): 5% of 180 = 9.",
+        "lesson": "15-privacy-and-compliance.md"
+      },
+      {
+        "type": "single",
+        "q": "A facility has 320 units. Under the 2010 ADA Standards, how many accessible units are required?",
+        "options": [
+          "10",
+          "13",
+          "16",
+          "32"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Over 200 units: 10 plus 2% of the units over 200. 2% of 120 = 2.4, so 10 + 3 (rounded up) = 13.",
+        "lesson": "15-privacy-and-compliance.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which are fair treatment rules at every site? Pick all that apply.",
+        "options": [
+          "Same rates and rules for everyone",
+          "Ask every customer for the same ID",
+          "Never ask about immigration status",
+          "Ask about a customer's disability before renting an accessible unit"
+        ],
+        "answer": [
+          0,
+          1,
+          2
+        ],
+        "explanation": "Treat everyone the same and never ask about immigration status. Never ask about the nature of a disability; offer an accessible unit when asked.",
+        "lesson": "15-privacy-and-compliance.md"
+      },
+      {
+        "type": "single",
+        "q": "A subpoena for a tenant's gate log arrives. What do you do?",
+        "options": [
+          "Ignore it unless police come",
+          "Send it to your manager the same day and ask that the records be preserved",
+          "Call the tenant to warn them",
+          "Email the log to the sender right away"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Never ignore a subpoena. Note the deadline, route it to your manager the same day and preserve the records, footage included.",
+        "lesson": "greens-privacy-and-records"
+      },
+      {
+        "type": "single",
+        "q": "A site has 18 move-ins and 13 move-outs in a month. What are net rentals?",
+        "options": [
+          "-5",
+          "+5",
+          "+13",
+          "+31"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Net rentals = move-ins minus move-outs: 18 - 13 = +5. The site grew by five rentals.",
+        "lesson": "16-numbers-that-matter-and-words-to-know.md"
+      },
+      {
+        "type": "single",
+        "q": "A site bills $50,000 in rent and $4,000 is unpaid on the 10th. What is the delinquency as a share of rent?",
+        "options": [
+          "4%",
+          "8%",
+          "12.5%",
+          "40%"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "$4,000 / $50,000 = 8%. Calls on the 2nd and the 6th are what bring it down before late fees and liens.",
+        "lesson": "16-numbers-that-matter-and-words-to-know.md"
+      },
+      {
+        "type": "single",
+        "q": "A site gets 60 inquiries in a week and rents 15 units. What is the conversion rate?",
+        "options": [
+          "15%",
+          "25%",
+          "40%",
+          "60%"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Conversion = rentals / inquiries = 15 / 60 = 25%. Faster callbacks raise it without more marketing.",
+        "lesson": "16-numbers-that-matter-and-words-to-know.md"
+      }
+    ]
+  }
+}
