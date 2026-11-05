@@ -122,6 +122,38 @@ class TestLanes(unittest.TestCase):
         self.assertEqual(got, roots)
 
 
+class TestBusyScan(unittest.TestCase):
+    """11/05/2026: "38 folders could not be read - Egnyte was busy". A walk
+    call that Egnyte still throttles after the retries stops listing and
+    hands the folder and the rest back with a cool-down - never 'failed'."""
+
+    def _scan(self, egnyte):
+        from routers import filing
+        with mock.patch.object(filing, "_egnyte", egnyte),                 mock.patch.object(filing, "_browse_token", lambda user, db: "tok"),                 mock.patch.object(filing, "_load_config", lambda db: {"scanRoots": [], "confirmed": {}}),                 mock.patch.object(filing, "_live_maps", lambda token, db: filing.filing_rules.Maps()),                 mock.patch.object(filing, "_filing_history_cached", lambda db: []):
+            return filing.scan(filing.ScanBody(paths=["/Shared/A", "/Shared/B", "/Shared/C"]), user={"email": "x"}, db=None)
+
+    def test_throttled_folder_and_the_rest_come_back_with_a_cooldown(self):
+        def egnyte(token, fn, root):
+            if root == "/Shared/B":
+                raise HTTPException(429, "busy")
+            return {"files": [], "folders": []}
+        out = self._scan(egnyte)
+        self.assertEqual(out["scannedRoots"], ["/Shared/A"])
+        self.assertEqual(out["deferred"], ["/Shared/B", "/Shared/C"])
+        self.assertEqual(out["failedRoots"], [])
+        self.assertGreater(out["cooldownSec"], 0)
+
+    def test_a_broken_folder_is_still_failed_and_needs_no_cooldown(self):
+        def egnyte(token, fn, root):
+            if root == "/Shared/B":
+                raise HTTPException(502, "boom")
+            return {"files": [], "folders": []}
+        out = self._scan(egnyte)
+        self.assertEqual(out["failedRoots"], ["/Shared/B"])
+        self.assertEqual(out["scannedRoots"], ["/Shared/A", "/Shared/C"])
+        self.assertEqual(out["cooldownSec"], 0)
+
+
 class TestPacing(unittest.TestCase):
     def test_calls_for_one_identity_are_spaced(self):
         from routers import filing
