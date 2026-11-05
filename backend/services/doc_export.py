@@ -188,7 +188,7 @@ def _text_runs(nodes, merge: dict) -> list:
                 runs.append({"text": "", "bold": False, "italic": False, "underline": False,
                              **_EMPTY_RUN_STYLE,
                              "image": {"src": src, "width": attrs.get("width"),
-                                       "height": attrs.get("height")}})
+                                       "height": attrs.get("height"), "style": _image_style(attrs)}})
         else:
             runs.extend(_text_runs(n.get("content"), merge))
     return runs
@@ -264,7 +264,8 @@ def _walk_blocks(nodes, merge: dict) -> list:
             attrs = n.get("attrs") or {}
             src = attrs.get("src") or ""
             if src:
-                blocks.append({"type": "image", "src": src, "width": attrs.get("width"), "height": attrs.get("height")})
+                blocks.append({"type": "image", "src": src, "width": attrs.get("width"), "height": attrs.get("height"),
+                               "style": _image_style(attrs)})
         elif t == "pageBreak":
             blocks.append({"type": "pageBreak"})
         elif t == "docShape":
@@ -324,9 +325,126 @@ def _blocks_to_plaintext(blocks: list) -> str:
     return "   |   ".join(lines)
 
 
-def _fetch_image_bytes(url: str):
+def _image_style(attrs: dict):
+    """What Picture Format did to a picture (Pranshu, 11/05/2026: it must
+    print too): a crop, rotation, flips, a border color and a frame. None
+    when the picture is as inserted, so the bytes pass through untouched."""
+    crop = attrs.get("crop") or {}
+    crop = {k: float(crop.get(k) or 0) for k in ("top", "right", "bottom", "left")}
+    style = {"rotation": int(attrs.get("rotation") or 0) % 360, "flipH": bool(attrs.get("flipH")),
+             "flipV": bool(attrs.get("flipV")), "borderColor": attrs.get("borderColor") or None,
+             "frame": attrs.get("frame") or "none", "crop": crop if any(crop.values()) else None}
+    plain = (not style["rotation"] and not style["flipH"] and not style["flipV"]
+             and not style["borderColor"] and style["frame"] == "none" and not style["crop"])
+    return None if plain else style
+
+
+def _styled_image_bytes(data, style):
+    """Bakes a picture's Picture Format into its pixels (a PNG), the same
+    look the editor draws with CSS: the crop (percent of each edge), flips,
+    rotation, a 2px border, and the Simple Frame / Soft Shadow / Rounded
+    Corners styles. Pillow only; a picture Pillow cannot read comes back as
+    it was."""
+    if not data or not style:
+        return data
+    try:
+        from PIL import Image, ImageDraw, ImageFilter
+        img = Image.open(io.BytesIO(data)).convert("RGBA")
+        crop = style.get("crop")
+        if crop:
+            w, h = img.size
+            box = (round(w * crop["left"] / 100), round(h * crop["top"] / 100),
+                   round(w * (1 - crop["right"] / 100)), round(h * (1 - crop["bottom"] / 100)))
+            if box[2] - box[0] >= 2 and box[3] - box[1] >= 2:
+                img = img.crop(box)
+        if style.get("flipH"):
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        if style.get("flipV"):
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+        unit = max(1, round(img.width / 160))          # about 1 CSS px at the size the editor shows it
+        if style.get("frame") == "rounded":
+            mask = Image.new("L", img.size, 0)
+            ImageDraw.Draw(mask).rounded_rectangle([0, 0, img.width - 1, img.height - 1], radius=14 * unit, fill=255)
+            img.putalpha(mask)
+        if style.get("borderColor"):
+            ImageDraw.Draw(img).rectangle([0, 0, img.width - 1, img.height - 1], outline=style["borderColor"], width=2 * unit)
+        if style.get("frame") == "simple":
+            pad = 4 * unit
+            framed = Image.new("RGBA", (img.width + 2 * pad + 2 * unit, img.height + 2 * pad + 2 * unit), (209, 213, 219, 255))
+            inner = Image.new("RGBA", (img.width + 2 * pad, img.height + 2 * pad), (255, 255, 255, 255))
+            inner.alpha_composite(img, (pad, pad))
+            framed.alpha_composite(inner, (unit, unit))
+            img = framed
+        elif style.get("frame") == "shadow":
+            off, blur = 4 * unit, 6 * unit
+            canvas = Image.new("RGBA", (img.width + off + blur * 2, img.height + off + blur * 2), (0, 0, 0, 0))
+            shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+            ImageDraw.Draw(shadow).rectangle([off + blur, off + blur, off + blur + img.width, off + blur + img.height], fill=(0, 0, 0, 77))
+            canvas.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(blur)))
+            canvas.alpha_composite(img, (blur, blur))
+            img = canvas
+        if style.get("rotation"):
+            img = img.rotate(-style["rotation"], expand=True)   # CSS rotates clockwise
+        out = io.BytesIO()
+        img.save(out, format="PNG")
+        return out.getvalue()
+    except Exception:
+        return data
+
+
+def _docx_baked(style):
+    """For DOCX only the frame styles are baked into the pixels; crop,
+    rotation, flips and the border go into Word's own XML (_docx_picture_format)
+    so Word, and a re-import, keep them editable."""
+    if style and style.get("frame") not in (None, "none"):
+        return {"frame": style["frame"]}
+    return None
+
+
+def _docx_picture_format(shape, style):
+    """a:srcRect (the crop, in thousandths of a percent), a:xfrm rot / flipH /
+    flipV and a:ln (the border) on the picture python-docx just added - the
+    elements the importer (docxToTiptap.js pictureFormatFrom) reads back."""
+    if not style or shape is None:
+        return
+    try:
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        pic = shape._inline.graphic.graphicData.pic
+        crop = style.get("crop")
+        if crop:
+            rect = OxmlElement("a:srcRect")
+            for key, val in (("l", crop["left"]), ("t", crop["top"]), ("r", crop["right"]), ("b", crop["bottom"])):
+                if val:
+                    rect.set(key, str(int(round(val * 1000))))
+            pic.blipFill.blip.addnext(rect)
+        xfrm = pic.spPr.find(qn("a:xfrm"))
+        if xfrm is not None:
+            if style.get("rotation"):
+                xfrm.set("rot", str(int(style["rotation"] * 60000)))
+            if style.get("flipH"):
+                xfrm.set("flipH", "1")
+            if style.get("flipV"):
+                xfrm.set("flipV", "1")
+        color = (style.get("borderColor") or "").lstrip("#")
+        if re.fullmatch(r"[0-9a-fA-F]{6}", color):
+            ln = OxmlElement("a:ln")
+            ln.set("w", "19050")                   # 1.5pt, Word's default picture border
+            fill = OxmlElement("a:solidFill")
+            clr = OxmlElement("a:srgbClr")
+            clr.set("val", color.upper())
+            fill.append(clr)
+            ln.append(fill)
+            pic.spPr.append(ln)
+    except Exception:
+        pass                                       # the picture is in; its format is a nicety
+
+
+def _fetch_image_bytes(url: str, style=None):
     if not url:
         return None
+    if style:
+        return _styled_image_bytes(_fetch_image_bytes(url), style)
     # A picture carried INLINE as a data: URI rather than hosted. The .docx
     # importer falls back to this whenever the storage upload does not happen -
     # no bucket configured, an offline laptop, a permission - and httpx cannot
@@ -413,10 +531,10 @@ def _pdf_font_face(family: str) -> str:
     return "Helvetica"
 
 
-def _pdf_image_flowable(url: str, max_width_pt: float):
+def _pdf_image_flowable(url: str, max_width_pt: float, style=None):
     from reportlab.lib.utils import ImageReader
     from reportlab.platypus import Image as RLImage
-    data = _fetch_image_bytes(url)
+    data = _fetch_image_bytes(url, style)
     if not data:
         return None
     try:
@@ -462,7 +580,7 @@ def _pdf_inline_image_markup(image: dict) -> str:
     already-inline data URI) goes through the same one reader, and reportlab
     never has to reach the network mid-render.
     """
-    data = _fetch_image_bytes(image.get("src") or "")
+    data = _fetch_image_bytes(image.get("src") or "", image.get("style"))
     if not data:
         return ""
     try:
@@ -850,9 +968,9 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anch
             # exactly in DOCX but only approximated (width capped, height
             # follows aspect ratio) here.
             if b.get("width"):
-                img = _pdf_image_flowable(b["src"], min(b["width"] * 0.75, content_width))
+                img = _pdf_image_flowable(b["src"], min(b["width"] * 0.75, content_width), b.get("style"))
             else:
-                img = _pdf_image_flowable(b["src"], content_width)
+                img = _pdf_image_flowable(b["src"], content_width, b.get("style"))
             if img:
                 flow.append(img)
                 flow.append(Spacer(1, 3 * mm))
@@ -1158,18 +1276,28 @@ def _docx_add_inline_image(paragraph, image: dict) -> None:
     is what makes the avatar sit beside the speaker's name rather than on a
     line below it. python-docx draws a picture added to a run inline by
     default, so this needs no drawing-anchor XML of its own."""
-    from docx.shared import Pt
-    data = _fetch_image_bytes(image.get("src") or "")
+    from docx.shared import Inches
+    data = _fetch_image_bytes(image.get("src") or "", _docx_baked(image.get("style")))
     if not data:
         return
     width = _font_size_num(image.get("width"))
+    height = _font_size_num(image.get("height"))
     try:
-        # Width in POINTS, the same px-as-pt approximation the PDF path makes,
-        # so the two exports agree. No width: python-docx uses the picture's
-        # own size.
-        paragraph.add_run().add_picture(
-            io.BytesIO(data),
-            width=Pt(min(width, _INLINE_IMAGE_MAX_PT)) if width else None)
+        # The editor's px at 96 an inch, the same as the block path and what
+        # the importer reads back (11/06/2026: in points, a 240px picture
+        # came back 320px wide). No width: python-docx uses the picture's own
+        # size. Both sides given: honored exactly, a stretch included.
+        max_px = _INLINE_IMAGE_MAX_PT / 0.75
+        if width and width > max_px:
+            height = height * (max_px / width) if height else None
+            width = max_px
+        kwargs = {}
+        if width:
+            kwargs["width"] = Inches(width / 96)
+        if width and height:
+            kwargs["height"] = Inches(height / 96)
+        shape = paragraph.add_run().add_picture(io.BytesIO(data), **kwargs)
+        _docx_picture_format(shape, image.get("style"))
     except Exception:
         # A picture python-docx cannot decode must not take the document with
         # it - the text around it is the part that matters.
@@ -1431,7 +1559,7 @@ def _blocks_to_docx(doc, blocks: list) -> None:
             if b["rows"]:
                 _docx_table(doc, b, is_document)
         elif t == "image":
-            data = _fetch_image_bytes(b["src"])
+            data = _fetch_image_bytes(b["src"], _docx_baked(b.get("style")))
             if data:
                 try:
                     # Word-parity resize (Phase 15) - an explicit width/height
@@ -1448,7 +1576,8 @@ def _blocks_to_docx(doc, blocks: list) -> None:
                         kwargs["height"] = Inches(b["height"] / 96)
                     if not kwargs:
                         kwargs["width"] = Inches(5.5)
-                    doc.add_paragraph().add_run().add_picture(io.BytesIO(data), **kwargs)
+                    shape = doc.add_paragraph().add_run().add_picture(io.BytesIO(data), **kwargs)
+                    _docx_picture_format(shape, b.get("style"))
                 except Exception:
                     pass
         elif t == "shape":

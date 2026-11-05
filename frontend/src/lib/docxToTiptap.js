@@ -441,6 +441,40 @@ function dataUriOf(bytes, mime) {
 // each one came in fifteen times too big and shoved the text around it.
 const EMU_PER_PX = 9525; // 914400 EMU per inch / 96 CSS px per inch
 
+// Word's own picture format, kept as the editor's attrs (Pranshu,
+// 11/05/2026: "the format is maintained"): a:srcRect is the crop in
+// thousandths of a percent, a:xfrm carries rot (60000ths of a degree) and
+// the flips, a:ln the border, and wp:anchor's wrap says how text goes
+// around it. The exporter writes the same elements back.
+function pictureFormatFrom(drawingEl) {
+  const out = {};
+  const src = els(drawingEl, 'a', 'srcRect')[0];
+  if (src) {
+    const pct = (k) => (parseInt(src.getAttribute(k), 10) || 0) / 1000;
+    const crop = { top: pct('t'), right: pct('r'), bottom: pct('b'), left: pct('l') };
+    if (Object.values(crop).some(Boolean)) out.crop = crop;
+  }
+  const xfrm = els(drawingEl, 'a', 'xfrm')[0];
+  if (xfrm) {
+    const rot = Math.round((parseInt(xfrm.getAttribute('rot'), 10) || 0) / 60000) % 360;
+    if (rot) out.rotation = rot;
+    if (xfrm.getAttribute('flipH') === '1') out.flipH = true;
+    if (xfrm.getAttribute('flipV') === '1') out.flipV = true;
+  }
+  const ln = els(drawingEl, 'a', 'ln')[0];
+  const clr = ln && !els(ln, 'a', 'noFill').length ? els(ln, 'a', 'srgbClr')[0] : null;
+  if (clr && /^[0-9a-f]{6}$/i.test(clr.getAttribute('val') || '')) out.borderColor = `#${clr.getAttribute('val').toLowerCase()}`;
+  const anchor = els(drawingEl, 'wp', 'anchor')[0];
+  if (anchor) {
+    if (els(anchor, 'wp', 'wrapNone').length) out.wrapMode = anchor.getAttribute('behindDoc') === '1' ? 'behind' : 'front';
+    else if (els(anchor, 'wp', 'wrapSquare').length || els(anchor, 'wp', 'wrapTight').length) {
+      const align = els(els(anchor, 'wp', 'positionH')[0], 'wp', 'align')[0];
+      out.wrapMode = align && align.textContent.trim() === 'right' ? 'squareRight' : 'square';
+    }
+  }
+  return out;
+}
+
 function drawingSizePx(drawingEl) {
   const extent = els(drawingEl, 'wp', 'extent')[0] || els(drawingEl, 'a', 'ext')[0];
   if (!extent) return null;
@@ -574,7 +608,7 @@ async function runToNodes(runEl, styleRunProps, link, ctx, state) {
       const rId = (blip && blip.getAttributeNS(NS.r, 'embed')) || (imagedata && imagedata.getAttributeNS(NS.r, 'id'));
       const size = tag === 'drawing' ? drawingSizePx(child) : vmlSizePx(child);
       const img = rId ? await imageNodeFor(rId, size, ctx) : null;
-      if (img) nodes.push(img);
+      if (img) { Object.assign(img.attrs, pictureFormatFrom(child)); nodes.push(img); }
       else {
         const box = await textboxFrom(child, size, ctx);
         if (box) after.push(box);

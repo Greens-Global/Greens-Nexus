@@ -9624,6 +9624,18 @@ body:has(.apv-phone) { overflow-x: clip; }
 .doc-img-frame-simple { padding: 4px; background: #fff; box-shadow: 0 0 0 1px #d1d5db; }
 .doc-img-frame-shadow { box-shadow: 4px 4px 12px rgba(0, 0, 0, 0.3); }
 .doc-img-frame-rounded img { border-radius: 14px; }
+.doc-image-wrap.doc-img-cropped { overflow: hidden; }
+.doc-image-wrap.doc-img-cropped img { max-width: none; }
+.doc-crop-handle { display: none; position: absolute; background: #111827; border: 1px solid #fff; z-index: 21; touch-action: none; }
+.doc-crop-handle.is-top, .doc-crop-handle.is-bottom { left: 50%; width: 30px; height: 10px; margin-left: -15px; cursor: ns-resize; }
+.doc-crop-handle.is-left, .doc-crop-handle.is-right { top: 50%; width: 10px; height: 30px; margin-top: -15px; cursor: ew-resize; }
+.doc-crop-handle.is-top { top: -5px; }
+.doc-crop-handle.is-bottom { bottom: -5px; }
+.doc-crop-handle.is-left { left: -5px; }
+.doc-crop-handle.is-right { right: -5px; }
+.doc-image-wrap.is-cropping { outline: 2px dashed #111827; outline-offset: 1px; }
+.doc-image-wrap.is-cropping .doc-crop-handle { display: block; }
+.doc-image-wrap.is-cropping .doc-resize-handle { display: none; }
 .doc-ctx-menu { z-index: 1000; }
 .doc-ctx-menu .doc-ribbon-item { display: flex; align-items: center; gap: 8px; }
 .doc-ctx-menu .doc-ribbon-item.is-sub { padding-left: 26px; }

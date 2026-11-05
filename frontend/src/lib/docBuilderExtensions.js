@@ -246,7 +246,7 @@ export const WRAP_MODES = [
 // without breaking float-based wrapping). Behind/Front are position:absolute,
 // anchored to .doc-page (which gets position:relative in style.css) via x/y.
 function applyWrapStyle(dom, attrs) {
-  const { wrapMode, x = 0, y = 0, shapeType, rotation = 0, flipH, flipV } = attrs;
+  const { wrapMode, x = 0, y = 0, shapeType, rotation = 0 } = attrs;
   dom.style.position = '';
   dom.style.float = '';
   dom.style.left = '';
@@ -272,7 +272,7 @@ function applyWrapStyle(dom, attrs) {
     dom.style.pointerEvents = wrapMode === 'behind' ? 'none' : 'auto';
   }
   dom.classList.toggle('doc-draggable', wrapMode !== 'inline' && !!wrapMode);
-  dom.style.transform = [rotation ? `rotate(${rotation}deg)` : '', flipH ? 'scaleX(-1)' : '', flipV ? 'scaleY(-1)' : ''].filter(Boolean).join(' ');
+  dom.style.transform = rotation ? `rotate(${rotation}deg)` : '';
 }
 
 // Creates the small drag-grip element and wires pointer-drag → live style
@@ -400,6 +400,74 @@ function createResizeHandle({ view, getPos, getAttrs, minW = 24, minH = 24 }) {
   handle.addEventListener('pointercancel', endResize);
 
   return handle;
+}
+
+// Crop (Pranshu, 11/05/2026, Word's Picture > Crop): `crop` is the percent
+// cut from each edge; the node's width/height stay the size of what is
+// shown. On screen the picture is enlarged and shifted inside the box; the
+// exporter bakes the same cut into the pixels (PDF) or writes Word's own
+// a:srcRect (DOCX). Four edge handles show while the builder marks the box
+// `is-cropping`; dragging one moves that edge and the box with it, so the
+// picture itself does not scale.
+function applyCrop(dom, img, crop) {
+  const c = crop || {};
+  const l = (c.left || 0) / 100, r = (c.right || 0) / 100, t = (c.top || 0) / 100, b = (c.bottom || 0) / 100;
+  const on = l + r + t + b > 0;
+  dom.classList.toggle('doc-img-cropped', on);
+  if (!on) { img.style.marginLeft = ''; img.style.marginTop = ''; return; }
+  img.style.width = `${100 / (1 - l - r)}%`;
+  img.style.height = `${100 / (1 - t - b)}%`;
+  img.style.marginLeft = `-${(l / (1 - l - r)) * 100}%`;
+  img.style.marginTop = `-${(t / (1 - t - b)) * 100}%`;
+}
+
+function createCropHandles({ view, getPos, getAttrs }) {
+  const handles = ['top', 'right', 'bottom', 'left'].map((edge) => {
+    const h = document.createElement('div');
+    h.className = `doc-crop-handle is-${edge}`;
+    h.title = 'Drag to crop';
+    let active = false, startX = 0, startY = 0, box = null, dom = null;
+    h.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      active = true; dom = h.parentElement; startX = e.clientX; startY = e.clientY;
+      box = { w: dom.clientWidth, h: dom.clientHeight };
+      h.setPointerCapture(e.pointerId);
+    });
+    const next = (e) => {
+      const a = getAttrs(), c = { top: 0, right: 0, bottom: 0, left: 0, ...(a.crop || {}) };
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      const fullW = box.w / (1 - (c.left + c.right) / 100), fullH = box.h / (1 - (c.top + c.bottom) / 100);
+      const clamp = (v, other) => Math.max(0, Math.min(90 - other, v));
+      let w = box.w, hh = box.h;
+      if (edge === 'left') { c.left = clamp(c.left + (dx / fullW) * 100, c.right); w = fullW * (1 - (c.left + c.right) / 100); }
+      if (edge === 'right') { c.right = clamp(c.right - (dx / fullW) * 100, c.left); w = fullW * (1 - (c.left + c.right) / 100); }
+      if (edge === 'top') { c.top = clamp(c.top + (dy / fullH) * 100, c.bottom); hh = fullH * (1 - (c.top + c.bottom) / 100); }
+      if (edge === 'bottom') { c.bottom = clamp(c.bottom - (dy / fullH) * 100, c.top); hh = fullH * (1 - (c.top + c.bottom) / 100); }
+      return { crop: c, width: Math.round(w), height: Math.round(hh) };
+    };
+    h.addEventListener('pointermove', (e) => {
+      if (!active) return;
+      const n = next(e);
+      dom.style.width = `${n.width}px`; dom.style.height = `${n.height}px`;
+      applyCrop(dom, dom.querySelector('img'), n.crop);
+    });
+    const end = (e) => {
+      if (!active) return;
+      active = false;
+      const n = next(e);
+      const pos = getPos();
+      if (typeof pos !== 'number') return;
+      const node = view.state.doc.nodeAt(pos);
+      if (!node) return;
+      const tr = view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...n });
+      tr.setSelection(NodeSelection.create(tr.doc, pos));
+      view.dispatch(tr);
+    };
+    h.addEventListener('pointerup', end);
+    h.addEventListener('pointercancel', end);
+    return h;
+  });
+  return handles;
 }
 
 // Block, non-editable shape. Rendered live via a NodeView (Phase 9 - plain
@@ -634,6 +702,7 @@ export const ResizableImage = TiptapImage.extend({
       flipV: { default: false },
       borderColor: { default: null },
       frame: { default: 'none' },
+      crop: { default: null },        // { top, right, bottom, left } percent cut from each edge
     };
   },
 
@@ -652,6 +721,8 @@ export const ResizableImage = TiptapImage.extend({
       dom.appendChild(handle);
       const resizeHandle = createResizeHandle({ view, getPos, getAttrs: () => currentNode.attrs, minW: 30, minH: 30 });
       dom.appendChild(resizeHandle);
+      const cropHandles = createCropHandles({ view, getPos, getAttrs: () => currentNode.attrs });
+      cropHandles.forEach((h) => dom.appendChild(h));
 
       function render(attrs) {
         img.src = attrs.src || '';
@@ -662,7 +733,10 @@ export const ResizableImage = TiptapImage.extend({
         if (attrs.height) { dom.style.height = `${attrs.height}px`; img.style.height = '100%'; }
         else { dom.style.height = ''; img.style.height = ''; }
         img.style.border = attrs.borderColor ? `2px solid ${attrs.borderColor}` : '';
-        dom.className = `doc-image-wrap doc-floatable doc-img-frame-${attrs.frame || 'none'}`;
+        img.style.transform = [attrs.flipH ? 'scaleX(-1)' : '', attrs.flipV ? 'scaleY(-1)' : ''].filter(Boolean).join(' ');   // flips on the picture, so the handles stay put
+        const cropping = dom.classList.contains('is-cropping');
+        dom.className = `doc-image-wrap doc-floatable doc-img-frame-${attrs.frame || 'none'}${cropping ? ' is-cropping' : ''}`;
+        applyCrop(dom, img, attrs.crop);
         applyWrapStyle(dom, attrs);
       }
 
@@ -677,7 +751,7 @@ export const ResizableImage = TiptapImage.extend({
           return true;
         },
         stopEvent(event) {
-          return handle.contains(event.target) || resizeHandle.contains(event.target);
+          return handle.contains(event.target) || resizeHandle.contains(event.target) || cropHandles.some((h) => h.contains(event.target));
         },
       };
     };

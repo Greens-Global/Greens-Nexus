@@ -16,7 +16,7 @@ import {
   Variable, Lock, LockOpen, Wand2, ListChecks, PenLine, BadgeCheck,
   Mic, Ruler as RulerIcon, PanelLeft, BookOpen, SpellCheck, Accessibility, MessageSquare, Hash, Stamp, HelpCircle,
   FilePlus, Eraser, Baseline, AlignVerticalSpaceAround, LayoutPanelTop, Columns2,
-  FlipHorizontal, FlipVertical, Frame, Replace, Image as ImageIcon, Move,
+  FlipHorizontal, FlipVertical, Frame, Replace, Image as ImageIcon, Move, Crop,
 } from 'lucide-react';
 import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS, useDismiss } from './docRibbon/ui';
@@ -495,6 +495,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // right-click menu). The tab shows while a picture is selected.
   const [lockAspect, setLockAspect] = useState(true);
   const [imgMenu, setImgMenu] = useState(null);           // { x, y } of the open right-click menu
+  const [cropping, setCropping] = useState(false);        // Picture > Crop: the edge handles are out
   const changePictureRef = useRef(false);                 // the next picked file replaces the selected picture
   const [saveStatus, setSaveStatus] = useState('idle');
   // Whether this document has ever held real content in this session - the
@@ -1517,7 +1518,20 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       activeEditor.chain().focus().updateAttributes('image', side === 'center' ? { wrapMode: 'inline', x: 0, y: 0 } : {}).setTextAlign(side).setNodeSelection(pos).run();
     } else setImg({ wrapMode: side === 'right' ? 'squareRight' : 'square', x: 0, y: 0 });
   };
-  const resetImg = () => setImg({ width: null, height: null, rotation: 0, flipH: false, flipV: false, borderColor: null, frame: 'none', wrapMode: 'inline', x: 0, y: 0 });
+  const resetImg = () => setImg({ width: null, height: null, rotation: 0, flipH: false, flipV: false, borderColor: null, frame: 'none', crop: null, wrapMode: 'inline', x: 0, y: 0 });
+  // Crop mode marks the selected picture's box so its edge handles show
+  // (lib/docBuilderExtensions.js draws and drags them); it ends with the
+  // selection, Escape, or the button.
+  const cropBox = () => imgEl()?.parentElement || null;
+  useEffect(() => {
+    const el = cropping && imgAttrs ? cropBox() : null;
+    if (!el) return undefined;
+    el.classList.add('is-cropping');
+    const onKey = (e) => { if (e.key === 'Escape') setCropping(false); };
+    document.addEventListener('keydown', onKey);
+    return () => { el.classList.remove('is-cropping'); document.removeEventListener('keydown', onKey); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cropping, imgAttrs?.src, selectionTick]);
   const changePicture = () => { changePictureRef.current = true; fileInputRef.current?.click(); };
   const PICTURE_WRAPS = [['inline', 'In Line with Text'], ['square', 'Square Left'], ['squareRight', 'Square Right'], ['behind', 'Behind Text'], ['front', 'In Front of Text']];
   // Right-click on a picture: select it and open the menu where the mouse is.
@@ -1540,7 +1554,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const pictureSelected = !!imgAttrs;
   useEffect(() => {
     if (pictureSelected) setRibbonTab('picture');
-    else setRibbonTab((t) => (t === 'picture' ? 'home' : t));
+    else { setRibbonTab((t) => (t === 'picture' ? 'home' : t)); setCropping(false); }
   }, [pictureSelected]);
 
   // Word's Home > Clipboard > Cut/Copy/Paste - the editor is a native
@@ -3369,6 +3383,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               { label: 'Flip Horizontal', icon: FlipHorizontal, onClick: () => setImg({ flipH: !imgAttrs.flipH }), active: !!imgAttrs.flipH }]} />
           </Group>
           <Group label="Size">
+            <BigBtn icon={Crop} label="Crop" title="Crop - drag the edge handles; the picture keeps its size and the box shrinks. Esc or Crop again to finish." active={cropping} onClick={() => setCropping((c) => !c)} />
             <div className="doc-ribbon-stack" style={{ gap: 4 }}>
               <label className="doc-ribbon-field">Height
                 <input type="number" step="0.1" min="0.1" aria-label="Picture height, in inches" value={imgBox.h ? (imgBox.h / 96).toFixed(2) : ''}
@@ -3520,6 +3535,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           { label: 'Paste', icon: ClipboardPaste, hint: 'Ctrl+V', onClick: () => clipboardAction('paste') },
           '-',
           { label: 'Change Picture…', icon: Replace, onClick: changePicture },
+          { label: 'Crop', icon: Crop, onClick: () => { setRibbonTab('picture'); setCropping(true); } },
           { label: 'Wrap Text', heading: true },
           ...PICTURE_WRAPS.map(([value, label]) => ({ label, sub: true, active: (imgAttrs.wrapMode || 'inline') === value, onClick: () => setImg({ wrapMode: value, x: 0, y: 0 }) })),
           '-',

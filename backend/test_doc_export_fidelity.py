@@ -7,6 +7,7 @@ a header and footer with real paragraphs, and a clickable Word hyperlink.
 
     python -m pytest test_doc_export_fidelity.py
 """
+import base64
 import io
 import re
 import unittest
@@ -90,6 +91,44 @@ class PdfTests(unittest.TestCase):
             _p("Quarterly Vendor Agreement", marks=[{"type": "link", "attrs": {"href": "#toc:pg_1:quarterly"}}])]}
         text = _pdf_text(render_pdf("T", [], [tiptap_to_blocks(body, {})], [], None, None))
         self.assertIn("Quarterly Vendor Agreement", text)
+
+    def test_picture_format_prints(self):
+        # Picture Format (crop, flip, rotate, border, frame) is baked into the
+        # picture's pixels on export, so PDF and DOCX show what the page shows.
+        from PIL import Image
+        from services.doc_export import _image_style, _styled_image_bytes
+        src = Image.new("RGBA", (20, 10), (255, 0, 0, 255))
+        src.paste((0, 0, 255, 255), (0, 0, 10, 10))         # left half blue, right half red
+        buf = io.BytesIO()
+        src.save(buf, format="PNG")
+        raw = buf.getvalue()
+        self.assertIsNone(_image_style({"rotation": 0, "frame": "none", "crop": {"top": 0}}))
+        flipped = Image.open(io.BytesIO(_styled_image_bytes(raw, _image_style({"flipH": True}))))
+        self.assertEqual(flipped.getpixel((0, 0))[:3], (255, 0, 0))          # blue moved to the right
+        rotated = Image.open(io.BytesIO(_styled_image_bytes(raw, _image_style({"rotation": 90}))))
+        self.assertEqual(rotated.size, (10, 20))
+        bordered = Image.open(io.BytesIO(_styled_image_bytes(raw, _image_style({"borderColor": "#00ff00"}))))
+        self.assertEqual(bordered.getpixel((0, 0))[:3], (0, 255, 0))
+        framed = Image.open(io.BytesIO(_styled_image_bytes(raw, _image_style({"frame": "simple"}))))
+        self.assertGreater(framed.width, 20)
+        cropped = Image.open(io.BytesIO(_styled_image_bytes(raw, _image_style({"crop": {"left": 50}}))))
+        self.assertEqual(cropped.size, (10, 10))
+        self.assertEqual(cropped.getpixel((0, 0))[:3], (255, 0, 0))          # only the red half is left
+        # The DOCX keeps crop, rotation, flip and border as Word's own elements
+        # (editable in Word, read back by the importer); only a frame is baked.
+        body = {"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "image", "attrs": {"src": "data:image/png;base64," + base64.b64encode(raw).decode(), "rotation": 90,
+                                        "flipH": True, "borderColor": "#00ff00", "crop": {"left": 10, "top": 5, "right": 0, "bottom": 0}}}]}]}
+        with zipfile.ZipFile(io.BytesIO(render_docx("T", [], [tiptap_to_blocks(body, {})], [], None, None))) as z:
+            xml = z.read("word/document.xml").decode("utf-8")
+            media = [n for n in z.namelist() if n.startswith("word/media/")]
+            self.assertTrue(media)
+            self.assertEqual(Image.open(io.BytesIO(z.read(media[0]))).size, (20, 10))   # pixels untouched
+        self.assertRegex(xml, r'<a:srcRect[^>]*l="10000"')
+        self.assertRegex(xml, r'<a:srcRect[^>]*t="5000"')
+        self.assertRegex(xml, r'<a:xfrm[^>]*rot="5400000"')
+        self.assertRegex(xml, r'<a:xfrm[^>]*flipH="1"')
+        self.assertIn('<a:srgbClr val="00FF00"/>', xml)
 
     def test_tracked_changes_print_as_accepted(self):
         # Review > Track Changes: the PDF shows the final wording - an insertion
