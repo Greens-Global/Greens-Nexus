@@ -2558,6 +2558,8 @@ export const api = {
   // Print And Send (11/04/2026): signed in person - print it, then upload the signed copy.
   printInPerson:       (eid)      => reqBlob(`/hr/life-events/${eid}/print`),
   uploadSignedInPerson: (eid, file) => { const fd = new FormData(); fd.append('file', file); return req(`/hr/life-events/${eid}/signed-in-person`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
+  // A hiring packet filled in and signed on paper before it was sent - the scan completes it (11/05/2026).
+  uploadSignedOnPaper:  (eid, file) => { const fd = new FormData(); fd.append('file', file); return req(`/hr/life-events/${eid}/signed-on-paper`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
   offerJdFilePdf:      (eid)      => reqBlob(`/hr/life-events/${eid}/jd-file`),
   verifyAndSendPacket: (eid, data) => req(`/hr/life-events/${eid}/verify-and-send`, { method: 'POST', body: JSON.stringify(data) }),
   // Ask the candidate for their details again - a fresh link, the old one dead.

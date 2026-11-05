@@ -1534,6 +1534,9 @@ def _contract_prints_pay(db: Session, row: HrDocument) -> bool:
     """A contract HrDocument that is the sealed PDF of a pay-printing envelope
     (hr_life_events files it with the envelope's own storage path)."""
     from models import HrSignRequest
+    from hr_life_events import PAPER_PREFIX
+    if (row.storage_path or "").startswith(PAPER_PREFIX):
+        return True     # a scanned paper packet: nobody knows what it prints (pay, bank, SSN) - locked
     return bool(row.storage_path) and db.query(HrSignRequest.id).filter(
         HrSignRequest.final_pdf_path == row.storage_path, HrSignRequest.prints_pay == 1).first() is not None
 
