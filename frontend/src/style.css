@@ -6528,9 +6528,39 @@ body:has(.docs-root) { overflow-x: clip; }
 .hw-tab.active { color: var(--wk-brand, #2b45e1); }
 .hw-tab:hover { color: var(--ink); }
 .hw-tab.active:hover { color: var(--wk-brand, #2b45e1); }
-.hw-card:focus-visible, .hw-row:focus-visible, .hw-tab:focus-visible, .hw-close:focus-visible, .hw-back:focus-visible {
+.hw-card:focus-visible, .hw-row:focus-visible, .hw-tab:focus-visible, .hw-close:focus-visible, .hw-back:focus-visible,
+.hw-size:focus-visible {
   outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px;
 }
+/* Make Smaller / Expand (HelpWidget.jsx): a long answer or a guide article
+   opens the panel to a full-height sheet on the right (Neil, 11/04/2026).
+   Computers only - at 900px and under the panel is already full screen. */
+.hw-size {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; flex-shrink: 0;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card);
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--ink); cursor: pointer;
+}
+.hw-size:hover { background: var(--mist); }
+.hw-scrim { display: none; }
+@media (min-width: 901px) {
+  .hw-scrim {
+    display: block; position: fixed; inset: 0; z-index: 449;
+    background: rgba(15,23,42,.28); animation: nx-fade-in var(--dur-sm) ease-out;
+  }
+  .help-widget.is-expanded {
+    top: 0; right: 0; bottom: 0; height: auto;
+    width: min(720px, calc(100vw - 40px));
+    border-radius: 18px 0 0 18px; border-right: none;
+    box-shadow: -8px 0 40px rgba(0,0,0,.18);
+    animation: nx-slide-in var(--dur-lg) var(--ease-out);
+    --nx-ask-fs: 14.5px; --nx-ask-lh: 1.65;
+  }
+  .help-widget.is-expanded .hw-pad > * { max-width: 640px; }
+  .help-widget.is-expanded .hw-p,
+  .help-widget.is-expanded .hw-steps li { font-size: 14.5px; line-height: 1.65; }
+}
+@media (max-width: 900px) { .hw-size { display: none; } }
+@media (prefers-reduced-motion: reduce) { .help-widget.is-expanded, .hw-scrim { animation: none; } }
 @media (max-width: 900px) {
   .help-menu-btn { display: none; }
   /* No button here on a phone, and the widget is full-screen: the empty
