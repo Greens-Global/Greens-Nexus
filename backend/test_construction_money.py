@@ -283,7 +283,8 @@ class MoneyTests(JobsBase):
         self.assertEqual(body["forecast"], 60300.0)
         self.assertTrue(body["overBudget"])
         flags = self.client.get("/construction/money/flags").json()["flags"]
-        self.assertEqual(flags, {"pa": {"overBudget": True}})
+        # Round Two: the Program table reads the same figures the tab shows.
+        self.assertEqual(flags, {"pa": {"overBudget": True, "actual": 51300.0, "budget": 60000.0, "forecast": 60300.0}})
         path, params = next(c for c in self.calls if c[1].get("by") == "project")
         self.assertEqual((params["project"], params["location"]), ("PJ-104", "15000"))
         # Another job manager who is neither the approver nor HR sees no names.

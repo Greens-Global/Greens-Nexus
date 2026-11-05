@@ -252,7 +252,10 @@ def test_the_write_client_refuses_before_any_http_while_off(db, cubby_api, monke
     assert cubby_api.calls == []
 
 
-def test_on_without_a_write_key_is_a_clear_503(db, cubby_api):
+def test_on_without_a_write_key_is_a_clear_503(db, cubby_api, monkeypatch):
+    # No key at all: neither a Manager key nor the sync's own (which writes
+    # when it is the only one, 11/05/2026).
+    monkeypatch.delenv("CUBBY_API_KEY", raising=False)
     _switch(db)
     c = _client()
     c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115})

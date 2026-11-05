@@ -24,8 +24,9 @@ import { googleMapsUrl } from '../lib/addressSearch';
 import { useDraft } from '../lib/useDraft';
 import { PROJECT_STATUS } from './ui';
 import BooksRows from './BooksRows';
+import { JOB_TYPE } from './lib/job';
 import { useBooksDraft } from './lib/money';
-import { useNexusPeople, useProperties, savedOf, changesFor, invalidReason } from './lib/jobForm';
+import { useNexusPeople, useProperties, savedOf, changesFor, invalidReason, targetMoved } from './lib/jobForm';
 
 export default function EditJobSheet({ project, money = null, onClose, onSaved }) {
   const canCost = Object.prototype.hasOwnProperty.call(project, 'contractValue');
@@ -38,7 +39,8 @@ export default function EditJobSheet({ project, money = null, onClose, onSaved }
   const properties = useProperties();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const invalid = invalidReason(draft) || books.invalid;
+  const invalid = invalidReason(draft, saved) || books.invalid;
+  const moved = targetMoved(saved, draft);
 
   const save = async () => {
     if (!dirty || busy || invalid) return;
@@ -71,6 +73,12 @@ export default function EditJobSheet({ project, money = null, onClose, onSaved }
         <SettingRow title="Name" htmlFor="job-name"
           control={<input id="job-name" aria-label="Name" className="form-input" style={{ width: 'min(280px, 52vw)' }} value={draft.name}
             onChange={(e) => patch({ name: e.target.value })} />} />
+        <SettingRow title="Job Type" htmlFor="job-type" desc="A Work Order shows its steps, field record and closeout; a Project every section."
+          control={(
+            <select id="job-type" aria-label="Job Type" className="form-input" value={draft.jobType} onChange={(e) => patch({ jobType: e.target.value })} style={{ width: 150 }}>
+              {Object.entries(JOB_TYPE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          )} />
         <SettingRow title="Jobsite" desc="Paste the jobsite's Google Maps link - the weather is read at that exact point.">
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <WorkSiteLinkPanel link={project.latitude && project.longitude ? 'placed' : ''} point={null} resolve={api.resolveProjectLink} what="jobsite"
@@ -105,6 +113,16 @@ export default function EditJobSheet({ project, money = null, onClose, onSaved }
           control={<DateField value={draft.startOn} onChange={(v) => patch({ startOn: v || '' })} placeholder="Pick a Date" title="Start" />} />
         <SettingRow title="Target Finish" desc="A job past this day and not complete reads Late."
           control={<DateField value={draft.targetFinishOn} onChange={(v) => patch({ targetFinishOn: v || '' })} placeholder="Pick a Date" title="Target Finish" />} />
+        {moved && (
+          <SettingRow title="Why Did It Move?" htmlFor="job-move-reason" desc="Kept on the record and said on the health row and the weekly report.">
+            <input id="job-move-reason" aria-label="Why Did It Move?" className="form-input" style={{ width: '100%' }} value={draft.changeReason}
+              onChange={(e) => patch({ changeReason: e.target.value })} placeholder="e.g. Rain, inspection failed, owner change" maxLength={300} />
+          </SettingRow>
+        )}
+        <SettingRow title="Units" desc="Storage units in the finished building - for cost per unit."
+          control={<NumberBox value={draft.units} min={0} max={100000} width={96} label="Units" onChange={(v) => patch({ units: v })} />} />
+        <SettingRow title="Square Feet" desc="Gross building area - for cost per square foot."
+          control={<NumberBox value={draft.squareFeet} min={0} max={10000000} width={110} unit="sq ft" label="Square Feet" onChange={(v) => patch({ squareFeet: v })} />} />
         {canCost && (
           <SettingRow title="Contract Value" htmlFor="job-cv" desc="Managers only - never shown to the crew."
             control={(

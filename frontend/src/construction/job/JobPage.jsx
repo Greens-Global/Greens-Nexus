@@ -38,6 +38,8 @@ const ScheduleTab = lazy(() => import('./ScheduleTab'));
 const PhotosTab = lazy(() => import('./PhotosTab'));
 const ChangesTab = lazy(() => import('./ChangesTab'));
 const CloseoutTab = lazy(() => import('./CloseoutTab'));
+const PermitsTab = lazy(() => import('./PermitsTab'));
+const SubsTab = lazy(() => import('./SubsTab'));
 // Money (phase 4): its own chunk with the Accounting side panel.
 const MoneyTab = lazy(() => import('./MoneyTab'));
 const tabWait = <SkeletonBlocks count={3} height={120} borderRadius={12} />;
@@ -99,7 +101,7 @@ function Overview({ project, onTab, money }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ ...CARD, marginBottom: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <HealthRow health={project.health} />
+        <HealthRow health={project.health} targetMoves={project.targetMoves} />
         <ProgressTrack value={pct / 100} state={trackStateFor(project)} label={`${project.name} progress`}
           start={project.startOn ? `Started ${formatDate(project.startOn, project.startOn)}` : undefined}
           end={project.targetFinishOn ? `Target ${formatDate(project.targetFinishOn, project.targetFinishOn)}` : undefined}
@@ -124,6 +126,15 @@ function Overview({ project, onTab, money }) {
                     right={m.dueOn ? `${formatDate(m.dueOn, m.dueOn)} (${daysWords(dayGap(project.today, m.dueOn))})` : ''} />
                 ))}
               <div><button type="button" style={linkBtn} onClick={() => onTab('schedule')}>Open Schedule</button></div>
+            </Card>
+          )}
+          {isProject && (
+            <Card icon={ClipboardList} title="Permits And Inspections" testId="inspections">
+              {data.inspections?.next
+                ? <Line left={<b>{data.inspections.next.title}</b>} right={`${formatDate(data.inspections.next.dueOn, data.inspections.next.dueOn)} (${daysWords(dayGap(project.today, data.inspections.next.dueOn))})`} />
+                : <div style={quiet}>No inspection scheduled.</div>}
+              {data.inspections?.failed > 0 && <div style={{ ...quiet, color: 'hsl(var(--color-red))', fontWeight: 600 }}>{plural(data.inspections.failed, 'inspection')} failed - schedule the re-inspection.</div>}
+              <div><button type="button" style={linkBtn} onClick={() => onTab('permits')}>Open Permits And Inspections</button></div>
             </Card>
           )}
           <Card icon={CheckSquare} title="Punch List" testId="punch">
@@ -271,9 +282,10 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
         {active === 'changes' && <Suspense fallback={tabWait}><ChangesTab project={project} /></Suspense>}
         {active === 'field' && <FieldTab project={project} />}
         {active === 'rfis' && (
-          <Registers project={project} canReview={!!project.canEdit} onChanged={onChanged}
-            kinds={['rfis', 'submittals']} title="RFIs And Submittals" />
+          <Registers project={project} canReview={!!project.canEdit} onChanged={onChanged} />
         )}
+        {active === 'permits' && <Suspense fallback={tabWait}><PermitsTab project={project} /></Suspense>}
+        {active === 'subs' && <Suspense fallback={tabWait}><SubsTab project={project} /></Suspense>}
         {active === 'money' && (
           <Suspense fallback={tabWait}>
             <MoneyTab project={project} money={money} onEdit={project.canEdit ? () => setEditing(true) : null} />

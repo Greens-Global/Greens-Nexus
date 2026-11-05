@@ -90,7 +90,8 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe('Job tabs and the URL', () => {
   it('a work order shows Overview, Tasks, Field and Closeout; a project every tab', () => {
     expect(jobTabs('work_order').map((t) => t.label)).toEqual(['Overview', 'Tasks', 'Field', 'Photos', 'Changes', 'Closeout']);
-    expect(jobTabs('project').map((t) => t.key)).toEqual(['overview', 'schedule', 'punch', 'field', 'photos', 'rfis', 'changes', 'closeout']);
+    expect(jobTabs('project').map((t) => t.key)).toEqual(['overview', 'schedule', 'punch', 'field', 'photos', 'rfis', 'permits', 'subs', 'changes', 'closeout']);
+    expect(tabFor('work_order', 'permits')).toBe('overview');
     expect(tabFor('work_order', 'schedule')).toBe('overview');
     expect(tabFor('project', 'rfis')).toBe('rfis');
   });

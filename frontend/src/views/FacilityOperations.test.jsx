@@ -365,7 +365,7 @@ describe('Operations module', () => {
     expect(kpi('Collected')).toBe('$6,000');             // this month: $3,000 at each of two facilities
     expect(kpi('Failed Payments')).toBe('2');
     fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'last-month' } });
-    expect(kpi('Collected')).toBe('$10.0K');
+    expect(kpi('Collected')).toBe('$10K');
     expect(kpi('Failed Payments')).toBe('4');
     expect(kpi('Past Due')).toBe('$1,800');              // a balance is as of today whatever the period
   });
