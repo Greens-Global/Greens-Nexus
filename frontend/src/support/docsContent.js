@@ -969,7 +969,10 @@ export const DOCS = [
           'The editor has the same tabs as Word: File (export, print, version history, page setup), Home (clipboard, font, paragraph, the styles gallery, find, dictate), Insert (page break, table, picture, drawing, text box, signature block, variables, links, bookmarks, table of contents, header and footer, page numbers, symbols), Layout (margins, orientation, size, columns, breaks, line numbers, indents and spacing, page color, watermark), References (table of contents), Review (spelling, word count, accessibility), View (separate pages, reading view, zoom, ruler, navigation) and Help.',
           'A page is a page: text stops at the bottom margin and carries on at the top of the next sheet, and the header, footer and page number repeat on every sheet. Click a thumbnail in the Pages rail to jump to a sheet.',
           'The status bar under the page shows Page X of Y, the word count and the zoom. Full Screen (top right) folds the left menu away.',
-          'Import a Word file with Import at the top: fonts, spacing, lists, tables, links, headers and footers come across as they were.',
+          'Import a Word file with Import at the top of the editor, or with Import beside New Document on the Documents list: fonts, spacing, lists, tables, links, headers and footers come across as they were.',
+          'Format Painter (Home tab), as in Word: put the cursor in text that looks right, click Format Painter, then select or click the text to paint. Double-click the button to paint several places; Esc stops.',
+          'Pictures: click one and the Picture Format tab opens, with styles, a border color, Wrap Text (In Line with Text, Square Left, Square Right, Behind Text, In Front of Text), Align, Rotate and Flip, the size in inches with Lock aspect ratio, Crop (drag the edge handles; the picture keeps its size and the box shrinks; Esc finishes), Change Picture, Reset Picture and Alt Text. Right-click a picture for the same commands. All of it prints into the PDF and DOCX exports, and the crop, rotation, flips, border and wrap a Word file carries come across on import. A picture whose wrap is not In Line moves when you drag it; drag the corner grip to resize.',
+          'Dictate (Home tab) types the words as you say them, revising the phrase as the browser hears more of it. Insert > Symbol holds the symbols and emoji in two tabs.',
         ],
       },
       {
@@ -990,6 +993,8 @@ export const DOCS = [
           'Pick a template, or Blank Document, and who it is for. Its name fills in as the template and the person.',
           'Fill in the details. Merge fields fill themselves. It is made from the wording last published.',
           'It opens beside the list. Send it for signature from there, or put it in a folder.',
+          'To finish in Word: on the File tab of the editor click Open in Word. Word on your computer opens the same document (Export PDF and Export DOCX sit beside it). What you change in Word saves on your computer, not back into Nexus.',
+          'Track Changes (Review tab), as in Word: Track Changes > For Everyone marks every insertion (underlined) and deletion (struck through) with who made it and when; Just Mine tracks in your browser only; Ctrl+Shift+E switches it. Markup View shows the marks on the page or only a bar in the margin. Accept and Reject work on the change at the cursor and move to the next, or on all changes at once; Previous and Next step through them. Mode: Editing, Reviewing (tracking on) or Viewing (read only). Exports print the accepted text; a Word file with tracked changes keeps them.',
         ],
       },
       {

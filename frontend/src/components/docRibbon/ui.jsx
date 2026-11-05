@@ -16,10 +16,10 @@ export function Group({ label, children, className = '' }) {
   );
 }
 
-export function BigBtn({ icon: Icon, label, title, onClick, active, disabled }) {
+export function BigBtn({ icon: Icon, label, title, onClick, onDoubleClick, active, disabled }) {
   return (
     <button type="button" className={`doc-ribbon-big${active ? ' is-active' : ''}`} title={title || label}
-      onClick={onClick} disabled={disabled} aria-pressed={active ? 'true' : undefined}>
+      onClick={onClick} onDoubleClick={onDoubleClick} disabled={disabled} aria-pressed={active ? 'true' : undefined}>
       {Icon && <Icon size={20} />}
       <span>{label}</span>
     </button>

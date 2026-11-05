@@ -9317,7 +9317,17 @@ body:has(.apv-phone) { overflow-x: clip; }
 @media (max-width: 640px) { .doc-comments-pane { width: 100%; flex-basis: auto; position: static; max-height: none; } }
 
 /* Dictation as you speak: the phrase still being recognized, at the cursor. */
-.doc-dictation-live { color: #6b7280; font-style: italic; background: rgba(250, 204, 21, 0.18); border-radius: 3px; pointer-events: none; }
+
+/* Track Changes (Review tab, Nov 2026, lib/docTrackChanges.js): an insertion
+   is underlined and a deletion struck through in the author's color; a
+   paragraph holding a change gets Word's bar in the margin. "Markup in
+   margin" (simple) hides the deletions and shows the final text. */
+.doc-change-ins { color: var(--chg); text-decoration: underline; text-decoration-thickness: 1.5px; }
+.doc-change-del { color: var(--chg); text-decoration: line-through; }
+.doc-changed-block { position: relative; }
+.doc-changed-block::before { content: ""; position: absolute; left: -18px; top: 2px; bottom: 2px; width: 2px; background: #c00000; border-radius: 1px; }
+.doc-markup-simple .doc-change-del { display: none; }
+.doc-markup-simple .doc-change-ins { color: inherit; text-decoration: none; }
 
 /* What's New Timeline: the bar between the list and the detail (Neil,
    11/04/2026). A faint grip shows it can be moved; it turns the brand color
@@ -9595,3 +9605,40 @@ body:has(.apv-phone) { overflow-x: clip; }
 .ts-pbar .ts-pbar-add { border: 1px solid var(--wk-line2); background: var(--card); color: var(--ink); }
 .ts-pbar .ts-pbar-go { flex: 1; border: none; background: var(--wk-brand); color: #fff; }
 .ts-pbar .ts-pbar-go[disabled] { opacity: .5; cursor: default; }
+
+/* ── The ribbon reads as the ribbon (Pranshu, 11/05/2026: "make this part bold
+   so that it is understandable that it is different from pages"): the tab row
+   is a shaded band joined to the toolbar, the active tab in ink. ── */
+.doc-ribbon-tabs { background: var(--mist); border: 1px solid var(--line); border-bottom: none; border-radius: 12px 12px 0 0; padding: 4px 8px 0; margin-bottom: 0; }
+.doc-ribbon-tab { font-size: 13px; font-weight: 700; }
+.doc-toolbar.doc-ribbon { border-radius: 0 0 12px 12px; border-top: 2px solid var(--ink); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }
+.doc-ribbon-field { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: var(--muted); font-family: Inter, sans-serif; white-space: nowrap; }
+.doc-ribbon-field input[type="number"], .doc-ribbon-field input[type="text"], .doc-ribbon-field input:not([type]) {
+  font-size: 12px; font-family: Inter, sans-serif; border: 1px solid var(--line); border-radius: 7px; padding: 3px 6px; color: var(--ink); background: var(--card); width: 64px;
+}
+.doc-ribbon-field input:not([type]) { width: auto; min-width: 150px; }
+
+/* Picture Format: styles, and the picture itself is the grip when it floats. */
+.doc-image-wrap.doc-draggable img { cursor: move; }
+.doc-img-frame-simple { padding: 4px; background: #fff; box-shadow: 0 0 0 1px #d1d5db; }
+.doc-img-frame-shadow { box-shadow: 4px 4px 12px rgba(0, 0, 0, 0.3); }
+.doc-img-frame-rounded img { border-radius: 14px; }
+.doc-image-wrap.doc-img-cropped { overflow: hidden; }
+.doc-image-wrap.doc-img-cropped img { max-width: none; }
+.doc-crop-handle { display: none; position: absolute; background: #111827; border: 1px solid #fff; z-index: 21; touch-action: none; }
+.doc-crop-handle.is-top, .doc-crop-handle.is-bottom { left: 50%; width: 30px; height: 10px; margin-left: -15px; cursor: ns-resize; }
+.doc-crop-handle.is-left, .doc-crop-handle.is-right { top: 50%; width: 10px; height: 30px; margin-top: -15px; cursor: ew-resize; }
+.doc-crop-handle.is-top { top: -5px; }
+.doc-crop-handle.is-bottom { bottom: -5px; }
+.doc-crop-handle.is-left { left: -5px; }
+.doc-crop-handle.is-right { right: -5px; }
+.doc-image-wrap.is-cropping { outline: 2px dashed #111827; outline-offset: 1px; }
+.doc-image-wrap.is-cropping .doc-crop-handle { display: block; }
+.doc-image-wrap.is-cropping .doc-resize-handle { display: none; }
+.doc-ctx-menu { z-index: 1000; }
+.doc-ctx-menu .doc-ribbon-item { display: flex; align-items: center; gap: 8px; }
+.doc-ctx-menu .doc-ribbon-item.is-sub { padding-left: 26px; }
+.doc-ctx-heading { font-size: 11px; font-weight: 700; color: var(--muted); padding: 5px 10px 2px; }
+.doc-ctx-hint { font-size: 11px; color: var(--muted); }
+/* Format Painter armed: a brush for a cursor over the pages. */
+.doc-painting .doc-page .ProseMirror { cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='%23111827' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z'/><path d='M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7'/><path d='M14.5 17.5 4.5 15'/></svg>") 2 20, text; }

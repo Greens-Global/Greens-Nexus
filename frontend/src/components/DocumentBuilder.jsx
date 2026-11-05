@@ -16,8 +16,10 @@ import {
   Variable, Lock, LockOpen, Wand2, ListChecks, PenLine, BadgeCheck,
   Mic, Ruler as RulerIcon, PanelLeft, BookOpen, SpellCheck, Accessibility, MessageSquare, Hash, Stamp, HelpCircle,
   FilePlus, Eraser, Baseline, AlignVerticalSpaceAround, LayoutPanelTop, Columns2,
+  FlipHorizontal, FlipVertical, Frame, Replace, Image as ImageIcon, Move, Crop,
 } from 'lucide-react';
-import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS } from './docRibbon/ui';
+import { NodeSelection, TextSelection } from '@tiptap/pm/state';
+import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS, useDismiss } from './docRibbon/ui';
 import StyleGallery from './docRibbon/StyleGallery';
 import StatusBar from './docRibbon/StatusBar';
 import Ruler from './docRibbon/Ruler';
@@ -30,9 +32,10 @@ import { useDocComments } from './docComments/useDocComments';
 import { commentAnchorEl } from '../lib/docCommentMark';
 import { useRole } from '../contexts/RoleContext';
 import { canDictate, useDictation, spokenAfter } from '../lib/voice';
-import { DictationLive, showDictationLive } from '../lib/docDictationLive';
+import { listChanges } from '../lib/docTrackChanges';
+import { dialog } from '../ui/dialog';
 import FullScreenButton, { useFullScreen } from './FullScreenButton';
-import { api } from '../api';
+import { api, API_BASE } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
 import { FILLED_WHEN } from '../lib/mergeFieldTypes';
 import { BODY_EXTENSIONS, repairDocJson } from '../lib/docBuilderSchema';
@@ -40,7 +43,7 @@ import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import { slugifyToken, variableFromDrop, VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
 import { extractVariables, mergeFieldDefs, sharedDefs, tokensInDoc } from '../lib/extractVariables';
-import { Pagination, paginationKey, planBreaks, measureLines, posAtLineStart, SHEET_SPACE_PX } from '../lib/docBuilderPagination';
+import { Pagination, paginationKey, planBreaks, measureLines, posAtLineStart, marginGrowth, SHEET_SPACE_PX } from '../lib/docBuilderPagination';
 import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, marginsOf, pageCanvasStyle, textFlowPx, sheetPadding, scrollableAncestor } from '../lib/pageSetup';
 import { useIsMobile } from '../lib/useIsMobile';
 import EgnyteBrowser from './EgnyteBrowser';
@@ -90,8 +93,23 @@ export function isEmptyContent(content) {
 const TOKEN_IN_PAGE_RE = /\{\{\s*[A-Za-z0-9_.]+\s*\}\}/;
 
 const FONT_SIZES = ['10', '11', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48'];
-const SYMBOL_CHARS = ['©', '®', '™', '°', '±', '×', '÷', '•', '…', '–', '—', '§', '¶', '†', '‡', '∞', '√', '≈', '≠', '≤', '≥', '€', '£', '¥', '¢', '½', '¼', '¾', 'α', 'β', 'π', 'Ω', '→', '←', '↑', '↓'];
-const EMOJI_CHARS = ['😀', '😂', '😊', '😍', '🙌', '👍', '👎', '🙏', '🎉', '🔥', '✅', '❌', '⚠️', '💡', '📌', '📎', '📅', '⏰', '💬', '📧', '🚀', '⭐', '❤️', '👀', '🤔', '😅', '🙂', '🎯', '📈', '📉'];
+const SYMBOL_CHARS = [
+  '©', '®', '™', '°', '§', '¶', '†', '‡', '•', '…', '–', '—', '«', '»', '‹', '›', '“', '”', '‘', '’', '„', '¡', '¿', '‰', '№', '¦',
+  '±', '×', '÷', '≈', '≠', '≤', '≥', '∞', '√', '∑', '∏', '∫', '∂', '∆', '∇', '∈', '∉', '∩', '∪', '⊂', '⊃', '∧', '∨', '¬', '∝', '∴', '∵', '∠', '⊥', '∥', '‖', '⁄', '¹', '²', '³', '½', '¼', '¾', '⅓', '⅔', '⅛', '⅜', '⅝', '⅞', 'µ',
+  '€', '£', '¥', '¢', '₹', '₽', '₩', '₺', '₫', '฿', '₪',
+  'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'λ', 'μ', 'π', 'ρ', 'σ', 'τ', 'φ', 'χ', 'ψ', 'ω', 'Γ', 'Δ', 'Θ', 'Λ', 'Ξ', 'Π', 'Σ', 'Φ', 'Ψ', 'Ω',
+  '→', '←', '↑', '↓', '↔', '↕', '⇒', '⇐', '⇔', '↗', '↘', '↩', '↪', '⟶', '➔', '➜', '➤',
+  '✓', '✔', '✗', '✘', '☐', '☑', '☒', '★', '☆', '✦', '✧', '♦', '♠', '♣', '♥', '◆', '◇', '■', '□', '▪', '▫', '●', '○', '◦', '▲', '▼', '◄', '►', '◊', '†', '☎', '✉', '✂', '✎', '✏', '⌘', '⌥', '⇧', '⌫', '⏎',
+  'À', 'Á', 'Â', 'Ä', 'Å', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ñ', 'Ö', 'Ø', 'Ü', 'ß', 'à', 'á', 'â', 'ä', 'å', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï', 'ñ', 'ò', 'ó', 'ô', 'ö', 'ø', 'ù', 'ú', 'û', 'ü', 'ÿ', '℃', '℉', 'Ω', '℗', '℠',
+];
+const EMOJI_CHARS = [
+  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '🙂', '😊', '😇', '😍', '🥰', '😘', '😎', '🤓', '🧐', '🤔', '🤨', '😐', '😶', '🙄', '😏', '😬', '😴', '😷', '🤒', '🤕', '🤢', '🥳', '😢', '😭', '😱', '😤', '😡', '🤯', '😳', '🥺', '🤗', '🤫', '🤭', '🫡', '🫠',
+  '👍', '👎', '👌', '✌️', '🤞', '🤝', '👏', '🙌', '🙏', '💪', '👋', '🤙', '☝️', '👆', '👇', '👉', '👈', '✋', '🤲', '✍️', '👀', '👁️', '🧠', '🗣️',
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '💔', '💯', '✅', '❌', '⚠️', '❗', '❓', '‼️', '⭐', '🌟', '✨', '🔥', '💥', '💡', '🔔', '🔕', '🚫', '⛔', '🔴', '🟠', '🟡', '🟢', '🔵', '⚫', '⚪', '🔒', '🔓', '🔑',
+  '📌', '📍', '📎', '🖇️', '📅', '📆', '🗓️', '⏰', '⏳', '⌛', '🕒', '📧', '📨', '📩', '📬', '📞', '☎️', '📱', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '💾', '📀', '📷', '🎥', '🎬', '🎤', '🎧', '📢', '📣', '💬', '💭', '🗨️',
+  '📈', '📉', '📊', '📋', '📁', '📂', '🗂️', '📄', '📃', '📑', '📰', '🗞️', '📚', '📖', '📝', '✏️', '🖊️', '🖋️', '✒️', '📏', '📐', '✂️', '🗑️', '🔍', '🔎', '🧾', '💰', '💵', '💳', '🧮', '🏷️', '🎯', '🏆', '🥇', '🥈', '🥉', '🎉', '🎊', '🎁', '🎈',
+  '🚀', '✈️', '🚗', '🚚', '🏠', '🏢', '🏭', '🏗️', '🔧', '🔨', '🛠️', '⚙️', '🧰', '🔩', '🪜', '🧹', '🧯', '🪣', '🌍', '🌎', '🌏', '🗺️', '☀️', '🌤️', '☁️', '🌧️', '⛈️', '❄️', '🌈', '⚡', '🌡️', '☕', '🍕', '🍔', '🥗', '🍎', '🐶', '🐱', '🌱', '🌳', '🌸', '🌻', '🏖️', '⛺',
+];
 const SHAPE_TYPES = [
   { type: 'rectangle', label: 'Rectangle', Icon: Square },
   { type: 'circle', label: 'Circle', Icon: Circle },
@@ -179,7 +197,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   bandInfo, sheetBase = 0, onSheets, topSlot, headerSlot, footerSlot, paginate = true,
   onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
   const editor = useEditor({
-    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination, DictationLive],
+    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination],
     content: initialJson || null,
     editable,
     onUpdate: () => onUpdate(pageId),
@@ -215,10 +233,35 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   // The page's own geometry, in layout px: the margins the gutter bands and
   // the margin-dwelling header/footer are drawn in.
   const m = marginsOf(pageSetup);
+  // A header or footer taller than its margin pushes the body away instead of
+  // running over it (Word's behavior): the margin grows by what sticks out,
+  // measured from the margin-dwelling band itself.
+  const [grow, setGrow] = useState({ top: 0, bottom: 0 });
+  const headRef = useRef(null);
+  const footRef = useRef(null);
+  const baseMt = Math.round(m.top * 96);
+  const baseMb = Math.round(m.bottom * 96);
+  const headPad = Math.round(baseMt * 0.38);
+  const footPad = Math.round(baseMb * 0.38);
+  useEffect(() => {
+    if (compact || typeof ResizeObserver === 'undefined') return undefined;
+    const measure = () => {
+      const z = zoom || 1;
+      const h = (el) => (el ? el.getBoundingClientRect().height / z : 0);
+      const next = { top: marginGrowth(baseMt, headPad, h(headRef.current)), bottom: marginGrowth(baseMb, footPad, h(footRef.current)) };
+      setGrow((g) => (g.top === next.top && g.bottom === next.bottom ? g : next));
+    };
+    const ro = new ResizeObserver(measure);
+    if (headRef.current) ro.observe(headRef.current);
+    if (footRef.current) ro.observe(footRef.current);
+    measure();
+    return () => ro.disconnect();
+  }, [compact, zoom, baseMt, baseMb, headPad, footPad]);
   const geometry = useMemo(() => ({
-    mt: Math.round(m.top * 96), mb: Math.round(m.bottom * 96), pl: Math.round(m.left * 96), pr: Math.round(m.right * 96),
+    mt: baseMt + grow.top, mb: baseMb + grow.bottom, headPad, footPad,
+    pl: Math.round(m.left * 96), pr: Math.round(m.right * 96),
     pageColor: pageSetup.pageColor || '#fff',
-  }), [m.top, m.bottom, m.left, m.right, pageSetup.pageColor]);
+  }), [baseMt, baseMb, grow.top, grow.bottom, headPad, footPad, m.left, m.right, pageSetup.pageColor]);
   // What every gutter band shows: header/footer HTML and the page total, plus
   // where this page's sheets start in the whole document.
   const revRef = useRef(0);
@@ -238,7 +281,9 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   // between two lines of a paragraph. The measurement subtracts the gutters
   // already laid in, or every pass would add another one and the document
   // would walk down the screen. Phones and multi-column pages flow freely.
-  const sheetPx = compact || pageSetup.columns > 1 || !paginate ? 0 : textFlowPx(pageSetup);
+  const grown = grow.top + grow.bottom;
+  const sheetPx = compact || pageSetup.columns > 1 || !paginate ? 0 : Math.max(1, textFlowPx(pageSetup) - grown);
+  const firstPx = firstSheetPx ? Math.max(1, firstSheetPx - grown) : undefined;
   const repaginate = useCallback(() => {
     if (!editor || editor.isDestroyed) return;
     if (!sheetPx) {
@@ -281,7 +326,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
     const next = [];
     // An Insert > Page Break marker ends its sheet: the block after it starts the next.
     const forced = (i) => i > 0 && kids[i - 1].classList.contains('doc-pagebreak');
-    for (const b of planBreaks(heights, sheetPx, firstSheetPx, (i) => measureLines(kids[i], z), forced)) {
+    for (const b of planBreaks(heights, sheetPx, firstPx, (i) => measureLines(kids[i], z), forced)) {
       if (posByIndex[b.index] === undefined) continue;
       if (!b.line) { next.push({ index: b.index, gap: b.gap, pos: posByIndex[b.index] }); continue; }
       const pos = posAtLineStart(editor.view, kids[b.index], b.line);
@@ -295,7 +340,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
     editor.view.dispatch(editor.state.tr.setMeta(paginationKey, { breaks: next, info: infoRef.current }));
     setSheets(next.length + 1);
     onSheets?.(pageId, next.length + 1);
-  }, [editor, sheetPx, firstSheetPx, zoom, onSheets, pageId]);
+  }, [editor, sheetPx, firstPx, zoom, onSheets, pageId]);
 
   // Re-lay out after content, geometry or zoom changes. rAF lets the browser
   // finish the layout we are about to measure.
@@ -317,7 +362,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   // The text frame is always whole sheets tall, so the last sheet is a full
   // page with its footer in the bottom margin, never a page cut off under
   // the last line.
-  const frameMin = sheetPx ? (firstSheetPx || sheetPx) + (sheets - 1) * (sheetPx + g.mb + SHEET_SPACE_PX + g.mt) : undefined;
+  const frameMin = sheetPx ? (firstPx || sheetPx) + (sheets - 1) * (sheetPx + g.mb + SHEET_SPACE_PX + g.mt) : undefined;
   const total = bandInfo?.total || pageCount;
   const staticBand = (html) => <div className="doc-sheet-head-text" dangerouslySetInnerHTML={{ __html: html || '' }} />;
   // Insert > Page Numbers: where the number sits on this page's own margins
@@ -328,6 +373,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
     <div className={`doc-page${pageSetup.lineNumbers ? ' doc-line-numbers' : ''}`}
       style={{
         display: 'flex', flexDirection: 'column', margin: '0 auto 28px', ...pageCanvasStyle(pageSetup, { compact }),
+        ...(!compact && (grow.top || grow.bottom) ? { paddingTop: g.mt, paddingBottom: g.mb } : {}),
         background: pageSetup.pageColor || '#fff',
         border: border?.style ? `${border.width || 1}px ${border.style} ${border.color || '#111827'}` : undefined,
       }}
@@ -339,8 +385,8 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
       }}>
       {pageSetup.watermark && <div className="doc-page-watermark" aria-hidden="true">{pageSetup.watermark}</div>}
       {compact ? (headerSlot && <div style={{ marginBottom: 8 }}>{headerSlot}</div>) : (
-        <div className="doc-page-margin-head" style={{ left: g.pl, right: g.pr, top: Math.round(g.mt * 0.38), display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-          <div style={{ flex: '1 1 auto', minWidth: 0 }}>{headerSlot ?? staticBand(bandInfo?.headerHtml)}</div>
+        <div className="doc-page-margin-head" style={{ left: g.pl, right: g.pr, top: headPad, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div ref={headRef} style={{ flex: '1 1 auto', minWidth: 0 }}>{headerSlot ?? staticBand(bandInfo?.headerHtml)}</div>
           {numbersAt.startsWith('top') && <span className={`doc-page-pageno is-${numberSide}`} style={{ flex: '0 0 auto', whiteSpace: 'nowrap', userSelect: 'none' }}>Page {sheetBase + 1} of {total}</span>}
         </div>
       )}
@@ -363,11 +409,34 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
       ) : (
         /* The last sheet's footer, in the bottom margin like every other
            sheet's (the gutter bands draw the ones in between). */
-        <div className="doc-page-margin-foot" style={{ left: g.pl, right: g.pr, bottom: Math.round(g.mb * 0.38), display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 }}>
-          <div style={{ flex: '1 1 auto', minWidth: 0 }}>{footerSlot ?? staticBand(bandInfo?.footerHtml)}</div>
+        <div className="doc-page-margin-foot" style={{ left: g.pl, right: g.pr, bottom: footPad, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 }}>
+          <div ref={footRef} style={{ flex: '1 1 auto', minWidth: 0 }}>{footerSlot ?? staticBand(bandInfo?.footerHtml)}</div>
           {numbersAt.startsWith('bottom') && <span className={`doc-page-pageno is-${numberSide}`} style={{ flex: '0 0 auto', whiteSpace: 'nowrap', userSelect: 'none' }}>Page {sheetBase + sheets} of {total}</span>}
         </div>
       )}
+    </div>
+  );
+}
+
+// A menu at the mouse (Word's right-click on a picture). Items are
+// { label, icon, hint, onClick, active, heading, sub } or '-'.
+function ContextMenu({ x, y, items, onClose }) {
+  const ref = useRef(null);
+  useDismiss(ref, true, onClose);
+  const left = Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 240);
+  const top = Math.min(y, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 420);
+  return (
+    <div ref={ref} className="doc-ribbon-panel doc-ctx-menu" role="menu" style={{ position: 'fixed', left, top, width: 230 }}>
+      {items.map((it, i) => (it === '-' ? <div key={i} className="doc-ribbon-sep" /> : it.heading ? (
+        <div key={it.label} className="doc-ctx-heading">{it.label}</div>
+      ) : (
+        <button key={it.label} type="button" role="menuitem" className={`doc-ribbon-item${it.active ? ' is-active' : ''}${it.sub ? ' is-sub' : ''}`}
+          onClick={() => { it.onClick?.(); onClose(); }}>
+          {it.icon && <it.icon size={14} />}
+          <span style={{ flex: 1 }}>{it.label}</span>
+          {it.hint && <span className="doc-ctx-hint">{it.hint}</span>}
+        </button>
+      )))}
     </div>
   );
 }
@@ -422,6 +491,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [newBookmarkName, setNewBookmarkName] = useState('');
   const [symbolPopoverOpen, setSymbolPopoverOpen] = useState(false);
   const [symbolTab, setSymbolTab] = useState('symbols'); // 'symbols' | 'emoji'
+  // Picture Format (Pranshu, 11/05/2026: Word Online's Picture tab and its
+  // right-click menu). The tab shows while a picture is selected.
+  const [lockAspect, setLockAspect] = useState(true);
+  const [imgMenu, setImgMenu] = useState(null);           // { x, y } of the open right-click menu
+  const [cropping, setCropping] = useState(false);        // Picture > Crop: the edge handles are out
+  const changePictureRef = useRef(false);                 // the next picked file replaces the selected picture
   const [saveStatus, setSaveStatus] = useState('idle');
   // Whether this document has ever held real content in this session - the
   // empty-save guard only bites once we know there is something to lose.
@@ -498,8 +573,6 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [shapeFill, setShapeFill] = useState('#dbeafe');
   const [shapeStroke, setShapeStroke] = useState('#2563eb');
   const [shapeWrapMode, setShapeWrapMode] = useState('inline');
-  const [textboxPopoverOpen, setTextboxPopoverOpen] = useState(false);
-  const [textboxWrapMode, setTextboxWrapMode] = useState('inline');
   const [importPopoverOpen, setImportPopoverOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [egnyteOpen, setEgnyteOpen] = useState(false);
@@ -556,6 +629,14 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // Navigation pane; Review > Spelling (the browser's own spellcheck).
   const [viewPrefs, setViewPrefs] = useState({ paginate: true, ruler: false, nav: false, spell: true });
   const setPref = (k, v) => setViewPrefs((p) => ({ ...p, [k]: v }));
+  // Review > Track Changes (Pranshu, 11/05/2026), as Word Online has it:
+  // Off / For Everyone (saved with the document, so whoever opens it next
+  // keeps tracking) / Just Mine (this browser only); Markup On Page shows the
+  // insertions and deletions, Markup In Margin the final text with a bar.
+  // Viewing is Word's read-only mode. lib/docTrackChanges.js does the work.
+  const [tracking, setTracking] = useState('off');      // off | everyone | mine
+  const [markupView, setMarkupView] = useState('all');  // all | simple
+  const [viewingOnly, setViewingOnly] = useState(false);
   const [wordCountOpen, setWordCountOpen] = useState(false);
   // Comments (Review tab, Nov 2026): the threads live on the server
   // (routers/doc_comments.py), the page keeps one `comment` mark per thread,
@@ -596,21 +677,42 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const canvasRef = useRef(null);
   const titleRef = useRef(null);
   const activeEditorRef = useRef(null);
+  const trackUser = useMemo(() => {
+    const row = employees.find((e) => (e.workEmail || '').toLowerCase() === me);
+    return { email: me, name: row ? `${row.firstName || ''} ${row.lastName || ''}`.trim() || me : me };
+  }, [employees, me]);
+  const applyTracking = useCallback((ed) => {
+    if (!ed || ed.isDestroyed) return;
+    ed.commands.setTrackChanges(tracking !== 'off', trackUser);
+    ed.commands.setMarkupView(markupView);
+  }, [tracking, trackUser, markupView]);
+  const applyTrackingRef = useRef(applyTracking);
+  useEffect(() => { applyTrackingRef.current = applyTracking; }, [applyTracking]);
   // Home > Dictate: the browser's own speech recognition (lib/voice.js, the
-  // same as Notes); each finished phrase lands at the cursor.
-  const dictation = useDictation((said) => {
-    const ed = activeEditorRef.current;
-    if (!ed) return;
-    const { from } = ed.state.selection;
+  // same as Notes). The words land as they are spoken (Pranshu, 11/05/2026:
+  // "it should write in flow"): the phrase still being recognized is real
+  // text at the cursor, rewritten each time the browser revises it, and left
+  // as it stands once the browser calls it final.
+  const spokenRef = useRef(null);   // { ed, from, to } of the phrase being spoken
+  const putSpoken = useCallback((said, final) => {
+    const live = spokenRef.current;
+    const ed = live?.ed || activeEditorRef.current;
+    if (!ed || ed.isDestroyed) { spokenRef.current = null; return; }
+    const size = ed.state.doc.content.size;
+    const from = Math.min(live ? live.from : ed.state.selection.from, size);
+    const to = Math.min(live ? live.to : ed.state.selection.to, size);
     const before = ed.state.doc.textBetween(Math.max(0, from - 2), from, ' ');
-    showDictationLive(ed, '');
-    ed.chain().focus().insertContent(spokenAfter(before, said)).run();
-  });
-  // The phrase still being recognized shows in gray at the cursor as it is
-  // spoken; the real text lands when the browser finishes it.
+    const text = spokenAfter(before, said);
+    const tr = ed.state.tr.insertText(text, from, to);
+    tr.setSelection(TextSelection.create(tr.doc, from + text.length));
+    ed.view.dispatch(tr);
+    spokenRef.current = final || !text ? null : { ed, from, to: from + text.length };
+  }, []);
+  const dictation = useDictation((said) => putSpoken(said, true));
   useEffect(() => {
-    showDictationLive(activeEditorRef.current, dictation.listening ? dictation.interim : '');
-  }, [dictation.interim, dictation.listening]);
+    if (!dictation.listening) { spokenRef.current = null; return; }
+    if (dictation.interim || spokenRef.current) putSpoken(dictation.interim, false);
+  }, [dictation.interim, dictation.listening, putSpoken]);
   // Pages (each a real independent editor instance - see DocPage above).
   // `pages` only tracks existence/order/the seed content a freshly
   // added/duplicated page mounts with; once a page's DocPage has mounted,
@@ -697,6 +799,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const registerPageEditor = useCallback((pageId, editor) => {
     if (editor) {
       editorsRef.current.set(pageId, editor);
+      applyTrackingRef.current(editor);
       scheduleUsedScan();
       if (pendingFocusId.current === pageId) {
         pendingFocusId.current = '';
@@ -771,23 +874,6 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const onPageActivity = useCallback((pageId) => {
     setActivePageId(pageId);
     setSelectionTick((t) => t + 1);
-    // Format Painter: a non-empty selection made anywhere while "painting"
-    // is armed gets the captured marks applied, then the painter turns off -
-    // same one-shot behavior as Word's paintbrush.
-    const marks = formatPainterRef.current;
-    const ed = editorsRef.current.get(pageId);
-    if (marks && ed && !ed.state.selection.empty) {
-      let chain = ed.chain().focus();
-      chain = marks.bold ? chain.setBold() : chain.unsetBold();
-      chain = marks.italic ? chain.setItalic() : chain.unsetItalic();
-      chain = marks.underline ? chain.setUnderline() : chain.unsetUnderline();
-      if (marks.color) chain = chain.setColor(marks.color);
-      if (marks.fontFamily) chain = chain.setFontFamily(marks.fontFamily);
-      if (marks.fontSize) chain = chain.setFontSize(marks.fontSize);
-      chain.run();
-      formatPainterRef.current = null;
-      setPainterActive(false);
-    }
   }, []);
   const activeEditor = editorsRef.current.get(activePageId);
 
@@ -822,7 +908,6 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // that says so (the pane's own Delete holds on the row).
   const deleteActiveComment = async () => {
     if (!activeComment) return;
-    const { dialog } = await import('../ui/dialog');
     dialog.confirm('Delete this comment thread and its replies?', {
       hold: true, confirmText: 'Delete', doneText: 'Deleted',
       onConfirm: async () => { await commentStore.remove(activeComment); setActiveComment(''); },
@@ -930,6 +1015,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       setFieldDefs(d.fieldDefs || []);
       setSignerRoles(d.signerRoles || []);
       setPageSetup({ ...DEFAULT_PAGE_SETUP, ...(d.content?.pageSetup || {}) });
+      setTracking(d.content?.trackChanges ? 'everyone' : 'off');
       applyContent(d.content);
       hydratedRef.current = true;
       setLoading(false);
@@ -942,9 +1028,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   useEffect(() => { api.getDocVariables().then(v => setVariables(Array.isArray(v) ? v : [])).catch(() => setVariables([])); }, []);
 
   useEffect(() => {
-    headerEditor?.setEditable(!preview);
-    footerEditor?.setEditable(!preview);
-  }, [preview, headerEditor, footerEditor]);
+    headerEditor?.setEditable(!preview && !viewingOnly);
+    footerEditor?.setEditable(!preview && !viewingOnly);
+  }, [preview, viewingOnly, headerEditor, footerEditor]);
+  useEffect(() => {
+    [...editorsRef.current.values(), headerEditor, footerEditor].forEach(applyTracking);
+  }, [applyTracking, headerEditor, footerEditor, pages]);
 
   const currentContent = useCallback(() => ({
     pages: pages.map(p => {
@@ -954,7 +1043,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     header: headerVisible ? (headerEditor?.getJSON() ?? null) : null,
     footer: footerVisible ? (footerEditor?.getJSON() ?? null) : null,
     pageSetup,
-  }), [pages, headerEditor, footerEditor, headerVisible, footerVisible, pageSetup]);
+    trackChanges: tracking === 'everyone',
+  }), [pages, headerEditor, footerEditor, headerVisible, footerVisible, pageSetup, tracking]);
 
   // Every save goes through this ref, never through a captured currentContent.
   // TipTap/useEditor option callbacks and any useCallback that forgets a dep
@@ -975,6 +1065,31 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     const payload = kind === 'document' ? { content, note: 'Page setup changed' } : { content };
     apiUpdate(docId, payload).catch((e) => toastErr?.(e.message || 'Failed to update page setup'));
   };
+  // Track Changes For Everyone is a document setting: saved at once, like Page Setup.
+  const setTrackingMode = (mode) => {
+    setTracking(mode);
+    if (isLocked) return;
+    const content = { ...currentContent(), trackChanges: mode === 'everyone' };
+    const payload = kind === 'document' ? { content, note: mode === 'everyone' ? 'Track Changes turned on' : 'Track Changes turned off' } : { content };
+    apiUpdate(docId, payload).catch((e) => toastErr?.(e.message || 'Failed to save Track Changes'));
+  };
+  useEffect(() => { setTrackingModeRef.current = setTrackingMode; });
+  // Accept / Reject at the cursor (or the next change when the cursor is not on one), then move on.
+  const resolveChange = (accept) => {
+    const ed = activeEditor;
+    if (!ed) return;
+    const cmd = accept ? 'acceptChange' : 'rejectChange';
+    if (!ed.can()[cmd]()) ed.commands.selectChange(1);
+    ed.chain().focus()[cmd]().selectChange(1).run();
+    setSelectionTick((t) => t + 1);
+  };
+  const resolveAll = (accept) => {
+    [...editorsRef.current.values(), headerEditor, footerEditor].forEach((ed) => ed?.commands[accept ? 'acceptAllChanges' : 'rejectAllChanges']());
+    setSelectionTick((t) => t + 1);
+  };
+  const changeCount = [...editorsRef.current.values(), headerEditor, footerEditor]
+    .reduce((n, ed) => n + (ed && !ed.isDestroyed ? listChanges(ed.state.doc).length : 0), 0);
+  const docMode = viewingOnly ? 'Viewing' : tracking !== 'off' ? 'Reviewing' : 'Editing';
   const toggleHeader = () => {
     if (headerVisible) { setHeaderVisible(false); headerEditor?.commands.clearContent(); scheduleSave(); }
     else setHeaderVisible(true);
@@ -1047,12 +1162,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   useEffect(() => {
     const onKey = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); doSave({ allowEmpty: true }); }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') { e.preventDefault(); setTrackingModeRef.current(trackingRef.current === 'off' ? 'everyone' : 'off'); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [doSave]);
 
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+  const trackingRef = useRef(tracking);
+  useEffect(() => { trackingRef.current = tracking; }, [tracking]);
+  const setTrackingModeRef = useRef(() => {});
 
   const saveTitle = () => {
     const t = title.trim();
@@ -1199,6 +1318,15 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     return out;
   }, [fieldDefs]);
   const shared = useMemo(() => sharedDefs(variables, docId), [variables, docId]);
+  // The chips on the page say what the field definition calls them.
+  useEffect(() => {
+    for (const ed of editorsRef.current.values()) {
+      ed.view.dom.querySelectorAll('.tpl-chip[data-merge-token]').forEach((el) => {
+        const label = varLabel[el.getAttribute('data-merge-token')];
+        if (label && el.textContent !== label) el.textContent = label;
+      });
+    }
+  }, [varLabel, pages]);
   // The insert picker, grouped by WHEN Nexus fills each built-in. Until the
   // library answers, the short list it always had.
   const builtinGroups = useMemo(() => {
@@ -1234,6 +1362,25 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     flushPendingSave()
       .then(() => (format === 'pdf' ? api.exportDocumentPdf(docId) : api.exportDocumentDocx(docId)))
       .then(downloadBlob).catch(e => toastErr?.(e.message || 'Export failed')).finally(() => setExporting(''));
+  };
+
+  // Open in Word (Pranshu, Nov 5 2026): Word on the computer opens the same
+  // .docx as Export DOCX through Office's ms-word: link and a short-lived
+  // signed file link (routers/doc_word_link.py). Edits in Word stay on the
+  // computer - nothing saves back into Nexus.
+  const openInWord = () => {
+    setExporting('word');
+    flushPendingSave()
+      .then(() => api.documentWordLink(docId))
+      .then(({ path }) => {
+        const fileUrl = new URL(`${API_BASE}${path}`, window.location.origin).href;
+        const a = document.createElement('a');
+        a.href = `ms-word:ofe|u|${fileUrl}`;
+        a.click();
+        toastOk?.('Opening in Word. Changes you make in Word save on your computer, not in Nexus. No Word on this computer? Use Export DOCX.');
+      })
+      .catch(e => toastErr?.(e.message || 'Could not open in Word'))
+      .finally(() => setExporting(''));
   };
 
   // In-app PDF Preview - renders the exported PDF in an iframe (browsers have
@@ -1286,12 +1433,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   };
 
   // Word's Home > Clipboard > Format Painter - click to capture the current
-  // selection's formatting, then the NEXT selection made anywhere in the
-  // document gets it applied (handled in onPageActivity below, since that's
-  // already the one place every page's selection change is routed through).
+  // selection's formatting; the NEXT selection you make, anywhere, gets it
+  // when the mouse button (or Shift) comes up, then the brush turns off.
+  // Not on selection change (11/05/2026: that fired once more for the very
+  // selection the brush was armed on, so the brush went off before you
+  // picked anything, and mid-drag it would have painted one character).
   const PAINTABLE_MARKS = ['bold', 'italic', 'underline'];
-  const toggleFormatPainter = () => {
-    if (painterActive) { formatPainterRef.current = null; setPainterActive(false); return; }
+  // One click paints once; a double-click on the button keeps the brush on
+  // until Escape or another click, as in Word. A plain click in the text
+  // paints the word under the cursor.
+  const toggleFormatPainter = (sticky = false) => {
+    if (painterActive && !sticky) { formatPainterRef.current = null; setPainterActive(false); return; }
     if (!activeEditor) return;
     const marks = {};
     PAINTABLE_MARKS.forEach(m => { marks[m] = activeEditor.isActive(m); });
@@ -1299,9 +1451,111 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (ts.color) marks.color = ts.color;
     if (ts.fontFamily) marks.fontFamily = ts.fontFamily;
     if (ts.fontSize) marks.fontSize = ts.fontSize;
-    formatPainterRef.current = marks;
-    setPainterActive(true);
+    const { from, to } = activeEditor.state.selection;
+    formatPainterRef.current = { marks, armed: { ed: activeEditor, from, to } };
+    setPainterActive(sticky ? 'sticky' : 'once');
+    toastOk?.(sticky ? 'Format Painter stays on. Select or click text to paint it; press Esc to stop.' : 'Select or click the text to paste this formatting onto.');
   };
+  useEffect(() => {
+    if (!painterActive) return undefined;
+    const paint = () => {
+      const brush = formatPainterRef.current;
+      const ed = [...editorsRef.current.values(), headerEditor, footerEditor].find((x) => x && !x.isDestroyed && x.view.hasFocus()) || activeEditorRef.current;
+      if (!brush || !ed || !ed.view.hasFocus()) return;
+      let { from, to } = ed.state.selection;
+      if (from === to) {           // a click: the word under the cursor
+        const $p = ed.state.doc.resolve(from);
+        const text = $p.parent.textContent, start = $p.start(), off = from - start;
+        const isWord = (ch) => ch && /[\w'’-]/.test(ch);
+        if (!isWord(text[off]) && !isWord(text[off - 1])) return;
+        let a = off, b = off;
+        while (isWord(text[a - 1])) a -= 1;
+        while (isWord(text[b])) b += 1;
+        from = start + a; to = start + b;
+      }
+      if (brush.armed.ed === ed && brush.armed.from === from && brush.armed.to === to) return;
+      const m = brush.marks;
+      let chain = ed.chain().focus().setTextSelection({ from, to });
+      chain = m.bold ? chain.setBold() : chain.unsetBold();
+      chain = m.italic ? chain.setItalic() : chain.unsetItalic();
+      chain = m.underline ? chain.setUnderline() : chain.unsetUnderline();
+      if (m.color) chain = chain.setColor(m.color);
+      if (m.fontFamily) chain = chain.setFontFamily(m.fontFamily);
+      if (m.fontSize) chain = chain.setFontSize(m.fontSize);
+      chain.run();
+      if (painterActive === 'sticky') return;
+      formatPainterRef.current = null;
+      setPainterActive(false);
+    };
+    // After the event settles: a double-click's word selection lands after its mouseup.
+    const later = () => setTimeout(paint, 0);
+    const onKey = (e) => {
+      if (e.key === 'Shift') later();
+      if (e.key === 'Escape') { formatPainterRef.current = null; setPainterActive(false); }
+    };
+    document.addEventListener('mouseup', later);
+    document.addEventListener('dblclick', later);
+    document.addEventListener('keyup', onKey);
+    return () => { document.removeEventListener('mouseup', later); document.removeEventListener('dblclick', later); document.removeEventListener('keyup', onKey); };
+  }, [painterActive, headerEditor, footerEditor]);
+
+  // Picture Format helpers. Sizes show in inches like Word (96px an inch).
+  const imgAttrs = activeEditor?.isActive('image') ? activeEditor.getAttributes('image') : null;
+  // Keeps the picture selected after the write (a replaced node drops its selection).
+  const setImg = (patch) => { const pos = activeEditor.state.selection.from; activeEditor.chain().focus().updateAttributes('image', patch).setNodeSelection(pos).run(); };
+  const imgEl = () => { const d = imgAttrs && activeEditor.view.nodeDOM(activeEditor.state.selection.from); return d?.querySelector?.('img') || null; };
+  const imgBox = imgAttrs ? { w: imgAttrs.width || imgEl()?.clientWidth || 0, h: imgAttrs.height || imgEl()?.clientHeight || 0 } : null;
+  const sizeImg = (dim, inches) => {
+    const px = Math.max(10, Math.round(Number(inches) * 96));
+    if (!Number.isFinite(px)) return;
+    const ratio = imgBox.w && imgBox.h ? imgBox.w / imgBox.h : null;
+    if (!lockAspect || !ratio) { setImg({ [dim]: px }); return; }
+    setImg(dim === 'width' ? { width: px, height: Math.round(px / ratio) } : { height: px, width: Math.round(px * ratio) });
+  };
+  const alignImg = (side) => {
+    if ((imgAttrs?.wrapMode || 'inline') === 'inline' || side === 'center') {
+      const pos = activeEditor.state.selection.from;
+      activeEditor.chain().focus().updateAttributes('image', side === 'center' ? { wrapMode: 'inline', x: 0, y: 0 } : {}).setTextAlign(side).setNodeSelection(pos).run();
+    } else setImg({ wrapMode: side === 'right' ? 'squareRight' : 'square', x: 0, y: 0 });
+  };
+  const resetImg = () => setImg({ width: null, height: null, rotation: 0, flipH: false, flipV: false, borderColor: null, frame: 'none', crop: null, wrapMode: 'inline', x: 0, y: 0 });
+  // Crop mode marks the selected picture's box so its edge handles show
+  // (lib/docBuilderExtensions.js draws and drags them); it ends with the
+  // selection, Escape, or the button.
+  const cropBox = () => imgEl()?.parentElement || null;
+  useEffect(() => {
+    const el = cropping && imgAttrs ? cropBox() : null;
+    if (!el) return undefined;
+    el.classList.add('is-cropping');
+    const onKey = (e) => { if (e.key === 'Escape') setCropping(false); };
+    document.addEventListener('keydown', onKey);
+    return () => { el.classList.remove('is-cropping'); document.removeEventListener('keydown', onKey); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cropping, imgAttrs?.src, selectionTick]);
+  const changePicture = () => { changePictureRef.current = true; fileInputRef.current?.click(); };
+  const PICTURE_WRAPS = [['inline', 'In Line with Text'], ['square', 'Square Left'], ['squareRight', 'Square Right'], ['behind', 'Behind Text'], ['front', 'In Front of Text']];
+  // Right-click on a picture: select it and open the menu where the mouse is.
+  const onPagesContextMenu = (e) => {
+    const wrap = e.target.closest?.('.doc-image-wrap');
+    if (!wrap || preview || isLocked || viewingOnly) return;
+    const entry = [...editorsRef.current.entries()].find(([, ed]) => ed && !ed.isDestroyed && ed.view.dom.contains(wrap));
+    if (!entry) return;
+    e.preventDefault();
+    const [pageId, ed] = entry;
+    let pos = ed.view.posAtDOM(wrap, 0);
+    if (ed.state.doc.nodeAt(pos)?.type.name !== 'image') pos -= 1;
+    if (ed.state.doc.nodeAt(pos)?.type.name !== 'image') return;
+    ed.view.dispatch(ed.state.tr.setSelection(NodeSelection.create(ed.state.doc, pos)));
+    setActivePageId(pageId);
+    setSelectionTick((t) => t + 1);
+    setImgMenu({ x: e.clientX, y: e.clientY });
+  };
+  // The Picture tab opens with the picture and closes with it, as in Word.
+  const pictureSelected = !!imgAttrs;
+  useEffect(() => {
+    if (pictureSelected) setRibbonTab('picture');
+    else { setRibbonTab((t) => (t === 'picture' ? 'home' : t)); setCropping(false); }
+  }, [pictureSelected]);
 
   // Word's Home > Clipboard > Cut/Copy/Paste - the editor is a native
   // contenteditable so Ctrl+X/C/V already work without any button; these
@@ -1658,10 +1912,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     const { x, y } = insertPageCoords();
     activeEditor?.chain().focus().insertContent({
       type: 'docTextbox',
-      attrs: { x, y, wrapMode: textboxWrapMode },
+      attrs: { x, y, wrapMode: 'inline' },
       content: [{ type: 'paragraph' }],
     }).scrollIntoView().run();
-    setTextboxPopoverOpen(false);
   };
 
   // ── Signature blocks (Oct 14) ─────────────────────────────────────────────
@@ -1720,7 +1973,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // candidate. Documents already out for signature never change.
   const publishTemplate = async () => {
     if (publishing) return;
-    if (!window.confirm(`Publish "${title}"? New documents and HR packets that have not been sent yet use this wording. Documents already made or out for signature do not change.`)) return;
+    if (!(await dialog.confirm(`Publish "${title}"? New documents and HR packets that have not been sent yet use this wording. Documents already made or out for signature do not change.`, { confirmText: 'Publish' }))) return;
     setPublishing(true);
     try {
       await flushPendingSave();
@@ -1753,8 +2006,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // uses - no new backend send path, no change to esign.py's compliance logic.
   // The PDF comes from /signing-pdf (Oct 14): rendered once with its signature
   // blocks measured, so each signer's fields arrive already placed.
-  const doSendForSignature = () => {
-    if (doc?.signRequestId && !window.confirm('This document was already sent for signature. Start a new envelope anyway?')) return;
+  const doSendForSignature = async () => {
+    if (doc?.signRequestId && !(await dialog.confirm('This document was already sent for signature. Start a new envelope anyway?', { confirmText: 'Start New Envelope' }))) return;
     setExporting('send');
     flushPendingSave().then(() => api.documentSigningPdf(docId)).then((out) => {
       window.__esignPrefill = { title, source: 'pdf', sourceDocumentId: docId, parties: [], signing: out };
@@ -1768,8 +2021,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // export time, never baked into literal text) into a brand-new DocTemplate
   // via the same create endpoint the Templates library itself uses.
   const [savingTemplate, setSavingTemplate] = useState(false);
-  const saveAsTemplate = () => {
-    const name = (window.prompt('Template name', title || 'Untitled Template') || '').trim();
+  const saveAsTemplate = async () => {
+    const name = ((await dialog.prompt('Template name', { defaultValue: title || 'Untitled Template' })) || '').trim();
     if (!name) return;
     setSavingTemplate(true);
     api.createDocTemplate({ name, category: 'general', requiresLetterhead, letterheadId, content: currentContent() })
@@ -2020,10 +2273,14 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   };
 
   const doUploadImage = async (pageId, file) => {
+    const replace = changePictureRef.current;
+    changePictureRef.current = false;
     const path = `${docId}/${Date.now()}-${safeName(file.name)}`;
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     if (error) { toastErr?.(error); return; }
-    editorsRef.current.get(pageId)?.chain().focus().setImage({ src: url }).run();
+    const ed = editorsRef.current.get(pageId);
+    if (replace && ed?.isActive('image')) ed.chain().focus().updateAttributes('image', { src: url }).run();
+    else ed?.chain().focus().setImage({ src: url }).run();
   };
 
   const onPickImage = (e) => {
@@ -2058,7 +2315,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const doImportFile = async (file) => {
     if (!file) return;
     const isEmpty = pages.length <= 1 && (activeEditor?.isEmpty ?? true);
-    if (!isEmpty && !window.confirm('This will replace the current document content. Continue?')) return;
+    if (!isEmpty && !(await dialog.confirm('This will replace the current document content. Continue?', { confirmText: 'Replace' }))) return;
     setImporting(true);
     try {
       const { html, json: directJson, pageSetup: importedPageSetup, header: importedHeader, footer: importedFooter, warnings } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
@@ -2139,7 +2396,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   );
 
   return (
-    <div className="nx-docb" ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
+    <div className={`nx-docb${painterActive ? ' doc-painting' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: preview ? 6 : 8, flexWrap: 'wrap' }}>
         <button onClick={close} title="Close"
           style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
@@ -2379,6 +2636,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
               <FileDown size={14} /> {exporting === 'docx' ? 'Exporting…' : 'Export DOCX'}
             </button>
+            <button onClick={openInWord} disabled={!!exporting} title="Open in Word on this computer to keep editing"
+              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
+              <PageIcon size={14} /> {exporting === 'word' ? 'Opening…' : 'Open in Word'}
+            </button>
             <button onClick={doSendForSignature} disabled={!!exporting} title="Send for Signature"
               className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: exporting ? 0.6 : 1 }}>
               <Send size={14} /> {exporting === 'send' ? 'Preparing…' : 'Send for Signature'}
@@ -2430,7 +2691,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </button>
             ))}
             {activeEditor?.isActive('table') && <span className="doc-ribbon-tab is-context" title="The Table tools show under the ribbon while the cursor is in a table">Table</span>}
-            {(activeEditor?.isActive('image') || activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && <span className="doc-ribbon-tab is-context">Picture Format</span>}
+            {imgAttrs && (
+              <button type="button" role="tab" data-tab="picture" aria-selected={ribbonTab === 'picture'} onClick={() => setRibbonTab('picture')}
+                className={`doc-ribbon-tab is-context${ribbonTab === 'picture' ? ' is-active' : ''}`}>Picture Format</button>
+            )}
+            {(activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && <span className="doc-ribbon-tab is-context">Shape Format</span>}
           </div>
         {isLocked && (
           /* Requirement 7 made visible. The server refuses the write either
@@ -2448,7 +2713,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             </span>
             <button className="secondary-btn" disabled={unlocking}
               onClick={async () => {
-                if (!window.confirm('Unlock this document for editing? The change is recorded in its history.')) return;
+                if (!(await dialog.confirm('Unlock this document for editing? The change is recorded in its history.', { confirmText: 'Unlock' }))) return;
                 setUnlocking(true);
                 try {
                   const updated = await api.unlockDocument(docId);
@@ -2475,6 +2740,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             {kind === 'document' && <BigBtn icon={FileStack} label="Save as Template" onClick={saveAsTemplate} disabled={savingTemplate} />}
             {kind === 'document' && <BigBtn icon={FileDown} label="Export PDF" onClick={() => doExport('pdf')} disabled={!!exporting} />}
             {kind === 'document' && <BigBtn icon={FileDown} label="Export DOCX" onClick={() => doExport('docx')} disabled={!!exporting} />}
+            {kind === 'document' && <BigBtn icon={PageIcon} label="Open in Word" onClick={openInWord} disabled={!!exporting} />}
             {kind === 'document' && <BigBtn icon={Send} label="Preview & Send" onClick={() => { setPreview(true); openPdfPreview(); }} />}
             <BigBtn icon={Printer} label="Print" onClick={() => window.print()} />
           </Group>
@@ -2499,7 +2765,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               <SmallBtn icon={Scissors} title="Cut" onClick={() => clipboardAction('cut')} />
               <SmallBtn icon={ClipboardCopy} title="Copy" onClick={() => clipboardAction('copy')} />
             </div>
-            <BigBtn icon={Paintbrush} label="Format Painter" title="Format Painter - click, then select text to copy the formatting onto" active={painterActive} onClick={toggleFormatPainter} />
+            <BigBtn icon={Paintbrush} label="Format Painter" title="Format Painter - click, then select or click the text to copy the formatting onto. Double-click to paint several places; Esc stops." active={!!painterActive} onClick={() => toggleFormatPainter(false)} onDoubleClick={() => toggleFormatPainter(true)} />
           </Group>
           <Group label="Font">
             <div className="doc-ribbon-stack">
@@ -2688,21 +2954,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </div>
             )}
           </div>
-          <div style={{ position: 'relative' }}>
-            <BigBtn icon={Type} label="Text Box" active={textboxPopoverOpen} onClick={() => setTextboxPopoverOpen(o => !o)} />
-            {textboxPopoverOpen && (
-              <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 180 }}>
-                <label style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  Text wrap
-                  <select value={textboxWrapMode} onChange={e => setTextboxWrapMode(e.target.value)}
-                    style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
-                    {WRAP_MODES.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
-                  </select>
-                </label>
-                <button onClick={insertTextbox} className="primary-btn" style={{ fontSize: 11.5, padding: '6px 10px' }}>Insert Text Box</button>
-              </div>
-            )}
-          </div>
+          {/* One click, like Word: the box lands inline; Wrap and colors are on the Text box bar it then shows. */}
+          <BigBtn icon={Type} label="Text Box" title="Text Box" onClick={insertTextbox} />
           </Group>
           {/* Everything that is Nexus's own, not Word's, in one place: the
               signature block, merge-field variables and their tools. */}
@@ -2841,15 +3094,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           <div style={{ position: 'relative' }}>
             <BigBtn icon={Smile} label="Symbol" title="Symbol / Emoji" active={symbolPopoverOpen} onClick={() => setSymbolPopoverOpen(o => !o)} />
             {symbolPopoverOpen && (
-              <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 10, width: 220 }}>
+              <div style={{ position: 'absolute', top: '110%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 10, width: 336, right: 0 }}>
                 <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-                  <button onClick={() => setSymbolTab('symbols')} style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 10px', border: 'none', borderBottom: symbolTab === 'symbols' ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: symbolTab === 'symbols' ? 'var(--ink)' : 'var(--muted)' }}>Symbols</button>
-                  <button onClick={() => setSymbolTab('emoji')} style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 10px', border: 'none', borderBottom: symbolTab === 'emoji' ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: symbolTab === 'emoji' ? 'var(--ink)' : 'var(--muted)' }}>Emoji</button>
+                  {[['symbols', 'Symbols'], ['emoji', 'Emoji']].map(([key, label]) => (
+                    <button key={key} type="button" onClick={() => setSymbolTab(key)} aria-selected={symbolTab === key} role="tab"
+                      style={{ width: 'auto', height: 'auto', fontSize: 11.5, fontWeight: 600, padding: '4px 10px', border: 'none', borderRadius: 0, borderBottom: symbolTab === key ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: symbolTab === key ? 'var(--ink)' : 'var(--muted)' }}>{label}</button>
+                  ))}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 2, maxHeight: 220, overflowY: 'auto' }}>
                   {(symbolTab === 'symbols' ? SYMBOL_CHARS : EMOJI_CHARS).map((ch, i) => (
                     <button key={i} onClick={() => { insertSymbol(ch); setSymbolPopoverOpen(false); }} title={ch}
-                      style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 5, lineHeight: 1 }}>
+                      style={{ width: '100%', height: 30, fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 5, lineHeight: 1 }}>
                       {ch}
                     </button>
                   ))}
@@ -3045,7 +3300,30 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             <BigBtn icon={MessageSquare} label="Show Comments" title="Show or hide the comments pane" active={commentsOpen} onClick={() => setCommentsOpen((o) => !o)} />
           </Group>
           <Group label="Tracking">
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', padding: '0 4px', maxWidth: 200 }}>Track Changes is not in this editor yet. Version History (File) keeps every saved version.</span>
+            <Menu big icon={PenLine} label="Track Changes" title="Mark every insertion and deletion with who made it (Ctrl+Shift+E)" active={tracking !== 'off'} items={[
+              { label: 'Off', onClick: () => setTrackingMode('off'), active: tracking === 'off' },
+              { label: 'For Everyone', title: 'Saved with the document: whoever opens it next keeps tracking', onClick: () => setTrackingMode('everyone'), active: tracking === 'everyone' },
+              { label: 'Just Mine', title: 'Track my changes in this browser only', onClick: () => setTrackingMode('mine'), active: tracking === 'mine' }]} />
+            <Menu big icon={Eye} label="Markup View" items={[
+              { label: 'Markup On Page', title: 'All Markup: insertions underlined, deletions struck through', onClick: () => setMarkupView('all'), active: markupView === 'all' },
+              { label: 'Markup In Margin', title: 'Simple Markup: the final text, with a bar beside every changed paragraph', onClick: () => setMarkupView('simple'), active: markupView === 'simple' }]} />
+          </Group>
+          <Group label="Changes">
+            <Menu big icon={Check} label="Accept" title="Accept the change at the cursor and move to the next" disabled={!changeCount} items={[
+              { label: 'Accept And Move To Next', onClick: () => resolveChange(true) },
+              { label: 'Accept All Changes', onClick: () => resolveAll(true) }]} />
+            <Menu big icon={X} label="Reject" title="Reject the change at the cursor and move to the next" disabled={!changeCount} items={[
+              { label: 'Reject And Move To Next', onClick: () => resolveChange(false) },
+              { label: 'Reject All Changes', onClick: () => resolveAll(false) }]} />
+            <BigBtn icon={ChevronLeft} label="Previous" title="Previous tracked change" onClick={() => { activeEditor?.chain().focus().selectChange(-1).run(); setSelectionTick((t) => t + 1); }} disabled={!changeCount} />
+            <BigBtn icon={ChevronRight} label="Next" title="Next tracked change" onClick={() => { activeEditor?.chain().focus().selectChange(1).run(); setSelectionTick((t) => t + 1); }} disabled={!changeCount} />
+            <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center', padding: '0 4px', whiteSpace: 'nowrap' }}>{changeCount === 1 ? '1 change' : `${changeCount} changes`}</span>
+          </Group>
+          <Group label="Mode">
+            <Menu big icon={docMode === 'Viewing' ? EyeOff : docMode === 'Reviewing' ? PenLine : Type} label={docMode} title="Editing: make any changes. Reviewing: every change is tracked. Viewing: read, change nothing." items={[
+              { label: 'Editing', title: 'Make any changes', onClick: () => { setViewingOnly(false); if (tracking !== 'off') setTrackingMode('off'); }, active: docMode === 'Editing' },
+              { label: 'Reviewing', title: 'Track every change for everyone', onClick: () => { setViewingOnly(false); setTrackingMode('everyone'); }, active: docMode === 'Reviewing' },
+              { label: 'Viewing', title: 'Read the document, change nothing', onClick: () => setViewingOnly(true), active: docMode === 'Viewing' }]} />
           </Group>
           </>
           )}
@@ -3079,11 +3357,66 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </Group>
           </>
           )}
+          {ribbonTab === 'picture' && imgAttrs && (
+          <>
+          <Group label="Picture Styles">
+            <Menu big icon={Frame} label="Styles" title="Picture style" items={[
+              { label: 'No Style', onClick: () => setImg({ frame: 'none' }), active: (imgAttrs.frame || 'none') === 'none' },
+              { label: 'Simple Frame', onClick: () => setImg({ frame: 'simple' }), active: imgAttrs.frame === 'simple' },
+              { label: 'Soft Shadow', onClick: () => setImg({ frame: 'shadow' }), active: imgAttrs.frame === 'shadow' },
+              { label: 'Rounded Corners', onClick: () => setImg({ frame: 'rounded' }), active: imgAttrs.frame === 'rounded' }]} />
+            <Menu big icon={Square} label="Border" title="Picture border color" width={236}>
+              <ColorGrid rows={[THEME_COLORS.map((c) => [c]), STANDARD_COLORS.map((c) => [c])]} current={imgAttrs.borderColor}
+                onPick={(hex) => setImg({ borderColor: hex })} onNone={() => setImg({ borderColor: null })} noneLabel="No Border" />
+            </Menu>
+          </Group>
+          <Group label="Arrange">
+            <Menu big icon={Move} label="Wrap Text" title="How the text goes around the picture" items={PICTURE_WRAPS.map(([value, label]) => ({ label, onClick: () => setImg({ wrapMode: value, x: 0, y: 0 }), active: (imgAttrs.wrapMode || 'inline') === value }))} />
+            <Menu big icon={AlignCenter} label="Align" items={[
+              { label: 'Align Left', icon: AlignLeft, onClick: () => alignImg('left') },
+              { label: 'Align Center', icon: AlignCenter, onClick: () => alignImg('center') },
+              { label: 'Align Right', icon: AlignRight, onClick: () => alignImg('right') }]} />
+            <Menu big icon={RotateCw} label="Rotate" items={[
+              { label: 'Rotate Right 90°', icon: RotateCw, onClick: () => setImg({ rotation: ((imgAttrs.rotation || 0) + 90) % 360 }) },
+              { label: 'Rotate Left 90°', icon: RotateCcw, onClick: () => setImg({ rotation: ((imgAttrs.rotation || 0) + 270) % 360 }) },
+              { label: 'Flip Vertical', icon: FlipVertical, onClick: () => setImg({ flipV: !imgAttrs.flipV }), active: !!imgAttrs.flipV },
+              { label: 'Flip Horizontal', icon: FlipHorizontal, onClick: () => setImg({ flipH: !imgAttrs.flipH }), active: !!imgAttrs.flipH }]} />
+          </Group>
+          <Group label="Size">
+            <BigBtn icon={Crop} label="Crop" title="Crop - drag the edge handles; the picture keeps its size and the box shrinks. Esc or Crop again to finish." active={cropping} onClick={() => setCropping((c) => !c)} />
+            <div className="doc-ribbon-stack" style={{ gap: 4 }}>
+              <label className="doc-ribbon-field">Height
+                <input type="number" step="0.1" min="0.1" aria-label="Picture height, in inches" value={imgBox.h ? (imgBox.h / 96).toFixed(2) : ''}
+                  onChange={(e) => sizeImg('height', e.target.value)} /> in
+              </label>
+              <label className="doc-ribbon-field">Width
+                <input type="number" step="0.1" min="0.1" aria-label="Picture width, in inches" value={imgBox.w ? (imgBox.w / 96).toFixed(2) : ''}
+                  onChange={(e) => sizeImg('width', e.target.value)} /> in
+              </label>
+            </div>
+            <label className="doc-ribbon-field" title="Keep the picture's proportions when one side changes">
+              <input type="checkbox" checked={lockAspect} onChange={(e) => setLockAspect(e.target.checked)} /> Lock aspect ratio
+            </label>
+          </Group>
+          <Group label="Picture">
+            <BigBtn icon={Replace} label="Change Picture" title="Swap in another picture, keeping the size and wrap" onClick={changePicture} />
+            <BigBtn icon={RotateCcw} label="Reset Picture" title="Back to the picture as inserted: size, rotation, border, style and wrap" onClick={resetImg} />
+            <BigBtn icon={Trash2} label="Delete" title="Delete this picture" onClick={() => activeEditor.chain().focus().deleteSelection().run()} />
+          </Group>
+          <Group label="Accessibility">
+            <label className="doc-ribbon-field" style={{ minWidth: 200 }}>Alt Text
+              <input value={imgAttrs.alt || ''} placeholder="Describe this picture…" aria-label="Alt text" style={{ flex: 1 }}
+                onChange={(e) => setImg({ alt: e.target.value })} />
+            </label>
+          </Group>
+          </>
+          )}
           <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={onPickImage} style={{ display: 'none' }} />
         </div>
 
         {findOpen && (
-          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, margin: '4px 0 10px', padding: '8px 10px', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, margin: '4px 0 10px', padding: '8px 10px', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8 }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setFindOpen(false); setFindMatches([]); setFindIndex(-1); activeEditor?.commands.focus(); } }}>
             <input className="form-input" style={{ fontSize: 12, width: 160 }} placeholder="Find" value={findQuery}
               onChange={e => setFindQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && runFind()} autoFocus />
             <input className="form-input" style={{ fontSize: 12, width: 160 }} placeholder="Replace with" value={replaceQuery}
@@ -3144,13 +3477,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         </div>
       )}
 
-      {!preview && (activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox') || activeEditor?.isActive('image')) && (
+      {!preview && (activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && (
         <div className="doc-toolbar" style={{ marginTop: -8 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', paddingLeft: 4 }}>
-            {activeEditor.isActive('docShape') ? 'Shape:' : activeEditor.isActive('docTextbox') ? 'Text box:' : 'Image:'}
+            {activeEditor.isActive('docShape') ? 'Shape:' : 'Text box:'}
           </span>
           {(() => {
-            const type = activeEditor.isActive('docShape') ? 'docShape' : activeEditor.isActive('docTextbox') ? 'docTextbox' : 'image';
+            const type = activeEditor.isActive('docShape') ? 'docShape' : 'docTextbox';
             const attrs = activeEditor.getAttributes(type);
             const rotate = (delta) => activeEditor.chain().focus().updateAttributes(type, { rotation: ((attrs.rotation || 0) + delta + 360) % 360 }).run();
             return (
@@ -3189,21 +3522,29 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                     </label>
                   </>
                 )}
-                {type === 'image' && (
-                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 140 }}>
-                    Alt text
-                    <input value={attrs.alt || ''} placeholder="Describe this image…"
-                      onChange={(e) => activeEditor.chain().focus().updateAttributes('image', { alt: e.target.value }).run()}
-                      style={{ flex: 1, fontSize: 12, border: '1px solid var(--line)', borderRadius: 7, padding: '4px 7px', color: 'var(--ink)', background: 'var(--card)' }} />
-                  </label>
-                )}
               </>
             );
           })()}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
+      {imgMenu && imgAttrs && (
+        <ContextMenu x={imgMenu.x} y={imgMenu.y} onClose={() => setImgMenu(null)} items={[
+          { label: 'Cut', icon: Scissors, hint: 'Ctrl+X', onClick: () => clipboardAction('cut') },
+          { label: 'Copy', icon: ClipboardCopy, hint: 'Ctrl+C', onClick: () => clipboardAction('copy') },
+          { label: 'Paste', icon: ClipboardPaste, hint: 'Ctrl+V', onClick: () => clipboardAction('paste') },
+          '-',
+          { label: 'Change Picture…', icon: Replace, onClick: changePicture },
+          { label: 'Crop', icon: Crop, onClick: () => { setRibbonTab('picture'); setCropping(true); } },
+          { label: 'Wrap Text', heading: true },
+          ...PICTURE_WRAPS.map(([value, label]) => ({ label, sub: true, active: (imgAttrs.wrapMode || 'inline') === value, onClick: () => setImg({ wrapMode: value, x: 0, y: 0 }) })),
+          '-',
+          { label: 'Format Picture', icon: ImageIcon, onClick: () => setRibbonTab('picture') },
+          { label: 'Reset Picture', icon: RotateCcw, onClick: resetImg },
+          { label: 'Delete Picture', icon: Trash2, onClick: () => activeEditor.chain().focus().deleteSelection().run() },
+        ]} />
+      )}
+      <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }} onContextMenu={onPagesContextMenu}>
       {kind === 'document' && !preview && !isMobile && (() => {
         const canvas = pageCanvasStyle(pageSetup);
         const thumbW = 92, thumbH = Math.round(thumbW * (canvas.minHeight / canvas.maxWidth));
@@ -3337,7 +3678,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </div>
         ) : null;
         return (
-          <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
+          <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked && !viewingOnly} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
             firstSheetPx={isFirst ? firstSheetPx : undefined} showMarks={showMarks}
             bandInfo={bandInfo} sheetBase={sheetStarts[i]} onSheets={onSheets} paginate={viewPrefs.paginate}
             topSlot={topSlot} headerSlot={headerSlot} footerSlot={footerSlot}

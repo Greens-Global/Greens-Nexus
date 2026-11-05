@@ -272,6 +272,36 @@ async function transcriptDocx() {
   return { name: 'transcript.docx', type: '', arrayBuffer: async () => buf };
 }
 
+// A picture Word cropped, rotated, flipped, bordered and wrapped Square Right.
+async function formattedPictureDocx() {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml',
+    `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`
+    + `<Default Extension="png" ContentType="image/png"/><Default Extension="xml" ContentType="application/xml"/>`
+    + `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`);
+  zip.file('_rels/.rels',
+    `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+    + `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`);
+  zip.file('word/_rels/document.xml.rels',
+    `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+    + `<Relationship Id="rIdImg" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/pic.png"/></Relationships>`);
+  zip.file('word/media/pic.png', PNG_1PX, { base64: true });
+  const wp = 'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"';
+  const a = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"';
+  const r = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+  const pic = `<w:p><w:r><w:drawing><wp:anchor ${wp} behindDoc="0"><wp:extent cx="952500" cy="476250"/>`
+    + `<wp:positionH relativeFrom="margin"><wp:align>right</wp:align></wp:positionH><wp:wrapSquare wrapText="bothSides"/>`
+    + `<a:graphic ${a}><a:graphicData><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">`
+    + `<pic:blipFill><a:blip ${r} r:embed="rIdImg"/><a:srcRect l="10000" t="5000" r="20000" b="0"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`
+    + `<pic:spPr><a:xfrm rot="5400000" flipH="1"><a:off x="0" y="0"/><a:ext cx="952500" cy="476250"/></a:xfrm>`
+    + `<a:prstGeom prst="rect"/><a:ln w="19050"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:ln></pic:spPr>`
+    + `</pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p>`;
+  zip.file('word/document.xml',
+    `<?xml version="1.0"?><w:document ${DOC_NS} ${r}><w:body>${pic}${para('After the picture.')}</w:body></w:document>`);
+  const buf = await zip.generateAsync({ type: 'arraybuffer' });
+  return { name: 'picture.docx', type: '', arrayBuffer: async () => buf };
+}
+
 const countType = (node, type, n = 0) => {
   if (Array.isArray(node)) return node.reduce((acc, c) => countType(c, type, acc), n);
   if (!node || typeof node !== 'object') return n;
@@ -327,6 +357,24 @@ describe('a Teams transcript imports without phantom blank lines', () => {
     });
     // Inline fallback still saves them here, so the real guard is: no gaps.
     expect(countEmptyParas(body)).toBe(0);
+  });
+
+  it('keeps a picture\'s crop, rotation, flips, border and wrap as Word had them', async () => {
+    const { body } = await convertDocxToTiptap(await formattedPictureDocx(), { uploadImage: async () => '' });
+    const imgs = [];
+    const walk = (n) => {
+      if (Array.isArray(n)) return n.forEach(walk);
+      if (!n || typeof n !== 'object') return;
+      if (n.type === 'image') imgs.push(n.attrs || {});
+      walk(n.content);
+    };
+    walk(body);
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]).toMatchObject({
+      crop: { top: 5, right: 20, bottom: 0, left: 10 }, rotation: 90, flipH: true,
+      borderColor: '#ff0000', wrapMode: 'squareRight', width: 100, height: 50,
+    });
+    expect(imgs[0].flipV).toBeUndefined();
   });
 
   it('sizes the avatars the way Word did, not at the PNG\'s own size', async () => {
@@ -467,6 +515,19 @@ describe('a Word document keeps the formatting Word shows', () => {
     const links = texts(doc).map(t => (t.marks || []).find(m => m.type === 'link')?.attrs?.href);
     expect(links).toEqual(['https://example.test/a', 'https://example.test/b']);
     expect(texts(doc).map(t => t.text)).toEqual(['Nexus', 'Field link']);
+  });
+
+  it('keeps tracked changes as changes, with who and when', async () => {
+    const body = `<w:p><w:r><w:t xml:space="preserve">Net </w:t></w:r>`
+      + `<w:del w:author="Sagar" w:date="2026-11-05T10:00:00Z"><w:r><w:delText>30</w:delText></w:r></w:del>`
+      + `<w:ins w:author="Sagar" w:date="2026-11-05T10:00:00Z"><w:r><w:t>45</w:t></w:r></w:ins>`
+      + `<w:r><w:t xml:space="preserve"> days</w:t></w:r></w:p>`;
+    const { body: doc, warnings } = await convertDocxToTiptap(await docxWithParts({ body }), {});
+    const runs = texts(doc).map(t => [t.text, (t.marks || []).find(m => m.type === 'deletion' || m.type === 'insertion')]);
+    expect(runs.map(([t]) => t)).toEqual(['Net ', '30', '45', ' days']);
+    expect(runs[1][1]).toEqual({ type: 'deletion', attrs: { author: 'Sagar', name: 'Sagar', at: '2026-11-05T10:00:00Z' } });
+    expect(runs[2][1].type).toBe('insertion');
+    expect(warnings.join(' ')).toMatch(/Review tab/);
   });
 
   it('brings the header and footer in, minus the page-number line Nexus draws itself', async () => {
