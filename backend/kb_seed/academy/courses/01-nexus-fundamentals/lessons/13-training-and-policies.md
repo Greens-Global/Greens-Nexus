@@ -73,7 +73,7 @@ Click **Start the Quiz**, answer every question (Submit waits until all are answ
 
 ### In-Person Sign-Off
 
-Some training is proved in person, not by a quiz. In those courses, a manager or senior team member watches you do the task and signs you off in Nexus. Until they do, the course shows **Waiting for Review**.
+Some training is proved in person, not by a quiz. In those courses, a manager or senior team member watches you do the task and signs you off in Nexus. Until they do, the course shows the **In-Person Sign-Off** step, and **Completed In Person** once they have.
 
 ### Rating the Course
 

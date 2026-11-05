@@ -23,7 +23,7 @@ This page is the trainer's checklist and your study guide. The trainer works fro
 
 **How long:** about 90 minutes in all. Plan roughly 30 minutes for each of the three parts. Pick a time when the site is quiet and another team member can cover the counter and the phone.
 
-**Who signs you off:** your manager or a senior team member. In Nexus the trainer opens the Hands-On Check course, chooses Sign Off a Person, picks you from the list and adds a note. Until then the course shows Waiting for Review. When the trainer signs you off, the course completes and you get a Course Completed bell with the trainer's name. The sign-off is the trainer's call, and it does not need a score in Nexus.
+**Who signs you off:** your manager or a senior team member. In Nexus the trainer opens the Hands-On Check course, chooses Sign Off a Person, picks you from the list and adds a note. Until then the course shows the In-Person Sign-Off step, and after the sign-off it shows Completed In Person. When the trainer signs you off, the course completes and you get a Course Completed bell with the trainer's name. The sign-off is the trainer's call, and it does not need a score in Nexus.
 
 **Before you start:** finish the first five courses. You will use what is in them: the nine parts of a call and the score sheet from Customer Service and Sales Fundamentals, the walk-throughs from Self-Storage Fundamentals, the lot walk from RV and Boat Storage Fundamentals and the move-in from Cubby Fundamentals.
 
@@ -159,14 +159,14 @@ You do not pass or fail the Hands-On Check as a whole. Each part stands alone.
 - If a part is not ready, the trainer tells you exactly which items to work on and the two or three habits that would change the most.
 - You redo that part later, on another day. You do not redo the parts you already did well.
 - A score under 70% on the mock call means practice with a coworker on the same scenarios, then another try. The trainer can use a different caller.
-- The sign-off in Nexus waits until all three parts are done. The course stays at Waiting for Review in the meantime, and there is nothing to fail.
+- The sign-off in Nexus waits until all three parts are done. The course keeps showing the In-Person Sign-Off step in the meantime, and there is nothing to fail.
 
 The goal is a new team member who is safe on the phone, on the lot and on the ledger. Taking another go is part of getting there.
 
 ## Key Points
 
 - The Hands-On Check is in person and takes about 90 minutes: a mock sales call, a guided site walk and a supervised move-in in Cubby. There is no quiz.
-- Your manager or a senior team member signs you off. In Nexus the course shows Waiting for Review until the trainer signs you off.
+- Your manager or a senior team member signs you off. In Nexus the course shows the In-Person Sign-Off step until your trainer signs you off, then Completed In Person.
 - The mock call uses the same 22-item score sheet as Customer Service and Sales Fundamentals: 70% of the items that applied, with no wrong price or fee.
 - The site walk covers the lock check, a vacant unit check and the vehicle lot walk.
 - Never practice on a real tenant's ledger without the manager, and never give out a gate code or lock before the payment succeeds.
