@@ -1,5 +1,6 @@
 import { Node } from '@tiptap/core';
 import TiptapImage from '@tiptap/extension-image';
+import { inferLabel } from './extractVariables';
 
 // ── Document Builder custom nodes (Phase 2) ──────────────────────────────────
 // Merge-field vocabulary mirrors ESign.jsx's TemplateEditorModal (MERGE_TOKENS/
@@ -39,7 +40,11 @@ export const MergeField = Node.create({
       class: 'tpl-chip',
       'data-merge-token': node.attrs.token,
       contenteditable: 'false',
-    }, FRIENDLY_MERGE[node.attrs.token] || node.attrs.token];
+      title: `{{${node.attrs.token}}}`,
+    // The chip reads as words, never the token (Pranshu, 11/05): the house
+    // label, else the key humanized; a field definition's own label is
+    // written over it by the editor once the definitions load.
+    }, FRIENDLY_MERGE[node.attrs.token] || inferLabel(node.attrs.token || '')];
   },
 });
 

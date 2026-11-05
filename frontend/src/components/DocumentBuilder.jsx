@@ -1199,6 +1199,15 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     return out;
   }, [fieldDefs]);
   const shared = useMemo(() => sharedDefs(variables, docId), [variables, docId]);
+  // The chips on the page say what the field definition calls them.
+  useEffect(() => {
+    for (const ed of editorsRef.current.values()) {
+      ed.view.dom.querySelectorAll('.tpl-chip[data-merge-token]').forEach((el) => {
+        const label = varLabel[el.getAttribute('data-merge-token')];
+        if (label && el.textContent !== label) el.textContent = label;
+      });
+    }
+  }, [varLabel, pages]);
   // The insert picker, grouped by WHEN Nexus fills each built-in. Until the
   // library answers, the short list it always had.
   const builtinGroups = useMemo(() => {
