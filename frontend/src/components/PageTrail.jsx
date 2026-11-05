@@ -82,6 +82,10 @@ export function tabLabelOf(tabs, key) {
 function partsFor(ctx, title) {
   if (!ctx?.label) return [];
   if (!ctx.crumbs.length && title && same(title, ctx.label)) return [];
+  // A first crumb named like the module (Workflows > the Workflows list) is
+  // the module part itself: one "WORKFLOWS" that goes to that list.
+  const [first, ...rest] = ctx.crumbs;
+  if (first && same(first.label, ctx.label)) return [{ label: ctx.label, go: first.go, module: true }, ...rest];
   return [{ label: ctx.label, go: ctx.goModule, module: true }, ...ctx.crumbs];
 }
 

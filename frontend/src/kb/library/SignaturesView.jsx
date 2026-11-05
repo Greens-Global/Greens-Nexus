@@ -1,11 +1,12 @@
 // Who has signed a policy, who has not, Nudge (Resend when it signs through
 // Nexus Sign), CSV.
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Bell, Download } from 'lucide-react';
+import { Bell, Download } from 'lucide-react';
 import { api, saveBlob } from '../../api';
 import AsyncSection from '../../components/AsyncState';
 import { Av, Chip, Stat } from '../components/Chips';
 import { useToast, errText } from '../components/Toast';
+import { useTrailCrumbs } from '../../components/PageTrail';
 import { goKb, fmtDate, fmtDateTime } from '../lib';
 import { toCsv } from '../../operations/csv';
 
@@ -26,6 +27,7 @@ export default function SignaturesView({ id }) {
   const toast = useToast();
   const [page, setPage] = useState(null);
   const [data, setData] = useState(null);
+  useTrailCrumbs(page ? [{ label: page.title, onClick: () => goKb('page', id) }] : []);
   const [err, setErr] = useState('');
   const load = () => { setErr(''); Promise.all([api.kbPage(id), api.kbSignatures(id)]).then(([p, s]) => { setPage(p); setData(s); }).catch((e) => setErr(errText(e))); };
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -45,10 +47,6 @@ export default function SignaturesView({ id }) {
     <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
       {data && page && (
         <div className="kb-page">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }} className="kb-meta">
-            <button type="button" className="kb-ibtn" style={{ width: 30, height: 30 }} aria-label="Back" onClick={() => goKb('page', id)}><ArrowLeft /></button>
-            <a href="#p" onClick={(e) => { e.preventDefault(); goKb('page', id); }}>{page.title}</a> / <b style={{ color: 'var(--kb-ink)' }}>Signatures</b>
-          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <h1 className="kb-h1" style={{ margin: 0, fontSize: 24 }}>{page.title} <span className="kb-meta" style={{ fontWeight: 400 }}>v{data.version}</span></h1>
             <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>

@@ -72,6 +72,17 @@ describe('PageTrail', () => {
     expect(nav).toHaveBeenCalledWith('property-asset');
   });
 
+  it('a first crumb named like the module is the module part (Workflows > the Workflows list)', () => {
+    const toList = vi.fn();
+    const nav = vi.fn();
+    function Builder() { useTrailCrumbs([{ label: 'asset management', onClick: toList }]); return <PageTrail title="My Flow" />; }
+    shell(<Builder />, nav);
+    expect(parts()).toEqual(['Asset Management']);
+    fireEvent.click(screen.getByRole('button', { name: 'Asset Management' }));
+    expect(toList).toHaveBeenCalled();
+    expect(nav).not.toHaveBeenCalled();
+  });
+
   it('finds a tab label inside a dropdown', () => {
     expect(tabLabelOf([{ key: 'a', label: 'Overview' }, { key: 'g', label: 'Revenue', items: [{ key: 'r1', label: 'Rent Roll' }] }], 'r1')).toBe('Rent Roll');
   });
