@@ -18,9 +18,9 @@ hand and mark them "Entered in Cubby". Every push route refuses (403, PUSH_OFF)
 and `_write` below refuses BEFORE any HTTP is attempted, so no Cubby write can
 leave the server even if a route forgot its own check.
 
-ON: pushes use a Cubby key with the Manager role (CUBBY_MANAGER_API_KEY - the
-sync's key is Search-only). ON with no key = a clear 503 (WRITE_MISSING), no
-crash. Reads stay on ops_rate_mgmt._call, which still refuses anything that is
+ON: pushes use CUBBY_MANAGER_API_KEY when it is set, else the sync's own
+CUBBY_API_KEY, which carries every role for our organization (11/05/2026).
+ON with no key at all = a clear 503 (WRITE_MISSING), no crash. Reads stay on ops_rate_mgmt._call, which still refuses anything that is
 not a `*/search`; this module is the separate write path.
 
 Blocking I/O - call the write helpers in a thread.
@@ -38,15 +38,25 @@ import cubby
 
 SETTINGS_KEY = "ops_cubby_push"
 WRITE_KEY_ENV = "CUBBY_MANAGER_API_KEY"
+# No separate Manager key set = the API key the sync already uses
+# (CUBBY_API_KEY). Sagar, 11/05/2026: that key carries every role for our
+# organization (Cubby's 07/31/2026 note: "You currently have all roles"), so
+# it writes too. A Manager key, when one is set, still wins. Each kind of
+# write stays behind its own switch (Push to Cubby; Close Tasks in Cubby).
+READ_KEY_ENV = "CUBBY_API_KEY"
+
+
+def _write_key() -> str:
+    return (os.environ.get(WRITE_KEY_ENV, "").strip() or os.environ.get(READ_KEY_ENV, "").strip())
 AUDIT_ACTION = "ops_cubby_push_switched"
 DEFAULTS = {"on": False}
 
 PUSH_OFF = ("Pushing to Cubby is turned off. Nexus only reads from Cubby: enter the change in Cubby by hand, "
             "then mark it Entered in Cubby here. An administrator can turn pushing on under Settings > "
             "Global Settings > Operations.")
-WRITE_MISSING = (f"Pushing to Cubby is turned on, but this server has no Cubby key with the Manager role "
-                 f"({WRITE_KEY_ENV}). An administrator needs to add it; until then, enter the change in Cubby "
-                 f"and mark it Entered in Cubby here.")
+WRITE_MISSING = (f"Pushing to Cubby is turned on, but this server has no Cubby key "
+                 f"({WRITE_KEY_ENV} or CUBBY_API_KEY). An administrator needs to add it; until then, enter the "
+                 f"change in Cubby and mark it Entered in Cubby here.")
 
 
 class PushOff(Exception):
@@ -85,8 +95,8 @@ def is_on(db) -> bool:
 
 
 def write_configured() -> bool:
-    """A Manager-role Cubby key is set on this server."""
-    return bool(os.environ.get(WRITE_KEY_ENV, "").strip())
+    """A Cubby key that may write is set: the Manager key, else the sync's own."""
+    return bool(_write_key())
 
 
 def status(db) -> dict:
@@ -159,7 +169,7 @@ def _write(db, path: str, body: dict, gate=None) -> dict:
     switch above."""
     if not (gate(db) if gate is not None else is_on(db)):
         raise PushOff(PUSH_OFF)
-    key = os.environ.get(WRITE_KEY_ENV, "").strip()
+    key = _write_key()
     if not key:
         raise cubby.CubbyError(503, WRITE_MISSING)
     try:
