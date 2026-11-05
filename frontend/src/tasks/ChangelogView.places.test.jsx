@@ -152,13 +152,14 @@ describe('Timeline places', () => {
     }
   });
 
-  it('the detail names and links the pull request; the calm row leaves it out (Neil, 11/05/2026)', async () => {
+  it('every row and the detail name the pull request; the detail links to it', async () => {
     render(<Changelog />);
     await screen.findAllByText('Clock Thing');
     const link = await screen.findByRole('link', { name: '#990' });               // the detail
-    expect(screen.getAllByText('#990')).toHaveLength(1);                        // not on the row
+    expect(screen.getAllByText('#990')).toHaveLength(2);                        // and the row
     const row = document.querySelector('[data-row-author]').closest('button');
-    expect(row.textContent).not.toMatch(/In Production|#990/);                  // shipped = no mark on the row
+    expect(row.textContent).toContain('#990');
+    expect(row.textContent).not.toContain('In Production');                     // shipped = no mark on the row
     expect(link.getAttribute('href')).toBe('https://github.com/Greens-Global/Greens-Nexus/pull/990');
     expect(screen.getAllByText('Workday - Time Sheet').length).toBeGreaterThan(0);  // the row's place
   });

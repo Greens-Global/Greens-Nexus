@@ -1365,8 +1365,8 @@ function TimelineRow({ entry, nameOf, selected, onClick, compact = false }) {
   const stage = stageOf(entry);
   // Calm rows (Neil, 11/05/2026: "too busy"): the title is the hero and wraps
   // to two lines; the photo says who (the name is its tooltip); one quiet
-  // category mark; the stage only when it is NOT in production yet. The PR
-  // number and the developer's name live in the detail.
+  // category mark; a faint PR number; the stage only when it is NOT in
+  // production yet. The developer's name is the photo's tooltip.
   return (
     <button onClick={onClick} aria-current={selected ? 'true' : undefined} style={{
       display: 'flex', alignItems: 'flex-start', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer',
@@ -1393,6 +1393,8 @@ function TimelineRow({ entry, nameOf, selected, onClick, compact = false }) {
           </span>
           <span aria-hidden="true" style={{ color: NX.faint }}>·</span>
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{placeOf(entry).label}</span>
+          {/* Faint, after the place (Neil, 11/05/2026); the row is a button, so it is text - the detail links it. */}
+          {entry.prRef && <span style={{ color: NX.faint, display: 'inline-flex' }}><PrRef entry={entry} /></span>}
           {issueOf(entry)?.active && <IssueChip entry={entry} />}
           {stage && stage.key !== 'Production' && <StageChip entry={entry} />}
           <RowResponse entry={entry} />
