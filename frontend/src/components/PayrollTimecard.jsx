@@ -639,7 +639,9 @@ const _lastOpened = () => { try { return JSON.parse(sessionStorage.getItem(_LAST
 function anchorForStart(startIso, payType) {
   const [y, m, d] = (startIso || '').split('-').map(Number);
   if (!y) return null;
-  return payType === 'fixed' ? new Date(y, m - 1, 15) : periodStartFor(new Date(y, m - 1, d));
+  // start + 7 days sits inside a month AND inside a bi-weekly salary's 14-day
+  // period (11/06/2026), clear of UTC drift either way.
+  return payType === 'fixed' ? new Date(y, m - 1, d + 7) : periodStartFor(new Date(y, m - 1, d));
 }
 
 export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '', initialStart = '', initialPayType = '', selfTop = null, desk = false }) {
@@ -744,11 +746,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const cacheKey = _tcKey(self, email, start, end) + (custom ? ':range' : '');
   // The people list and its counts stay on the pay period in view while a range is open.
   const perA = isoDate(pStart), perB = isoDate(pStart.getTime() + 13 * DAY);
+  // The card's days: the 14-day period, a custom range, or a salaried card's
+  // own period (its month, or its bi-weekly period) as the server sent it.
+  const fixedSpan = data?.payType === 'fixed' && data.periodStart && data.periodEnd ? `${data.periodStart}|${data.periodEnd}` : '';
   const dates = useMemo(() => {
-    if (!custom) return Array.from({ length: 14 }, (_, i) => isoDate(pStart.getTime() + i * DAY));
-    const s0 = new Date(`${custom.start}T00:00Z`).getTime();
-    return Array.from({ length: rangeDays(custom.start, custom.end) }, (_, i) => isoDate(s0 + i * DAY));
-  }, [pStart, custom]);
+    if (custom) {
+      const s0 = new Date(`${custom.start}T00:00Z`).getTime();
+      return Array.from({ length: rangeDays(custom.start, custom.end) }, (_, i) => isoDate(s0 + i * DAY));
+    }
+    if (fixedSpan) {
+      const [s, e] = fixedSpan.split('|').map(x => Date.parse(`${x}T00:00:00Z`));
+      return Array.from({ length: Math.round((e - s) / DAY) + 1 }, (_, i) => isoDate(s + i * DAY));
+    }
+    return Array.from({ length: 14 }, (_, i) => isoDate(pStart.getTime() + i * DAY));
+  }, [pStart, custom, fixedSpan]);
 
   // employee list (scoped) for the picker - per period, so someone who left
   // before it is not on it (Neil, Oct 22). Each row carries where its review
@@ -845,7 +856,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const fixedSnapped = useRef(seeded.current);
   const focusRef = useRef(null);   // the day the previous employee's card was on
   useEffect(() => {
-    if (!data || data.payType !== 'fixed' || fixedSnapped.current) return;
+    if (!data || data.payType !== 'fixed' || data.periodKind === 'biweekly' || fixedSnapped.current) return;
     fixedSnapped.current = true;
     const f = focusRef.current || new Date();
     const wantM = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`;
@@ -898,28 +909,39 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // step through periodStartFor: that reads the LOCAL calendar, and a UTC
   // boundary lands on Saturday for US viewers, re-flooring a period back.
   const shift = (n) => custom ? setCustom(null) : setPStart(new Date(snapPeriodUTC(pStart.getTime()).getTime() + n * 14 * DAY));
-  const isFixed = data?.payType === 'fixed';   // monthly salary employee (not hourly)
-  // Salaried staff are paid by the month - a range goes back to their month.
+  const isFixed = data?.payType === 'fixed';   // salaried employee (not hourly)
+  // Salaried staff keep their own period - a range goes back to it.
   useEffect(() => { if ((isFixed || phone) && custom) setCustom(null); }, [isFixed, phone, custom]);
+  // A salaried card steps by MONTH unless the salary is paid bi-weekly (11/06/2026):
+  // then it walks the same 14-day periods as hourly.
+  const isMonthly = isFixed && data?.periodKind !== 'biweekly';
+  // India Contractor Work Hours and Extra Time Policy (Neil, Oct 27 2026): each
+  // day's credit, pool hours and Extra Time, and the Month-End Reconciliation.
+  const icp = isFixed && data?.indiaPolicy?.applies ? data.indiaPolicy : null;
+  const fxByDate = useMemo(() => Object.fromEntries((data?.fixedDays || []).map(f => [f.date, f])), [data]);
+  // Weekend pay is India only (Charmi, 11/06/2026): no "OT" words or pay line for anyone else.
+  const weekendPay = isFixed && !icp && data?.weekendPay !== false;
+  const [xtClaim, setXtClaim] = useState(null);     // the day whose Extra Time the contractor is claiming
+  const [xtDecide, setXtDecide] = useState(null);   // the day whose claim HR is deciding
   const cur = data?.currency || 'USD';         // any ISO code - see moneyPrefix
   // The manager tier never sees pay (Pranshu, 10/06) - the server sends none
   // and says so (payHidden): the pay columns, rates and totals disappear.
   const showPay = !data?.payHidden;
   const fmtM = (n) => (showPay ? money(n, cur) : '');
   // Fixed employees navigate by MONTH; the backend reads `start` as a month anchor.
-  const shiftMonth = (n) => { const base = data?.periodStart ? new Date(data.periodStart + 'T00:00') : pStart; setPStart(new Date(base.getFullYear(), base.getMonth() + n, 15)); };
+  const shiftMonth = (n) => { const base = data?.periodStart ? new Date(data.periodStart + 'T00:00') : pStart; setPStart(new Date(base.getFullYear(), base.getMonth() + n, 8)); };   // the 8th: inside the month and inside its first 14-day period (a bi-weekly salary from 11/01)
   // Format from the ISO strings, not the UTC instants - toLocaleDateString on a
   // UTC midnight shows the previous (Saturday) date to any viewer west of UTC.
-  const label = `${formatDate(start)} – ${formatDate(end)}`;
+  const label = `${formatDate(perStart)} – ${formatDate(perEnd)}`;
   // The period as the employee sees it - a month for fixed, the bi-weekly range for hourly.
   const periodLabel = custom ? `Custom: ${formatDate(start)} - ${formatDate(end)}`
-    : isFixed && data?.periodStart ? monthName(new Date(data.periodStart + 'T00:00')) : label;
+    : isMonthly && data?.periodStart ? monthName(new Date(data.periodStart + 'T00:00')) : label;
   // The period list for the finder: hourly = one ahead, the current, 12 back
   // on the UTC series (as `shift` steps); fixed = this month and 12 back (as
   // `shiftMonth` steps). Picks set pStart exactly as the arrows would.
   const finderPeriods = () => {
     const today = new Date();
-    if (isFixed) {
+    if (isMonthly) {
       const base = data?.periodStart ? new Date(data.periodStart + 'T00:00') : pStart;
       return Array.from({ length: 13 }, (_, i) => {
         const d = new Date(today.getFullYear(), today.getMonth() - i, 15);
@@ -932,10 +954,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       return { key: k, label: `${formatDate(k)} - ${formatDate(isoDate(s + 13 * DAY))}`, current: i === 1, open: !custom && k === start, pick: () => { setCustom(null); setPStart(new Date(s)); } };
     });
   };
-  const goToDate = (iso) => { setCustom(null); setPStart(anchorForStart(iso, isFixed ? 'fixed' : 'hourly')); };
+  const goToDate = (iso) => { setCustom(null); setPStart(anchorForStart(iso, isMonthly ? 'fixed' : 'hourly')); };
   // Computers only: the phone's day cards switch between two weeks.
   const onCustom = (!self && !isFixed && !phone) ? setCustom : null;
-  const periodFinder = <PeriodFinder label={periodLabel} minWidth={isFixed ? 130 : 175} periods={finderPeriods()}
+  const periodFinder = <PeriodFinder label={periodLabel} minWidth={isMonthly ? 130 : 175} periods={finderPeriods()}
     goTo={goToDate} custom={custom} onCustom={onCustom} />;
   // ‹ period › - at the top of the employee sidebar when there is one (Neil,
   // Oct 22: pick the pay period first, then go down the people), else in the
@@ -943,14 +965,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const sideArrow = { width: 26, height: 26, minWidth: 26, padding: 0, flexShrink: 0 };
   const periodNav = (inSidebar) => (
     <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2, ...(inSidebar ? { border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '1px 2px' } : {}) }}>
-      {!custom && <button className="icon-btn" aria-label="Previous pay period" onClick={() => (isFixed ? shiftMonth(-1) : shift(-1))} style={inSidebar ? sideArrow : { padding: 6 }}><ChevronLeft size={inSidebar ? 14 : 16} /></button>}
+      {!custom && <button className="icon-btn" aria-label="Previous pay period" onClick={() => (isMonthly ? shiftMonth(-1) : shift(-1))} style={inSidebar ? sideArrow : { padding: 6 }}><ChevronLeft size={inSidebar ? 14 : 16} /></button>}
       {inSidebar
         ? <PeriodFinder label={periodLabel} periods={finderPeriods()} fill
             goTo={goToDate} custom={custom} onCustom={onCustom} />
         : periodFinder}
       {custom
         ? <button className="icon-btn" aria-label="Back to the pay period" title="Back to the pay period" onClick={() => setCustom(null)} style={inSidebar ? sideArrow : { padding: 6 }}><X size={inSidebar ? 14 : 16} /></button>
-        : <button className="icon-btn" aria-label="Next pay period" onClick={() => (isFixed ? shiftMonth(1) : shift(1))} style={inSidebar ? sideArrow : { padding: 6 }}><ChevronRight size={inSidebar ? 14 : 16} /></button>}
+        : <button className="icon-btn" aria-label="Next pay period" onClick={() => (isMonthly ? shiftMonth(1) : shift(1))} style={inSidebar ? sideArrow : { padding: 6 }}><ChevronRight size={inSidebar ? 14 : 16} /></button>}
     </div>
   );
   const T = data?.totals;
@@ -963,7 +985,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // which moves the row actions from after the Date, Oct 16, to the row's
   // end): Date, In, Out, Deducted Time, Category, Punch, Day Total, OT,
   // Location, [Pay Rate], [Wage], then Edit / Add / Log.
-  const cols = showPay ? 12 : 10;
+  // A salaried card (Charmi, 11/06/2026: the same template for everyone) swaps
+  // OT for the Day's status, adds the India Contractor columns, and Pay Rate /
+  // Wage for Effect on Pay.
+  const cols = isFixed ? 10 + (icp ? 3 : 0) + (showPay ? 1 : 0) : (showPay ? 12 : 10);
   const mgrAp = data?.approval;        // manager approval (step 1 of 2)
   // Never surface a raw email - fall back to a name formatted from the local-part.
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
@@ -1199,7 +1224,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       const notes = segs.flatMap(segReasons).filter(n => !recs.some(r => r.reason === n));
       // Worked a company holiday: the hours worked are paid as usual, nothing
       // is credited on top (hourly holidays are unpaid, Neil 11/04/2026).
-      if (d?.holidayName) rows.push({ type: 'holiday', ds, name: d.holidayName, holidayType: d.holidayType, pay: d.holidayPay || 0,
+      // A salaried day's holiday is its status pill (and its pay is the salary's).
+      if (d?.holidayName && !isFixed) rows.push({ type: 'holiday', ds, name: d.holidayName, holidayType: d.holidayType, pay: d.holidayPay || 0,
         worked: d.holidayWorked !== false });
       // Shift differentials / call-back pay (Oct 17): only on a company that
       // has them on - its own line under the day, never in the hours.
@@ -1213,8 +1239,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   if (prevWeek) rows.push({ type: 'wk', week: prevWeek });
   // A day with nothing on it - no punches, no holiday, no note, no request -
   // is the "empty" day Hide Empty Days takes away.
+  // On a salaried card only a plain Weekend or Upcoming day is empty - an
+  // Absent or Holiday day says something about the pay.
   const emptyDay = (ds) => !(byDate[ds]?.segments || []).length && !byDate[ds]?.isHoliday && !(reqsByDate[ds] || []).length
-    && !noteOf(ds) && !notes[ds]?.employeeNote;
+    && !noteOf(ds) && !notes[ds]?.employeeNote && (!isFixed || ['weekend', 'upcoming', undefined].includes(fxByDate[ds]?.status));
   const shownRows = hideEmpty ? rows.filter(r => !(r.type === 'day' && !r.seg && emptyDay(r.ds))) : rows;
   // Per week: the overtime and the wages, for the centered week line.
   const weekStats = useMemo(() => {
@@ -1429,6 +1457,42 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     );
   };
 
+  // ── A salaried day's own cells (they ride the same grid since 11/06/2026):
+  //    its status (Present / Half Day / Absent / Weekend ...), the India
+  //    Contractor credit, pool and Extra Time, and its Effect on Pay. ──
+  const filingOpen = self && !!data?.extraTimeFiling?.open && !ownCard;
+  const canDecideXt = !self && !!data?.extraTimeCanDecide && !fin;
+  const fxPill = (fd) => {
+    if (!fd) return null;
+    // A missed day covered by approved time off is named after it ("Personal",
+    // "Personal · Half Day") - requests are not punched, so it would read Absent.
+    const timeOffDay = fd.timeOff && (fd.status === 'absent' || fd.status === 'half');
+    const base = (!weekendPay && fd.status === 'weekend_worked') ? { ...FIXED_STATUS.weekend_worked, label: 'Weekend Worked' }
+      : FIXED_STATUS[fd.status] || FIXED_STATUS.upcoming;
+    const st = timeOffDay ? { ...FIXED_STATUS.personal, label: fd.status === 'half' ? `${fd.timeOff} · Half Day` : fd.timeOff } : base;
+    return (
+      <span title={fd.leaveClass ? 'Leave - the day is deducted unless hours were also worked' : timeOffDay ? `Approved time off (${fd.timeOff}) - the missed time is deducted` : (fd.holidayName || undefined)}
+        style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg, whiteSpace: 'nowrap' }}>{st.label}</span>
+    );
+  };
+  const fxEffect = (fd) => fd.deduct ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>−{fmtM(fd.deduct)}</span>
+    : fd.bonus ? <span style={{ color: 'var(--wk-brand)', fontWeight: 700 }}>+{fmtM(fd.bonus)}</span>
+    : (icp && fd.extraPay) ? <span style={{ color: 'var(--wk-brand)', fontWeight: 700 }}>+{fmtM(fd.extraPay)}</span>
+    : <span style={{ color: 'var(--muted)' }}>no change</span>;
+  // `show` false = a later row of the day: the cells stay, empty.
+  const fxMid = (ds, show = true) => {
+    const fd = show ? fxByDate[ds] : null;
+    return (
+      <>
+        <td>{fd ? fxPill(fd) : ''}</td>
+        {icp && <td>{fd ? <CreditCell fd={fd} /> : ''}</td>}
+        {icp && <td className="r">{fd?.poolMin ? hm(fd.poolMin) : ''}</td>}
+        {icp && <td>{fd ? <ExtraTimeCell fd={fd} self={self} filingOpen={filingOpen} canDecide={canDecideXt} onClaim={setXtClaim} onDecide={setXtDecide} /> : ''}</td>}
+      </>
+    );
+  };
+  const fxEnd = (ds, show = true) => showPay ? <td className="r">{show && fxByDate[ds] ? fxEffect(fxByDate[ds]) : ''}</td> : null;
+
   // What needs attention (components/timesheet/attention.js) and what each chip does.
   const attention = collectAttention(rows, { self, isLive: (sg) => isLive(sg), changed, mealsFor: !(self || ownCard) });
   const actionFor = (it) => {
@@ -1535,11 +1599,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               <b style={{ color: 'var(--wk-live-ink)', fontVariantNumeric: 'tabular-nums' }}>{liveFor()}</b>
             </div>}
             <div className="ts-psum-top">
-              <div><span>Worked This Period</span><b>{hhmm(workedMin)}</b></div>
-              {showPay && <div className="ts-psum-pay"><span>Est. Pay</span><b>{fmtM(T.totalPay)}</b></div>}
+              <div><span>Worked This Period</span><b>{hhmm(isFixed ? (T.workedMin || 0) : workedMin)}</b></div>
+              {showPay && <div className="ts-psum-pay"><span>{isFixed ? (data.contractor ? 'Invoice Amount' : 'Net Pay') : 'Est. Pay'}</span><b>{fmtM(isFixed ? (T.netPay ?? T.totalPay) : T.totalPay)}</b></div>}
             </div>
             <div className="ts-psum-sub">
-              {[`${hhmm(T.regMin || 0)} regular`, (T.otMin || T.dtMin) ? `${otText(T.otMin, T.dtMin)} overtime` : '', offMin ? `${hhmm(offMin)} time off` : ''].filter(Boolean).join(' · ')}
+              {(isFixed
+                ? [`${T.missedFullDays || 0} missed day${T.missedFullDays === 1 ? '' : 's'}${T.missedHalfDays ? `, ${T.missedHalfDays} half` : ''}`, leaveDays ? `${leaveDays} day${leaveDays === 1 ? '' : 's'} off` : '']
+                : [`${hhmm(T.regMin || 0)} regular`, (T.otMin || T.dtMin) ? `${otText(T.otMin, T.dtMin)} overtime` : '', offMin ? `${hhmm(offMin)} time off` : '']).filter(Boolean).join(' · ')}
             </div>
           </div>
         )}
@@ -1584,6 +1650,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               style={miss ? { boxShadow: 'inset 3px 0 0 #b91c1c, var(--wk-shadow)' } : undefined}>
               <div className="pr-dcard-head">
                 <span className="pr-dcard-date" style={{ color: leave ? '#7c3aed' : undefined }}><DateCell ds={ds} /></span>
+                {isFixed && fxPill(fxByDate[ds])}
                 {inline && <span className="pr-dcard-inline-note">{noteCell}</span>}
                 <span style={{ flex: 1 }} />
                 {inline && <WorkLogButton onClick={() => setWorkLogDay(ds)} title={`View the Work Log for ${dow(ds)}`} />}
@@ -1599,7 +1666,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                         {shifts.some(isLive)
                           ? <span className="ts-live" title="Still clocked in">{liveFor()}</span>
                           : <span>{hhmm(day?.workedMin ?? shifts.reduce((a, s) => a + (s.workedMin || 0), 0))}</span>}
-                        {showPay && <span style={{ fontWeight: 600, color: 'var(--muted)' }}>{fmtM(pay)}</span>}
+                        {showPay && (isFixed ? (fxByDate[ds] ? fxEffect(fxByDate[ds]) : null) : <span style={{ fontWeight: 600, color: 'var(--muted)' }}>{fmtM(pay)}</span>)}
                       </>
                     )}
                   </span>
@@ -1830,7 +1897,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   useSheetKeys({
     enabled: !self && !phone && people.length > 0 && !workLogDay && !editDay && !breakFix && !geoMap && !addTime && !dupDay && !noteModal,
     onPerson: (step) => { const p = order[at + step]; if (p) setEmail(p.email); },
-    onPeriod: (step) => (isFixed ? shiftMonth(step) : shift(step)),
+    onPeriod: (step) => (isMonthly ? shiftMonth(step) : shift(step)),
   });
   // The next person's card loads in the background, so stepping to them is instant.
   const prefetched = useRef(new Set());
@@ -1845,37 +1912,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, email, start, end, at]);
 
-  // Fixed-salary employees get a dedicated MONTHLY card - the hourly SwipeClock
-  // grid (OT split, weekly subtotals, $/hr) does not apply to them - but it lives
-  // inside the SAME master-detail layout as the hourly view.
-  if (isFixed && data) {
-    const fixedCard = (
-      <FixedTimecard data={data} self={self} email={email} people={people} setEmail={setEmail} photos={photos}
-        nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
-        isAdmin={isAdmin} busy={busy} setBusy={setBusy}
-        periodNav={(employeeSidebar || payrollToolbar) ? null : periodNav(false)}
-        onUnfinalize={unfinalize}
-        editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
-        setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard}
-        adv={adv} me={myEmail} />
-    );
-    return (
-      <>
-        {self ? fixedCard : (
-          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)', flexWrap: 'wrap' }}>
-            {payrollToolbar}
-            {employeeSidebar}
-            <div style={{ flex: 1, minWidth: 0 }}>{fixedCard}</div>
-          </div>
-        )}
-        {workLogDay && (
-          <WorkLogDrawer email={self ? myEmail : email} date={workLogDay}
-            name={self ? '' : (people.find(p => p.email === email)?.name || email)}
-            onClose={() => setWorkLogDay(null)} />
-        )}
-      </>
-    );
-  }
+  // Salaried people ride the same Time Sheet as hourly since 11/06/2026
+  // (Charmi: "push the updated time sheet template to everybody") - their
+  // own cells and summary are the fx* / fixed* pieces above.
   // Loading (first open, or switching employee/period): a placeholder shaped
   // like the card, so the card never flashes the wrong pay-type shell (the
   // hourly bi-weekly toolbar + $0.00) and the page keeps its height and
@@ -1908,14 +1947,21 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const rvMark = rv && REVIEW_MARK[rv.status];
   const offMin = (T?.sickMin || 0) + (T?.vacationMin || 0) + (T?.personalMin || 0);
   const offKinds = [['Sick', T?.sickMin], ['Vacation', T?.vacationMin], ['Personal', T?.personalMin]].filter(([, m]) => m > 0).map(([l]) => l);
-  const figures = T ? [
+  const leaveDays = (T?.sickDays || 0) + (T?.vacationDays || 0) + (T?.personalDays || 0);
+  const figures = !T ? [] : isFixed ? [
+    { label: 'Worked', value: hhmm(T.workedMin || 0) },
+    { label: 'Time Off', value: `${leaveDays} day${leaveDays === 1 ? '' : 's'}`, small: offKinds.join(', ') },
+    { label: icp ? 'Unpaid Days' : 'Missed Days', value: `${T.missedFullDays || 0}${T.missedHalfDays ? ` + ${T.missedHalfDays} half` : ''}`,
+      warn: !!(T.missedFullDays || T.missedHalfDays) },
+    ...(showPay ? [{ label: data.contractor ? 'Invoice Amount' : 'Net Pay', value: fmtM(T.netPay ?? T.totalPay) }] : []),
+  ] : [
     { label: 'Worked', value: hhmm((T.regMin || 0) + (T.otMin || 0) + (T.dtMin || 0)) },
     { label: 'Regular', value: hhmm(T.regMin || 0) },
     { label: 'Overtime', value: (T.otMin || T.dtMin) ? otText(T.otMin, T.dtMin) : '0:00', warn: !!(T.otMin || T.dtMin) },
     { label: 'Time Off', value: hhmm(offMin), small: offKinds.join(', ') },
     ...(showPay ? [{ label: 'Gross Pay', value: fmtM(T.totalPay) }] : []),
-  ] : [];
-  const wkEndOf = (w) => isoDate(new Date(`${w}T00:00Z`).getTime() + 6 * DAY);
+  ];
+  const wkEndOf =(w) => isoDate(new Date(`${w}T00:00Z`).getTime() + 6 * DAY);
   // One desktop row. Every cell sits on one baseline; durations and money are
   // right-aligned; a shift's Deducted / Category / OT / Location / Pay Rate /
   // Wage and its actions read on its first row.
@@ -1927,8 +1973,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <tr key={i} className="ts-wk">
           <td colSpan={cols}>
             Total hours clocked for week of {formatMonthDayNumeric(r.week, true)} to {formatMonthDayNumeric(wkEndOf(r.week), true)}{so ? ' (so far)' : ''}{custom && (r.week < start || wkEndOf(r.week) > end) ? ' (in range)' : ''}: <b>{hhmm(weekTotals[r.week]?.min || 0)}</b>
-            <span className="ts-wx">Overtime <b>{weekStats[r.week]?.ot ? hhmm(weekStats[r.week].ot) : '-'}</b></span>
-            {showPay && <span className="ts-wx">Wage <b>{fmtM(weekStats[r.week]?.pay || 0)}</b></span>}
+            {!isFixed && <span className="ts-wx">Overtime <b>{weekStats[r.week]?.ot ? hhmm(weekStats[r.week].ot) : '-'}</b></span>}
+            {showPay && !isFixed && <span className="ts-wx">Wage <b>{fmtM(weekStats[r.week]?.pay || 0)}</b></span>}
           </td>
         </tr>
       );
@@ -1994,6 +2040,17 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     // A day with no punches: one quiet line - or its holiday.
     if (!r.seg) {
       const ahead = r.ds > todayDs;
+      // Salaried: the day's status, credit and effect on pay still read.
+      if (isFixed) return (
+        <tr key={i} className={`ts-first ts-quiet${flash}`} data-ts-day={r.ds}>
+          <td className="ts-date"><DateCell ds={r.ds} /></td>
+          <td colSpan={6}>{fxByDate[r.ds]?.holidayName || (ahead ? 'Upcoming' : 'No punches')}</td>
+          {fxMid(r.ds)}
+          <td />
+          {fxEnd(r.ds)}
+          <td className="ts-act">{hActs(r)}</td>
+        </tr>
+      );
       if (r.holiday) return (
         <tr key={i} className={`ts-first ts-holi${flash}`} data-ts-day={r.ds}>
           <td className="ts-date"><DateCell ds={r.ds} /></td>
@@ -2025,15 +2082,18 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <td className="ts-cat">{head && !r.sameCat ? hCategory(r) : ''}</td>
         <td className="r">{r.seg.in && r.seg.out ? hhmm(r.seg.workedMin) : '-'}</td>
         <td className="r" style={{ fontWeight: 800 }}>{r.first ? (dayMin ? hhmm(dayMin) : '-') : ''}</td>
-        <td className="r">{head ? ((b.otMin || b.dtMin) ? <span className={b.dtMin ? 'ts-num-bad' : 'ts-num-warn'}>{otText(b.otMin, b.dtMin)}</span> : '-') : ''}</td>
+        {isFixed ? fxMid(r.ds, r.first)
+          : <td className="r">{head ? ((b.otMin || b.dtMin) ? <span className={b.dtMin ? 'ts-num-bad' : 'ts-num-warn'}>{otText(b.otMin, b.dtMin)}</span> : '-') : ''}</td>}
         <td>{head && !r.sameLoc
           ? (b.geo && b.geo !== 'no_location'
             // Location Off shows (Pranshu, Oct 21: a skipped location ask must read on the card); No Location stays a dash.
             ? <LocCell seg={b} onOpen={(seg) => openGeo(seg, r.ds)} />
             : '-')
           : ''}</td>
-        {showPay && <td className="r" style={{ color: 'var(--muted)' }}>{head ? `${fmtM(byDate[r.ds]?.rate ?? rate)}/hr` : ''}</td>}
-        {showPay && <td className="r" style={{ fontWeight: 700 }}>{head ? (b.amount ? fmtM(b.amount) : '-') : ''}</td>}
+        {isFixed ? fxEnd(r.ds, r.first) : <>
+          {showPay && <td className="r" style={{ color: 'var(--muted)' }}>{head ? `${fmtM(byDate[r.ds]?.rate ?? rate)}/hr` : ''}</td>}
+          {showPay && <td className="r" style={{ fontWeight: 700 }}>{head ? (b.amount ? fmtM(b.amount) : '-') : ''}</td>}
+        </>}
         <td className="ts-act">{head ? hActs(r, { log: !!r.first }) : null}</td>
       </tr>
     );
@@ -2077,6 +2137,60 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       <div key={i} className={`ts-srow${tot ? ' is-total' : ''}`}><span>{lbl}</span><b>{hrs}</b><b>{amt}</b></div>
     ));
   };
+  // ── The salaried facts and pay summary (were FixedTimecard's until 11/06/2026) ──
+  const biweekly = data?.periodKind === 'biweekly';
+  const fixedSplit = (data?.rateSplits || []).length > 1
+    ? data.rateSplits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmtM(s.monthlySalary)}/mo` : `From ${formatDate(s.from)} at ${fmtM(s.monthlySalary)}/mo`).join(' · ')
+    : '';
+  const fixedFacts = () => (
+    <>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontWeight: 700 }}>{data.contractor ? 'Fixed fee' : 'Fixed salary'}</span>
+      {showPay && <span title="Set on the Pay & Benefits tab of this person's profile"><strong style={{ color: 'var(--ink)' }}>{data.contractor ? 'Monthly fee' : 'Salary'}:</strong> {fmtM(data.monthlySalary)}/mo{biweekly ? ', paid bi-weekly' : ''}</span>}
+      {showPay && fixedSplit && (
+        <span title="The salary changed inside this period - each day is paid at the salary in effect that day" style={{ color: 'var(--wk-brand)', fontWeight: 600 }}>{fixedSplit}</span>
+      )}
+      {showPay && <span title="Monthly salary x 12, divided by the working days in this calendar year (days minus Saturdays and Sundays; company holidays stay in)">
+        <strong style={{ color: 'var(--ink)' }}>Daily:</strong> {fmtM(data.dailyRate)} (annual / {data.workingDaysInYear || T?.workingDaysInYear || 261} working days)
+      </span>}
+      {/* How the pay is worked out is for the reviewer, not the employee's own time sheet (Neil, Oct 18 2026). */}
+      {!self && weekendPay && <span title="Weekend pay = max(minimum, 1.35 x daily x hours worked / full-day hours). Calculated, never typed per person.">
+        <strong style={{ color: 'var(--ink)' }}>Weekend:</strong> {data.weekendMultiplier || 1.35} × daily, pro-rated by hours{data.weekendFloor ? `, min ${fmtM(data.weekendFloor)}` : ''}
+      </span>}
+      {icp && <span title="Settings > Time & Pay > India Contractor Policy. Scheduled 9 hours a day, Monday - Friday; full credit at 8 hours, half at 4; the month-end reconciliation recovers missing days from the pool.">
+        <strong style={{ color: 'var(--ink)' }}>India Contractor Policy</strong>
+      </span>}
+      {icp && showPay && <span title="Approved Extra Time is paid at 1.35 x the hourly equivalent of the daily rate (daily / 9), with no minimum">
+        <strong style={{ color: 'var(--ink)' }}>Extra Time:</strong> {fmtM(icp.extraTime?.rate)}/hr (1.35 × {fmtM(icp.extraTime?.hourlyEquivalent)})
+      </span>}
+    </>
+  );
+  const fixedSummary = () => {
+    const thisP = biweekly ? 'this period' : 'this month';
+    const lines = [
+      [data.contractor ? (fixedSplit ? `Fee ${thisP} (pro-rated by day)` : 'Monthly fee')
+        : biweekly ? 'Salary this period (bi-weekly)' : (fixedSplit ? 'Salary this month (pro-rated by day)' : 'Monthly salary'), fmtM(T.salaryForPeriod ?? T.monthlySalary)],
+      // Why the days were missed (Charmi, Oct 15 2026): "Sick ×2 · Personal ×8".
+      [<span key="missed">
+        {`${icp ? 'Unpaid days after reconciliation' : 'Missed days'} (${T.missedFullDays || 0} full${T.missedHalfDays ? `, ${T.missedHalfDays} half` : ''})`}
+        {(T.missedReasons || []).length > 0 && (
+          <span data-missed-reasons style={{ display: 'block', marginTop: 4, fontSize: 12, color: 'var(--ink)', fontWeight: 600 }}>
+            {T.missedReasons.map((m, i) => (
+              <span key={m.reason}>{i > 0 && <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · </span>}{missedText(m)}</span>
+            ))}
+          </span>
+        )}
+      </span>, T.deduction ? `−${fmtM(T.deduction)}` : fmtM(0)],
+      ...(icp ? [[`Extra Time (${hm(T.extraTimeMin)} approved at ${fmtM(icp.extraTime?.rate)}/hr)`, T.extraTimePay ? `+${fmtM(T.extraTimePay)}` : fmtM(0)]]
+        : weekendPay ? [[`Weekend pay (${T.weekendDaysWorked || 0} day${T.weekendDaysWorked === 1 ? '' : 's'}, ${data.weekendMultiplier || 1.35} × daily by hours)`, T.weekendBonus ? `+${fmtM(T.weekendBonus)}` : fmtM(0)]] : []),
+      ...(data.bonuses || []).map(b => [`Bonus: ${b.description}`, `+${fmtM(b.amount)}`]),
+      // Salary advance repayments (Oct 27 2026): off what is paid out.
+      ...(data.advanceRepayments || []).filter(x => x.applied > 0).map(x => ['Salary Advance Repayment', `-${fmtM(x.applied)}`]),
+      [data.contractor ? `Invoice amount ${thisP}` : `Net pay ${thisP}`, fmtM(T.netPay ?? T.totalPay), true],
+    ];
+    return lines.map(([lbl, amt, tot], i) => (
+      <div key={i} className={`ts-srow${tot ? ' is-total' : ''}`}><span>{lbl}</span><b /><b>{amt}</b></div>
+    ));
+  };
   const count = (label, value, color, title) => (
     <div className="ts-crow" title={title}><span style={color ? { color, fontWeight: 700 } : undefined}>{label}</span><b style={color ? { color } : undefined}>{value}</b></div>
   );
@@ -2093,7 +2207,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         {self
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Time Sheet</span>
           : (employeeSidebar || payrollToolbar)
-            ? (email && <PersonHeader name={nameFor(email)} email={email} photos={photos} period={label} />)
+            ? (email && <PersonHeader name={nameFor(email)} email={email} photos={photos} period={isMonthly ? `${periodLabel} (${label})` : label} />)
             : <EmployeeCombobox people={pickable} value={email} onChange={setEmail}
                 labelFor={pickLabel} />}
         {!payrollToolbar && missingOnly}
@@ -2131,7 +2245,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           18 2026): approve and sign first, then this period's change requests -
           not at the bottom under the grid, and not every period's requests. */}
       {self && T && (
-        <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={label}
+        <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={periodLabel}
           nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
           below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />
       )}
@@ -2142,12 +2256,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
           {/* The OT rule is for managers and HR, never on the employee's own
               time sheet (Neil, Oct 18 2026). */}
-          {self ? (showPay && data.rateSet && <span><strong style={{ color: 'var(--ink)' }}>{data.contractor ? 'Rate' : 'Pay rate'}:</strong> {fmtM(rate)}/hr</span>) : (
+          {isFixed ? fixedFacts() : self ? (showPay && data.rateSet && <span><strong style={{ color: 'var(--ink)' }}>{data.contractor ? 'Rate' : 'Pay rate'}:</strong> {fmtM(rate)}/hr</span>) : (
           <span title="Set on the Pay & Benefits tab of this person's profile">
             {showPay && <><strong style={{ color: 'var(--ink)' }}>{data.contractor ? 'Rate' : 'Pay rate'}:</strong> {fmtM(rate)}/hr · </>}<strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {RULE_LABEL[rule] || 'None'}
           </span>
           )}
-          {showPay && rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`) && (
+          {showPay && !isFixed && rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`) && (
             <span title="The rate changed inside this period - each day is paid at the rate in effect that day" style={{ color: 'var(--wk-brand)', fontWeight: 600 }}>
               {rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`)}
             </span>
@@ -2167,7 +2281,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               rate and the how-to-change hint sit here, not in boxes of their own. */}
           {showPay && !data.rateSet && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#b45309' }}>
-              <AlertTriangle size={12} /> No pay rate set - wages show {fmtM(0)} until {self ? 'HR sets one' : 'you set one'}
+              <AlertTriangle size={12} /> {isFixed ? `No salary set - set it on this person's Pay & Benefits tab. Pay shows ${fmtM(0)} until then.`
+                : `No pay rate set - wages show ${fmtM(0)} until ${self ? 'HR sets one' : 'you set one'}`}
             </span>
           )}
           {self && (
@@ -2232,17 +2347,36 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th>Category</th>
                 <th className="r" title="Hours of this punch pair - its In to its Out; a shift's rows add up to its paid time">Punch</th>
                 <th className="r" title="The day's total">Day Total</th>
-                <th className="r" title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×">OT</th>
+                {isFixed ? <>
+                  <th title="Present, Half Day, Absent, Weekend, Holiday or the time off that covers the day">Day</th>
+                  {icp && <th title="The day's credit: Full at 8 hours worked, Half at 4, None below - or paid leave from the balance">Credit</th>}
+                  {icp && <th className="r" title="Hours this day adds to the month-end pool: past 9 on a full day, past 4 on a half day, every hour of a day with no credit, weekend and holiday hours not paid as Extra Time">Pool</th>}
+                  {icp && <th title="Hours claimed with a note to be paid at 1.35x - only hours past 9 on a workday, every hour on a weekend or holiday">Extra Time</th>}
+                </> : <th className="r" title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×">OT</th>}
                 <th>Location</th>
-                {showPay && <th className="r" title="The rate in effect that day">{data.contractor ? 'Rate' : 'Pay Rate'}</th>}
-                {showPay && <th className="r">{data.contractor ? 'Amount' : 'Wage'}</th>}
+                {showPay && isFixed && <th className="r" title="What the day does to the salary: a deduction, weekend pay or Extra Time">Effect on Pay</th>}
+                {showPay && !isFixed && <th className="r" title="The rate in effect that day">{data.contractor ? 'Rate' : 'Pay Rate'}</th>}
+                {showPay && !isFixed && <th className="r">{data.contractor ? 'Amount' : 'Wage'}</th>}
                 <th><span className="dk-sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
               {shownRows.map(deskRow)}
             </tbody>
-            {T && (
+            {T && isFixed && (
+              /* Salaried: the hours worked; the pay is the summary's below. */
+              <tfoot>
+                <tr>
+                  <td colSpan={3} className="ts-date" style={{ fontSize: 14 }}>Total Worked</td>
+                  <td className="r">{T.deductedMin ? <span className="ts-num-warn">−{T.deductedMin}m</span> : '-'}</td>
+                  <td />
+                  <td />
+                  <td className="r">{hhmm(T.workedMin || 0)}</td>
+                  <td colSpan={cols - 7} />
+                </tr>
+              </tfoot>
+            )}
+            {T && !isFixed && (
               /* Totals (Pranshu, Oct 16): the hours worked on their own line,
                  then each kind of time off taken with its hours and pay. */
               <tfoot>
@@ -2288,9 +2422,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <div className="ts-below">
           <div data-tour="pr-summary" className="ts-card">
             <div className="ts-card-h">Pay Summary</div>
-            {paySummary()}
+            {isFixed ? fixedSummary() : paySummary()}
           </div>
-          {(data?.byCategory || []).length > 1 && (
+          {icp && <ReconciliationPanel data={data} fmtM={fmtM} showPay={showPay} />}
+          {!isFixed && (data?.byCategory || []).length > 1 && (
             <div className="ts-card">
               <div className="ts-card-h">By Category (Job Costing)</div>
               {data.byCategory.map((c, i) => (
@@ -2310,7 +2445,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             {T.deductedMin > 0 && count('Auto-lunch deducted', `−${T.deductedMin}m`, '#b45309')}
             {T.breakMin > 0 && count('Break time', hhmm(T.breakMin))}
             {T.paidBreakMin > 0 && count('Paid breaks', `+${T.paidBreakMin}m`, 'hsl(var(--color-green))', 'CA rest-break credit - these break minutes stayed on the clock as paid time.')}
-            {!self && showPay && (
+            {!self && isFixed && fin && data.review?.canUnlock && (
+              <div className="ts-exp">
+                <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period to correct it - the employee signs it again"
+                  style={{ fontSize: 12.5 }}>Unlock</button>
+              </div>
+            )}
+            {!self && showPay && !isFixed && (
             <div className="ts-exp">
               <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV', [start, end])} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
               {!custom && <button className="secondary-btn" disabled={exporting} title="Intacct General Ledger import of this period's payroll by employee - wages by pay class, with department and entity as dimensions. Same file layout as the accounting app's bank import."
@@ -2341,7 +2482,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </div>
       )}
       {T && <div style={{ marginTop: 14 }}><BreakPremiums card={data} self={self} locked={!!fin} onChanged={load} toastOk={toastOk} toastErr={toastErr} /></div>}
-      {T && !self && (
+      {T && !self && !isFixed && (
         <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 12, fontStyle: 'italic' }}>
           Overtime rule: {rule === 'ca' ? 'California - over 8h/day (1.5×), over 12h/day (2×), the 7th consecutive day, and over 40h/week'
             : rule === 'federal' ? 'Federal - over 40 hours per week (1.5×)'
@@ -2362,7 +2503,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           back or agrees, then the employee signs in Nexus Sign. */}
       {T && !self && !custom && (
         <div data-tour="pr-approve">
-        <TimesheetReviewPanel ref={panelRef} review={data.review} self={self} anchor={perStart} periodLabel={label}
+        <TimesheetReviewPanel ref={panelRef} review={data.review} self={self} anchor={perStart} periodLabel={periodLabel}
           nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} next={next}
           below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />
         </div>
@@ -2372,11 +2513,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <NoteModal dates={dates} dow={dow} self={self} noteFor={noteOf} onSave={self ? saveMyNote : saveNote} toastOk={toastOk} onClose={() => setNoteModal(false)} />
       )}
       {addTime && !self && email && !ownCard && (
-        <AddTimeModal email={email} name={nameFor(email)} start={start} end={end} onClose={() => setAddTime(false)}
+        <AddTimeModal email={email} name={nameFor(email)} start={perStart} end={perEnd} onClose={() => setAddTime(false)}
           onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
       {dupDay && !self && email && !ownCard && data?.review?.isHr && (
-        <AddTimeFromRecordModal email={email} name={nameFor(email)} start={start} end={end} onClose={() => setDupDay(false)}
+        <AddTimeFromRecordModal email={email} name={nameFor(email)} start={perStart} end={perEnd} onClose={() => setDupDay(false)}
           onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
       {editDay && (
@@ -2401,6 +2542,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             ? () => { const f = geoFocus; setGeoMap(''); setGeoFocus(null); setEditDay({ date: f.date, seg: f.seg }); }
             : null} />
         </Suspense>
+      )}
+      {xtClaim && (
+        <ExtraTimeClaimModal fd={xtClaim} onClose={() => setXtClaim(null)} onDone={() => { setXtClaim(null); load(); }}
+          toastOk={toastOk} toastErr={toastErr} />
+      )}
+      {xtDecide && (
+        <ExtraTimeDecideModal fd={xtDecide} name={data?.name || nameFor?.(email) || ''} onClose={() => setXtDecide(null)}
+          onDone={() => { setXtDecide(null); load(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
       {tour && <GuidedTour onClose={() => setTour(false)} steps={[
         { target: 'pr-sidebar', title: 'Start with the employee list',
@@ -2441,477 +2590,26 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // One signature line in the sign-off block. `sig` is the backend sign-off record
 // ({by, at, name?, stale}); `action` (employee only) shows the Sign button;
 // `pending` is the hint shown to others before that party has acted.
-// Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
-// signatures as the hourly card, but the pay math is the fixed model: salary,
-// per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, photos = {}, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false, adv = null, me = '' }) {
-  const showPay = !data.payHidden;   // the manager tier never sees pay
-  const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
-  useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
-  const T = data.totals || {};
-  const fin = data.finalized;
-  const corrLock = !!data.review?.inCorrection && !data.review?.isHr;   // HR is correcting it (Oct 22)
-  const noEdit = !!fin || ownCard || corrLock;   // finalized, your own card (Oct 20), or HR correcting
-  const mgrAp = data.approval;
-  const [breakFix, setBreakFix] = useState(null);       // { date, breaks } - fixing a break punch
-  const [noteModal, setNoteModal] = useState(false);    // Add Note in the toolbar
-  const [dupDay, setDupDay] = useState(false);          // Add Time From Record (Oct 27): HR only
-  const byDate = Object.fromEntries((data.days || []).map(d => [d.date, d]));
-  const fixedDays = data.fixedDays || [];
-  const pm = data.punchMeta || {};
-  // The same ruled grid and boxed buttons as the hourly card.
-  const gh = { fontSize: 12, fontWeight: 700, padding: '6px 8px', textAlign: 'center', border: '1px solid var(--line)', background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', whiteSpace: 'nowrap' };
-  const gc = { fontSize: 12.5, padding: '3px 8px', textAlign: 'center', border: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', verticalAlign: 'middle' };
-  const btn = { border: '1px solid var(--line-strong,var(--line))', borderRadius: 3, padding: '0 5px', background: 'var(--wk-hover)', color: 'var(--ink)', font: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', lineHeight: 1.6 };
-  // The day bands (full / half / absent) are applied by the server and no
-  // longer printed on the strip (Oct 31 2026); the day statuses say the result.
-  const fixedSplit = (data.rateSplits || []).length > 1
-    ? data.rateSplits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmtM(s.monthlySalary)}/mo` : `From ${formatDate(s.from)} at ${fmtM(s.monthlySalary)}/mo`).join(' · ')
-    : '';
-  const monthLabel = data.periodStart ? monthName(new Date(data.periodStart + 'T00:00')) : '';
-  // Always US month/day (Oct 16): [] took the browser's locale, so an India-locale
-  // browser read 'Sun 11/10' for October 11.
-  const dow = (ds) => `${new Date(ds + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' })} ${formatMonthDayNumeric(ds, true)}`;
-  const STATUS = {
-    working: { label: 'Working', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },
-    present: { label: 'Present', bg: 'hsla(var(--color-green),0.12)', fg: 'hsl(var(--color-green))' },
-    late: { label: 'Late', bg: 'rgba(217,119,6,0.15)', fg: '#c2410c' },   // shift start passed, not clocked in yet (today only, no deduction)
-    half: { label: 'Half day', bg: 'rgba(180,83,9,0.12)', fg: '#b45309' },
-    absent: { label: 'Absent', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
-    // Leave entered for the day (Pranshu, Oct 12) - on salary the day is
-    // deducted like an absence unless hours were also worked; the row reads
-    // red like the hourly card's.
-    sick: { label: 'Sick', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
-    vacation: { label: 'Vacation', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
-    personal: { label: 'Personal', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
-    holiday: { label: 'Holiday', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // company holiday on the employee's own calendar - never deducted
-    holiday_half: { label: 'Half-day holiday', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // didn't work at all - half a day's pay
-    holiday_half_worked: { label: 'Half-day holiday', bg: 'hsla(var(--color-green),0.12)', fg: 'hsl(var(--color-green))' },   // worked their half - full pay, no deduction
-    weekend: { label: 'Weekend', bg: 'var(--mist)', fg: 'var(--muted)' },
-    weekend_worked: { label: 'Weekend OT', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },
-    upcoming: { label: 'Upcoming', bg: 'transparent', fg: 'var(--muted)' },
-    // India Contractor policy (Oct 27 2026): a full holiday with hours on it.
-    holiday_worked: { label: 'Holiday Worked', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },
-  };
-  // India Contractor Work Hours and Extra Time Policy (Neil, Oct 27 2026):
-  // each day's credit, its pool hours and Extra Time instead of weekend pay,
-  // and the Month-End Reconciliation under the grid - all from the server.
-  const icp = data.indiaPolicy?.applies ? data.indiaPolicy : null;
-  if (icp) STATUS.weekend_worked = { ...STATUS.weekend_worked, label: 'Weekend Worked' };
-  const cols = icp ? 12 : 9;
-  const filingOpen = self && !!data.extraTimeFiling?.open && !ownCard;
-  const canDecideXt = !self && !!data.extraTimeCanDecide && !fin;
-  const [xtClaim, setXtClaim] = useState(null);     // the day whose Extra Time the contractor is claiming
-  const [xtDecide, setXtDecide] = useState(null);   // the day whose claim HR is deciding
-  const effect = (fd) => fd.deduct ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>−{fmtM(fd.deduct)}</span>
-    : fd.bonus ? <span style={{ color: 'var(--wk-brand)', fontWeight: 700 }}>+{fmtM(fd.bonus)}</span>
-    : (icp && fd.extraPay) ? <span style={{ color: 'var(--wk-brand)', fontWeight: 700 }}>+{fmtM(fd.extraPay)}</span>
-    : <span style={{ color: 'var(--muted)' }}>no change</span>;
-
-  // Pending add/remove punch requests, grouped by their local date so they render
-  // on the right day of the card (HR approves/rejects in-context, not in a side tab).
-  const reqsByDate = {};
-  (data.pendingRequests || []).forEach(r => { (reqsByDate[r.localDate] = reqsByDate[r.localDate] || []).push(r); });
-  const reqBtn = { borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700 };
-  const decideReq = async (id, status) => {
-    let note = '';
-    if (status === 'rejected') {
-      note = await dialog.prompt('', { title: 'Reject request', message: 'The employee is notified.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true });
-      if (note === null) return;
-    }
-    try {
-      const res = await api.timeDecidePunchRequest(id, { status, note: note || '' });
-      // Approving can also set aside a punch the fix replaces - say which (Oct 7).
-      const extra = /Replaced|Also added/.test(res?.decisionNote || '') ? ` ${res.decisionNote}` : '';
-      toastOk?.(status === 'approved' ? `Punch added to the time sheet.${extra}` : 'Request rejected.');
-      load();
-    } catch (e) { toastErr?.(e?.message || 'Could not update the request.'); }
-  };
-
-  return (
-    <div style={{ fontFamily: 'var(--wk-font)' }}>
-      {/* Toolbar - month nav (fixed pay is by calendar month, no work-week) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        {self
-          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 160 }}>My Time Sheet</span>
-          : !periodNav   // the list on the left has the picker and the period (Oct 29 2026)
-            ? (email && <PersonHeader name={nameFor(email)} email={email} photos={photos}
-                period={`${monthName(new Date(data.periodStart + 'T00:00'))} (${formatDate(data.periodStart)} – ${formatDate(data.periodEnd)})`} />)
-            : <EmployeeCombobox people={people} value={email} onChange={setEmail}
-                labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : ''}`} />}
-        {periodNav}
-        {!fin && (
-        <button onClick={() => setNoteModal(true)} title={self ? 'Leave a note on a day for your manager' : 'Leave a note on a day - seen by managers and HR, not the employee'}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
-          <Pencil size={13} /> Add Note
-        </button>
-        )}
-        {!self && email && !noEdit && data.review?.isHr && <AddTimeFromRecordButton onClick={() => setDupDay(true)} />}
-        {!self && email && <AskAdvanceButton adv={adv} toastOk={toastOk} toastErr={toastErr} />}
-        {mayPrint(self, ownCard, fin, data.review) && <PrintTimeSheetButton email={email} start={data.periodStart} toastErr={toastErr} />}
-        <div style={{ flex: 1 }} />
-        {/* No rounding toggle - salary pay is day-based, so times show exactly as punched. */}
-      </div>
-
-      {/* Employee's own sheet: approve and sign first, then this month's
-          change requests (Neil, Oct 18 2026). */}
-      {self && (
-        <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}
-          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
-          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />
-      )}
-      {self && selfTop?.(data.periodStart, data.periodEnd)}
-
-      {/* Fixed-pay strip */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontWeight: 700 }}>{data.contractor ? 'Fixed fee' : 'Fixed salary'}</span>
-        {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
-        {showPay && <span title="Set on the Pay & Benefits tab of this person's profile"><strong style={{ color: 'var(--ink)' }}>{data.contractor ? 'Monthly fee' : 'Salary'}:</strong> {fmtM(data.monthlySalary)}/mo</span>}
-        {showPay && fixedSplit && (
-          <span title="The salary changed inside this month - each day is paid at the salary in effect that day" style={{ color: 'var(--wk-brand)', fontWeight: 600 }}>{fixedSplit}</span>
-        )}
-        {showPay && <span title="Monthly salary x 12, divided by the working days in this calendar year (days minus Saturdays and Sundays; company holidays stay in)">
-          <strong style={{ color: 'var(--ink)' }}>Daily:</strong> {fmtM(data.dailyRate)} (annual / {data.workingDaysInYear || T.workingDaysInYear || 261} working days)
-        </span>}
-        {/* How the pay is worked out (weekend rate, day bands) is for the
-            reviewer, not the employee's own time sheet (Neil, Oct 18 2026). */}
-        {!self && !icp && <span title="Weekend pay = max(minimum, 1.35 x daily x hours worked / full-day hours). Calculated, never typed per person.">
-          <strong style={{ color: 'var(--ink)' }}>Weekend:</strong> {data.weekendMultiplier || 1.35} × daily, pro-rated by hours{data.weekendFloor ? `, min ${fmtM(data.weekendFloor)}` : ''}
-        </span>}
-        {icp && <span title="Settings > Time & Pay > India Contractor Policy. Scheduled 9 hours a day, Monday - Friday; full credit at 8 hours, half at 4; the month-end reconciliation recovers missing days from the pool.">
-          <strong style={{ color: 'var(--ink)' }}>India Contractor Policy</strong>
-        </span>}
-        {icp && showPay && <span title="Approved Extra Time is paid at 1.35 x the hourly equivalent of the daily rate (daily / 9), with no minimum">
-          <strong style={{ color: 'var(--ink)' }}>Extra Time:</strong> {fmtM(icp.extraTime?.rate)}/hr (1.35 × {fmtM(icp.extraTime?.hourlyEquivalent)})
-        </span>}
-        {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={12} /> Manager approved · <AvatarName email={mgrAp.by} name={nameFor(mgrAp.by)} size={16} /></span>}
-        {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}><CheckCircle size={12} /> Finalized · period locked</span>}
-        {data.review?.inCorrection && <CorrectionChip review={data.review} nameFor={nameFor} />}
-      </div>
-
-      {self && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', borderRadius: 9, padding: '8px 12px', marginBottom: 10, fontWeight: 500 }}>
-          <Pencil size={13} style={{ flexShrink: 0 }} /> Tap a time to change it, or "+ add" on a past day to log a missed punch - it goes to your approver.
-        </div>
-      )}
-      {ownCard && <OwnCardHint />}
-      {showPay && !data.rateSet && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
-          <AlertTriangle size={13} /> No salary set - set it on this person's Pay &amp; Benefits tab. Pay shows {fmtM(0)} until then.
-        </div>
-      )}
-
-      {/* Day grid - the same ruled grid as the hourly card (Neil, Oct 16:
-          "bring that for salaried also"): one row per shift, a Break row under
-          it for each break punched, the note line only when there is a note.
-          Day and Effect on pay are the salaried card's own columns. */}
-      {!self && <TimeColorKey />}
-      <div style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 8, background: 'var(--card)' }}>
-        <table style={{ width: '100%', minWidth: icp ? 1060 : 820, borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={{ ...gh, textAlign: 'left' }}>Date</th>
-              <th style={gh}>Day</th>
-              <th style={gh}>Edit</th>
-              <th style={gh}>In</th>
-              <th style={gh}>Out</th>
-              <th style={gh}>Category</th>
-              <th title="Hours paid for the shift - clock-in to clock-out, minus its breaks" style={gh}>Total Hours</th>
-              {icp && <th title="The day's credit: Full at 8 hours worked, Half at 4, None below - or paid leave from the balance" style={gh}>Credit</th>}
-              {icp && <th title="Hours this day adds to the month-end pool: past 9 on a full day, past 4 on a half day, every hour of a day with no credit, weekend and holiday hours not paid as Extra Time" style={gh}>Pool</th>}
-              {icp && <th title="Hours claimed with a note to be paid at 1.35x - only hours past 9 on a workday, every hour on a weekend or holiday" style={gh}>Extra Time</th>}
-              <th style={gh}>{showPay ? 'Effect on Pay' : ''}</th>
-              <th title="What was planned, done, and left pending that day" style={gh}>Log</th>
-            </tr>
-          </thead>
-          <tbody>
-            {fixedDays.map((fd, fi) => {
-              const d = byDate[fd.date];
-              const segs = d?.segments || [];
-              const baseSt = STATUS[fd.status] || STATUS.upcoming;
-              // A missed day covered by approved time off is named after it ("Personal",
-              // "Personal · Half Day") - requests are not punched, so it would read Absent.
-              const timeOffDay = fd.timeOff && (fd.status === 'absent' || fd.status === 'half');
-              const st = timeOffDay ? { ...STATUS.personal, label: fd.status === 'half' ? `${fd.timeOff} · Half Day` : fd.timeOff } : baseSt;
-              const onLeave = !!fd.leaveClass;
-              const band = fi % 2 === 1;
-              const rowCls = `pr-day-row${band ? ' pr-band' : ''}${onLeave ? ' pr-leave' : ''}`;
-
-              const formal = segs.flatMap(s => s.breaks || []);
-              const dayRows = segs.length + formal.length;   // the shift rows and their Break rows
-              const locateEmail = (!self || isAdmin) ? (data.email || '') : '';
-              const recs = recordOf(segs, pm);   // Add Time From Record's tag (Oct 27 2026)
-              const notes = segs.flatMap(segReasons).filter(n => !recs.some(r => r.reason === n));
-              const note = dayNotes[fd.date];
-              const myN = myNote(fd.date);
-              const hrNote = self ? (myN?.note || '') : (note?.note || '');
-
-              const missing = (seg, side) => ((self && fin) || ownCard)
-                ? <span title={ownCard ? OWN_CARD_HINT : undefined} style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
-                : <button onClick={() => !fin && (side === 'brk' ? setBreakFix({ date: fd.date, breaks: formal }) : setEditDay({ date: fd.date, seg }))}
-                    title={fin ? 'Locked' : side === 'brk' ? (self ? 'The break was never ended - ask your approver to add its end' : 'The break was never ended - set its real end, or delete the break')
-                      : side === 'in' ? (self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or delete the clock-out') : 'Add the missing clock-out'}
-                    style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>;
-              const timeCell = (seg, k) => {
-                const at = k === 'in' ? seg.in : seg.out;
-                if (!at) return missing(seg, k);
-                return (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <InlineTime seg={seg} k={k} meta={pm[k === 'in' ? seg.inId : seg.outId]} showRaw={showRaw} locked={noEdit} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />
-                    {k === 'out' && (seg.flags || []).includes('auto_clock_out') && (
-                      <span title="Nexus closed this shift automatically - no clock-out was recorded. The day is held until the real end time is set."
-                        style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '2px 7px', borderRadius: 6 }}>
-                        auto
-                      </span>
-                    )}
-                  </span>
-                );
-              };
-              const addBtn = (!noEdit && !fd.future) && (
-                <button type="button" onClick={() => setEditDay({ date: fd.date, seg: null })} style={btn}
-                  title={self ? 'Ask for time on this day - Regular, Break, Sick, Vacation or Personal - goes to your approver' : 'Add time to this day - Regular, Break, Sick, Vacation or Personal'}>Add</button>
-              );
-              // The Date is merged down the day; the Day column carries the status
-              // pill on the first row and the "Break" label on a Break row.
-              const dayCells = (
-                <td rowSpan={dayRows || 1} style={{ ...gc, textAlign: 'left', fontWeight: 600, color: onLeave ? '#b91c1c' : segs.length ? 'var(--wk-brand)' : 'var(--muted)' }}><DayDate ds={fd.date} /></td>
-              );
-              const dayPill = (
-                <span title={onLeave ? 'Leave - the day is deducted unless hours were also worked' : timeOffDay ? `Approved time off (${fd.timeOff}) - the missed time is deducted` : (fd.holidayName || undefined)}
-                  style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg, whiteSpace: 'nowrap' }}>{st.label}</span>
-              );
-              const tailCells = (
-                <>
-                  {icp && <td rowSpan={dayRows || 1} style={gc}><CreditCell fd={fd} /></td>}
-                  {icp && <td rowSpan={dayRows || 1} style={gc}>{fd.poolMin ? hm(fd.poolMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>}
-                  {icp && (
-                    <td rowSpan={dayRows || 1} style={gc}>
-                      <ExtraTimeCell fd={fd} self={self} filingOpen={filingOpen} canDecide={canDecideXt}
-                        onClaim={setXtClaim} onDecide={setXtDecide} />
-                    </td>
-                  )}
-                  <td rowSpan={dayRows || 1} style={gc}>{showPay ? effect(fd) : ''}</td>
-                  <td rowSpan={dayRows || 1} style={gc}><WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} /></td>
-                </>
-              );
-
-              const rows = [];
-              if (!segs.length) {
-                rows.push(
-                  <tr key={fd.date} className={rowCls}>
-                    {dayCells}
-                    <td style={gc}>{dayPill}</td>
-                    <td style={gc}>{addBtn || ''}</td>
-                    <td style={gc}>-</td><td style={gc}>-</td><td style={gc}>-</td><td style={gc}>-</td>
-                    {tailCells}
-                  </tr>
-                );
-              }
-              segs.forEach((seg, si) => {
-                const brks = seg.breaks || [];
-                const rs = 1 + brks.length;
-                rows.push(
-                  <tr key={fd.date + '-s' + si} className={rowCls}>
-                    {si === 0 && dayCells}
-                    <td style={gc}>{si === 0 && dayPill}</td>
-                    <td style={gc}>
-                      {!noEdit && (
-                        <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
-                          {!self && <button type="button" onClick={() => setEditDay({ date: fd.date, seg })} style={btn} title="Edit this shift - its times, location or Type, or delete a punch">Edit</button>}
-                          {si === segs.length - 1 && addBtn}
-                        </span>
-                      )}
-                    </td>
-                    <td style={gc}>{timeCell(seg, 'in')}</td>
-                    <td style={gc}>{timeCell(seg, 'out')}</td>
-                    <td rowSpan={rs} style={gc}>{seg.category || '-'}</td>
-                    <td rowSpan={rs} style={{ ...gc, fontWeight: 700 }}>{hhmm(seg.workedMin)}</td>
-                    {si === 0 && tailCells}
-                  </tr>
-                );
-                brks.forEach((b, bi) => {
-                  const bseg = breakSeg(b);
-                  rows.push(
-                    <tr key={fd.date + '-s' + si + '-b' + bi} className={rowCls}>
-                      <td style={{ ...gc, color: 'var(--muted)', fontStyle: 'italic' }}>Break</td>
-                      <td style={gc}>
-                        {!noEdit && <button type="button" onClick={() => setBreakFix({ date: fd.date, breaks: formal })} style={btn}
-                          title={self ? 'Ask your approver to fix or remove this break' : 'Fix the start or end of this break, or delete it'}>Edit</button>}
-                      </td>
-                      <td style={gc}><InlineTime seg={bseg} k="in" meta={pm[b.startId]} showRaw={showRaw} locked={noEdit} onSaved={load} toastErr={toastErr} self={self} /></td>
-                      <td style={gc} title={`${hhmm(b.min)} break`}>{bseg.out ? <InlineTime seg={bseg} k="out" meta={pm[b.endId]} showRaw={showRaw} locked={noEdit} onSaved={load} toastErr={toastErr} self={self} /> : missing(seg, 'brk')}</td>
-                    </tr>
-                  );
-                });
-              });
-
-              // ── Auto-closed day (no clock-out was recorded): the same loud line
-              //    the hourly card gets, so 'Absent' / 0 hours never reads as unexplained ──
-              if (segs.some(s => (s.flags || []).includes('auto_clock_out'))) rows.push(
-                <tr key={fd.date + '-auto'} className={rowCls}>
-                  <td colSpan={cols} style={{ ...gc, textAlign: 'left', color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
-                    <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
-                    Auto-closed at end of day - no clock-out was recorded. The day is held until the real Out time is set{self ? ' - tap the Out time to propose the real end of your shift.' : '.'}
-                  </td>
-                </tr>
-              );
-
-              // ── The note line: the employee's note, HR's, what is on the punches ──
-              if (notes.length || recs.length || hrNote || (!self && note?.employeeNote)) rows.push(
-                <tr key={fd.date + '-notes'} className={rowCls}>
-                  <td colSpan={cols} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12, paddingLeft: 26 }}>
-                    <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
-                      {!self && note?.employeeNote && (
-                        <span title={note.employeeNoteAt ? `Written ${formatDate(note.employeeNoteAt)}` : undefined} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          <strong>Note by employee:</strong> {note.employeeNote}
-                        </span>
-                      )}
-                      {hrNote && (
-                        <span style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
-                          <strong style={{ whiteSpace: 'nowrap' }}>{self ? 'Your note' : 'Note by HR'}:</strong>
-                          {self
-                            ? <NoteCell date={fd.date} note={myN} onSave={saveMyNote} placeholder="Add a note for your manager" lines={1} maxWidth="none" />
-                            : <NoteCell date={fd.date} note={note} onSave={saveNote} lines={1} maxWidth="none" />}
-                        </span>
-                      )}
-                      {recs.length > 0 && <RecordTag recs={recs} batches={data.recordBatches} toastErr={toastErr} />}
-                      {notes.length > 0 && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{namesIn(notes.join('  ·  '), nameFor)}</span></span>}
-                    </div>
-                  </td>
-                </tr>
-              );
-
-              // ── Pending add/remove requests on this day - HR approves/rejects here ──
-              (reqsByDate[fd.date] || []).forEach(r => {
-                const kindLabel = r.action === 'remove' ? 'Remove a punch'
-                  : `Add ${PR_KIND_LABEL[r.punchKind] || r.punchKind}${r.category ? ` as ${r.category}` : ''}`;
-                rows.push(
-                  <tr key={fd.date + '-req-' + r.id} style={{ background: 'rgba(180,83,9,0.07)' }}>
-                    <td colSpan={cols} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: 'rgba(180,83,9,0.16)', color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={10} /> Not Yet Approved</span>
-                        <span style={{ color: '#b45309', fontWeight: 700 }}>{kindLabel}{r.action === 'add' && r.at ? ` at ${t12(r.at)}` : ''}</span>
-                        {r.reason && <span style={{ color: '#b45309', fontStyle: 'italic' }}>{self ? 'Your reason' : (r.employeeName || 'Employee')}: “{r.reason}”</span>}
-                        <span style={{ flex: 1 }} />
-                        {self
-                          ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>with your approver - not in your hours yet</span>
-                          : !noEdit && (
-                            <span style={{ display: 'inline-flex', gap: 6 }}>
-                              <button onClick={() => decideReq(r.id, 'approved')} title="Approve - adds this punch to the time sheet" style={{ ...reqBtn, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
-                              <button onClick={() => decideReq(r.id, 'rejected')} title="Reject - the employee is notified" style={{ ...reqBtn, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
-                            </span>
-                          )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              });
-              return rows;
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Monthly pay summary - payroll's, never the manager tier's */}
-      <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        <div style={{ flex: '0 1 620px', minWidth: 300, display: showPay ? undefined : 'none', border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
-          {(() => {
-            const rows = [
-              [data.contractor ? (fixedSplit ? 'Fee this month (pro-rated by day)' : 'Monthly fee') : (fixedSplit ? 'Salary this month (pro-rated by day)' : 'Monthly salary'), fmtM(T.salaryForPeriod ?? T.monthlySalary)],
-              // Why the days were missed (Charmi, Oct 15 2026): "Sick ×2 · Personal ×8"
-              // instead of only a count - the server sends missedReasons.
-              [<span key="missed">
-                {`${icp ? 'Unpaid days after reconciliation' : 'Missed days'} (${T.missedFullDays} full${T.missedHalfDays ? `, ${T.missedHalfDays} half` : ''})`}
-                {(T.missedReasons || []).length > 0 && (
-                  <span data-missed-reasons style={{ display: 'block', marginTop: 4, fontSize: 12, color: 'var(--ink)', fontWeight: 600 }}>
-                    {T.missedReasons.map((m, i) => (
-                      <span key={m.reason}>
-                        {i > 0 && <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · </span>}
-                        {missedText(m)}
-                      </span>
-                    ))}
-                  </span>
-                )}
-              </span>, T.deduction ? `−${fmtM(T.deduction)}` : fmtM(0)],
-              icp
-                ? [`Extra Time (${hm(T.extraTimeMin)} approved at ${fmtM(icp.extraTime?.rate)}/hr)`, T.extraTimePay ? `+${fmtM(T.extraTimePay)}` : fmtM(0)]
-                : [`Weekend pay (${T.weekendDaysWorked} day${T.weekendDaysWorked === 1 ? '' : 's'}, ${data.weekendMultiplier || 1.35} × daily by hours)`, T.weekendBonus ? `+${fmtM(T.weekendBonus)}` : fmtM(0)],
-              ...(data.bonuses || []).map(b => [`Bonus: ${b.description}`, `+${fmtM(b.amount)}`]),
-              // Salary advance repayments (Oct 27 2026): off what is paid out.
-              ...(data.advanceRepayments || []).filter(x => x.applied > 0).map(x => ['Salary Advance Repayment', `-${fmtM(x.applied)}`]),
-              [data.contractor ? 'Invoice amount this month' : 'Net pay this month', fmtM(T.netPay ?? T.totalPay)],
-            ];
-            const last = rows.length - 1;
-            return rows.map(([lbl, amt], i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 8, padding: '9px 14px', borderTop: i ? '1px solid var(--line)' : 'none', background: i === last ? 'var(--wk-hover)' : 'transparent', fontWeight: i === last ? 800 : 500, fontSize: i === last ? 14 : 12.5 }}>
-                <span style={{ color: i === last ? 'var(--ink)' : 'var(--muted)' }}>{lbl}</span>
-                <span style={{ textAlign: 'right', color: i === last ? 'var(--wk-brand)' : 'var(--ink)' }}>{amt}</span>
-              </div>
-            ));
-          })()}
-        </div>
-        {icp && <ReconciliationPanel data={data} fmtM={fmtM} showPay={showPay} />}
-        <div style={{ minWidth: 200, fontSize: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
-            <span>Missing punches</span><span style={{ fontWeight: 700, color: T.missingPunches ? '#b91c1c' : 'var(--ink)' }}>{T.missingPunches}</span>
-          </div>
-          {T.pendingEdits > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: '#b45309', fontWeight: 700 }} title={self ? 'Your edits waiting for approval' : 'Employee edits awaiting your review'}>
-              <span>Pending edits</span><span>{T.pendingEdits}</span>
-            </div>
-          )}
-          {!self && fin && data.review?.canUnlock && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <TimecardBonuses card={data} periodStart={data.periodStart} self={self} locked={ownCard || (!!fin && !data.review?.isHr)} fmtM={fmtM} showPay={showPay}
-        onChanged={load} toastOk={toastOk} toastErr={toastErr} />
-      <TimeSheetAdvances adv={adv} self={self} me={me} toastOk={toastOk} toastErr={toastErr} />
-
-      {/* Review + Nexus Sign (same as hourly) - at the top on the employee's own sheet */}
-      {!self && <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}
-        nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
-          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />}
-
-      {editDay && (
-        <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
-          onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
-          toastOk={toastOk} toastErr={toastErr} self={self} />
-      )}
-      {breakFix && (
-        <BreakFixModal day={breakFix} email={email} self={self} busy={busy} setBusy={setBusy}
-          onDone={() => { setBreakFix(null); load(); }} onClose={() => setBreakFix(null)}
-          toastOk={toastOk} toastErr={toastErr} />
-      )}
-      {noteModal && (
-        <NoteModal dates={fixedDays.map(fd => fd.date)} dow={dow} self={self}
-          noteFor={(ds) => (self ? myNote(ds)?.note : dayNotes[ds]?.note) || ''}
-          onSave={self ? saveMyNote : saveNote} toastOk={toastOk} onClose={() => setNoteModal(false)} />
-      )}
-      {dupDay && !self && email && !ownCard && data.review?.isHr && (
-        <AddTimeFromRecordModal email={email} name={nameFor(email)} start={data.periodStart} end={data.periodEnd} onClose={() => setDupDay(false)}
-          onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
-      )}
-      {geoMap && (
-        <Suspense fallback={null}>
-          <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={data?.periodStart || ''} end={data?.periodEnd || ''} onClose={() => setGeoMap('')} />
-        </Suspense>
-      )}
-      {xtClaim && (
-        <ExtraTimeClaimModal fd={xtClaim} onClose={() => setXtClaim(null)} onDone={() => { setXtClaim(null); load(); }}
-          toastOk={toastOk} toastErr={toastErr} />
-      )}
-      {xtDecide && (
-        <ExtraTimeDecideModal fd={xtDecide} name={data?.name || nameFor?.(email) || ''} onClose={() => setXtDecide(null)}
-          onDone={() => { setXtDecide(null); load(); }} toastOk={toastOk} toastErr={toastErr} />
-      )}
-    </div>
-  );
-}
+// A salaried day's status, as its Day column names it (the PDF's _STATUS).
+const FIXED_STATUS = {
+  working: { label: 'Working', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },
+  present: { label: 'Present', bg: 'hsla(var(--color-green),0.12)', fg: 'hsl(var(--color-green))' },
+  late: { label: 'Late', bg: 'rgba(217,119,6,0.15)', fg: '#c2410c' },   // shift start passed, not clocked in yet (today only, no deduction)
+  half: { label: 'Half Day', bg: 'rgba(180,83,9,0.12)', fg: '#b45309' },
+  absent: { label: 'Absent', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
+  // Leave entered for the day (Pranshu, Oct 12) - on salary the day is
+  // deducted like an absence unless hours were also worked.
+  sick: { label: 'Sick', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
+  vacation: { label: 'Vacation', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
+  personal: { label: 'Personal', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
+  holiday: { label: 'Holiday', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // never deducted
+  holiday_half: { label: 'Half-Day Holiday', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // didn't work at all - half a day's pay
+  holiday_half_worked: { label: 'Half-Day Holiday', bg: 'hsla(var(--color-green),0.12)', fg: 'hsl(var(--color-green))' },   // worked their half - full pay
+  weekend: { label: 'Weekend', bg: 'var(--mist)', fg: 'var(--muted)' },
+  weekend_worked: { label: 'Weekend OT', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },   // India weekend pay; else "Weekend Worked"
+  upcoming: { label: 'Upcoming', bg: 'transparent', fg: 'var(--muted)' },
+  holiday_worked: { label: 'Holiday Worked', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // India Contractor policy
+};
 
 // The key to the In / Out color banding (Pranshu, Oct 19), above the grid on
 // the manager / HR card. Classes live in style.css so dark mode has its own shades.

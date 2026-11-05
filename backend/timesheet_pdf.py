@@ -501,6 +501,9 @@ def fixed_rows(card: dict, ctx: dict) -> Table:
                   else _p("no change", color=DIM))
         date_cell = _p(day_label(ds), _LEFT, color=RED if leave else None, bold=True, italic=True)
         day_cell = _p(status, color=RED if leave or fd.get("status") == "absent" else None, bold=True)
+        if fd.get("status") == "weekend_worked" and card.get("weekendPay") is False:
+            status = "Weekend Worked"   # weekend pay is India only (Charmi, 11/06/2026)
+            day_cell = _p(status, bold=True)
         if card.get("indiaPolicy"):
             # India Contractor policy (Oct 27 2026): the day's credit, its pool
             # hours, and Extra Time instead of weekend pay.
@@ -573,14 +576,16 @@ def fixed_summary(card: dict) -> list:
                 ("INVOICE AMOUNT THIS MONTH", "", money(t.get("totalPay"), cur)),
                 ("TOTAL HOURS WORKED", hd(t.get("workedMin")), ""),
                 ("MISSING PUNCHES", str(int(t.get("missingPunches") or 0)), "")]
-    return [("Salary this month (pro-rated by day)" if split else "Monthly salary", "",
+    biweekly = card.get("periodKind") == "biweekly"
+    return [("Salary this period (bi-weekly)" if biweekly else "Salary this month (pro-rated by day)" if split else "Monthly salary", "",
              money(t.get("salaryForPeriod", t.get("monthlySalary")), cur)),
             (missed, "", f"-{money(t['deduction'], cur)}" if t.get("deduction") else money(0, cur)),
-            (f"Weekend pay ({wk} day{'' if wk == 1 else 's'}, {card.get('weekendMultiplier') or 1.35} x daily by hours)",
-             "", f"+{money(t['weekendBonus'], cur)}" if t.get("weekendBonus") else money(0, cur)),
+            *([(f"Weekend pay ({wk} day{'' if wk == 1 else 's'}, {card.get('weekendMultiplier') or 1.35} x daily by hours)",
+                "", f"+{money(t['weekendBonus'], cur)}" if t.get("weekendBonus") else money(0, cur))]
+              if card.get("weekendPay") is not False else []),
             *_bonus_lines(card, cur, ""),
             *_advance_lines(card, cur, ""),
-            ("NET PAY THIS MONTH", "", money(t.get("netPay", t.get("totalPay")), cur)),
+            ("NET PAY THIS PERIOD" if biweekly else "NET PAY THIS MONTH", "", money(t.get("netPay", t.get("totalPay")), cur)),
             ("TOTAL HOURS WORKED", hd(t.get("workedMin")), ""),
             ("MISSING PUNCHES", str(int(t.get("missingPunches") or 0)), "")]
 

@@ -197,7 +197,7 @@ def period_for(db: Session, email: str, anchor: str) -> tuple[str, str, str]:
     the bi-weekly pay period - the same bounds the timecard itself uses."""
     tc = _tc()
     if tc._pay_type(db, email) == "fixed":
-        s, e = tc._month_bounds(anchor or tc._employee_today(db, email))
+        s, e = tc._fixed_bounds(db, email, anchor or tc._employee_today(db, email))   # a bi-weekly salary: the pay period
         return s, e, "fixed"
     s, e = tc._pay_period(anchor or tc._employee_today(db, email))
     return s, e, "hourly"
@@ -1535,7 +1535,8 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None, paper_b
         "entity": (ent.name if ent else "") or "", "name": display_name(db, r.employee_email),
         "code": (getattr(emp, "employee_code", "") or "") if emp else "",
         "dept": card.get("dept") or ((emp.department or "") if emp else ""), "period": _label(r),
-        "kind": "Salaried (monthly)" if r.pay_type == "fixed" else "Hourly (bi-weekly)",
+        "kind": ("Salaried (bi-weekly)" if card.get("periodKind") == "biweekly" else "Salaried (monthly)")
+                if r.pay_type == "fixed" else "Hourly (bi-weekly)",
         "generated": us_datetime(_now(), offset),
         # The employee is the signer: their own note only, never the manager / HR one.
         "notes": _tc()._timecard_notes(db, r.employee_email, r.period_start, r.period_end, own=not paper_by),
