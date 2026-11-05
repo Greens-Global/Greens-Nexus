@@ -3,7 +3,8 @@
 the person, the option sources every builder picker reads (companies,
 departments, locations, ticket departments, HR checklist and letter
 templates) and the core ACTIONS (Task 6): Send A Notification, Send An
-Email, Post To Teams and Call A Webhook. Wait, Stop, If / Else, For Each
+Email, Send A Text Message (11/05/2026), Post To Teams and Call A Webhook.
+Wait, Stop, If / Else, For Each
 and Ask For Approval are STEP KINDS the engine runs itself (the pinned
 definition shape), not actions. The HR pack (Task 9) adds the HR life
 events and actions on top of these registrations.
@@ -16,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from datetime import timedelta
 from html import escape
 from urllib.parse import urlparse
 
@@ -340,15 +342,67 @@ def email_html(db, to: str, heading: str, body: str, link: str, workflow_name: s
 </div>"""
 
 
+# 11/05/2026 (Neil): CC (one email to everyone, the CC line copied in),
+# replies to the owner, the owner's own mailbox as the sender (the Nexus
+# mailbox when Nexus may not send from it, replies still to the owner), a
+# task's or ticket's files attached (3 MB in all; the rest named, with the
+# link), and Send One Summary Per Person (workflows/outbox.py).
+SENDERS = [("nexus", "The Nexus Mailbox"), ("owner", "The Owner's Mailbox")]
+
+
+def _owner_email(ctx) -> str:
+    return ((ctx.run_as or {}).get("email") or "").lower() if ctx.run_as else ""
+
+
+def _cc(ctx, params, to: list[str]) -> list[str]:
+    if not params.get("cc"):
+        return []
+    cc, _dropped = resolve_to(ctx, params.get("cc"))
+    return [e for e in cc if e not in to]
+
+
+def _files(ctx, params) -> list[tuple[str, str]]:
+    if not params.get("attach") or ctx.subject is None or ctx.entity is None or ctx.entity.files is None:
+        return []
+    try:
+        return list(ctx.entity.files(ctx.db, ctx.subject) or [])
+    except Exception:   # noqa: BLE001 - a record whose files cannot be listed sends without them
+        return []
+
+
+def _email_allowed(ctx, params) -> str:
+    if params.get("group") and params.get("cc"):
+        return "Send One Summary Per Person sends each person their own email - take CC off, or turn the summary off"
+    if params.get("sender") == "owner" and not _owner_email(ctx):
+        return "The owner's mailbox needs a person; this workflow runs as Nexus"
+    return ""
+
+
 def _email_plan(ctx, params) -> str:
     to, dropped = resolve_to(ctx, params.get("to"))
     subject = _rendered(ctx, params.get("subject"))
-    return f"Would email {_names(ctx, to)}: {subject}{_dropped_note(dropped)}"
+    line = f"Would email {_names(ctx, to)}: {subject}{_dropped_note(dropped)}"
+    cc = _cc(ctx, params, to)
+    if cc:
+        line += f", copying {_names(ctx, cc)}"
+    if params.get("attach"):
+        if ctx.entity is None or ctx.entity.files is None:
+            line += f" ({ctx.entity.label if ctx.entity else 'this record'} has no files to attach)"
+        else:
+            n = len(_files(ctx, params))
+            line += f" with {n} file{'' if n == 1 else 's'} attached" if n else " (no files on the record now)"
+    if params.get("group"):
+        line += " - one summary per person"
+    return line
 
 
 def _email_run(ctx, params) -> dict:
-    import graph_mail
     import leader
+
+    from workflows import outbox, settings as wf_settings
+    reason = _email_allowed(ctx, params)
+    if reason:
+        raise PermissionError(reason)
     to, dropped = resolve_to(ctx, params.get("to"))
     subject = _rendered(ctx, params.get("subject"))
     body = _rendered(ctx, params.get("body"))
@@ -356,22 +410,316 @@ def _email_run(ctx, params) -> dict:
         return {"line": "Email not sent (not the deployed worker)", "sent": [], "affected": [],
                 "wouldSend": to, "subject": subject}
     link = link_url(ctx.subject_link())
+    owner = _owner_email(ctx)
+    sender = owner if params.get("sender") == "owner" else ""
+    reply_to = owner if (owner and params.get("replyToOwner", True) is not False and not sender) else ""
+    files = _files(ctx, params)
     sent = _already_sent(ctx)
-    for who in to:
-        if who in sent:
-            continue
-        html = email_html(ctx.db, who, subject, body, link, _workflow_name(ctx))
-        graph_mail.send_mail(from_email=graph_mail.DEFAULT_FROM_EMAIL, to=[who], cc=None, subject=subject, html=html)
-        sent.append(who)
-    return {"line": f"Emailed {_names(ctx, to)}: {subject}{_dropped_note(dropped)}", "sent": list(sent),
-            "affected": []}
+    if params.get("group"):
+        minutes = int(wf_settings.get(ctx.db, ctx.company()).get("summaryMinutes") or 60)
+        now = outbox.now_utc()
+        for who in to:
+            if who in sent:
+                continue
+            outbox.record(ctx.db, channel="email", recipient=who, status="queued", now=now,
+                          not_before=now + timedelta(minutes=minutes), company_id=ctx.company(),
+                          workflow_id=_workflow_id(ctx), run_id=str(getattr(ctx.run, "id", "") or ""),
+                          group_key=_workflow_id(ctx), subject=subject, body=body, link=link, reason="summary",
+                          meta={"sender": sender, "replyTo": reply_to, "files": [list(f) for f in files]})
+            ctx.db.commit()
+            sent.append(who)
+        return {"line": f"Queued for {_names(ctx, to)}'s summary email: {subject}{_dropped_note(dropped)}",
+                "sent": list(sent), "affected": []}
+    attachments, left = outbox.fetch_files(files) if files else ([], [])
+    if left:
+        body = f"{body}\n\nToo large to attach (open the record in Nexus): {', '.join(left)}"
+    cc = _cc(ctx, params, to)
+    used = ""
+    if cc:
+        # one email to everyone with the CC line, as a person would send it
+        todo = [e for e in to if e not in sent]
+        if todo:
+            html = email_html(ctx.db, todo[0], subject, body, link, _workflow_name(ctx))
+            used = outbox.send_email(to=todo, cc=cc, subject=subject, html=html, sender=sender, reply_to=reply_to,
+                                     attachments=attachments or None)
+            sent.extend(todo)
+    else:
+        for who in to:
+            if who in sent:
+                continue
+            html = email_html(ctx.db, who, subject, body, link, _workflow_name(ctx))
+            used = outbox.send_email(to=[who], cc=None, subject=subject, html=html, sender=sender, reply_to=reply_to,
+                                     attachments=attachments or None)
+            sent.append(who)
+    line = f"Emailed {_names(ctx, to)}: {subject}{_dropped_note(dropped)}"
+    if cc:
+        line += f", copying {_names(ctx, cc)}"
+    if attachments:
+        line += f" with {len(attachments)} file{'' if len(attachments) == 1 else 's'} attached"
+    if left:
+        line += f" ({len(left)} too large to attach)"
+    if sender and used and used.lower() != sender:
+        line += " (from the Nexus mailbox: Nexus may not send from the owner's; replies go to the owner)"
+    return {"line": line, "sent": list(sent), "affected": []}
 
 
 action("email", label="Send An Email", module="core",
        params=[P("to", "To", "recipients"),
+               P("cc", "CC", "recipients", required=False,
+                 hint="Copied on one email to everyone in To"),
                P("subject", "Subject", "template", max=200),
-               P("body", "Message", "template", max=5000)],
-       plan=_email_plan, run=_email_run, needs_person=False)
+               P("body", "Message", "template", max=5000),
+               P("sender", "Send From", "select", required=False, options=SENDERS, default="nexus",
+                 hint="The owner's mailbox needs Nexus to be allowed to send from it; otherwise the Nexus mailbox "
+                      "sends it"),
+               P("replyToOwner", "Replies Go To The Owner", "bool", required=False, default=True,
+                 hint="Otherwise replies go to the Nexus mailbox"),
+               P("attach", "Attach The Record's Files", "bool", required=False, default=False,
+                 hint="A task's or a ticket's files, 3 MB in all"),
+               P("group", "Send One Summary Per Person", "bool", required=False, default=False,
+                 hint="Waits for more from this workflow, then sends each person one email")],
+       plan=_email_plan, run=_email_run, allowed=_email_allowed, needs_person=False)
+
+
+# ── Send A Text Message ──────────────────────────────────────────────────────
+# The ONE SMS client is sentdm.py; a workflow text goes through send_text like
+# a weather call's. Recipients are directory people only (the recipients
+# rule), each texted at the phone on their People record. A person who has
+# turned workflow texts off (nexus_person_prefs.workflow_sms = 0), has no
+# usable number, or is past the cap is skipped and named in the run log.
+# Settings > Workflows > Text Messages (org default, company override) turns
+# the action off; a server without NEXUS_SENTDM_KEY fails the step with a
+# readable reason. Only the deployed worker sends (as Send An Email).
+# 11/05/2026 (Neil): a person who works in California is never texted
+# between 9:00 PM and 8:00 AM Pacific (held until 8:00 AM); nobody gets
+# more than the daily limit (Settings > Workflows, default 3 in 24 hours -
+# past it, the bell); and a step may send one summary per person. The rules
+# live in workflows/outbox.py.
+SMS_MAX = 480          # three SMS segments; the prefix and the link count too
+
+
+def texting_on(ctx) -> bool:
+    from workflows import settings as wf_settings
+    try:
+        return bool(wf_settings.get(ctx.db, ctx.company()).get("textMessages", True))
+    except Exception:   # noqa: BLE001 - a settings read that fails keeps the default (on)
+        return True
+
+
+def _sms_allowed(ctx, params) -> str:
+    if not texting_on(ctx):
+        return "Text messages are turned off in Settings > Workflows"
+    return ""
+
+
+def _sms_targets(ctx, emails: list[str]) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """[(email, phone)] to text and [(email, why)] skipped: no phone on the
+    People record, a number that cannot be dialed, or texts turned off."""
+    import sentdm
+    from sqlalchemy import func
+    if not emails:
+        return [], []
+    emps = (ctx.db.query(models.NexusEmployee)
+            .filter(func.lower(models.NexusEmployee.work_email).in_(emails)).all())
+    phones = {(e.work_email or "").lower(): (e.phone or "").strip() for e in emps}
+    prefs = {(r.email or "").lower(): r for r in
+             ctx.db.query(models.NexusPersonPref).filter(models.NexusPersonPref.email.in_(emails)).all()}
+    send, skipped = [], []
+    for who in emails:
+        pref = prefs.get(who)
+        if pref is not None and pref.workflow_sms is not None and not int(pref.workflow_sms):
+            skipped.append((who, "texts turned off"))
+            continue
+        raw = phones.get(who, "")
+        if not raw:
+            skipped.append((who, "no phone on file"))
+            continue
+        number = sentdm.normalize_phone(raw)
+        if not number:
+            skipped.append((who, "phone number cannot be texted"))
+            continue
+        send.append((who, number))
+    return send, skipped
+
+
+def _sms_parts(ctx, params) -> tuple[str, str, str]:
+    """(prefix "<Company>: ", the message, the link) - a summary text joins
+    several messages under one prefix."""
+    msg = " ".join(_rendered(ctx, params.get("message")).split())
+    who = ""
+    cid = ctx.company()
+    if cid:
+        ent = ctx.db.get(models.HrEntity, cid)
+        who = (getattr(ent, "name", "") or "").strip() if ent is not None else ""
+    link = link_url(ctx.subject_link()) if params.get("link", True) else ""
+    return f"{who or 'Nexus'}: ", msg, link
+
+
+def sms_text(ctx, params) -> str:
+    """The text as it goes out: "<Company>: <message> Open: <link>", cut to
+    SMS_MAX. The company name says who is texting (carriers and people both
+    want the sender named); the link is the record's page in Nexus."""
+    head, msg, link = _sms_parts(ctx, params)
+    tail = f" Open: {link}" if link else ""
+    room = SMS_MAX - len(head) - len(tail)
+    if len(msg) > room:
+        msg = msg[:max(0, room - 3)].rstrip() + "..."
+    return f"{head}{msg}{tail}"
+
+
+def text_daily_cap(ctx) -> int:
+    from workflows import settings as wf_settings
+    try:
+        return int(wf_settings.get(ctx.db, ctx.company()).get("textDailyCap") or 3)
+    except Exception:   # noqa: BLE001 - a settings read that fails keeps the default
+        return 3
+
+
+def _skipped_note(ctx, skipped: list[tuple[str, str]]) -> str:
+    if not skipped:
+        return ""
+    names = "; ".join(f"{person_name(ctx.db, e)} ({why})" for e, why in skipped[:5])
+    more = f" and {len(skipped) - 5} more" if len(skipped) > 5 else ""
+    return f". Not texted: {names}{more}"
+
+
+def _sms_plan(ctx, params) -> str:
+    import sentdm
+
+    from workflows import outbox
+    to, dropped = resolve_to(ctx, params.get("to"))
+    send, skipped = _sms_targets(ctx, to)
+    text = sms_text(ctx, params)
+    setup = "" if sentdm.configured() else " (texting is not set up on this server)"
+    line = (f"Would text {_names(ctx, [e for e, _ in send])}: {text[:120]}{_dropped_note(dropped)}"
+            f"{_skipped_note(ctx, skipped)}{setup}")
+    cap = text_daily_cap(ctx)
+    over = [e for e, _ in send if outbox.texts_today(ctx.db, e) >= cap]
+    if over:
+        line += f". {_names(ctx, over)} already had {cap} texts today and would get a notification instead"
+    if params.get("group"):
+        line += ". One summary text per person"
+    elif outbox.quiet_until() is not None:
+        held = [e for e, _ in send if e not in over and outbox.in_california(ctx.db, e)]
+        if held:
+            line += f". {_names(ctx, held)} in California would be texted at {outbox.QUIET_LABEL} (quiet hours)"
+    return line
+
+
+def _bucket(ctx, key: str) -> list:
+    out = ctx.step_output.setdefault(key, [])
+    if not isinstance(out, list):
+        out = []
+        ctx.step_output[key] = out
+    return out
+
+
+def _sms_run(ctx, params) -> dict:
+    """Each person, once (`sent`): past the daily limit -> their bell; on
+    Send One Summary Per Person -> queued for the summary; in California in
+    quiet hours -> held until 8:00 AM Pacific; else texted now. Every text
+    sent or waiting is a workflow_messages row (the daily limit counts them)."""
+    import leader
+    import notify_rollup
+    import sentdm
+
+    from workflows import outbox, settings as wf_settings
+    reason = _sms_allowed(ctx, params)
+    if reason:
+        raise PermissionError(reason)
+    to, dropped = resolve_to(ctx, params.get("to"))
+    send, skipped = _sms_targets(ctx, to)
+    text = sms_text(ctx, params)
+    if not leader.is_deployed_worker():
+        return {"line": "Text not sent (not the deployed worker)", "sent": [], "affected": [],
+                "wouldSend": [e for e, _ in send], "text": text}
+    if send and not sentdm.configured():
+        raise RuntimeError("Texting is not set up on this server (NEXUS_SENTDM_KEY)")
+    head, msg, link = _sms_parts(ctx, params)
+    cap = text_daily_cap(ctx)
+    now = outbox.now_utc()
+    hold = outbox.quiet_until(now)
+    summary_min = int(wf_settings.get(ctx.db, ctx.company()).get("summaryMinutes") or 60) if params.get("group") else 0
+    base = dict(company_id=ctx.company(), workflow_id=_workflow_id(ctx), run_id=str(getattr(ctx.run, "id", "") or ""),
+                body=text, link=link)
+    sent = _already_sent(ctx)
+    held, capped, queued = _bucket(ctx, "held"), _bucket(ctx, "capped"), _bucket(ctx, "queued")
+    failed: list[tuple[str, str]] = []
+    retry = ""
+    for who, number in send:
+        if who in sent:
+            continue
+        if outbox.texts_today(ctx.db, who, now) >= cap:
+            notify_rollup.upsert_rollup(ctx.db, recipient=who, key=f"wf-text:{_workflow_id(ctx)}:{ctx.subject_id() or 'run'}",
+                                        title=_workflow_name(ctx), line=msg or text, action=ctx.subject_link() or None,
+                                        company=ctx.company(), requested_by=_run_as_email(ctx), replace=True)
+            ctx.db.commit()
+            sent.append(who)
+            capped.append(who)
+            continue
+        ca = outbox.in_california(ctx.db, who)
+        meta = {"california": ca, "prefix": head, "message": msg, "link": link}
+        if summary_min:
+            outbox.record(ctx.db, channel="sms", recipient=who, address=number, status="queued", now=now,
+                          not_before=now + timedelta(minutes=summary_min), group_key=_workflow_id(ctx),
+                          reason="summary", meta=meta, **base)
+            ctx.db.commit()
+            sent.append(who)
+            queued.append(who)
+            continue
+        if ca and hold is not None:
+            outbox.record(ctx.db, channel="sms", recipient=who, address=number, status="queued", now=now,
+                          not_before=hold, reason="quiet_hours", meta=meta, **base)
+            ctx.db.commit()
+            sent.append(who)
+            held.append(who)
+            continue
+        ok, err = sentdm.send_text(number, text)
+        if ok:
+            outbox.record(ctx.db, channel="sms", recipient=who, address=number, status="sent", now=now, meta=meta,
+                          **base)
+            ctx.db.commit()
+            sent.append(who)
+            continue
+        # sent.dm down or a 5xx / 429: worth a retry (the people already
+        # texted are in `sent` and are never texted twice); any other answer
+        # is about this number and is reported, not retried
+        if "unreachable" in err or " returned 5" in err or " returned 429" in err:
+            retry = retry or err
+        else:
+            failed.append((who, err[:120]))
+    if retry:
+        raise TransientError(f"Texting failed for now: {retry}")
+    done = [e for e, _ in send if e in sent]
+    if send and not done:
+        raise RuntimeError("No text went out: " + "; ".join(f"{person_name(ctx.db, e)}: {why}" for e, why in failed[:3]))
+    texted = [e for e in done if e not in held and e not in capped and e not in queued]
+    parts = []
+    if texted:
+        parts.append(f"Texted {_names(ctx, texted)}{_dropped_note(dropped)}")
+    if held:
+        parts.append(f"{_names(ctx, held)} in California will be texted at {outbox.QUIET_LABEL} (quiet hours)")
+    if queued:
+        parts.append(f"Queued for {_names(ctx, queued)}'s summary text")
+    if capped:
+        parts.append(f"{_names(ctx, capped)} had {cap} texts in the last 24 hours and got a notification instead")
+    line = ". ".join(parts) if parts else "Nobody was texted"
+    line += _skipped_note(ctx, skipped + [(e, f"failed: {why}") for e, why in failed])
+    return {"line": line, "sent": list(sent), "affected": [],
+            "skipped": [{"email": e, "why": why} for e, why in skipped],
+            "failed": [{"email": e, "why": why} for e, why in failed]}
+
+
+action("sms", label="Send A Text Message", module="core",
+       params=[P("to", "To", "recipients",
+                 hint="Texted at the phone on their People record; people who turned texts off are skipped"),
+               P("message", "Message", "template", max=320,
+                 hint="Keep it short: the company name goes first and a link to the record last"),
+               P("link", "Include A Link", "bool", required=False, default=True,
+                 hint="Adds a link to the record in Nexus"),
+               P("group", "Send One Summary Per Person", "bool", required=False, default=False,
+                 hint="Waits for more from this workflow, then sends each person one text")],
+       plan=_sms_plan, run=_sms_run, allowed=_sms_allowed, needs_person=False)
 
 
 # ── Post To Teams ────────────────────────────────────────────────────────────

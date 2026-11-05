@@ -4,6 +4,7 @@
 const LABELS = {
   core: 'Core', hr: 'HR', tasks: 'Tasks', tickets: 'Tickets', time: 'Time Clock',
   shifts: 'Shifts', items: 'Items', documents: 'Documents', approvals: 'Approvals', performance: 'Performance',
+  kb: 'Knowledge Base', construction: 'Construction',
 };
 const ORDER = ['core', 'hr', 'tasks', 'tickets', 'time', 'shifts', 'items', 'documents'];
 

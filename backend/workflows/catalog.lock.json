@@ -19,6 +19,16 @@
         },
         {
           "default": null,
+          "hint": "Copied on one email to everyone in To",
+          "key": "cc",
+          "label": "CC",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "recipients"
+        },
+        {
+          "default": null,
           "hint": "",
           "key": "subject",
           "label": "Subject",
@@ -36,6 +46,55 @@
           "options": null,
           "required": true,
           "type": "template"
+        },
+        {
+          "default": "nexus",
+          "hint": "The owner's mailbox needs Nexus to be allowed to send from it; otherwise the Nexus mailbox sends it",
+          "key": "sender",
+          "label": "Send From",
+          "max": null,
+          "options": [
+            {
+              "label": "The Nexus Mailbox",
+              "value": "nexus"
+            },
+            {
+              "label": "The Owner's Mailbox",
+              "value": "owner"
+            }
+          ],
+          "required": false,
+          "type": "select"
+        },
+        {
+          "default": true,
+          "hint": "Otherwise replies go to the Nexus mailbox",
+          "key": "replyToOwner",
+          "label": "Replies Go To The Owner",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": false,
+          "hint": "A task's or a ticket's files, 3 MB in all",
+          "key": "attach",
+          "label": "Attach The Record's Files",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": false,
+          "hint": "Waits for more from this workflow, then sends each person one email",
+          "key": "group",
+          "label": "Send One Summary Per Person",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
         }
       ]
     },
@@ -210,6 +269,45 @@
     },
     {
       "adminOnly": false,
+      "key": "kb.assign_course",
+      "label": "Assign A Training Course",
+      "module": "kb",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "Published courses only",
+          "key": "course",
+          "label": "Course",
+          "max": null,
+          "options": "kb_courses",
+          "required": true,
+          "type": "select"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "to",
+          "label": "Assign To",
+          "max": null,
+          "options": null,
+          "required": true,
+          "type": "recipients"
+        },
+        {
+          "default": null,
+          "hint": "Counted from each person's today. Blank uses the course's own default.",
+          "key": "due_days",
+          "label": "Due In Days",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
       "key": "notify",
       "label": "Send A Notification",
       "module": "core",
@@ -250,6 +348,55 @@
           "hint": "Shows the yellow priority bar",
           "key": "priority",
           "label": "Priority",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "sms",
+      "label": "Send A Text Message",
+      "module": "core",
+      "needsPerson": false,
+      "params": [
+        {
+          "default": null,
+          "hint": "Texted at the phone on their People record; people who turned texts off are skipped",
+          "key": "to",
+          "label": "To",
+          "max": null,
+          "options": null,
+          "required": true,
+          "type": "recipients"
+        },
+        {
+          "default": null,
+          "hint": "Keep it short: the company name goes first and a link to the record last",
+          "key": "message",
+          "label": "Message",
+          "max": 320,
+          "options": null,
+          "required": true,
+          "type": "template"
+        },
+        {
+          "default": true,
+          "hint": "Adds a link to the record in Nexus",
+          "key": "link",
+          "label": "Include A Link",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": false,
+          "hint": "Waits for more from this workflow, then sends each person one text",
+          "key": "group",
+          "label": "Send One Summary Per Person",
           "max": null,
           "options": null,
           "required": false,

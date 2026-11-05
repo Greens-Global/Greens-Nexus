@@ -6812,6 +6812,10 @@ class NexusPersonPref(Base):
     # the one-click link in the email or Profile > Email Settings. ALTER
     # lines in main.py.
     email_optouts = Column(String, default="")
+    # Workflow texts (11/05/2026, workflows/packs/core.py "sms"): 0 = a
+    # workflow's Send A Text Message skips this person. On by default; set in
+    # Profile > Phone Notifications. ALTER lines in main.py.
+    workflow_sms = Column(Integer, default=1)
 
 
 class TaskAutomationRun(Base):
@@ -9467,6 +9471,37 @@ class WorkflowSubjectMark(Base):
     entity      = Column(String, primary_key=True)
     subject_id  = Column(String, primary_key=True)
     last_run_at = Column(String, default="")
+
+
+class WorkflowMessage(Base):
+    """A text or an email a workflow step sent or is holding (Neil,
+    11/05/2026, workflows/outbox.py). One row per person per message:
+    `sent` the moment it went out, `queued` while it waits - for 8 AM
+    Pacific (a California person's text in quiet hours) or for the person's
+    one summary (Send One Summary Per Person) - then `sent` / `failed`.
+    The daily text limit counts these rows. RELEASE: new table -
+    `ALTER TABLE workflow_messages ENABLE ROW LEVEL SECURITY` on dev AND prod
+    (in main.py's Postgres list)."""
+    __tablename__ = "workflow_messages"
+    id          = Column(String, primary_key=True)
+    channel     = Column(String, default="", index=True)    # sms | email
+    recipient   = Column(String, default="", index=True)    # the person's work email (directory people only)
+    address     = Column(String, default="")                # the E.164 number for a text
+    company_id  = Column(String, default="")
+    workflow_id = Column(String, default="", index=True)
+    run_id      = Column(String, default="")
+    group_key   = Column(String, default="")                # '' = sent alone; else one summary per person
+    subject     = Column(String, default="")
+    body        = Column(Text, default="")
+    link        = Column(String, default="")
+    meta        = Column(JSON, default=dict)                # email: cc, replyTo, sender, files; sms: california
+    status      = Column(String, default="queued", index=True)   # queued | sent | failed
+    reason      = Column(String, default="")                # quiet_hours | summary
+    not_before  = Column(String, default="", index=True)
+    created_at  = Column(String, default="", index=True)
+    sent_at     = Column(String, default="")
+    attempts    = Column(Integer, default=0)
+    error       = Column(String, default="")
 
 
 class HrHolidayPolicyAssignment(Base):

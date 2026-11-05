@@ -10,6 +10,7 @@ import { Spinner } from './AsyncState';
 import EmailSettingsPanel from '../tasks/MyEmailSettings';
 import KbTrainingEmailPref from './KbTrainingEmailPref';
 import DigestEmailPrefs from './DigestEmailPrefs';
+import WorkflowTextPref from './WorkflowTextPref';
 import { DATE_FORMATS, getDateFormat, setDateFormat, formatDate, formatDateTime } from '../lib/datetime';
 import { Modal, useIsMobile } from '../tasks/components';
 import { SettingCard, SettingRow, SwitchRow } from './settings/SettingsUI';
@@ -298,6 +299,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
           checked={pushSub.subscribed}
           disabled={!pushSub.supported || !pushSub.loaded || !pushSub.enabled || pushSub.busy || (pushSub.permission === 'denied' && !pushSub.subscribed)}
           onChange={() => (pushSub.subscribed ? pushSub.unsubscribe() : pushSub.subscribe())} />
+        <WorkflowTextPref />
       </SettingCard>
     ),
     time: (

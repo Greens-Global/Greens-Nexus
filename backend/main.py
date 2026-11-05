@@ -1581,6 +1581,8 @@ def _run_migrations():
             "ALTER TABLE workers_comp_rates ADD COLUMN class_code VARCHAR DEFAULT ''",
             "ALTER TABLE workers_comp_rates ADD COLUMN state VARCHAR DEFAULT ''",
             "ALTER TABLE workers_comp_rates ADD COLUMN description VARCHAR DEFAULT ''",
+            # Workflow texts (11/05/2026) - see the Postgres list.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN workflow_sms INTEGER DEFAULT 1",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3759,6 +3761,14 @@ def _run_migrations():
         "ALTER TABLE workers_comp_rates ADD COLUMN IF NOT EXISTS class_code VARCHAR DEFAULT ''",
         "ALTER TABLE workers_comp_rates ADD COLUMN IF NOT EXISTS state VARCHAR DEFAULT ''",
         "ALTER TABLE workers_comp_rates ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
+        # Workflow texts (11/05/2026, workflows/packs/core.py "sms"): 0 = a
+        # workflow's Send A Text Message skips this person; set in Profile >
+        # Phone Notifications. models.NexusPersonPref.workflow_sms.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS workflow_sms INTEGER DEFAULT 1",
+        # Workflow texts and emails held for quiet hours or grouped into one
+        # summary (11/05/2026, workflows/outbox.py) - a new table: explicit RLS.
+        # models.WorkflowMessage.
+        "ALTER TABLE workflow_messages ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
