@@ -136,6 +136,35 @@ describe('Filing & Sorting tab', () => {
     await waitFor(() => expect(screen.queryByText(/could not be read just now/)).toBeNull());
   });
 
+  it('when Egnyte is busy the walk pauses and carries on by itself (11/05)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      try { localStorage.setItem('filing-picked', JSON.stringify(['/Shared/A', '/Shared/B'])); } catch { /* jsdom */ }
+      let busyOnce = true;
+      filingScan.mockImplementation(({ paths } = {}) => {
+        if (busyOnce) {
+          // A lists, then Egnyte throttles on B: B comes back with a cool-down.
+          busyOnce = false;
+          return Promise.resolve(scanOf([row('A.pdf', { sourcePath: '/Shared/A/A.pdf', labeled: false, canonicalName: '' })],
+            { scannedRoots: ['/Shared/A'], deferred: ['/Shared/B'], cooldownSec: 6 }));
+        }
+        expect(paths).toEqual(['/Shared/B']);
+        return Promise.resolve(scanOf([row('B.pdf', { sourcePath: '/Shared/B/B.pdf', labeled: false, canonicalName: '' })],
+          { scannedRoots: ['/Shared/B'] }));
+      });
+      render(<FilingTab />);
+      fireEvent.click(await screen.findByRole('button', { name: /Scan Now \(2 Folders\)/ }));
+      expect(await screen.findByText(/Egnyte is busy, waiting 6 seconds/)).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(6500);
+      expect(await screen.findByText('B.pdf')).toBeTruthy();
+      expect(screen.getByText('A.pdf')).toBeTruthy();
+      expect(screen.queryByText(/could not be read just now/)).toBeNull();
+      expect(filingScan).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('folders the server defers (its time budget ran out) are scanned next', async () => {
     try { localStorage.setItem('filing-picked', JSON.stringify(['/Shared/A', '/Shared/B'])); } catch { /* jsdom */ }
     filingScan.mockImplementation(({ paths } = {}) => {
