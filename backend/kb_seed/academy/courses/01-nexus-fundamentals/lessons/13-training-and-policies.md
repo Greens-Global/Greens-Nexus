@@ -103,7 +103,7 @@ You are taking the first course of the **Greens Storage Academy**, the training 
 |---|---|---|
 | 1 | Nexus Fundamentals | The portal you use for everything else (this course). |
 | 2 | Self-Storage Fundamentals | The vocabulary and rules of the self-storage business. |
-| 3 | RV & Boat Storage Fundamentals | Vehicle storage, a large share of Greens' spaces. |
+| 3 | RV & Boat Storage Fundamentals | Storing RVs, boats and other vehicles. |
 | 4 | Cubby Fundamentals | The software for tenants, units and payments. |
 | 5 | Customer Service & Sales Fundamentals | Phone calls, tours, move-ins and tough conversations. |
 | 6 | Hands-On Check | In person: a mock sales call, a guided site walk and a supervised move-in in Cubby, signed off by a manager or senior team member. |
@@ -111,8 +111,8 @@ You are taking the first course of the **Greens Storage Academy**, the training 
 How it works:
 
 - New facility hires have **30 days from their start date** to finish the plan.
-- **Every course issues a certificate when you pass it, and that is the end of it.** The courses do not expire and do not have to be retaken on a schedule.
-- You can retake any course whenever you want a refresher.
+- **Every course issues a certificate when you pass it, and that is the end of it.** The courses do not expire, and a passed quiz is not taken again.
+- You can reread any lesson whenever you want a refresher.
 - Office and support staff take Nexus Fundamentals too, so the whole company uses Nexus the same way.
 
 ## A Greens Scenario

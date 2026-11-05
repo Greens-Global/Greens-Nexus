@@ -141,3 +141,19 @@ def test_sanitize_changes_are_reported(tmp_path):
     probs = kb_academy.problems(a)
     _has(probs, "sanitize changes page gate-codes")
     _has(probs, "sanitize changes nexus-fundamentals 'Welcome Aboard'")
+
+
+def test_question_lesson_must_name_a_lesson(tmp_path):
+    _has(_probs(tmp_path, lambda c: c["quiz"]["questions"][0].update(lesson="99-missing.md")), "names lesson '99-missing.md'")
+
+
+def test_question_lesson_links_lesson_id(tmp_path):
+    def tag(c):
+        c["quiz"]["questions"][0]["lesson"] = "01.md"
+        c["lessons"][2]["questions"][0]["lesson"] = "gate-codes"
+    a = kb_academy.load(_pkg(tmp_path, tag))
+    assert kb_academy.problems(a) == []
+    c = a.courses[0]
+    assert [L["_id"] for L in c.lessons] == [f"l_{c.slug}_01", f"l_{c.slug}_02", f"l_{c.slug}_03"]
+    assert c.quiz["questions"][0]["lessonId"] == c.lessons[0]["_id"]
+    assert c.lessons[2]["questions"][0]["lessonId"] == c.lessons[1]["_id"]

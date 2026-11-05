@@ -140,3 +140,16 @@ def test_unrelated_page_with_same_title_is_not_reused(_package):
     assert page.title == "Gate Codes" and page.status == "draft"
     lesson = json.loads(db.query(models.KbCourse).filter(models.KbCourse.title == "Cubby Fundamentals").one().draft)["lessons"][1]
     assert lesson["docId"] == page.id
+
+
+def test_question_lesson_id_survives_import(_package, tmp_path, monkeypatch):
+    db = _package
+    (tmp_path / "tagged").mkdir()
+    root = _pkg(tmp_path / "tagged", lambda c: c["quiz"]["questions"][0].update(lesson="01.md"))
+    for f in root.glob("courses/*/course.json"):
+        c = json.loads(f.read_text())
+        f.write_text(json.dumps(dict(c, title=c["slug"].replace("-", " ").title())))
+    monkeypatch.setattr(kb_academy, "ROOT", root)
+    kb_academy_seed.apply_once(db)
+    draft = json.loads(db.query(models.KbCourse).filter(models.KbCourse.title == "Nexus Fundamentals").one().draft)
+    assert draft["quiz"]["questions"][0]["lessonId"] == draft["lessons"][0]["_id"] == "l_nexus-fundamentals_01"

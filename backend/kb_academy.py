@@ -76,17 +76,34 @@ def load(root: Path = ROOT) -> Academy:
                     meta, body = kb_md.parse((d.parent / "lessons" / L["file"]).read_text(encoding="utf-8"))
                     if not meta.get("title"):
                         a.errors.append(f"{slug}/{L['file']}: front matter has no title")
-                    lessons.append({"type": "text", "title": meta.get("title", ""), "summary": meta.get("summary", ""),
+                    lessons.append({"type": "text", "file": L["file"], "title": meta.get("title", ""), "summary": meta.get("summary", ""),
                                     "blocks": kb_md.to_blocks(body)})
                 elif "page" in L:
                     lessons.append({"type": "page", "page": L["page"], "title": L.get("title", ""), "summary": L.get("summary", "")})
                 else:
                     lessons.append({"type": "checkpoint", "title": L.get("checkpoint", ""), "questions": L.get("questions", [])})
+                # a stable id, so a question's `lesson` can point "Reread these" at it (lessonId)
+                lessons[-1]["_id"] = f"l_{slug}_{len(lessons):02d}"
+            quiz = c.get("quiz") or {}
+            _link_questions(lessons, [q for L in lessons for q in L.get("questions") or []] + list(quiz.get("questions") or []))
             a.courses.append(CourseSpec(slug, c["title"], c.get("description", ""), c.get("overview", []), c.get("est_minutes", 0),
-                                        c.get("delivery", ""), c.get("min_reading_minutes", 0), lessons, c.get("quiz") or {}))
+                                        c.get("delivery", ""), c.get("min_reading_minutes", 0), lessons, quiz))
         except (OSError, ValueError, KeyError, TypeError) as e:
             a.errors.append(f"{d.parent.name}: cannot load ({type(e).__name__}: {e})")
     return a
+
+
+def _lesson_keys(L: dict) -> set:
+    """What a question's `lesson` may name: the lesson file, a page slug, or a checkpoint title."""
+    return {k for k in (L.get("file"), L.get("page"), L["title"] if L["type"] == "checkpoint" else None) if k}
+
+
+def _link_questions(lessons: list, qs: list) -> None:
+    """Set lessonId from an authored `lesson` key; an unknown name is left unlinked for problems()."""
+    ids = {k: L["_id"] for L in lessons for k in _lesson_keys(L)}
+    for q in qs:
+        if isinstance(q, dict) and q.get("lesson") in ids:
+            q["lessonId"] = ids[q["lesson"]]
 
 
 def _texts(node) -> list[str]:
@@ -223,6 +240,10 @@ def problems(a: Academy) -> list[str]:
             if not 25 <= dc <= 40 or dc > len(qs):
                 out.append(f"{c.slug}: drawCount {dc} must be 25-40 and within the bank")
         out += _quiz_problems(f"{c.slug} quiz", qs, _norm_quiz)
+        known = set().union(*(_lesson_keys(L) for L in c.lessons)) if c.lessons else set()
+        for q in qs + [q for L in c.lessons for q in L.get("questions") or []]:
+            if q.get("lesson") and q["lesson"] not in known:
+                out.append(f"{c.slug}: question {str(q.get('q', ''))[:60]!r} names lesson {q['lesson']!r}, which is not in the course")
         for s in [c.title, c.description] + list(c.overview):
             if _BANNED.search(str(s)):
                 out.append(f"{c.slug}: banned copy {_BANNED.search(str(s)).group(0)!r}")

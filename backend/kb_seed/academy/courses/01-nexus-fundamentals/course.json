@@ -48,7 +48,8 @@
           "answer": [
             1
           ],
-          "explanation": "Choose Not Yet and punch in closer to your start time. Clock In Anyway records the punch and your manager is told about early punches; only start early when your manager asked you to."
+          "explanation": "Choose Not Yet and punch in closer to your start time. Clock In Anyway records the punch and your manager is told about early punches; only start early when your manager asked you to.",
+          "lesson": "06-punching-in-breaks-and-punching-out.md"
         },
         {
           "type": "single",
@@ -62,7 +63,8 @@
           "answer": [
             1
           ],
-          "explanation": "Fix My Punch Out takes you to your Time Sheet to request the real clock-out time with a reason; your approver decides. Punching again creates a second, wrong shift."
+          "explanation": "Fix My Punch Out takes you to your Time Sheet to request the real clock-out time with a reason; your approver decides. Punching again creates a second, wrong shift.",
+          "lesson": "06-punching-in-breaks-and-punching-out.md"
         },
         {
           "type": "tf",
@@ -74,7 +76,8 @@
           "answer": [
             1
           ],
-          "explanation": "A punch never waits for your location and is never blocked by it. A clock-in with location off shows Location Off, and a Needs Attention bar offers Turn On or Skip."
+          "explanation": "A punch never waits for your location and is never blocked by it. A clock-in with location off shows Location Off, and a Needs Attention bar offers Turn On or Skip.",
+          "lesson": "06-punching-in-breaks-and-punching-out.md"
         },
         {
           "type": "single",
@@ -88,7 +91,8 @@
           "answer": [
             1
           ],
-          "explanation": "A punch saved on the device keeps trying on its own and goes in at the time you pressed the button. Do not punch again to fix it; that would create a wrong punch."
+          "explanation": "A punch saved on the device keeps trying on its own and goes in at the time you pressed the button. Do not punch again to fix it; that would create a wrong punch.",
+          "lesson": "06-punching-in-breaks-and-punching-out.md"
         },
         {
           "type": "order",
@@ -101,7 +105,8 @@
             "Tap End break & notify"
           ],
           "answer": [],
-          "explanation": "Start Break opens the Going on break box, which needs a reason, then Start break & notify. When you return, End Break opens Resuming work and End break & notify puts you back on the clock."
+          "explanation": "Start Break opens the Going on break box, which needs a reason, then Start break & notify. When you return, End Break opens Resuming work and End break & notify puts you back on the clock.",
+          "lesson": "06-punching-in-breaks-and-punching-out.md"
         },
         {
           "type": "single",
@@ -115,7 +120,8 @@
           "answer": [
             1
           ],
-          "explanation": "A computer usually gives only a rough location, so the punch shows Approx. Location. Punch from your phone on site for a precise location that shows the site name."
+          "explanation": "A computer usually gives only a rough location, so the punch shows Approx. Location. Punch from your phone on site for a precise location that shows the site name.",
+          "lesson": "06-punching-in-breaks-and-punching-out.md"
         },
         {
           "type": "multi",
@@ -131,7 +137,8 @@
             1,
             2
           ],
-          "explanation": "The message posts to your team chat as you. The tick box skips posting again, and some roles are set up with no boxes at all. It is not a private message to HR."
+          "explanation": "The message posts to your team chat as you. The tick box skips posting again, and some roles are set up with no boxes at all. It is not a private message to HR.",
+          "lesson": "06-punching-in-breaks-and-punching-out.md"
         },
         {
           "type": "single",
@@ -145,7 +152,8 @@
           "answer": [
             1
           ],
-          "explanation": "Still on Break? comes when a break stays open for a long time (60 minutes by default). Tap End Break now, and if the time is wrong, fix it on your Time Sheet."
+          "explanation": "Still on Break? comes when a break stays open for a long time (60 minutes by default). Tap End Break now, and if the time is wrong, fix it on your Time Sheet.",
+          "lesson": "06-punching-in-breaks-and-punching-out.md"
         }
       ]
     },
@@ -182,7 +190,8 @@
           "answer": [
             1
           ],
-          "explanation": "Click the red Missing cell to open Request a Missing Punch, enter the real time and a reason. It shows Not Yet Approved until your approver decides."
+          "explanation": "Click the red Missing cell to open Request a Missing Punch, enter the real time and a reason. It shows Not Yet Approved until your approver decides.",
+          "lesson": "08-your-time-sheet.md"
         },
         {
           "type": "single",
@@ -196,7 +205,8 @@
           "answer": [
             1
           ],
-          "explanation": "Menus differ because grants open modules on top of your tier. Everyone can raise and follow tickets from Help Center; ask your manager if you need the desk module."
+          "explanation": "Menus differ because grants open modules on top of your tier. Everyone can raise and follow tickets from Help Center; ask your manager if you need the desk module.",
+          "lesson": "01-welcome-to-nexus.md"
         },
         {
           "type": "single",
@@ -210,7 +220,8 @@
           "answer": [
             2
           ],
-          "explanation": "A ticket reaches the right team, is tracked and shows its status. A clear title like Gate 2 keypad not responding and a photo save a trip and a call."
+          "explanation": "A ticket reaches the right team, is tracked and shows its status. A clear title like Gate 2 keypad not responding and a photo save a trip and a call.",
+          "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
         },
         {
           "type": "single",
@@ -224,7 +235,8 @@
           "answer": [
             0
           ],
-          "explanation": "Request Time Off with the Medical Appointment reason and All day turned off for part of a day. Your manager decides and you get a bell."
+          "explanation": "Request Time Off with the Medical Appointment reason and All day turned off for part of a day. Your manager decides and you get a bell.",
+          "lesson": "09-schedules-and-time-off.md"
         },
         {
           "type": "single",
@@ -238,7 +250,8 @@
           "answer": [
             1
           ],
-          "explanation": "Approved time off is not punched in for you. Add it on your Time Sheet with the Type Vacation (or Sick) so it is paid."
+          "explanation": "Approved time off is not punched in for you. Add it on your Time Sheet with the Type Vacation (or Sick) so it is paid.",
+          "lesson": "08-your-time-sheet.md"
         },
         {
           "type": "single",
@@ -252,7 +265,8 @@
           "answer": [
             1
           ],
-          "explanation": "Name, job, department and bank details change through Ask HR, Profile Change. Ask HR is confidential, and HR will tell you what to send."
+          "explanation": "Name, job, department and bank details change through Ask HR, Profile Change. Ask HR is confidential, and HR will tell you what to send.",
+          "lesson": "10-ask-hr-reimbursements-and-purchases.md"
         },
         {
           "type": "single",
@@ -266,7 +280,8 @@
           "answer": [
             1
           ],
-          "explanation": "Reimbursements pays you back for company expenses you paid yourself. Attach the receipt and say why it was a company expense."
+          "explanation": "Reimbursements pays you back for company expenses you paid yourself. Attach the receipt and say why it was a company expense.",
+          "lesson": "10-ask-hr-reimbursements-and-purchases.md"
         },
         {
           "type": "single",
@@ -280,7 +295,8 @@
           "answer": [
             1
           ],
-          "explanation": "Entries saved on the phone send themselves when signal comes back, and the same entry sent twice is still one entry. Do not refill it."
+          "explanation": "Entries saved on the phone send themselves when signal comes back, and the same entry sent twice is still one entry. Do not refill it.",
+          "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
         },
         {
           "type": "single",
@@ -294,7 +310,8 @@
           "answer": [
             1
           ],
-          "explanation": "Either a punch fix request or declining in Nexus Sign with a reason sends it back to your manager. Never sign hours you know are wrong."
+          "explanation": "Either a punch fix request or declining in Nexus Sign with a reason sends it back to your manager. Never sign hours you know are wrong.",
+          "lesson": "08-your-time-sheet.md"
         },
         {
           "type": "single",
@@ -308,7 +325,8 @@
           "answer": [
             1
           ],
-          "explanation": "Start Return with a photo and the condition is the return. Until it is confirmed in Nexus, the ladder is still yours on the record."
+          "explanation": "Start Return with a photo and the condition is the return. Until it is confirmed in Nexus, the ladder is still yours on the record.",
+          "lesson": "12-people-equipment-and-notes.md"
         }
       ]
     }
@@ -331,7 +349,8 @@
         "answer": [
           2
         ],
-        "explanation": "Your own hours live in your Time Sheet in Nexus. Tenant, unit, payment and gate code questions are Cubby."
+        "explanation": "Your own hours live in your Time Sheet in Nexus. Tenant, unit, payment and gate code questions are Cubby.",
+        "lesson": "01-welcome-to-nexus.md"
       },
       {
         "type": "order",
@@ -344,7 +363,8 @@
           "Super Administrator"
         ],
         "answer": [],
-        "explanation": "The tiers run Employee (1), Supervisor (2), Manager (3), Administrator (4) and Super Administrator (5)."
+        "explanation": "The tiers run Employee (1), Supervisor (2), Manager (3), Administrator (4) and Super Administrator (5).",
+        "lesson": "01-welcome-to-nexus.md"
       },
       {
         "type": "single",
@@ -358,7 +378,8 @@
         "answer": [
           1
         ],
-        "explanation": "An outline shield marks an Administrator, a filled shield a Super Administrator, and a small people icon a Manager. Under the name Nexus shows the job title."
+        "explanation": "An outline shield marks an Administrator, a filled shield a Super Administrator, and a small people icon a Manager. Under the name Nexus shows the job title.",
+        "lesson": "01-welcome-to-nexus.md"
       },
       {
         "type": "tf",
@@ -370,7 +391,8 @@
         "answer": [
           1
         ],
-        "explanation": "Grants from a job role or Access Groups open extra modules on top of the tier, so two Employees can see different menus."
+        "explanation": "Grants from a job role or Access Groups open extra modules on top of the tier, so two Employees can see different menus.",
+        "lesson": "01-welcome-to-nexus.md"
       },
       {
         "type": "single",
@@ -384,7 +406,8 @@
         "answer": [
           1
         ],
-        "explanation": "Greens employees use Team Sign-In with their Microsoft work account. Partner Sign-In is for outside partners and sends a code by email."
+        "explanation": "Greens employees use Team Sign-In with their Microsoft work account. Partner Sign-In is for outside partners and sends a code by email.",
+        "lesson": "02-signing-in-and-getting-around.md"
       },
       {
         "type": "single",
@@ -398,7 +421,8 @@
         "answer": [
           1
         ],
-        "explanation": "The policy notice comes back each time a new version is published. Read it, tick the box and click Accept & Continue."
+        "explanation": "The policy notice comes back each time a new version is published. Read it, tick the box and click Accept & Continue.",
+        "lesson": "02-signing-in-and-getting-around.md"
       },
       {
         "type": "single",
@@ -412,7 +436,8 @@
         "answer": [
           0
         ],
-        "explanation": "Ctrl+K, Cmd+K on a Mac, or the / key jumps to Search Nexus on any screen."
+        "explanation": "Ctrl+K, Cmd+K on a Mac, or the / key jumps to Search Nexus on any screen.",
+        "lesson": "02-signing-in-and-getting-around.md"
       },
       {
         "type": "multi",
@@ -428,7 +453,8 @@
           1,
           2
         ],
-        "explanation": "The header holds Search Nexus, the + menu, the bell, the ? Help panel and your profile menu. Nexus has no chat of its own; people talk on Teams."
+        "explanation": "The header holds Search Nexus, the + menu, the bell, the ? Help panel and your profile menu. Nexus has no chat of its own; people talk on Teams.",
+        "lesson": "02-signing-in-and-getting-around.md"
       },
       {
         "type": "single",
@@ -442,7 +468,8 @@
         "answer": [
           1
         ],
-        "explanation": "Sign Out stops the next person from acting as you and clears the offline copy of your data on that device."
+        "explanation": "Sign Out stops the next person from acting as you and clears the offline copy of your data on that device.",
+        "lesson": "02-signing-in-and-getting-around.md"
       },
       {
         "type": "single",
@@ -456,7 +483,8 @@
         "answer": [
           1
         ],
-        "explanation": "iPhones install web apps only from Safari: Share, then Add to Home Screen. Then open Nexus from the new icon."
+        "explanation": "iPhones install web apps only from Safari: Share, then Add to Home Screen. Then open Nexus from the new icon.",
+        "lesson": "03-nexus-on-your-phone.md"
       },
       {
         "type": "single",
@@ -470,7 +498,8 @@
         "answer": [
           1
         ],
-        "explanation": "Profile > Phone Notifications has Install Nexus and Push to This Device."
+        "explanation": "Profile > Phone Notifications has Install Nexus and Push to This Device.",
+        "lesson": "03-nexus-on-your-phone.md"
       },
       {
         "type": "single",
@@ -484,7 +513,8 @@
         "answer": [
           1
         ],
-        "explanation": "On an iPhone, push only works in the installed app. Install it from Safari, open it from the icon, and turn the switch on."
+        "explanation": "On an iPhone, push only works in the installed app. Install it from Safari, open it from the icon, and turn the switch on.",
+        "lesson": "03-nexus-on-your-phone.md"
       },
       {
         "type": "single",
@@ -498,7 +528,8 @@
         "answer": [
           1
         ],
-        "explanation": "Add it with Customize, Add Widget, Announcements, then Save and Done. Acknowledge a post that asks you to."
+        "explanation": "Add it with Customize, Add Widget, Announcements, then Save and Done. Acknowledge a post that asks you to.",
+        "lesson": "04-your-dashboard-and-the-bell.md"
       },
       {
         "type": "single",
@@ -512,7 +543,8 @@
         "answer": [
           1
         ],
-        "explanation": "Clearing moves notices to Closed, where they stay for 30 days and can be restored."
+        "explanation": "Clearing moves notices to Closed, where they stay for 30 days and can be restored.",
+        "lesson": "04-your-dashboard-and-the-bell.md"
       },
       {
         "type": "single",
@@ -526,7 +558,8 @@
         "answer": [
           1
         ],
-        "explanation": "The yellow priority bar is for must-act items. Open goes to the item, and acting on it clears the bar."
+        "explanation": "The yellow priority bar is for must-act items. Open goes to the item, and acting on it clears the bar.",
+        "lesson": "04-your-dashboard-and-the-bell.md"
       },
       {
         "type": "single",
@@ -540,7 +573,8 @@
         "answer": [
           3
         ],
-        "explanation": "Signatures Needed counts documents awaiting your signature. A document waiting on you can hold up your onboarding or your pay."
+        "explanation": "Signatures Needed counts documents awaiting your signature. A document waiting on you can hold up your onboarding or your pay.",
+        "lesson": "04-your-dashboard-and-the-bell.md"
       },
       {
         "type": "multi",
@@ -556,7 +590,8 @@
           1,
           2
         ],
-        "explanation": "Workday has Overview, Time Sheet, Time Off and Performance. Inventory is an Item Management tab for managers."
+        "explanation": "Workday has Overview, Time Sheet, Time Off and Performance. Inventory is an Item Management tab for managers.",
+        "lesson": "05-workday-your-home-base.md"
       },
       {
         "type": "single",
@@ -570,7 +605,8 @@
         "answer": [
           1
         ],
-        "explanation": "You edit your own personal email, phone and emergency contact under Contact & Emergency. Name, job, department and bank changes go through Ask HR."
+        "explanation": "You edit your own personal email, phone and emergency contact under Contact & Emergency. Name, job, department and bank changes go through Ask HR.",
+        "lesson": "05-workday-your-home-base.md"
       },
       {
         "type": "single",
@@ -584,7 +620,8 @@
         "answer": [
           1
         ],
-        "explanation": "My Documents holds signed copies, files HR filed for you, and your paystubs, in folders."
+        "explanation": "My Documents holds signed copies, files HR filed for you, and your paystubs, in folders.",
+        "lesson": "05-workday-your-home-base.md"
       },
       {
         "type": "tf",
@@ -596,7 +633,8 @@
         "answer": [
           1
         ],
-        "explanation": "You always sign first. The company never signs before the employee; any company signature is added after yours."
+        "explanation": "You always sign first. The company never signs before the employee; any company signature is added after yours.",
+        "lesson": "05-workday-your-home-base.md"
       },
       {
         "type": "single",
@@ -610,7 +648,8 @@
         "answer": [
           1
         ],
-        "explanation": "The clock only shows valid buttons. On a break, End Break puts you back on the clock."
+        "explanation": "The clock only shows valid buttons. On a break, End Break puts you back on the clock.",
+        "lesson": "06-punching-in-breaks-and-punching-out.md"
       },
       {
         "type": "single",
@@ -624,7 +663,8 @@
         "answer": [
           1
         ],
-        "explanation": "Out of Location means the punch was away from all company locations. Location is checked only at the punch, never between punches."
+        "explanation": "Out of Location means the punch was away from all company locations. Location is checked only at the punch, never between punches.",
+        "lesson": "06-punching-in-breaks-and-punching-out.md"
       },
       {
         "type": "single",
@@ -638,7 +678,8 @@
         "answer": [
           1
         ],
-        "explanation": "I'm Still Working hides the banner when it is true. Fix My Punch Out is for a forgotten clock-out."
+        "explanation": "I'm Still Working hides the banner when it is true. Fix My Punch Out is for a forgotten clock-out.",
+        "lesson": "06-punching-in-breaks-and-punching-out.md"
       },
       {
         "type": "single",
@@ -652,21 +693,23 @@
         "answer": [
           1
         ],
-        "explanation": "Signing confirms the meal and rest break statement. Hourly California staff report a missed break instead of signing, and the manager adds the premium pay. Training only, not legal advice."
+        "explanation": "Signing confirms the meal and rest break statement. Hourly California staff report a missed break instead of signing, and the manager adds the premium pay. Training only, not legal advice.",
+        "lesson": "06-punching-in-breaks-and-punching-out.md"
       },
       {
         "type": "single",
         "q": "You work at a Texas site. The signing screen shows the meal and rest break statement, and it is not true for you. What should you do?",
         "options": [
           "Sign it to get paid on time",
-          "Do not sign it; decline it in Nexus Sign with a reason or tell your manager first",
+          "Tell your manager first; if it is still not true, decline it in Nexus Sign with a reason",
           "Ignore the statement",
           "Punch out again"
         ],
         "answer": [
           1
         ],
-        "explanation": "Never sign a statement that is not true. Report a Missed Break appears only for hourly staff on the California rule, so at a Texas site decline with a reason or ask your manager. Training only, not legal advice."
+        "explanation": "Never sign a statement that is not true. Report a Missed Break appears only for hourly staff on the California rule, so at a Texas site tell your manager first, then decline with a reason if it is still not true. Training only, not legal advice.",
+        "lesson": "06-punching-in-breaks-and-punching-out.md"
       },
       {
         "type": "single",
@@ -680,7 +723,8 @@
         "answer": [
           1
         ],
-        "explanation": "Hours read as hours and minutes, like 8:15. Nexus never shows decimal hours on screen."
+        "explanation": "Hours read as hours and minutes, like 8:15. Nexus never shows decimal hours on screen.",
+        "lesson": "08-your-time-sheet.md"
       },
       {
         "type": "single",
@@ -694,7 +738,8 @@
         "answer": [
           1
         ],
-        "explanation": "A request shows on its day as Not Yet Approved until your approver decides. Follow it under Change Requests This Period."
+        "explanation": "A request shows on its day as Not Yet Approved until your approver decides. Follow it under Change Requests This Period.",
+        "lesson": "08-your-time-sheet.md"
       },
       {
         "type": "single",
@@ -708,7 +753,8 @@
         "answer": [
           2
         ],
-        "explanation": "Your manager approves with Review & Approve, but only you sign. Your signature finalizes the period for payroll."
+        "explanation": "Your manager approves with Review & Approve, but only you sign. Your signature finalizes the period for payroll.",
+        "lesson": "08-your-time-sheet.md"
       },
       {
         "type": "order",
@@ -721,7 +767,8 @@
           "The signed copy is filed in My Documents"
         ],
         "answer": [],
-        "explanation": "You do not need to submit first. After the period ends your manager approves, you are told, you sign, and the signed copy is filed."
+        "explanation": "You do not need to submit first. After the period ends your manager approves, you are told, you sign, and the signed copy is filed.",
+        "lesson": "08-your-time-sheet.md"
       },
       {
         "type": "single",
@@ -735,7 +782,8 @@
         "answer": [
           1
         ],
-        "explanation": "When HR changes a signed Time Sheet, you check what changed and Sign Updated Time Sheet, or decline it with what is wrong."
+        "explanation": "When HR changes a signed Time Sheet, you check what changed and Sign Updated Time Sheet, or decline it with what is wrong.",
+        "lesson": "08-your-time-sheet.md"
       },
       {
         "type": "single",
@@ -749,7 +797,8 @@
         "answer": [
           1
         ],
-        "explanation": "Confirm means you have seen it. If something does not work, confirm and then talk to your manager or use a shift request if your company allows them."
+        "explanation": "Confirm means you have seen it. If something does not work, confirm and then talk to your manager or use a shift request if your company allows them.",
+        "lesson": "09-schedules-and-time-off.md"
       },
       {
         "type": "tf",
@@ -761,7 +810,8 @@
         "answer": [
           1
         ],
-        "explanation": "They are off by default, and each company decides whether to turn them on. If you see no Request button under your shifts, handle changes with your manager."
+        "explanation": "They are off by default, and each company decides whether to turn them on. If you see no Request button under your shifts, handle changes with your manager.",
+        "lesson": "09-schedules-and-time-off.md"
       },
       {
         "type": "single",
@@ -775,7 +825,8 @@
         "answer": [
           1
         ],
-        "explanation": "A swap waits on your teammate, then on a manager. Until it is approved, the original schedule stands."
+        "explanation": "A swap waits on your teammate, then on a manager. Until it is approved, the original schedule stands.",
+        "lesson": "09-schedules-and-time-off.md"
       },
       {
         "type": "single",
@@ -789,7 +840,8 @@
         "answer": [
           1
         ],
-        "explanation": "Past dates are grayed out on the form. Request for a Past Date lets you ask for one you missed."
+        "explanation": "Past dates are grayed out on the form. Request for a Past Date lets you ask for one you missed.",
+        "lesson": "09-schedules-and-time-off.md"
       },
       {
         "type": "tf",
@@ -801,7 +853,8 @@
         "answer": [
           1
         ],
-        "explanation": "Company holidays are unpaid days off for hourly staff, with the office closed. Hours actually worked on a holiday are paid as usual."
+        "explanation": "Company holidays are unpaid days off for hourly staff, with the office closed. Hours actually worked on a holiday are paid as usual.",
+        "lesson": "09-schedules-and-time-off.md"
       },
       {
         "type": "single",
@@ -815,7 +868,8 @@
         "answer": [
           1
         ],
-        "explanation": "Request a Letter covers employment verification, salary, visa and more, when your company offers HR letters."
+        "explanation": "Request a Letter covers employment verification, salary, visa and more, when your company offers HR letters.",
+        "lesson": "10-ask-hr-reimbursements-and-purchases.md"
       },
       {
         "type": "single",
@@ -829,7 +883,8 @@
         "answer": [
           1
         ],
-        "explanation": "You can send it without the receipt and add it later. HR approves the claim once the receipt is attached."
+        "explanation": "You can send it without the receipt and add it later. HR approves the claim once the receipt is attached.",
+        "lesson": "10-ask-hr-reimbursements-and-purchases.md"
       },
       {
         "type": "single",
@@ -843,7 +898,8 @@
         "answer": [
           1
         ],
-        "explanation": "A sent back claim is fixed in place: read What to fix, make the change, and click Fix and Resubmit."
+        "explanation": "A sent back claim is fixed in place: read What to fix, make the change, and click Fix and Resubmit.",
+        "lesson": "10-ask-hr-reimbursements-and-purchases.md"
       },
       {
         "type": "single",
@@ -857,7 +913,8 @@
         "answer": [
           1
         ],
-        "explanation": "Waiting for User means the team needs something from you. The ticket cannot move until you answer."
+        "explanation": "Waiting for User means the team needs something from you. The ticket cannot move until you answer.",
+        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
       },
       {
         "type": "single",
@@ -871,7 +928,8 @@
         "answer": [
           1
         ],
-        "explanation": "Reopen with a reason while it is Resolved. Once a ticket is Closed it stays closed, and a problem that comes back is a new ticket."
+        "explanation": "Reopen with a reason while it is Resolved. Once a ticket is Closed it stays closed, and a problem that comes back is a new ticket.",
+        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
       },
       {
         "type": "single",
@@ -885,7 +943,8 @@
         "answer": [
           1
         ],
-        "explanation": "A place tag opens that place: Open Tickets shows what is already reported, and Report a Problem files a ticket already linked to the property."
+        "explanation": "A place tag opens that place: Open Tickets shows what is already reported, and Report a Problem files a ticket already linked to the property.",
+        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
       },
       {
         "type": "single",
@@ -899,7 +958,8 @@
         "answer": [
           1
         ],
-        "explanation": "Nexus never silently overwrites anyone's change. When two changes meet, you choose Keep Mine or Use Theirs."
+        "explanation": "Nexus never silently overwrites anyone's change. When two changes meet, you choose Keep Mine or Use Theirs.",
+        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
       },
       {
         "type": "tf",
@@ -911,7 +971,8 @@
         "answer": [
           1
         ],
-        "explanation": "Greens talks on Microsoft Teams. Nexus has no chat of its own; Chat, Message on Teams and Call on Teams open Teams."
+        "explanation": "Greens talks on Microsoft Teams. Nexus has no chat of its own; Chat, Message on Teams and Call on Teams open Teams.",
+        "lesson": "12-people-equipment-and-notes.md"
       },
       {
         "type": "single",
@@ -925,7 +986,8 @@
         "answer": [
           3
         ],
-        "explanation": "Photos are evidence at handover, receipt and return. A lost item has no photo to take, so Report Lost needs none."
+        "explanation": "Photos are evidence at handover, receipt and return. A lost item has no photo to take, so Report Lost needs none.",
+        "lesson": "12-people-equipment-and-notes.md"
       },
       {
         "type": "single",
@@ -939,7 +1001,8 @@
         "answer": [
           1
         ],
-        "explanation": "A note is private to its owner and the people it is shared with. A name typed in a note notifies nobody."
+        "explanation": "A note is private to its owner and the people it is shared with. A name typed in a note notifies nobody.",
+        "lesson": "12-people-equipment-and-notes.md"
       },
       {
         "type": "tf",
@@ -951,7 +1014,8 @@
         "answer": [
           1
         ],
-        "explanation": "A checkpoint is practice and does not count as a quiz try. Use it to find what to reread."
+        "explanation": "A checkpoint is practice and does not count as a quiz try. Use it to find what to reread.",
+        "lesson": "13-training-and-policies.md"
       },
       {
         "type": "single",
@@ -965,7 +1029,8 @@
         "answer": [
           1
         ],
-        "explanation": "The quiz needs 80%. Reread the listed lessons first; the next try draws different questions, so understanding works and guessing does not."
+        "explanation": "The quiz needs 80%. Reread the listed lessons first; the next try draws different questions, so understanding works and guessing does not.",
+        "lesson": "13-training-and-policies.md"
       },
       {
         "type": "single",
@@ -979,7 +1044,8 @@
         "answer": [
           1
         ],
-        "explanation": "The New Hire: Facility Team plan is due 30 days from your start date. Your manager is told if a course runs past its due date."
+        "explanation": "The New Hire: Facility Team plan is due 30 days from your start date. Your manager is told if a course runs past its due date.",
+        "lesson": "13-training-and-policies.md"
       },
       {
         "type": "single",
@@ -987,13 +1053,14 @@
         "options": [
           "Every year",
           "Every six months",
-          "Never; the certificate does not expire, though you may retake it for a refresher",
+          "Never; the certificate does not expire. You can reread the lessons any time.",
           "When your manager changes"
         ],
         "answer": [
           2
         ],
-        "explanation": "Each academy course issues a certificate on pass with no renewal. You can retake any course whenever you want a refresher."
+        "explanation": "Each academy course issues a certificate on pass with no renewal. A passed quiz is not taken again, but you can reread any lesson whenever you want a refresher.",
+        "lesson": "13-training-and-policies.md"
       },
       {
         "type": "single",
@@ -1007,7 +1074,8 @@
         "answer": [
           1
         ],
-        "explanation": "Read to the end, type your full name and sign that version. A real policy change asks you to sign again."
+        "explanation": "Read to the end, type your full name and sign that version. A real policy change asks you to sign again.",
+        "lesson": "13-training-and-policies.md"
       }
     ]
   }

@@ -111,7 +111,7 @@ When you sign your Time Sheet (lesson 8), Nexus also handles meal and rest break
 |---|---|---|
 | At clock-in | No break question. | No break question. |
 | On the signing screen | The statement "I was provided every meal and rest break California law requires." Signing confirms it. | The same statement appears for everyone whose country is the US. Signing confirms it. |
-| If you missed a break | Click **Report a Missed Break** instead of signing, pick the days and **Meal** or **Rest**, and click **Send Back to Manager**. Your manager adds the premium pay and sends it back for you to sign. | Report a Missed Break appears only for hourly staff on the California rule. If a break statement on your Time Sheet is not true for you, do not sign it; decline it in Nexus Sign with a reason, or tell your manager first. |
+| If you missed a break | Click **Report a Missed Break** instead of signing, pick the days and **Meal** or **Rest**, and click **Send Back to Manager**. Your manager adds the premium pay and sends it back for you to sign. | Report a Missed Break appears only for hourly staff on the California rule. If a break statement on your Time Sheet is not true for you, do not sign it. Tell your manager first; if it is still not true, decline it in Nexus Sign with a reason. |
 
 > [!WARNING]
 > Training only, not legal advice. When in doubt, stop and ask your manager.

@@ -25,6 +25,13 @@ are `single`). Limits: q 600, option 300, explanation 400 characters, 6
 options. No `photo` questions. Checkpoints: 10 questions at most. Quiz bank:
 45 or more, `drawCount` 25-40. The Hands-On Check (`delivery: in_person`) has no quiz.
 
+Optional `"lesson"` on a checkpoint or quiz question names the lesson it
+tests: the lesson's file name (`"06-punching.md"`), a page lesson's slug, or a
+checkpoint's title. The loader gives every lesson a stable id
+(`l_<course slug>_<NN>`, NN = its position) and turns `lesson` into the
+question's `lessonId`, so a failed quiz's "Reread these" lists that lesson.
+A `lesson` that names nothing in the course fails the content test.
+
 ## Copy rules
 American English, Title Case titles, no em or en dashes, no ISO dates, say
 "Time Sheet", name the source of every Greens number.
