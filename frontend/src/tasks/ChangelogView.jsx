@@ -19,7 +19,7 @@
 // so every field below lives inside that payload; the server owns only id/createdAt/updatedAt.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useDialogFocus } from '../lib/useDialogFocus';
-import { LoadingState } from '../components/AsyncState';
+import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import {
   Sparkles, Clock, ClipboardCheck, Plus, X, ArrowRight, CheckCircle2, User,
   ImageIcon, Search, ChevronDown, GitBranch, Layers, CalendarDays,
@@ -215,9 +215,15 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
   const [editing, setEditing] = useState(null); // entry being edited
   const [toast, setToast] = useState(null);   // { text, error }
 
-  // Loaded once: until then the Timeline shows a skeleton, not "no updates".
+  // Loaded once: until then both tabs show a skeleton, not "no updates"
+  // (Neil, 11/05/2026: What's New sat on its empty line while it loaded). A
+  // first load that fails says so with Retry instead of reading as empty.
   const [loaded, setLoaded] = useState(false);
-  const reload = () => api.getTaskChangelog().then((r) => setEntries(r || [])).catch(() => {}).finally(() => setLoaded(true));
+  const [loadError, setLoadError] = useState('');
+  const reload = () => api.getTaskChangelog()
+    .then((r) => { setEntries(r || []); setLoadError(''); })
+    .catch((e) => { setLoadError(e?.message || 'Could not load the updates.'); })
+    .finally(() => setLoaded(true));
   useEffect(() => { reload(); }, []);
 
   // An error stays red and up longer: it usually needs reading (a server
@@ -442,7 +448,12 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
       {/* Body */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 'env(safe-area-inset-bottom)' : undefined, display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1, minHeight: 0 }}>
-          {!managing && tab === 'whats-new' && <WhatsNewTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
+          {!managing && loadError && !entries.length && (
+            <div style={{ padding: isMobile ? '14px 12px 0' : '16px 16px 0' }}>
+              <ErrorBanner message={loadError} onRetry={() => { setLoaded(false); reload(); }} />
+            </div>
+          )}
+          {!managing && tab === 'whats-new' && <WhatsNewTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} loading={!loaded} />}
           {!managing && tab === 'timeline' && <TimelineTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} loading={!loaded} />}
           {managing && (
             <ManageTab entries={sorted} nameOf={nameOf} myEmail={myEmail} onSetStatus={setStatus} onEdit={setEditing} flash={flash}
@@ -547,7 +558,40 @@ function ReactionBar({ entry, compact = false }) {
 // entry, which was fine while updates were typed by hand - with every merged
 // PR published automatically, the next merge would push a hand-written
 // announcement off the tab within hours (Oct 2026).
-function WhatsNewTab({ entries: allPublished, nameOf, myEmail, isAdmin, onSetStatus, onEdit }) {
+// The What's New tab while the feed loads: the same two columns - the day's
+// cards on the left, the Activity Summary beside them - in grey blocks.
+function WhatsNewSkeleton({ isMobile }) {
+  const bar = (w, h = 12, mt = 0) => <div style={{ height: h, width: w, borderRadius: 6, marginTop: mt, background: NX.border2 }} />;
+  return (
+    <div aria-busy="true" aria-label="Loading updates" data-whats-new-skeleton
+      style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 12 : 20, alignItems: 'flex-start' }}>
+      <div style={{ minWidth: 0, flex: '1 1 520px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ height: 20, marginBottom: -4, display: 'flex', alignItems: 'center' }}>{bar(90, 11)}</div>
+        {[0, 1, 2].map((i) => (
+          <div key={i} style={{ ...card, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: NX.border2, flexShrink: 0 }} />
+              {bar('55%', 14)}
+            </div>
+            {bar('92%', 11, 14)}
+            {bar('70%', 11, 8)}
+            {bar(120, 10, 14)}
+          </div>
+        ))}
+      </div>
+      <div style={{ width: '100%', maxWidth: isMobile ? 'none' : 320, flex: '1 1 280px' }}>
+        {!isMobile && <div style={{ height: 20, marginBottom: 8 }} />}
+        <div style={{ ...card, padding: 16 }}>
+          {bar(110, 13)}
+          {bar(60, 22, 14)}
+          {[0, 1, 2].map((i) => <div key={i}>{bar('80%', 11, 12)}</div>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WhatsNewTab({ entries: allPublished, nameOf, myEmail, isAdmin, onSetStatus, onEdit, loading = false }) {
   const { sinceAt, forYou, openEntry } = useContext(ChangelogActions);
   // For You (the modules you use) and New Since Your Last Visit (Oct 16 2026).
   const [mineOnly, setMineOnly] = useState(() => readQuery().get('for') === 'me');
@@ -620,7 +664,7 @@ function WhatsNewTab({ entries: allPublished, nameOf, myEmail, isAdmin, onSetSta
           with a 20px line (a section label / the day's count), so the first
           card and the summary still start on the same line, and the count
           still ends on the summary's right edge. */}
-      {(latest || pinned.length > 0) ? (
+      {loading ? <WhatsNewSkeleton isMobile={isMobile} /> : (latest || pinned.length > 0) ? (
         <div data-whats-new-row style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 12 : 20, alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0, flex: '1 1 520px', display: 'flex', flexDirection: 'column' }}>
             {pinned.length > 0 && (
