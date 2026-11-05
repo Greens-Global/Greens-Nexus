@@ -40,6 +40,6 @@ describe('the Payroll view after a reload', () => {
     sessionStorage.setItem('nexus.payroll.last', JSON.stringify({ email: 'gone@x.com', start: '2026-09-23', payType: 'hourly' }));
     timePayroll.mockClear();
     await mount();
-    await waitFor(() => expect(timePayroll).toHaveBeenCalledWith('aarav@x.com', expect.any(String), expect.any(String)));
+    await waitFor(() => expect(timePayroll).toHaveBeenCalledWith('aarav@x.com', expect.any(String), expect.any(String), false));
   }, 20000);
 });

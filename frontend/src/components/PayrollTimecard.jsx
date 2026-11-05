@@ -305,11 +305,66 @@ function CorrectionChip({ review, nameFor }) {
   );
 }
 
+// Custom Range (Neil, 11/05/2026): quick picks or From / To, then Show. A range
+// is a view of an hourly card (the server works overtime out on full weeks,
+// _range_card); approving and signing stay on the pay period.
+const RANGE_MAX_DAYS = 366;
+export function rangePresets(today = new Date()) {
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const y = today.getFullYear(), m = today.getMonth(), dd = today.getDate(), wd = today.getDay();
+  const day = (o) => new Date(y, m, dd + o);
+  return [
+    ['This Week', day(-wd), day(6 - wd)],
+    ['Last Week', day(-wd - 7), day(-wd - 1)],
+    ['This Month', new Date(y, m, 1), new Date(y, m + 1, 0)],
+    ['Last Month', new Date(y, m - 1, 1), new Date(y, m, 0)],
+    ['Last 30 Days', day(-29), today],
+    ['This Year', new Date(y, 0, 1), today],
+  ].map(([label, a, b]) => ({ label, start: iso(a), end: iso(b) }));
+}
+const rangeDays = (a, b) => Math.round((new Date(`${b}T00:00Z`) - new Date(`${a}T00:00Z`)) / DAY) + 1;
+export function rangeProblem(a, b) {
+  if (!a || !b) return 'Pick a From and a To date.';
+  if (b < a) return 'The To date is before the From date.';
+  if (rangeDays(a, b) > RANGE_MAX_DAYS) return 'A custom range can be up to one year.';
+  return '';
+}
+function CustomRangePanel({ value, onShow, onCancel }) {
+  const [from, setFrom] = useState(value?.start || '');
+  const [to, setTo] = useState(value?.end || '');
+  const problem = rangeProblem(from, to);
+  const chip = (on) => ({ fontSize: 12, fontWeight: 700, borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontFamily: 'var(--wk-font)', border: `1px solid ${on ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, background: on ? 'var(--wk-brand-tint)' : 'var(--card)', color: on ? 'var(--wk-brand)' : 'var(--ink)' });
+  const box = { border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '5px 8px', width: '100%' };
+  return (
+    <div data-testid="ts-custom-range">
+      <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', marginBottom: 6 }}>Custom Range</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+        {rangePresets().map(p => (
+          <button key={p.label} type="button" style={chip(p.start === from && p.end === to)} onClick={() => { setFrom(p.start); setTo(p.end); }}>{p.label}</button>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+        <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'grid', gap: 3 }}>From
+          <DateField value={from} onChange={(iso) => setFrom(iso || '')} placeholder="MM/DD/YYYY" title="From" style={box} /></label>
+        <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'grid', gap: 3 }}>To
+          <DateField value={to} onChange={(iso) => setTo(iso || '')} placeholder="MM/DD/YYYY" title="To" style={box} /></label>
+      </div>
+      <div style={{ fontSize: 11.5, lineHeight: 1.45, color: from && to && problem ? '#b91c1c' : 'var(--muted)', marginBottom: 10 }}>
+        {from && to && problem ? problem : 'Up to one year. Overtime is still worked out on full Sunday - Saturday weeks.'}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={onCancel}>Cancel</button>
+        <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={!!problem} onClick={() => onShow({ start: from, end: to })}>Show</button>
+      </div>
+    </div>
+  );
+}
+
 // Pay period finder (Neil, Oct 21 2026) - SwipeClock's "Select Other Periods".
 // The period label is the button; `periods` is newest first ({ key, label,
 // current, open, pick }) and `goTo(iso)` jumps to the period holding a date.
-// The backend only reads whole periods, so there is no custom range.
-function PeriodFinder({ label, minWidth, periods, goTo, fill = false }) {
+// `onCustom` (People > Time, hourly) adds the Custom Range panel beside the list.
+function PeriodFinder({ label, minWidth, periods, goTo, fill = false, custom = null, onCustom = null }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -327,7 +382,9 @@ function PeriodFinder({ label, minWidth, periods, goTo, fill = false }) {
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span><ChevronDown size={fill ? 12 : 14} style={{ flexShrink: 0 }} />
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: 'var(--wk-shadow)', zIndex: 50, padding: 10, minWidth: 260 }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: 'var(--wk-shadow)', zIndex: 50, padding: 10, minWidth: 260,
+          ...(onCustom ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, width: 'min(580px, calc(100vw - 32px))' } : {}) }}>
+          <div>
           <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', marginBottom: 6 }}>Select a Pay Period</div>
           <div role="radiogroup" aria-label="Pay periods" style={{ maxHeight: 280, overflowY: 'auto' }}>
             {periods.map(p => (
@@ -342,6 +399,8 @@ function PeriodFinder({ label, minWidth, periods, goTo, fill = false }) {
             <DateField value="" onChange={(iso) => { if (iso) { goTo(iso); setOpen(false); } }} placeholder="MM/DD/YYYY" title="Go to Date"
               style={{ flex: 1, border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '4px 8px' }} />
           </div>
+          </div>
+          {onCustom && <CustomRangePanel value={custom} onCancel={() => setOpen(false)} onShow={(r) => { onCustom(r); setOpen(false); }} />}
         </div>
       )}
     </div>
@@ -677,10 +736,19 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // may open their OWN punches there, so it works on the employee's card too.
   const [geoFocus, setGeoFocus] = useState(null);   // { seg, date } | null
 
-  const start = isoDate(pStart);
-  const end = isoDate(pStart.getTime() + 13 * DAY);
-  const cacheKey = _tcKey(self, email, start, end);
-  const dates = useMemo(() => Array.from({ length: 14 }, (_, i) => isoDate(pStart.getTime() + i * DAY)), [pStart]);
+  // A custom date range (Neil, 11/05/2026) - { start, end } or null. A view of
+  // an hourly card in People > Time; picking a pay period clears it.
+  const [custom, setCustom] = useState(null);
+  const start = custom ? custom.start : isoDate(pStart);
+  const end = custom ? custom.end : isoDate(pStart.getTime() + 13 * DAY);
+  const cacheKey = _tcKey(self, email, start, end) + (custom ? ':range' : '');
+  // The people list and its counts stay on the pay period in view while a range is open.
+  const perA = isoDate(pStart), perB = isoDate(pStart.getTime() + 13 * DAY);
+  const dates = useMemo(() => {
+    if (!custom) return Array.from({ length: 14 }, (_, i) => isoDate(pStart.getTime() + i * DAY));
+    const s0 = new Date(`${custom.start}T00:00Z`).getTime();
+    return Array.from({ length: rangeDays(custom.start, custom.end) }, (_, i) => isoDate(s0 + i * DAY));
+  }, [pStart, custom]);
 
   // employee list (scoped) for the picker - per period, so someone who left
   // before it is not on it (Neil, Oct 22). Each row carries where its review
@@ -694,7 +762,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   }, [self]);
   useEffect(() => {
     if (self) return;   // employee self-view has no picker / team list
-    api.timeTeam(start, end).then(r => {
+    api.timeTeam(perA, perB).then(r => {
       const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0, department: x.department || '', company: x.company || '', companyId: x.companyId || '', review: x.review?.status || '' }));
       setPeople(list);
       setPeopleLoaded(true);
@@ -703,7 +771,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       setEmail(e => (e && (initialEmail === e || list.some(p => p.email === e))) ? e : list[0]?.email || '');
     }).catch(() => setPeopleLoaded(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [self, start, end, teamTick]);
+  }, [self, perA, perB, teamTick]);
   useEffect(() => {
     if (self) saveRefresh(_SELF_KEY, { start: isoDate(pStart), payType: data?.payType || '' });
   }, [self, pStart, data?.payType]);
@@ -715,8 +783,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // Per-employee missing/exception counts for the sidebar (re-loads per period).
   useEffect(() => {
     if (self) return;
-    api.timeTeamExceptions(start, end).then(r => setExceptions(r || [])).catch(() => setExceptions([]));
-  }, [self, start, end]);
+    api.timeTeamExceptions(perA, perB).then(r => setExceptions(r || [])).catch(() => setExceptions([]));
+  }, [self, perA, perB]);
 
   // When the TARGET changes (employee or period) paint the CACHED card for it
   // immediately if we have one - otherwise the neutral loader. Never the previous
@@ -745,9 +813,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       return;
     }
     if (!email) return;
-    const key = _tcKey(false, email, start, end);
+    const key = _tcKey(false, email, start, end) + (custom ? ':range' : '');
     reqKeyRef.current = key;
-    api.timePayroll(email, start, end).then(d => {
+    api.timePayroll(email, start, end, !!custom).then(d => {
       _timecardCache.set(key, d);
       if (reqKeyRef.current !== key) return;
       setStepLocked(false); setData(d);
@@ -762,7 +830,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     // parent that re-creates the callback each render (TimeClock's 1s stopwatch)
     // can't trigger an endless refetch loop that pins the spinner.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [self, email, start, end]);
+  }, [self, email, start, end, custom]);
   useEffect(load, [load]);
   // Any punch change made elsewhere (the clock widget, My Time, another card)
   // refreshes this card too - no manual reload (Neil, Oct 16).
@@ -829,8 +897,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // off-series by a fixed employee's month snap re-aligns. Never route the
   // step through periodStartFor: that reads the LOCAL calendar, and a UTC
   // boundary lands on Saturday for US viewers, re-flooring a period back.
-  const shift = (n) => setPStart(new Date(snapPeriodUTC(pStart.getTime()).getTime() + n * 14 * DAY));
+  const shift = (n) => custom ? setCustom(null) : setPStart(new Date(snapPeriodUTC(pStart.getTime()).getTime() + n * 14 * DAY));
   const isFixed = data?.payType === 'fixed';   // monthly salary employee (not hourly)
+  // Salaried staff are paid by the month - a range goes back to their month.
+  useEffect(() => { if ((isFixed || phone) && custom) setCustom(null); }, [isFixed, phone, custom]);
   const cur = data?.currency || 'USD';         // any ISO code - see moneyPrefix
   // The manager tier never sees pay (Pranshu, 10/06) - the server sends none
   // and says so (payHidden): the pay columns, rates and totals disappear.
@@ -842,7 +912,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // UTC midnight shows the previous (Saturday) date to any viewer west of UTC.
   const label = `${formatDate(start)} – ${formatDate(end)}`;
   // The period as the employee sees it - a month for fixed, the bi-weekly range for hourly.
-  const periodLabel = isFixed && data?.periodStart ? monthName(new Date(data.periodStart + 'T00:00')) : label;
+  const periodLabel = custom ? `Custom: ${formatDate(start)} - ${formatDate(end)}`
+    : isFixed && data?.periodStart ? monthName(new Date(data.periodStart + 'T00:00')) : label;
   // The period list for the finder: hourly = one ahead, the current, 12 back
   // on the UTC series (as `shift` steps); fixed = this month and 12 back (as
   // `shiftMonth` steps). Picks set pStart exactly as the arrows would.
@@ -858,23 +929,28 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     const curStart = periodStartFor(today).getTime();
     return Array.from({ length: 14 }, (_, i) => {
       const s = curStart + (1 - i) * 14 * DAY, k = isoDate(s);
-      return { key: k, label: `${formatDate(k)} - ${formatDate(isoDate(s + 13 * DAY))}`, current: i === 1, open: k === start, pick: () => setPStart(new Date(s)) };
+      return { key: k, label: `${formatDate(k)} - ${formatDate(isoDate(s + 13 * DAY))}`, current: i === 1, open: !custom && k === start, pick: () => { setCustom(null); setPStart(new Date(s)); } };
     });
   };
+  const goToDate = (iso) => { setCustom(null); setPStart(anchorForStart(iso, isFixed ? 'fixed' : 'hourly')); };
+  // Computers only: the phone's day cards switch between two weeks.
+  const onCustom = (!self && !isFixed && !phone) ? setCustom : null;
   const periodFinder = <PeriodFinder label={periodLabel} minWidth={isFixed ? 130 : 175} periods={finderPeriods()}
-    goTo={(iso) => setPStart(anchorForStart(iso, isFixed ? 'fixed' : 'hourly'))} />;
+    goTo={goToDate} custom={custom} onCustom={onCustom} />;
   // ‹ period › - at the top of the employee sidebar when there is one (Neil,
   // Oct 22: pick the pay period first, then go down the people), else in the
   // card's toolbar (your own sheet, a phone).
   const sideArrow = { width: 26, height: 26, minWidth: 26, padding: 0, flexShrink: 0 };
   const periodNav = (inSidebar) => (
     <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2, ...(inSidebar ? { border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '1px 2px' } : {}) }}>
-      <button className="icon-btn" aria-label="Previous pay period" onClick={() => (isFixed ? shiftMonth(-1) : shift(-1))} style={inSidebar ? sideArrow : { padding: 6 }}><ChevronLeft size={inSidebar ? 14 : 16} /></button>
+      {!custom && <button className="icon-btn" aria-label="Previous pay period" onClick={() => (isFixed ? shiftMonth(-1) : shift(-1))} style={inSidebar ? sideArrow : { padding: 6 }}><ChevronLeft size={inSidebar ? 14 : 16} /></button>}
       {inSidebar
         ? <PeriodFinder label={periodLabel} periods={finderPeriods()} fill
-            goTo={(iso) => setPStart(anchorForStart(iso, isFixed ? 'fixed' : 'hourly'))} />
+            goTo={goToDate} custom={custom} onCustom={onCustom} />
         : periodFinder}
-      <button className="icon-btn" aria-label="Next pay period" onClick={() => (isFixed ? shiftMonth(1) : shift(1))} style={inSidebar ? sideArrow : { padding: 6 }}><ChevronRight size={inSidebar ? 14 : 16} /></button>
+      {custom
+        ? <button className="icon-btn" aria-label="Back to the pay period" title="Back to the pay period" onClick={() => setCustom(null)} style={inSidebar ? sideArrow : { padding: 6 }}><X size={inSidebar ? 14 : 16} /></button>
+        : <button className="icon-btn" aria-label="Next pay period" onClick={() => (isFixed ? shiftMonth(1) : shift(1))} style={inSidebar ? sideArrow : { padding: 6 }}><ChevronRight size={inSidebar ? 14 : 16} /></button>}
     </div>
   );
   const T = data?.totals;
@@ -882,7 +958,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const ownCard = !self && !!myEmail && (data?.email || email || '').toLowerCase() === myEmail.toLowerCase();
   // HR is correcting it (Oct 22): only HR changes it until it is signed again.
   const corrLock = !!data?.review?.inCorrection && !data?.review?.isHr;
-  const noEdit = !!fin || ownCard || corrLock;     // nothing on the card is editable here (finalized, your own, HR correcting)
+  const noEdit = !!fin || ownCard || corrLock || !!custom;     // nothing on the card is editable here (finalized, your own, HR correcting, a custom range)
   // The hourly grid's columns (Neil, 11/04/2026 - the approved v9 layout,
   // which moves the row actions from after the Date, Oct 16, to the row's
   // end): Date, In, Out, Deducted Time, Category, Punch, Day Total, OT,
@@ -1666,7 +1742,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // On a phone the list gives way to the card; the employee picker above the
   // card still switches people. On a laptop narrower than the whole layout
   // the list folds into that picker too (above), so the grid keeps its room.
-  const iifButton = showPay && companies.length > 0 && (
+  const iifButton = !custom && showPay && companies.length > 0 && (
     <button type="button" className="secondary-btn" disabled={(!iifCompanyId && !iifEmail) || exporting}
       title={iifCompanyId
         ? `QuickBooks Desktop time import (IIF) of ${iifCompany}'s finalized time sheets for ${formatDate(perStart)} - ${formatDate(perEnd)}. Import with File > Utilities > Import > Timer Activities. Employee names and the payroll items must match QuickBooks.`
@@ -1759,7 +1835,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // The next person's card loads in the background, so stepping to them is instant.
   const prefetched = useRef(new Set());
   useEffect(() => {
-    if (self || !data || at < 0) return;
+    if (self || !data || at < 0 || custom) return;
     const p = order[at + 1];
     if (!p) return;
     const key = _tcKey(false, p.email, start, end);
@@ -1850,7 +1926,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       return (
         <tr key={i} className="ts-wk">
           <td colSpan={cols}>
-            Total hours clocked for week of {formatMonthDayNumeric(r.week, true)} to {formatMonthDayNumeric(wkEndOf(r.week), true)}{so ? ' (so far)' : ''}: <b>{hhmm(weekTotals[r.week]?.min || 0)}</b>
+            Total hours clocked for week of {formatMonthDayNumeric(r.week, true)} to {formatMonthDayNumeric(wkEndOf(r.week), true)}{so ? ' (so far)' : ''}{custom && (r.week < start || wkEndOf(r.week) > end) ? ' (in range)' : ''}: <b>{hhmm(weekTotals[r.week]?.min || 0)}</b>
             <span className="ts-wx">Overtime <b>{weekStats[r.week]?.ot ? hhmm(weekStats[r.week].ot) : '-'}</b></span>
             {showPay && <span className="ts-wx">Wage <b>{fmtM(weekStats[r.week]?.pay || 0)}</b></span>}
           </td>
@@ -2034,13 +2110,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <AddTimeFromRecordButton onClick={() => setDupDay(true)} />
         )}
         {!self && email && <AskAdvanceButton adv={adv} toastOk={toastOk} toastErr={toastErr} />}
-        {!fin && (self || email) && (
+        {!fin && !custom && (self || email) && (
         <button onClick={() => setNoteModal(true)} title={self ? 'Leave a note on a day for your manager' : 'Leave a note on a day - seen by managers and HR, not the employee'}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
           <Pencil size={13} /> Add Note
         </button>
         )}
-        {mayPrint(self, ownCard, fin, data?.review) && <PrintTimeSheetButton email={email} start={perStart} toastErr={toastErr} />}
+        {!custom && mayPrint(self, ownCard, fin, data?.review) && <PrintTimeSheetButton email={email} start={perStart} toastErr={toastErr} />}
         {/* Options holds only display choices now: unrounded
             times. The pay rules that used to sit here (rounding, auto-lunch,
             CA paid breaks) are company settings under Settings > Global
@@ -2118,6 +2194,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <span key={c.date}>{ci ? ' · ' : ''}<button type="button" onClick={() => jumpTo(c.date)}>{dow(c.date)}</button> {hhmm(c.before)} to {hhmm(c.after)}</span>
               ))}
             </span>
+          </div>
+        )}
+        {custom && (
+          <div className="ts-changed" role="note" data-testid="ts-range-note">
+            <Info size={14} style={{ flexShrink: 0, marginTop: 2, color: 'var(--wk-brand)' }} />
+            <span style={{ flex: 1 }}>Showing a custom range ({dates.length} days). Approving and signing happen on a pay period.</span>
+            <button type="button" onClick={() => setCustom(null)}>Back to Pay Period</button>
           </div>
         )}
         {T && !phone && <AttentionStrip figures={figures} items={attention} actionFor={actionFor} onJump={jumpTo} />}
@@ -2220,7 +2303,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             </div>
           )}
           <div className="ts-card">
-            <div className="ts-card-h">This Period</div>
+            <div className="ts-card-h">{custom ? 'This Range' : 'This Period'}</div>
             {count('Missing punches', T.missingPunches, T.missingPunches ? '#b91c1c' : '')}
             {count('Edited punches', T.editedPunches)}
             {T.pendingEdits > 0 && count('Pending edits', T.pendingEdits, '#b45309', self ? 'Your edits waiting for approval - not counted in pay yet' : 'Employee edits awaiting your review - approve or reject each under its time')}
@@ -2230,10 +2313,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             {!self && showPay && (
             <div className="ts-exp">
               <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV', [start, end])} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
-              <button className="secondary-btn" disabled={exporting} title="Intacct General Ledger import of this period's payroll by employee - wages by pay class, with department and entity as dimensions. Same file layout as the accounting app's bank import."
+              {!custom && <button className="secondary-btn" disabled={exporting} title="Intacct General Ledger import of this period's payroll by employee - wages by pay class, with department and entity as dimensions. Same file layout as the accounting app's bank import."
                 onClick={() => setIntacctOpen((v) => !v)} aria-expanded={intacctOpen}
-                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export for Intacct</button>
-              {intacctOpen && (
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export for Intacct</button>}
+              {intacctOpen && !custom && (
                 <form onSubmit={(e) => { e.preventDefault(); setIntacctOpen(false); exportFile(() => api.timeExportIntacct(perStart, perEnd, intacct), 'Intacct GL import'); }}
                   style={{ flexBasis: '100%', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', padding: '8px 10px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-secondary)' }}>
                   {[['journal', 'Journal', 'PYRJ'], ['expense', 'Wage Expense Account', '60100'], ['clearing', 'Payroll Clearing Account', '21500'], ['location', 'Entity (Location ID)', '12000']].map(([k, lbl, ph]) => (
@@ -2271,13 +2354,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {T && <TimeSheetAdvances adv={adv} self={self} me={myEmail} toastOk={toastOk} toastErr={toastErr} />}
 
       {/* Approve within reach while the review panel is off screen (11/04/2026). */}
-      {T && !self && !phone && (
+      {T && !self && !phone && !custom && (
         <ApproveBar review={data.review} anchor={perStart} empName={nameFor(email)} next={next} panelRef={panelRef}
           onChanged={load} toastOk={toastOk} toastErr={toastErr} />
       )}
       {/* Review + Nexus Sign (Sep 2026): the employee submits, the manager sends
           back or agrees, then the employee signs in Nexus Sign. */}
-      {T && !self && (
+      {T && !self && !custom && (
         <div data-tour="pr-approve">
         <TimesheetReviewPanel ref={panelRef} review={data.review} self={self} anchor={perStart} periodLabel={label}
           nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} next={next}
