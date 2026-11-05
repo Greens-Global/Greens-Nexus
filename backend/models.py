@@ -10089,3 +10089,23 @@ class PropertyMaintenanceOccurrence(Base):
     due_on     = Column(String, default="")   # YYYY-MM-DD the ticket is due
     ticket_id  = Column(String, default="", index=True)
     created_at = Column(String, default="")
+
+
+class DocComment(Base):
+    """A comment thread on a Documents editor page (Review tab, Nov 2026,
+    routers/doc_comments.py). The editor's `comment` mark carries the id as
+    the anchor; the words live here. `parent_id` '' = the thread's root (the
+    one with the quote, the one Resolve applies to)."""
+    __tablename__ = "doc_comments"
+    id           = Column(String, primary_key=True)   # uuid
+    doc_kind     = Column(String, default="document", index=True)   # document | template
+    doc_id       = Column(String, nullable=False, index=True)
+    parent_id    = Column(String, default="", index=True)
+    author_email = Column(String, default="", index=True)
+    author_name  = Column(String, default="")
+    body         = Column(Text, default="")
+    quote        = Column(String, default="")   # the text the comment was made on
+    resolved_at  = Column(String, default="")
+    resolved_by  = Column(String, default="")
+    created_at   = Column(String, default="")
+    updated_at   = Column(String, default="")

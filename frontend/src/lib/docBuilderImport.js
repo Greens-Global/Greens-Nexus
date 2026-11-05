@@ -43,8 +43,8 @@ function extOf(name) {
 async function importDocx(file, uploadImage) {
   const { convertDocxToTiptap } = await import('./docxToTiptap');
   try {
-    const { body, pageSetup } = await convertDocxToTiptap(file, { uploadImage });
-    return { json: body, pageSetup, warnings: [] };
+    const { body, pageSetup, header, footer, warnings } = await convertDocxToTiptap(file, { uploadImage });
+    return { json: body, pageSetup, header, footer, warnings: warnings || [] };
   } catch (e) {
     // A malformed/unusual .docx (rare, but real - e.g. one written by a
     // non-Word tool with slightly off-spec XML) must not leave the user with

@@ -10,6 +10,12 @@ export const PAGE_SIZES = [
   { value: 'legal', label: 'Legal (8.5 × 14 in)', wIn: 8.5, hIn: 14.0 },
   { value: 'tabloid', label: 'Tabloid (11 × 17 in)', wIn: 11.0, hIn: 17.0 },
   { value: 'a4', label: 'A4 (International)', wIn: 8.27, hIn: 11.69 },
+  // Word's Layout > Size list; kept in step with doc_export.py PAGE_SIZES_IN
+  // and docxToTiptap.js readPageSetup.
+  { value: 'a3', label: 'A3 (11.69 × 16.54 in)', wIn: 11.69, hIn: 16.54 },
+  { value: 'a5', label: 'A5 (5.83 × 8.27 in)', wIn: 5.83, hIn: 8.27 },
+  { value: 'b5', label: 'B5 (6.93 × 9.84 in)', wIn: 6.93, hIn: 9.84 },
+  { value: 'executive', label: 'Executive (7.25 × 10.5 in)', wIn: 7.25, hIn: 10.5 },
 ];
 export const PAGE_SIZE_DIMS = Object.fromEntries(PAGE_SIZES.map((s) => [s.value, { wIn: s.wIn, hIn: s.hIn }]));
 
@@ -22,10 +28,37 @@ export const MARGIN_PRESETS = [
   { value: 'normal', label: 'Normal (1 in)', in: 1.0 },
   { value: 'narrow', label: 'Narrow (0.5 in)', in: 0.5 },
   { value: 'wide', label: 'Wide (1.5 in)', in: 1.5 },
+  // Word's Custom Margins: each side its own inches, kept in `marginIn`
+  // ({ top, right, bottom, left }) - what an imported .docx with 0.75in
+  // margins is, rather than the nearest preset.
+  { value: 'custom', label: 'Custom', in: 1.0 },
 ];
 export const MARGIN_IN = Object.fromEntries(MARGIN_PRESETS.map((m) => [m.value, m.in]));
 
 export const DEFAULT_PAGE_SETUP = { size: 'letter', orientation: 'portrait', margins: 'normal' };
+
+/** The four margins, in inches, whatever form the page setup holds them in. */
+export function marginsOf(pageSetup) {
+  const ps = { ...DEFAULT_PAGE_SETUP, ...(pageSetup || {}) };
+  const clamp = (v, fallback) => (Number.isFinite(v) && v >= 0.2 && v <= 3 ? Math.round(v * 100) / 100 : fallback);
+  if (ps.margins === 'custom' && ps.marginIn && typeof ps.marginIn === 'object') {
+    const m = ps.marginIn;
+    return { top: clamp(+m.top, 1), right: clamp(+m.right, 1), bottom: clamp(+m.bottom, 1), left: clamp(+m.left, 1) };
+  }
+  const all = MARGIN_IN[ps.margins] ?? MARGIN_IN.normal;
+  return { top: all, right: all, bottom: all, left: all };
+}
+
+function pageInches(pageSetup) {
+  const ps = { ...DEFAULT_PAGE_SETUP, ...(pageSetup || {}) };
+  const dims = PAGE_SIZE_DIMS[ps.size] || PAGE_SIZE_DIMS.letter;
+  let { wIn, hIn } = dims;
+  if (ps.orientation === 'landscape') { [wIn, hIn] = [hIn, wIn]; }
+  return { wIn, hIn, m: marginsOf(ps) };
+}
+
+// CSS padding shorthand: the two-value form whenever the sides pair up.
+const paddingCss = (t, r, b, l) => (t === b && l === r ? `${t}px ${l}px` : `${t}px ${r}px ${b}px ${l}px`);
 
 // The canvas is a REAL page, at one scale: 96px to the inch, everywhere.
 //
@@ -57,11 +90,7 @@ const PADDING_PX_PER_IN = { v: CSS_PX_PER_IN, h: CSS_PX_PER_IN };
 const COMPACT_PADDING_PX_PER_IN = { v: 28, h: 20 };
 
 export function pageCanvasStyle(pageSetup, { compact = false } = {}) {
-  const ps = { ...DEFAULT_PAGE_SETUP, ...(pageSetup || {}) };
-  const dims = PAGE_SIZE_DIMS[ps.size] || PAGE_SIZE_DIMS.letter;
-  let { wIn, hIn } = dims;
-  if (ps.orientation === 'landscape') { [wIn, hIn] = [hIn, wIn]; }
-  const marginIn = MARGIN_IN[ps.margins] ?? MARGIN_IN.normal;
+  const { wIn, hIn, m } = pageInches(pageSetup);
   const widthPx = Math.round(wIn * WIDTH_PX_PER_IN);
   if (compact) {
     const pad = COMPACT_PADDING_PX_PER_IN;
@@ -74,7 +103,7 @@ export function pageCanvasStyle(pageSetup, { compact = false } = {}) {
       // to the REAL width at every size, and because min-height stays auto it
       // still grows past the ratio once the content is longer than a page.
       aspectRatio: `${wIn} / ${hIn}`,
-      padding: `${Math.round(marginIn * pad.v)}px ${Math.round(marginIn * pad.h)}px`,
+      padding: paddingCss(Math.round(m.top * pad.v), Math.round(m.right * pad.h), Math.round(m.bottom * pad.v), Math.round(m.left * pad.h)),
     };
   }
   return {
@@ -87,7 +116,8 @@ export function pageCanvasStyle(pageSetup, { compact = false } = {}) {
     // aspect ratio math is just widthPx * (hIn/wIn), no separate border-box
     // correction needed.
     minHeight: Math.round(widthPx * (hIn / wIn)),
-    padding: `${Math.round(marginIn * PADDING_PX_PER_IN.v)}px ${Math.round(marginIn * PADDING_PX_PER_IN.h)}px`,
+    padding: paddingCss(Math.round(m.top * PADDING_PX_PER_IN.v), Math.round(m.right * PADDING_PX_PER_IN.h),
+                        Math.round(m.bottom * PADDING_PX_PER_IN.v), Math.round(m.left * PADDING_PX_PER_IN.h)),
   };
 }
 
@@ -118,29 +148,22 @@ export function pageCanvasStyle(pageSetup, { compact = false } = {}) {
  * page count comes up one light on a six-page document. Anything counting
  * pages has to lay the text out at THIS width, not the canvas's. */
 export function textColumnPx(pageSetup) {
-  const ps = { ...DEFAULT_PAGE_SETUP, ...(pageSetup || {}) };
-  const dims = PAGE_SIZE_DIMS[ps.size] || PAGE_SIZE_DIMS.letter;
-  let { wIn, hIn } = dims;
-  if (ps.orientation === 'landscape') { [wIn, hIn] = [hIn, wIn]; }
-  const marginIn = MARGIN_IN[ps.margins] ?? MARGIN_IN.normal;
-  return Math.max(1, Math.round((wIn - marginIn * 2) * CSS_PX_PER_IN));
+  const { wIn, m } = pageInches(pageSetup);
+  return Math.max(1, Math.round((wIn - m.left - m.right) * CSS_PX_PER_IN));
 }
 
 /** Usable height of one sheet, in the CSS pixels the text flows in. */
 export function textFlowPx(pageSetup) {
-  const ps = { ...DEFAULT_PAGE_SETUP, ...(pageSetup || {}) };
-  const dims = PAGE_SIZE_DIMS[ps.size] || PAGE_SIZE_DIMS.letter;
-  let { wIn, hIn } = dims;
-  if (ps.orientation === 'landscape') { [wIn, hIn] = [hIn, wIn]; }
-  const marginIn = MARGIN_IN[ps.margins] ?? MARGIN_IN.normal;
-  return Math.max(1, Math.round((hIn - marginIn * 2) * CSS_PX_PER_IN));
+  const { hIn, m } = pageInches(pageSetup);
+  return Math.max(1, Math.round((hIn - m.top - m.bottom) * CSS_PX_PER_IN));
 }
 
-/** The canvas box's own padding, for drawing a thumbnail that matches it. */
+/** The canvas box's own padding (top and left), for drawing a thumbnail that matches it. */
 export function sheetPadding(canvasStyle) {
   const parts = String(canvasStyle?.padding || '0px').trim().split(/\s+/);
   const padV = parseFloat(parts[0]) || 0;
-  return { padV, padH: parseFloat(parts[1] ?? parts[0]) || 0 };
+  const padH = parseFloat(parts.length >= 4 ? parts[3] : (parts[1] ?? parts[0])) || 0;
+  return { padV, padH };
 }
 
 export function sheetsFor(contentHeightPx, pageSetup, firstSheetPx) {

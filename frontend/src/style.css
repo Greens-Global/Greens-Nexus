@@ -3692,8 +3692,17 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .doc-inline-editor .ProseMirror { min-height: 24px; }
 .doc-editor .ProseMirror p { margin: 0 0 10px; }
 .doc-editor .ProseMirror table { border-collapse: collapse; margin: 12px 0; width: 100%; }
+/* A table is never a scrolling box on a page (border-collapse rounds the
+   table a pixel wider than its wrapper, which showed a scrollbar under
+   every imported table); like Word, a wide one simply runs into the margin. */
+.doc-editor .tableWrapper { overflow-x: visible; }
 .doc-editor .ProseMirror td, .doc-editor .ProseMirror th { border: 1px solid var(--line); padding: 6px 9px; }
 .doc-editor .ProseMirror th { background: var(--mist); font-weight: 700; text-align: left; }
+/* A Word table with no borders (a layout table): faint gridlines while
+   editing so the cells can still be found, nothing in print or export. */
+.doc-editor .ProseMirror table[data-borders="none"] td,
+.doc-editor .ProseMirror table[data-borders="none"] th { border: 1px dashed #e5e7eb; }
+@media print { .doc-editor .ProseMirror table[data-borders="none"] td, .doc-editor .ProseMirror table[data-borders="none"] th { border-color: transparent; } }
 .doc-editor .ProseMirror img { max-width: 100%; border-radius: 4px; }
 .doc-editor .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: #9ca3af; font-style: italic;
@@ -3705,22 +3714,155 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .show-marks .ProseMirror li::after {
   content: '¶'; color: #9ca3af; margin-left: 3px; font-weight: 400; user-select: none;
 }
-/* A block pushed onto the next sheet (docBuilderPagination.js). The margin
-   that moves it is set per-block as an inline decoration style; this paints
-   the space it leaves so it reads as the gutter between two sheets rather
-   than as an accidental blank gap. The rule sits at the TOP of the margin box,
-   where the previous sheet ends. */
-.doc-sheet-start { position: relative; }
-.doc-sheet-start::before {
-  content: '';
-  position: absolute; left: -96px; right: -96px;
-  top: calc(-1 * var(--doc-sheet-gap, 0px));
-  height: var(--doc-sheet-gap, 0px);
-  background: var(--mist);
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  pointer-events: none;
+/* The gutter between two sheets (docBuilderPagination.js): a widget laid into
+   the flow - between blocks, or between two lines of one paragraph - as tall
+   as the room left on the sheet plus both margins and the gray gap. The
+   gutter itself is an invisible block that pushes the text down; the band
+   inside it is positioned against .doc-page (position:relative, and
+   left/right 0 reach its padding edges) so it spans the full page width
+   wherever the gutter sits - in a list item, an indented paragraph, a cell. */
+.doc-sheet-gutter { display: block; position: static; margin: 0; padding: 0; pointer-events: none; user-select: none; }
+.doc-sheet-band { position: absolute; left: 0; right: 0; pointer-events: none; }
+.doc-sheet-foot, .doc-sheet-head {
+  display: flex; justify-content: space-between; gap: 12px; box-sizing: border-box;
+  font-size: 10.5px; line-height: 1.4; color: #6b7280; overflow: hidden;
 }
+.doc-sheet-foot { align-items: flex-end; }
+.doc-sheet-head { align-items: flex-start; }
+.doc-sheet-foot-text, .doc-sheet-head-text { flex: 1 1 auto; min-width: 0; }
+.doc-sheet-foot-text p, .doc-sheet-head-text p { margin: 0; }
+.doc-sheet-pageno { flex: 0 0 auto; white-space: nowrap; }
+.doc-sheet-pageno.is-left, .doc-page-pageno.is-left { order: -1; margin-right: 12px; }
+.doc-sheet-foot, .doc-sheet-head, .doc-page-margin-foot, .doc-page-margin-head { position: relative; }
+.doc-sheet-pageno.is-center, .doc-page-pageno.is-center { position: absolute; left: 50%; transform: translateX(-50%); }
+.doc-page-watermark {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  pointer-events: none; user-select: none; overflow: hidden;
+  font-size: 96px; font-weight: 800; letter-spacing: 0.06em; color: #1f2937; opacity: 0.08;
+  transform: rotate(-45deg); white-space: nowrap;
+}
+
+/* ── The ribbon (Pranshu, Nov 4 2026: the same tabs and fields as Word Online) ──
+   Groups across the row, each a cluster of buttons with its caption under it;
+   a big button is icon-over-label, a small one icon-only with a title. */
+.doc-ribbon-tabs { display: flex; gap: 2px; margin-bottom: 2px; align-items: center; flex-wrap: wrap; }
+.doc-ribbon-tab {
+  font-size: 12.5px; font-weight: 600; padding: 6px 14px; border: none; border-bottom: 2px solid transparent;
+  background: none; cursor: pointer; color: var(--muted); font-family: Inter, sans-serif; border-radius: 6px 6px 0 0;
+}
+.doc-ribbon-tab:hover { color: var(--ink); background: var(--mist); }
+.doc-ribbon-tab.is-active { color: var(--ink); border-bottom-color: var(--ink); }
+.doc-ribbon-tab.is-context { color: hsl(var(--color-blue)); }
+.doc-toolbar.doc-ribbon { align-items: stretch; gap: 0; padding: 4px 8px 2px; min-height: 74px; }
+.doc-ribbon-group { display: flex; flex-direction: column; align-items: center; padding: 0 8px; border-right: 1px solid var(--line); min-width: 0; }
+.doc-ribbon-group:last-child { border-right: none; }
+.doc-ribbon-items { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; flex: 1; max-width: 520px; }
+.doc-ribbon-caption { font-size: 10px; color: var(--muted); margin-top: 3px; white-space: nowrap; user-select: none; }
+.doc-ribbon-stack { display: flex; flex-direction: column; gap: 2px; }
+.doc-ribbon-row { display: flex; align-items: center; gap: 2px; }
+.doc-toolbar.doc-ribbon button.doc-ribbon-big {
+  width: auto; min-width: 48px; height: 54px; flex-direction: column; gap: 3px; padding: 4px 6px; font-size: 10.5px; font-weight: 600;
+  color: var(--ink); line-height: 1.1; font-family: Inter, sans-serif;
+}
+.doc-toolbar.doc-ribbon button.doc-ribbon-big span { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.doc-toolbar.doc-ribbon button.doc-ribbon-small { width: 26px; height: 26px; }
+.doc-toolbar.doc-ribbon button.doc-ribbon-small-menu { width: auto; padding: 0 4px; gap: 1px; }
+.doc-ribbon-small-text { font-size: 11.5px; font-weight: 600; font-family: Inter, sans-serif; padding: 0 2px; }
+.doc-toolbar.doc-ribbon button:disabled { opacity: 0.4; cursor: default; }
+.doc-ribbon-menu { position: relative; }
+.doc-ribbon-panel {
+  position: absolute; top: calc(100% + 4px); background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: var(--shadow-lg); z-index: 30; padding: 6px; min-width: 170px; display: flex; flex-direction: column; gap: 1px;
+  max-height: 70vh; overflow-y: auto;
+}
+.doc-toolbar.doc-ribbon .doc-ribbon-panel button.doc-ribbon-item, .doc-ribbon-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: auto; text-align: left; background: none; border: none;
+  padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 12.5px; color: var(--ink); font-family: Inter, sans-serif; white-space: nowrap;
+}
+.doc-ribbon-item:hover { background: var(--mist); }
+.doc-ribbon-item.is-active { background: hsla(var(--color-blue), 0.14); color: hsl(var(--color-blue)); }
+.doc-ribbon-item:disabled { opacity: 0.45; cursor: default; }
+.doc-ribbon-sep { border-top: 1px solid var(--line); margin: 4px 0; }
+.doc-ribbon-swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.15); flex: 0 0 auto; }
+.doc-ribbon-colors { display: flex; flex-direction: column; gap: 4px; padding: 4px; }
+.doc-ribbon-color-row { display: flex; gap: 4px; }
+.doc-toolbar.doc-ribbon button.doc-ribbon-swatch-btn { width: 20px; height: 20px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.15); padding: 0; }
+.doc-toolbar.doc-ribbon button.doc-ribbon-swatch-btn.is-active { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; }
+.doc-ribbon-tablegrid { padding: 6px; }
+.doc-ribbon-tablegrid-cells { display: grid; gap: 2px; }
+.doc-toolbar.doc-ribbon button.doc-ribbon-tablegrid-cell { width: 16px; height: 16px; border: 1px solid var(--line); border-radius: 2px; background: var(--card); padding: 0; }
+.doc-toolbar.doc-ribbon button.doc-ribbon-tablegrid-cell.is-on { background: hsla(var(--color-blue), 0.25); border-color: hsl(var(--color-blue)); }
+.doc-ribbon-tablegrid-label { font-size: 11.5px; color: var(--muted); margin-top: 6px; text-align: center; }
+.doc-ribbon-styles { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; padding: 4px; }
+.doc-toolbar.doc-ribbon button.doc-ribbon-style {
+  width: auto; height: 46px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font-family: Inter, sans-serif;
+  color: #111827; background: #fff; justify-content: center; overflow: hidden; white-space: nowrap;
+}
+.doc-toolbar.doc-ribbon button.doc-ribbon-style.is-active { border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 2px hsla(var(--color-blue), 0.2); }
+.doc-ribbon-style-h1 { font-size: 17px; font-weight: 700; color: #2f5496 !important; }
+.doc-ribbon-style-h2 { font-size: 14px; font-weight: 700; color: #2f5496 !important; }
+.doc-ribbon-style-h3 { font-size: 12.5px; font-weight: 700; color: #1f3763 !important; }
+.doc-ribbon-style-h4 { font-size: 12px; font-weight: 700; font-style: italic; color: #2f5496 !important; }
+.doc-ribbon-style-title { font-size: 18px; font-weight: 800; }
+.doc-ribbon-style-subtitle { font-size: 12.5px; color: #6b7280 !important; }
+.doc-ribbon-style-quote { font-style: italic; color: #4b5563 !important; }
+.doc-ribbon-style-normal, .doc-ribbon-style-nospacing { font-size: 12.5px; }
+.doc-ribbon-field { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); font-family: Inter, sans-serif; }
+.doc-ribbon-field input, .doc-ribbon-field select {
+  font-size: 12px; font-family: Inter, sans-serif; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px;
+  color: var(--ink); background: var(--card);
+}
+.doc-ribbon-field input[type=number] { width: 54px; }
+@media (max-width: 640px) {
+  .doc-toolbar.doc-ribbon { min-height: 0; }
+  .doc-ribbon-group { flex-direction: row; border-right: none; padding: 0 4px; }
+  .doc-ribbon-caption { display: none; }
+  .doc-ribbon-items { flex-wrap: nowrap; max-width: none; }
+  .doc-toolbar.doc-ribbon button.doc-ribbon-big { height: 34px; flex-direction: row; min-width: 0; }
+  .doc-toolbar.doc-ribbon button.doc-ribbon-big span { display: none; }
+}
+
+/* Word's status bar under the page. */
+.doc-status {
+  display: flex; align-items: center; gap: 14px; margin-top: 10px; padding: 5px 12px; font-size: 11.5px; color: var(--muted);
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px; font-family: Inter, sans-serif; flex-wrap: wrap;
+  /* Word's status bar stays at the foot of the window while the pages scroll. */
+  position: sticky; bottom: 8px; z-index: 5; box-shadow: var(--shadow-sm);
+}
+.doc-status-spacer { flex: 1; }
+.doc-status-link { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11.5px; font-family: Inter, sans-serif; padding: 2px 4px; border-radius: 5px; }
+.doc-status-link:hover { color: var(--ink); background: var(--mist); }
+.doc-status-btn { background: none; border: none; color: var(--ink); cursor: pointer; display: flex; padding: 3px; border-radius: 5px; }
+.doc-status-btn:disabled { opacity: 0.4; cursor: default; }
+.doc-status input[type=range] { width: 110px; accent-color: var(--pine); cursor: pointer; height: 4px; background: var(--line); border-radius: 2px; -webkit-appearance: none; appearance: none; }
+.doc-status input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--pine); border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line); }
+.doc-status input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--pine); border: 2px solid #fff; }
+
+/* View > Ruler: inches across the page, margins shaded. */
+.doc-ruler { position: relative; height: 18px; margin: 0 auto 6px; background: #fff; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.doc-ruler-margin { position: absolute; top: 0; bottom: 0; background: var(--mist); }
+.doc-ruler-tick { position: absolute; bottom: 0; width: 1px; height: 4px; background: #9ca3af; }
+.doc-ruler-tick.is-mid { height: 7px; }
+.doc-ruler-tick.is-major { height: 10px; background: #6b7280; }
+.doc-ruler-tick em { position: absolute; bottom: 9px; left: 3px; font-style: normal; font-size: 9px; color: #6b7280; font-family: Inter, sans-serif; }
+
+/* View > Navigation: the headings, beside the page rail. */
+.doc-navpane { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px; align-self: flex-start; max-height: 70vh; overflow-y: auto; }
+.doc-navpane-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.doc-navpane-empty { font-size: 12px; color: var(--muted); margin: 4px 0; }
+.doc-navpane-item { text-align: left; background: none; border: none; cursor: pointer; font-size: 12.5px; color: var(--ink); padding: 5px 8px; border-radius: 6px; font-family: Inter, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-navpane-item:hover { background: var(--mist); }
+
+.doc-wordcount { width: 100%; border-collapse: collapse; font-size: 13px; }
+.doc-wordcount td { padding: 7px 4px; border-bottom: 1px solid var(--line); }
+.doc-wordcount td:last-child { text-align: right; font-weight: 600; }
+.doc-a11y-list { margin: 0; padding-left: 18px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+.doc-sheet-space { background: var(--mist); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+/* The header and footer editors live in the page's own margins, like Word's. */
+.doc-page-margin-head, .doc-page-margin-foot { position: absolute; font-size: 10.5px; color: #6b7280; }
+.doc-page-margin-head .ProseMirror, .doc-page-margin-foot .ProseMirror { min-height: 18px; font-size: 10.5px; line-height: 1.4; }
+.doc-page-margin-head .ProseMirror p, .doc-page-margin-foot .ProseMirror p { margin: 0; }
+@media print { .doc-sheet-gutter { display: none; } }
 
 .doc-pagebreak {
   display: flex; align-items: center; gap: 10px; margin: 18px 0;
@@ -9132,6 +9274,50 @@ body:has(.apv-phone) { overflow-x: clip; }
   .it-cartbar-ico { display: none; }
   .it-cartbar .primary-btn { padding: 9px 12px; font-size: 13px; }
 }
+
+/* ── Documents - comments (Review tab, Nov 2026) ────────────────────────────
+   The anchor mark on the page and the Review pane beside it
+   (components/docComments/CommentsPane.jsx). */
+.doc-comment-mark { background: rgba(250, 204, 21, 0.28); border-bottom: 2px solid #eab308; cursor: pointer; }
+.doc-comment-mark.is-active { background: rgba(250, 204, 21, 0.55); }
+.doc-comments-pane {
+  width: 300px; flex: 0 0 300px; align-self: flex-start; position: sticky; top: 72px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px;
+  display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 100px); overflow-y: auto;
+  font-family: Inter, sans-serif;
+}
+.doc-comments-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; }
+.doc-comments-count { font-size: 10.5px; font-weight: 700; background: var(--mist); border-radius: 999px; padding: 1px 7px; }
+.doc-comments-close { background: none; border: none; cursor: pointer; color: var(--muted); display: flex; padding: 2px; }
+.doc-comments-filters { display: flex; gap: 4px; }
+.doc-comments-filters button { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: none; color: var(--muted); cursor: pointer; }
+.doc-comments-filters button.is-active { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.doc-comments-empty { font-size: 12px; color: var(--muted); margin: 8px 2px; }
+.doc-thread { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
+.doc-thread.is-active { border-color: #eab308; box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.25); }
+.doc-thread.is-resolved { opacity: 0.72; }
+.doc-thread.is-new { border-style: dashed; cursor: default; }
+.doc-thread-quote { font-size: 11px; color: var(--muted); font-style: italic; border-left: 3px solid #eab308; padding-left: 8px; }
+.doc-comment { display: flex; flex-direction: column; gap: 3px; }
+.doc-comment + .doc-comment { margin-left: 14px; padding-left: 8px; border-left: 2px solid var(--line); }
+.doc-comment-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.doc-comment-author { font-weight: 700; }
+.doc-comment-when { color: var(--muted); }
+.doc-comment-body { font-size: 12.5px; white-space: pre-wrap; }
+.doc-comment-tools, .doc-thread-foot { display: flex; align-items: center; gap: 8px; }
+.doc-comment-tools button, .doc-thread-foot button { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 0; }
+.doc-comment-tools button:hover, .doc-thread-foot button:hover { color: var(--ink); }
+.doc-thread-resolved { font-size: 11px; color: var(--muted); }
+.doc-comment-composer { display: flex; flex-direction: column; gap: 6px; }
+.doc-comment-composer textarea { font-size: 12.5px; resize: vertical; }
+.doc-comment-actions { display: flex; align-items: center; gap: 6px; }
+.doc-comment-actions .primary-btn, .doc-comment-actions .secondary-btn { font-size: 12px; padding: 5px 12px; }
+.doc-comment-hint { font-size: 10.5px; color: var(--muted); margin-left: auto; }
+.doc-comment-err { font-size: 11.5px; color: hsl(var(--color-red)); }
+@media (max-width: 640px) { .doc-comments-pane { width: 100%; flex-basis: auto; position: static; max-height: none; } }
+
+/* Dictation as you speak: the phrase still being recognized, at the cursor. */
+.doc-dictation-live { color: #6b7280; font-style: italic; background: rgba(250, 204, 21, 0.18); border-radius: 3px; pointer-events: none; }
 
 /* What's New Timeline: the bar between the list and the detail (Neil,
    11/04/2026). A faint grip shows it can be moved; it turns the brand color

@@ -165,9 +165,11 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
     }
   };
 
+  // A form, so a sheet from the right (CLAUDE.md popups): the Sheets CSS
+  // block keys on .modal-overlay > .modal-content.nx-popup.
   return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div className="nx-popup" style={cardStyle} onClick={e => e.stopPropagation()}>
+    <div className="modal-overlay" style={{ ...overlayStyle, alignItems: undefined, justifyContent: undefined, padding: undefined }} onClick={onClose}>
+      <div className="modal-content nx-popup" style={{ ...cardStyle, display: 'flex', flexDirection: 'column', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700 }}>New Document</div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>

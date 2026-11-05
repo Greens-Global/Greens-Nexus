@@ -398,6 +398,139 @@ describe('a Teams transcript imports without phantom blank lines', () => {
   });
 });
 
+// ── Everything else Word keeps that the import used to drop ────────────────
+// Pranshu, Nov 4: "when we are uploading the word file in NEXUS document it is
+// not holding the same format that we have in word". Each case here is one
+// thing a real business document carries: theme fonts, paragraph spacing and
+// line spacing, indents, hyperlinks (both forms), headers and footers, list
+// numbering formats, merged table cells, borderless tables, custom margins.
+const R_NS = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+const relsXml = (rels) => `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+  + rels.map(r => `<Relationship Id="${r.id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${r.type}" Target="${r.target}"${r.external ? ' TargetMode="External"' : ''}/>`).join('')
+  + `</Relationships>`;
+
+async function docxWithParts({ body, styles, numbering, rels = [], parts = {} }) {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml',
+    `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`
+    + `<Default Extension="xml" ContentType="application/xml"/></Types>`);
+  zip.file('_rels/.rels', relsXml([{ id: 'rId1', type: 'officeDocument', target: 'word/document.xml' }]));
+  zip.file('word/document.xml', `<?xml version="1.0"?><w:document ${DOC_NS} ${R_NS}><w:body>${body}</w:body></w:document>`);
+  if (styles) zip.file('word/styles.xml', styles);
+  if (numbering) zip.file('word/numbering.xml', `<?xml version="1.0"?><w:numbering ${DOC_NS}>${numbering}</w:numbering>`);
+  if (rels.length) zip.file('word/_rels/document.xml.rels', relsXml(rels));
+  for (const [path, xml] of Object.entries(parts)) zip.file(path, xml);
+  const buf = await zip.generateAsync({ type: 'arraybuffer' });
+  return { name: 'parts.docx', type: '', arrayBuffer: async () => buf };
+}
+
+const firstBlock = (body) => body.content[0];
+const texts = (node) => {
+  const out = [];
+  const walk = (n) => { if (Array.isArray(n)) return n.forEach(walk); if (!n || typeof n !== 'object') return; if (n.type === 'text') out.push(n); walk(n.content); };
+  walk(node);
+  return out;
+};
+
+describe('a Word document keeps the formatting Word shows', () => {
+  it('resolves theme fonts (Aptos (Body)) through theme1.xml', async () => {
+    const theme = `<?xml version="1.0"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:themeElements><a:fontScheme name="Office">`
+      + `<a:majorFont><a:latin typeface="Aptos Display"/></a:majorFont><a:minorFont><a:latin typeface="Aptos"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>`;
+    const styles = stylesXml(`<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/><w:sz w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults>`);
+    const file = await docxWithParts({ body: bareRun('Body in the theme font'), styles, parts: { 'word/theme/theme1.xml': theme } });
+    const { body } = await convertDocxToTiptap(file, {});
+    expect(textStyles(body)[0]?.fontFamily).toBe('Aptos');
+  });
+
+  it('carries paragraph spacing, line spacing and indents through the style cascade', async () => {
+    // Word's Normal: after 8pt, line 1.08 (259/240); the paragraph adds a
+    // half-inch left indent with a quarter-inch hanging first line.
+    const styles = stylesXml(`<w:docDefaults><w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>`
+      + `<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>`);
+    const body = `<w:p><w:pPr><w:spacing w:before="240"/><w:ind w:left="720" w:hanging="360"/><w:jc w:val="both"/></w:pPr><w:r><w:t>Clause</w:t></w:r></w:p>`;
+    const { body: doc } = await convertDocxToTiptap(await docxWithParts({ body, styles }), {});
+    const attrs = firstBlock(doc).attrs;
+    expect(attrs.spacingAfter).toBe(8);
+    expect(attrs.spacingBefore).toBe(12);
+    expect(attrs.lineHeight).toBe('1.3');       // 1.08 x the browser's normal 1.2
+    expect(attrs.indentLeft).toBe(36);
+    expect(attrs.indentFirst).toBe(-18);
+    expect(attrs.textAlign).toBe('justify');
+  });
+
+  it('keeps hyperlinks, in both the w:hyperlink and the field-code form', async () => {
+    const body = `<w:p><w:hyperlink r:id="rLink"><w:r><w:t>Nexus</w:t></w:r></w:hyperlink></w:p>`
+      + `<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> HYPERLINK "https://example.test/b" </w:instrText></w:r>`
+      + `<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>Field link</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`;
+    const file = await docxWithParts({ body, rels: [{ id: 'rLink', type: 'hyperlink', target: 'https://example.test/a', external: true }] });
+    const { body: doc } = await convertDocxToTiptap(file, {});
+    const links = texts(doc).map(t => (t.marks || []).find(m => m.type === 'link')?.attrs?.href);
+    expect(links).toEqual(['https://example.test/a', 'https://example.test/b']);
+    expect(texts(doc).map(t => t.text)).toEqual(['Nexus', 'Field link']);
+  });
+
+  it('brings the header and footer in, minus the page-number line Nexus draws itself', async () => {
+    const header = `<?xml version="1.0"?><w:hdr ${DOC_NS}><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>Greens Global</w:t></w:r></w:p></w:hdr>`;
+    const footer = `<?xml version="1.0"?><w:ftr ${DOC_NS}><w:p><w:r><w:t>Confidential</w:t></w:r></w:p>`
+      + `<w:p><w:r><w:t xml:space="preserve">Page </w:t></w:r><w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple></w:p></w:ftr>`;
+    const body = bareRun('Body') + `<w:sectPr><w:headerReference w:type="default" r:id="rH"/><w:footerReference w:type="default" r:id="rF"/></w:sectPr>`;
+    const file = await docxWithParts({
+      body, rels: [{ id: 'rH', type: 'header', target: 'header1.xml' }, { id: 'rF', type: 'footer', target: 'footer1.xml' }],
+      parts: { 'word/header1.xml': header, 'word/footer1.xml': footer },
+    });
+    const out = await convertDocxToTiptap(file, {});
+    expect(texts(out.header).map(t => t.text)).toEqual(['Greens Global']);
+    expect(out.header.content[0].attrs.textAlign).toBe('right');
+    expect(texts(out.footer).map(t => t.text)).toEqual(['Confidential']);
+    expect(out.warnings.join(' ')).toMatch(/Page numbers/);
+  });
+
+  it('keeps the numbering format and start of a lettered list', async () => {
+    const numbering = `<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="3"/><w:numFmt w:val="lowerLetter"/></w:lvl></w:abstractNum>`
+      + `<w:num w:numId="5"><w:abstractNumId w:val="0"/></w:num>`;
+    const li = (t) => `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="5"/></w:numPr></w:pPr><w:r><w:t>${t}</w:t></w:r></w:p>`;
+    const { body } = await convertDocxToTiptap(await docxWithParts({ body: li('c') + li('d'), numbering }), {});
+    const list = firstBlock(body);
+    expect(list.type).toBe('orderedList');
+    expect(list.attrs).toEqual({ start: 3, type: 'a' });
+    expect(list.content.length).toBe(2);
+  });
+
+  it('merges table cells across and down, keeps column widths, and notices a borderless table', async () => {
+    const tc = (t, pr = '') => `<w:tc><w:tcPr>${pr}</w:tcPr><w:p><w:r><w:t>${t}</w:t></w:r></w:p></w:tc>`;
+    const body = `<w:tbl><w:tblPr><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders></w:tblPr>`
+      + `<w:tblGrid><w:gridCol w:w="2880"/><w:gridCol w:w="2880"/><w:gridCol w:w="2880"/></w:tblGrid>`
+      + `<w:tr>${tc('wide', '<w:gridSpan w:val="2"/>')}${tc('tall', '<w:vMerge w:val="restart"/>')}</w:tr>`
+      + `<w:tr>${tc('a')}${tc('b')}${tc('', '<w:vMerge/>')}</w:tr></w:tbl>`;
+    const { body: doc } = await convertDocxToTiptap(await docxWithParts({ body }), {});
+    const table = firstBlock(doc);
+    expect(table.type).toBe('table');
+    expect(table.attrs).toEqual({ borders: 'none' });
+    const [r1, r2] = table.content;
+    expect(r1.content[0].attrs.colspan).toBe(2);
+    expect(r1.content[0].attrs.colwidth).toEqual([192, 192]);   // 2in each at 96px
+    expect(r1.content[1].attrs.rowspan).toBe(2);
+    expect(r2.content.length).toBe(2);                            // the merged-away cell is gone
+  });
+
+  it('keeps custom margins instead of snapping them to a preset', async () => {
+    const sect = `<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1440"/></w:sectPr>`;
+    const { pageSetup } = await convertDocxToTiptap(await docxWithParts({ body: bareRun('x') + sect }), {});
+    expect(pageSetup.margins).toBe('custom');
+    expect(pageSetup.marginIn).toEqual({ top: 0.75, right: 0.75, bottom: 0.75, left: 1 });
+  });
+
+  it('reads caps, highlight and superscript', async () => {
+    const body = `<w:p><w:r><w:rPr><w:caps/><w:highlight w:val="yellow"/></w:rPr><w:t>shout</w:t></w:r>`
+      + `<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t>2</w:t></w:r></w:p>`;
+    const { body: doc } = await convertDocxToTiptap(await docxWithParts({ body }), {});
+    const [a, b] = texts(doc);
+    expect(a.text).toBe('SHOUT');
+    expect(a.marks).toContainEqual({ type: 'highlight', attrs: { color: '#ffff00' } });
+    expect(b.marks.map(m => m.type)).toContain('superscript');
+  });
+});
+
 describe('the editor canvas renders those sizes at true scale', () => {
   // The canvas draws a Letter page 850px wide, so one inch is 850/8.5 = 100px.
   // CSS `pt` is absolute: 1pt = 1/72in = 1.333px at 96dpi. A page whose inch is

@@ -964,6 +964,15 @@ export const DOCS = [
     shot: 'sign',
     walkthroughs: [
       {
+        title: 'Find Your Way Around the Editor',
+        steps: [
+          'The editor has the same tabs as Word: File (export, print, version history, page setup), Home (clipboard, font, paragraph, the styles gallery, find, dictate), Insert (page break, table, picture, drawing, text box, signature block, variables, links, bookmarks, table of contents, header and footer, page numbers, symbols), Layout (margins, orientation, size, columns, breaks, line numbers, indents and spacing, page color, watermark), References (table of contents), Review (spelling, word count, accessibility), View (separate pages, reading view, zoom, ruler, navigation) and Help.',
+          'A page is a page: text stops at the bottom margin and carries on at the top of the next sheet, and the header, footer and page number repeat on every sheet. Click a thumbnail in the Pages rail to jump to a sheet.',
+          'The status bar under the page shows Page X of Y, the word count and the zoom. Full Screen (top right) folds the left menu away.',
+          'Import a Word file with Import at the top: fonts, spacing, lists, tables, links, headers and footers come across as they were.',
+        ],
+      },
+      {
         title: 'Send a Document for Signature',
         steps: [
           'Open Documents and click the Nexus Sign tab (or Send for Signature on the Dashboard).',
