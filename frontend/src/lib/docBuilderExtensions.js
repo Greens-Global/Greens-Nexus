@@ -1,5 +1,6 @@
 import { Node } from '@tiptap/core';
 import TiptapImage from '@tiptap/extension-image';
+import { NodeSelection } from '@tiptap/pm/state';
 import { inferLabel } from './extractVariables';
 
 // ── Document Builder custom nodes (Phase 2) ──────────────────────────────────
@@ -233,6 +234,7 @@ function buildSvgElement(shapeType, w, h, fillColor, strokeColor) {
 export const WRAP_MODES = [
   { value: 'inline', label: 'In line with text' },
   { value: 'square', label: 'Square' },
+  { value: 'squareRight', label: 'Square Right' },
   { value: 'tight', label: 'Tight' },
   { value: 'behind', label: 'Behind text' },
   { value: 'front', label: 'In front of text' },
@@ -244,7 +246,7 @@ export const WRAP_MODES = [
 // without breaking float-based wrapping). Behind/Front are position:absolute,
 // anchored to .doc-page (which gets position:relative in style.css) via x/y.
 function applyWrapStyle(dom, attrs) {
-  const { wrapMode, x = 0, y = 0, shapeType, rotation = 0 } = attrs;
+  const { wrapMode, x = 0, y = 0, shapeType, rotation = 0, flipH, flipV } = attrs;
   dom.style.position = '';
   dom.style.float = '';
   dom.style.left = '';
@@ -253,12 +255,12 @@ function applyWrapStyle(dom, attrs) {
   dom.style.pointerEvents = '';
   dom.style.shapeOutside = '';
   dom.style.margin = '';
-  if (wrapMode === 'square' || wrapMode === 'tight') {
-    dom.style.float = 'left';
+  if (wrapMode === 'square' || wrapMode === 'squareRight' || wrapMode === 'tight') {
+    dom.style.float = wrapMode === 'squareRight' ? 'right' : 'left';
     dom.style.position = 'relative';
     dom.style.left = `${x}px`;
     dom.style.top = `${y}px`;
-    dom.style.margin = '4px 12px 4px 0';
+    dom.style.margin = wrapMode === 'squareRight' ? '4px 0 4px 12px' : '4px 12px 4px 0';
     if (wrapMode === 'tight') {
       dom.style.shapeOutside = shapeType === 'circle' ? 'circle(50%)' : 'inset(0)';
     }
@@ -270,7 +272,7 @@ function applyWrapStyle(dom, attrs) {
     dom.style.pointerEvents = wrapMode === 'behind' ? 'none' : 'auto';
   }
   dom.classList.toggle('doc-draggable', wrapMode !== 'inline' && !!wrapMode);
-  dom.style.transform = rotation ? `rotate(${rotation}deg)` : '';
+  dom.style.transform = [rotation ? `rotate(${rotation}deg)` : '', flipH ? 'scaleX(-1)' : '', flipV ? 'scaleY(-1)' : ''].filter(Boolean).join(' ');
 }
 
 // Creates the small drag-grip element and wires pointer-drag → live style
@@ -278,7 +280,11 @@ function applyWrapStyle(dom, attrs) {
 // DocShape's and DocTextbox's NodeViews. `getAttrs`/`getPos`/`view` are read
 // live (via closures into the NodeView's mutable state) rather than captured
 // once, since the node's position can shift as the document above it edits.
-function createDragHandle({ view, getPos, getAttrs }) {
+// `grab` (Pranshu, 11/05/2026: "drag and move as we have in Word") is the
+// picture itself: the same pointer-drag as the grip, after a 3px move so a
+// plain click still only selects. Inline pictures move through the editor's
+// own drag and drop instead.
+function createDragHandle({ view, getPos, getAttrs, grab }) {
   const handle = document.createElement('div');
   handle.className = 'doc-drag-handle';
   handle.setAttribute('data-drag-handle', '');
@@ -286,34 +292,40 @@ function createDragHandle({ view, getPos, getAttrs }) {
   handle.textContent = '✥';
 
   let dragging = false;
+  let moved = false;
   let startX = 0, startY = 0, baseX = 0, baseY = 0;
   let dom = null;
 
-  handle.addEventListener('pointerdown', (e) => {
+  function startDrag(e, el) {
     const attrs = getAttrs();
     if (!attrs.wrapMode || attrs.wrapMode === 'inline') return;
     e.preventDefault();
     e.stopPropagation();
+    // A canceled pointerdown sends no mousedown, so select the node here.
+    const pos = getPos();
+    if (el === grab && typeof pos === 'number') view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
     dragging = true;
+    moved = false;
     dom = handle.parentElement;
     startX = e.clientX;
     startY = e.clientY;
     baseX = attrs.x || 0;
     baseY = attrs.y || 0;
-    handle.setPointerCapture(e.pointerId);
-  });
+    el.setPointerCapture(e.pointerId);
+  }
 
-  handle.addEventListener('pointermove', (e) => {
+  function moveDrag(e) {
     if (!dragging || !dom) return;
-    const nx = baseX + (e.clientX - startX);
-    const ny = baseY + (e.clientY - startY);
-    dom.style.left = `${nx}px`;
-    dom.style.top = `${ny}px`;
-  });
+    if (Math.abs(e.clientX - startX) + Math.abs(e.clientY - startY) > 3) moved = true;
+    if (!moved) return;
+    dom.style.left = `${baseX + (e.clientX - startX)}px`;
+    dom.style.top = `${baseY + (e.clientY - startY)}px`;
+  }
 
   function endDrag(e) {
     if (!dragging) return;
     dragging = false;
+    if (!moved) return;
     const nx = baseX + (e.clientX - startX);
     const ny = baseY + (e.clientY - startY);
     const pos = getPos();
@@ -321,11 +333,16 @@ function createDragHandle({ view, getPos, getAttrs }) {
     const node = view.state.doc.nodeAt(pos);
     if (!node) return;
     const tr = view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, x: nx, y: ny });
+    tr.setSelection(NodeSelection.create(tr.doc, pos));   // the node stays selected after the move
     view.dispatch(tr);
   }
 
-  handle.addEventListener('pointerup', endDrag);
-  handle.addEventListener('pointercancel', endDrag);
+  [handle, grab].filter(Boolean).forEach((el) => {
+    el.addEventListener('pointerdown', (e) => startDrag(e, el));
+    el.addEventListener('pointermove', moveDrag);
+    el.addEventListener('pointerup', endDrag);
+    el.addEventListener('pointercancel', endDrag);
+  });
 
   return handle;
 }
@@ -375,6 +392,7 @@ function createResizeHandle({ view, getPos, getAttrs, minW = 24, minH = 24 }) {
     const node = view.state.doc.nodeAt(pos);
     if (!node) return;
     const tr = view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, width: w, height: h });
+    tr.setSelection(NodeSelection.create(tr.doc, pos));
     view.dispatch(tr);
   }
 
@@ -610,6 +628,12 @@ export const ResizableImage = TiptapImage.extend({
       y: { default: 0 },
       wrapMode: { default: 'inline' },
       rotation: { default: 0 },
+      // Picture Format (Pranshu, 11/05/2026, as Word Online's Picture tab):
+      // flips, a border color, and a style (none / simple / shadow / rounded).
+      flipH: { default: false },
+      flipV: { default: false },
+      borderColor: { default: null },
+      frame: { default: 'none' },
     };
   },
 
@@ -624,7 +648,7 @@ export const ResizableImage = TiptapImage.extend({
       const img = document.createElement('img');
       dom.appendChild(img);
 
-      const handle = createDragHandle({ view, getPos, getAttrs: () => currentNode.attrs });
+      const handle = createDragHandle({ view, getPos, getAttrs: () => currentNode.attrs, grab: img });
       dom.appendChild(handle);
       const resizeHandle = createResizeHandle({ view, getPos, getAttrs: () => currentNode.attrs, minW: 30, minH: 30 });
       dom.appendChild(resizeHandle);
@@ -637,6 +661,8 @@ export const ResizableImage = TiptapImage.extend({
         else { dom.style.width = ''; img.style.width = ''; }
         if (attrs.height) { dom.style.height = `${attrs.height}px`; img.style.height = '100%'; }
         else { dom.style.height = ''; img.style.height = ''; }
+        img.style.border = attrs.borderColor ? `2px solid ${attrs.borderColor}` : '';
+        dom.className = `doc-image-wrap doc-floatable doc-img-frame-${attrs.frame || 'none'}`;
         applyWrapStyle(dom, attrs);
       }
 

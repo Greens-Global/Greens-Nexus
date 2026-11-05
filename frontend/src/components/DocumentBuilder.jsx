@@ -16,8 +16,10 @@ import {
   Variable, Lock, LockOpen, Wand2, ListChecks, PenLine, BadgeCheck,
   Mic, Ruler as RulerIcon, PanelLeft, BookOpen, SpellCheck, Accessibility, MessageSquare, Hash, Stamp, HelpCircle,
   FilePlus, Eraser, Baseline, AlignVerticalSpaceAround, LayoutPanelTop, Columns2,
+  FlipHorizontal, FlipVertical, Frame, Replace, Image as ImageIcon, Move,
 } from 'lucide-react';
-import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS } from './docRibbon/ui';
+import { NodeSelection, TextSelection } from '@tiptap/pm/state';
+import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS, useDismiss } from './docRibbon/ui';
 import StyleGallery from './docRibbon/StyleGallery';
 import StatusBar from './docRibbon/StatusBar';
 import Ruler from './docRibbon/Ruler';
@@ -30,7 +32,6 @@ import { useDocComments } from './docComments/useDocComments';
 import { commentAnchorEl } from '../lib/docCommentMark';
 import { useRole } from '../contexts/RoleContext';
 import { canDictate, useDictation, spokenAfter } from '../lib/voice';
-import { DictationLive, showDictationLive } from '../lib/docDictationLive';
 import { listChanges } from '../lib/docTrackChanges';
 import { dialog } from '../ui/dialog';
 import FullScreenButton, { useFullScreen } from './FullScreenButton';
@@ -92,8 +93,23 @@ export function isEmptyContent(content) {
 const TOKEN_IN_PAGE_RE = /\{\{\s*[A-Za-z0-9_.]+\s*\}\}/;
 
 const FONT_SIZES = ['10', '11', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48'];
-const SYMBOL_CHARS = ['©', '®', '™', '°', '±', '×', '÷', '•', '…', '–', '—', '§', '¶', '†', '‡', '∞', '√', '≈', '≠', '≤', '≥', '€', '£', '¥', '¢', '½', '¼', '¾', 'α', 'β', 'π', 'Ω', '→', '←', '↑', '↓'];
-const EMOJI_CHARS = ['😀', '😂', '😊', '😍', '🙌', '👍', '👎', '🙏', '🎉', '🔥', '✅', '❌', '⚠️', '💡', '📌', '📎', '📅', '⏰', '💬', '📧', '🚀', '⭐', '❤️', '👀', '🤔', '😅', '🙂', '🎯', '📈', '📉'];
+const SYMBOL_CHARS = [
+  '©', '®', '™', '°', '§', '¶', '†', '‡', '•', '…', '–', '—', '«', '»', '‹', '›', '“', '”', '‘', '’', '„', '¡', '¿', '‰', '№', '¦',
+  '±', '×', '÷', '≈', '≠', '≤', '≥', '∞', '√', '∑', '∏', '∫', '∂', '∆', '∇', '∈', '∉', '∩', '∪', '⊂', '⊃', '∧', '∨', '¬', '∝', '∴', '∵', '∠', '⊥', '∥', '‖', '⁄', '¹', '²', '³', '½', '¼', '¾', '⅓', '⅔', '⅛', '⅜', '⅝', '⅞', 'µ',
+  '€', '£', '¥', '¢', '₹', '₽', '₩', '₺', '₫', '฿', '₪',
+  'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'λ', 'μ', 'π', 'ρ', 'σ', 'τ', 'φ', 'χ', 'ψ', 'ω', 'Γ', 'Δ', 'Θ', 'Λ', 'Ξ', 'Π', 'Σ', 'Φ', 'Ψ', 'Ω',
+  '→', '←', '↑', '↓', '↔', '↕', '⇒', '⇐', '⇔', '↗', '↘', '↩', '↪', '⟶', '➔', '➜', '➤',
+  '✓', '✔', '✗', '✘', '☐', '☑', '☒', '★', '☆', '✦', '✧', '♦', '♠', '♣', '♥', '◆', '◇', '■', '□', '▪', '▫', '●', '○', '◦', '▲', '▼', '◄', '►', '◊', '†', '☎', '✉', '✂', '✎', '✏', '⌘', '⌥', '⇧', '⌫', '⏎',
+  'À', 'Á', 'Â', 'Ä', 'Å', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ñ', 'Ö', 'Ø', 'Ü', 'ß', 'à', 'á', 'â', 'ä', 'å', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï', 'ñ', 'ò', 'ó', 'ô', 'ö', 'ø', 'ù', 'ú', 'û', 'ü', 'ÿ', '℃', '℉', 'Ω', '℗', '℠',
+];
+const EMOJI_CHARS = [
+  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '🙂', '😊', '😇', '😍', '🥰', '😘', '😎', '🤓', '🧐', '🤔', '🤨', '😐', '😶', '🙄', '😏', '😬', '😴', '😷', '🤒', '🤕', '🤢', '🥳', '😢', '😭', '😱', '😤', '😡', '🤯', '😳', '🥺', '🤗', '🤫', '🤭', '🫡', '🫠',
+  '👍', '👎', '👌', '✌️', '🤞', '🤝', '👏', '🙌', '🙏', '💪', '👋', '🤙', '☝️', '👆', '👇', '👉', '👈', '✋', '🤲', '✍️', '👀', '👁️', '🧠', '🗣️',
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '💔', '💯', '✅', '❌', '⚠️', '❗', '❓', '‼️', '⭐', '🌟', '✨', '🔥', '💥', '💡', '🔔', '🔕', '🚫', '⛔', '🔴', '🟠', '🟡', '🟢', '🔵', '⚫', '⚪', '🔒', '🔓', '🔑',
+  '📌', '📍', '📎', '🖇️', '📅', '📆', '🗓️', '⏰', '⏳', '⌛', '🕒', '📧', '📨', '📩', '📬', '📞', '☎️', '📱', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '💾', '📀', '📷', '🎥', '🎬', '🎤', '🎧', '📢', '📣', '💬', '💭', '🗨️',
+  '📈', '📉', '📊', '📋', '📁', '📂', '🗂️', '📄', '📃', '📑', '📰', '🗞️', '📚', '📖', '📝', '✏️', '🖊️', '🖋️', '✒️', '📏', '📐', '✂️', '🗑️', '🔍', '🔎', '🧾', '💰', '💵', '💳', '🧮', '🏷️', '🎯', '🏆', '🥇', '🥈', '🥉', '🎉', '🎊', '🎁', '🎈',
+  '🚀', '✈️', '🚗', '🚚', '🏠', '🏢', '🏭', '🏗️', '🔧', '🔨', '🛠️', '⚙️', '🧰', '🔩', '🪜', '🧹', '🧯', '🪣', '🌍', '🌎', '🌏', '🗺️', '☀️', '🌤️', '☁️', '🌧️', '⛈️', '❄️', '🌈', '⚡', '🌡️', '☕', '🍕', '🍔', '🥗', '🍎', '🐶', '🐱', '🌱', '🌳', '🌸', '🌻', '🏖️', '⛺',
+];
 const SHAPE_TYPES = [
   { type: 'rectangle', label: 'Rectangle', Icon: Square },
   { type: 'circle', label: 'Circle', Icon: Circle },
@@ -181,7 +197,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   bandInfo, sheetBase = 0, onSheets, topSlot, headerSlot, footerSlot, paginate = true,
   onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
   const editor = useEditor({
-    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination, DictationLive],
+    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination],
     content: initialJson || null,
     editable,
     onUpdate: () => onUpdate(pageId),
@@ -402,6 +418,29 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   );
 }
 
+// A menu at the mouse (Word's right-click on a picture). Items are
+// { label, icon, hint, onClick, active, heading, sub } or '-'.
+function ContextMenu({ x, y, items, onClose }) {
+  const ref = useRef(null);
+  useDismiss(ref, true, onClose);
+  const left = Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 240);
+  const top = Math.min(y, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 420);
+  return (
+    <div ref={ref} className="doc-ribbon-panel doc-ctx-menu" role="menu" style={{ position: 'fixed', left, top, width: 230 }}>
+      {items.map((it, i) => (it === '-' ? <div key={i} className="doc-ribbon-sep" /> : it.heading ? (
+        <div key={it.label} className="doc-ctx-heading">{it.label}</div>
+      ) : (
+        <button key={it.label} type="button" role="menuitem" className={`doc-ribbon-item${it.active ? ' is-active' : ''}${it.sub ? ' is-sub' : ''}`}
+          onClick={() => { it.onClick?.(); onClose(); }}>
+          {it.icon && <it.icon size={14} />}
+          <span style={{ flex: 1 }}>{it.label}</span>
+          {it.hint && <span className="doc-ctx-hint">{it.hint}</span>}
+        </button>
+      )))}
+    </div>
+  );
+}
+
 function ToolbarBtn({ onClick, active, disabled, title, children }) {
   return (
     <button type="button" title={title} onClick={onClick} disabled={disabled}
@@ -452,6 +491,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [newBookmarkName, setNewBookmarkName] = useState('');
   const [symbolPopoverOpen, setSymbolPopoverOpen] = useState(false);
   const [symbolTab, setSymbolTab] = useState('symbols'); // 'symbols' | 'emoji'
+  // Picture Format (Pranshu, 11/05/2026: Word Online's Picture tab and its
+  // right-click menu). The tab shows while a picture is selected.
+  const [lockAspect, setLockAspect] = useState(true);
+  const [imgMenu, setImgMenu] = useState(null);           // { x, y } of the open right-click menu
+  const changePictureRef = useRef(false);                 // the next picked file replaces the selected picture
   const [saveStatus, setSaveStatus] = useState('idle');
   // Whether this document has ever held real content in this session - the
   // empty-save guard only bites once we know there is something to lose.
@@ -644,20 +688,30 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const applyTrackingRef = useRef(applyTracking);
   useEffect(() => { applyTrackingRef.current = applyTracking; }, [applyTracking]);
   // Home > Dictate: the browser's own speech recognition (lib/voice.js, the
-  // same as Notes); each finished phrase lands at the cursor.
-  const dictation = useDictation((said) => {
-    const ed = activeEditorRef.current;
-    if (!ed) return;
-    const { from } = ed.state.selection;
+  // same as Notes). The words land as they are spoken (Pranshu, 11/05/2026:
+  // "it should write in flow"): the phrase still being recognized is real
+  // text at the cursor, rewritten each time the browser revises it, and left
+  // as it stands once the browser calls it final.
+  const spokenRef = useRef(null);   // { ed, from, to } of the phrase being spoken
+  const putSpoken = useCallback((said, final) => {
+    const live = spokenRef.current;
+    const ed = live?.ed || activeEditorRef.current;
+    if (!ed || ed.isDestroyed) { spokenRef.current = null; return; }
+    const size = ed.state.doc.content.size;
+    const from = Math.min(live ? live.from : ed.state.selection.from, size);
+    const to = Math.min(live ? live.to : ed.state.selection.to, size);
     const before = ed.state.doc.textBetween(Math.max(0, from - 2), from, ' ');
-    showDictationLive(ed, '');
-    ed.chain().focus().insertContent(spokenAfter(before, said)).run();
-  });
-  // The phrase still being recognized shows in gray at the cursor as it is
-  // spoken; the real text lands when the browser finishes it.
+    const text = spokenAfter(before, said);
+    const tr = ed.state.tr.insertText(text, from, to);
+    tr.setSelection(TextSelection.create(tr.doc, from + text.length));
+    ed.view.dispatch(tr);
+    spokenRef.current = final || !text ? null : { ed, from, to: from + text.length };
+  }, []);
+  const dictation = useDictation((said) => putSpoken(said, true));
   useEffect(() => {
-    showDictationLive(activeEditorRef.current, dictation.listening ? dictation.interim : '');
-  }, [dictation.interim, dictation.listening]);
+    if (!dictation.listening) { spokenRef.current = null; return; }
+    if (dictation.interim || spokenRef.current) putSpoken(dictation.interim, false);
+  }, [dictation.interim, dictation.listening, putSpoken]);
   // Pages (each a real independent editor instance - see DocPage above).
   // `pages` only tracks existence/order/the seed content a freshly
   // added/duplicated page mounts with; once a page's DocPage has mounted,
@@ -819,23 +873,6 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const onPageActivity = useCallback((pageId) => {
     setActivePageId(pageId);
     setSelectionTick((t) => t + 1);
-    // Format Painter: a non-empty selection made anywhere while "painting"
-    // is armed gets the captured marks applied, then the painter turns off -
-    // same one-shot behavior as Word's paintbrush.
-    const marks = formatPainterRef.current;
-    const ed = editorsRef.current.get(pageId);
-    if (marks && ed && !ed.state.selection.empty) {
-      let chain = ed.chain().focus();
-      chain = marks.bold ? chain.setBold() : chain.unsetBold();
-      chain = marks.italic ? chain.setItalic() : chain.unsetItalic();
-      chain = marks.underline ? chain.setUnderline() : chain.unsetUnderline();
-      if (marks.color) chain = chain.setColor(marks.color);
-      if (marks.fontFamily) chain = chain.setFontFamily(marks.fontFamily);
-      if (marks.fontSize) chain = chain.setFontSize(marks.fontSize);
-      chain.run();
-      formatPainterRef.current = null;
-      setPainterActive(false);
-    }
   }, []);
   const activeEditor = editorsRef.current.get(activePageId);
 
@@ -1395,12 +1432,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   };
 
   // Word's Home > Clipboard > Format Painter - click to capture the current
-  // selection's formatting, then the NEXT selection made anywhere in the
-  // document gets it applied (handled in onPageActivity below, since that's
-  // already the one place every page's selection change is routed through).
+  // selection's formatting; the NEXT selection you make, anywhere, gets it
+  // when the mouse button (or Shift) comes up, then the brush turns off.
+  // Not on selection change (11/05/2026: that fired once more for the very
+  // selection the brush was armed on, so the brush went off before you
+  // picked anything, and mid-drag it would have painted one character).
   const PAINTABLE_MARKS = ['bold', 'italic', 'underline'];
-  const toggleFormatPainter = () => {
-    if (painterActive) { formatPainterRef.current = null; setPainterActive(false); return; }
+  // One click paints once; a double-click on the button keeps the brush on
+  // until Escape or another click, as in Word. A plain click in the text
+  // paints the word under the cursor.
+  const toggleFormatPainter = (sticky = false) => {
+    if (painterActive && !sticky) { formatPainterRef.current = null; setPainterActive(false); return; }
     if (!activeEditor) return;
     const marks = {};
     PAINTABLE_MARKS.forEach(m => { marks[m] = activeEditor.isActive(m); });
@@ -1408,9 +1450,98 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (ts.color) marks.color = ts.color;
     if (ts.fontFamily) marks.fontFamily = ts.fontFamily;
     if (ts.fontSize) marks.fontSize = ts.fontSize;
-    formatPainterRef.current = marks;
-    setPainterActive(true);
+    const { from, to } = activeEditor.state.selection;
+    formatPainterRef.current = { marks, armed: { ed: activeEditor, from, to } };
+    setPainterActive(sticky ? 'sticky' : 'once');
+    toastOk?.(sticky ? 'Format Painter stays on. Select or click text to paint it; press Esc to stop.' : 'Select or click the text to paste this formatting onto.');
   };
+  useEffect(() => {
+    if (!painterActive) return undefined;
+    const paint = () => {
+      const brush = formatPainterRef.current;
+      const ed = [...editorsRef.current.values(), headerEditor, footerEditor].find((x) => x && !x.isDestroyed && x.view.hasFocus()) || activeEditorRef.current;
+      if (!brush || !ed || !ed.view.hasFocus()) return;
+      let { from, to } = ed.state.selection;
+      if (from === to) {           // a click: the word under the cursor
+        const $p = ed.state.doc.resolve(from);
+        const text = $p.parent.textContent, start = $p.start(), off = from - start;
+        const isWord = (ch) => ch && /[\w'’-]/.test(ch);
+        if (!isWord(text[off]) && !isWord(text[off - 1])) return;
+        let a = off, b = off;
+        while (isWord(text[a - 1])) a -= 1;
+        while (isWord(text[b])) b += 1;
+        from = start + a; to = start + b;
+      }
+      if (brush.armed.ed === ed && brush.armed.from === from && brush.armed.to === to) return;
+      const m = brush.marks;
+      let chain = ed.chain().focus().setTextSelection({ from, to });
+      chain = m.bold ? chain.setBold() : chain.unsetBold();
+      chain = m.italic ? chain.setItalic() : chain.unsetItalic();
+      chain = m.underline ? chain.setUnderline() : chain.unsetUnderline();
+      if (m.color) chain = chain.setColor(m.color);
+      if (m.fontFamily) chain = chain.setFontFamily(m.fontFamily);
+      if (m.fontSize) chain = chain.setFontSize(m.fontSize);
+      chain.run();
+      if (painterActive === 'sticky') return;
+      formatPainterRef.current = null;
+      setPainterActive(false);
+    };
+    // After the event settles: a double-click's word selection lands after its mouseup.
+    const later = () => setTimeout(paint, 0);
+    const onKey = (e) => {
+      if (e.key === 'Shift') later();
+      if (e.key === 'Escape') { formatPainterRef.current = null; setPainterActive(false); }
+    };
+    document.addEventListener('mouseup', later);
+    document.addEventListener('dblclick', later);
+    document.addEventListener('keyup', onKey);
+    return () => { document.removeEventListener('mouseup', later); document.removeEventListener('dblclick', later); document.removeEventListener('keyup', onKey); };
+  }, [painterActive, headerEditor, footerEditor]);
+
+  // Picture Format helpers. Sizes show in inches like Word (96px an inch).
+  const imgAttrs = activeEditor?.isActive('image') ? activeEditor.getAttributes('image') : null;
+  // Keeps the picture selected after the write (a replaced node drops its selection).
+  const setImg = (patch) => { const pos = activeEditor.state.selection.from; activeEditor.chain().focus().updateAttributes('image', patch).setNodeSelection(pos).run(); };
+  const imgEl = () => { const d = imgAttrs && activeEditor.view.nodeDOM(activeEditor.state.selection.from); return d?.querySelector?.('img') || null; };
+  const imgBox = imgAttrs ? { w: imgAttrs.width || imgEl()?.clientWidth || 0, h: imgAttrs.height || imgEl()?.clientHeight || 0 } : null;
+  const sizeImg = (dim, inches) => {
+    const px = Math.max(10, Math.round(Number(inches) * 96));
+    if (!Number.isFinite(px)) return;
+    const ratio = imgBox.w && imgBox.h ? imgBox.w / imgBox.h : null;
+    if (!lockAspect || !ratio) { setImg({ [dim]: px }); return; }
+    setImg(dim === 'width' ? { width: px, height: Math.round(px / ratio) } : { height: px, width: Math.round(px * ratio) });
+  };
+  const alignImg = (side) => {
+    if ((imgAttrs?.wrapMode || 'inline') === 'inline' || side === 'center') {
+      const pos = activeEditor.state.selection.from;
+      activeEditor.chain().focus().updateAttributes('image', side === 'center' ? { wrapMode: 'inline', x: 0, y: 0 } : {}).setTextAlign(side).setNodeSelection(pos).run();
+    } else setImg({ wrapMode: side === 'right' ? 'squareRight' : 'square', x: 0, y: 0 });
+  };
+  const resetImg = () => setImg({ width: null, height: null, rotation: 0, flipH: false, flipV: false, borderColor: null, frame: 'none', wrapMode: 'inline', x: 0, y: 0 });
+  const changePicture = () => { changePictureRef.current = true; fileInputRef.current?.click(); };
+  const PICTURE_WRAPS = [['inline', 'In Line with Text'], ['square', 'Square Left'], ['squareRight', 'Square Right'], ['behind', 'Behind Text'], ['front', 'In Front of Text']];
+  // Right-click on a picture: select it and open the menu where the mouse is.
+  const onPagesContextMenu = (e) => {
+    const wrap = e.target.closest?.('.doc-image-wrap');
+    if (!wrap || preview || isLocked || viewingOnly) return;
+    const entry = [...editorsRef.current.entries()].find(([, ed]) => ed && !ed.isDestroyed && ed.view.dom.contains(wrap));
+    if (!entry) return;
+    e.preventDefault();
+    const [pageId, ed] = entry;
+    let pos = ed.view.posAtDOM(wrap, 0);
+    if (ed.state.doc.nodeAt(pos)?.type.name !== 'image') pos -= 1;
+    if (ed.state.doc.nodeAt(pos)?.type.name !== 'image') return;
+    ed.view.dispatch(ed.state.tr.setSelection(NodeSelection.create(ed.state.doc, pos)));
+    setActivePageId(pageId);
+    setSelectionTick((t) => t + 1);
+    setImgMenu({ x: e.clientX, y: e.clientY });
+  };
+  // The Picture tab opens with the picture and closes with it, as in Word.
+  const pictureSelected = !!imgAttrs;
+  useEffect(() => {
+    if (pictureSelected) setRibbonTab('picture');
+    else setRibbonTab((t) => (t === 'picture' ? 'home' : t));
+  }, [pictureSelected]);
 
   // Word's Home > Clipboard > Cut/Copy/Paste - the editor is a native
   // contenteditable so Ctrl+X/C/V already work without any button; these
@@ -2128,10 +2259,14 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   };
 
   const doUploadImage = async (pageId, file) => {
+    const replace = changePictureRef.current;
+    changePictureRef.current = false;
     const path = `${docId}/${Date.now()}-${safeName(file.name)}`;
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     if (error) { toastErr?.(error); return; }
-    editorsRef.current.get(pageId)?.chain().focus().setImage({ src: url }).run();
+    const ed = editorsRef.current.get(pageId);
+    if (replace && ed?.isActive('image')) ed.chain().focus().updateAttributes('image', { src: url }).run();
+    else ed?.chain().focus().setImage({ src: url }).run();
   };
 
   const onPickImage = (e) => {
@@ -2247,7 +2382,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   );
 
   return (
-    <div className="nx-docb" ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
+    <div className={`nx-docb${painterActive ? ' doc-painting' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: preview ? 6 : 8, flexWrap: 'wrap' }}>
         <button onClick={close} title="Close"
           style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
@@ -2542,7 +2677,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </button>
             ))}
             {activeEditor?.isActive('table') && <span className="doc-ribbon-tab is-context" title="The Table tools show under the ribbon while the cursor is in a table">Table</span>}
-            {(activeEditor?.isActive('image') || activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && <span className="doc-ribbon-tab is-context">Picture Format</span>}
+            {imgAttrs && (
+              <button type="button" role="tab" data-tab="picture" aria-selected={ribbonTab === 'picture'} onClick={() => setRibbonTab('picture')}
+                className={`doc-ribbon-tab is-context${ribbonTab === 'picture' ? ' is-active' : ''}`}>Picture Format</button>
+            )}
+            {(activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && <span className="doc-ribbon-tab is-context">Shape Format</span>}
           </div>
         {isLocked && (
           /* Requirement 7 made visible. The server refuses the write either
@@ -2612,7 +2751,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               <SmallBtn icon={Scissors} title="Cut" onClick={() => clipboardAction('cut')} />
               <SmallBtn icon={ClipboardCopy} title="Copy" onClick={() => clipboardAction('copy')} />
             </div>
-            <BigBtn icon={Paintbrush} label="Format Painter" title="Format Painter - click, then select text to copy the formatting onto" active={painterActive} onClick={toggleFormatPainter} />
+            <BigBtn icon={Paintbrush} label="Format Painter" title="Format Painter - click, then select or click the text to copy the formatting onto. Double-click to paint several places; Esc stops." active={!!painterActive} onClick={() => toggleFormatPainter(false)} onDoubleClick={() => toggleFormatPainter(true)} />
           </Group>
           <Group label="Font">
             <div className="doc-ribbon-stack">
@@ -2941,15 +3080,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           <div style={{ position: 'relative' }}>
             <BigBtn icon={Smile} label="Symbol" title="Symbol / Emoji" active={symbolPopoverOpen} onClick={() => setSymbolPopoverOpen(o => !o)} />
             {symbolPopoverOpen && (
-              <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 10, width: 220 }}>
+              <div style={{ position: 'absolute', top: '110%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 10, width: 336, right: 0 }}>
                 <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-                  <button onClick={() => setSymbolTab('symbols')} style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 10px', border: 'none', borderBottom: symbolTab === 'symbols' ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: symbolTab === 'symbols' ? 'var(--ink)' : 'var(--muted)' }}>Symbols</button>
-                  <button onClick={() => setSymbolTab('emoji')} style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 10px', border: 'none', borderBottom: symbolTab === 'emoji' ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: symbolTab === 'emoji' ? 'var(--ink)' : 'var(--muted)' }}>Emoji</button>
+                  {[['symbols', 'Symbols'], ['emoji', 'Emoji']].map(([key, label]) => (
+                    <button key={key} type="button" onClick={() => setSymbolTab(key)} aria-selected={symbolTab === key} role="tab"
+                      style={{ width: 'auto', height: 'auto', fontSize: 11.5, fontWeight: 600, padding: '4px 10px', border: 'none', borderRadius: 0, borderBottom: symbolTab === key ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: symbolTab === key ? 'var(--ink)' : 'var(--muted)' }}>{label}</button>
+                  ))}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 2, maxHeight: 220, overflowY: 'auto' }}>
                   {(symbolTab === 'symbols' ? SYMBOL_CHARS : EMOJI_CHARS).map((ch, i) => (
                     <button key={i} onClick={() => { insertSymbol(ch); setSymbolPopoverOpen(false); }} title={ch}
-                      style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 5, lineHeight: 1 }}>
+                      style={{ width: '100%', height: 30, fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 5, lineHeight: 1 }}>
                       {ch}
                     </button>
                   ))}
@@ -3202,6 +3343,59 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </Group>
           </>
           )}
+          {ribbonTab === 'picture' && imgAttrs && (
+          <>
+          <Group label="Picture Styles">
+            <Menu big icon={Frame} label="Styles" title="Picture style" items={[
+              { label: 'No Style', onClick: () => setImg({ frame: 'none' }), active: (imgAttrs.frame || 'none') === 'none' },
+              { label: 'Simple Frame', onClick: () => setImg({ frame: 'simple' }), active: imgAttrs.frame === 'simple' },
+              { label: 'Soft Shadow', onClick: () => setImg({ frame: 'shadow' }), active: imgAttrs.frame === 'shadow' },
+              { label: 'Rounded Corners', onClick: () => setImg({ frame: 'rounded' }), active: imgAttrs.frame === 'rounded' }]} />
+            <Menu big icon={Square} label="Border" title="Picture border color" width={236}>
+              <ColorGrid rows={[THEME_COLORS.map((c) => [c]), STANDARD_COLORS.map((c) => [c])]} current={imgAttrs.borderColor}
+                onPick={(hex) => setImg({ borderColor: hex })} onNone={() => setImg({ borderColor: null })} noneLabel="No Border" />
+            </Menu>
+          </Group>
+          <Group label="Arrange">
+            <Menu big icon={Move} label="Wrap Text" title="How the text goes around the picture" items={PICTURE_WRAPS.map(([value, label]) => ({ label, onClick: () => setImg({ wrapMode: value, x: 0, y: 0 }), active: (imgAttrs.wrapMode || 'inline') === value }))} />
+            <Menu big icon={AlignCenter} label="Align" items={[
+              { label: 'Align Left', icon: AlignLeft, onClick: () => alignImg('left') },
+              { label: 'Align Center', icon: AlignCenter, onClick: () => alignImg('center') },
+              { label: 'Align Right', icon: AlignRight, onClick: () => alignImg('right') }]} />
+            <Menu big icon={RotateCw} label="Rotate" items={[
+              { label: 'Rotate Right 90°', icon: RotateCw, onClick: () => setImg({ rotation: ((imgAttrs.rotation || 0) + 90) % 360 }) },
+              { label: 'Rotate Left 90°', icon: RotateCcw, onClick: () => setImg({ rotation: ((imgAttrs.rotation || 0) + 270) % 360 }) },
+              { label: 'Flip Vertical', icon: FlipVertical, onClick: () => setImg({ flipV: !imgAttrs.flipV }), active: !!imgAttrs.flipV },
+              { label: 'Flip Horizontal', icon: FlipHorizontal, onClick: () => setImg({ flipH: !imgAttrs.flipH }), active: !!imgAttrs.flipH }]} />
+          </Group>
+          <Group label="Size">
+            <div className="doc-ribbon-stack" style={{ gap: 4 }}>
+              <label className="doc-ribbon-field">Height
+                <input type="number" step="0.1" min="0.1" aria-label="Picture height, in inches" value={imgBox.h ? (imgBox.h / 96).toFixed(2) : ''}
+                  onChange={(e) => sizeImg('height', e.target.value)} /> in
+              </label>
+              <label className="doc-ribbon-field">Width
+                <input type="number" step="0.1" min="0.1" aria-label="Picture width, in inches" value={imgBox.w ? (imgBox.w / 96).toFixed(2) : ''}
+                  onChange={(e) => sizeImg('width', e.target.value)} /> in
+              </label>
+            </div>
+            <label className="doc-ribbon-field" title="Keep the picture's proportions when one side changes">
+              <input type="checkbox" checked={lockAspect} onChange={(e) => setLockAspect(e.target.checked)} /> Lock aspect ratio
+            </label>
+          </Group>
+          <Group label="Picture">
+            <BigBtn icon={Replace} label="Change Picture" title="Swap in another picture, keeping the size and wrap" onClick={changePicture} />
+            <BigBtn icon={RotateCcw} label="Reset Picture" title="Back to the picture as inserted: size, rotation, border, style and wrap" onClick={resetImg} />
+            <BigBtn icon={Trash2} label="Delete" title="Delete this picture" onClick={() => activeEditor.chain().focus().deleteSelection().run()} />
+          </Group>
+          <Group label="Accessibility">
+            <label className="doc-ribbon-field" style={{ minWidth: 200 }}>Alt Text
+              <input value={imgAttrs.alt || ''} placeholder="Describe this picture…" aria-label="Alt text" style={{ flex: 1 }}
+                onChange={(e) => setImg({ alt: e.target.value })} />
+            </label>
+          </Group>
+          </>
+          )}
           <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={onPickImage} style={{ display: 'none' }} />
         </div>
 
@@ -3268,13 +3462,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         </div>
       )}
 
-      {!preview && (activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox') || activeEditor?.isActive('image')) && (
+      {!preview && (activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && (
         <div className="doc-toolbar" style={{ marginTop: -8 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', paddingLeft: 4 }}>
-            {activeEditor.isActive('docShape') ? 'Shape:' : activeEditor.isActive('docTextbox') ? 'Text box:' : 'Image:'}
+            {activeEditor.isActive('docShape') ? 'Shape:' : 'Text box:'}
           </span>
           {(() => {
-            const type = activeEditor.isActive('docShape') ? 'docShape' : activeEditor.isActive('docTextbox') ? 'docTextbox' : 'image';
+            const type = activeEditor.isActive('docShape') ? 'docShape' : 'docTextbox';
             const attrs = activeEditor.getAttributes(type);
             const rotate = (delta) => activeEditor.chain().focus().updateAttributes(type, { rotation: ((attrs.rotation || 0) + delta + 360) % 360 }).run();
             return (
@@ -3313,21 +3507,28 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                     </label>
                   </>
                 )}
-                {type === 'image' && (
-                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 140 }}>
-                    Alt text
-                    <input value={attrs.alt || ''} placeholder="Describe this image…"
-                      onChange={(e) => activeEditor.chain().focus().updateAttributes('image', { alt: e.target.value }).run()}
-                      style={{ flex: 1, fontSize: 12, border: '1px solid var(--line)', borderRadius: 7, padding: '4px 7px', color: 'var(--ink)', background: 'var(--card)' }} />
-                  </label>
-                )}
               </>
             );
           })()}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
+      {imgMenu && imgAttrs && (
+        <ContextMenu x={imgMenu.x} y={imgMenu.y} onClose={() => setImgMenu(null)} items={[
+          { label: 'Cut', icon: Scissors, hint: 'Ctrl+X', onClick: () => clipboardAction('cut') },
+          { label: 'Copy', icon: ClipboardCopy, hint: 'Ctrl+C', onClick: () => clipboardAction('copy') },
+          { label: 'Paste', icon: ClipboardPaste, hint: 'Ctrl+V', onClick: () => clipboardAction('paste') },
+          '-',
+          { label: 'Change Picture…', icon: Replace, onClick: changePicture },
+          { label: 'Wrap Text', heading: true },
+          ...PICTURE_WRAPS.map(([value, label]) => ({ label, sub: true, active: (imgAttrs.wrapMode || 'inline') === value, onClick: () => setImg({ wrapMode: value, x: 0, y: 0 }) })),
+          '-',
+          { label: 'Format Picture', icon: ImageIcon, onClick: () => setRibbonTab('picture') },
+          { label: 'Reset Picture', icon: RotateCcw, onClick: resetImg },
+          { label: 'Delete Picture', icon: Trash2, onClick: () => activeEditor.chain().focus().deleteSelection().run() },
+        ]} />
+      )}
+      <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }} onContextMenu={onPagesContextMenu}>
       {kind === 'document' && !preview && !isMobile && (() => {
         const canvas = pageCanvasStyle(pageSetup);
         const thumbW = 92, thumbH = Math.round(thumbW * (canvas.minHeight / canvas.maxWidth));
