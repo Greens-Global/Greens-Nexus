@@ -180,7 +180,14 @@ def _meter_add(calls: int = 0, waited: float = 0.0, throttled: int = 0) -> None:
 # Folders a scan lists at once, and the shared threads they run on. The
 # endpoints are sync (already off the event loop); these are short Egnyte
 # HTTP calls, so a small pool is plenty for every request together.
-_LANES = 2
+# Back to one (11/05/2026): two lanes in each of several workers outran
+# Egnyte's per-user allowance (the pacer is per process), and a busy scan
+# showed "38 folders could not be read". One lane plus the cool-down below.
+_LANES = 1
+# Egnyte said busy even after the retries: this call stops listing, hands its
+# unlisted folders back as `deferred` and tells the walk to pause this long
+# before the next call, so the per-user allowance can refill.
+BUSY_COOLDOWN_SEC = 6
 _lane_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="filing-lane")
 
 
@@ -380,6 +387,7 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
 
     proposals: list[dict] = []
     scanned, missing, subfolders, failed, deferred = [], [], [], [], []
+    busy = False
 
     def listed_in_lanes():
         """(root, listing or HTTPException) in order, _LANES folders listed at
@@ -409,6 +417,11 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
                 continue
             if exc.status_code == 401:
                 raise exc
+            if exc.status_code == 429 and picked:
+                # Throttled, not broken: stop here and hand this folder and
+                # the rest back for the walk to send after a pause.
+                busy = True
+                break
             # One folder Egnyte would not list even after the retries must
             # not sink its siblings - it is answered as failed, by path, and
             # the caller offers to try just those again.
@@ -455,6 +468,10 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
         if len(proposals) >= MAX_SCAN_FILES:
             break
 
+    if busy:
+        done = set(scanned) | set(missing) | set(failed) | set(deferred)
+        deferred.extend(r for r in roots if r not in done)
+
     counts = {"auto": 0, "review": 0, "skip": 0}
     # Labeled = the current name already is the one the rulebook would give it;
     # skipped rows (subfolders, placeholders) are not files to label.
@@ -467,6 +484,7 @@ def scan(body: ScanBody | None = None, user: dict = Depends(require_writer),
     return {"proposals": proposals, "counts": counts, "totals": totals,
             "scannedRoots": scanned, "missingRoots": missing,
             "subfolders": subfolders, "failedRoots": failed, "deferred": deferred,
+            "cooldownSec": BUSY_COOLDOWN_SEC if busy else 0,
             "egnyte": {"calls": getattr(_meter, "calls", 0),
                        "waitedSec": round(getattr(_meter, "waited", 0.0), 2),
                        "throttled": getattr(_meter, "throttled", 0),
