@@ -41,7 +41,7 @@ import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import { slugifyToken, variableFromDrop, VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
 import { extractVariables, mergeFieldDefs, sharedDefs, tokensInDoc } from '../lib/extractVariables';
-import { Pagination, paginationKey, planBreaks, measureLines, posAtLineStart, SHEET_SPACE_PX } from '../lib/docBuilderPagination';
+import { Pagination, paginationKey, planBreaks, measureLines, posAtLineStart, marginGrowth, SHEET_SPACE_PX } from '../lib/docBuilderPagination';
 import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, marginsOf, pageCanvasStyle, textFlowPx, sheetPadding, scrollableAncestor } from '../lib/pageSetup';
 import { useIsMobile } from '../lib/useIsMobile';
 import EgnyteBrowser from './EgnyteBrowser';
@@ -216,10 +216,35 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   // The page's own geometry, in layout px: the margins the gutter bands and
   // the margin-dwelling header/footer are drawn in.
   const m = marginsOf(pageSetup);
+  // A header or footer taller than its margin pushes the body away instead of
+  // running over it (Word's behavior): the margin grows by what sticks out,
+  // measured from the margin-dwelling band itself.
+  const [grow, setGrow] = useState({ top: 0, bottom: 0 });
+  const headRef = useRef(null);
+  const footRef = useRef(null);
+  const baseMt = Math.round(m.top * 96);
+  const baseMb = Math.round(m.bottom * 96);
+  const headPad = Math.round(baseMt * 0.38);
+  const footPad = Math.round(baseMb * 0.38);
+  useEffect(() => {
+    if (compact || typeof ResizeObserver === 'undefined') return undefined;
+    const measure = () => {
+      const z = zoom || 1;
+      const h = (el) => (el ? el.getBoundingClientRect().height / z : 0);
+      const next = { top: marginGrowth(baseMt, headPad, h(headRef.current)), bottom: marginGrowth(baseMb, footPad, h(footRef.current)) };
+      setGrow((g) => (g.top === next.top && g.bottom === next.bottom ? g : next));
+    };
+    const ro = new ResizeObserver(measure);
+    if (headRef.current) ro.observe(headRef.current);
+    if (footRef.current) ro.observe(footRef.current);
+    measure();
+    return () => ro.disconnect();
+  }, [compact, zoom, baseMt, baseMb, headPad, footPad]);
   const geometry = useMemo(() => ({
-    mt: Math.round(m.top * 96), mb: Math.round(m.bottom * 96), pl: Math.round(m.left * 96), pr: Math.round(m.right * 96),
+    mt: baseMt + grow.top, mb: baseMb + grow.bottom, headPad, footPad,
+    pl: Math.round(m.left * 96), pr: Math.round(m.right * 96),
     pageColor: pageSetup.pageColor || '#fff',
-  }), [m.top, m.bottom, m.left, m.right, pageSetup.pageColor]);
+  }), [baseMt, baseMb, grow.top, grow.bottom, headPad, footPad, m.left, m.right, pageSetup.pageColor]);
   // What every gutter band shows: header/footer HTML and the page total, plus
   // where this page's sheets start in the whole document.
   const revRef = useRef(0);
@@ -239,7 +264,9 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   // between two lines of a paragraph. The measurement subtracts the gutters
   // already laid in, or every pass would add another one and the document
   // would walk down the screen. Phones and multi-column pages flow freely.
-  const sheetPx = compact || pageSetup.columns > 1 || !paginate ? 0 : textFlowPx(pageSetup);
+  const grown = grow.top + grow.bottom;
+  const sheetPx = compact || pageSetup.columns > 1 || !paginate ? 0 : Math.max(1, textFlowPx(pageSetup) - grown);
+  const firstPx = firstSheetPx ? Math.max(1, firstSheetPx - grown) : undefined;
   const repaginate = useCallback(() => {
     if (!editor || editor.isDestroyed) return;
     if (!sheetPx) {
@@ -282,7 +309,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
     const next = [];
     // An Insert > Page Break marker ends its sheet: the block after it starts the next.
     const forced = (i) => i > 0 && kids[i - 1].classList.contains('doc-pagebreak');
-    for (const b of planBreaks(heights, sheetPx, firstSheetPx, (i) => measureLines(kids[i], z), forced)) {
+    for (const b of planBreaks(heights, sheetPx, firstPx, (i) => measureLines(kids[i], z), forced)) {
       if (posByIndex[b.index] === undefined) continue;
       if (!b.line) { next.push({ index: b.index, gap: b.gap, pos: posByIndex[b.index] }); continue; }
       const pos = posAtLineStart(editor.view, kids[b.index], b.line);
@@ -296,7 +323,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
     editor.view.dispatch(editor.state.tr.setMeta(paginationKey, { breaks: next, info: infoRef.current }));
     setSheets(next.length + 1);
     onSheets?.(pageId, next.length + 1);
-  }, [editor, sheetPx, firstSheetPx, zoom, onSheets, pageId]);
+  }, [editor, sheetPx, firstPx, zoom, onSheets, pageId]);
 
   // Re-lay out after content, geometry or zoom changes. rAF lets the browser
   // finish the layout we are about to measure.
@@ -318,7 +345,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   // The text frame is always whole sheets tall, so the last sheet is a full
   // page with its footer in the bottom margin, never a page cut off under
   // the last line.
-  const frameMin = sheetPx ? (firstSheetPx || sheetPx) + (sheets - 1) * (sheetPx + g.mb + SHEET_SPACE_PX + g.mt) : undefined;
+  const frameMin = sheetPx ? (firstPx || sheetPx) + (sheets - 1) * (sheetPx + g.mb + SHEET_SPACE_PX + g.mt) : undefined;
   const total = bandInfo?.total || pageCount;
   const staticBand = (html) => <div className="doc-sheet-head-text" dangerouslySetInnerHTML={{ __html: html || '' }} />;
   // Insert > Page Numbers: where the number sits on this page's own margins
@@ -329,6 +356,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
     <div className={`doc-page${pageSetup.lineNumbers ? ' doc-line-numbers' : ''}`}
       style={{
         display: 'flex', flexDirection: 'column', margin: '0 auto 28px', ...pageCanvasStyle(pageSetup, { compact }),
+        ...(!compact && (grow.top || grow.bottom) ? { paddingTop: g.mt, paddingBottom: g.mb } : {}),
         background: pageSetup.pageColor || '#fff',
         border: border?.style ? `${border.width || 1}px ${border.style} ${border.color || '#111827'}` : undefined,
       }}
@@ -340,8 +368,8 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
       }}>
       {pageSetup.watermark && <div className="doc-page-watermark" aria-hidden="true">{pageSetup.watermark}</div>}
       {compact ? (headerSlot && <div style={{ marginBottom: 8 }}>{headerSlot}</div>) : (
-        <div className="doc-page-margin-head" style={{ left: g.pl, right: g.pr, top: Math.round(g.mt * 0.38), display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-          <div style={{ flex: '1 1 auto', minWidth: 0 }}>{headerSlot ?? staticBand(bandInfo?.headerHtml)}</div>
+        <div className="doc-page-margin-head" style={{ left: g.pl, right: g.pr, top: headPad, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div ref={headRef} style={{ flex: '1 1 auto', minWidth: 0 }}>{headerSlot ?? staticBand(bandInfo?.headerHtml)}</div>
           {numbersAt.startsWith('top') && <span className={`doc-page-pageno is-${numberSide}`} style={{ flex: '0 0 auto', whiteSpace: 'nowrap', userSelect: 'none' }}>Page {sheetBase + 1} of {total}</span>}
         </div>
       )}
@@ -364,8 +392,8 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
       ) : (
         /* The last sheet's footer, in the bottom margin like every other
            sheet's (the gutter bands draw the ones in between). */
-        <div className="doc-page-margin-foot" style={{ left: g.pl, right: g.pr, bottom: Math.round(g.mb * 0.38), display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 }}>
-          <div style={{ flex: '1 1 auto', minWidth: 0 }}>{footerSlot ?? staticBand(bandInfo?.footerHtml)}</div>
+        <div className="doc-page-margin-foot" style={{ left: g.pl, right: g.pr, bottom: footPad, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 }}>
+          <div ref={footRef} style={{ flex: '1 1 auto', minWidth: 0 }}>{footerSlot ?? staticBand(bandInfo?.footerHtml)}</div>
           {numbersAt.startsWith('bottom') && <span className={`doc-page-pageno is-${numberSide}`} style={{ flex: '0 0 auto', whiteSpace: 'nowrap', userSelect: 'none' }}>Page {sheetBase + sheets} of {total}</span>}
         </div>
       )}
@@ -499,8 +527,6 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [shapeFill, setShapeFill] = useState('#dbeafe');
   const [shapeStroke, setShapeStroke] = useState('#2563eb');
   const [shapeWrapMode, setShapeWrapMode] = useState('inline');
-  const [textboxPopoverOpen, setTextboxPopoverOpen] = useState(false);
-  const [textboxWrapMode, setTextboxWrapMode] = useState('inline');
   const [importPopoverOpen, setImportPopoverOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [egnyteOpen, setEgnyteOpen] = useState(false);
@@ -1254,6 +1280,15 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     return out;
   }, [fieldDefs]);
   const shared = useMemo(() => sharedDefs(variables, docId), [variables, docId]);
+  // The chips on the page say what the field definition calls them.
+  useEffect(() => {
+    for (const ed of editorsRef.current.values()) {
+      ed.view.dom.querySelectorAll('.tpl-chip[data-merge-token]').forEach((el) => {
+        const label = varLabel[el.getAttribute('data-merge-token')];
+        if (label && el.textContent !== label) el.textContent = label;
+      });
+    }
+  }, [varLabel, pages]);
   // The insert picker, grouped by WHEN Nexus fills each built-in. Until the
   // library answers, the short list it always had.
   const builtinGroups = useMemo(() => {
@@ -1732,10 +1767,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     const { x, y } = insertPageCoords();
     activeEditor?.chain().focus().insertContent({
       type: 'docTextbox',
-      attrs: { x, y, wrapMode: textboxWrapMode },
+      attrs: { x, y, wrapMode: 'inline' },
       content: [{ type: 'paragraph' }],
     }).scrollIntoView().run();
-    setTextboxPopoverOpen(false);
   };
 
   // ── Signature blocks (Oct 14) ─────────────────────────────────────────────
@@ -2767,21 +2801,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </div>
             )}
           </div>
-          <div style={{ position: 'relative' }}>
-            <BigBtn icon={Type} label="Text Box" active={textboxPopoverOpen} onClick={() => setTextboxPopoverOpen(o => !o)} />
-            {textboxPopoverOpen && (
-              <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 180 }}>
-                <label style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  Text wrap
-                  <select value={textboxWrapMode} onChange={e => setTextboxWrapMode(e.target.value)}
-                    style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
-                    {WRAP_MODES.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
-                  </select>
-                </label>
-                <button onClick={insertTextbox} className="primary-btn" style={{ fontSize: 11.5, padding: '6px 10px' }}>Insert Text Box</button>
-              </div>
-            )}
-          </div>
+          {/* One click, like Word: the box lands inline; Wrap and colors are on the Text box bar it then shows. */}
+          <BigBtn icon={Type} label="Text Box" title="Text Box" onClick={insertTextbox} />
           </Group>
           {/* Everything that is Nexus's own, not Word's, in one place: the
               signature block, merge-field variables and their tools. */}
@@ -3185,7 +3206,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         </div>
 
         {findOpen && (
-          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, margin: '4px 0 10px', padding: '8px 10px', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, margin: '4px 0 10px', padding: '8px 10px', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8 }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setFindOpen(false); setFindMatches([]); setFindIndex(-1); activeEditor?.commands.focus(); } }}>
             <input className="form-input" style={{ fontSize: 12, width: 160 }} placeholder="Find" value={findQuery}
               onChange={e => setFindQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && runFind()} autoFocus />
             <input className="form-input" style={{ fontSize: 12, width: 160 }} placeholder="Replace with" value={replaceQuery}
