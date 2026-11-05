@@ -5,7 +5,7 @@
 // blocks and the height of one sheet, which blocks start a new sheet and how
 // far do they move. Everything else is measurement and decoration.
 import { describe, it, expect } from 'vitest';
-import { planBreaks } from './docBuilderPagination';
+import { marginGrowth, planBreaks } from './docBuilderPagination';
 
 const SHEET = 864;   // Letter, 1in margins, at 96dpi
 
@@ -157,5 +157,16 @@ describe('planBreaks splitting a paragraph by lines', () => {
     // block after them still fits that sheet - no second break.
     const plan = planBreaks([800, 240, 500], SHEET, undefined, (i) => (i === 1 ? linesOf(10) : null));
     expect(plan.length).toBe(1);
+  });
+});
+
+describe('marginGrowth', () => {
+  it('is nothing while the header fits in its margin', () => {
+    expect(marginGrowth(96, 36, 18)).toBe(0);
+  });
+  it('grows the margin by what a tall header sticks out, plus air', () => {
+    // 36 down + 80 tall + 6 of air = 122 needs 26 more than a 96px margin
+    expect(marginGrowth(96, 36, 80)).toBe(26);
+    expect(marginGrowth(96, 36, 0)).toBe(0);
   });
 });

@@ -990,6 +990,8 @@ export const DOCS = [
           'Pick a template, or Blank Document, and who it is for. Its name fills in as the template and the person.',
           'Fill in the details. Merge fields fill themselves. It is made from the wording last published.',
           'It opens beside the list. Send it for signature from there, or put it in a folder.',
+          'To finish in Word: on the File tab of the editor click Open in Word. Word on your computer opens the same document (Export PDF and Export DOCX sit beside it). What you change in Word saves on your computer, not back into Nexus.',
+          'Track Changes (Review tab), as in Word: Track Changes > For Everyone marks every insertion (underlined) and deletion (struck through) with who made it and when; Just Mine tracks in your browser only; Ctrl+Shift+E switches it. Markup View shows the marks on the page or only a bar in the margin. Accept and Reject work on the change at the cursor and move to the next, or on all changes at once; Previous and Next step through them. Mode: Editing, Reviewing (tracking on) or Viewing (read only). Exports print the accepted text; a Word file with tracked changes keeps them.',
         ],
       },
       {
