@@ -37,6 +37,15 @@ export const SHEET_SPACE_PX = 28;
 /** Word's default widow/orphan control: a split leaves at least this many lines on each side. */
 export const MIN_LINES = 2;
 
+/**
+ * How much a margin must grow so its header or footer fits (Word pushes the
+ * body down rather than letting the header run over it): the content sits
+ * `pad` px into the margin and needs `gap` px of air before the text.
+ */
+export function marginGrowth(marginPx, pad, contentPx, gap = 6) {
+  return Math.max(0, Math.round(pad + (contentPx || 0) + gap - marginPx));
+}
+
 // The gutter widget. `b` is one break ({ gap }), `n` the number of the sheet
 // that ENDS at it, `info` what every band shows (geometry, header/footer
 // HTML, page total). Everything inside is static, non-editable chrome.
@@ -53,7 +62,7 @@ function gutterDom(b, n, info) {
   const foot = document.createElement('div');
   foot.className = 'doc-sheet-foot';
   foot.style.height = `${Math.round(b.gap + g.mb)}px`;
-  foot.style.padding = `0 ${g.pr}px ${Math.round(g.mb * 0.38)}px ${g.pl}px`;
+  foot.style.padding = `0 ${g.pr}px ${g.footPad ?? Math.round(g.mb * 0.38)}px ${g.pl}px`;
   foot.style.background = g.pageColor || '#fff';
   const footText = document.createElement('div');
   footText.className = 'doc-sheet-foot-text';
@@ -73,7 +82,7 @@ function gutterDom(b, n, info) {
   const head = document.createElement('div');
   head.className = 'doc-sheet-head';
   head.style.height = `${Math.round(g.mt)}px`;
-  head.style.padding = `${Math.round(g.mt * 0.38)}px ${g.pr}px 0 ${g.pl}px`;
+  head.style.padding = `${g.headPad ?? Math.round(g.mt * 0.38)}px ${g.pr}px 0 ${g.pl}px`;
   head.style.background = g.pageColor || '#fff';
   const headText = document.createElement('div');
   headText.className = 'doc-sheet-head-text';
