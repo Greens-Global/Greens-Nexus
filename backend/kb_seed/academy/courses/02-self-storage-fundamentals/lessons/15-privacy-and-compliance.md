@@ -110,7 +110,7 @@ Lesson 11 covered the automatic stay. In privacy terms: you may confirm details 
 
 A storage site is a business open to the public. Federal and state civil rights laws forbid refusing service or treating customers differently because of who they are.
 
-- In **California**, the **Unruh Civil Rights Act** (Civil Code 51) covers every business establishment and protects characteristics such as sex, race, color, religion, ancestry, national origin, disability, medical condition, marital status and sexual orientation, among others.
+- In **California**, the **Unruh Civil Rights Act** (Civil Code 51) covers every business establishment and protects characteristics such as race, religion and disability, among others.
 - In **Texas**, federal law applies, including the Americans with Disabilities Act.
 
 The practical rule is simple: **same rates, same rules, same deposits, same lien treatment for everyone.**
@@ -139,7 +139,7 @@ The 2010 ADA Standards require a share of storage units to be accessible, spread
 
 - A facility with **180 units:** 5% of 180 = **9** accessible units.
 - A facility with **320 units:** 10 + 2% of (320 - 200) = 10 + 2% of 120 = 10 + 2.4, so **13** accessible units (rounded up).
-- Escondido has 717 active enclosed units (From Greens' Cubby, 11/2026). Applying the same formula: 10 + 2% of 517 = 10 + 10.34, so about **21** accessible units. (Your manager knows the site's actual accessible units; this is only practice with the formula.)
+- A made-up facility with **700 units** (a practice number, not a Greens site): 10 + 2% of 500 = 10 + 10 = **20** accessible units.
 
 ### Accessible Routes
 

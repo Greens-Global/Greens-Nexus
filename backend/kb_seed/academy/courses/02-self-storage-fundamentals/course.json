@@ -108,7 +108,7 @@
             1,
             2
           ],
-          "explanation": "Overlocks go on delinquent units only where the system flags them, on vacant units, and on unlocked rented units for security. Never on a paid-up unit, and never by hand outside the system's list.",
+          "explanation": "Delinquent overlocks go on only where the system flags them; overlocks also secure vacant units and rented units found unlocked. Never on a paid-up unit, and never on a delinquent unit by hand outside the system's flag.",
           "lesson": "04-access-locks-and-security.md"
         },
         {

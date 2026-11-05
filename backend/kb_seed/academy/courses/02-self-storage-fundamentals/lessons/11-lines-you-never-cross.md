@@ -72,7 +72,7 @@ How seriously it is taken:
 | | California | Texas |
 |---|---|---|
 | Federal SCRA (50 U.S.C. 3958) | Applies: no lien enforcement during service or 90 days after without a court order | Applies the same way |
-| State addition | None beyond the federal law | 59.010 covers Texas State Guard and National Guard on active duty |
+| State addition | Ask your manager; state rules may add to the SCRA | 59.010 covers Texas State Guard and National Guard on active duty |
 | In the notice | No state-specific military request | Bold or underlined military-status request required (59.043) |
 
 ### What You Do

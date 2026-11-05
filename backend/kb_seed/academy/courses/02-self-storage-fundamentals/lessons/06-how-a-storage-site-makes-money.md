@@ -26,6 +26,9 @@ A storage site earns money from four sources:
 
 Fees, protection and merchandise together are called **ancillary income**: income beyond rent.
 
+> [!WARNING]
+> Training only, not legal advice. When in doubt, stop and ask your manager.
+
 ## Rates
 
 ### Street Rate

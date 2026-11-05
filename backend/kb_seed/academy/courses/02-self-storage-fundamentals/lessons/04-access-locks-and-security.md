@@ -29,6 +29,9 @@ What exclusive control means for you every day:
 > [!TIP]
 > When a customer asks "Can you keep an eye on my stuff?", the honest answer is: "We watch the property with cameras and gate controls, and only you have the key to your unit. That's why we recommend protection for your belongings."
 
+> [!WARNING]
+> Training only, not legal advice. When in doubt, stop and ask your manager.
+
 ## Gates and Gate Codes
 
 Most storage sites, Greens' included, have a perimeter fence and a gate with a **keypad**. Every tenant gets their own personal **gate code**, kept on their lease in the management system.
@@ -93,7 +96,7 @@ An **overlock** is the facility's own lock, usually a brightly colored heavy loc
 
 Overlock rules:
 
-1. **Only on the system's list.** Never overlock by hand outside what the management system flags.
+1. **Delinquent overlocks only where the system flags them.** Never overlock a delinquent unit by hand outside what the management system flags.
 2. **Record every overlock** in the system, the same day.
 3. **Never overlock a paid-up unit.** Check the account first.
 4. **Remove it promptly when the tenant pays.** A paid tenant who arrives to find an overlock is one of the top complaints in the industry.

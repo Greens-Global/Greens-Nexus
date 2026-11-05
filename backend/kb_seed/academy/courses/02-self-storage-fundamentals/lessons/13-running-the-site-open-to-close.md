@@ -129,7 +129,7 @@ Rodents and roaches are the main threats. In Texas and inland California you may
 
 | Where | What to do |
 |---|---|
-| **Inside a unit that is still rented** | It belongs to the tenant. Only the lien process, or the tenant's written abandonment or release, lets Greens dispose of it. |
+| **Inside a unit that is still rented** | It belongs to the tenant. Only the lien process or your manager's direction lets Greens dispose of it. |
 | **Inside a vacated unit** | Photograph, log, and follow your manager's direction. Some agreements include a signed move-out release. |
 | **In aisles, at the dumpster, on the lot** | Photograph, check the cameras for who left it, log it, clean up and report |
 

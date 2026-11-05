@@ -89,7 +89,7 @@ Protection is offered at every move-in, but it is never pushed with fear or fals
 
 1. **Ask.** "Do you have insurance that covers your things in storage? Some homeowners and renters policies do."
 2. **If yes:** "Great. I'll need the policy number and the expiration date for your file."
-3. **If no or not sure:** "We have a protection plan. $2,500 of protection is $9 a month, and $5,000 is $20 a month." (Quote the price Cubby shows for this lease.)
+3. **If no or not sure:** "We have a protection plan. $2,500 of protection is from $9 a month, and $5,000 is from $20 a month." (Quote the price Cubby shows for this lease.)
 4. **Explain the value in one line:** "It covers things like fire, theft and water damage up to that amount, subject to the plan's terms."
 5. **Record the choice.** The tenant's acceptance or the own-policy details go on the lease and the agreement.
 

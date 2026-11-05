@@ -56,6 +56,9 @@ The average stay in the industry is about a year and a half (lesson 2). At Escon
 
 ## Words to Know: The Glossary
 
+> [!WARNING]
+> Training only, not legal advice. When in doubt, stop and ask your manager.
+
 | # | Term | Meaning |
 |---|---|---|
 | 1 | Access control system | The gate keypad, codes and software that log who enters the property |
