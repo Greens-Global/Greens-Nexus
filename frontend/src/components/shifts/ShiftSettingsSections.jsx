@@ -25,13 +25,15 @@ import { PersonSelect } from '../../tasks/components';
 import AsyncSection, { Spinner, SkeletonBlocks } from '../AsyncState';
 import { SettingRow, SwitchRow, NumberBox, SettingCard } from '../settings/SettingsUI';
 import { Avatar } from '../ShiftScheduleExtras';
-import { SHIFT_COLORS, orderGroups, alpha, DEFAULT_SHIFT_COLOR, paidMinutes, hrsNumber } from './shiftLib';
+import { SHIFT_COLORS, orderGroups, alpha, DEFAULT_SHIFT_COLOR, paidMinutes } from './shiftLib';
+import { formatHM, formatHMWords } from '../../lib/hoursText';
 
 // Paid hours a shift type puts on the schedule: end - start (overnight aware)
 // minus the unpaid break (Neil, Oct 28 2026: "I need to see the total number of hours").
+// Read as H:MM, never decimals (Neil, 11/04/2026): "7:30 paid hours".
 export const paidHoursText = (start, end, breakMin) => {
-  const h = hrsNumber(paidMinutes({ start, end, breakMin }));
-  return `${h} paid ${h === 1 ? 'hour' : 'hours'}`;
+  const min = paidMinutes({ start, end, breakMin });
+  return `${formatHM(min)} paid ${min === 60 ? 'hour' : 'hours'}`;
 };
 
 const DAYS = [['1', 'Mon'], ['2', 'Tue'], ['3', 'Wed'], ['4', 'Thu'], ['5', 'Fri'], ['6', 'Sat'], ['7', 'Sun']];
@@ -566,12 +568,12 @@ export function CalendarSyncStatus() {
 
 // A minutes field of the numbers form, clamped to 0-`max` on Save (Shifts
 // Phase 1: the attendance thresholds; Phase 2: the rules, in hours or days).
-// 270 -> "4.5 Hours", 240 -> "4 Hours", 0 -> "Off" (the meal reminder's label).
+// 270 -> "4h 30m", 240 -> "4h 00m", 0 -> "Off" (the meal reminder's label;
+// hours and minutes, never "4.5" - Neil, 11/04/2026).
 function mealHours(min) {
   const n = Number(min) || 0;
   if (n <= 0) return 'Off';
-  const h = Math.round((n / 60) * 100) / 100;
-  return `${h} ${h === 1 ? 'Hour' : 'Hours'}`;
+  return formatHMWords(n);
 }
 
 // The numeric keys of the shift settings, with the most each accepts - one

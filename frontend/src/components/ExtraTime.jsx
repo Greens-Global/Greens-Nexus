@@ -193,7 +193,7 @@ export function ReconciliationPanel({ data, fmtM, showPay }) {
       <div style={{ padding: '10px 14px', fontWeight: 800, fontSize: 13, borderBottom: '1px solid var(--line)' }}>
         Month-End Reconciliation{ip.frozen ? ' (Finalized)' : ''}
         <div style={{ fontWeight: 400, fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
-          Full day at 8 hours, half day at 4. Hours past 9, hours of short days and weekend or holiday hours not paid as Extra Time make the pool; every 4.5 pool hours buy back a missing half day, and a last 1.5 hours or more rounds up.
+          Full day at 8 hours, half day at 4. Hours past 9, hours of short days and weekend or holiday hours not paid as Extra Time make the pool; every 4h 30m in the pool buys back a missing half day, and a last 1h 30m or more rounds up.
         </div>
       </div>
       {rows.map(([label, value], i) => (

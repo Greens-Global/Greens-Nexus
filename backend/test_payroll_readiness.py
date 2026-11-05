@@ -365,7 +365,7 @@ class SplitTests(DbCase):
         self.db.add(models.TimePunch(id="p-hard-overnight-out", employee_email=self.HARD, kind="out",
                                      at=f"{self.s.isoformat()}T02:00:00", local_date=self.s.isoformat(),
                                      tz_offset_min=0, created_at=f"{self.s.isoformat()}T02:00:00"))
-        # A sick block this period, and a paid holiday nobody worked last period.
+        # A sick block this period, and a holiday nobody worked last period (unpaid for hourly).
         sick = (self.s + timedelta(days=9)).isoformat()
         self.db.add_all([models.TimePunch(id="p-hard-sick-in", employee_email=self.HARD, kind="in",
                                           at=f"{sick}T17:00:00", local_date=sick, tz_offset_min=0,
@@ -387,7 +387,14 @@ class SplitTests(DbCase):
             self.assertEqual(pr.split_figures(long_card, a, b), alone, (a, b))
             self.assertGreater(alone["ot"], 0)
         prev_alone = timeclock._compute_timecard(self.db, self.HARD, ps, pe)["totals"]
-        self.assertGreater(prev_alone["holidayPay"], 0)
+        # An hourly holiday is an unpaid day off from 11/01/2026 (Neil, 11/04/2026);
+        # one before that keeps the credit it was paid with. Counted either way.
+        hol = (date.fromisoformat(ps) + timedelta(days=5)).isoformat()
+        if hol >= timeclock._HOURLY_HOLIDAYS_UNPAID_FROM:
+            self.assertEqual(prev_alone["holidayPay"], 0)
+        else:
+            self.assertGreater(prev_alone["holidayPay"], 0)
+        self.assertEqual(prev_alone["holidayDays"], 1)
         cur_alone = timeclock._compute_timecard(self.db, self.HARD, self.start, self.end)
         self.assertGreater(cur_alone["totals"]["sickMin"], 0)
         self.assertGreater(len(cur_alone["rateSplits"]), 1)          # the raise lands inside the period

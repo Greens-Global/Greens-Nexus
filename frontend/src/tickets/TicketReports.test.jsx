@@ -174,7 +174,8 @@ describe('ticketReportRange', () => {
   });
   it('words durations', () => {
     expect(fmtHours(null)).toBe('-');
-    expect(fmtHours(2.5)).toBe('2.5 hrs');
+    expect(fmtHours(2.5)).toBe('2h 30m');
+    expect(fmtHours(5)).toBe('5h');
     expect(fmtHours(72)).toBe('3.0 days');
   });
 });

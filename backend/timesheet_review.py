@@ -1960,9 +1960,44 @@ def safe(fn, *a, **kw) -> None:
 
 # ── What the timecard shows ──────────────────────────────────────────────────
 
-def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: bool) -> dict | None:
+# Where a review stands after an approval that may since have moved: the
+# hours were approved, then HR edited them, a change reopened it, or HR
+# unlocked it to correct (changed_since_approval).
+_CHANGED_STATES = ("approved", "signing", "with_manager", CORRECTING)
+
+
+def changed_since_approval(db: Session, r: TimesheetReview, card: dict | None = None) -> list | None:
+    """"Changed Since You Approved" (Neil, 11/04/2026): [{date, before,
+    after}] minutes per day between the manager's approval and now, [] when
+    nothing moved, None when there is nothing to compare. last_snapshot is
+    written only by a round with changes (_round(with_changes=True): submit,
+    resubmit, send back, approve) - reopen, an HR edit, re-sign and unlock
+    leave it alone - so it holds the approval's minutes only while the newest
+    such round IS the approval. A later round (a resubmit after a reopen)
+    overwrote it with something else: None, never a wrong list. `card`: the
+    already computed card for this exact period (no second computation);
+    any other window is ignored and the period's own card is computed."""
+    if r is None or not r.agreed_at or not r.last_snapshot or r.status not in _CHANGED_STATES:
+        return None
+    writer = next((e for e in reversed(list(r.rounds or [])) if "changes" in e), None)
+    if not writer or writer.get("action") not in ("agreed", "approved"):
+        return None
+    if card is not None:
+        b0 = card.get("periodStart") or card.get("start")
+        b1 = card.get("periodEnd") or card.get("end")
+        if (b0, b1) != (r.period_start, r.period_end):
+            card = None
+    if card is None:
+        card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
+    return _changes(r.last_snapshot, day_minutes(card, r.pay_type))
+
+
+def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: bool,
+              *, card: dict | None = None) -> dict | None:
     """The review panel's data for one employee-period, with what THIS viewer
-    may do right now. viewer_team = the viewer manages this person (or HR)."""
+    may do right now. viewer_team = the viewer manages this person (or HR).
+    `card`: the timecard the caller already computed for this period, read
+    for changedDays instead of computing it again."""
     email, viewer = (email or "").lower(), (viewer or "").lower()
     r = active_review(db, email, start)
     is_self = viewer == email
@@ -2026,6 +2061,11 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
         "submitBlocker": (submit_blocker(db, email, r.period_start, r.period_end)
                           if is_self and r.status in ("with_employee", "approved") else ""),
     }
+    # What moved since the manager approved (Neil, 11/04/2026): per day,
+    # minutes then and now. Only when the snapshot really is the approval's.
+    moved = changed_since_approval(db, r, card)
+    if moved is not None:
+        out["changedDays"], out["changedSince"] = moved, r.agreed_at
     if hr_view and r.status == CORRECTING:
         changed = correction_changed(db, r)
         out["canSendCorrection"], out["canRelock"] = changed, not changed

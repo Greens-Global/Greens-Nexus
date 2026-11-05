@@ -16,6 +16,7 @@ import { useTasks } from '../TasksContext';
 import { daysFromPixels, dragModeAt, dragDates, describeMove, HANDLE_W } from '../timelineDrag';
 import { useRowColorMap, rowColorAttrs } from '../rowColorState';
 import { wasSentForApproval } from '../calendarMove';
+import { formatHoursWords } from '../../lib/hoursText';
 
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -478,11 +479,11 @@ export function WorkloadView({ tasks, nameOf }) {
               </div>
               <div style={{ position: 'relative', height: 30, flex: 1, borderRadius: 8, background: NX.surface2, overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', top: 0, height: '100%', borderRight: `2px dashed ${NX.faint}`, left: `${(CAPACITY / maxHours) * 100}%` }} />
-                <div style={{ display: 'flex', alignItems: 'center', height: '100%', borderRadius: 8, padding: '0 8px', fontSize: 11, fontWeight: 700, color: '#fff', width: `${(r.hours / maxHours) * 100}%`, background: over ? NX.red : NX.blue }}>{r.hours}h</div>
+                <div style={{ display: 'flex', alignItems: 'center', height: '100%', borderRadius: 8, padding: '0 8px', fontSize: 11, fontWeight: 700, color: '#fff', width: `${(r.hours / maxHours) * 100}%`, background: over ? NX.red : NX.blue }}>{formatHoursWords(r.hours, { compact: true })}</div>
               </div>
               <div style={{ width: 116, flexShrink: 0, fontSize: 12 }}>
-                {over ? <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, color: NX.red }}><AlertTriangle size={13} /> Over by {r.hours - CAPACITY}h</span>
-                  : <span style={{ color: NX.dim }}>{CAPACITY - r.hours}h free</span>}
+                {over ? <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, color: NX.red }}><AlertTriangle size={13} /> Over by {formatHoursWords(r.hours - CAPACITY, { compact: true })}</span>
+                  : <span style={{ color: NX.dim }}>{formatHoursWords(CAPACITY - r.hours, { compact: true })} free</span>}
               </div>
             </div>
           );

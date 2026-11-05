@@ -18,6 +18,7 @@ import { ViewNotice } from './WorkforceViews';
 import { useWorkforceView } from './viewContext';
 import { NX, FONT, btn } from '../../tasks/theme';
 import { formatDate, formatHHMM } from '../../lib/datetime';
+import { formatHMWords, formatHoursWords } from '../../lib/hoursText';
 
 export const BAND_META = {
   absent:       { label: 'Absent',         color: '#b91c1c', tint: '#fef2f2' },
@@ -42,7 +43,8 @@ const FLAG_LABEL = {
   long_break: 'Long break', auto_clock_out: 'Auto clock-out', unusually_long: 'Unusually long',
 };
 
-export const hrs = (min) => `${(Number(min || 0) / 60).toFixed(1)}h`;
+// Hours in words, never decimals (Neil, 11/04/2026): "7h 30m".
+export const hrs = (min) => formatHMWords(min);
 // Calendar arithmetic on the date PARTS - toISOString() would shift a local
 // midnight back a day in any UTC-positive zone (India) and the arrows would
 // land on the wrong week.
@@ -279,7 +281,7 @@ export default function Scorecard() {
         <Info size={13} style={{ flexShrink: 0, marginTop: 2 }} />
         <div>
           Expected hours come from each person's published shifts, else their shift preset, else the standard day
-          ({Object.entries(std).filter(([k]) => k !== 'default').map(([k, v]) => `${k} ${v.hours}h`).join(', ')}) for full-time staff.
+          ({Object.entries(std).filter(([k]) => k !== 'default').map(([k, v]) => `${k} ${formatHoursWords(v.hours, { compact: true })}`).join(', ')}) for full-time staff.
           Holidays and approved time off are excused; Sick / PTO punches count as leave. Score = hours covered / hours expected,
           On Track from {t.onTrackPct}%, Below Expected from {t.belowPct}%; a day within {t.shortToleranceMin} minutes of its target is full.
           Only days before each person's own today are scored. Click a row for the day-by-day breakdown.

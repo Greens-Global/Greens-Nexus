@@ -341,6 +341,19 @@ keep the diff minimal.
   Sheet no longer prints a "Bands:" line; the day statuses say the result.
   India contractors never use these (8 h / 4 h credits, `india_contractor_pay`).
 
+- **Hourly company holidays are unpaid** (Neil, 11/04/2026: "Holidays are
+  days off for hourly employees"): `_compute_timecard` lists a holiday the
+  person did not work (office closed, no pay) and credits nothing - no
+  holidayPay / holidayMin, no IIF Holiday Pay line. Worked hours on a holiday
+  pay as usual. Salaried holidays (`_fixed_card`) are a separate rule.
+- **The Time Sheet grid lines up** (Neil, 11/04/2026, plan
+  https://claude.ai/artifact/V1YPriqxVi3graoHsG3iMN): every time is drawn by
+  `components/timesheet/TimeText.jsx` (hours:minutes and AM / PM in boxes of
+  their own), a break is its own row, the week total a centered line, row
+  actions at the row's end, NO decimal hours anywhere a person reads hours
+  (`lib/hoursText.js`; exports stay numeric). No timeline bars, no late /
+  variance chips. The signed PDF (`timesheet_pdf.py`) follows the same layout.
+
 - Task emails are BATCHED (Neil, Sep 24): an event that can wait goes into
   `task_email_queue`, and `task_notify.flush_batches` (every minute, inside
   `task_notify_loop`) sends one email per person once their OLDEST pending row

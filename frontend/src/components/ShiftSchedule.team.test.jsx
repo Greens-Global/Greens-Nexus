@@ -76,7 +76,7 @@ describe('Team switcher', () => {
     expect(opts[opts.length - 1]).toMatch(/^People Without a Team/);         // last
     const back = screen.getByRole('option', { name: /^Back/ });
     expect(back.textContent).toContain('1 person');
-    expect(back.textContent).toContain('16 Hrs');
+    expect(back.textContent).toContain('16:00 Hrs');
   });
 
   it('opens a manager who is on no team on the team of the people they manage', async () => {

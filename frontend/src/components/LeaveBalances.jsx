@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CalendarClock, ChevronDown, ChevronRight, Plus, RefreshCw, Search, Upload, X } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatHoursWords } from '../lib/hoursText';
 import { DateField } from '../tasks/components';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 import SaveRow from './SaveRow';
@@ -36,14 +37,15 @@ export function bucketOf(name, balance) {
 const day = (d) => (d ? formatDate(`${String(d).slice(0, 10)}T12:00:00`) : '');
 const round = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-// "12.5 h", or "2 days" on a policy kept in days (India salaried).
+// "12h 30m" (hours and minutes, never "12.5 h" - Neil, 11/04/2026), or
+// "2 days" on a policy kept in days (India salaried).
 export function fmtLeave(hours, policy) {
   const h = Number(hours) || 0;
   if (policy?.unit === 'days') {
     const d = round(h / (Number(policy.hoursPerDay) || 8));
     return `${d} day${d === 1 ? '' : 's'}`;
   }
-  return `${round(h)} h`;
+  return formatHoursWords(h);
 }
 
 const LABEL = { vacation: 'Vacation', sick: 'Sick / Personal' };
@@ -518,7 +520,7 @@ function PersonDetail({ email, onChanged, toastOk, toastErr }) {
                 <span style={{ width: 82, color: 'var(--muted)' }}>{day(l.date)}</span>
                 <span style={{ width: 110, fontWeight: 600 }}>{bucketNames(b)[l.bucket] || l.bucket}</span>
                 <span style={{ width: 120 }}>{l.kind}</span>
-                <span style={{ width: 70, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: l.hours < 0 ? '#b45309' : 'var(--ink)' }}>{l.hours > 0 ? '+' : ''}{round(l.hours)} h</span>
+                <span style={{ width: 70, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: l.hours < 0 ? '#b45309' : 'var(--ink)' }}>{formatHoursWords(l.hours, { sign: true })}</span>
                 <span style={{ flex: 1, minWidth: 140, color: 'var(--muted)' }}>{l.note}{l.by && l.by !== 'system' ? ` - ${l.by}` : ''}{l.at ? ` (${formatDateTime(l.at)})` : ''}</span>
               </div>
             ))}

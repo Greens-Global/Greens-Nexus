@@ -16,6 +16,7 @@ import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, R
 import { toast, useBuildStore, setAllTools } from './store';
 import { MODULES } from '../contexts/RoleContext';
 import { wantsTabCapture, setWantsTabCapture, startTabCapture, stopTabCapture } from './lib/screenshot';
+import { formatHoursWords } from '../lib/hoursText';
 
 // Settings comes back with Send to Claude Code (meta.CLAUDE_SEND_ON).
 const TABS = [{ id: 'queue', label: 'Queue' }, { id: 'sessions', label: 'Sessions' }, ...(CLAUDE_SEND_ON ? [{ id: 'settings', label: 'Settings' }] : [])];
@@ -366,7 +367,8 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 const pct = (v) => (v == null || Number.isNaN(Number(v)) ? '-' : `${Math.round(Number(v) * 100)}%`);
-const hours = (v) => (v == null || Number.isNaN(Number(v)) ? '-' : Number(v) < 1 ? `${Math.round(Number(v) * 60)} min` : `${Number(v).toFixed(Number(v) < 10 ? 1 : 0)} h`);
+// Hours and minutes, never "2.5 h" (Neil, 11/04/2026).
+const hours = (v) => (v == null || Number.isNaN(Number(v)) ? '-' : Number(v) < 1 ? `${Math.round(Number(v) * 60)} min` : formatHoursWords(v, { compact: true }));
 
 function Stats({ stats }) {
   if (!stats) return null;

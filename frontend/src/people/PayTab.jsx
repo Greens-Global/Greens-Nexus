@@ -13,6 +13,7 @@ import MealWaiverCard from '../components/MealWaiverCard';
 import { useTabDraft } from './useTabDraft';
 import { Row, SectionHead, Field, EditButton, TabSaveRow } from './shared';
 import { BOX, DATE_BOX, GRID, HINT, maskId } from './lib';
+import { formatHoursWords } from '../lib/hoursText';
 
 // ── Pay & Benefits (HR Section B - gated by hr_comp grant / owner) ───────────
 // Read and edited in place (11/03/2026; it was the Pay, Benefits & Bank
@@ -227,7 +228,7 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
                   : ' (company default)')}`} />
               {/* Where they work decides the default rule (Charmi, Oct 20): California work state -> California rule. */}
               {payroll.workState?.byWorkState && <Row label="Work State" value={workStateText(payroll.workState)} />}
-              <Row label="Full Day Hours" value={payroll.fullDayHours ? `${payroll.fullDayHours} h` : ''} />
+              <Row label="Full Day Hours" value={payroll.fullDayHours ? formatHoursWords(payroll.fullDayHours, { compact: true }) : ''} />
             </div>
           )}
           {/* Read only: set on the person's role in Settings > Access, beside the screen-share exemption (Visesh, 10/02). */}

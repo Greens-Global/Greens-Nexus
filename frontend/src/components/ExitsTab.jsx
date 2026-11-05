@@ -16,6 +16,7 @@ import { StatusLabel } from './StatusLabel';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { openNotificationTarget } from '../lib/openTarget';
 import { Modal, AvatarName } from '../tasks/components';
+import { formatHoursHM, formatHoursWords } from '../lib/hoursText';
 
 const STATUS_COLOR = { open: '#b45309', reviewed: '#2563eb', filed: '#16a34a', closed: '#64748b' };
 const day = (iso) => (iso ? formatDate(`${iso.slice(0, 10)}T12:00:00`) : '-');
@@ -135,11 +136,11 @@ function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
               <div style={H}>Leave Balances</div>
               {st.leave.live ? (<>
                 <Table head={['Leave', 'Hours', 'Days', 'Payout']}
-                  rows={st.leave.buckets.map((b) => [b.label, num(b.hours), num(b.days), b.payout])} />
+                  rows={st.leave.buckets.map((b) => [b.label, formatHoursHM(b.hours), num(b.days), b.payout])} />
                 {st.leave.payouts.map((p) => (
                   <div key={p.bucket} style={{ fontSize: 12.5, marginTop: 6, color: 'var(--ink)' }}>
                     <strong>{p.label}</strong> <StatusLabel label={p.flag} color="#7c3aed" size="sm" />{' '}
-                    {p.amount !== undefined ? `${num(p.hours)} h x ${money(p.rate, p.currency)} per hour = ${money(p.amount, p.currency)}` : `${num(p.hours)} h`}
+                    {p.amount !== undefined ? `${formatHoursWords(p.hours)} x ${money(p.rate, p.currency)} per hour = ${money(p.amount, p.currency)}` : formatHoursWords(p.hours)}
                   </div>
                 ))}
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Leave is use it or lose it: unused leave is not paid out unless the law requires it.</div>

@@ -164,7 +164,7 @@ def _period(db: Session, em: str, row, hist: list, name_of) -> tuple:
         hrs["otMin"] += int(d.get("otMin") or 0)
         hrs["dtMin"] += int(d.get("dtMin") or 0)
         hrs["leaveMin"] += int((d.get("sickMin") or 0) + (d.get("vacationMin") or 0) + (d.get("personalMin") or 0))
-        if d.get("holidayPay"):
+        if d.get("holidayPay"):   # never on an hourly card since Neil, 11/04/2026 (unpaid holidays)
             hrs["holidayDays"] += 1
     diff = {k: _r2(pn[k] - pw.get(k, 0)) for k in pn}
     diff["total"] = owed

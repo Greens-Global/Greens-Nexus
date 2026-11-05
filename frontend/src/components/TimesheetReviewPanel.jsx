@@ -19,7 +19,7 @@
 // one bordered card - the title with the steps on the same line, the status
 // in a sentence, and the note box (one line until it is used) beside its
 // button; the signatures read as one line of facts, not a row of boxes.
-import { useState } from 'react';
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle, Clock, FileSignature, Send, Undo2, ChevronRight, Lock, ShieldCheck, Info } from 'lucide-react';
 import { api } from '../api';
@@ -158,8 +158,19 @@ function History({ rounds, nameFor }) {
   );
 }
 
+// The manager's approval call for where the review stands: a period nobody
+// submitted is approved by employee + period, a submitted one by its id.
+// Shared with the Time Sheet's sticky approve bar (timesheet/ApproveBar.jsx).
+export const approveCallFor = (r, anchor, note = '') => (r.status === 'not_submitted' || !r.id
+  ? api.timesheetReviewApprovePeriod(r.employeeEmail, anchor, note)
+  : api.timesheetReviewApprove(r.id, note));
+
 // `below`: a card the time card hangs under the panel (a contractor's Invoice card, Oct 21).
-export default function TimesheetReviewPanel({ review, self, anchor, periodLabel, nameFor, onChanged, toastOk, toastErr, below = null }) {
+// `next` ({ name, go }): the next person still waiting for review - adds
+// Approve and Next beside Review & Approve (Neil, 11/04/2026).
+function TimesheetReviewPanel({ review, self, anchor, periodLabel, nameFor, onChanged, toastOk, toastErr, below = null, next = null }, ref) {
+  const sectionRef = useRef(null);
+  useImperativeHandle(ref, () => sectionRef.current);
   const [note, setNote] = useState('');
   const [noteOpen, setNoteOpen] = useState(false);   // the note box is one line until it is used
   const [busy, setBusy] = useState(false);
@@ -212,9 +223,16 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>{kids}</div>
   );
   const approveBtn = (call) => (
-    <button className="primary-btn" disabled={busy || !!r.agreeBlocker} title={r.agreeBlocker || 'These hours are accurate - the employee then approves and signs'}
-      onClick={() => run(call, `Approved - ${name(r.employeeEmail) || 'the employee'} is asked to sign.`)}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}><CheckCircle size={13} /> Review &amp; Approve</button>
+    <>
+      <button className={next ? 'secondary-btn' : 'primary-btn'} disabled={busy || !!r.agreeBlocker} title={r.agreeBlocker || 'These hours are accurate - the employee then approves and signs'}
+        onClick={() => run(call, `Approved - ${name(r.employeeEmail) || 'the employee'} is asked to sign.`)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}><CheckCircle size={13} /> Review &amp; Approve</button>
+      {next && (
+        <button className="primary-btn" disabled={busy || !!r.agreeBlocker} title={r.agreeBlocker || `Approve, then open ${next.name}`}
+          onClick={async () => { const out = await run(call, `Approved - ${name(r.employeeEmail) || 'the employee'} is asked to sign.`); if (out !== null) next.go(); }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}>Approve and Next <ChevronRight size={14} /></button>
+      )}
+    </>
   );
 
   let body = null;
@@ -374,7 +392,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
 
   const sentBack = self && r.status === 'with_employee' && r.canSubmit;   // waiting on me - the Time Sheet tab's count
   return (
-    <section data-review-panel className={sentBack ? 'nx-needs-you nx-needs-you--card' : undefined} aria-label="Time Sheet Review and Signature"
+    <section ref={sectionRef} data-review-panel className={sentBack ? 'nx-needs-you nx-needs-you--card' : undefined} aria-label="Time Sheet Review and Signature"
       style={{ margin: self ? '0 0 12px' : '18px 0 0', padding: '12px 14px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)' }}>
       {/* The title and the steps share one line; how it works is behind the info mark. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px 16px', flexWrap: 'wrap', marginBottom: 8 }}>
@@ -436,3 +454,5 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     </section>
   );
 }
+
+export default forwardRef(TimesheetReviewPanel);

@@ -1719,7 +1719,46 @@ def team_timesheet(start: str = "", end: str = "",
         # People > Time shows and edits punches on their clock, not the
         # viewer's browser (Oct 20). One lookup per person per call.
         r["timeZone"] = _employee_tz(db, r["email"])
+    # Where each person's Time Sheet is in its review (Neil, 11/04/2026: the
+    # team list shows it) - two queries for every row, never one per person.
+    review_of, final_of = _team_review_status(db, [r["email"] for r in rows], start, end)
+    for r in rows:
+        r["review"] = review_of.get(r["email"]) or {"status": "not_submitted", "agreedAt": ""}
+        r["finalized"] = r["email"] in final_of
     return _no_pay(db, user, {"rows": rows})
+
+
+def _team_review_status(db: Session, emails: list, start: str, end: str) -> tuple[dict, set]:
+    """({email: {"status", "agreedAt"}}, {finalized emails}) for the team list.
+    The review that counts is the one whose period holds the MIDDLE day of
+    [start, end] - so a salaried person's monthly review is found from a
+    bi-weekly window too - with a status in timesheet_review.ACTIVE or
+    completed, the newest (created_at) per person. Finalized = a live
+    TimeApproval of kind 'final' over that same middle day."""
+    if not emails or not start or not end:
+        return {}, set()
+    try:
+        d0, d1 = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
+    except ValueError:
+        return {}, set()
+    mid = (d0 + timedelta(days=max(0, (d1 - d0).days) // 2)).isoformat()
+    from models import TimesheetReview
+    import timesheet_review as _tsr
+    emails = list(emails)
+    latest = {}
+    for rv in (db.query(TimesheetReview)
+               .filter(TimesheetReview.employee_email.in_(emails), TimesheetReview.period_start <= mid,
+                       TimesheetReview.period_end >= mid,
+                       TimesheetReview.status.in_(_tsr.ACTIVE + ("completed",))).all()):
+        cur = latest.get(rv.employee_email)
+        if cur is None or (rv.created_at or "") > (cur.created_at or ""):
+            latest[rv.employee_email] = rv
+    review_of = {em: {"status": rv.status, "agreedAt": rv.agreed_at or ""} for em, rv in latest.items()}
+    final_of = {em for (em,) in (db.query(TimeApproval.employee_email)
+                                 .filter(TimeApproval.employee_email.in_(emails), TimeApproval.revoked == 0,
+                                         TimeApproval.kind == "final", TimeApproval.period_start <= mid,
+                                         TimeApproval.period_end >= mid).all())}
+    return review_of, final_of
 
 
 @router.get("/billable-by-location")
@@ -2964,8 +3003,10 @@ def _approved_emails(db: Session, rows: list, start: str, end: str) -> set:
 
 # The IIF's pay classes in row order: (timecard day minutes, payroll_codes class).
 _IIF_PAY_CLASSES = (("regMin", "regular"), ("otMin", "overtime"), ("dtMin", "doubleTime"),
-                    # A paid company holiday: the hours its credit pays for
-                    # (full_day_hours, half on a half-day holiday) - Oct 19.
+                    # A paid company holiday's hours (Oct 19). Hourly holidays
+                    # are unpaid days off since Neil, 11/04/2026, so no hourly
+                    # card carries holidayMin and no Holiday Pay row is written;
+                    # the class stays for a card that ever carries it.
                     ("holidayMin", "holiday"),
                     ("sickMin", "sick"), ("vacationMin", "vacation"), ("personalMin", "personal"),
                     # Only on a day that has them (pay_premiums.py) - never while off.
@@ -3114,7 +3155,8 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
             return round(float(t.get(k) or 0) / 60, 2)
         hours = {"regular": h("regMin"), "overtime": h("otMin"), "doubleTime": h("dtMin"),
                  "sick": h("sickMin"), "vacation": h("vacationMin"), "personal": h("personalMin")}
-        # Paid company holiday hours (the IIF's Holiday Pay line) - only on a card that has any.
+        # Paid company holiday hours (the IIF's Holiday Pay line) - only on a card that has any
+        # (none for hourly since Neil, 11/04/2026: their holidays are unpaid days off).
         _hol = sum(int(d.get("holidayMin") or 0) for d in _card["days"])
         if _hol:
             hours["holiday"] = round(_hol / 60, 2)
@@ -10910,6 +10952,11 @@ def _projected_out(last, at: str) -> TimePunch:
                      edit_reviewed_by="", edit_reviewed_at="", site_set_by="", batch_id="")
 
 
+# Hourly company holidays are unpaid from this day on (Neil, 11/04/2026) -
+# see the holiday block in _compute_timecard.
+_HOURLY_HOLIDAYS_UNPAID_FROM = "2026-11-01"
+
+
 def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Optional[int] = None,
                       reprice: bool = False, open_until: str = "") -> dict:
     """Per-day in/out segments, CA/federal overtime split, and wage totals off
@@ -11340,56 +11387,65 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         _cal_days = [(_d0 + timedelta(days=i)).isoformat() for i in range(min(_n, 62))]
     rate_splits = _rate_splits(_cal_days, {d: _rate_for_day(d) for d in _cal_days}, "rate") if (_hist or _frozen_rates) else []
 
-    # Paid company holidays (see _company_holidays_for_employee): an HOURLY
-    # employee has no "missed day" deduction to exempt (they're only ever paid for
-    # hours actually worked), so a holiday they didn't work would otherwise just
-    # pay $0 - a company holiday is a PAID day off, so credit one full_day_hours'
-    # worth of pay instead. Skipped for any date they already have punches on
-    # (worked the holiday - already paid for those hours, no separate credit).
+    # Company holidays for an HOURLY employee are UNPAID days off (Neil,
+    # 11/04/2026: "no one gets paid on the holiday technically if they are
+    # hourly because they did not work on the holiday. Holidays are days off
+    # for hourly employees."). History: Pranshu's b9746cfc (Sep 22) credited
+    # full_day_hours x rate per holiday (half for a half-day holiday, on top of
+    # the hours worked) as holidayPay / holidayMin, which flowed into totalPay,
+    # the IIF Holiday Pay line, Intacct, retro pay and readiness - that credit
+    # is gone. The INFORMATION stays so the Time Sheet can say "Veterans Day -
+    # office closed": a holiday they did not work is still a day entry
+    # (isHoliday, holidayName, holidayType, workedMin 0) and a worked holiday
+    # day is tagged with holidayName / holidayType - its hours are paid as
+    # ordinary worked hours, nothing more. holiday_pay stays in the summary
+    # at 0 (old readers keep working); holidayDays counts the period's holidays,
+    # worked or not - a count, never pay.
     # Fixed-salary employees have their OWN holiday handling in _fixed_card (which
     # reuses this function only for the day/segment grid) - skip here so their
     # "days" list doesn't get synthetic zero-work entries on top of that.
+    # Effective date (review 11/04/2026): holidays before the 11/01/2026 pay
+    # period keep the credit they were paid with, so a finalized period, its
+    # IIF / Intacct re-export, its PDF and retro pay never change after the
+    # fact; holidays from 11/01/2026 on are unpaid days off.
     holiday_pay = 0.0
     holiday_days = 0
     if ((getattr(rate_row, "pay_type", None) or "hourly") if rate_row else "hourly") == "hourly":
-        _full_day_hours = float(getattr(rate_row, "full_day_hours", 8) or 8) if rate_row else 8.0
         _days_by_date = {d["date"]: d for d in days_out}
+        _full_day_hours = float(getattr(rate_row, "full_day_hours", 8) or 8) if rate_row else 8.0
         for hd, hol in _company_holidays_for_employee(db, em, start, end).items():
             if hd < start or (end and hd > end):
                 continue
             is_half = hol.get("type") == "half_day"
-            worked = hd in day_total
-            if worked and not is_half:
-                continue   # mandatory + worked: already paid for the hours, no separate credit
-            # Half-day pays for the half they weren't required to work, not the
-            # whole day flat (Pranshu, Sep 22): work the expected half and it's
-            # a full day (half from the holiday, half from what they earned via
-            # their actual punches - added on TOP, not swapped for, since
-            # normal wages already cover the hours worked); do no work at all
-            # and it's half a day, same as a full holiday scaled down.
-            credit = round(_full_day_hours * (0.5 if is_half else 1.0) * _rate_for_day(hd), 2)
-            # The hours that credit pays for - the IIF's Holiday Pay line (Oct 19).
-            _hol_min = int(round(_full_day_hours * 60 * (0.5 if is_half else 1.0)))
-            holiday_pay += credit
-            holiday_days += 1
-            if worked:
+            worked = day_total.get(hd, 0) > 0      # a Sick / PTO-only day is not "worked"
+            credit = _hol_min = 0
+            if hd < _HOURLY_HOLIDAYS_UNPAID_FROM and not (worked and not is_half):
+                credit = round(_full_day_hours * (0.5 if is_half else 1.0) * _rate_for_day(hd), 2)
+                _hol_min = int(round(_full_day_hours * 60 * (0.5 if is_half else 1.0)))
+                holiday_pay += credit
+            if not worked:
+                holiday_days += 1                  # office-closed days off, a count - never pay
+            if hd in _days_by_date:
                 # A real day entry already exists (they punched in) - tag it
-                # with the extra credit instead of pushing a second, conflicting
-                # entry for the same date.
+                # instead of pushing a second, conflicting entry for the date.
                 _days_by_date[hd]["holidayType"] = hol.get("type", "mandatory")
                 _days_by_date[hd]["holidayName"] = hol.get("name", "")
-                _days_by_date[hd]["holidayPay"] = credit
-                _days_by_date[hd]["holidayMin"] = _hol_min
+                _days_by_date[hd]["holidayWorked"] = worked
+                if credit:
+                    _days_by_date[hd]["holidayPay"] = credit
+                    _days_by_date[hd]["holidayMin"] = _hol_min
             else:
-                days_out.append({"date": hd, "weekStart": _week_start_str(hd), "segments": [],
-                                 "workedMin": 0, "regMin": 0, "otMin": 0, "dtMin": 0,
-                                 "breakMin": 0, "paidBreakMin": 0,
-                                 "isHoliday": True, "holidayName": hol.get("name", ""),
-                                 "holidayType": hol.get("type", "mandatory"), "holidayPay": credit,
-                                 "holidayMin": _hol_min})
-        if holiday_days:
-            days_out.sort(key=lambda d: d["date"])
+                entry = {"date": hd, "weekStart": _week_start_str(hd), "segments": [],
+                         "workedMin": 0, "regMin": 0, "otMin": 0, "dtMin": 0,
+                         "breakMin": 0, "paidBreakMin": 0,
+                         "isHoliday": True, "holidayName": hol.get("name", ""),
+                         "holidayType": hol.get("type", "mandatory")}
+                if credit:
+                    entry.update(holidayPay=credit, holidayMin=_hol_min)
+                days_out.append(entry)
         holiday_pay = round(holiday_pay, 2)
+        if any(d.get("isHoliday") for d in days_out):
+            days_out.sort(key=lambda d: d["date"])
 
     # Idle estimate for the composition bar (best-effort, from web capture): a
     # frame whose idle-at-capture ≥ 4 min stands in for one capture interval of
@@ -11520,7 +11576,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
                        "sickMin": total_sick, "vacationMin": total_vac, "personalMin": total_personal,
                        "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
-                       "holidayPay": holiday_pay, "holidayDays": holiday_days,
+                       "holidayPay": holiday_pay, "holidayDays": holiday_days,   # 0 for holidays from 11/01/2026 (Neil, 11/04/2026); holidayDays = days off
                        "sickPay": sick_pay, "vacationPay": vac_pay, "personalPay": personal_pay,
                        "totalPay": round(reg_pay + ot_pay + dt_pay + holiday_pay + sick_pay + vac_pay + personal_pay
                                          + meal_prem_pay + rest_prem_pay, 2),
@@ -11585,7 +11641,7 @@ def payroll_timecard(email: str, start: str, end: str,
         # Fixed-salary employees are paid by the calendar month; `start` anchors it.
         card = _fixed_card(db, em, start or _employee_today(db, em))
         card.update(_signoff_state(db, em, card["periodStart"], card["periodEnd"]))
-        card["review"] = _review_state(db, em, card["periodStart"], user, team=True)
+        card["review"] = _review_state(db, em, card["periodStart"], user, team=True, card=card)
         # The Notes column is on the monthly card too (Sep 29).
         card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
         card["zoneKey"] = _employee_zone_key(db, em)   # India staff open in India time (Oct 20)
@@ -11604,7 +11660,7 @@ def payroll_timecard(email: str, start: str, end: str,
         for _d in card.get("days") or []:
             _d.pop("meal", None)
     card.update(_signoff_state(db, em, start, end))
-    card["review"] = _review_state(db, em, start, user, team=True)
+    card["review"] = _review_state(db, em, start, user, team=True, card=card)
     card["notes"] = _timecard_notes(db, em, start, end)
     # The zone the card opens in for this employee (Visesh, Oct 20 2026):
     # India-based staff read in India time, US staff in California time,
@@ -11874,10 +11930,12 @@ def set_my_timecard_note(body: MyTimecardNoteIn, user: dict = Depends(get_curren
     return {"date": day, "employeeNote": text, "employeeNoteAt": now}
 
 
-def _review_state(db: Session, email: str, start: str, user: dict, team: bool) -> dict:
+def _review_state(db: Session, email: str, start: str, user: dict, team: bool, card: dict | None = None) -> dict:
+    """The review panel's state. `card`: the timecard this route just computed,
+    so the "changed since you approved" days reuse it (no second computation)."""
     import timesheet_review
     try:
-        return timesheet_review.state_for(db, email, start, user["email"], team)
+        return timesheet_review.state_for(db, email, start, user["email"], team, card=card)
     except Exception as e:   # the timecard must still load
         print(f"[timesheet-review] state failed for {email} {start}: {type(e).__name__}: {e}")
         return None
@@ -11895,7 +11953,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
         anchor = start.strip() or _employee_today(db, user["email"])
         card = _fixed_card(db, user["email"], anchor)
         card.update(_signoff_state(db, user["email"], card["periodStart"], card["periodEnd"]))
-        card["review"] = _review_state(db, user["email"], card["periodStart"], user, team=False)
+        card["review"] = _review_state(db, user["email"], card["periodStart"], user, team=False, card=card)
         # Only the employee's OWN notes - never the manager/HR note (Oct 12).
         card["notes"] = _timecard_notes(db, user["email"], card["periodStart"], card["periodEnd"], own=True)
         card["zoneKey"] = _employee_zone_key(db, user["email"])
@@ -11915,7 +11973,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
     for _d in card.get("days") or []:
         _d.pop("meal", None)
     card.update(_signoff_state(db, user["email"], p_start, p_end))
-    card["review"] = _review_state(db, user["email"], p_start, user, team=False)
+    card["review"] = _review_state(db, user["email"], p_start, user, team=False, card=card)
     card["periodStart"], card["periodEnd"] = p_start, p_end
     card["periodDays"] = _PAYPERIOD_DAYS
     card["notes"] = _timecard_notes(db, user["email"], p_start, p_end, own=True)
