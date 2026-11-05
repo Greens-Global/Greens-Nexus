@@ -990,6 +990,7 @@ export const DOCS = [
           'Pick a template, or Blank Document, and who it is for. Its name fills in as the template and the person.',
           'Fill in the details. Merge fields fill themselves. It is made from the wording last published.',
           'It opens beside the list. Send it for signature from there, or put it in a folder.',
+          'To finish in Word: on the File tab of the editor click Open in Word. Word on your computer opens the same document (Export PDF and Export DOCX sit beside it). What you change in Word saves on your computer, not back into Nexus.',
         ],
       },
       {

@@ -32,7 +32,7 @@ import { useRole } from '../contexts/RoleContext';
 import { canDictate, useDictation, spokenAfter } from '../lib/voice';
 import { DictationLive, showDictationLive } from '../lib/docDictationLive';
 import FullScreenButton, { useFullScreen } from './FullScreenButton';
-import { api } from '../api';
+import { api, API_BASE } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
 import { FILLED_WHEN } from '../lib/mergeFieldTypes';
 import { BODY_EXTENSIONS, repairDocJson } from '../lib/docBuilderSchema';
@@ -1236,6 +1236,25 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       .then(downloadBlob).catch(e => toastErr?.(e.message || 'Export failed')).finally(() => setExporting(''));
   };
 
+  // Open in Word (Pranshu, Nov 5 2026): Word on the computer opens the same
+  // .docx as Export DOCX through Office's ms-word: link and a short-lived
+  // signed file link (routers/doc_word_link.py). Edits in Word stay on the
+  // computer - nothing saves back into Nexus.
+  const openInWord = () => {
+    setExporting('word');
+    flushPendingSave()
+      .then(() => api.documentWordLink(docId))
+      .then(({ path }) => {
+        const fileUrl = new URL(`${API_BASE}${path}`, window.location.origin).href;
+        const a = document.createElement('a');
+        a.href = `ms-word:ofe|u|${fileUrl}`;
+        a.click();
+        toastOk?.('Opening in Word. Changes you make in Word save on your computer, not in Nexus. No Word on this computer? Use Export DOCX.');
+      })
+      .catch(e => toastErr?.(e.message || 'Could not open in Word'))
+      .finally(() => setExporting(''));
+  };
+
   // In-app PDF Preview - renders the exported PDF in an iframe (browsers have
   // a native PDF viewer for that) rather than hand-rolling pdfjs-dist canvas
   // rendering like PdfEditor.jsx does for field placement, a different problem.
@@ -2379,6 +2398,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
               <FileDown size={14} /> {exporting === 'docx' ? 'Exporting…' : 'Export DOCX'}
             </button>
+            <button onClick={openInWord} disabled={!!exporting} title="Open in Word on this computer to keep editing"
+              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
+              <PageIcon size={14} /> {exporting === 'word' ? 'Opening…' : 'Open in Word'}
+            </button>
             <button onClick={doSendForSignature} disabled={!!exporting} title="Send for Signature"
               className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: exporting ? 0.6 : 1 }}>
               <Send size={14} /> {exporting === 'send' ? 'Preparing…' : 'Send for Signature'}
@@ -2475,6 +2498,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             {kind === 'document' && <BigBtn icon={FileStack} label="Save as Template" onClick={saveAsTemplate} disabled={savingTemplate} />}
             {kind === 'document' && <BigBtn icon={FileDown} label="Export PDF" onClick={() => doExport('pdf')} disabled={!!exporting} />}
             {kind === 'document' && <BigBtn icon={FileDown} label="Export DOCX" onClick={() => doExport('docx')} disabled={!!exporting} />}
+            {kind === 'document' && <BigBtn icon={PageIcon} label="Open in Word" onClick={openInWord} disabled={!!exporting} />}
             {kind === 'document' && <BigBtn icon={Send} label="Preview & Send" onClick={() => { setPreview(true); openPdfPreview(); }} />}
             <BigBtn icon={Printer} label="Print" onClick={() => window.print()} />
           </Group>
