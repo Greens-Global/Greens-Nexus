@@ -77,6 +77,38 @@ deployed worker sends; a server without `NEXUS_SENTDM_KEY` fails the step
 with a readable reason. sent.dm down or a 5xx / 429 retries the step without
 texting anyone twice; any other refusal is reported for that person.
 
+Three rules keep texts considerate (Neil, 11/05/2026, `workflows/outbox.py`):
+
+- **Quiet hours, California only.** A person who works in California (the
+  `work_state` rule the California Review reads: their work site, punches,
+  People location or company; or HR put them on the California rule) is
+  never texted between 9:00 PM and 8:00 AM Pacific. Their text waits in
+  `workflow_messages` and goes out at 8:00 AM Pacific; everyone else is
+  texted at once, and the step finishes either way. Emails never wait.
+- **Texts Per Person Per Day** (Settings > Workflows, default 3, at most
+  20, per company): a person past it in the last 24 hours (held texts
+  count) gets the message in their bell instead.
+- **Send One Summary Per Person** (on Send An Email and Send A Text
+  Message): the step queues its message; the first one waits Summary Wait
+  (Settings > Workflows, default 60 minutes) for more from the same
+  workflow, then the person gets ONE email ("<Workflow>: 3 Updates") or one
+  text with them all.
+
+The outbox is flushed every workflows tick (the deployed worker only, even
+while workflows are paused). A send that fails is tried again 5, 15 and 60
+minutes later, then marked failed and the workflow owner is belled ("Workflow
+Message Not Sent"). Sent and failed rows are kept 30 days.
+
+Send An Email also takes **CC** (directory people; one email goes to
+everyone in To with the CC line, as a person would send it), **Replies Go To
+The Owner** (on by default), **Send From** the Nexus mailbox or the owner's
+own (when Nexus may not send from the owner's mailbox, the Nexus mailbox
+sends it and replies still go to the owner, `accounting_saved`'s rule) and
+**Attach The Record's Files** (a task's or ticket's files from Nexus's own
+storage, 3 MB in all; what does not fit is named in the email with the link).
+A record kind offers files by registering `files=` on its entity. A summary
+email cannot carry CC.
+
 Assign A Training Course is the Training screen's Assign as the owner: the
 owner must be a course author (a manager, or the Knowledge Base editor
 grant), the course published, and each person inside the owner's company

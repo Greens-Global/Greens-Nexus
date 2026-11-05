@@ -21,18 +21,20 @@ import { useGroupDirty } from '../lib/groupDirty';
 
 const RUNS_CAP = 500;
 const RECIPIENTS_CAP = 200;
+const TEXT_DAILY_CAP = 20;
+const SUMMARY_MAX = 1440;
 
 const pick = (m) => ({
   enabled: !!m?.enabled, ownerDigest: !!m?.ownerDigest, textMessages: m?.textMessages !== false,
   maxRunsPerHourCap: m?.maxRunsPerHourCap ?? RUNS_CAP, maxRecipientsCap: m?.maxRecipientsCap ?? RECIPIENTS_CAP,
+  textDailyCap: m?.textDailyCap ?? 3, summaryMinutes: m?.summaryMinutes ?? 60,
   nexusRunAs: !!m?.nexusRunAs, webhookHosts: Array.isArray(m?.webhookHosts) ? [...m.webhookHosts] : [],
 });
-const clamp = (v, max) => Math.min(max, Math.max(1, Number(v) || 0));
+const clamp = (v, max, min = 1) => Math.min(max, Math.max(min, Number(v) || 0));
 // The typed part of the settings: what the Save row saves.
-const typedPart = (m) => {
-  const p = pick(m);
-  return { maxRunsPerHourCap: p.maxRunsPerHourCap, maxRecipientsCap: p.maxRecipientsCap, webhookHosts: p.webhookHosts };
-};
+const TYPED = ['maxRunsPerHourCap', 'maxRecipientsCap', 'textDailyCap', 'summaryMinutes', 'webhookHosts'];
+const typedOf = (p) => Object.fromEntries(TYPED.map((k) => [k, p[k]]));
+const typedPart = (m) => typedOf(pick(m));
 
 export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr }) {
   const { myRole } = useRole();
@@ -67,6 +69,8 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
       const body = { ...pick(meta), ...next };
       body.maxRunsPerHourCap = clamp(body.maxRunsPerHourCap, RUNS_CAP);
       body.maxRecipientsCap = clamp(body.maxRecipientsCap, RECIPIENTS_CAP);
+      body.textDailyCap = clamp(body.textDailyCap, TEXT_DAILY_CAP);
+      body.summaryMinutes = clamp(body.summaryMinutes, SUMMARY_MAX, 5);
       body.webhookHosts = body.webhookHosts.map((h) => h.trim().toLowerCase()).filter(Boolean);
       // Secrets are keyed by the host as it is saved (trimmed, lowercase).
       const typedSecrets = {};
@@ -88,10 +92,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
   const flip = (key) => (v) => save({ [key]: v });
   const saveTyped = () => save(draft, { typed: secrets });
   useGroupDirty(dirty && canEdit, saveTyped);
-  const setVals = (fn) => setDraft((d) => {
-    const next = fn({ ...saved, ...d });
-    return { maxRunsPerHourCap: next.maxRunsPerHourCap, maxRecipientsCap: next.maxRecipientsCap, webhookHosts: next.webhookHosts };
-  });
+  const setVals = (fn) => setDraft((d) => typedOf(fn({ ...saved, ...d })));
 
   async function pauseAll(paused) {
     // Pausing stops every workflow for everyone, so it is held to confirm
@@ -142,6 +143,14 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
         <SwitchRow id={`wf-texts-${company || 'all'}`} title="Text Messages"
           desc={`${company ? 'Off: this company\'s workflows cannot send a text.' : 'The default for every company. Off: Send A Text Message is refused.'} Each text is billed per message; people are texted at the phone on their People record and can turn workflow texts off in their profile.${meta.textingReady === false ? ' Texting is not set up on this server yet, so texts fail until it is.' : ''}`}
           checked={vals.textMessages} disabled={off} onChange={flip('textMessages')} />
+        <SettingRow title="Texts Per Person Per Day"
+          desc={`The most workflow texts one person gets in 24 hours; past it the message goes to their notifications instead. People who work in California are never texted between 9:00 PM and 8:00 AM Pacific: those texts go out at 8:00 AM. The ceiling is ${TEXT_DAILY_CAP}.`}
+          control={<NumberBox label="Texts per person per day" min={1} max={TEXT_DAILY_CAP} unit="texts" disabled={off} value={vals.textDailyCap}
+            onChange={(v) => setVals((p) => ({ ...p, textDailyCap: v === '' ? '' : Number(v) }))} />} />
+        <SettingRow title="Summary Wait"
+          desc="For a step set to Send One Summary Per Person: how long the first message waits for more from the same workflow before each person gets one email or text with them all."
+          control={<NumberBox label="Summary wait" min={5} max={SUMMARY_MAX} unit="minutes" disabled={off} value={vals.summaryMinutes}
+            onChange={(v) => setVals((p) => ({ ...p, summaryMinutes: v === '' ? '' : Number(v) }))} />} />
         <SettingRow title="Runs Per Hour Cap"
           desc={`The most runs one workflow may start in an hour before it is paused for attention. A workflow sets its own limit below this; the ceiling is ${RUNS_CAP}.`}
           control={<NumberBox label="Runs per hour cap" min={1} max={RUNS_CAP} unit="runs" disabled={off} value={vals.maxRunsPerHourCap}

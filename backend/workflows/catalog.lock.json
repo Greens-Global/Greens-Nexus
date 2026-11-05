@@ -19,6 +19,16 @@
         },
         {
           "default": null,
+          "hint": "Copied on one email to everyone in To",
+          "key": "cc",
+          "label": "CC",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "recipients"
+        },
+        {
+          "default": null,
           "hint": "",
           "key": "subject",
           "label": "Subject",
@@ -36,6 +46,55 @@
           "options": null,
           "required": true,
           "type": "template"
+        },
+        {
+          "default": "nexus",
+          "hint": "The owner's mailbox needs Nexus to be allowed to send from it; otherwise the Nexus mailbox sends it",
+          "key": "sender",
+          "label": "Send From",
+          "max": null,
+          "options": [
+            {
+              "label": "The Nexus Mailbox",
+              "value": "nexus"
+            },
+            {
+              "label": "The Owner's Mailbox",
+              "value": "owner"
+            }
+          ],
+          "required": false,
+          "type": "select"
+        },
+        {
+          "default": true,
+          "hint": "Otherwise replies go to the Nexus mailbox",
+          "key": "replyToOwner",
+          "label": "Replies Go To The Owner",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": false,
+          "hint": "A task's or a ticket's files, 3 MB in all",
+          "key": "attach",
+          "label": "Attach The Record's Files",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": false,
+          "hint": "Waits for more from this workflow, then sends each person one email",
+          "key": "group",
+          "label": "Send One Summary Per Person",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
         }
       ]
     },
@@ -328,6 +387,16 @@
           "hint": "Adds a link to the record in Nexus",
           "key": "link",
           "label": "Include A Link",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
+        },
+        {
+          "default": false,
+          "hint": "Waits for more from this workflow, then sends each person one text",
+          "key": "group",
+          "label": "Send One Summary Per Person",
           "max": null,
           "options": null,
           "required": false,

@@ -155,6 +155,9 @@ class EntityDef:
     # on this row. None = every row; a module keeps what it hides from
     # everyone but its own people (a confidential ticket, a restricted task).
     nexus_visible: Optional[Callable] = None
+    # (db, row) -> [(name, url)]: the record's files, for Send An Email's
+    # Attach The Record's Files (11/05/2026). None = the record has none.
+    files: Optional[Callable] = None
 
     def field(self, key: str) -> Optional[Field]:
         for f in self.fields:
@@ -287,7 +290,7 @@ def _fresh(registry: dict, key: str, what: str) -> None:
 # ── registration ─────────────────────────────────────────────────────────────
 def entity(key: str, *, label: str, model, company=None, link=None, people=None, fields=(), dates=(),
            observe: bool = False, observe_fields=(), load=None, label_of=None, visible_to=None,
-           module: str = "core", people_labels=None, nexus_visible=None):
+           module: str = "core", people_labels=None, nexus_visible=None, files=None):
     """Register a kind of record. `fields` are F(...); `dates` are field keys
     (label and yearly from the field) or D(key, label, yearly) for a second
     reading of a field ("Work Anniversary" on start_date). `people` maps a
@@ -318,7 +321,7 @@ def entity(key: str, *, label: str, model, company=None, link=None, people=None,
                               people=dict(people or {}), fields=flds, dates=dts, observe=bool(observe),
                               observe_fields=tuple(observe_fields), load=load, label_of=label_of,
                               visible_to=visible_to, people_labels=dict(people_labels or {}),
-                              nexus_visible=nexus_visible)
+                              nexus_visible=nexus_visible, files=files)
     return _identity
 
 
