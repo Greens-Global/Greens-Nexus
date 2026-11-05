@@ -108,63 +108,62 @@ def retry_one(db, req: HrSignRequest, now: datetime) -> str:
     return "filed" if ok else "failed"
 
 
-# ── One-time re-file (Charmi, 11/06/2026) ───────────────────────────────────
-# Eight signed Time Sheets (10/19 - 11/03) never reached Egnyte: the person
-# folder lookup failed ("Egnyte folder not ready") until the 11/04 folder
-# matching fix, and their retries ran out first. Once, after the deploy, every
-# completed time sheet envelope with no `archived` event - whatever its age -
-# is filed again through the same _egnyte_push; each attempt is logged on the
-# envelope like any retry. The mark is claimed before the work, so two workers
-# never both run it.
-REFILE_MARK = "timesheet_filing.refile_2026_11_06"
+# ── Re-file the stuck ones (Charmi, 11/06/2026) ──────────────────────────────
+# Eight signed Time Sheets (10/19 - 11/03) never reached Egnyte and ran out of
+# retries: the person folder lookup read a busy Egnyte (429) as "the HR folder
+# does not exist". A first one-shot pass (8 in a row) hit the same wall. Until
+# REFILE_UNTIL, each pass files at most ONE completed time sheet envelope that
+# has no `archived` event, and tries a given envelope again only
+# REFILE_EVERY_MIN after its last attempt - paced, so a busy Egnyte gets room.
+# Every attempt is an `archived` / `archive_failed` event on the envelope.
+REFILE_UNTIL = datetime(2026, 11, 13, tzinfo=timezone.utc)
+REFILE_EVERY_MIN = 15
+REFILE_NOTE = "Refile"
 
 
-def refile_once(db) -> dict | None:
-    """None when already done (or Egnyte is not connected yet - it waits)."""
-    from sqlalchemy.exc import IntegrityError
-    from models import NexusSetting
+def _last_attempt(db, req_id: str):
+    row = (db.query(HrSignEvent.at)
+           .filter(HrSignEvent.request_id == req_id,
+                   HrSignEvent.type.in_(("archive_failed", GAVE_UP)))
+           .order_by(HrSignEvent.seq.desc()).first())
+    return _parse(row.at) if row else None
+
+
+def refile_stuck(db, now: datetime) -> str:
+    """One stuck envelope per call: '' (none due), 'filed' or 'failed'."""
     from routers import esign
-    if not _egnyte_connected() or db.get(NexusSetting, REFILE_MARK):
-        return None
-    stamp = _now().isoformat()
-    try:
-        db.add(NexusSetting(key=REFILE_MARK, value=stamp, updated_by="startup", updated_at=stamp))
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        return None
-    out = {"filed": 0, "failed": 0}
+    if now >= REFILE_UNTIL or not _egnyte_connected():
+        return ""
     ids = [r.id for r in db.query(HrSignRequest.id)
            .filter(HrSignRequest.link_kind == "timesheet", HrSignRequest.status == "completed",
                    HrSignRequest.final_pdf_path != "")
            .order_by(HrSignRequest.completed_at).all()]
     for rid in ids:
-        try:
-            if _state(db, rid)[0]:
-                continue                     # already filed
-            req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).with_for_update().first()
-            if req is None:
-                continue
-            blob = esign._storage_fetch(esign._DOC_BUCKET, req.final_pdf_path)
-            if not blob.is_success:
-                esign._log(db, req.id, "archive_failed", "Refile: the sealed copy could not be read from storage")
-                out["failed"] += 1
-            else:
-                ok, note = esign._egnyte_push(db, req, blob.content)
-                if ok and note:
-                    esign._log(db, req.id, "archived", f"Refile: {note}")
-                    out["filed"] += 1
-                else:
-                    if not ok:
-                        esign._log(db, req.id, "archive_failed", f"Refile: {note}")
-                    out["failed"] += 1
-            db.commit()
-        except Exception as e:   # noqa: BLE001 - one envelope must not stop the rest
-            db.rollback()
-            out["failed"] += 1
-            print(f"[timesheet-filing] refile {rid}: {type(e).__name__}: {e}")
-    print(f"[timesheet-filing] one-time refile: {out}")
-    return out
+        filed, gave_up, fails, _last = _state(db, rid)
+        if filed or not gave_up:
+            continue       # filed, or still inside the normal retries
+        last = _last_attempt(db, rid)
+        if last is not None and now < last + timedelta(minutes=REFILE_EVERY_MIN):
+            continue
+        req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).with_for_update().first()
+        if req is None or _state(db, rid)[0]:
+            continue       # another worker filed it while we waited for the lock
+        blob = esign._storage_fetch(esign._DOC_BUCKET, req.final_pdf_path)
+        if not blob.is_success:
+            esign._log(db, req.id, "archive_failed", f"{REFILE_NOTE}: the sealed copy could not be read from storage")
+            return "failed"
+        before = _state(db, rid)[2]
+        ok, note = esign._egnyte_push(db, req, blob.content)
+        if ok and note:
+            esign._log(db, req.id, "archived", f"{REFILE_NOTE}: {note}")
+            return "filed"
+        if not ok:
+            esign._log(db, req.id, "archive_failed", f"{REFILE_NOTE}: {note}")
+        elif _state(db, rid)[2] == before:
+            # No folder and nothing logged: note the attempt so it is paced.
+            esign._log(db, req.id, "archive_failed", f"{REFILE_NOTE}: no Egnyte folder resolved")
+        return "failed"
+    return ""
 
 
 def process_due(now: datetime = None, db=None) -> dict:
@@ -177,7 +176,10 @@ def process_due(now: datetime = None, db=None) -> dict:
     out = {"filed": 0, "failed": 0, "gave_up": 0}
     try:
         try:
-            refile_once(db)
+            got = refile_stuck(db, now)
+            db.commit()
+            if got:
+                print(f"[timesheet-filing] refile: {got}")
         except Exception as e:   # noqa: BLE001 - never stops the regular pass
             db.rollback()
             print(f"[timesheet-filing] refile: {type(e).__name__}: {e}")

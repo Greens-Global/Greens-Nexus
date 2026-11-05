@@ -44,14 +44,10 @@ class FilingRetryTests(ReviewCase):
         self.pushes = []
         self.ok = False
         esign._egnyte_push = self._push
-        # The 11/06 one-time refile is done here; its own test clears the mark.
-        self._mark(True)
-
-    def _mark(self, on):
-        self.db.query(models.NexusSetting).filter(models.NexusSetting.key == tf.REFILE_MARK).delete()
-        if on:
-            self.db.add(models.NexusSetting(key=tf.REFILE_MARK, value="x"))
-        self.db.commit()
+        # The 11/06 re-file is off here (past its end); its own test turns it on.
+        self._until = tf.REFILE_UNTIL
+        tf.REFILE_UNTIL = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        self.addCleanup(setattr, tf, "REFILE_UNTIL", self._until)
 
     def tearDown(self):
         svc.configured = self._cfg
@@ -103,28 +99,34 @@ class FilingRetryTests(ReviewCase):
         self.assertEqual(bell.title, "Time Sheet Not Filed in Egnyte")
         self.assertIn("file it by hand", bell.body)
 
-    def test_one_time_refile_files_a_given_up_time_sheet(self):
-        """Charmi, 11/06/2026: eight signed Time Sheets ran out of retries
-        before the 11/04 folder fix. Once, they are filed again; a filed one
-        is left alone; the mark stops a second run; no Egnyte = it waits."""
+    def test_refile_retries_a_given_up_time_sheet_paced(self):
+        """Charmi, 11/06/2026: signed Time Sheets that ran out of retries are
+        filed again - one per pass, the same envelope again only 15 minutes
+        after its last try, nothing once filed or after REFILE_UNTIL."""
         rid = self._signed()
         for minutes in (6, 40, 130, 400):
             tf.process_due(_later(minutes), self.db)
         self.assertEqual(self._events(rid)[-1][0], tf.GAVE_UP)
-        self._mark(False)
-        svc.configured = lambda: False
-        self.assertIsNone(tf.refile_once(self.db))           # waits for Egnyte, mark not taken
-        svc.configured = lambda: True
-        self.ok = True
+        tf.REFILE_UNTIL = _later(100000)
         n = len(self.pushes)
-        tf.process_due(_later(500), self.db)
-        self.assertEqual(len(self.pushes), n + 1)
+        # Event times are the real clock: the give-up was "now".
+        self.assertEqual(tf.refile_stuck(self.db, _later(5)), "")        # 15 min after give-up
+        self.assertEqual(tf.refile_stuck(self.db, _later(20)), "failed")
+        self.assertEqual(self._events(rid)[-1], ("archive_failed", "Refile: Egnyte copy failed (ReadTimeout)"))
+        self.assertEqual(tf.refile_stuck(self.db, _later(10)), "")       # paced
+        self.ok = True
+        tf.process_due(_later(20), self.db)
+        self.assertEqual(len(self.pushes), n + 2)
         self.assertEqual(self._events(rid)[-1][0], "archived")
         self.assertTrue(self._events(rid)[-1][1].startswith("Refile: filed in Egnyte"))
-        self.assertIsNone(tf.refile_once(self.db))           # once only
-        self._mark(False)
-        self.assertEqual(tf.refile_once(self.db), {"filed": 0, "failed": 0})   # filed ones are skipped
-        self.assertEqual(len(self.pushes), n + 1)
+        self.assertEqual(tf.refile_stuck(self.db, _later(900)), "")      # filed: left alone
+        self.assertEqual(len(self.pushes), n + 2)
+
+    def test_refile_leaves_one_inside_its_normal_retries(self):
+        rid = self._signed()
+        tf.REFILE_UNTIL = _later(100000)
+        self.assertEqual(tf.refile_stuck(self.db, _later(60)), "")
+        self.assertEqual(len(self._events(rid)), 1)
 
     def test_nothing_while_egnyte_is_not_connected(self):
         rid = self._signed()
@@ -233,3 +235,42 @@ class FolderAndNameTests(ReviewCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BusyEgnyteTests(unittest.TestCase):
+    """11/06/2026: a busy Egnyte (429) is not a missing HR folder."""
+
+    def _run(self, probe):
+        from types import SimpleNamespace
+        saved = (egnyte_wiring.resolve_person_folder, egnyte_wiring._person_context, egnyte_wiring.group_for_person,
+                 egnyte_wiring.effective, egnyte_wiring._match_path, svc.list_folder, svc.create_folder)
+        made = []
+        egnyte_wiring.resolve_person_folder = lambda *a, **k: {"folder": ""}
+        egnyte_wiring._person_context = lambda emp, db: {"person": "Vicki Hale", "bucket": "Employees", "entity": "Oversite"}
+        egnyte_wiring.group_for_person = lambda emp, db: None
+        egnyte_wiring.effective = lambda key: ("/Shared/#Entities/{entity}/Human Resources/{bucket}/{person}", "default")
+        egnyte_wiring._match_path = lambda path: None          # the listing failed
+        svc.list_folder = probe
+        svc.create_folder = lambda path: made.append(path)
+        try:
+            return egnyte_wiring.provision_person_folder(SimpleNamespace(), None), made
+        finally:
+            (egnyte_wiring.resolve_person_folder, egnyte_wiring._person_context, egnyte_wiring.group_for_person,
+             egnyte_wiring.effective, egnyte_wiring._match_path, svc.list_folder, svc.create_folder) = saved
+
+    def test_the_folder_is_there_after_all(self):
+        folder, made = self._run(lambda path, **k: {"folders": []})
+        self.assertEqual(folder, "/Shared/#Entities/Oversite/Human Resources/Employees/Vicki Hale")
+        self.assertEqual(made[0], folder)
+
+    def test_busy_is_egnyte_trouble_not_a_missing_folder(self):
+        def busy(path, **k):
+            raise svc.EgnyteError("busy", status=429)
+        with self.assertRaises(svc.EgnyteError):
+            self._run(busy)
+
+    def test_a_404_is_still_a_missing_folder(self):
+        def gone(path, **k):
+            raise svc.EgnyteError("nope", status=404)
+        with self.assertRaises(ValueError):
+            self._run(gone)
