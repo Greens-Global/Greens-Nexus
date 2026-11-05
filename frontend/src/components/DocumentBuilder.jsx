@@ -2682,7 +2682,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       ) : (
       <>
       {!preview && activeEditor && (
-        <>
+        <div className="doc-ribbon-sticky">
           <div className="doc-ribbon-tabs" role="tablist">
             {[['file', 'File'], ['home', 'Home'], ['insert', 'Insert'], ['layout', 'Layout'], ['references', 'References'], ['review', 'Review'], ['view', 'View'], ['help', 'Help']].map(([key, label]) => (
               <button key={key} type="button" role="tab" data-tab={key} aria-selected={ribbonTab === key} onClick={() => setRibbonTab(key)}
@@ -3430,7 +3430,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             <button onClick={() => { setFindOpen(false); setFindMatches([]); setFindIndex(-1); }} title="Close" style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={15} /></button>
           </div>
         )}
-        </>
+        </div>
       )}
 
       {!preview && quickSections.length > 0 && (
