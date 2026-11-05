@@ -149,6 +149,8 @@ def _text_runs(nodes, merge: dict) -> list:
         if t == "text":
             marks = n.get("marks") or []
             mark_types = {m.get("type") for m in marks}
+            if "deletion" in mark_types:      # a tracked deletion prints as accepted: gone
+                continue
             style_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "textStyle"), {})
             link_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "link"), {})
             highlight_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "highlight"), {})

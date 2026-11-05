@@ -469,6 +469,19 @@ describe('a Word document keeps the formatting Word shows', () => {
     expect(texts(doc).map(t => t.text)).toEqual(['Nexus', 'Field link']);
   });
 
+  it('keeps tracked changes as changes, with who and when', async () => {
+    const body = `<w:p><w:r><w:t xml:space="preserve">Net </w:t></w:r>`
+      + `<w:del w:author="Sagar" w:date="2026-11-05T10:00:00Z"><w:r><w:delText>30</w:delText></w:r></w:del>`
+      + `<w:ins w:author="Sagar" w:date="2026-11-05T10:00:00Z"><w:r><w:t>45</w:t></w:r></w:ins>`
+      + `<w:r><w:t xml:space="preserve"> days</w:t></w:r></w:p>`;
+    const { body: doc, warnings } = await convertDocxToTiptap(await docxWithParts({ body }), {});
+    const runs = texts(doc).map(t => [t.text, (t.marks || []).find(m => m.type === 'deletion' || m.type === 'insertion')]);
+    expect(runs.map(([t]) => t)).toEqual(['Net ', '30', '45', ' days']);
+    expect(runs[1][1]).toEqual({ type: 'deletion', attrs: { author: 'Sagar', name: 'Sagar', at: '2026-11-05T10:00:00Z' } });
+    expect(runs[2][1].type).toBe('insertion');
+    expect(warnings.join(' ')).toMatch(/Review tab/);
+  });
+
   it('brings the header and footer in, minus the page-number line Nexus draws itself', async () => {
     const header = `<?xml version="1.0"?><w:hdr ${DOC_NS}><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>Greens Global</w:t></w:r></w:p></w:hdr>`;
     const footer = `<?xml version="1.0"?><w:ftr ${DOC_NS}><w:p><w:r><w:t>Confidential</w:t></w:r></w:p>`

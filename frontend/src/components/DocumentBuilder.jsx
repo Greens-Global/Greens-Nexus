@@ -31,6 +31,7 @@ import { commentAnchorEl } from '../lib/docCommentMark';
 import { useRole } from '../contexts/RoleContext';
 import { canDictate, useDictation, spokenAfter } from '../lib/voice';
 import { DictationLive, showDictationLive } from '../lib/docDictationLive';
+import { listChanges } from '../lib/docTrackChanges';
 import FullScreenButton, { useFullScreen } from './FullScreenButton';
 import { api, API_BASE } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
@@ -556,6 +557,14 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // Navigation pane; Review > Spelling (the browser's own spellcheck).
   const [viewPrefs, setViewPrefs] = useState({ paginate: true, ruler: false, nav: false, spell: true });
   const setPref = (k, v) => setViewPrefs((p) => ({ ...p, [k]: v }));
+  // Review > Track Changes (Pranshu, 11/05/2026), as Word Online has it:
+  // Off / For Everyone (saved with the document, so whoever opens it next
+  // keeps tracking) / Just Mine (this browser only); Markup On Page shows the
+  // insertions and deletions, Markup In Margin the final text with a bar.
+  // Viewing is Word's read-only mode. lib/docTrackChanges.js does the work.
+  const [tracking, setTracking] = useState('off');      // off | everyone | mine
+  const [markupView, setMarkupView] = useState('all');  // all | simple
+  const [viewingOnly, setViewingOnly] = useState(false);
   const [wordCountOpen, setWordCountOpen] = useState(false);
   // Comments (Review tab, Nov 2026): the threads live on the server
   // (routers/doc_comments.py), the page keeps one `comment` mark per thread,
@@ -596,6 +605,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const canvasRef = useRef(null);
   const titleRef = useRef(null);
   const activeEditorRef = useRef(null);
+  const trackUser = useMemo(() => {
+    const row = employees.find((e) => (e.workEmail || '').toLowerCase() === me);
+    return { email: me, name: row ? `${row.firstName || ''} ${row.lastName || ''}`.trim() || me : me };
+  }, [employees, me]);
+  const applyTracking = useCallback((ed) => {
+    if (!ed || ed.isDestroyed) return;
+    ed.commands.setTrackChanges(tracking !== 'off', trackUser);
+    ed.commands.setMarkupView(markupView);
+  }, [tracking, trackUser, markupView]);
+  const applyTrackingRef = useRef(applyTracking);
+  useEffect(() => { applyTrackingRef.current = applyTracking; }, [applyTracking]);
   // Home > Dictate: the browser's own speech recognition (lib/voice.js, the
   // same as Notes); each finished phrase lands at the cursor.
   const dictation = useDictation((said) => {
@@ -697,6 +717,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const registerPageEditor = useCallback((pageId, editor) => {
     if (editor) {
       editorsRef.current.set(pageId, editor);
+      applyTrackingRef.current(editor);
       scheduleUsedScan();
       if (pendingFocusId.current === pageId) {
         pendingFocusId.current = '';
@@ -930,6 +951,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       setFieldDefs(d.fieldDefs || []);
       setSignerRoles(d.signerRoles || []);
       setPageSetup({ ...DEFAULT_PAGE_SETUP, ...(d.content?.pageSetup || {}) });
+      setTracking(d.content?.trackChanges ? 'everyone' : 'off');
       applyContent(d.content);
       hydratedRef.current = true;
       setLoading(false);
@@ -942,9 +964,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   useEffect(() => { api.getDocVariables().then(v => setVariables(Array.isArray(v) ? v : [])).catch(() => setVariables([])); }, []);
 
   useEffect(() => {
-    headerEditor?.setEditable(!preview);
-    footerEditor?.setEditable(!preview);
-  }, [preview, headerEditor, footerEditor]);
+    headerEditor?.setEditable(!preview && !viewingOnly);
+    footerEditor?.setEditable(!preview && !viewingOnly);
+  }, [preview, viewingOnly, headerEditor, footerEditor]);
+  useEffect(() => {
+    [...editorsRef.current.values(), headerEditor, footerEditor].forEach(applyTracking);
+  }, [applyTracking, headerEditor, footerEditor, pages]);
 
   const currentContent = useCallback(() => ({
     pages: pages.map(p => {
@@ -954,7 +979,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     header: headerVisible ? (headerEditor?.getJSON() ?? null) : null,
     footer: footerVisible ? (footerEditor?.getJSON() ?? null) : null,
     pageSetup,
-  }), [pages, headerEditor, footerEditor, headerVisible, footerVisible, pageSetup]);
+    trackChanges: tracking === 'everyone',
+  }), [pages, headerEditor, footerEditor, headerVisible, footerVisible, pageSetup, tracking]);
 
   // Every save goes through this ref, never through a captured currentContent.
   // TipTap/useEditor option callbacks and any useCallback that forgets a dep
@@ -975,6 +1001,31 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     const payload = kind === 'document' ? { content, note: 'Page setup changed' } : { content };
     apiUpdate(docId, payload).catch((e) => toastErr?.(e.message || 'Failed to update page setup'));
   };
+  // Track Changes For Everyone is a document setting: saved at once, like Page Setup.
+  const setTrackingMode = (mode) => {
+    setTracking(mode);
+    if (isLocked) return;
+    const content = { ...currentContent(), trackChanges: mode === 'everyone' };
+    const payload = kind === 'document' ? { content, note: mode === 'everyone' ? 'Track Changes turned on' : 'Track Changes turned off' } : { content };
+    apiUpdate(docId, payload).catch((e) => toastErr?.(e.message || 'Failed to save Track Changes'));
+  };
+  useEffect(() => { setTrackingModeRef.current = setTrackingMode; });
+  // Accept / Reject at the cursor (or the next change when the cursor is not on one), then move on.
+  const resolveChange = (accept) => {
+    const ed = activeEditor;
+    if (!ed) return;
+    const cmd = accept ? 'acceptChange' : 'rejectChange';
+    if (!ed.can()[cmd]()) ed.commands.selectChange(1);
+    ed.chain().focus()[cmd]().selectChange(1).run();
+    setSelectionTick((t) => t + 1);
+  };
+  const resolveAll = (accept) => {
+    [...editorsRef.current.values(), headerEditor, footerEditor].forEach((ed) => ed?.commands[accept ? 'acceptAllChanges' : 'rejectAllChanges']());
+    setSelectionTick((t) => t + 1);
+  };
+  const changeCount = [...editorsRef.current.values(), headerEditor, footerEditor]
+    .reduce((n, ed) => n + (ed && !ed.isDestroyed ? listChanges(ed.state.doc).length : 0), 0);
+  const docMode = viewingOnly ? 'Viewing' : tracking !== 'off' ? 'Reviewing' : 'Editing';
   const toggleHeader = () => {
     if (headerVisible) { setHeaderVisible(false); headerEditor?.commands.clearContent(); scheduleSave(); }
     else setHeaderVisible(true);
@@ -1047,12 +1098,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   useEffect(() => {
     const onKey = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); doSave({ allowEmpty: true }); }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') { e.preventDefault(); setTrackingModeRef.current(trackingRef.current === 'off' ? 'everyone' : 'off'); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [doSave]);
 
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+  const trackingRef = useRef(tracking);
+  useEffect(() => { trackingRef.current = tracking; }, [tracking]);
+  const setTrackingModeRef = useRef(() => {});
 
   const saveTitle = () => {
     const t = title.trim();
@@ -3069,7 +3124,30 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             <BigBtn icon={MessageSquare} label="Show Comments" title="Show or hide the comments pane" active={commentsOpen} onClick={() => setCommentsOpen((o) => !o)} />
           </Group>
           <Group label="Tracking">
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', padding: '0 4px', maxWidth: 200 }}>Track Changes is not in this editor yet. Version History (File) keeps every saved version.</span>
+            <Menu big icon={PenLine} label="Track Changes" title="Mark every insertion and deletion with who made it (Ctrl+Shift+E)" active={tracking !== 'off'} items={[
+              { label: 'Off', onClick: () => setTrackingMode('off'), active: tracking === 'off' },
+              { label: 'For Everyone', title: 'Saved with the document: whoever opens it next keeps tracking', onClick: () => setTrackingMode('everyone'), active: tracking === 'everyone' },
+              { label: 'Just Mine', title: 'Track my changes in this browser only', onClick: () => setTrackingMode('mine'), active: tracking === 'mine' }]} />
+            <Menu big icon={Eye} label="Markup View" items={[
+              { label: 'Markup On Page', title: 'All Markup: insertions underlined, deletions struck through', onClick: () => setMarkupView('all'), active: markupView === 'all' },
+              { label: 'Markup In Margin', title: 'Simple Markup: the final text, with a bar beside every changed paragraph', onClick: () => setMarkupView('simple'), active: markupView === 'simple' }]} />
+          </Group>
+          <Group label="Changes">
+            <Menu big icon={Check} label="Accept" title="Accept the change at the cursor and move to the next" disabled={!changeCount} items={[
+              { label: 'Accept And Move To Next', onClick: () => resolveChange(true) },
+              { label: 'Accept All Changes', onClick: () => resolveAll(true) }]} />
+            <Menu big icon={X} label="Reject" title="Reject the change at the cursor and move to the next" disabled={!changeCount} items={[
+              { label: 'Reject And Move To Next', onClick: () => resolveChange(false) },
+              { label: 'Reject All Changes', onClick: () => resolveAll(false) }]} />
+            <BigBtn icon={ChevronLeft} label="Previous" title="Previous tracked change" onClick={() => { activeEditor?.chain().focus().selectChange(-1).run(); setSelectionTick((t) => t + 1); }} disabled={!changeCount} />
+            <BigBtn icon={ChevronRight} label="Next" title="Next tracked change" onClick={() => { activeEditor?.chain().focus().selectChange(1).run(); setSelectionTick((t) => t + 1); }} disabled={!changeCount} />
+            <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center', padding: '0 4px', whiteSpace: 'nowrap' }}>{changeCount === 1 ? '1 change' : `${changeCount} changes`}</span>
+          </Group>
+          <Group label="Mode">
+            <Menu big icon={docMode === 'Viewing' ? EyeOff : docMode === 'Reviewing' ? PenLine : Type} label={docMode} title="Editing: make any changes. Reviewing: every change is tracked. Viewing: read, change nothing." items={[
+              { label: 'Editing', title: 'Make any changes', onClick: () => { setViewingOnly(false); if (tracking !== 'off') setTrackingMode('off'); }, active: docMode === 'Editing' },
+              { label: 'Reviewing', title: 'Track every change for everyone', onClick: () => { setViewingOnly(false); setTrackingMode('everyone'); }, active: docMode === 'Reviewing' },
+              { label: 'Viewing', title: 'Read the document, change nothing', onClick: () => setViewingOnly(true), active: docMode === 'Viewing' }]} />
           </Group>
           </>
           )}
@@ -3361,7 +3439,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </div>
         ) : null;
         return (
-          <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
+          <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked && !viewingOnly} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
             firstSheetPx={isFirst ? firstSheetPx : undefined} showMarks={showMarks}
             bandInfo={bandInfo} sheetBase={sheetStarts[i]} onSheets={onSheets} paginate={viewPrefs.paginate}
             topSlot={topSlot} headerSlot={headerSlot} footerSlot={footerSlot}

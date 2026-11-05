@@ -276,7 +276,7 @@ function runPropsFrom(rPr, inherited = {}, theme = null) {
   return out;
 }
 
-function marksFor(props, link) {
+function marksFor(props, link, change = null) {
   const marks = [];
   if (props.bold) marks.push({ type: 'bold' });
   if (props.italic) marks.push({ type: 'italic' });
@@ -292,6 +292,7 @@ function marksFor(props, link) {
   if (Object.keys(textStyleAttrs).length) marks.push({ type: 'textStyle', attrs: textStyleAttrs });
   if (props.highlight) marks.push({ type: 'highlight', attrs: { color: props.highlight } });
   if (link) marks.push({ type: 'link', attrs: { href: link } });
+  if (change) marks.push(change);   // a tracked insertion / deletion (Review > Track Changes)
   return marks;
 }
 
@@ -533,7 +534,7 @@ async function runToNodes(runEl, styleRunProps, link, ctx, state) {
   const rStyleId = rStyleEl && attr(rStyleEl, 'w', 'val');
   const inherited = rStyleId ? resolvedRunProps(rStyleId, ctx.styles, styleRunProps) : styleRunProps;
   const props = runPropsFrom(rPr, inherited, ctx.styles.theme);
-  const marks = marksFor(props, link || state.fieldLink);
+  const marks = marksFor(props, link || state.fieldLink, state.change);
   const pushText = (text) => {
     if (!text) return;
     const t = props.caps ? text.toUpperCase() : text;
@@ -550,13 +551,13 @@ async function runToNodes(runEl, styleRunProps, link, ctx, state) {
         const m = /^\s*HYPERLINK\s+"([^"]+)"/i.exec(state.instr || '');
         state.fieldLink = m ? m[1] : null;
         if (/^\s*(PAGE|NUMPAGES|SECTIONPAGES)\b/i.test(state.instr || '')) state.pageField = true;
-        marks.length = 0; marks.push(...marksFor(props, link || state.fieldLink));
-      } else if (kind === 'end') { state.field = null; state.instr = ''; state.fieldLink = null; marks.length = 0; marks.push(...marksFor(props, link)); }
+        marks.length = 0; marks.push(...marksFor(props, link || state.fieldLink, state.change));
+      } else if (kind === 'end') { state.field = null; state.instr = ''; state.fieldLink = null; marks.length = 0; marks.push(...marksFor(props, link, state.change)); }
     } else if (tag === 'instrText') {
       state.instr = (state.instr || '') + child.textContent;
     } else if (state.field === 'instr') {
       // Between begin and separate there is only the field code; nothing to show.
-    } else if (tag === 't') {
+    } else if (tag === 't' || tag === 'delText') {
       if (!state.pageField) pushText(child.textContent);
     } else if (tag === 'tab') {
       pushText('    ');
@@ -611,9 +612,17 @@ async function inlineNodes(parentEl, styleRunProps, link, ctx, state) {
       const m = /^\s*HYPERLINK\s+"([^"]+)"/i.exec(instr);
       const r = await inlineNodes(child, styleRunProps, (m && m[1]) || link, ctx, state);
       nodes.push(...r.nodes); after.push(...r.after);
-    } else if (isW(child, 'del') || isW(child, 'moveFrom')) {
-      ctx.stats.deletions = (ctx.stats.deletions || 0) + 1;
-    } else if (isW(child, 'ins') || isW(child, 'moveTo') || isW(child, 'smartTag') || isW(child, 'customXml') || isW(child, 'dir') || isW(child, 'bdo')) {
+    } else if (isW(child, 'del') || isW(child, 'moveFrom') || isW(child, 'ins') || isW(child, 'moveTo')) {
+      // A tracked change comes in as one (Review > Track Changes), author and
+      // date kept, so Accept / Reject work on it here too.
+      const type = isW(child, 'del') || isW(child, 'moveFrom') ? 'deletion' : 'insertion';
+      if (type === 'deletion') ctx.stats.deletions = (ctx.stats.deletions || 0) + 1;
+      const prev = state.change;
+      state.change = { type, attrs: { author: attr(child, 'w', 'author') || '', name: attr(child, 'w', 'author') || '', at: attr(child, 'w', 'date') || '' } };
+      const r = await inlineNodes(child, styleRunProps, link, ctx, state);
+      state.change = prev;
+      nodes.push(...r.nodes); after.push(...r.after);
+    } else if (isW(child, 'smartTag') || isW(child, 'customXml') || isW(child, 'dir') || isW(child, 'bdo')) {
       const r = await inlineNodes(child, styleRunProps, link, ctx, state);
       nodes.push(...r.nodes); after.push(...r.after);
     } else if (isW(child, 'sdt')) {
@@ -959,7 +968,7 @@ export async function convertDocxToTiptap(file, { uploadImage } = {}) {
   const warnings = [];
   const footnotes = await countFootnotes(readText);
   if (footnotes) warnings.push(`${footnotes} footnote${footnotes === 1 ? '' : 's'} could not be brought in - the editor has no footnotes.`);
-  if (ctx.stats.deletions) warnings.push('Tracked changes were imported as accepted.');
+  if (ctx.stats.deletions) warnings.push('Tracked changes came in as changes: accept or reject them on the Review tab.');
   if (ctx.imgCounter.dropped) warnings.push(`${ctx.imgCounter.dropped} picture${ctx.imgCounter.dropped === 1 ? '' : 's'} could not be read.`);
   if (ctx.stats.pageNumberLines) warnings.push('Page numbers come from Nexus and were left out of the header and footer.');
 

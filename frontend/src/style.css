@@ -9266,6 +9266,17 @@ body:has(.apv-phone) { overflow-x: clip; }
 /* Dictation as you speak: the phrase still being recognized, at the cursor. */
 .doc-dictation-live { color: #6b7280; font-style: italic; background: rgba(250, 204, 21, 0.18); border-radius: 3px; pointer-events: none; }
 
+/* Track Changes (Review tab, Nov 2026, lib/docTrackChanges.js): an insertion
+   is underlined and a deletion struck through in the author's color; a
+   paragraph holding a change gets Word's bar in the margin. "Markup in
+   margin" (simple) hides the deletions and shows the final text. */
+.doc-change-ins { color: var(--chg); text-decoration: underline; text-decoration-thickness: 1.5px; }
+.doc-change-del { color: var(--chg); text-decoration: line-through; }
+.doc-changed-block { position: relative; }
+.doc-changed-block::before { content: ""; position: absolute; left: -18px; top: 2px; bottom: 2px; width: 2px; background: #c00000; border-radius: 1px; }
+.doc-markup-simple .doc-change-del { display: none; }
+.doc-markup-simple .doc-change-ins { color: inherit; text-decoration: none; }
+
 /* What's New Timeline: the bar between the list and the detail (Neil,
    11/04/2026). A faint grip shows it can be moved; it turns the brand color
    while hovered, dragged or focused. ChangelogView.jsx PaneDivider. */

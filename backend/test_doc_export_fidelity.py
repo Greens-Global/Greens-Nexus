@@ -91,6 +91,18 @@ class PdfTests(unittest.TestCase):
         text = _pdf_text(render_pdf("T", [], [tiptap_to_blocks(body, {})], [], None, None))
         self.assertIn("Quarterly Vendor Agreement", text)
 
+    def test_tracked_changes_print_as_accepted(self):
+        # Review > Track Changes: the PDF shows the final wording - an insertion
+        # as plain text, a deletion not at all.
+        body = {"type": "doc", "content": [{"type": "paragraph", "content": [
+            {"type": "text", "text": "Net "},
+            {"type": "text", "text": "30", "marks": [{"type": "deletion", "attrs": {"author": "a@x", "name": "A", "at": ""}}]},
+            {"type": "text", "text": "45", "marks": [{"type": "insertion", "attrs": {"author": "a@x", "name": "A", "at": ""}}]},
+            {"type": "text", "text": " days"}]}]}
+        text = _pdf_text(render_pdf("T", [], [tiptap_to_blocks(body, {})], [], None, None))
+        self.assertIn("Net 45 days", text)
+        self.assertNotIn("30", text)
+
     def test_signature_anchors_come_from_the_real_pass(self):
         body = {"type": "doc", "content": [_p("Sign below"), {"type": "signatureBlock", "attrs": {"role": "employee"}}]}
         anchors = []
