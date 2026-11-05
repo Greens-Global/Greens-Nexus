@@ -410,10 +410,10 @@ describe('Help widget', () => {
     apiState.answer = words(120);
     await ask('long question');
     expect(panel().className).toContain('is-expanded');
-    expect(screen.getByRole('button', { name: 'Make the help panel smaller' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Shrink the help panel' }).getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('Make Smaller keeps it small for the rest of the open session, and a click on the scrim does not close Help', async () => {
+  it('Shrink keeps it small for the rest of the open session, and a click on the scrim does not close Help', async () => {
     render(<HelpMenu activeView="dashboard" />);
     await openWidget();
     await goToHelpSearch();
@@ -423,7 +423,7 @@ describe('Help widget', () => {
     expect(scrim).toBeTruthy();
     fireEvent.mouseDown(scrim);
     expect(panel().getAttribute('data-expanded')).toBe('true');
-    fireEvent.click(screen.getByRole('button', { name: 'Make the help panel smaller' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Shrink the help panel' }));
     expect(panel().getAttribute('data-expanded')).toBe('false');
     expect(screen.getByRole('button', { name: 'Expand the help panel' }).getAttribute('aria-pressed')).toBe('false');
     apiState.answer = `${words(150)} again`;

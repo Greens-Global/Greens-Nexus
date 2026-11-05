@@ -6532,7 +6532,7 @@ body:has(.docs-root) { overflow-x: clip; }
 .hw-size:focus-visible {
   outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px;
 }
-/* Make Smaller / Expand (HelpWidget.jsx): a long answer or a guide article
+/* Shrink / Expand (HelpWidget.jsx): a long answer or a guide article
    opens the panel to a full-height sheet on the right (Neil, 11/04/2026).
    Computers only - at 900px and under the panel is already full screen. */
 .hw-size {

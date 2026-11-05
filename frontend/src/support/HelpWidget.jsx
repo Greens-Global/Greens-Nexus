@@ -433,7 +433,7 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
   const [asked, setAsked] = useState('');     // the question Ask Nexus is answering
   const [askMode, setAskMode] = useState(false);
   // Something long to read (an answer over LONG_ANSWER_WORDS, a guide article)
-  // opens the panel to a full-height sheet on the right; Make Smaller keeps
+  // opens the panel to a full-height sheet on the right; Shrink keeps
   // it small until Help is closed and opened again (Neil, 11/04/2026).
   const [expanded, setExpanded] = useState(false);
   const [keptSmall, setKeptSmall] = useState(false);
@@ -527,10 +527,10 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
           <div className="hw-bar-title">{title}</div>
           {(big || canGrow) && (
             <button type="button" className="hw-size" aria-pressed={big}
-              aria-label={big ? 'Make the help panel smaller' : 'Expand the help panel'}
+              aria-label={big ? 'Shrink the help panel' : 'Expand the help panel'}
               onClick={() => { if (big) { setExpanded(false); setKeptSmall(true); } else setExpanded(true); }}>
               {big ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-              <span>{big ? 'Make Smaller' : 'Expand'}</span>
+              <span>{big ? 'Shrink' : 'Expand'}</span>
             </button>
           )}
           <button type="button" className="hw-close" onClick={() => onClose(true)} aria-label="Close help"><X size={18} /></button>
