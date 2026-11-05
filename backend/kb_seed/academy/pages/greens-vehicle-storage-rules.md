@@ -59,7 +59,7 @@ The collections ladder is the same as for a unit until the 61st day; then Cubby 
 |---|---|---|
 | Which law | Bus. & Prof. Code 21702.5 sends a registered vehicle to Civil Code 3071 (DMV lien sale) and a vessel to Harbors and Navigation Code 503. Never the normal unit auction | Property Code 59.0445 adds steps for titled vehicles and boats |
 | Who must be told | The registered owner and the legal owner (lender), through the DMV process | The last known owner and every recorded lienholder, within 30 days after taking possession; they may pay until the 31st day |
-| Towing | Allowed once rent is 60 days unpaid and the preliminary lien notice was sent | Allowed only if the rental agreement authorizes towing, the tenant did not pay by the 14th day after notice, and a licensed vehicle storage facility agrees in writing (59.052) |
+| Towing | Allowed once rent is 60 days unpaid and the preliminary lien notice was sent, with at least 10 days' notice by first-class mail with a certificate of mailing naming the tow company, its address and phone (21702.5) | Allowed only if the rental agreement authorizes towing, the tenant did not pay by the 14th day after notice, and a licensed vehicle storage facility agrees in writing (59.052) |
 | Greens' practice | Vehicle Lien Fee $350.00 on the 61st day task (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 
 Photograph the vehicle's condition before any tow.

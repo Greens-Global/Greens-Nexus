@@ -91,7 +91,7 @@ Timing: `LATE_FEE_CHARGED` events: 155 of 155 at 12:00 AM local on the 11th. Ren
 
 Query: `cubby_events` `ACCESS_CODE_CHANGED` with no manager (system made), by local day and hour, last 180 days; matched by contact and day to `LATE_FEE_CHARGED`.
 
-109 system-made gate code changes, all at 12:00 AM on the 11th, at all five sites; 108 of 109 belong to a tenant whose late fee posted the same night. Reading: Cubby suspends (changes) the delinquent tenant's gate code when the late fee posts, on the 11th. The event payload was not opened (it may hold codes), so "suspend" is inferred from the timing.
+109 system-made gate code changes, all at 12:00 AM on the 11th, at all five sites; 108 of 109 belong to a tenant whose late fee posted the same night. Reading: Cubby changes the delinquent tenant's gate code (likely a lockout) when the late fee posts, on the 11th. The event payload was not opened (it may hold codes), so "suspend" is inferred from the timing.
 
 ## Overlock
 
@@ -143,15 +143,15 @@ Lease auctions (`lease_auctions`): Escondido 23 cancelled, 1 settled unsold, 1 w
 
 Query: `leases` where active, grouped by facility, `coverage_type`, `ins_coverage_level`, `ins_premium`, with a count of `storing_vehicle`.
 
-| Facility | Plan $2,500 at $9 | $2,500 at $14 | $5,000 at $20 | $5,000 at $25 | Own policy (PRIVATE_POLICY) | None |
-|---|---|---|---|---|---|---|
-| Escondido | 291 | 261 | 8 | 13 | 232 (79 vehicles) | 0 |
-| Fairfield | 0 | 0 | 0 | 0 | 212 (207 vehicles) | 0 |
-| Murrieta | 0 | 0 | 0 | 1 | 154 (149 vehicles) | 1 |
-| Temecula | 15 | 4 | 0 | 0 | 339 (320 vehicles) | 0 |
-| Valley Center | 213 | 148 | 6 | 0 | 141 (3 vehicles) | 2 |
+| Facility | Plan $2,500 at $9 | $2,500 at $14 | $5,000 at $20 | $5,000 at $25 | Plan, no level or premium set | Own policy (PRIVATE_POLICY) | None |
+|---|---|---|---|---|---|---|---|
+| Escondido | 291 | 261 | 8 | 13 | 0 | 232 (79 vehicles) | 0 |
+| Fairfield | 0 | 0 | 0 | 0 | 0 | 212 (207 vehicles) | 0 |
+| Murrieta | 0 | 0 | 0 | 1 | 0 | 154 (149 vehicles) | 1 |
+| Temecula | 15 | 4 | 0 | 0 | 0 | 339 (320 vehicles) | 0 |
+| Valley Center | 213 | 148 | 6 | 0 | 1 | 141 (3 vehicles) | 2 |
 
-INSURANCE charges in the last 120 days: $9.00 (1,048), $14.00 (803), $25.00 (29), $20.00 (28), plus prorated amounts. Plan names are not stored in the reporting data (only level and premium). Only one vehicle lease is on a Greens plan; vehicle tenants carry their own policy.
+Plan leases total 961 (Valley Center 368, including one ORGANISATION lease with no level or premium set, from the same query). INSURANCE charges in the last 120 days: $9.00 (1,048), $14.00 (803), $25.00 (29), $20.00 (28), plus prorated amounts. Plan names are not stored in the reporting data (only level and premium). Only one vehicle lease is on a Greens plan; vehicle tenants carry their own policy.
 
 ## Deposits
 
@@ -165,7 +165,7 @@ Query: AR rows in WAIVED_*, DISCOUNTS, BAD_DEBT, credits categories, count and t
 |---|---|---|---|
 | WAIVED_FEES | 185 | $12,904.41 | $47.17 |
 | WAIVED_RENT | 42 | $3,307.76 | $32.27 |
-| DISCOUNTS (credit) | 712 | $16,660.34 | $9.98 |
+| DISCOUNTS (discount entries) | 712 | $16,660.34 | $9.98 |
 | BAD_DEBT write-offs | 6 | $3,264.51 | $373.50 |
 | Card refunds (payments) | 32 | - | - |
 | Declined attempts (payments) | 402 (285 autopay) | - | - |

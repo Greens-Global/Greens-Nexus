@@ -20,7 +20,7 @@ Every amount on this page comes from Greens' own Cubby records (From Greens' Cub
 | Mailbox Administration Fee | $10.00, once, at move-in (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 | Security deposit | None on new move-ins. Only some leases brought over from the old system at Fairfield carry one (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 | Reservation fee | None charged (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| First rent | Prorated to the end of the month; from the 26th on, the next full month is added too (jump day 26, From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
+| First rent | Prorated to the end of the month; from the 26th on, the next full month is added too (jump day 26, From Greens' Cubby, 11/2026; check against a real Preview Charges) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 
 ## Monthly Charges
 
@@ -49,7 +49,7 @@ Cubby posts the late fee by itself at 12:00 AM on the 11th, after rent has gone 
 > [!WARNING]
 > Training only, not legal advice. When in doubt, stop and ask your manager.
 
-California law (Bus. & Prof. Code 21713.5) allows a late fee only after rent is 10 days past due, only if the rental agreement states it, only once per missed payment, and caps it at the amounts in the table above. Greens' late fee is set at that cap. Texas Property Code ch. 59 sets no late-fee cap; the rental agreement sets the fee.
+California law (Bus. & Prof. Code 21713.5) allows a late fee only after rent is 10 days past due, only if the rental agreement states it, only once per missed payment, and caps it at the amounts in the table above. Greens' late fee is set at that cap. Texas: no cap was found in ch. 59 (as of 2026); confirm with your Area Manager.
 
 ## Collections and Lien Fees
 

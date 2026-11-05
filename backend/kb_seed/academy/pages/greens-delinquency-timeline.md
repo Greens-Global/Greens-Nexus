@@ -7,7 +7,7 @@ tags: collections, delinquency, lien, cubby-filled, greens-policy
 
 ## How the Count Works
 
-Rent is due on the 1st of the month at every Greens site, and every site uses jump day 26 (From Greens' Cubby, 11/2026). Day 1 is the due date. Cubby runs the ladder below by itself: it posts the fees, raises the tasks on the task list and flags the overlock. Your job is to do each task the day it appears and record what happened.
+Rent is due on the 1st of the month at every Greens site, and every site uses jump day 26 (From Greens' Cubby, 11/2026; check against a real Preview Charges). Day 1 is the due date. Cubby runs the ladder below by itself: it posts the fees, raises the tasks on the task list and flags the overlock. Your job is to do each task the day it appears and record what happened.
 
 A payment in full stops the ladder at any step. A partial payment does not: Cubby applies money to the oldest charge first, so the lease stays past due until every charge is paid.
 
@@ -21,7 +21,7 @@ A payment in full stops the ladder at any step. A partial payment does not: Cubb
 | 1st | Rent and any protection plan post. Autopay runs on the saved card or bank account (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 | 2nd | Task "2nd - Call Failed Autopay Tenants" (and the Mailbox Customer and Waste Dump User versions): call every tenant whose autopay was declined (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 | 6th | Task "6th - Call Past Due Tenants": call everyone still unpaid (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| 11th | At 12:00 AM Cubby posts the late fee and suspends the tenant's gate code (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
+| 11th | At 12:00 AM Cubby posts the late fee and changes the tenant's gate code (seen in Cubby) (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 | 15th | Cubby posts the CA Preliminary Lien Notice fee of $25.00 and the preliminary lien notice goes out (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 | 20th | Cubby flags the unit Overlock Needed at 12:00 AM. Put the overlock on, most often the next day, and mark it applied (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
 | 30th | Task "30th - Final Collection Call" (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
@@ -32,13 +32,16 @@ A payment in full stops the ladder at any step. A partial payment does not: Cubb
 
 The fee amounts are on Greens Fees and Charges.
 
+> [!NOTE]
+> The day-11 gate code change and the day-20 overlock are what Cubby does today and are under review with counsel. Staff follow Cubby, never explain or defend the timing to a tenant as the law, and send a tenant who disputes it to the manager.
+
 ## Example
 
 A Murrieta boat tenant pays $184 a month by autopay. On 03/01 the card is declined.
 
 1. 03/02: you call from the failed autopay task. No answer; you leave a voicemail and note the call.
 2. 03/06: the past due task appears. You reach the tenant, who promises to pay Friday. You note it.
-3. 03/11: nothing came in. Cubby posts a $27.60 late fee (15% of $184) and suspends the gate code.
+3. 03/11: nothing came in. Cubby posts a $27.60 late fee (15% of $184) and changes the gate code (seen in Cubby).
 4. 03/13: the tenant pays $211.60 in full. The ladder stops and nothing else posts. Check that their gate code works again before they hang up.
 
 ## What California Law Requires
@@ -67,8 +70,8 @@ Stop the ladder and call your manager the same day if any of these happen:
 
 ## Key Points
 
-- Rent is due on the 1st; call on the 2nd and the 6th; late fee and gate suspension on the 11th.
-- Preliminary lien notice on the 15th, overlock on the 20th, final call on the 30th, lien notice on the 35th.
+- Rent is due on the 1st; call on the 2nd and the 6th; late fee and gate code change (seen in Cubby) on the 11th, under review with counsel.
+- Preliminary lien notice on the 15th, overlock on the 20th (under review with counsel), final call on the 30th, lien notice on the 35th.
 - Vehicles go through the vehicle lien process on the 61st; the sale ad publishes on the 62nd.
 - Payment in full stops everything. Partial payment does not.
 - Every day and fee here is From Greens' Cubby, 11/2026.
