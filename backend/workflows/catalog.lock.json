@@ -198,6 +198,64 @@
     },
     {
       "adminOnly": false,
+      "key": "hr.set_person_field",
+      "label": "Set A Person Detail",
+      "module": "hr",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "",
+          "key": "field",
+          "label": "Detail",
+          "max": null,
+          "options": [
+            {
+              "label": "Department",
+              "value": "department"
+            },
+            {
+              "label": "Job Title",
+              "value": "job_title"
+            },
+            {
+              "label": "Manager",
+              "value": "manager_email"
+            },
+            {
+              "label": "Backup Manager",
+              "value": "backup_manager_email"
+            },
+            {
+              "label": "Location",
+              "value": "location"
+            },
+            {
+              "label": "Employment Type",
+              "value": "employment_type"
+            },
+            {
+              "label": "Status",
+              "value": "status"
+            }
+          ],
+          "required": true,
+          "type": "select"
+        },
+        {
+          "default": null,
+          "hint": "{{ fields }} are filled in. For Manager or Backup Manager, give their work email. Blank clears Job Title, Location or Backup Manager only.",
+          "key": "value",
+          "label": "Value",
+          "max": 200,
+          "options": null,
+          "required": false,
+          "type": "template"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
       "key": "hr.start_checklist",
       "label": "Start An HR Checklist",
       "module": "hr",

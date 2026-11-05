@@ -61,7 +61,8 @@ What a step can DO comes from the catalog. Messages (Core): Send A
 Notification (the bell, pushed to phones), Send An Email, **Send A Text
 Message** (11/05/2026), Post To Teams and Call A Webhook (Super
 Administrators). Records: the HR actions (Start An HR Checklist, Request An
-HR Letter, Set A Custom Field, Add A Note To The Record), the Tasks and
+HR Letter, Set A Custom Field, **Set A Person Detail** (11/05/2026, see
+below), Add A Note To The Record), the Tasks and
 Tickets actions (create, comment, assign, set a field or status, request
 approval) and **Assign A Training Course** (Knowledge Base, 11/05/2026).
 
@@ -117,10 +118,12 @@ wall. Someone who already has the course keeps it as it is.
 Not offered on purpose: approving or rejecting time off (nothing approves
 by code), deciding probation (a manager recommends, HR finalizes) and
 sending a Nexus Sign envelope (the signing order and the excluded-document
-acknowledgment are a person's call). Shifts, time off requests,
-announcements and a person's own fields have no service function a
-workflow can call yet - their logic lives in the routes - so they wait for
-one rather than get a second write path.
+acknowledgment are a person's call). Shifts, time off requests and
+announcements have no service function a workflow can call yet - their
+logic lives in the routes - so they wait for one rather than get a second
+write path. A person's own fields got theirs on 11/05/2026
+(`routers/hr.apply_profile_update`, used by both the People save and Set A
+Person Detail).
 
 Text fields take fields from the record through Insert Field - nobody types
 `{{ subject.name }}` by hand. The right rail holds Settings, Test and
@@ -201,6 +204,24 @@ longer exists is paused as Needs Attention with a bell to the owner and the
 Super Administrators. Publish, pause, resume, re-own and restore are written to the
 Audit Log (Settings > Logs). The Monday **Owner Digest** (Settings >
 Workflows) lists each owned workflow's runs, failures and what it did most.
+
+### Set A Person Detail
+
+The HR action **Set A Person Detail** (`hr.set_person_field`, 11/05/2026)
+changes one of seven fields on a person's record: Department, Job Title,
+Manager, Backup Manager, Location, Employment Type or Status. It saves through
+the People screen's own save (`routers.hr.apply_profile_update`), so the owner
+must be HR for the person and the person must be inside the owner's People
+access, and the record's history shows the change with "Workflow: <name>".
+The value may use inserted fields. A department must be one in Settings >
+Companies > Departments; Employment Type is Full Time, Part Time, Contractor
+or Intern; Status is Onboarding, Active or Inactive; a Manager or Backup
+Manager is given by work email and must be an active person in Nexus People,
+inside the owner's People access, and never the person themselves. Only Job
+Title, Location and Backup Manager may be set to blank. A value that is
+already there changes nothing. Company, work email, names, the start date and
+pay are never offered, and marking someone Left stays in People > Offboard,
+which records the termination date and runs the leaver steps.
 
 ### Templates
 
