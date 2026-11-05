@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { generateJSON, generateHTML } from '@tiptap/core';
-import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import {
   X, Eye, EyeOff, Bold, Italic, Underline, List, ListOrdered,
@@ -15,8 +14,28 @@ import {
   Scissors, ClipboardCopy, ClipboardPaste, Strikethrough, Subscript as SubscriptIcon, Superscript as SuperscriptIcon,
   Highlighter, ArrowDownAZ, ArrowUpZA, RectangleHorizontal, MousePointerSquareDashed, ListTree,
   Variable, Lock, LockOpen, Wand2, ListChecks, PenLine, BadgeCheck,
+  Mic, Ruler as RulerIcon, PanelLeft, BookOpen, SpellCheck, Accessibility, MessageSquare, Hash, Stamp, HelpCircle,
+  FilePlus, Eraser, Baseline, AlignVerticalSpaceAround, LayoutPanelTop, Columns2,
+  FlipHorizontal, FlipVertical, Frame, Replace, Image as ImageIcon, Move, Crop,
 } from 'lucide-react';
-import { api } from '../api';
+import { NodeSelection, TextSelection } from '@tiptap/pm/state';
+import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS, useDismiss } from './docRibbon/ui';
+import StyleGallery from './docRibbon/StyleGallery';
+import StatusBar from './docRibbon/StatusBar';
+import Ruler from './docRibbon/Ruler';
+import NavigationPane from './docRibbon/NavigationPane';
+import { WordCountDialog, AccessibilityDialog } from './docRibbon/WordCountDialog';
+import { countWords, accessibilityIssues, headingsOf } from './docRibbon/docStats';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import CommentsPane from './docComments/CommentsPane';
+import { useDocComments } from './docComments/useDocComments';
+import { commentAnchorEl } from '../lib/docCommentMark';
+import { useRole } from '../contexts/RoleContext';
+import { canDictate, useDictation, spokenAfter } from '../lib/voice';
+import { listChanges } from '../lib/docTrackChanges';
+import { dialog } from '../ui/dialog';
+import FullScreenButton, { useFullScreen } from './FullScreenButton';
+import { api, API_BASE } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
 import { FILLED_WHEN } from '../lib/mergeFieldTypes';
 import { BODY_EXTENSIONS, repairDocJson } from '../lib/docBuilderSchema';
@@ -24,8 +43,8 @@ import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import { slugifyToken, variableFromDrop, VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
 import { extractVariables, mergeFieldDefs, sharedDefs, tokensInDoc } from '../lib/extractVariables';
-import { Pagination, paginationKey, planBreaks } from '../lib/docBuilderPagination';
-import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanvasStyle, textFlowPx, textColumnPx, sheetPadding, sheetsFor, scrollableAncestor, measureHtmlHeight } from '../lib/pageSetup';
+import { Pagination, paginationKey, planBreaks, measureLines, posAtLineStart, marginGrowth, SHEET_SPACE_PX } from '../lib/docBuilderPagination';
+import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, marginsOf, pageCanvasStyle, textFlowPx, sheetPadding, scrollableAncestor } from '../lib/pageSetup';
 import { useIsMobile } from '../lib/useIsMobile';
 import EgnyteBrowser from './EgnyteBrowser';
 import DefineMergeFieldModal from './DefineMergeFieldModal';
@@ -74,8 +93,23 @@ export function isEmptyContent(content) {
 const TOKEN_IN_PAGE_RE = /\{\{\s*[A-Za-z0-9_.]+\s*\}\}/;
 
 const FONT_SIZES = ['10', '11', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48'];
-const SYMBOL_CHARS = ['©', '®', '™', '°', '±', '×', '÷', '•', '…', '–', '—', '§', '¶', '†', '‡', '∞', '√', '≈', '≠', '≤', '≥', '€', '£', '¥', '¢', '½', '¼', '¾', 'α', 'β', 'π', 'Ω', '→', '←', '↑', '↓'];
-const EMOJI_CHARS = ['😀', '😂', '😊', '😍', '🙌', '👍', '👎', '🙏', '🎉', '🔥', '✅', '❌', '⚠️', '💡', '📌', '📎', '📅', '⏰', '💬', '📧', '🚀', '⭐', '❤️', '👀', '🤔', '😅', '🙂', '🎯', '📈', '📉'];
+const SYMBOL_CHARS = [
+  '©', '®', '™', '°', '§', '¶', '†', '‡', '•', '…', '–', '—', '«', '»', '‹', '›', '“', '”', '‘', '’', '„', '¡', '¿', '‰', '№', '¦',
+  '±', '×', '÷', '≈', '≠', '≤', '≥', '∞', '√', '∑', '∏', '∫', '∂', '∆', '∇', '∈', '∉', '∩', '∪', '⊂', '⊃', '∧', '∨', '¬', '∝', '∴', '∵', '∠', '⊥', '∥', '‖', '⁄', '¹', '²', '³', '½', '¼', '¾', '⅓', '⅔', '⅛', '⅜', '⅝', '⅞', 'µ',
+  '€', '£', '¥', '¢', '₹', '₽', '₩', '₺', '₫', '฿', '₪',
+  'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'λ', 'μ', 'π', 'ρ', 'σ', 'τ', 'φ', 'χ', 'ψ', 'ω', 'Γ', 'Δ', 'Θ', 'Λ', 'Ξ', 'Π', 'Σ', 'Φ', 'Ψ', 'Ω',
+  '→', '←', '↑', '↓', '↔', '↕', '⇒', '⇐', '⇔', '↗', '↘', '↩', '↪', '⟶', '➔', '➜', '➤',
+  '✓', '✔', '✗', '✘', '☐', '☑', '☒', '★', '☆', '✦', '✧', '♦', '♠', '♣', '♥', '◆', '◇', '■', '□', '▪', '▫', '●', '○', '◦', '▲', '▼', '◄', '►', '◊', '†', '☎', '✉', '✂', '✎', '✏', '⌘', '⌥', '⇧', '⌫', '⏎',
+  'À', 'Á', 'Â', 'Ä', 'Å', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ñ', 'Ö', 'Ø', 'Ü', 'ß', 'à', 'á', 'â', 'ä', 'å', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï', 'ñ', 'ò', 'ó', 'ô', 'ö', 'ø', 'ù', 'ú', 'û', 'ü', 'ÿ', '℃', '℉', 'Ω', '℗', '℠',
+];
+const EMOJI_CHARS = [
+  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '🙂', '😊', '😇', '😍', '🥰', '😘', '😎', '🤓', '🧐', '🤔', '🤨', '😐', '😶', '🙄', '😏', '😬', '😴', '😷', '🤒', '🤕', '🤢', '🥳', '😢', '😭', '😱', '😤', '😡', '🤯', '😳', '🥺', '🤗', '🤫', '🤭', '🫡', '🫠',
+  '👍', '👎', '👌', '✌️', '🤞', '🤝', '👏', '🙌', '🙏', '💪', '👋', '🤙', '☝️', '👆', '👇', '👉', '👈', '✋', '🤲', '✍️', '👀', '👁️', '🧠', '🗣️',
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '💔', '💯', '✅', '❌', '⚠️', '❗', '❓', '‼️', '⭐', '🌟', '✨', '🔥', '💥', '💡', '🔔', '🔕', '🚫', '⛔', '🔴', '🟠', '🟡', '🟢', '🔵', '⚫', '⚪', '🔒', '🔓', '🔑',
+  '📌', '📍', '📎', '🖇️', '📅', '📆', '🗓️', '⏰', '⏳', '⌛', '🕒', '📧', '📨', '📩', '📬', '📞', '☎️', '📱', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '💾', '📀', '📷', '🎥', '🎬', '🎤', '🎧', '📢', '📣', '💬', '💭', '🗨️',
+  '📈', '📉', '📊', '📋', '📁', '📂', '🗂️', '📄', '📃', '📑', '📰', '🗞️', '📚', '📖', '📝', '✏️', '🖊️', '🖋️', '✒️', '📏', '📐', '✂️', '🗑️', '🔍', '🔎', '🧾', '💰', '💵', '💳', '🧮', '🏷️', '🎯', '🏆', '🥇', '🥈', '🥉', '🎉', '🎊', '🎁', '🎈',
+  '🚀', '✈️', '🚗', '🚚', '🏠', '🏢', '🏭', '🏗️', '🔧', '🔨', '🛠️', '⚙️', '🧰', '🔩', '🪜', '🧹', '🧯', '🪣', '🌍', '🌎', '🌏', '🗺️', '☀️', '🌤️', '☁️', '🌧️', '⛈️', '❄️', '🌈', '⚡', '🌡️', '☕', '🍕', '🍔', '🥗', '🍎', '🐶', '🐱', '🌱', '🌳', '🌸', '🌻', '🏖️', '⛺',
+];
 const SHAPE_TYPES = [
   { type: 'rectangle', label: 'Rectangle', Icon: Square },
   { type: 'circle', label: 'Circle', Icon: Circle },
@@ -159,7 +193,9 @@ function stripToFormat(nodes) {
 // build one from scratch). A hook can't be called conditionally/dynamically
 // inside the parent's render, so each page is its own component instance -
 // that's the actual reason this is split out, not just organization.
-function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, compact, zoom, firstSheetPx, showMarks, onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
+function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, compact, zoom, firstSheetPx, showMarks,
+  bandInfo, sheetBase = 0, onSheets, topSlot, headerSlot, footerSlot, paginate = true,
+  onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
   const editor = useEditor({
     extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination],
     content: initialJson || null,
@@ -194,41 +230,117 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   }, [editor]);
   useEffect(() => { editor?.setEditable(editable); }, [editable, editor]);
 
-  // ── Lay the blocks out onto sheets ────────────────────────────────────────
-  // Measure the top-level blocks as they actually sit, work out which ones
-  // straddle a sheet boundary, and push those onto the next sheet. The
-  // measurement subtracts the gap a block is already carrying, or every pass
-  // would add another one and the document would walk down the screen.
-  const sheetPx = compact ? 0 : textFlowPx(pageSetup);
+  // The page's own geometry, in layout px: the margins the gutter bands and
+  // the margin-dwelling header/footer are drawn in.
+  const m = marginsOf(pageSetup);
+  // A header or footer taller than its margin pushes the body away instead of
+  // running over it (Word's behavior): the margin grows by what sticks out,
+  // measured from the margin-dwelling band itself.
+  const [grow, setGrow] = useState({ top: 0, bottom: 0 });
+  const headRef = useRef(null);
+  const footRef = useRef(null);
+  const baseMt = Math.round(m.top * 96);
+  const baseMb = Math.round(m.bottom * 96);
+  const headPad = Math.round(baseMt * 0.38);
+  const footPad = Math.round(baseMb * 0.38);
+  useEffect(() => {
+    if (compact || typeof ResizeObserver === 'undefined') return undefined;
+    const measure = () => {
+      const z = zoom || 1;
+      const h = (el) => (el ? el.getBoundingClientRect().height / z : 0);
+      const next = { top: marginGrowth(baseMt, headPad, h(headRef.current)), bottom: marginGrowth(baseMb, footPad, h(footRef.current)) };
+      setGrow((g) => (g.top === next.top && g.bottom === next.bottom ? g : next));
+    };
+    const ro = new ResizeObserver(measure);
+    if (headRef.current) ro.observe(headRef.current);
+    if (footRef.current) ro.observe(footRef.current);
+    measure();
+    return () => ro.disconnect();
+  }, [compact, zoom, baseMt, baseMb, headPad, footPad]);
+  const geometry = useMemo(() => ({
+    mt: baseMt + grow.top, mb: baseMb + grow.bottom, headPad, footPad,
+    pl: Math.round(m.left * 96), pr: Math.round(m.right * 96),
+    pageColor: pageSetup.pageColor || '#fff',
+  }), [baseMt, baseMb, grow.top, grow.bottom, headPad, footPad, m.left, m.right, pageSetup.pageColor]);
+  // What every gutter band shows: header/footer HTML and the page total, plus
+  // where this page's sheets start in the whole document.
+  const revRef = useRef(0);
+  const info = useMemo(() => ({ ...(bandInfo || {}), geometry, base: sheetBase, rev: ++revRef.current }),
+    [bandInfo, geometry, sheetBase]);
+  const infoRef = useRef(info);
+  useEffect(() => {
+    infoRef.current = info;
+    if (!editor || editor.isDestroyed) return;
+    editor.view.dispatch(editor.state.tr.setMeta(paginationKey, { info }));
+  }, [info, editor]);
+  const [sheets, setSheets] = useState(1);
+
+  // ── Lay the content out onto sheets ───────────────────────────────────────
+  // Measure the top-level blocks as they actually sit, work out where each
+  // sheet runs out, and lay a gutter in there - between two blocks, or
+  // between two lines of a paragraph. The measurement subtracts the gutters
+  // already laid in, or every pass would add another one and the document
+  // would walk down the screen. Phones and multi-column pages flow freely.
+  const grown = grow.top + grow.bottom;
+  const sheetPx = compact || pageSetup.columns > 1 || !paginate ? 0 : Math.max(1, textFlowPx(pageSetup) - grown);
+  const firstPx = firstSheetPx ? Math.max(1, firstSheetPx - grown) : undefined;
   const repaginate = useCallback(() => {
-    if (!editor || editor.isDestroyed || !sheetPx) return;
+    if (!editor || editor.isDestroyed) return;
+    if (!sheetPx) {
+      // View > Separate Pages off (or a phone): one continuous flow, no gutters.
+      if (paginationKey.getState(editor.state)?.breaks?.length) editor.view.dispatch(editor.state.tr.setMeta(paginationKey, { breaks: [] }));
+      setSheets(1);
+      onSheets?.(pageId, 1);
+      return;
+    }
     const dom = editor.view.dom;
-    const kids = Array.from(dom.children);
+    const children = Array.from(dom.children);
+    const kids = children.filter((el) => !el.classList.contains('doc-sheet-gutter'));
     if (!kids.length) return;
     const z = zoom || 1;
     const prev = paginationKey.getState(editor.state)?.breaks || [];
-    const gapAt = new Map(prev.map((b) => [b.index, b.gap]));
+
+    // Gutter height already laid in, by the block whose span holds it: one
+    // between blocks sits in the span of the block above it, one inside a
+    // paragraph sits in that paragraph's own span.
+    const laidIn = new Map();
+    let blockIdx = -1;
+    const add = (i, el) => laidIn.set(i, (laidIn.get(i) || 0) + el.getBoundingClientRect().height / z);
+    for (const el of children) {
+      if (el.classList.contains('doc-sheet-gutter')) { if (blockIdx >= 0) add(blockIdx, el); continue; }
+      blockIdx += 1;
+      for (const g of el.querySelectorAll('.doc-sheet-gutter')) add(blockIdx, g);
+    }
 
     const originTop = dom.getBoundingClientRect().top;
     const tops = kids.map((el) => (el.getBoundingClientRect().top - originTop) / z);
     const total = dom.getBoundingClientRect().height / z;
     const heights = kids.map((_, i) => {
       const next = i + 1 < tops.length ? tops[i + 1] : total;
-      return Math.max(0, next - tops[i] - (gapAt.get(i + 1) || 0));
+      return Math.max(0, next - tops[i] - (laidIn.get(i) || 0));
     });
 
-    // index -> document position, so a decoration can name the block.
+    // index -> document position, so a gutter can be placed before the block.
     const posByIndex = [];
     editor.state.doc.forEach((_node, offset) => { posByIndex.push(offset); });
-    const next = planBreaks(heights, sheetPx, firstSheetPx)
-      .filter((b) => posByIndex[b.index] !== undefined)
-      .map((b) => ({ ...b, pos: posByIndex[b.index] }));
+    const next = [];
+    // An Insert > Page Break marker ends its sheet: the block after it starts the next.
+    const forced = (i) => i > 0 && kids[i - 1].classList.contains('doc-pagebreak');
+    for (const b of planBreaks(heights, sheetPx, firstPx, (i) => measureLines(kids[i], z), forced)) {
+      if (posByIndex[b.index] === undefined) continue;
+      if (!b.line) { next.push({ index: b.index, gap: b.gap, pos: posByIndex[b.index] }); continue; }
+      const pos = posAtLineStart(editor.view, kids[b.index], b.line);
+      if (pos == null) continue;   // nothing to anchor to: the paragraph runs across, as before
+      next.push({ index: b.index, gap: b.gap, pos, line: true });
+    }
 
     const same = next.length === prev.length
       && next.every((b, i) => prev[i] && prev[i].pos === b.pos && Math.abs(prev[i].gap - b.gap) < 1);
     if (same) return;   // nothing to do - and dispatching anyway would loop
-    editor.view.dispatch(editor.state.tr.setMeta(paginationKey, { breaks: next }));
-  }, [editor, sheetPx, firstSheetPx, zoom]);
+    editor.view.dispatch(editor.state.tr.setMeta(paginationKey, { breaks: next, info: infoRef.current }));
+    setSheets(next.length + 1);
+    onSheets?.(pageId, next.length + 1);
+  }, [editor, sheetPx, firstPx, zoom, onSheets, pageId]);
 
   // Re-lay out after content, geometry or zoom changes. rAF lets the browser
   // finish the layout we are about to measure.
@@ -246,10 +358,22 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   }, [editor, repaginate]);
 
   const border = pageSetup.pageBorder;
+  const g = geometry;
+  // The text frame is always whole sheets tall, so the last sheet is a full
+  // page with its footer in the bottom margin, never a page cut off under
+  // the last line.
+  const frameMin = sheetPx ? (firstPx || sheetPx) + (sheets - 1) * (sheetPx + g.mb + SHEET_SPACE_PX + g.mt) : undefined;
+  const total = bandInfo?.total || pageCount;
+  const staticBand = (html) => <div className="doc-sheet-head-text" dangerouslySetInnerHTML={{ __html: html || '' }} />;
+  // Insert > Page Numbers: where the number sits on this page's own margins
+  // (the gutter bands between sheets follow the same choice).
+  const numbersAt = bandInfo?.pageNumbers || 'bottom-right';
+  const numberSide = numbersAt.split('-')[1] || 'right';
   return (
     <div className={`doc-page${pageSetup.lineNumbers ? ' doc-line-numbers' : ''}`}
       style={{
         display: 'flex', flexDirection: 'column', margin: '0 auto 28px', ...pageCanvasStyle(pageSetup, { compact }),
+        ...(!compact && (grow.top || grow.bottom) ? { paddingTop: g.mt, paddingBottom: g.mb } : {}),
         background: pageSetup.pageColor || '#fff',
         border: border?.style ? `${border.width || 1}px ${border.style} ${border.color || '#111827'}` : undefined,
       }}
@@ -259,24 +383,60 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
         if (link) { e.preventDefault(); onTocClick(link.getAttribute('href')); return; }
         onActivity(pageId);
       }}>
-      <div style={{ flex: 1, columnCount: pageSetup.columns > 1 ? pageSetup.columns : undefined, columnGap: pageSetup.columns > 1 ? 32 : undefined }}>
+      {pageSetup.watermark && <div className="doc-page-watermark" aria-hidden="true">{pageSetup.watermark}</div>}
+      {compact ? (headerSlot && <div style={{ marginBottom: 8 }}>{headerSlot}</div>) : (
+        <div className="doc-page-margin-head" style={{ left: g.pl, right: g.pr, top: headPad, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div ref={headRef} style={{ flex: '1 1 auto', minWidth: 0 }}>{headerSlot ?? staticBand(bandInfo?.headerHtml)}</div>
+          {numbersAt.startsWith('top') && <span className={`doc-page-pageno is-${numberSide}`} style={{ flex: '0 0 auto', whiteSpace: 'nowrap', userSelect: 'none' }}>Page {sheetBase + 1} of {total}</span>}
+        </div>
+      )}
+      {topSlot}
+      <div style={{ flex: 1, minHeight: frameMin, columnCount: pageSetup.columns > 1 ? pageSetup.columns : undefined, columnGap: pageSetup.columns > 1 ? 32 : undefined }}>
         <EditorContent editor={editor} className={`doc-editor${showMarks ? ' show-marks' : ''}`}
           onPaste={(e) => onPaste(pageId, e)}
           // dragOver must be cancelled or the browser refuses the drop.
           onDragOver={(e) => { if (editable) e.preventDefault(); }}
           onDrop={(e) => { if (editable) onVariableDrop(pageId, e); }} />
       </div>
-      {/* A running footer on every page, on by default - title left, page
-          number right, the standard document-footer layout. Purely a
-          display row (not part of the editable doc/TipTap content) - each
-          page's own index/count IS the real page number now that pages are
-          true independent units, no separate counter to keep in sync, and
-          the title is plain text (not an editor), so unlike the optional
-          custom footer below, this CAN genuinely repeat on every page. */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, fontSize: 10.5, color: '#9ca3af', marginTop: 10, paddingTop: 8, borderTop: '1px solid #eceef1', userSelect: 'none' }}>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{docTitle}</span>
-        <span style={{ flex: '0 0 auto' }}>Page {pageNumber} of {pageCount}</span>
-      </div>
+      {compact ? (
+        <>
+          {footerSlot && <div style={{ marginTop: 8 }}>{footerSlot}</div>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, fontSize: 10.5, color: '#9ca3af', marginTop: 10, paddingTop: 8, borderTop: '1px solid #eceef1', userSelect: 'none' }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{docTitle}</span>
+            <span style={{ flex: '0 0 auto' }}>Page {pageNumber} of {pageCount}</span>
+          </div>
+        </>
+      ) : (
+        /* The last sheet's footer, in the bottom margin like every other
+           sheet's (the gutter bands draw the ones in between). */
+        <div className="doc-page-margin-foot" style={{ left: g.pl, right: g.pr, bottom: footPad, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 }}>
+          <div ref={footRef} style={{ flex: '1 1 auto', minWidth: 0 }}>{footerSlot ?? staticBand(bandInfo?.footerHtml)}</div>
+          {numbersAt.startsWith('bottom') && <span className={`doc-page-pageno is-${numberSide}`} style={{ flex: '0 0 auto', whiteSpace: 'nowrap', userSelect: 'none' }}>Page {sheetBase + sheets} of {total}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// A menu at the mouse (Word's right-click on a picture). Items are
+// { label, icon, hint, onClick, active, heading, sub } or '-'.
+function ContextMenu({ x, y, items, onClose }) {
+  const ref = useRef(null);
+  useDismiss(ref, true, onClose);
+  const left = Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 240);
+  const top = Math.min(y, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 420);
+  return (
+    <div ref={ref} className="doc-ribbon-panel doc-ctx-menu" role="menu" style={{ position: 'fixed', left, top, width: 230 }}>
+      {items.map((it, i) => (it === '-' ? <div key={i} className="doc-ribbon-sep" /> : it.heading ? (
+        <div key={it.label} className="doc-ctx-heading">{it.label}</div>
+      ) : (
+        <button key={it.label} type="button" role="menuitem" className={`doc-ribbon-item${it.active ? ' is-active' : ''}${it.sub ? ' is-sub' : ''}`}
+          onClick={() => { it.onClick?.(); onClose(); }}>
+          {it.icon && <it.icon size={14} />}
+          <span style={{ flex: 1 }}>{it.label}</span>
+          {it.hint && <span className="doc-ctx-hint">{it.hint}</span>}
+        </button>
+      )))}
     </div>
   );
 }
@@ -307,7 +467,6 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // editor then puts the caret where the text used to be, which is exactly the
   // class of bug this module already fought once.
   const [zoom, setZoom] = useState(1);
-  const zoomBy = (d) => setZoom(z => Math.min(2, Math.max(0.5, Math.round((z + d) * 100) / 100)));
   // Requirement 7: a generated document is FINAL - it carries the approved
   // template language with the supplied values, so it is not freely editable
   // afterwards. The server enforces this (documents.py refuses a content
@@ -332,6 +491,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [newBookmarkName, setNewBookmarkName] = useState('');
   const [symbolPopoverOpen, setSymbolPopoverOpen] = useState(false);
   const [symbolTab, setSymbolTab] = useState('symbols'); // 'symbols' | 'emoji'
+  // Picture Format (Pranshu, 11/05/2026: Word Online's Picture tab and its
+  // right-click menu). The tab shows while a picture is selected.
+  const [lockAspect, setLockAspect] = useState(true);
+  const [imgMenu, setImgMenu] = useState(null);           // { x, y } of the open right-click menu
+  const [cropping, setCropping] = useState(false);        // Picture > Crop: the edge handles are out
+  const changePictureRef = useRef(false);                 // the next picked file replaces the selected picture
   const [saveStatus, setSaveStatus] = useState('idle');
   // Whether this document has ever held real content in this session - the
   // empty-save guard only bites once we know there is something to lose.
@@ -408,8 +573,6 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [shapeFill, setShapeFill] = useState('#dbeafe');
   const [shapeStroke, setShapeStroke] = useState('#2563eb');
   const [shapeWrapMode, setShapeWrapMode] = useState('inline');
-  const [textboxPopoverOpen, setTextboxPopoverOpen] = useState(false);
-  const [textboxWrapMode, setTextboxWrapMode] = useState('inline');
   const [importPopoverOpen, setImportPopoverOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [egnyteOpen, setEgnyteOpen] = useState(false);
@@ -462,6 +625,94 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const zoomRef = useRef(1);
   useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
+  // Word's View tab, this browser only: Separate Pages (pagination), Ruler,
+  // Navigation pane; Review > Spelling (the browser's own spellcheck).
+  const [viewPrefs, setViewPrefs] = useState({ paginate: true, ruler: false, nav: false, spell: true });
+  const setPref = (k, v) => setViewPrefs((p) => ({ ...p, [k]: v }));
+  // Review > Track Changes (Pranshu, 11/05/2026), as Word Online has it:
+  // Off / For Everyone (saved with the document, so whoever opens it next
+  // keeps tracking) / Just Mine (this browser only); Markup On Page shows the
+  // insertions and deletions, Markup In Margin the final text with a bar.
+  // Viewing is Word's read-only mode. lib/docTrackChanges.js does the work.
+  const [tracking, setTracking] = useState('off');      // off | everyone | mine
+  const [markupView, setMarkupView] = useState('all');  // all | simple
+  const [viewingOnly, setViewingOnly] = useState(false);
+  const [wordCountOpen, setWordCountOpen] = useState(false);
+  // Comments (Review tab, Nov 2026): the threads live on the server
+  // (routers/doc_comments.py), the page keeps one `comment` mark per thread,
+  // and the pane opens beside the pages.
+  const { myEmail: me = '', myLevel = 1 } = useRole() || {};
+  const commentStore = useDocComments(kind, docId);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [activeComment, setActiveComment] = useState('');
+  const [commentDraft, setCommentDraft] = useState(null);
+  // The active thread's mark lights up; a click on any mark opens its thread.
+  useEffect(() => {
+    document.querySelectorAll('.doc-comment-mark.is-active').forEach((el) => el.classList.remove('is-active'));
+    if (activeComment) document.querySelectorAll(`[data-comment-id="${CSS.escape(activeComment)}"]`).forEach((el) => el.classList.add('is-active'));
+  }, [activeComment, commentStore.comments]);
+  useEffect(() => {
+    const onClick = (e) => {
+      const el = e.target.closest?.('[data-comment-id]');
+      if (!el || !e.target.closest('.doc-page')) return;
+      setActiveComment(el.getAttribute('data-comment-id'));
+      setCommentsOpen(true);
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, []);
+  // A thread deleted, by anyone, takes its mark with it.
+  useEffect(() => {
+    if (commentStore.loading) return;
+    const ids = new Set(commentStore.comments.map((c) => c.id));
+    for (const ed of editorsRef.current.values()) {
+      const stale = new Set();
+      ed.state.doc.descendants((n) => { n.marks.forEach((m) => { if (m.type.name === 'comment' && m.attrs.id && !ids.has(m.attrs.id)) stale.add(m.attrs.id); }); });
+      stale.forEach((id) => ed.commands.unsetComment(id));
+    }
+  }, [commentStore.comments, commentStore.loading]);
+  const [a11yIssues, setA11yIssues] = useState(null);
+  const [full, toggleFull] = useFullScreen('documents');
+  const rootRef = useRef(null);
+  const canvasRef = useRef(null);
+  const titleRef = useRef(null);
+  const activeEditorRef = useRef(null);
+  const trackUser = useMemo(() => {
+    const row = employees.find((e) => (e.workEmail || '').toLowerCase() === me);
+    return { email: me, name: row ? `${row.firstName || ''} ${row.lastName || ''}`.trim() || me : me };
+  }, [employees, me]);
+  const applyTracking = useCallback((ed) => {
+    if (!ed || ed.isDestroyed) return;
+    ed.commands.setTrackChanges(tracking !== 'off', trackUser);
+    ed.commands.setMarkupView(markupView);
+  }, [tracking, trackUser, markupView]);
+  const applyTrackingRef = useRef(applyTracking);
+  useEffect(() => { applyTrackingRef.current = applyTracking; }, [applyTracking]);
+  // Home > Dictate: the browser's own speech recognition (lib/voice.js, the
+  // same as Notes). The words land as they are spoken (Pranshu, 11/05/2026:
+  // "it should write in flow"): the phrase still being recognized is real
+  // text at the cursor, rewritten each time the browser revises it, and left
+  // as it stands once the browser calls it final.
+  const spokenRef = useRef(null);   // { ed, from, to } of the phrase being spoken
+  const putSpoken = useCallback((said, final) => {
+    const live = spokenRef.current;
+    const ed = live?.ed || activeEditorRef.current;
+    if (!ed || ed.isDestroyed) { spokenRef.current = null; return; }
+    const size = ed.state.doc.content.size;
+    const from = Math.min(live ? live.from : ed.state.selection.from, size);
+    const to = Math.min(live ? live.to : ed.state.selection.to, size);
+    const before = ed.state.doc.textBetween(Math.max(0, from - 2), from, ' ');
+    const text = spokenAfter(before, said);
+    const tr = ed.state.tr.insertText(text, from, to);
+    tr.setSelection(TextSelection.create(tr.doc, from + text.length));
+    ed.view.dispatch(tr);
+    spokenRef.current = final || !text ? null : { ed, from, to: from + text.length };
+  }, []);
+  const dictation = useDictation((said) => putSpoken(said, true));
+  useEffect(() => {
+    if (!dictation.listening) { spokenRef.current = null; return; }
+    if (dictation.interim || spokenRef.current) putSpoken(dictation.interim, false);
+  }, [dictation.interim, dictation.listening, putSpoken]);
   // Pages (each a real independent editor instance - see DocPage above).
   // `pages` only tracks existence/order/the seed content a freshly
   // added/duplicated page mounts with; once a page's DocPage has mounted,
@@ -524,7 +775,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     // CSS `zoom` scales the rendered box getBoundingClientRect reports, while
     // textFlowPx is in unzoomed layout pixels - without this, page 5 at 150%
     // lands around page 3.
-    const offset = slice * textFlowPx(pageSetupRef.current) * (zoomRef.current || 1);
+    // One sheet's stride: its text frame, both margins and the gray gap.
+    const ps = pageSetupRef.current;
+    const mg = marginsOf(ps);
+    const stride = textFlowPx(ps) + Math.round((mg.top + mg.bottom) * 96) + SHEET_SPACE_PX;
+    const offset = slice * stride * (zoomRef.current || 1);
     const isDoc = scroller === document.scrollingElement || scroller === document.documentElement;
     const scrollerTop = isDoc ? 0 : scroller.getBoundingClientRect().top;
     const delta = pageEl.getBoundingClientRect().top - scrollerTop;
@@ -542,9 +797,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     });
   }, []);
   const registerPageEditor = useCallback((pageId, editor) => {
-    if (editor) scheduleMeasureSpansRef.current?.();
     if (editor) {
       editorsRef.current.set(pageId, editor);
+      applyTrackingRef.current(editor);
       scheduleUsedScan();
       if (pendingFocusId.current === pageId) {
         pendingFocusId.current = '';
@@ -578,11 +833,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // How many SHEETS each editor page's content actually fills.
   //
   // Sagar, Sep 17, twice: "it's a 6 page document but the left panel shows only
-  // one page". The rail used to draw one thumbnail per editor page - the sheets
-  // you add with Add page - and a page's overflow was simply clipped, so a
-  // document that ran to six sheets still showed one. Now the live editor DOM
-  // is measured against the height of one sheet and the rail draws one
-  // thumbnail per sheetful, each showing its own slice.
+  // one page". Each page's live pagination (DocPage) reports how many sheets
+  // it laid out, and the rail draws one thumbnail per sheet.
   //
   // This is the BROWSER's reckoning of where the pages fall. The exported PDF
   // is laid out by reportlab, a different engine with its own metrics, so the
@@ -594,39 +846,18 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const letterheadRef = useRef(null);
   const [letterheadPx, setLetterheadPx] = useState(0);
   const [pageSpans, setPageSpans] = useState({});
-  const spanTimerRef = useRef(null);
-  const measureSpans = useCallback(() => {
-    // Measure at the REAL text-column width, not by reading the live editor
-    // DOM: the editor wraps text in a 624px column now, but the measurement
-    // must also be immune to the canvas zoom, and measureHtmlHeight returns a
-    // plain number so the read can never be deferred past the probe's life.
-    const width = textColumnPx(pageSetup);
-    const next = {};
-    for (const p of pagesRef.current || []) {
-      const ed = editorsRef.current.get(p.id);
-      const json = ed ? ed.getJSON() : p.json;
-      let html = '';
-      try { html = json ? generateHTML(json, BODY_EXTENSIONS) : ''; } catch { html = ''; }
-      const isFirstPage = (pagesRef.current || [])[0]?.id === p.id;
-      next[p.id] = sheetsFor(measureHtmlHeight(html, width), pageSetup,
-                             isFirstPage ? firstSheetPxRef.current : undefined);
-    }
-    setPageSpans(next);
-  }, [pageSetup]);
-  const scheduleMeasureSpansRef = useRef(null);
-  const firstSheetPxRef = useRef(0);
-  const scheduleMeasureSpans = useCallback(() => {
-    if (spanTimerRef.current) clearTimeout(spanTimerRef.current);
-    spanTimerRef.current = setTimeout(() => { spanTimerRef.current = null; measureSpans(); }, 350);
-  }, [measureSpans]);
-
-  useEffect(() => { scheduleMeasureSpansRef.current = scheduleMeasureSpans; }, [scheduleMeasureSpans]);
+  const onSheets = useCallback((pageId, n) => {
+    setPageSpans((prev) => (prev[pageId] === n ? prev : { ...prev, [pageId]: n }));
+  }, []);
+  // The header and footer every sheet repeats: the gutter bands and the page
+  // margins draw them as static HTML, the editors themselves live on the
+  // first and last page.
+  const [bandHtml, setBandHtml] = useState({ headerHtml: '', footerHtml: '' });
 
 
   const onPageUpdate = useCallback((pageId) => {
     scheduleSaveRef.current?.();
     setSelectionTick((t) => t + 1);
-    scheduleMeasureSpans();
     scheduleUsedScan();
     if (!pageId) return;
     // Debounced: the scan reads the page's text, which is not free on a long
@@ -638,52 +869,84 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       if (!ed || !TOKEN_IN_PAGE_RE.test(ed.state.doc.textContent)) return;
       detectRef.current?.(pageId, { quiet: true });
     }, 600);
-  }, [scheduleMeasureSpans, scheduleUsedScan]);
+  }, [scheduleUsedScan]);
   useEffect(() => () => { if (detectTimerRef.current) clearTimeout(detectTimerRef.current); }, []);
-  useEffect(() => () => { if (spanTimerRef.current) clearTimeout(spanTimerRef.current); }, []);
-  // Re-measure when the page geometry changes (size/orientation/margins), when
-  // pages are added or removed, and once the editors have mounted their content.
-  // `preview` is in here deliberately. Leaving Preview unmounts and remounts
-  // every page editor, so the spans measured before it are stale - and because
-  // the new editors mount empty for a frame, the measurement has to wait for
-  // them (scheduleMeasureSpans is debounced, and re-runs as content arrives via
-  // onPageUpdate). Without this the rail came back from Preview showing one
-  // page. Sagar, Sep 18.
-  useEffect(() => { scheduleMeasureSpans(); }, [pages, pageSetup, zoom, preview, scheduleMeasureSpans]);
   const onPageActivity = useCallback((pageId) => {
     setActivePageId(pageId);
     setSelectionTick((t) => t + 1);
-    // Format Painter: a non-empty selection made anywhere while "painting"
-    // is armed gets the captured marks applied, then the painter turns off -
-    // same one-shot behavior as Word's paintbrush.
-    const marks = formatPainterRef.current;
-    const ed = editorsRef.current.get(pageId);
-    if (marks && ed && !ed.state.selection.empty) {
-      let chain = ed.chain().focus();
-      chain = marks.bold ? chain.setBold() : chain.unsetBold();
-      chain = marks.italic ? chain.setItalic() : chain.unsetItalic();
-      chain = marks.underline ? chain.setUnderline() : chain.unsetUnderline();
-      if (marks.color) chain = chain.setColor(marks.color);
-      if (marks.fontFamily) chain = chain.setFontFamily(marks.fontFamily);
-      if (marks.fontSize) chain = chain.setFontSize(marks.fontSize);
-      chain.run();
-      formatPainterRef.current = null;
-      setPainterActive(false);
-    }
   }, []);
   const activeEditor = editorsRef.current.get(activePageId);
 
+  const commentRoots = commentStore.comments.filter((c) => !c.parentId);
+  const startComment = () => {
+    if (!activeEditor || activeEditor.state.selection.empty) { toastErr?.('Select the text to comment on first.'); return; }
+    const { from, to } = activeEditor.state.selection;
+    const quote = activeEditor.state.doc.textBetween(from, to, ' ').trim().slice(0, 300);
+    setCommentDraft({ quote, from, to, pageId: activePageId });
+    setCommentsOpen(true);
+  };
+  const onCommentSaved = (c, draft) => {
+    const ed = editorsRef.current.get(draft.pageId);
+    if (ed && c?.id) ed.chain().setTextSelection({ from: draft.from, to: draft.to }).setComment(c.id).run();
+    setCommentDraft(null);
+    setActiveComment(c?.id || '');
+  };
+  const selectComment = (id) => {
+    setActiveComment(id);
+    setCommentsOpen(true);
+    for (const ed of editorsRef.current.values()) {
+      const el = commentAnchorEl(ed.view.dom, id);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); break; }
+    }
+  };
+  const stepComment = (dir) => {
+    if (!commentRoots.length) return;
+    const i = commentRoots.findIndex((c) => c.id === activeComment);
+    selectComment(commentRoots[(i + dir + commentRoots.length) % commentRoots.length].id);
+  };
+  // A thread is gone for good, so the ribbon's Delete holds inside the dialog
+  // that says so (the pane's own Delete holds on the row).
+  const deleteActiveComment = async () => {
+    if (!activeComment) return;
+    dialog.confirm('Delete this comment thread and its replies?', {
+      hold: true, confirmText: 'Delete', doneText: 'Deleted',
+      onConfirm: async () => { await commentStore.remove(activeComment); setActiveComment(''); },
+    });
+  };
+  activeEditorRef.current = activeEditor;
+  // Review > Spelling: the browser underlines misspellings on every page.
+  useEffect(() => {
+    rootRef.current?.querySelectorAll('.ProseMirror').forEach((el) => el.setAttribute('spellcheck', viewPrefs.spell ? 'true' : 'false'));
+  }, [viewPrefs.spell, pages, selectionTick]);
+
+  // The same schema as the pages, so a header imported from Word keeps its
+  // font, size, alignment and table - a plain StarterKit threw them away.
   const headerEditor = useEditor({
-    extensions: [StarterKit, Placeholder.configure({ placeholder: 'Header text…' })],
+    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Header text…' })],
     content: null,
     onUpdate: () => { if (hydratedRef.current) scheduleSave(); scheduleUsedScan(); },
   });
 
   const footerEditor = useEditor({
-    extensions: [StarterKit, Placeholder.configure({ placeholder: 'Footer text…' })],
+    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Footer text…' })],
     content: null,
     onUpdate: () => { if (hydratedRef.current) scheduleSave(); scheduleUsedScan(); },
   });
+
+  // The static copies every sheet band shows. `pages` is a dependency on
+  // purpose: a load or an import sets the editors' content without an update
+  // event, and changes the page list at the same time.
+  useEffect(() => {
+    if (!headerEditor || !footerEditor) return undefined;
+    const refresh = () => setBandHtml({
+      headerHtml: headerVisible ? headerEditor.getHTML() : '',
+      footerHtml: footerVisible ? footerEditor.getHTML() : '',
+    });
+    refresh();
+    headerEditor.on('update', refresh);
+    footerEditor.on('update', refresh);
+    return () => { headerEditor.off('update', refresh); footerEditor.off('update', refresh); };
+  }, [headerEditor, footerEditor, headerVisible, footerVisible, pages]);
 
   // Every merge field on the pages (in page order), the header and the footer,
   // counted. Kept as the same array when nothing changed so the rail does not
@@ -752,6 +1015,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       setFieldDefs(d.fieldDefs || []);
       setSignerRoles(d.signerRoles || []);
       setPageSetup({ ...DEFAULT_PAGE_SETUP, ...(d.content?.pageSetup || {}) });
+      setTracking(d.content?.trackChanges ? 'everyone' : 'off');
       applyContent(d.content);
       hydratedRef.current = true;
       setLoading(false);
@@ -764,9 +1028,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   useEffect(() => { api.getDocVariables().then(v => setVariables(Array.isArray(v) ? v : [])).catch(() => setVariables([])); }, []);
 
   useEffect(() => {
-    headerEditor?.setEditable(!preview);
-    footerEditor?.setEditable(!preview);
-  }, [preview, headerEditor, footerEditor]);
+    headerEditor?.setEditable(!preview && !viewingOnly);
+    footerEditor?.setEditable(!preview && !viewingOnly);
+  }, [preview, viewingOnly, headerEditor, footerEditor]);
+  useEffect(() => {
+    [...editorsRef.current.values(), headerEditor, footerEditor].forEach(applyTracking);
+  }, [applyTracking, headerEditor, footerEditor, pages]);
 
   const currentContent = useCallback(() => ({
     pages: pages.map(p => {
@@ -776,7 +1043,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     header: headerVisible ? (headerEditor?.getJSON() ?? null) : null,
     footer: footerVisible ? (footerEditor?.getJSON() ?? null) : null,
     pageSetup,
-  }), [pages, headerEditor, footerEditor, headerVisible, footerVisible, pageSetup]);
+    trackChanges: tracking === 'everyone',
+  }), [pages, headerEditor, footerEditor, headerVisible, footerVisible, pageSetup, tracking]);
 
   // Every save goes through this ref, never through a captured currentContent.
   // TipTap/useEditor option callbacks and any useCallback that forgets a dep
@@ -797,6 +1065,31 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     const payload = kind === 'document' ? { content, note: 'Page setup changed' } : { content };
     apiUpdate(docId, payload).catch((e) => toastErr?.(e.message || 'Failed to update page setup'));
   };
+  // Track Changes For Everyone is a document setting: saved at once, like Page Setup.
+  const setTrackingMode = (mode) => {
+    setTracking(mode);
+    if (isLocked) return;
+    const content = { ...currentContent(), trackChanges: mode === 'everyone' };
+    const payload = kind === 'document' ? { content, note: mode === 'everyone' ? 'Track Changes turned on' : 'Track Changes turned off' } : { content };
+    apiUpdate(docId, payload).catch((e) => toastErr?.(e.message || 'Failed to save Track Changes'));
+  };
+  useEffect(() => { setTrackingModeRef.current = setTrackingMode; });
+  // Accept / Reject at the cursor (or the next change when the cursor is not on one), then move on.
+  const resolveChange = (accept) => {
+    const ed = activeEditor;
+    if (!ed) return;
+    const cmd = accept ? 'acceptChange' : 'rejectChange';
+    if (!ed.can()[cmd]()) ed.commands.selectChange(1);
+    ed.chain().focus()[cmd]().selectChange(1).run();
+    setSelectionTick((t) => t + 1);
+  };
+  const resolveAll = (accept) => {
+    [...editorsRef.current.values(), headerEditor, footerEditor].forEach((ed) => ed?.commands[accept ? 'acceptAllChanges' : 'rejectAllChanges']());
+    setSelectionTick((t) => t + 1);
+  };
+  const changeCount = [...editorsRef.current.values(), headerEditor, footerEditor]
+    .reduce((n, ed) => n + (ed && !ed.isDestroyed ? listChanges(ed.state.doc).length : 0), 0);
+  const docMode = viewingOnly ? 'Viewing' : tracking !== 'off' ? 'Reviewing' : 'Editing';
   const toggleHeader = () => {
     if (headerVisible) { setHeaderVisible(false); headerEditor?.commands.clearContent(); scheduleSave(); }
     else setHeaderVisible(true);
@@ -869,12 +1162,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   useEffect(() => {
     const onKey = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); doSave({ allowEmpty: true }); }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') { e.preventDefault(); setTrackingModeRef.current(trackingRef.current === 'off' ? 'everyone' : 'off'); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [doSave]);
 
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+  const trackingRef = useRef(tracking);
+  useEffect(() => { trackingRef.current = tracking; }, [tracking]);
+  const setTrackingModeRef = useRef(() => {});
 
   const saveTitle = () => {
     const t = title.trim();
@@ -950,10 +1247,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   // The first sheet is shorter by the letterhead band; later sheets are full.
   const firstSheetPx = Math.max(1, textFlowPx(pageSetup) - (letterheadPx || 0));
-  useEffect(() => {
-    firstSheetPxRef.current = firstSheetPx;
-    scheduleMeasureSpansRef.current?.();
-  }, [firstSheetPx]);
+  // Where each page's sheets start in the whole document, and the total -
+  // what every band's "Page 3 of 9" is counted from.
+  const sheetStarts = [];
+  let totalSheets = 0;
+  for (const p of pages) { sheetStarts.push(totalSheets); totalSheets += Math.max(1, pageSpans[p.id] || 1); }
+  const bandInfo = useMemo(() => ({ ...bandHtml, total: totalSheets, pageNumbers: pageSetup.pageNumbers || 'bottom-right' }), [bandHtml, totalSheets, pageSetup.pageNumbers]);
 
   const changeEmployee = (id) => {
     setEmployeeId(id);
@@ -1019,6 +1318,15 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     return out;
   }, [fieldDefs]);
   const shared = useMemo(() => sharedDefs(variables, docId), [variables, docId]);
+  // The chips on the page say what the field definition calls them.
+  useEffect(() => {
+    for (const ed of editorsRef.current.values()) {
+      ed.view.dom.querySelectorAll('.tpl-chip[data-merge-token]').forEach((el) => {
+        const label = varLabel[el.getAttribute('data-merge-token')];
+        if (label && el.textContent !== label) el.textContent = label;
+      });
+    }
+  }, [varLabel, pages]);
   // The insert picker, grouped by WHEN Nexus fills each built-in. Until the
   // library answers, the short list it always had.
   const builtinGroups = useMemo(() => {
@@ -1054,6 +1362,25 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     flushPendingSave()
       .then(() => (format === 'pdf' ? api.exportDocumentPdf(docId) : api.exportDocumentDocx(docId)))
       .then(downloadBlob).catch(e => toastErr?.(e.message || 'Export failed')).finally(() => setExporting(''));
+  };
+
+  // Open in Word (Pranshu, Nov 5 2026): Word on the computer opens the same
+  // .docx as Export DOCX through Office's ms-word: link and a short-lived
+  // signed file link (routers/doc_word_link.py). Edits in Word stay on the
+  // computer - nothing saves back into Nexus.
+  const openInWord = () => {
+    setExporting('word');
+    flushPendingSave()
+      .then(() => api.documentWordLink(docId))
+      .then(({ path }) => {
+        const fileUrl = new URL(`${API_BASE}${path}`, window.location.origin).href;
+        const a = document.createElement('a');
+        a.href = `ms-word:ofe|u|${fileUrl}`;
+        a.click();
+        toastOk?.('Opening in Word. Changes you make in Word save on your computer, not in Nexus. No Word on this computer? Use Export DOCX.');
+      })
+      .catch(e => toastErr?.(e.message || 'Could not open in Word'))
+      .finally(() => setExporting(''));
   };
 
   // In-app PDF Preview - renders the exported PDF in an iframe (browsers have
@@ -1105,21 +1432,18 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     activeEditor.chain().focus().updateAttributes(currentBlockType(), { backgroundColor: color || null }).run();
   };
 
-  // Word's Home > Styles quick gallery - one click sets both the semantic
-  // block type and its look, same as clicking "Heading 1" in Word.
-  const applyStyle = (style) => {
-    if (!activeEditor) return;
-    if (style === 'normal') activeEditor.chain().focus().setParagraph().run();
-    else activeEditor.chain().focus().setHeading({ level: style }).run();
-  };
-
   // Word's Home > Clipboard > Format Painter - click to capture the current
-  // selection's formatting, then the NEXT selection made anywhere in the
-  // document gets it applied (handled in onPageActivity below, since that's
-  // already the one place every page's selection change is routed through).
+  // selection's formatting; the NEXT selection you make, anywhere, gets it
+  // when the mouse button (or Shift) comes up, then the brush turns off.
+  // Not on selection change (11/05/2026: that fired once more for the very
+  // selection the brush was armed on, so the brush went off before you
+  // picked anything, and mid-drag it would have painted one character).
   const PAINTABLE_MARKS = ['bold', 'italic', 'underline'];
-  const toggleFormatPainter = () => {
-    if (painterActive) { formatPainterRef.current = null; setPainterActive(false); return; }
+  // One click paints once; a double-click on the button keeps the brush on
+  // until Escape or another click, as in Word. A plain click in the text
+  // paints the word under the cursor.
+  const toggleFormatPainter = (sticky = false) => {
+    if (painterActive && !sticky) { formatPainterRef.current = null; setPainterActive(false); return; }
     if (!activeEditor) return;
     const marks = {};
     PAINTABLE_MARKS.forEach(m => { marks[m] = activeEditor.isActive(m); });
@@ -1127,14 +1451,165 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (ts.color) marks.color = ts.color;
     if (ts.fontFamily) marks.fontFamily = ts.fontFamily;
     if (ts.fontSize) marks.fontSize = ts.fontSize;
-    formatPainterRef.current = marks;
-    setPainterActive(true);
+    const { from, to } = activeEditor.state.selection;
+    formatPainterRef.current = { marks, armed: { ed: activeEditor, from, to } };
+    setPainterActive(sticky ? 'sticky' : 'once');
+    toastOk?.(sticky ? 'Format Painter stays on. Select or click text to paint it; press Esc to stop.' : 'Select or click the text to paste this formatting onto.');
   };
+  useEffect(() => {
+    if (!painterActive) return undefined;
+    const paint = () => {
+      const brush = formatPainterRef.current;
+      const ed = [...editorsRef.current.values(), headerEditor, footerEditor].find((x) => x && !x.isDestroyed && x.view.hasFocus()) || activeEditorRef.current;
+      if (!brush || !ed || !ed.view.hasFocus()) return;
+      let { from, to } = ed.state.selection;
+      if (from === to) {           // a click: the word under the cursor
+        const $p = ed.state.doc.resolve(from);
+        const text = $p.parent.textContent, start = $p.start(), off = from - start;
+        const isWord = (ch) => ch && /[\w'’-]/.test(ch);
+        if (!isWord(text[off]) && !isWord(text[off - 1])) return;
+        let a = off, b = off;
+        while (isWord(text[a - 1])) a -= 1;
+        while (isWord(text[b])) b += 1;
+        from = start + a; to = start + b;
+      }
+      if (brush.armed.ed === ed && brush.armed.from === from && brush.armed.to === to) return;
+      const m = brush.marks;
+      let chain = ed.chain().focus().setTextSelection({ from, to });
+      chain = m.bold ? chain.setBold() : chain.unsetBold();
+      chain = m.italic ? chain.setItalic() : chain.unsetItalic();
+      chain = m.underline ? chain.setUnderline() : chain.unsetUnderline();
+      if (m.color) chain = chain.setColor(m.color);
+      if (m.fontFamily) chain = chain.setFontFamily(m.fontFamily);
+      if (m.fontSize) chain = chain.setFontSize(m.fontSize);
+      chain.run();
+      if (painterActive === 'sticky') return;
+      formatPainterRef.current = null;
+      setPainterActive(false);
+    };
+    // After the event settles: a double-click's word selection lands after its mouseup.
+    const later = () => setTimeout(paint, 0);
+    const onKey = (e) => {
+      if (e.key === 'Shift') later();
+      if (e.key === 'Escape') { formatPainterRef.current = null; setPainterActive(false); }
+    };
+    document.addEventListener('mouseup', later);
+    document.addEventListener('dblclick', later);
+    document.addEventListener('keyup', onKey);
+    return () => { document.removeEventListener('mouseup', later); document.removeEventListener('dblclick', later); document.removeEventListener('keyup', onKey); };
+  }, [painterActive, headerEditor, footerEditor]);
+
+  // Picture Format helpers. Sizes show in inches like Word (96px an inch).
+  const imgAttrs = activeEditor?.isActive('image') ? activeEditor.getAttributes('image') : null;
+  // Keeps the picture selected after the write (a replaced node drops its selection).
+  const setImg = (patch) => { const pos = activeEditor.state.selection.from; activeEditor.chain().focus().updateAttributes('image', patch).setNodeSelection(pos).run(); };
+  const imgEl = () => { const d = imgAttrs && activeEditor.view.nodeDOM(activeEditor.state.selection.from); return d?.querySelector?.('img') || null; };
+  const imgBox = imgAttrs ? { w: imgAttrs.width || imgEl()?.clientWidth || 0, h: imgAttrs.height || imgEl()?.clientHeight || 0 } : null;
+  const sizeImg = (dim, inches) => {
+    const px = Math.max(10, Math.round(Number(inches) * 96));
+    if (!Number.isFinite(px)) return;
+    const ratio = imgBox.w && imgBox.h ? imgBox.w / imgBox.h : null;
+    if (!lockAspect || !ratio) { setImg({ [dim]: px }); return; }
+    setImg(dim === 'width' ? { width: px, height: Math.round(px / ratio) } : { height: px, width: Math.round(px * ratio) });
+  };
+  const alignImg = (side) => {
+    if ((imgAttrs?.wrapMode || 'inline') === 'inline' || side === 'center') {
+      const pos = activeEditor.state.selection.from;
+      activeEditor.chain().focus().updateAttributes('image', side === 'center' ? { wrapMode: 'inline', x: 0, y: 0 } : {}).setTextAlign(side).setNodeSelection(pos).run();
+    } else setImg({ wrapMode: side === 'right' ? 'squareRight' : 'square', x: 0, y: 0 });
+  };
+  const resetImg = () => setImg({ width: null, height: null, rotation: 0, flipH: false, flipV: false, borderColor: null, frame: 'none', crop: null, wrapMode: 'inline', x: 0, y: 0 });
+  // Crop mode marks the selected picture's box so its edge handles show
+  // (lib/docBuilderExtensions.js draws and drags them); it ends with the
+  // selection, Escape, or the button.
+  const cropBox = () => imgEl()?.parentElement || null;
+  useEffect(() => {
+    const el = cropping && imgAttrs ? cropBox() : null;
+    if (!el) return undefined;
+    el.classList.add('is-cropping');
+    const onKey = (e) => { if (e.key === 'Escape') setCropping(false); };
+    document.addEventListener('keydown', onKey);
+    return () => { el.classList.remove('is-cropping'); document.removeEventListener('keydown', onKey); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cropping, imgAttrs?.src, selectionTick]);
+  const changePicture = () => { changePictureRef.current = true; fileInputRef.current?.click(); };
+  const PICTURE_WRAPS = [['inline', 'In Line with Text'], ['square', 'Square Left'], ['squareRight', 'Square Right'], ['behind', 'Behind Text'], ['front', 'In Front of Text']];
+  // Right-click on a picture: select it and open the menu where the mouse is.
+  const onPagesContextMenu = (e) => {
+    const wrap = e.target.closest?.('.doc-image-wrap');
+    if (!wrap || preview || isLocked || viewingOnly) return;
+    const entry = [...editorsRef.current.entries()].find(([, ed]) => ed && !ed.isDestroyed && ed.view.dom.contains(wrap));
+    if (!entry) return;
+    e.preventDefault();
+    const [pageId, ed] = entry;
+    let pos = ed.view.posAtDOM(wrap, 0);
+    if (ed.state.doc.nodeAt(pos)?.type.name !== 'image') pos -= 1;
+    if (ed.state.doc.nodeAt(pos)?.type.name !== 'image') return;
+    ed.view.dispatch(ed.state.tr.setSelection(NodeSelection.create(ed.state.doc, pos)));
+    setActivePageId(pageId);
+    setSelectionTick((t) => t + 1);
+    setImgMenu({ x: e.clientX, y: e.clientY });
+  };
+  // The Picture tab opens with the picture and closes with it, as in Word.
+  const pictureSelected = !!imgAttrs;
+  useEffect(() => {
+    if (pictureSelected) setRibbonTab('picture');
+    else { setRibbonTab((t) => (t === 'picture' ? 'home' : t)); setCropping(false); }
+  }, [pictureSelected]);
 
   // Word's Home > Clipboard > Cut/Copy/Paste - the editor is a native
   // contenteditable so Ctrl+X/C/V already work without any button; these
   // exist for mouse-only users, same as Word's own toolbar buttons.
   const clipboardAction = (cmd) => { activeEditor?.chain().focus(); document.execCommand(cmd); };
+  // Paste > Keep Text Only. The clipboard API needs permission; without it the
+  // keyboard already does this.
+  const pasteTextOnly = () => {
+    navigator.clipboard?.readText?.()
+      .then((t) => { if (t) activeEditor?.chain().focus().insertContent(t).run(); })
+      .catch(() => toastErr?.('Press Ctrl+Shift+V to paste as plain text.'));
+  };
+  // Home > Bullets / Numbering galleries.
+  const setBullets = (style) => {
+    if (!activeEditor) return;
+    const c = activeEditor.chain().focus();
+    if (!activeEditor.isActive('bulletList')) c.toggleBulletList();
+    c.updateAttributes('bulletList', { listStyle: style }).run();
+  };
+  const setNumbering = (type) => {
+    if (!activeEditor) return;
+    const c = activeEditor.chain().focus();
+    if (!activeEditor.isActive('orderedList')) c.toggleOrderedList();
+    c.updateAttributes('orderedList', { type }).run();
+  };
+  const setParaAttr = (patch) => activeEditor?.chain().focus().updateAttributes(currentBlockType(), patch).run();
+  // View > Zoom > Page Width / Fit: the canvas column's width against the page's.
+  const zoomToPageWidth = () => {
+    const w = canvasRef.current?.clientWidth;
+    const { maxWidth } = pageCanvasStyle(pageSetup);
+    if (w && maxWidth) setZoom(Math.min(2, Math.max(0.5, Math.floor(((w - 48) / maxWidth) * 100) / 100)));
+  };
+  const zoomToFit = () => {
+    const w = canvasRef.current?.clientWidth;
+    const { maxWidth, minHeight } = pageCanvasStyle(pageSetup);
+    if (!w || !maxWidth) return;
+    const byHeight = (window.innerHeight - 320) / (minHeight || maxWidth * 1.3);
+    setZoom(Math.min(2, Math.max(0.5, Math.floor(Math.min((w - 48) / maxWidth, byHeight) * 100) / 100)));
+  };
+  const goToHeading = (h) => {
+    const ed = editorsRef.current.get(h.pageId);
+    if (!ed) return;
+    goToPage(h.pageId, h.pos + 1);
+  };
+  // Word's Header & Footer opens the header for editing; it never removes
+  // one (that is the Remove header / Remove footer button in the margin).
+  // It used to clear both on a second click - an imported header gone in one
+  // click, with no confirm.
+  const toggleHeaderFooter = () => {
+    if (!headerVisible) setHeaderVisible(true);
+    if (!footerVisible) setFooterVisible(true);
+    requestAnimationFrame(() => headerEditor?.commands.focus('end'));
+  };
+  const openHelp = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'support', sub: 'documentation' } }));
 
   // Word's Home > Font > Grow/Shrink Font - steps the current selection's
   // font size through FONT_SIZES, defaulting from 12 if none is set yet.
@@ -1189,15 +1664,6 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     });
     if (sorted.every((n, i) => n === items[i])) return;
     activeEditor.view.dispatch(activeEditor.state.tr.replaceWith(listStart, listStart + listNode.content.size, sorted));
-  };
-
-  // Word's Home > Paragraph > Borders - toggles a simple 1px border on the
-  // current block, same on/off pattern as paragraph shading above it.
-  const toggleParagraphBorder = () => {
-    if (!activeEditor) return;
-    const type = currentBlockType();
-    const has = !!activeEditor.getAttributes(type).border;
-    activeEditor.chain().focus().updateAttributes(type, { border: has ? null : '1px solid #111827' }).run();
   };
 
   // Word's Insert > Bookmarks - a named, invisible-on-export anchor. Stored
@@ -1283,11 +1749,39 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         content: [{ type: 'text', text: `${e.text} - p.${e.page}`, marks: [{ type: 'link', attrs: { href: `#toc:${e.pageId}:${e.name}` } }] }],
       }],
     }));
-    activeEditor.chain().focus('end').insertContent([
-      { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Table of Contents' }] },
+    // The heading starts with a "__toc" bookmark so Update / Remove can find
+    // the block again; the bookmark is invisible on export like any other.
+    const block = [
+      { type: 'heading', attrs: { level: 2 }, content: [{ type: 'bookmark', attrs: { name: '__toc' } }, { type: 'text', text: 'Table of Contents' }] },
       { type: 'bulletList', content: listItems },
       { type: 'paragraph' },
-    ]).run();
+    ];
+    const existing = findTocRange();
+    if (existing) existing.editor.chain().focus().deleteRange(existing).insertContentAt(existing.from, block).run();
+    else activeEditor.chain().focus('end').insertContent(block).run();
+  };
+  // { editor, from, to } of the generated table of contents (heading + list), or null.
+  const findTocRange = () => {
+    for (const p of pages) {
+      const ed = editorsRef.current.get(p.id);
+      if (!ed) continue;
+      let found = null;
+      ed.state.doc.forEach((node, offset, index) => {
+        if (found || node.type.name !== 'heading') return;
+        const first = node.content.firstChild;
+        if (!first || first.type.name !== 'bookmark' || first.attrs.name !== '__toc') return;
+        const next = ed.state.doc.maybeChild(index + 1);
+        const to = offset + node.nodeSize + (next && next.type.name === 'bulletList' ? next.nodeSize : 0);
+        found = { editor: ed, from: offset, to };
+      });
+      if (found) return found;
+    }
+    return null;
+  };
+  const removeTableOfContents = () => {
+    const r = findTocRange();
+    if (!r) { toastErr?.('There is no table of contents to remove.'); return; }
+    r.editor.chain().focus().deleteRange(r).run();
   };
   const goToTocLink = (href) => {
     const m = /^#toc:([^:]+):(.+)$/.exec(href || '');
@@ -1418,10 +1912,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     const { x, y } = insertPageCoords();
     activeEditor?.chain().focus().insertContent({
       type: 'docTextbox',
-      attrs: { x, y, wrapMode: textboxWrapMode },
+      attrs: { x, y, wrapMode: 'inline' },
       content: [{ type: 'paragraph' }],
     }).scrollIntoView().run();
-    setTextboxPopoverOpen(false);
   };
 
   // ── Signature blocks (Oct 14) ─────────────────────────────────────────────
@@ -1480,7 +1973,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // candidate. Documents already out for signature never change.
   const publishTemplate = async () => {
     if (publishing) return;
-    if (!window.confirm(`Publish "${title}"? New documents and HR packets that have not been sent yet use this wording. Documents already made or out for signature do not change.`)) return;
+    if (!(await dialog.confirm(`Publish "${title}"? New documents and HR packets that have not been sent yet use this wording. Documents already made or out for signature do not change.`, { confirmText: 'Publish' }))) return;
     setPublishing(true);
     try {
       await flushPendingSave();
@@ -1513,8 +2006,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // uses - no new backend send path, no change to esign.py's compliance logic.
   // The PDF comes from /signing-pdf (Oct 14): rendered once with its signature
   // blocks measured, so each signer's fields arrive already placed.
-  const doSendForSignature = () => {
-    if (doc?.signRequestId && !window.confirm('This document was already sent for signature. Start a new envelope anyway?')) return;
+  const doSendForSignature = async () => {
+    if (doc?.signRequestId && !(await dialog.confirm('This document was already sent for signature. Start a new envelope anyway?', { confirmText: 'Start New Envelope' }))) return;
     setExporting('send');
     flushPendingSave().then(() => api.documentSigningPdf(docId)).then((out) => {
       window.__esignPrefill = { title, source: 'pdf', sourceDocumentId: docId, parties: [], signing: out };
@@ -1528,8 +2021,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // export time, never baked into literal text) into a brand-new DocTemplate
   // via the same create endpoint the Templates library itself uses.
   const [savingTemplate, setSavingTemplate] = useState(false);
-  const saveAsTemplate = () => {
-    const name = (window.prompt('Template name', title || 'Untitled Template') || '').trim();
+  const saveAsTemplate = async () => {
+    const name = ((await dialog.prompt('Template name', { defaultValue: title || 'Untitled Template' })) || '').trim();
     if (!name) return;
     setSavingTemplate(true);
     api.createDocTemplate({ name, category: 'general', requiresLetterhead, letterheadId, content: currentContent() })
@@ -1780,10 +2273,14 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   };
 
   const doUploadImage = async (pageId, file) => {
+    const replace = changePictureRef.current;
+    changePictureRef.current = false;
     const path = `${docId}/${Date.now()}-${safeName(file.name)}`;
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     if (error) { toastErr?.(error); return; }
-    editorsRef.current.get(pageId)?.chain().focus().setImage({ src: url }).run();
+    const ed = editorsRef.current.get(pageId);
+    if (replace && ed?.isActive('image')) ed.chain().focus().updateAttributes('image', { src: url }).run();
+    else ed?.chain().focus().setImage({ src: url }).run();
   };
 
   const onPickImage = (e) => {
@@ -1818,10 +2315,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const doImportFile = async (file) => {
     if (!file) return;
     const isEmpty = pages.length <= 1 && (activeEditor?.isEmpty ?? true);
-    if (!isEmpty && !window.confirm('This will replace the current document content. Continue?')) return;
+    if (!isEmpty && !(await dialog.confirm('This will replace the current document content. Continue?', { confirmText: 'Replace' }))) return;
     setImporting(true);
     try {
-      const { html, json: directJson, pageSetup: importedPageSetup, warnings } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
+      const { html, json: directJson, pageSetup: importedPageSetup, header: importedHeader, footer: importedFooter, warnings } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
       const json = directJson || generateJSON(html || '<p></p>', BODY_EXTENSIONS);
       // The imported doc still carries pageBreak markers (docxToTiptap.js
       // preserves Word's own page breaks) - split it into real pages the same
@@ -1841,6 +2338,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       // margins (docxToTiptap.js) - apply them so the imported page setup
       // matches the original, not whatever this document had before.
       if (importedPageSetup) updatePageSetup(importedPageSetup);
+      // The Word file's own header and footer replace this document's, like
+      // its body does - a .docx with none clears them.
+      if (directJson) {
+        const band = (json, setVisible, ed) => {
+          if (json) { setVisible(true); ed?.commands.setContent(repairDocJson(json), { emitUpdate: false }); }
+          else { setVisible(false); ed?.commands.clearContent(); }
+        };
+        band(importedHeader, setHeaderVisible, headerEditor);
+        band(importedFooter, setFooterVisible, footerEditor);
+      }
       // Save the discovered variables onto the template, leaving any the author
       // already configured by hand exactly as they are.
       let added = [];
@@ -1889,13 +2396,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   );
 
   return (
-    <div className="nx-docb" style={previewPull ? { marginTop: -previewPull } : undefined}>
+    <div className={`nx-docb${painterActive ? ' doc-painting' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: preview ? 6 : 8, flexWrap: 'wrap' }}>
         <button onClick={close} title="Close"
           style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
           <X size={16} />
         </button>
-        <input className="nx-inline-edit" value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
+        <input ref={titleRef} className="nx-inline-edit" value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
           onKeyDown={e => e.key === 'Enter' && e.target.blur()}
           style={{ flex: '1 1 260px', fontSize: 16, fontWeight: 700, border: 'none', fontFamily: 'Inter, sans-serif', color: 'var(--ink)' }} />
         <span style={{ fontSize: 11.5, color: saveStatus === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 70 }}>
@@ -1935,20 +2442,20 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         )}
         {!preview && kind === 'template' && (
           <label style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            <input type="checkbox" checked={requiresLetterhead} onChange={toggleRequiresLetterhead} /> Requires letterhead
+            <input type="checkbox" checked={requiresLetterhead} onChange={toggleRequiresLetterhead} /> Requires Letterhead
           </label>
         )}
         {!preview && (
           <div style={{ position: 'relative' }}>
             <button onClick={() => setLhPickerOpen(o => !o)}
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
-              <Award size={14} /> {activeLetterhead ? activeLetterhead.name : 'No letterhead'}
+              <Award size={14} /> {activeLetterhead ? activeLetterhead.name : 'No Letterhead'}
             </button>
             {lhPickerOpen && (
               <div style={{ position: 'absolute', top: '110%', right: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, width: newLhOpen ? 260 : 200, padding: 6 }}>
                 {!newLhOpen ? (<>
                   <button onClick={() => changeLetterhead('')}
-                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>No letterhead</button>
+                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>No Letterhead</button>
                   {letterheads.map(l => (
                     <button key={l.id} onClick={() => changeLetterhead(l.id)}
                       style={{ display: 'block', width: '100%', textAlign: 'left', background: l.id === letterheadId ? 'var(--mist)' : 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>
@@ -1958,12 +2465,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                   <div style={{ borderTop: '1px solid var(--line)', margin: '4px 0' }} />
                   <button onClick={() => setNewLhOpen(true)}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
-                    <Plus size={13} /> Add letterhead…
+                    <Plus size={13} /> Add Letterhead…
                   </button>
                 </>) : (
                   <div style={{ padding: 4 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 700 }}>New letterhead</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 700 }}>New Letterhead</span>
                       <button onClick={() => setNewLhOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><X size={14} /></button>
                     </div>
                     <input value={newLhName} onChange={e => setNewLhName(e.target.value)} placeholder="Name (e.g. IT Department)"
@@ -1978,7 +2485,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                     </label>
                     <button disabled={newLhBusy || newLhLogoBusy} onClick={createLetterhead}
                       style={{ width: '100%', background: 'var(--ink)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 0', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                      {newLhBusy ? <Spinner size={13} /> : <Check size={13} />} Add & use
+                      {newLhBusy ? <Spinner size={13} /> : <Check size={13} />} Add & Use
                     </button>
                   </div>
                 )}
@@ -1990,7 +2497,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           <div style={{ position: 'relative' }}>
             <button onClick={() => setMergePickerOpen(o => !o)}
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
-              <Users size={14} /> {activeEmployee ? empLabel(activeEmployee) : 'Merge data'}
+              <Users size={14} /> {activeEmployee ? empLabel(activeEmployee) : 'Merge Data'}
             </button>
             {mergePickerOpen && (
               <div style={{ position: 'absolute', top: '110%', right: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, width: 300, maxHeight: '70vh', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -2129,6 +2636,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
               <FileDown size={14} /> {exporting === 'docx' ? 'Exporting…' : 'Export DOCX'}
             </button>
+            <button onClick={openInWord} disabled={!!exporting} title="Open in Word on this computer to keep editing"
+              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
+              <PageIcon size={14} /> {exporting === 'word' ? 'Opening…' : 'Open in Word'}
+            </button>
             <button onClick={doSendForSignature} disabled={!!exporting} title="Send for Signature"
               className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: exporting ? 0.6 : 1 }}>
               <Send size={14} /> {exporting === 'send' ? 'Preparing…' : 'Send for Signature'}
@@ -2149,6 +2660,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
           <History size={16} />
         </button>
+        <FullScreenButton on={full} onToggle={toggleFull} />
       </div>
 
       {kind === 'document' && preview ? (
@@ -2171,13 +2683,19 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       <>
       {!preview && activeEditor && (
         <>
-          <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
-            {[['home', 'Home'], ['insert', 'Insert'], ['layout', 'Layout']].map(([key, label]) => (
-              <button key={key} onClick={() => setRibbonTab(key)}
-                style={{ fontSize: 12.5, fontWeight: 600, padding: '6px 14px', border: 'none', borderBottom: ribbonTab === key ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: ribbonTab === key ? 'var(--ink)' : 'var(--muted)', fontFamily: 'Inter, sans-serif' }}>
+          <div className="doc-ribbon-tabs" role="tablist">
+            {[['file', 'File'], ['home', 'Home'], ['insert', 'Insert'], ['layout', 'Layout'], ['references', 'References'], ['review', 'Review'], ['view', 'View'], ['help', 'Help']].map(([key, label]) => (
+              <button key={key} type="button" role="tab" data-tab={key} aria-selected={ribbonTab === key} onClick={() => setRibbonTab(key)}
+                className={`doc-ribbon-tab${ribbonTab === key ? ' is-active' : ''}`}>
                 {label}
               </button>
             ))}
+            {activeEditor?.isActive('table') && <span className="doc-ribbon-tab is-context" title="The Table tools show under the ribbon while the cursor is in a table">Table</span>}
+            {imgAttrs && (
+              <button type="button" role="tab" data-tab="picture" aria-selected={ribbonTab === 'picture'} onClick={() => setRibbonTab('picture')}
+                className={`doc-ribbon-tab is-context${ribbonTab === 'picture' ? ' is-active' : ''}`}>Picture Format</button>
+            )}
+            {(activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && <span className="doc-ribbon-tab is-context">Shape Format</span>}
           </div>
         {isLocked && (
           /* Requirement 7 made visible. The server refuses the write either
@@ -2195,7 +2713,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             </span>
             <button className="secondary-btn" disabled={unlocking}
               onClick={async () => {
-                if (!window.confirm('Unlock this document for editing? The change is recorded in its history.')) return;
+                if (!(await dialog.confirm('Unlock this document for editing? The change is recorded in its history.', { confirmText: 'Unlock' }))) return;
                 setUnlocking(true);
                 try {
                   const updated = await api.unlockDocument(docId);
@@ -2209,118 +2727,203 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             </button>
           </div>
         )}
-        <div className="doc-toolbar">
+        <div className="doc-toolbar doc-ribbon" role="toolbar" aria-label={`${ribbonTab} ribbon`}>
+          {ribbonTab === 'file' && (
+          <>
+          <Group label="Document">
+            <BigBtn icon={FilePlus} label="New" title="New Document - opens the Documents list" onClick={() => { close(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-browse' } })); }} />
+            <BigBtn icon={Type} label="Rename" onClick={() => { titleRef.current?.focus(); titleRef.current?.select(); }} />
+            <BigBtn icon={History} label="Version History" onClick={openHistory} />
+            <BigBtn icon={FileStack} label="Page Setup" onClick={() => { setRibbonTab('layout'); setPageSetupOpen(true); }} />
+          </Group>
+          <Group label="Share">
+            {kind === 'document' && <BigBtn icon={FileStack} label="Save as Template" onClick={saveAsTemplate} disabled={savingTemplate} />}
+            {kind === 'document' && <BigBtn icon={FileDown} label="Export PDF" onClick={() => doExport('pdf')} disabled={!!exporting} />}
+            {kind === 'document' && <BigBtn icon={FileDown} label="Export DOCX" onClick={() => doExport('docx')} disabled={!!exporting} />}
+            {kind === 'document' && <BigBtn icon={PageIcon} label="Open in Word" onClick={openInWord} disabled={!!exporting} />}
+            {kind === 'document' && <BigBtn icon={Send} label="Preview & Send" onClick={() => { setPreview(true); openPdfPreview(); }} />}
+            <BigBtn icon={Printer} label="Print" onClick={() => window.print()} />
+          </Group>
+          <Group label="Info">
+            <div style={{ fontSize: 12, lineHeight: 1.5, padding: '4px 6px' }}>
+              <div style={{ fontWeight: 700 }}>{title || 'Untitled'}</div>
+              <div style={{ color: 'var(--muted)' }}>{kind === 'template' ? 'Template' : 'Document'}{doc.status ? ` · ${String(doc.status).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}` : ''}{SAVE_LABEL[saveStatus] ? ` · ${SAVE_LABEL[saveStatus]}` : ''}</div>
+            </div>
+          </Group>
+          </>
+          )}
+
           {ribbonTab === 'home' && (
           <>
-          <ToolbarBtn title="Cut" onClick={() => clipboardAction('cut')}><Scissors size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Copy" onClick={() => clipboardAction('copy')}><ClipboardCopy size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Paste" onClick={() => clipboardAction('paste')}><ClipboardPaste size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Format Painter - click, then select text to copy the formatting onto" active={painterActive} onClick={toggleFormatPainter}><Paintbrush size={15} /></ToolbarBtn>
-          <span className="doc-toolbar-sep" />
-          <ToolbarBtn title="Bold" active={activeEditor.isActive('bold')} onClick={() => activeEditor.chain().focus().toggleBold().run()}><Bold size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Italic" active={activeEditor.isActive('italic')} onClick={() => activeEditor.chain().focus().toggleItalic().run()}><Italic size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Underline" active={activeEditor.isActive('underline')} onClick={() => activeEditor.chain().focus().toggleUnderline().run()}><Underline size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Strikethrough" active={activeEditor.isActive('strike')} onClick={() => activeEditor.chain().focus().toggleStrike().run()}><Strikethrough size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Subscript" active={activeEditor.isActive('subscript')} onClick={() => activeEditor.chain().focus().toggleSubscript().run()}><SubscriptIcon size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Superscript" active={activeEditor.isActive('superscript')} onClick={() => activeEditor.chain().focus().toggleSuperscript().run()}><SuperscriptIcon size={15} /></ToolbarBtn>
-          <span className="doc-toolbar-sep" />
-          <select onChange={e => { const v = e.target.value; if (v) activeEditor.chain().focus().setFontFamily(v).run(); else activeEditor.chain().focus().unsetFontFamily().run(); }}
-            value={activeEditor.getAttributes('textStyle').fontFamily || ''} title="Font family"
-            style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', maxWidth: 116 }}>
-            <option value="">Font</option>
-            {Object.entries(FONT_GROUPS).map(([group, fonts]) => (
-              <optgroup key={group} label={group}>
-                {fonts.map(f => <option key={f} value={f}>{f}</option>)}
-              </optgroup>
-            ))}
-          </select>
-          <ToolbarBtn title="Shrink font" onClick={() => stepFontSize(-1)}><span style={{ fontSize: 11, fontWeight: 700 }}>A↓</span></ToolbarBtn>
-          <select onChange={e => { const v = e.target.value; if (v) activeEditor.chain().focus().setFontSize(`${v}px`).run(); else activeEditor.chain().focus().unsetFontSize().run(); }}
-            // Strips whatever unit the size carries - this control writes px,
-            // but an imported document states its sizes in pt.
-            value={(activeEditor.getAttributes('textStyle').fontSize || '').replace(/(px|pt)$/, '')} title="Font size"
-            style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', width: 58 }}>
-            <option value="">Size</option>
-            {FONT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <ToolbarBtn title="Grow font" onClick={() => stepFontSize(1)}><span style={{ fontSize: 14, fontWeight: 700 }}>A↑</span></ToolbarBtn>
-          <select title="Change case" defaultValue="" onChange={e => { if (e.target.value) changeCase(e.target.value); e.target.value = ''; }}
-            style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 4px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', width: 46 }}>
-            <option value="">Aa</option>
-            <option value="upper">UPPERCASE</option>
-            <option value="lower">lowercase</option>
-            <option value="title">Capitalize Each Word</option>
-            <option value="sentence">Sentence case</option>
-          </select>
-          <input type="color" title="Text color" value={activeEditor.getAttributes('textStyle').color || '#111827'}
-            onChange={e => activeEditor.chain().focus().setColor(e.target.value).run()}
-            style={{ width: 26, height: 26, padding: 0, border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', background: 'none' }} />
-          <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }} title="Highlight color">
-            <Highlighter size={15} style={{ color: 'var(--ink)' }} />
-            <input type="color" defaultValue="#fef08a"
-              onChange={e => activeEditor.chain().focus().toggleHighlight({ color: e.target.value }).run()}
-              style={{ width: 16, height: 16, padding: 0, border: '1px solid var(--line)', borderRadius: 4, cursor: 'pointer', background: 'none', marginLeft: 2 }} />
-          </label>
-          <span className="doc-toolbar-sep" />
-          <select title="Styles" defaultValue="" onChange={e => { if (e.target.value) applyStyle(e.target.value === 'normal' ? 'normal' : Number(e.target.value)); e.target.value = ''; }}
-            style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', width: 96 }}>
-            <option value="">Styles</option>
-            <option value="normal">Normal</option>
-            <option value="1">Heading 1</option>
-            <option value="2">Heading 2</option>
-            <option value="3">Heading 3</option>
-          </select>
-          <span className="doc-toolbar-sep" />
-          <ToolbarBtn title="Align left" active={activeEditor.isActive({ textAlign: 'left' })} onClick={() => activeEditor.chain().focus().setTextAlign('left').run()}><AlignLeft size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Align center" active={activeEditor.isActive({ textAlign: 'center' })} onClick={() => activeEditor.chain().focus().setTextAlign('center').run()}><AlignCenter size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Align right" active={activeEditor.isActive({ textAlign: 'right' })} onClick={() => activeEditor.chain().focus().setTextAlign('right').run()}><AlignRight size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Justify" active={activeEditor.isActive({ textAlign: 'justify' })} onClick={() => activeEditor.chain().focus().setTextAlign('justify').run()}><AlignJustify size={15} /></ToolbarBtn>
-          <span className="doc-toolbar-sep" />
-          <div style={{ position: 'relative' }}>
-            <ToolbarBtn title="Link" active={activeEditor.isActive('link')} onClick={toggleLinkPopover}><Link2 size={15} /></ToolbarBtn>
-            {linkPopoverOpen && (
-              <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
-                <input className="form-input" style={{ fontSize: 12, width: 180 }} placeholder="https://…" value={linkUrlDraft}
-                  onChange={e => setLinkUrlDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && applyLink()} autoFocus />
-                <button onClick={applyLink} className="primary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }}>Apply</button>
-                {activeEditor.isActive('link') && (
-                  <button onClick={removeLink} title="Remove link" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: 5, cursor: 'pointer', display: 'flex' }}><Link2Off size={13} /></button>
-                )}
+          <Group label="Undo">
+            <SmallBtn icon={Undo} title="Undo" disabled={!activeEditor?.can().undo()} onClick={() => activeEditor?.chain().focus().undo().run()} />
+            <SmallBtn icon={Redo} title="Redo" disabled={!activeEditor?.can().redo()} onClick={() => activeEditor?.chain().focus().redo().run()} />
+          </Group>
+          <Group label="Clipboard">
+            <Menu big icon={ClipboardPaste} label="Paste" items={[{ label: 'Paste', onClick: () => clipboardAction('paste') }, { label: 'Keep Text Only', onClick: pasteTextOnly }]} />
+            <div className="doc-ribbon-stack">
+              <SmallBtn icon={Scissors} title="Cut" onClick={() => clipboardAction('cut')} />
+              <SmallBtn icon={ClipboardCopy} title="Copy" onClick={() => clipboardAction('copy')} />
+            </div>
+            <BigBtn icon={Paintbrush} label="Format Painter" title="Format Painter - click, then select or click the text to copy the formatting onto. Double-click to paint several places; Esc stops." active={!!painterActive} onClick={() => toggleFormatPainter(false)} onDoubleClick={() => toggleFormatPainter(true)} />
+          </Group>
+          <Group label="Font">
+            <div className="doc-ribbon-stack">
+              <div className="doc-ribbon-row">
+                <select onChange={e => { const v = e.target.value; if (v) activeEditor.chain().focus().setFontFamily(v).run(); else activeEditor.chain().focus().unsetFontFamily().run(); }}
+                  value={activeEditor.getAttributes('textStyle').fontFamily || ''} title="Font" aria-label="Font"
+                  style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '4px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', maxWidth: 124 }}>
+                  <option value="">Font</option>
+                  {Object.entries(FONT_GROUPS).map(([group, fonts]) => (
+                    <optgroup key={group} label={group}>
+                      {fonts.map(f => <option key={f} value={f}>{f}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+                <select onChange={e => { const v = e.target.value; if (v) activeEditor.chain().focus().setFontSize(`${v}px`).run(); else activeEditor.chain().focus().unsetFontSize().run(); }}
+                  // Strips whatever unit the size carries - this control writes px,
+                  // but an imported document states its sizes in pt.
+                  value={(activeEditor.getAttributes('textStyle').fontSize || '').replace(/(px|pt)$/, '')} title="Font Size" aria-label="Font Size"
+                  style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '4px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', width: 58 }}>
+                  <option value="">Size</option>
+                  {FONT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <SmallBtn title="Grow Font" onClick={() => stepFontSize(1)}><span style={{ fontSize: 13, fontWeight: 700 }}>A↑</span></SmallBtn>
+                <SmallBtn title="Shrink Font" onClick={() => stepFontSize(-1)}><span style={{ fontSize: 11, fontWeight: 700 }}>A↓</span></SmallBtn>
+                <Menu label="Aa" title="Change Case" items={[
+                  { label: 'Sentence case', onClick: () => changeCase('sentence') }, { label: 'lowercase', onClick: () => changeCase('lower') },
+                  { label: 'UPPERCASE', onClick: () => changeCase('upper') }, { label: 'Capitalize Each Word', onClick: () => changeCase('title') }]} />
+                <SmallBtn icon={Eraser} title="Clear All Formatting" onClick={() => activeEditor.chain().focus().unsetAllMarks().clearNodes().run()} />
               </div>
-            )}
-          </div>
-          <span className="doc-toolbar-sep" />
-          <ToolbarBtn title="Bullet list" active={activeEditor.isActive('bulletList')} onClick={() => activeEditor.chain().focus().toggleBulletList().run()}><List size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Numbered list" active={activeEditor.isActive('orderedList')} onClick={() => activeEditor.chain().focus().toggleOrderedList().run()}><ListOrdered size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Decrease indent" onClick={() => changeIndent(-1)}><Outdent size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Increase indent" onClick={() => changeIndent(1)}><Indent size={15} /></ToolbarBtn>
-          <span className="doc-toolbar-sep" />
-          <select title="Line spacing" defaultValue="" onChange={e => setLineHeight(e.target.value)}
-            style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 4px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', width: 30 }}>
-            <option value="">‒</option>
-            {['1', '1.15', '1.5', '2'].map(v => <option key={v} value={v}>{v}</option>)}
-          </select>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer' }} title="Paragraph shading">
-            <PaintBucket size={15} style={{ color: 'var(--ink)' }} />
-            <input type="color" defaultValue="#ffffff" onChange={e => setParagraphShading(e.target.value)}
-              style={{ width: 16, height: 16, padding: 0, border: '1px solid var(--line)', borderRadius: 4, cursor: 'pointer', background: 'none' }} />
-          </label>
-          <ToolbarBtn title="Paragraph border" active={!!activeEditor.getAttributes(currentBlockType()).border} onClick={toggleParagraphBorder}><RectangleHorizontal size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Sort A to Z (list items)" onClick={() => sortSelection('asc')}><ArrowDownAZ size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Sort Z to A (list items)" onClick={() => sortSelection('desc')}><ArrowUpZA size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Show/Hide ¶ marks" active={showMarks} onClick={() => setShowMarks(s => !s)}><Pilcrow size={15} /></ToolbarBtn>
-          <span className="doc-toolbar-sep" />
-          <ToolbarBtn title="Find & Replace" active={findOpen} onClick={() => setFindOpen(o => !o)}><Search size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Select all" onClick={() => activeEditor.chain().focus().selectAll().run()}><MousePointerSquareDashed size={15} /></ToolbarBtn>
+              <div className="doc-ribbon-row">
+                <SmallBtn icon={Bold} title="Bold" active={activeEditor.isActive('bold')} onClick={() => activeEditor.chain().focus().toggleBold().run()} />
+                <SmallBtn icon={Italic} title="Italic" active={activeEditor.isActive('italic')} onClick={() => activeEditor.chain().focus().toggleItalic().run()} />
+                <SmallBtn icon={Underline} title="Underline" active={activeEditor.isActive('underline')} onClick={() => activeEditor.chain().focus().toggleUnderline().run()} />
+                <SmallBtn icon={Strikethrough} title="Strikethrough" active={activeEditor.isActive('strike')} onClick={() => activeEditor.chain().focus().toggleStrike().run()} />
+                <SmallBtn icon={SubscriptIcon} title="Subscript" active={activeEditor.isActive('subscript')} onClick={() => activeEditor.chain().focus().toggleSubscript().run()} />
+                <SmallBtn icon={SuperscriptIcon} title="Superscript" active={activeEditor.isActive('superscript')} onClick={() => activeEditor.chain().focus().toggleSuperscript().run()} />
+                <Menu icon={Highlighter} title="Text Highlight Color" active={activeEditor.isActive('highlight')} width={150}>
+                  <ColorGrid rows={[0, 5, 10].map(i => HIGHLIGHT_COLORS.slice(i, i + 5))} current={activeEditor.getAttributes('highlight').color}
+                    onPick={hex => activeEditor.chain().focus().setHighlight({ color: hex }).run()}
+                    onNone={() => activeEditor.chain().focus().unsetHighlight().run()} more={false} />
+                </Menu>
+                <Menu icon={Baseline} title="Font Color" width={260}>
+                  <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]} current={activeEditor.getAttributes('textStyle').color}
+                    onPick={hex => activeEditor.chain().focus().setColor(hex).run()}
+                    onNone={() => activeEditor.chain().focus().unsetColor().run()} noneLabel="Automatic" />
+                </Menu>
+              </div>
+            </div>
+          </Group>
+          <Group label="Paragraph">
+            <div className="doc-ribbon-stack">
+              <div className="doc-ribbon-row">
+                <Menu icon={List} title="Bullets" active={activeEditor.isActive('bulletList')} items={[
+                  { label: '•  Disc', onClick: () => setBullets('disc') }, { label: '○  Circle', onClick: () => setBullets('circle') },
+                  { label: '▪  Square', onClick: () => setBullets('square') }, '-',
+                  { label: 'None', onClick: () => { if (activeEditor.isActive('bulletList')) activeEditor.chain().focus().toggleBulletList().run(); } }]} />
+                <Menu icon={ListOrdered} title="Numbering" active={activeEditor.isActive('orderedList')} items={[
+                  { label: '1.  2.  3.', onClick: () => setNumbering(null) }, { label: '1)  2)  3)', onClick: () => setNumbering(null) },
+                  { label: 'I.  II.  III.', onClick: () => setNumbering('I') }, { label: 'A.  B.  C.', onClick: () => setNumbering('A') },
+                  { label: 'a)  b)  c)', onClick: () => setNumbering('a') }, { label: 'a.  b.  c.', onClick: () => setNumbering('a') },
+                  { label: 'i.  ii.  iii.', onClick: () => setNumbering('i') }, '-',
+                  { label: 'None', onClick: () => { if (activeEditor.isActive('orderedList')) activeEditor.chain().focus().toggleOrderedList().run(); } }]} />
+                <SmallBtn icon={Outdent} title="Decrease Indent" onClick={() => changeIndent(-1)} />
+                <SmallBtn icon={Indent} title="Increase Indent" onClick={() => changeIndent(1)} />
+                <SmallBtn icon={ArrowDownAZ} title="Sort A to Z (list items)" onClick={() => sortSelection('asc')} />
+                <SmallBtn icon={ArrowUpZA} title="Sort Z to A (list items)" onClick={() => sortSelection('desc')} />
+                <SmallBtn icon={Pilcrow} title="Show/Hide ¶" active={showMarks} onClick={() => setShowMarks(s => !s)} />
+              </div>
+              <div className="doc-ribbon-row">
+                <SmallBtn icon={AlignLeft} title="Align Left" active={activeEditor.isActive({ textAlign: 'left' })} onClick={() => activeEditor.chain().focus().setTextAlign('left').run()} />
+                <SmallBtn icon={AlignCenter} title="Center" active={activeEditor.isActive({ textAlign: 'center' })} onClick={() => activeEditor.chain().focus().setTextAlign('center').run()} />
+                <SmallBtn icon={AlignRight} title="Align Right" active={activeEditor.isActive({ textAlign: 'right' })} onClick={() => activeEditor.chain().focus().setTextAlign('right').run()} />
+                <SmallBtn icon={AlignJustify} title="Justify" active={activeEditor.isActive({ textAlign: 'justify' })} onClick={() => activeEditor.chain().focus().setTextAlign('justify').run()} />
+                <Menu icon={AlignVerticalSpaceAround} title="Line and Paragraph Spacing" items={[
+                  // The editor's multiple is Word's x 1.2 (lib/docxToTiptap.js LINE_NORMAL).
+                  { label: '1.0', onClick: () => setLineHeight('1.2'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '1.2' },
+                  { label: '1.15', onClick: () => setLineHeight('1.38'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '1.38' },
+                  { label: '1.5', onClick: () => setLineHeight('1.8'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '1.8' },
+                  { label: '2.0', onClick: () => setLineHeight('2.4'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '2.4' },
+                  { label: '2.5', onClick: () => setLineHeight('3'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '3' },
+                  { label: '3.0', onClick: () => setLineHeight('3.6'), active: activeEditor.getAttributes(currentBlockType()).lineHeight === '3.6' }, '-',
+                  // Word swaps Add for Remove once the space is there.
+                  ...(activeEditor.getAttributes(currentBlockType()).spacingBefore
+                    ? [{ label: 'Remove Space Before Paragraph', onClick: () => setParaAttr({ spacingBefore: null }) }]
+                    : [{ label: 'Add Space Before Paragraph', onClick: () => setParaAttr({ spacingBefore: 12 }) }]),
+                  ...(activeEditor.getAttributes(currentBlockType()).spacingAfter
+                    ? [{ label: 'Remove Space After Paragraph', onClick: () => setParaAttr({ spacingAfter: null }) }]
+                    : [{ label: 'Add Space After Paragraph', onClick: () => setParaAttr({ spacingAfter: 12 }) }]),
+                  { label: 'Line Spacing Options…', title: 'Exact values on the Layout tab', onClick: () => setRibbonTab('layout') }]} />
+                <Menu icon={PaintBucket} title="Shading" width={260}>
+                  <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]} current={activeEditor.getAttributes(currentBlockType()).backgroundColor}
+                    onPick={hex => setParagraphShading(hex)} onNone={() => setParagraphShading(null)} />
+                </Menu>
+                <Menu icon={RectangleHorizontal} title="Borders" active={!!activeEditor.getAttributes(currentBlockType()).border} items={[
+                  // shortcut: one border on all four sides; a per-side border needs a per-side attribute, add one when a document asks for it.
+                  { label: 'All Borders', onClick: () => setParaAttr({ border: '1px solid #111827' }) },
+                  { label: 'Outside Borders', onClick: () => setParaAttr({ border: '1px solid #111827' }) },
+                  { label: 'Bottom Border', title: 'Draws the full box for now', onClick: () => setParaAttr({ border: '1px solid #111827' }) },
+                  { label: 'Top Border', title: 'Draws the full box for now', onClick: () => setParaAttr({ border: '1px solid #111827' }) }, '-',
+                  { label: 'No Border', onClick: () => setParaAttr({ border: null }) }]} />
+              </div>
+            </div>
+          </Group>
+          <Group label="Styles"><StyleGallery editor={activeEditor} /></Group>
+          <Group label="Editing">
+            <BigBtn icon={Search} label="Find" title="Find & Replace" active={findOpen} onClick={() => setFindOpen(o => !o)} />
+            <BigBtn icon={MousePointerSquareDashed} label="Select All" onClick={() => activeEditor.chain().focus().selectAll().run()} />
+            <div style={{ position: 'relative' }}>
+              <BigBtn icon={Link2} label="Link" active={activeEditor.isActive('link')} onClick={toggleLinkPopover} />
+              {linkPopoverOpen && (
+                <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input className="form-input" style={{ fontSize: 12, width: 180 }} placeholder="https://…" value={linkUrlDraft}
+                    onChange={e => setLinkUrlDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && applyLink()} autoFocus />
+                  <button onClick={applyLink} className="primary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }}>Apply</button>
+                  {activeEditor.isActive('link') && (
+                    <button onClick={removeLink} title="Remove Link" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: 5, cursor: 'pointer', display: 'flex' }}><Link2Off size={13} /></button>
+                  )}
+                </div>
+              )}
+            </div>
+          </Group>
+          {canDictate() && (
+            <Group label="Voice">
+              <BigBtn icon={Mic} label={dictation.listening ? 'Stop' : 'Dictate'} title={dictation.error || 'Dictate - type what you say'} active={dictation.listening}
+                onClick={() => (dictation.listening ? dictation.stop() : dictation.start())} />
+            </Group>
+          )}
           </>
           )}
 
           {ribbonTab === 'insert' && (
           <>
-          <ToolbarBtn title="Insert table" onClick={() => activeEditor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><TableIcon size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Insert image" onClick={() => fileInputRef.current?.click()}><ImagePlus size={15} /></ToolbarBtn>
+          <Group label="Pages">
+            <BigBtn icon={SeparatorHorizontal} label="Page Break" title="Start the next line on a new page" onClick={() => activeEditor.chain().focus().insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run()} />
+            {kind === 'document' && <BigBtn icon={PageIcon} label="New Page" title="Add a page at the end" onClick={addPage} />}
+          </Group>
+          <Group label="Tables">
+            <Menu big icon={TableIcon} label="Table" width={220}>
+              {(closeMenu) => (
+                <>
+                  <TableGrid onPick={(r, c) => { activeEditor.chain().focus().insertTable({ rows: r, cols: c, withHeaderRow: false }).run(); closeMenu(); }} />
+                  <div className="doc-ribbon-sep" />
+                  <form className="doc-ribbon-field" style={{ padding: '4px 6px', gap: 6 }}
+                    onSubmit={(e) => { e.preventDefault(); const f = e.currentTarget; const r = Math.max(1, Math.min(50, Number(f.rows.value) || 2)); const c = Math.max(1, Math.min(20, Number(f.cols.value) || 2)); activeEditor.chain().focus().insertTable({ rows: r, cols: c, withHeaderRow: false }).run(); closeMenu(); }}>
+                    <input name="cols" type="number" min={1} max={20} defaultValue={3} aria-label="Columns" /> x
+                    <input name="rows" type="number" min={1} max={50} defaultValue={3} aria-label="Rows" />
+                    <button type="submit" className="primary-btn" style={{ fontSize: 11.5, padding: '4px 9px' }}>Insert Table</button>
+                  </form>
+                </>
+              )}
+            </Menu>
+          </Group>
+          <Group label="Illustrations">
+            <Menu big icon={ImagePlus} label="Picture" items={[
+              { label: 'This Device…', onClick: () => fileInputRef.current?.click() },
+              { label: 'Paste From Clipboard', title: 'Copy a picture, click the page, then press Ctrl+V', onClick: () => toastOk?.('Click where the picture goes and press Ctrl+V with it on the clipboard.') }]} />
           <div style={{ position: 'relative' }}>
-            <ToolbarBtn title="Insert shape" onClick={() => setShapePopoverOpen(o => !o)}><Shapes size={15} /></ToolbarBtn>
+            <BigBtn icon={Shapes} label="Drawing" title="Shapes" active={shapePopoverOpen} onClick={() => setShapePopoverOpen(o => !o)} />
             {shapePopoverOpen && (
               <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 200 }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -2351,26 +2954,15 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </div>
             )}
           </div>
+          {/* One click, like Word: the box lands inline; Wrap and colors are on the Text box bar it then shows. */}
+          <BigBtn icon={Type} label="Text Box" title="Text Box" onClick={insertTextbox} />
+          </Group>
+          {/* Everything that is Nexus's own, not Word's, in one place: the
+              signature block, merge-field variables and their tools. */}
+          <Group label="Nexus">
           <div style={{ position: 'relative' }}>
-            <ToolbarBtn title="Insert text box" onClick={() => setTextboxPopoverOpen(o => !o)}><Type size={15} /></ToolbarBtn>
-            {textboxPopoverOpen && (
-              <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 180 }}>
-                <label style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  Text wrap
-                  <select value={textboxWrapMode} onChange={e => setTextboxWrapMode(e.target.value)}
-                    style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
-                    {WRAP_MODES.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
-                  </select>
-                </label>
-                <button onClick={insertTextbox} className="primary-btn" style={{ fontSize: 11.5, padding: '6px 10px' }}>Insert text box</button>
-              </div>
-            )}
-          </div>
-          <div style={{ position: 'relative' }}>
-            <ToolbarBtn title="Signature Block - where a signer signs" active={sigPopoverOpen}
-              onClick={() => { setSigPopoverOpen(o => !o); setSigDraft(d => ({ ...d, role: d.role || signerOptions[0]?.key || '' })); }}>
-              <PenLine size={15} />
-            </ToolbarBtn>
+            <BigBtn icon={PenLine} label="Signature" title="Signature Block - where a signer signs" active={sigPopoverOpen}
+              onClick={() => { setSigPopoverOpen(o => !o); setSigDraft(d => ({ ...d, role: d.role || signerOptions[0]?.key || '' })); }} />
             {sigPopoverOpen && (
               <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 12, display: 'flex', flexDirection: 'column', gap: 9, width: 270 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 700 }}>Insert Signature Block</div>
@@ -2421,27 +3013,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </div>
             )}
           </div>
-          {kind === 'document' && <ToolbarBtn title="Page break / add page" onClick={addPage}><SeparatorHorizontal size={15} /></ToolbarBtn>}
           {kind === 'template' && (
-            <ToolbarBtn title="Select text, then click to convert it into a named merge field" onClick={openConvertToMergeField}>
-              <Sparkles size={15} />
-            </ToolbarBtn>
+            <BigBtn icon={Sparkles} label="Make Variable" title="Select text, then click to convert it into a named merge field" onClick={openConvertToMergeField} />
           )}
-          <ToolbarBtn title="Find {{variables}} written on the page and turn them into real merge fields"
-            disabled={detecting} onClick={detectVariables}>
-            {detecting ? <Spinner size={15} /> : <Wand2 size={15} />}
-          </ToolbarBtn>
+          <BigBtn icon={detecting ? Spinner : Wand2} label="Detect" title="Find {{variables}} written on the page and turn them into real merge fields"
+            disabled={detecting} onClick={detectVariables} />
           {kind === 'template' && (
-            <ToolbarBtn title="Template Fields - set the type of answer each variable takes"
-              active={!!fieldsPanel} onClick={() => openFieldsPanel()}>
-              <ListChecks size={15} />
-            </ToolbarBtn>
+            <BigBtn icon={ListChecks} label="Fields" title="Template Fields - set the type of answer each variable takes"
+              active={!!fieldsPanel} onClick={() => openFieldsPanel()} />
           )}
-          <button type="button" title="Variable Library - browse every variable and drag one in"
-            className={variableLibraryOpen ? 'is-active' : ''} onClick={() => setVariableLibraryOpen(o => !o)}
-            style={{ width: 'auto', padding: '0 8px', gap: 4, fontSize: 12, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
-            <Variable size={15} /> Variables
-          </button>
+          <BigBtn icon={Variable} label="Library" title="Variable Library - browse every variable and drag one in"
+            active={variableLibraryOpen} onClick={() => setVariableLibraryOpen(o => !o)} />
           <select onChange={insertMergeField} defaultValue="" aria-label="Insert a variable"
             style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
             <option value="">Insert A Variable…</option>
@@ -2456,9 +3038,23 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </optgroup>
             )}
           </select>
-          <span className="doc-toolbar-sep" />
+          </Group>
+          <Group label="Links">
           <div style={{ position: 'relative' }}>
-            <ToolbarBtn title="Bookmark" active={bookmarkPopoverOpen} onClick={() => setBookmarkPopoverOpen(o => !o)}><Bookmark size={15} /></ToolbarBtn>
+            <BigBtn icon={Link2} label="Link" active={activeEditor.isActive('link')} onClick={toggleLinkPopover} />
+            {linkPopoverOpen && (
+              <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input className="form-input" style={{ fontSize: 12, width: 180 }} placeholder="https://…" value={linkUrlDraft}
+                  onChange={e => setLinkUrlDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && applyLink()} autoFocus />
+                <button onClick={applyLink} className="primary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }}>Apply</button>
+                {activeEditor.isActive('link') && (
+                  <button onClick={removeLink} title="Remove Link" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: 5, cursor: 'pointer', display: 'flex' }}><Link2Off size={13} /></button>
+                )}
+              </div>
+            )}
+          </div>
+          <div style={{ position: 'relative' }}>
+            <BigBtn icon={Bookmark} label="Bookmarks" active={bookmarkPopoverOpen} onClick={() => setBookmarkPopoverOpen(o => !o)} />
             {bookmarkPopoverOpen && (
               <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 200 }}>
                 <div style={{ display: 'flex', gap: 6 }}>
@@ -2479,19 +3075,36 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </div>
             )}
           </div>
-          <ToolbarBtn title="Table of Contents - lists every heading with its page number" onClick={insertTableOfContents}><ListTree size={15} /></ToolbarBtn>
+          <Menu big icon={ListTree} label="Table of Contents" items={[
+            { label: 'Insert Table of Contents', onClick: insertTableOfContents },
+            { label: 'Update Table of Contents', onClick: insertTableOfContents, disabled: !findTocRange() },
+            { label: 'Remove Table of Contents', onClick: removeTableOfContents, disabled: !findTocRange() }]} />
+          </Group>
+          <Group label="Comments">
+            <BigBtn icon={MessageSquare} label="New Comment" title="Comment on the selected text" onClick={startComment}
+              disabled={!activeEditor || activeEditor.state.selection.empty} />
+          </Group>
+          <Group label="Header & Footer">
+            <BigBtn icon={LayoutPanelTop} label="Header & Footer" active={headerVisible || footerVisible} onClick={toggleHeaderFooter} />
+            <Menu big icon={Hash} label="Page Numbers" items={[
+              ...[['bottom-left', 'Bottom Left'], ['bottom-center', 'Bottom Center'], ['bottom-right', 'Bottom Right'], ['top-right', 'Top Right']].map(([v, l]) => ({ label: l, onClick: () => updatePageSetup({ pageNumbers: v }), active: (pageSetup.pageNumbers || 'bottom-right') === v })),
+              '-', { label: 'Remove Page Numbers', onClick: () => updatePageSetup({ pageNumbers: 'none' }), active: pageSetup.pageNumbers === 'none' }]} />
+          </Group>
+          <Group label="Symbols">
           <div style={{ position: 'relative' }}>
-            <ToolbarBtn title="Symbol / Emoji" active={symbolPopoverOpen} onClick={() => setSymbolPopoverOpen(o => !o)}><Smile size={15} /></ToolbarBtn>
+            <BigBtn icon={Smile} label="Symbol" title="Symbol / Emoji" active={symbolPopoverOpen} onClick={() => setSymbolPopoverOpen(o => !o)} />
             {symbolPopoverOpen && (
-              <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 10, width: 220 }}>
+              <div style={{ position: 'absolute', top: '110%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 10, width: 336, right: 0 }}>
                 <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-                  <button onClick={() => setSymbolTab('symbols')} style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 10px', border: 'none', borderBottom: symbolTab === 'symbols' ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: symbolTab === 'symbols' ? 'var(--ink)' : 'var(--muted)' }}>Symbols</button>
-                  <button onClick={() => setSymbolTab('emoji')} style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 10px', border: 'none', borderBottom: symbolTab === 'emoji' ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: symbolTab === 'emoji' ? 'var(--ink)' : 'var(--muted)' }}>Emoji</button>
+                  {[['symbols', 'Symbols'], ['emoji', 'Emoji']].map(([key, label]) => (
+                    <button key={key} type="button" onClick={() => setSymbolTab(key)} aria-selected={symbolTab === key} role="tab"
+                      style={{ width: 'auto', height: 'auto', fontSize: 11.5, fontWeight: 600, padding: '4px 10px', border: 'none', borderRadius: 0, borderBottom: symbolTab === key ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: symbolTab === key ? 'var(--ink)' : 'var(--muted)' }}>{label}</button>
+                  ))}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 2, maxHeight: 220, overflowY: 'auto' }}>
                   {(symbolTab === 'symbols' ? SYMBOL_CHARS : EMOJI_CHARS).map((ch, i) => (
                     <button key={i} onClick={() => { insertSymbol(ch); setSymbolPopoverOpen(false); }} title={ch}
-                      style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 5, lineHeight: 1 }}>
+                      style={{ width: '100%', height: 30, fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 5, lineHeight: 1 }}>
                       {ch}
                     </button>
                   ))}
@@ -2499,13 +3112,30 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </div>
             )}
           </div>
+          </Group>
           </>
           )}
 
           {ribbonTab === 'layout' && (
           <>
+          <Group label="Page Setup">
+          <Menu big icon={RectangleHorizontal} label="Margins" items={[
+            { label: 'Normal - 1" all around', onClick: () => updatePageSetup({ margins: 'normal' }), active: pageSetup.margins === 'normal' },
+            { label: 'Narrow - 0.5" all around', onClick: () => updatePageSetup({ margins: 'narrow' }), active: pageSetup.margins === 'narrow' },
+            { label: 'Moderate - 1" top and bottom, 0.75" sides', onClick: () => updatePageSetup({ margins: 'custom', marginIn: { top: 1, bottom: 1, left: 0.75, right: 0.75 } }) },
+            { label: 'Wide - 1.5" all around', onClick: () => updatePageSetup({ margins: 'wide' }), active: pageSetup.margins === 'wide' }, '-',
+            { label: 'Custom Margins…', onClick: () => { if (pageSetup.margins !== 'custom') updatePageSetup({ margins: 'custom', marginIn: marginsOf(pageSetup) }); setPageSetupOpen(true); }, active: pageSetup.margins === 'custom' }]} />
+          <Menu big icon={RotateCw} label="Orientation" items={ORIENTATIONS.map(o => ({ label: o.label, onClick: () => updatePageSetup({ orientation: o.value }), active: pageSetup.orientation === o.value }))} />
+          <Menu big icon={PageIcon} label="Size" items={PAGE_SIZES.map(s => ({ label: s.label, onClick: () => updatePageSetup({ size: s.value }), active: pageSetup.size === s.value }))} />
+          <Menu big icon={Columns2} label="Columns" items={[[1, 'One'], [2, 'Two'], [3, 'Three']].map(([n, l]) => ({ label: l, onClick: () => updatePageSetup({ columns: n }), active: (pageSetup.columns || 1) === n }))} />
+          <Menu big icon={SeparatorHorizontal} label="Breaks" items={[
+            { label: 'Page Break', onClick: () => activeEditor.chain().focus().insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run() },
+            ...(kind === 'document' ? [{ label: 'New Page at the End', onClick: addPage }] : [])]} />
+          <Menu big icon={Hash} label="Line Numbers" items={[
+            { label: 'None', onClick: () => updatePageSetup({ lineNumbers: false }), active: !pageSetup.lineNumbers },
+            { label: 'Continuous', onClick: () => updatePageSetup({ lineNumbers: true }), active: !!pageSetup.lineNumbers }]} />
           <div style={{ position: 'relative' }}>
-            <ToolbarBtn title="Page Setup" onClick={() => setPageSetupOpen(o => !o)}><FileStack size={15} /></ToolbarBtn>
+            <BigBtn icon={FileStack} label="More…" title="Page Setup" active={pageSetupOpen} onClick={() => setPageSetupOpen(o => !o)} />
             {pageSetupOpen && (
               <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, width: 260, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div>
@@ -2525,9 +3155,24 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Margins</label>
                   <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={pageSetup.margins}
-                    onChange={e => updatePageSetup({ margins: e.target.value })}>
+                    onChange={e => updatePageSetup(e.target.value === 'custom'
+                      ? { margins: 'custom', marginIn: marginsOf(pageSetup) }
+                      : { margins: e.target.value })}>
                     {MARGIN_PRESETS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
+                  {pageSetup.margins === 'custom' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+                      {['top', 'bottom', 'left', 'right'].map(side => (
+                        <label key={side} style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                          {side[0].toUpperCase() + side.slice(1)}
+                          <input type="number" min="0.2" max="3" step="0.05" className="form-input" style={{ width: 64, fontSize: 12, padding: '3px 6px' }}
+                            value={marginsOf(pageSetup)[side]}
+                            onChange={e => updatePageSetup({ marginIn: { ...marginsOf(pageSetup), [side]: Number(e.target.value) } })} />
+                        </label>
+                      ))}
+                      <span style={{ gridColumn: '1 / -1', fontSize: 10.5, color: 'var(--muted)' }}>Inches</span>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Columns</label>
@@ -2580,43 +3225,198 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </div>
             )}
           </div>
-          {kind === 'document' && <ToolbarBtn title="Breaks - insert a page break" onClick={addPage}><SeparatorHorizontal size={15} /></ToolbarBtn>}
-          <span className="doc-toolbar-sep" />
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--muted)' }} title="Space before paragraph, in points">
-            Before
-            <input type="number" min={0} max={72} step={1}
-              value={activeEditor.getAttributes(currentBlockType()).spacingBefore || ''}
-              onChange={e => activeEditor.chain().focus().updateAttributes(currentBlockType(), { spacingBefore: e.target.value ? Number(e.target.value) : null }).run()}
-              style={{ width: 44, fontSize: 12, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 5px' }} />
-            pt
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--muted)' }} title="Space after paragraph, in points">
-            After
-            <input type="number" min={0} max={72} step={1}
-              value={activeEditor.getAttributes(currentBlockType()).spacingAfter || ''}
-              onChange={e => activeEditor.chain().focus().updateAttributes(currentBlockType(), { spacingAfter: e.target.value ? Number(e.target.value) : null }).run()}
-              style={{ width: 44, fontSize: 12, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 5px' }} />
-            pt
-          </label>
+          </Group>
+          <Group label="Paragraph">
+            <div className="doc-ribbon-stack">
+              <div className="doc-ribbon-row">
+                {[['indentLeft', 'Indent Left', 'Left indent, in points'], ['indentRight', 'Indent Right', 'Right indent, in points']].map(([key, label, hint]) => (
+                  <label key={key} className="doc-ribbon-field" title={hint}>
+                    {label}
+                    <input type="number" min={0} max={360} step={6} value={activeEditor.getAttributes(currentBlockType())[key] || ''}
+                      onChange={e => setParaAttr({ [key]: e.target.value ? Number(e.target.value) : null })} /> pt
+                  </label>
+                ))}
+              </div>
+              <div className="doc-ribbon-row">
+                {[['spacingBefore', 'Spacing Before', 'Space before paragraph, in points'], ['spacingAfter', 'Spacing After', 'Space after paragraph, in points']].map(([key, label, hint]) => (
+                  <label key={key} className="doc-ribbon-field" title={hint}>
+                    {label}
+                    <input type="number" min={0} max={72} step={1} value={activeEditor.getAttributes(currentBlockType())[key] ?? ''}
+                      onChange={e => setParaAttr({ [key]: e.target.value ? Number(e.target.value) : null })} /> pt
+                  </label>
+                ))}
+              </div>
+            </div>
+          </Group>
+          <Group label="Page Background">
+            <Menu big icon={PaintBucket} label="Page Color" width={260}>
+              <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]} current={pageSetup.pageColor}
+                onPick={hex => updatePageSetup({ pageColor: hex })} onNone={() => updatePageSetup({ pageColor: null })} />
+            </Menu>
+            <Menu big icon={Stamp} label="Watermark" width={220}>
+              {(closeMenu) => (
+                <>
+                  {['DRAFT', 'CONFIDENTIAL', 'SAMPLE', 'DO NOT COPY'].map(w => (
+                    <button key={w} type="button" className={`doc-ribbon-item${pageSetup.watermark === w ? ' is-active' : ''}`} onClick={() => { updatePageSetup({ watermark: w }); closeMenu(); }}>{w}</button>
+                  ))}
+                  <form className="doc-ribbon-field" style={{ padding: '4px 6px', gap: 6 }} onSubmit={(e) => { e.preventDefault(); updatePageSetup({ watermark: e.currentTarget.text.value.trim().slice(0, 40) || null }); closeMenu(); }}>
+                    <input name="text" defaultValue={pageSetup.watermark || ''} placeholder="Custom text" aria-label="Custom watermark" style={{ width: 120 }} />
+                    <button type="submit" className="primary-btn" style={{ fontSize: 11.5, padding: '4px 9px' }}>Set</button>
+                  </form>
+                  <div className="doc-ribbon-sep" />
+                  <button type="button" className="doc-ribbon-item" onClick={() => { updatePageSetup({ watermark: null }); closeMenu(); }}>Remove Watermark</button>
+                </>
+              )}
+            </Menu>
+          </Group>
           </>
           )}
 
-          <span className="doc-toolbar-sep" />
-          {/* Greyed out when there is nothing to undo, the way Word's are.
-              These used to call .chain() on activeEditor unguarded: before any
-              page had registered its editor that threw inside the click
-              handler, so the button did nothing AND said nothing. Disabled
-              state is recomputed on every edit and selection change
-              (selectionTick), so it never goes stale. */}
-          <ToolbarBtn title="Undo" disabled={!activeEditor?.can().undo()}
-            onClick={() => activeEditor?.chain().focus().undo().run()}><Undo size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Redo" disabled={!activeEditor?.can().redo()}
-            onClick={() => activeEditor?.chain().focus().redo().run()}><Redo size={15} /></ToolbarBtn>
+          {ribbonTab === 'references' && (
+          <>
+          <Group label="Table of Contents">
+            <BigBtn icon={ListTree} label={findTocRange() ? 'Update Table' : 'Table of Contents'} title="Table of Contents - lists every heading with its page number" onClick={insertTableOfContents} />
+            <BigBtn icon={Trash2} label="Remove" title="Remove Table of Contents" onClick={removeTableOfContents} disabled={!findTocRange()} />
+          </Group>
+          <Group label="Footnotes">
+            <span style={{ fontSize: 11.5, color: 'var(--muted)', padding: '0 4px', maxWidth: 220 }}>Footnotes, endnotes and citations are not in this editor yet. Use a bookmark and a link for a cross-reference.</span>
+          </Group>
+          </>
+          )}
+
+          {ribbonTab === 'review' && (
+          <>
+          <Group label="Proofing">
+            <BigBtn icon={SpellCheck} label="Spelling" title="Underline misspelled words (the browser's own spelling check)" active={viewPrefs.spell} onClick={() => setPref('spell', !viewPrefs.spell)} />
+            <BigBtn icon={FileSearch} label="Word Count" onClick={() => setWordCountOpen(true)} />
+            <BigBtn icon={Accessibility} label="Check Accessibility" onClick={() => setA11yIssues(accessibilityIssues([...editorsRef.current.values()]))} />
+          </Group>
+          <Group label="Comments">
+            <BigBtn icon={MessageSquare} label="New Comment" title="Comment on the selected text" onClick={startComment}
+              disabled={!activeEditor || activeEditor.state.selection.empty} />
+            <BigBtn icon={Trash2} label="Delete" title="Delete the selected comment thread" onClick={deleteActiveComment} disabled={!activeComment} />
+            <BigBtn icon={ChevronLeft} label="Previous" title="Previous comment" onClick={() => stepComment(-1)} disabled={commentRoots.length < 2} />
+            <BigBtn icon={ChevronRight} label="Next" title="Next comment" onClick={() => stepComment(1)} disabled={commentRoots.length < 2} />
+            <BigBtn icon={MessageSquare} label="Show Comments" title="Show or hide the comments pane" active={commentsOpen} onClick={() => setCommentsOpen((o) => !o)} />
+          </Group>
+          <Group label="Tracking">
+            <Menu big icon={PenLine} label="Track Changes" title="Mark every insertion and deletion with who made it (Ctrl+Shift+E)" active={tracking !== 'off'} items={[
+              { label: 'Off', onClick: () => setTrackingMode('off'), active: tracking === 'off' },
+              { label: 'For Everyone', title: 'Saved with the document: whoever opens it next keeps tracking', onClick: () => setTrackingMode('everyone'), active: tracking === 'everyone' },
+              { label: 'Just Mine', title: 'Track my changes in this browser only', onClick: () => setTrackingMode('mine'), active: tracking === 'mine' }]} />
+            <Menu big icon={Eye} label="Markup View" items={[
+              { label: 'Markup On Page', title: 'All Markup: insertions underlined, deletions struck through', onClick: () => setMarkupView('all'), active: markupView === 'all' },
+              { label: 'Markup In Margin', title: 'Simple Markup: the final text, with a bar beside every changed paragraph', onClick: () => setMarkupView('simple'), active: markupView === 'simple' }]} />
+          </Group>
+          <Group label="Changes">
+            <Menu big icon={Check} label="Accept" title="Accept the change at the cursor and move to the next" disabled={!changeCount} items={[
+              { label: 'Accept And Move To Next', onClick: () => resolveChange(true) },
+              { label: 'Accept All Changes', onClick: () => resolveAll(true) }]} />
+            <Menu big icon={X} label="Reject" title="Reject the change at the cursor and move to the next" disabled={!changeCount} items={[
+              { label: 'Reject And Move To Next', onClick: () => resolveChange(false) },
+              { label: 'Reject All Changes', onClick: () => resolveAll(false) }]} />
+            <BigBtn icon={ChevronLeft} label="Previous" title="Previous tracked change" onClick={() => { activeEditor?.chain().focus().selectChange(-1).run(); setSelectionTick((t) => t + 1); }} disabled={!changeCount} />
+            <BigBtn icon={ChevronRight} label="Next" title="Next tracked change" onClick={() => { activeEditor?.chain().focus().selectChange(1).run(); setSelectionTick((t) => t + 1); }} disabled={!changeCount} />
+            <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center', padding: '0 4px', whiteSpace: 'nowrap' }}>{changeCount === 1 ? '1 change' : `${changeCount} changes`}</span>
+          </Group>
+          <Group label="Mode">
+            <Menu big icon={docMode === 'Viewing' ? EyeOff : docMode === 'Reviewing' ? PenLine : Type} label={docMode} title="Editing: make any changes. Reviewing: every change is tracked. Viewing: read, change nothing." items={[
+              { label: 'Editing', title: 'Make any changes', onClick: () => { setViewingOnly(false); if (tracking !== 'off') setTrackingMode('off'); }, active: docMode === 'Editing' },
+              { label: 'Reviewing', title: 'Track every change for everyone', onClick: () => { setViewingOnly(false); setTrackingMode('everyone'); }, active: docMode === 'Reviewing' },
+              { label: 'Viewing', title: 'Read the document, change nothing', onClick: () => setViewingOnly(true), active: docMode === 'Viewing' }]} />
+          </Group>
+          </>
+          )}
+
+          {ribbonTab === 'view' && (
+          <>
+          <Group label="Views">
+            <BigBtn icon={PageIcon} label="Separate Pages" title="Lay the document out as pages" active={viewPrefs.paginate} onClick={() => setPref('paginate', !viewPrefs.paginate)} />
+            <BigBtn icon={BookOpen} label="Reading View" title="Read the document without the editing tools" onClick={() => { setPreview(true); if (kind === 'document') openPdfPreview(); }} />
+          </Group>
+          <Group label="Zoom">
+            <Menu big icon={ZoomIn} label="Zoom" items={[
+              ...[50, 75, 100, 150, 200].map(p => ({ label: `${p}%`, onClick: () => setZoom(p / 100), active: Math.round(zoom * 100) === p })),
+              '-', { label: 'Page Width', onClick: zoomToPageWidth }, { label: 'Fit Page', onClick: zoomToFit }]} />
+            <BigBtn icon={ZoomOut} label="100%" onClick={() => setZoom(1)} active={zoom === 1} />
+          </Group>
+          <Group label="Show">
+            <BigBtn icon={RulerIcon} label="Ruler" active={viewPrefs.ruler} onClick={() => setPref('ruler', !viewPrefs.ruler)} />
+            <BigBtn icon={PanelLeft} label="Navigation" active={viewPrefs.nav} onClick={() => setPref('nav', !viewPrefs.nav)} />
+            <BigBtn icon={LayoutPanelTop} label="Header & Footer" active={headerVisible || footerVisible} onClick={toggleHeaderFooter} />
+            <BigBtn icon={Pilcrow} label="Formatting Marks" active={showMarks} onClick={() => setShowMarks(s => !s)} />
+          </Group>
+          </>
+          )}
+
+          {ribbonTab === 'help' && (
+          <>
+          <Group label="Help">
+            <BigBtn icon={HelpCircle} label="Help" title="Open the Documents guide" onClick={openHelp} />
+            <BigBtn icon={BookOpen} label="Shortcuts" title="Keyboard shortcuts" onClick={() => toastOk?.('Ctrl+B bold, Ctrl+I italic, Ctrl+U underline, Ctrl+Z undo, Ctrl+Y redo, Ctrl+K link, Ctrl+Shift+V paste as text.')} />
+          </Group>
+          </>
+          )}
+          {ribbonTab === 'picture' && imgAttrs && (
+          <>
+          <Group label="Picture Styles">
+            <Menu big icon={Frame} label="Styles" title="Picture style" items={[
+              { label: 'No Style', onClick: () => setImg({ frame: 'none' }), active: (imgAttrs.frame || 'none') === 'none' },
+              { label: 'Simple Frame', onClick: () => setImg({ frame: 'simple' }), active: imgAttrs.frame === 'simple' },
+              { label: 'Soft Shadow', onClick: () => setImg({ frame: 'shadow' }), active: imgAttrs.frame === 'shadow' },
+              { label: 'Rounded Corners', onClick: () => setImg({ frame: 'rounded' }), active: imgAttrs.frame === 'rounded' }]} />
+            <Menu big icon={Square} label="Border" title="Picture border color" width={236}>
+              <ColorGrid rows={[THEME_COLORS.map((c) => [c]), STANDARD_COLORS.map((c) => [c])]} current={imgAttrs.borderColor}
+                onPick={(hex) => setImg({ borderColor: hex })} onNone={() => setImg({ borderColor: null })} noneLabel="No Border" />
+            </Menu>
+          </Group>
+          <Group label="Arrange">
+            <Menu big icon={Move} label="Wrap Text" title="How the text goes around the picture" items={PICTURE_WRAPS.map(([value, label]) => ({ label, onClick: () => setImg({ wrapMode: value, x: 0, y: 0 }), active: (imgAttrs.wrapMode || 'inline') === value }))} />
+            <Menu big icon={AlignCenter} label="Align" items={[
+              { label: 'Align Left', icon: AlignLeft, onClick: () => alignImg('left') },
+              { label: 'Align Center', icon: AlignCenter, onClick: () => alignImg('center') },
+              { label: 'Align Right', icon: AlignRight, onClick: () => alignImg('right') }]} />
+            <Menu big icon={RotateCw} label="Rotate" items={[
+              { label: 'Rotate Right 90°', icon: RotateCw, onClick: () => setImg({ rotation: ((imgAttrs.rotation || 0) + 90) % 360 }) },
+              { label: 'Rotate Left 90°', icon: RotateCcw, onClick: () => setImg({ rotation: ((imgAttrs.rotation || 0) + 270) % 360 }) },
+              { label: 'Flip Vertical', icon: FlipVertical, onClick: () => setImg({ flipV: !imgAttrs.flipV }), active: !!imgAttrs.flipV },
+              { label: 'Flip Horizontal', icon: FlipHorizontal, onClick: () => setImg({ flipH: !imgAttrs.flipH }), active: !!imgAttrs.flipH }]} />
+          </Group>
+          <Group label="Size">
+            <BigBtn icon={Crop} label="Crop" title="Crop - drag the edge handles; the picture keeps its size and the box shrinks. Esc or Crop again to finish." active={cropping} onClick={() => setCropping((c) => !c)} />
+            <div className="doc-ribbon-stack" style={{ gap: 4 }}>
+              <label className="doc-ribbon-field">Height
+                <input type="number" step="0.1" min="0.1" aria-label="Picture height, in inches" value={imgBox.h ? (imgBox.h / 96).toFixed(2) : ''}
+                  onChange={(e) => sizeImg('height', e.target.value)} /> in
+              </label>
+              <label className="doc-ribbon-field">Width
+                <input type="number" step="0.1" min="0.1" aria-label="Picture width, in inches" value={imgBox.w ? (imgBox.w / 96).toFixed(2) : ''}
+                  onChange={(e) => sizeImg('width', e.target.value)} /> in
+              </label>
+            </div>
+            <label className="doc-ribbon-field" title="Keep the picture's proportions when one side changes">
+              <input type="checkbox" checked={lockAspect} onChange={(e) => setLockAspect(e.target.checked)} /> Lock aspect ratio
+            </label>
+          </Group>
+          <Group label="Picture">
+            <BigBtn icon={Replace} label="Change Picture" title="Swap in another picture, keeping the size and wrap" onClick={changePicture} />
+            <BigBtn icon={RotateCcw} label="Reset Picture" title="Back to the picture as inserted: size, rotation, border, style and wrap" onClick={resetImg} />
+            <BigBtn icon={Trash2} label="Delete" title="Delete this picture" onClick={() => activeEditor.chain().focus().deleteSelection().run()} />
+          </Group>
+          <Group label="Accessibility">
+            <label className="doc-ribbon-field" style={{ minWidth: 200 }}>Alt Text
+              <input value={imgAttrs.alt || ''} placeholder="Describe this picture…" aria-label="Alt text" style={{ flex: 1 }}
+                onChange={(e) => setImg({ alt: e.target.value })} />
+            </label>
+          </Group>
+          </>
+          )}
           <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={onPickImage} style={{ display: 'none' }} />
         </div>
 
         {findOpen && (
-          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, margin: '4px 0 10px', padding: '8px 10px', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, margin: '4px 0 10px', padding: '8px 10px', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8 }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setFindOpen(false); setFindMatches([]); setFindIndex(-1); activeEditor?.commands.focus(); } }}>
             <input className="form-input" style={{ fontSize: 12, width: 160 }} placeholder="Find" value={findQuery}
               onChange={e => setFindQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && runFind()} autoFocus />
             <input className="form-input" style={{ fontSize: 12, width: 160 }} placeholder="Replace with" value={replaceQuery}
@@ -2677,13 +3477,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         </div>
       )}
 
-      {!preview && (activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox') || activeEditor?.isActive('image')) && (
+      {!preview && (activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && (
         <div className="doc-toolbar" style={{ marginTop: -8 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', paddingLeft: 4 }}>
-            {activeEditor.isActive('docShape') ? 'Shape:' : activeEditor.isActive('docTextbox') ? 'Text box:' : 'Image:'}
+            {activeEditor.isActive('docShape') ? 'Shape:' : 'Text box:'}
           </span>
           {(() => {
-            const type = activeEditor.isActive('docShape') ? 'docShape' : activeEditor.isActive('docTextbox') ? 'docTextbox' : 'image';
+            const type = activeEditor.isActive('docShape') ? 'docShape' : 'docTextbox';
             const attrs = activeEditor.getAttributes(type);
             const rotate = (delta) => activeEditor.chain().focus().updateAttributes(type, { rotation: ((attrs.rotation || 0) + delta + 360) % 360 }).run();
             return (
@@ -2722,21 +3522,29 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                     </label>
                   </>
                 )}
-                {type === 'image' && (
-                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 140 }}>
-                    Alt text
-                    <input value={attrs.alt || ''} placeholder="Describe this image…"
-                      onChange={(e) => activeEditor.chain().focus().updateAttributes('image', { alt: e.target.value }).run()}
-                      style={{ flex: 1, fontSize: 12, border: '1px solid var(--line)', borderRadius: 7, padding: '4px 7px', color: 'var(--ink)', background: 'var(--card)' }} />
-                  </label>
-                )}
               </>
             );
           })()}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
+      {imgMenu && imgAttrs && (
+        <ContextMenu x={imgMenu.x} y={imgMenu.y} onClose={() => setImgMenu(null)} items={[
+          { label: 'Cut', icon: Scissors, hint: 'Ctrl+X', onClick: () => clipboardAction('cut') },
+          { label: 'Copy', icon: ClipboardCopy, hint: 'Ctrl+C', onClick: () => clipboardAction('copy') },
+          { label: 'Paste', icon: ClipboardPaste, hint: 'Ctrl+V', onClick: () => clipboardAction('paste') },
+          '-',
+          { label: 'Change Picture…', icon: Replace, onClick: changePicture },
+          { label: 'Crop', icon: Crop, onClick: () => { setRibbonTab('picture'); setCropping(true); } },
+          { label: 'Wrap Text', heading: true },
+          ...PICTURE_WRAPS.map(([value, label]) => ({ label, sub: true, active: (imgAttrs.wrapMode || 'inline') === value, onClick: () => setImg({ wrapMode: value, x: 0, y: 0 }) })),
+          '-',
+          { label: 'Format Picture', icon: ImageIcon, onClick: () => setRibbonTab('picture') },
+          { label: 'Reset Picture', icon: RotateCcw, onClick: resetImg },
+          { label: 'Delete Picture', icon: Trash2, onClick: () => activeEditor.chain().focus().deleteSelection().run() },
+        ]} />
+      )}
+      <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }} onContextMenu={onPagesContextMenu}>
       {kind === 'document' && !preview && !isMobile && (() => {
         const canvas = pageCanvasStyle(pageSetup);
         const thumbW = 92, thumbH = Math.round(thumbW * (canvas.minHeight / canvas.maxWidth));
@@ -2822,84 +3630,75 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </div>
         );
       })()}
-      <div style={{ flex: 1, minWidth: 0, background: 'var(--mist)', borderRadius: 12, padding: '10px 24px 4px',
+      {!preview && !isMobile && viewPrefs.nav && (
+        <NavigationPane headings={headingsOf(editorsRef.current, pages)} onGo={goToHeading} onClose={() => setPref('nav', false)} />
+      )}
+      <div ref={canvasRef} style={{ flex: 1, minWidth: 0, background: 'var(--mist)', borderRadius: 12, padding: '10px 24px 4px',
         overflowX: zoom > 1 ? 'auto' : 'visible' }}>
       <div style={zoom === 1 ? undefined : { zoom }}>
+      {!preview && !isMobile && viewPrefs.ruler && <Ruler pageSetup={pageSetup} />}
 
-      {!preview && !headerVisible && (
-        <button onClick={() => setHeaderVisible(true)}
-          style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', marginBottom: 6 }}>+ Add header</button>
-      )}
-      {/* Letterhead (logo/name, read-only) and header (editable) sit in the
-          SAME row, aligned with each other - not one stacked above the
-          other, which read as two unrelated bands. Shown once (not
-          per-page): the letterhead used to repeat on every sheet, but
-          header/footer can't (TipTap can't mount one editor instance twice),
-          and having the letterhead repeat while its aligned header didn't
-          made the misalignment worse, not better - consistent beats
-          "technically repeats" here. */}
-      {(activeLetterhead || headerVisible) && (
-        <div ref={letterheadRef} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup, { compact: isMobile }).maxWidth, margin: '0 auto 16px', paddingBottom: 12, borderBottom: '2px solid #111827' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            {activeLetterhead?.logoPath && <img src={activeLetterhead.logoPath} alt={activeLetterhead.name} style={{ height: 34, maxWidth: 140, objectFit: 'contain', flex: '0 0 auto' }} />}
-            {activeLetterhead && (
-              <div style={{ minWidth: 0 }}>
-                <div className="doc-letterhead-name" style={{ whiteSpace: 'nowrap' }}>{activeLetterhead.name}</div>
-                {activeLetterhead.address && <div className="doc-letterhead-address">{activeLetterhead.address}</div>}
-              </div>
-            )}
+      {/* Each page is its own bounded sheet. The letterhead sits at the top of
+          page 1's text frame (the exporter reserves the same band); the header
+          and footer EDITORS live in page 1's top margin and the last page's
+          bottom margin, and every sheet in between repeats them as static
+          bands (DocPage draws those). TipTap cannot mount one editor twice,
+          which is why the editable copy exists once. */}
+      {pages.map((p, i) => {
+        const isFirst = i === 0;
+        const isLast = i === pages.length - 1;
+        const smallBtn = (label, onClick, extra = {}) => (preview ? null : (
+          <button type="button" onClick={onClick}
+            style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 10.5, fontWeight: 600, cursor: 'pointer', padding: 0, ...extra }}>{label}</button>
+        ));
+        const headerSlot = !isFirst ? undefined : headerVisible ? (
+          <div>
+            {smallBtn('Remove header', () => { setHeaderVisible(false); headerEditor?.commands.clearContent(); scheduleSave(); }, { float: 'right', marginLeft: 8 })}
+            <EditorContent editor={headerEditor} className="doc-editor doc-inline-editor" />
           </div>
-          {headerVisible && (
-            <div style={{ flex: '1 1 auto', maxWidth: 340, textAlign: 'right' }}>
-              {!preview && (
-                <button onClick={() => { setHeaderVisible(false); headerEditor?.commands.clearContent(); scheduleSave(); }}
-                  style={{ float: 'right', background: 'none', border: 'none', color: 'var(--muted)', fontSize: 10.5, cursor: 'pointer', marginBottom: 2 }}>Remove header</button>
-              )}
-              <div style={{ clear: 'both' }}><EditorContent editor={headerEditor} className="doc-editor doc-inline-editor" /></div>
+        ) : (smallBtn('+ Add header', () => setHeaderVisible(true)) ?? <span />);
+        const footerSlot = !isLast ? undefined : (
+          <div>
+            {activeLetterhead?.footerJson?.text && <div className="doc-letterhead-tagline" style={{ margin: 0 }}>{activeLetterhead.footerJson.text}</div>}
+            {footerVisible ? (
+              <>
+                {smallBtn('Remove footer', () => { setFooterVisible(false); footerEditor?.commands.clearContent(); scheduleSave(); }, { float: 'right', marginLeft: 8 })}
+                <EditorContent editor={footerEditor} className="doc-editor doc-inline-editor" />
+              </>
+            ) : smallBtn('+ Add footer', () => setFooterVisible(true))}
+          </div>
+        );
+        const topSlot = isFirst && activeLetterhead ? (
+          <div ref={letterheadRef} style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, marginBottom: 16, paddingBottom: 12, borderBottom: '2px solid #111827' }}>
+            {activeLetterhead.logoPath && <img src={activeLetterhead.logoPath} alt={activeLetterhead.name} style={{ height: 34, maxWidth: 140, objectFit: 'contain', flex: '0 0 auto' }} />}
+            <div style={{ minWidth: 0 }}>
+              <div className="doc-letterhead-name" style={{ whiteSpace: 'nowrap' }}>{activeLetterhead.name}</div>
+              {activeLetterhead.address && <div className="doc-letterhead-address">{activeLetterhead.address}</div>}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Each page is its own bounded sheet with real separation between them
-          (the CSS gap/shadow doing double duty as both "this looks like
-          stacked paper" AND the actual boundary between two independent
-          editors) - not one continuous scroll with a dashed-line marker. */}
-      {pages.map((p, i) => (
-        <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
-          firstSheetPx={i === 0 ? firstSheetPx : undefined} showMarks={showMarks}
-          onReady={registerPageEditor} onUpdate={onPageUpdate}
-          onActivity={onPageActivity} onPaste={onBodyPaste} onVariableDrop={onVariableDrop} onTocClick={goToTocLink} />
-      ))}
-
-      {/* Same alignment fix at the bottom: the letterhead's own footer
-          tagline (if it has one) and the document's footer editor share one
-          row instead of stacking. */}
-      {(activeLetterhead?.footerJson?.text || footerVisible) && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup, { compact: isMobile }).maxWidth, margin: '16px auto 0', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-          {activeLetterhead?.footerJson?.text && <div className="doc-letterhead-tagline" style={{ margin: 0 }}>{activeLetterhead.footerJson.text}</div>}
-          {footerVisible && (
-            <div style={{ flex: '1 1 auto', maxWidth: 340, marginLeft: 'auto', textAlign: 'right' }}>
-              {!preview && (
-                <button onClick={() => { setFooterVisible(false); footerEditor?.commands.clearContent(); scheduleSave(); }}
-                  style={{ float: 'right', background: 'none', border: 'none', color: 'var(--muted)', fontSize: 10.5, cursor: 'pointer', marginBottom: 2 }}>Remove footer</button>
-              )}
-              <div style={{ clear: 'both' }}><EditorContent editor={footerEditor} className="doc-editor doc-inline-editor" /></div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {!preview && !footerVisible && (
-        <button onClick={() => setFooterVisible(true)}
-          style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', marginTop: 6 }}>+ Add footer</button>
-      )}
+          </div>
+        ) : null;
+        return (
+          <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked && !viewingOnly} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
+            firstSheetPx={isFirst ? firstSheetPx : undefined} showMarks={showMarks}
+            bandInfo={bandInfo} sheetBase={sheetStarts[i]} onSheets={onSheets} paginate={viewPrefs.paginate}
+            topSlot={topSlot} headerSlot={headerSlot} footerSlot={footerSlot}
+            onReady={registerPageEditor} onUpdate={onPageUpdate}
+            onActivity={onPageActivity} onPaste={onBodyPaste} onVariableDrop={onVariableDrop} onTocClick={goToTocLink} />
+        );
+      })}
       </div>
       </div>
       {/* Variables Used - the third column of the pages row, sticky under the
           top header (style.css ".nx-docb-vars") so it stays while the pages
           scroll. Click inserts the variable at the cursor, drag drops it
           where it lands, double-click edits its field (templates). */}
+      {!preview && !isMobile && commentsOpen && (
+        <CommentsPane store={commentStore} me={me} isAdmin={myLevel >= 4}
+          ownerEmail={String(doc?.ownerEmail || doc?.createdBy || '').toLowerCase()}
+          activeId={activeComment} onSelect={selectComment}
+          draft={commentDraft} onDraftSaved={onCommentSaved} onDraftCancel={() => setCommentDraft(null)}
+          onClose={() => setCommentsOpen(false)} />
+      )}
       {!preview && !isMobile && (
         <aside className="nx-docb-vars" aria-label="Variables used in this document">
           <div className="nx-docb-vars-head">
@@ -2948,34 +3747,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       )}
 
       {!preview && (
-        <div style={{
-          position: 'fixed', right: 20, bottom: 20, zIndex: 40,
-          display: 'flex', alignItems: 'center', gap: 8,
-          background: 'var(--card)', border: '1px solid var(--line)',
-          borderRadius: 999, padding: '6px 12px', boxShadow: 'var(--shadow-lg)',
-        }}>
-          <button title="Zoom out" onClick={() => zoomBy(-0.1)} disabled={zoom <= 0.5}
-            style={{ background: 'none', border: 'none', cursor: zoom <= 0.5 ? 'default' : 'pointer', color: 'var(--ink)', display: 'flex', padding: 3, opacity: zoom <= 0.5 ? 0.4 : 1 }}>
-            <ZoomOut size={15} />
-          </button>
-          <input type="range" min={50} max={200} step={10} value={Math.round(zoom * 100)}
-            onChange={e => setZoom(Number(e.target.value) / 100)}
-            aria-label="Zoom" title={`Zoom ${Math.round(zoom * 100)}%`}
-            style={{ width: 96, accentColor: 'var(--pine)', cursor: 'pointer' }} />
-          <button title="Zoom in" onClick={() => zoomBy(0.1)} disabled={zoom >= 2}
-            style={{ background: 'none', border: 'none', cursor: zoom >= 2 ? 'default' : 'pointer', color: 'var(--ink)', display: 'flex', padding: 3, opacity: zoom >= 2 ? 0.4 : 1 }}>
-            <ZoomIn size={15} />
-          </button>
-          {/* The readout doubles as Reset - the one control people reach for
-              after overshooting with the slider. */}
-          <button title="Reset to 100%" onClick={() => setZoom(1)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 700,
-              color: zoom === 1 ? 'var(--muted)' : 'var(--ink)', fontFamily: 'Inter, sans-serif',
-              minWidth: 38, textAlign: 'right', padding: 0 }}>
-            {Math.round(zoom * 100)}%
-          </button>
-        </div>
+        <StatusBar page={(sheetStarts[pages.findIndex(p => p.id === activePageId)] || 0) + 1} pages={totalSheets}
+          words={countWords([...editorsRef.current.values()]).words} zoom={zoom} setZoom={setZoom}
+          onFit={zoomToFit} onPageWidth={zoomToPageWidth} onWordCount={() => setWordCountOpen(true)} />
       )}
+      {wordCountOpen && <WordCountDialog stats={countWords([...editorsRef.current.values()])} pages={totalSheets} onClose={() => setWordCountOpen(false)} />}
+      {a11yIssues && <AccessibilityDialog issues={a11yIssues} onClose={() => setA11yIssues(null)} />}
 
       {historyOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}

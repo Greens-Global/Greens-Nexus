@@ -118,7 +118,7 @@ class IifExportTests(unittest.TestCase):
             db.query(models.HrEntity).filter(models.HrEntity.id.in_((CO_A, CO_B))).delete(synchronize_session=False)
             db.query(models.NexusSetting).filter(models.NexusSetting.key.in_(
                 ("payroll_earnings_codes", "quickbooks_company_names",
-                 "quickbooks_company_create_times"))).delete(synchronize_session=False)
+                 "quickbooks_company_create_times", "quickbooks_iif_blank_job"))).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -294,6 +294,34 @@ class IifExportTests(unittest.TestCase):
                          "1361233702")
         self.client.put("/timeclock/payroll/export-codes", json={"company": CO_A, "codes": {}, "quickbooksCreateTime": ""})
         self.assertEqual(self._lines(f"&company={CO_A}&finalized_only=false")[1], HEADER_A)
+
+    def test_leave_customer_job_blank(self):
+        """Charmi, 11/06/2026: her QuickBooks file has no customers for the
+        work sites, so QuickBooks refused the rows. Leave Customer:Job Blank
+        (per company, off by default) writes JOB blank and not billable;
+        hours and payroll items stay; other companies keep Neil's Aug 25 job."""
+        def rows():
+            return [ln.split("	") for ln in self._lines("&finalized_only=false") if ln.startswith("TIMEACT	") and "Holiday" not in ln]
+        before = rows()
+        self.assertTrue(before)
+        self.assertTrue(all(r[2] == "Rental A" and r[10] == "1" for r in before), before)
+        r = self.client.put("/timeclock/payroll/export-codes",
+                            json={"company": CO_A, "codes": {}, "quickbooksBlankJob": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["quickbooksBlankJob"])
+        after = rows()
+        pat = [x for x in after if x[3] == "Pat Test"]
+        quinn = [x for x in after if x[3] == "Quinn Test"]
+        self.assertTrue(pat and quinn)
+        self.assertTrue(all(x[2] == "" and x[10] == "0" and x[9] == "Y" for x in pat), pat)
+        self.assertTrue(all(x[2] == "Rental A" and x[10] == "1" for x in quinn), quinn)
+        # Same hours and payroll items as before - only JOB / billable moved.
+        self.assertEqual(sorted((x[1], x[3], x[5], x[6]) for x in before), sorted((x[1], x[3], x[5], x[6]) for x in after))
+        # Saving codes without the field leaves it; False turns it off.
+        self.client.put("/timeclock/payroll/export-codes", json={"company": CO_A, "codes": {"regular": "REG"}})
+        self.assertTrue(self.client.get(f"/timeclock/payroll/export-codes?company={CO_A}").json()["quickbooksBlankJob"])
+        self.client.put("/timeclock/payroll/export-codes", json={"company": CO_A, "codes": {}, "quickbooksBlankJob": False})
+        self.assertTrue(all(x[2] == "Rental A" for x in rows()))
 
     def test_one_persons_iif(self):
         """Charmi, Teams 11/03/2026: the download should also work on one

@@ -531,8 +531,9 @@ def person(db: Session, row: dict, P: dict, *, cfg: dict, emp, currency: str, ap
     tc, tsr = _tc(), _tsr()
     em = row["email"]
     fixed = (row.get("payType") or "hourly") == "fixed"
-    s, e = (P["monthStart"], P["monthEnd"]) if fixed else (P["start"], P["end"])
-    ps, pe = (P["prevMonthStart"], P["prevMonthEnd"]) if fixed else (P["prevStart"], P["prevEnd"])
+    monthly = fixed and not tc._salary_biweekly(db, em, P["start"])   # a bi-weekly salary reads the pay period
+    s, e = (P["monthStart"], P["monthEnd"]) if monthly else (P["start"], P["end"])
+    ps, pe = (P["prevMonthStart"], P["prevMonthEnd"]) if monthly else (P["prevStart"], P["prevEnd"])
     active = (getattr(emp, "status", None) or "active") in ("active", "onboarding")
 
     if fixed:
@@ -692,12 +693,17 @@ def build(db: Session, scope, anchor: str = "") -> dict:
     rows, emps, rates = _roster(db, scope, P["start"], P["end"])
     hourly = [r for r in rows if (r.get("payType") or "hourly") != "fixed"]
     fixed = [r for r in rows if (r.get("payType") or "hourly") == "fixed"]
+    # A bi-weekly salary is judged on the pay period, every other salary on the month.
+    fixed_b = [r["email"] for r in fixed if tc._salary_biweekly(db, r["email"], P["start"])]
+    fixed_m = [r["email"] for r in fixed if r["email"] not in fixed_b]
     approved = tc._approved_emails(db, hourly, P["start"], P["end"]) if hourly else set()
-    if fixed:
-        approved |= tc._approved_emails(db, [{"email": r["email"], "days": {}} for r in fixed],
-                                        P["monthStart"], P["monthEnd"])
+    for ems, (s, e) in ((fixed_m, (P["monthStart"], P["monthEnd"])), (fixed_b, (P["start"], P["end"]))):
+        if ems:
+            approved |= tc._approved_emails(db, [{"email": em, "days": {}} for em in ems], s, e)
     st_h = _bulk_status(db, [r["email"] for r in hourly], P["start"], P["end"])
-    st_f = _bulk_status(db, [r["email"] for r in fixed], P["monthStart"], P["monthEnd"])
+    st_m = _bulk_status(db, fixed_m, P["monthStart"], P["monthEnd"])
+    st_b = _bulk_status(db, fixed_b, P["start"], P["end"])
+    st_f = {k: {**st_m[k], **st_b[k]} for k in st_m}
     people = [emps[r["email"]] for r in hourly if r["email"] in emps]
     expected = _expected(db, people, P["start"], P["end"])
     # CA-rule hourly people (ca_review.py): their facts read once for all of them.
@@ -763,27 +769,31 @@ def check_export(db: Session, scope, start: str, end: str) -> dict:
     out = []
     groups = [(ps, pe, False) for ps, pe in X["hourly"]] + [(X["monthStart"], X["monthEnd"], True)]
     emps = rates = None
-    for ps, pe, want_fixed in groups:
+    for ps, pe, _month in groups:
         rows, emps_, rates_ = _roster(db, scope, ps, pe)
         emps, rates = emps or emps_, rates or rates_
-        rows = [r for r in rows if ((r.get("payType") or "hourly") == "fixed") == want_fixed]
+        # Each person in the group of their own period (a bi-weekly salary
+        # rides with the hourly periods, 11/06/2026).
+        rows = [r for r in rows if tc._period_of(db, r["email"], ps) == (ps, pe)]
         if not rows:
             continue
-        approved = tc._approved_emails(db, rows if not want_fixed else [{"email": r["email"], "days": {}} for r in rows],
+        is_fixed = {r["email"]: (r.get("payType") or "hourly") == "fixed" for r in rows}
+        approved = tc._approved_emails(db, [{"email": r["email"], "days": {}} if is_fixed[r["email"]] else r for r in rows],
                                        ps, pe)
         status = _bulk_status(db, [r["email"] for r in rows], ps, pe)
         for r in rows:
             em = r["email"]
+            fixed = is_fixed[em]
             emp = emps.get(em)
             active = (getattr(emp, "status", None) or "active") in ("active", "onboarding")
             has_hours = bool(r.get("workedMin"))
-            if not has_hours and (not want_fixed or not active):
+            if not has_hours and (not fixed or not active):
                 continue
             today = tc._employee_today(db, em)
-            exceptions = _facts(db, em, ps, pe, fixed=want_fixed, has_hours=has_hours, today=today,
+            exceptions = _facts(db, em, ps, pe, fixed=fixed, has_hours=has_hours, today=today,
                                 exc=_exceptions_for(db, em, ps, pe), status=status, approved=approved,
                                 rate_row=rates.get(em), days=r.get("days"))
-            out.append(_base_row(r, "fixed" if want_fixed else "hourly", ps, pe, today, exceptions))
+            out.append(_base_row(r, "fixed" if fixed else "hourly", ps, pe, today, exceptions))
     out.sort(key=lambda x: (x["ready"], x["name"].lower(), x["periodStart"]))
     return {"export": {"start": start, "end": end, **X}, "rows": out, "summary": summarize(out),
             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"), "checkOnly": True}

@@ -3,6 +3,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Paragraph from '@tiptap/extension-paragraph';
 import Heading from '@tiptap/extension-heading';
 import { Table, TableRow, TableHeader as BaseTableHeader, TableCell as BaseTableCell } from '@tiptap/extension-table';
+import { BulletList } from '@tiptap/extension-list';
 import TextAlign from '@tiptap/extension-text-align';
 import { TextStyleKit } from '@tiptap/extension-text-style';
 import Link from '@tiptap/extension-link';
@@ -11,6 +12,8 @@ import Superscript from '@tiptap/extension-superscript';
 import Highlight from '@tiptap/extension-highlight';
 import { MergeField, PageBreak, DocShape, DocTextbox, ResizableImage, Bookmark, SectionBox, SignatureBlock } from './docBuilderExtensions';
 import { boldTextNode } from './markdownBold';
+import { CommentMark } from './docCommentMark';
+import { TrackChanges } from './docTrackChanges';
 
 // Word-style cell shading - TipTap's stock TableCell/TableHeader carry no
 // background-color attribute, so both are extended identically with one
@@ -60,9 +63,56 @@ const PARAGRAPH_STYLE_ATTRS = {
   spacingAfter: {
     default: null,
     parseHTML: (el) => (el.style.marginBottom ? parseFloat(el.style.marginBottom) : null),
-    renderHTML: (attrs) => (attrs.spacingAfter ? { style: `margin-bottom: ${attrs.spacingAfter}pt` } : {}),
+    renderHTML: (attrs) => (attrs.spacingAfter != null ? { style: `margin-bottom: ${attrs.spacingAfter}pt` } : {}),
+  },
+  // Word's Indent Left / First Line (Layout tab, and every imported .docx with
+  // an indented paragraph or a hanging first line). Points, like the spacing.
+  // Rendered after `indent` so a measured indent wins over the level-based one.
+  indentLeft: {
+    default: null,
+    parseHTML: (el) => (el.style.marginLeft && /pt$/.test(el.style.marginLeft) ? parseFloat(el.style.marginLeft) : null),
+    renderHTML: (attrs) => (attrs.indentLeft ? { style: `margin-left: ${attrs.indentLeft}pt` } : {}),
+  },
+  indentFirst: {
+    default: null,
+    parseHTML: (el) => (el.style.textIndent ? parseFloat(el.style.textIndent) : null),
+    renderHTML: (attrs) => (attrs.indentFirst ? { style: `text-indent: ${attrs.indentFirst}pt` } : {}),
+  },
+  indentRight: {
+    default: null,
+    parseHTML: (el) => (el.style.marginRight && /pt$/.test(el.style.marginRight) ? parseFloat(el.style.marginRight) : null),
+    renderHTML: (attrs) => (attrs.indentRight ? { style: `margin-right: ${attrs.indentRight}pt` } : {}),
   },
 };
+
+// Word's bullet gallery (disc, circle, square) - the list's own marker style.
+const StyledBulletList = BulletList.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      listStyle: {
+        default: null,
+        parseHTML: (el) => el.style.listStyleType || null,
+        renderHTML: (attrs) => (attrs.listStyle ? { style: `list-style-type: ${attrs.listStyle}` } : {}),
+      },
+    };
+  },
+});
+
+// Word draws a table with no borders at all (a layout table, a form) as
+// bare text; the editor shows faint gridlines so it can still be edited.
+const StyledTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      borders: {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-borders') || null,
+        renderHTML: (attrs) => (attrs.borders ? { 'data-borders': attrs.borders } : {}),
+      },
+    };
+  },
+});
 const StyledParagraph = Paragraph.extend({ addAttributes() { return { ...this.parent?.(), ...PARAGRAPH_STYLE_ATTRS }; } });
 const StyledHeading = Heading.extend({ addAttributes() { return { ...this.parent?.(), ...PARAGRAPH_STYLE_ATTRS }; } });
 
@@ -73,14 +123,16 @@ const StyledHeading = Heading.extend({ addAttributes() { return { ...this.parent
 // decoration-only, contributes nothing to the schema, and each editor needs
 // its own placeholder text) - DocumentBuilder.jsx appends it locally.
 export const BODY_EXTENSIONS = [
-  StarterKit.configure({ paragraph: false, heading: false }),
-  StyledParagraph, StyledHeading,
+  // link: false - StarterKit ships its own Link; the configured one below is
+  // the one in use (two registered as "link" was a TipTap warning on every mount).
+  StarterKit.configure({ paragraph: false, heading: false, link: false, bulletList: false }),
+  StyledParagraph, StyledHeading, StyledBulletList,
   // Inline, like Word: a picture lives in the run where it was placed, so a
   // Teams transcript's speaker avatar sits beside the name rather than on a
   // line of its own. The node view is already built for it
   // (.doc-image-wrap is display:inline-block, vertical-align:middle).
   ResizableImage.configure({ inline: true }),
-  Table.configure({ resizable: true }),
+  StyledTable.configure({ resizable: true }),
   TableRow, TableHeader, TableCell,
   MergeField, PageBreak, DocShape, DocTextbox, Bookmark, SectionBox,
   SignatureBlock,
@@ -90,6 +142,10 @@ export const BODY_EXTENSIONS = [
   // autolink: true - typing/pasting a bare URL now auto-converts to a real
   // hyperlink, matching Word; previously explicitly disabled.
   Link.configure({ openOnClick: false, autolink: true }),
+  // The anchor of a comment thread (Review tab); the words live on the server.
+  CommentMark,
+  // Track Changes (Review tab): the insertion / deletion marks and the tracker.
+  TrackChanges,
 ];
 
 // ── Structural repair ────────────────────────────────────────────────────────

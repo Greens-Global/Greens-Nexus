@@ -213,11 +213,12 @@ class RequestRateLimit(BaseHTTPMiddleware):
                           "/credvault/personal/lock/",   # the Personal Vault password: guessed online (Oct 29 2026)
                           "/task-changelog-feed/",   # What's New RSS: a signed link, no login (Oct 16 2026)
                           "/unit-map/",   # customer unit map: a signed link, no login (Oct 20 2026)
+                          "/documents/word-file/",   # Open in Word: a signed 15-minute link, no login (11/05/2026)
                           "/dev-notes/tokens",   # Build Mode: mints Build Tokens (credential-minting, Oct 24 2026)
                           "/careers/apply/")   # public job application: personal data + a resume, no login (Oct 27 2026)
     # Routes whose path IS the credential: the trip log names the prefix,
     # never the token (the security log is durable).
-    TOKEN_PATH_PREFIXES = ("/timeclock/ical/", "/task-changelog-feed/", "/unit-map/")
+    TOKEN_PATH_PREFIXES = ("/timeclock/ical/", "/task-changelog-feed/", "/unit-map/", "/documents/word-file/")
     SHARED_SOURCE_PER_MIN = int(os.getenv("NEXUS_RL_SHARED", "120"))
     SHARED_SOURCE_PREFIXES = ("/mail-actions/", "/briefing-actions/", "/webhooks/github")
     EXEMPT_PREFIXES = ("/health", "/version")

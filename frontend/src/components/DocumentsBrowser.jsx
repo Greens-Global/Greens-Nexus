@@ -29,9 +29,10 @@ const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55
 const cardStyle = { background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)' };
 
 // Use Template on the Templates tab opens this too, with the template picked.
-export function CreateDocModal({ folders = [], employees = [], entities = [], initialTemplateId = '', onClose, onCreated, toastErr }) {
-  const [title, setTitle] = useState('');
-  const [titleTyped, setTitleTyped] = useState(false);
+// Import on the list opens this with the file already picked (Pranshu, 11/05/2026).
+export function CreateDocModal({ folders = [], employees = [], entities = [], initialTemplateId = '', initialFile = null, onClose, onCreated, toastErr }) {
+  const [title, setTitle] = useState(initialFile ? initialFile.name.replace(/\.[^.]+$/, '') : '');
+  const [titleTyped, setTitleTyped] = useState(!!initialFile);
   const [folderId, setFolderId] = useState('');
   const [templateId, setTemplateId] = useState(initialTemplateId);
   // Who the document is about and for which company: what tells two letters with
@@ -39,7 +40,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
   const [personEmail, setPersonEmail] = useState(null);
   const [entityId, setEntityId] = useState('');
   const [templates, setTemplates] = useState([]);
-  const [importFile, setImportFile] = useState(null);
+  const [importFile, setImportFile] = useState(initialFile);
   const [busy, setBusy] = useState(false);
   const [egnyteOpen, setEgnyteOpen] = useState(false);
   const importInputRef = useRef(null);
@@ -165,9 +166,11 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
     }
   };
 
+  // A form, so a sheet from the right (CLAUDE.md popups): the Sheets CSS
+  // block keys on .modal-overlay > .modal-content.nx-popup.
   return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div className="nx-popup" style={cardStyle} onClick={e => e.stopPropagation()}>
+    <div className="modal-overlay" style={{ ...overlayStyle, alignItems: undefined, justifyContent: undefined, padding: undefined }} onClick={onClose}>
+      <div className="modal-content nx-popup" style={{ ...cardStyle, display: 'flex', flexDirection: 'column', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700 }}>New Document</div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
@@ -390,7 +393,8 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState({ key: 'updatedAt', dir: 'desc' });
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);   // true, or { file } from the Import button
+  const importRef = useRef(null);
   const [editingDoc, setEditingDoc] = useState(null);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [organizeDoc, setOrganizeDoc] = useState(null);
@@ -479,6 +483,11 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
             <input className="form-input" placeholder="Search by title, person, signer or tag" aria-label="Search documents"
               value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
+          <input ref={importRef} type="file" accept=".docx,.doc,.pdf,.txt" style={{ display: 'none' }} aria-label="Import a file"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) setCreateOpen({ file: f }); e.target.value = ''; }} />
+          <button type="button" className="secondary-btn" title="Open a Word, PDF or text file as a new document" onClick={() => importRef.current?.click()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Upload size={14} /> Import
+          </button>
           <button type="button" className="secondary-btn" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
             Send For Signature
           </button>
@@ -552,7 +561,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
       )}
 
       {createOpen && (
-        <CreateDocModal folders={folders} employees={employees} entities={entities} toastErr={toastErr}
+        <CreateDocModal folders={folders} employees={employees} entities={entities} toastErr={toastErr} initialFile={createOpen.file || null}
           onClose={() => setCreateOpen(false)}
           onCreated={(doc) => {
             toastOk?.(doc.status === 'final' ? 'Document made' : 'Draft created');

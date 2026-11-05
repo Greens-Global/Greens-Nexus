@@ -77,5 +77,10 @@ describe('your own Time Sheet in People > Time', () => {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Approve this edited time' })).toBeTruthy();
     expect(container.querySelector('button[title*="Click to type a new time"]')).not.toBeNull();
+    // The summary strip carries Regular after Worked (Neil, 11/05/2026), one column per figure.
+    const strip = screen.getByTestId('ts-strip');
+    const figs = [...strip.querySelectorAll('.ts-fig > span')].map(e => e.textContent);
+    expect(figs.slice(0, 3)).toEqual(['Worked', 'Regular', 'Overtime']);
+    expect(strip.style.gridTemplateColumns).toBe(`repeat(${figs.length}, auto) minmax(0, 1fr)`);
   }, 20000);
 });

@@ -65,6 +65,12 @@ KNOWN_PUBLIC = {
     "/esign/public/{token}",               # 43-char token is the credential
     "/hr/intake/public/{token}",           # a candidate's details link (Oct 14): 43-char token, sha256 at rest,
                                            # one submit, dies with the offer, same per-IP guessing throttle
+    "/documents/word-file/{token}/{filename}",  # Open in Word (11/05/2026, routers/doc_word_link.py): desktop Word
+                                           # fetches the .docx through the ms-word: URI with no Nexus session, so
+                                           # the HMAC-signed token (the document, the person, a 15-minute expiry,
+                                           # minted by the authed POST /documents/word-link) IS the credential;
+                                           # it rebuilds the user and runs the same read gate as Export; no-store,
+                                           # in SENSITIVE_PREFIXES and TOKEN_PATH_PREFIXES like the feeds above
     "/timeclock/ical/{token}.ics",         # a person's own shift feed for Google / phone calendars (Shifts Phase 3a,
                                            # Oct 15): the HMAC-signed token IS the credential, revocable by rotating
                                            # their salt; own shared shifts only, no-store, in SENSITIVE_PREFIXES

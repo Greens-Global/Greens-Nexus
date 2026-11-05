@@ -16,8 +16,10 @@ compliance-adjacent helper isn't worth an esign.py refactor to reuse).
 
 Known, deliberate approximations (see the plan, not silent gaps):
 - PDF font family maps to reportlab's built-in base-14 fonts (no TTF embedding).
-- DOCX hyperlinks render styled (colored+underlined) but are not clickable -
-  python-docx's public API has no support for the OOXML hyperlink relationship.
+- DOCX numbered lists always count 1, 2, 3 (a letter or roman format needs a
+  numbering definition python-docx cannot write); the PDF honors the format.
+- The bullet glyph (disc / circle / square), the watermark and the page
+  number position are PDF-only; the Word file keeps Word's defaults.
 """
 import base64
 import re
@@ -41,6 +43,11 @@ PAGE_SIZES_IN = {
     "legal": (8.5, 14.0),      # legal agreements/contracts
     "tabloid": (11.0, 17.0),   # large reports/drawings
     "a4": (8.27, 11.69),       # international
+    # Word's Layout > Size list; kept in step with the frontend's PAGE_SIZES.
+    "a3": (11.69, 16.54),
+    "a5": (5.83, 8.27),
+    "b5": (6.93, 9.84),
+    "executive": (7.25, 10.5),
 }
 # Symmetric margins on all four sides - a simplification of Word's own
 # presets (whose "Wide" is asymmetric, 2in sides/1in top-bottom); kept simple
@@ -51,14 +58,26 @@ DEFAULT_PAGE_SETUP = {"size": "letter", "orientation": "portrait", "margins": "n
 
 
 def _resolve_page_setup(page_setup: dict = None):
-    """(width_in, height_in, margin_in) for the given {size, orientation,
-    margins} - unknown/missing values fall back to the US Letter default."""
+    """(width_in, height_in, margins) for the given {size, orientation,
+    margins[, marginIn]} - margins is {top, right, bottom, left} in inches;
+    unknown/missing values fall back to the US Letter default. `custom`
+    margins carry each side in marginIn (the frontend's marginsOf)."""
     ps = {**DEFAULT_PAGE_SETUP, **(page_setup or {})}
     w, h = PAGE_SIZES_IN.get(ps.get("size"), PAGE_SIZES_IN["letter"])
     if ps.get("orientation") == "landscape":
         w, h = h, w
-    margin_in = MARGINS_IN.get(ps.get("margins"), MARGINS_IN["normal"])
-    return w, h, margin_in
+    all_sides = MARGINS_IN.get(ps.get("margins"), MARGINS_IN["normal"])
+    margins = {side: all_sides for side in ("top", "right", "bottom", "left")}
+    custom = ps.get("marginIn") if ps.get("margins") == "custom" else None
+    if isinstance(custom, dict):
+        for side in margins:
+            try:
+                v = float(custom.get(side))
+            except (TypeError, ValueError):
+                continue
+            if 0.2 <= v <= 3:
+                margins[side] = v
+    return w, h, margins
 
 
 # ── TipTap JSON -> neutral blocks ────────────────────────────────────────────
@@ -130,6 +149,8 @@ def _text_runs(nodes, merge: dict) -> list:
         if t == "text":
             marks = n.get("marks") or []
             mark_types = {m.get("type") for m in marks}
+            if "deletion" in mark_types:      # a tracked deletion prints as accepted: gone
+                continue
             style_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "textStyle"), {})
             link_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "link"), {})
             highlight_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "highlight"), {})
@@ -167,10 +188,35 @@ def _text_runs(nodes, merge: dict) -> list:
                 runs.append({"text": "", "bold": False, "italic": False, "underline": False,
                              **_EMPTY_RUN_STYLE,
                              "image": {"src": src, "width": attrs.get("width"),
-                                       "height": attrs.get("height")}})
+                                       "height": attrs.get("height"), "style": _image_style(attrs)}})
         else:
             runs.extend(_text_runs(n.get("content"), merge))
     return runs
+
+
+def _num(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f else None   # NaN
+
+
+def _para_layout(attrs: dict) -> dict:
+    """The paragraph-level formatting both renderers honor: the Layout tab's
+    spacing and border, plus what a Word import carries - line spacing
+    (a bare multiple, or "Npt"), Indent Left / First Line (points), the
+    level-based indent and paragraph shading."""
+    return {
+        "border": attrs.get("border"),
+        "spacingBefore": _num(attrs.get("spacingBefore")),
+        "spacingAfter": _num(attrs.get("spacingAfter")),
+        "lineHeight": attrs.get("lineHeight"),
+        "indentLeft": (_num(attrs.get("indentLeft")) or 0) + 18 * (int(_num(attrs.get("indent")) or 0)),
+        "indentFirst": _num(attrs.get("indentFirst")),
+        "indentRight": _num(attrs.get("indentRight")),
+        "background": attrs.get("backgroundColor"),
+    }
 
 
 def _walk_blocks(nodes, merge: dict) -> list:
@@ -181,14 +227,11 @@ def _walk_blocks(nodes, merge: dict) -> list:
             attrs = n.get("attrs") or {}
             align = attrs.get("textAlign") or "left"
             blocks.append({"type": "paragraph", "align": align, "runs": _text_runs(n.get("content"), merge),
-                           "border": attrs.get("border"), "spacingBefore": attrs.get("spacingBefore"),
-                           "spacingAfter": attrs.get("spacingAfter")})
+                           **_para_layout(attrs)})
         elif t == "heading":
             attrs = n.get("attrs") or {}
             blocks.append({"type": "heading", "level": attrs.get("level", 1), "align": attrs.get("textAlign") or "left",
-                           "runs": _text_runs(n.get("content"), merge),
-                           "border": attrs.get("border"), "spacingBefore": attrs.get("spacingBefore"),
-                           "spacingAfter": attrs.get("spacingAfter")})
+                           "runs": _text_runs(n.get("content"), merge), **_para_layout(attrs)})
         elif t in ("bulletList", "orderedList"):
             items = [_walk_blocks(li.get("content"), merge) for li in (n.get("content") or [])]
             # A numbered list that continues an earlier one (Word's "2." after
@@ -197,23 +240,32 @@ def _walk_blocks(nodes, merge: dict) -> list:
                 start = max(1, int((n.get("attrs") or {}).get("start") or 1))
             except (TypeError, ValueError):
                 start = 1
-            blocks.append({"type": t, "items": items, "start": start})
+            list_type = (n.get("attrs") or {}).get("type")   # a / A / i / I, else 1 2 3
+            blocks.append({"type": t, "items": items, "start": start,
+                           "listType": list_type if list_type in ("a", "A", "i", "I") else None})
         elif t == "table":
             rows = []
             for row in n.get("content") or []:
                 cells = []
                 for cell in (row.get("content") or []):
+                    ca = cell.get("attrs") or {}
+                    widths = ca.get("colwidth") if isinstance(ca.get("colwidth"), list) else None
                     cells.append({
                         "blocks": _walk_blocks(cell.get("content"), merge),
-                        "background": (cell.get("attrs") or {}).get("backgroundColor"),
+                        "background": ca.get("backgroundColor"),
+                        "colspan": max(1, int(_num(ca.get("colspan")) or 1)),
+                        "rowspan": max(1, int(_num(ca.get("rowspan")) or 1)),
+                        "widths": [w for w in (_num(x) for x in widths) if w] if widths else None,
                     })
                 rows.append(cells)
-            blocks.append({"type": "table", "rows": rows})
+            blocks.append({"type": "table", "rows": rows,
+                           "borders": (n.get("attrs") or {}).get("borders") != "none"})
         elif t == "image":
             attrs = n.get("attrs") or {}
             src = attrs.get("src") or ""
             if src:
-                blocks.append({"type": "image", "src": src, "width": attrs.get("width"), "height": attrs.get("height")})
+                blocks.append({"type": "image", "src": src, "width": attrs.get("width"), "height": attrs.get("height"),
+                               "style": _image_style(attrs)})
         elif t == "pageBreak":
             blocks.append({"type": "pageBreak"})
         elif t == "docShape":
@@ -273,9 +325,126 @@ def _blocks_to_plaintext(blocks: list) -> str:
     return "   |   ".join(lines)
 
 
-def _fetch_image_bytes(url: str):
+def _image_style(attrs: dict):
+    """What Picture Format did to a picture (Pranshu, 11/05/2026: it must
+    print too): a crop, rotation, flips, a border color and a frame. None
+    when the picture is as inserted, so the bytes pass through untouched."""
+    crop = attrs.get("crop") or {}
+    crop = {k: float(crop.get(k) or 0) for k in ("top", "right", "bottom", "left")}
+    style = {"rotation": int(attrs.get("rotation") or 0) % 360, "flipH": bool(attrs.get("flipH")),
+             "flipV": bool(attrs.get("flipV")), "borderColor": attrs.get("borderColor") or None,
+             "frame": attrs.get("frame") or "none", "crop": crop if any(crop.values()) else None}
+    plain = (not style["rotation"] and not style["flipH"] and not style["flipV"]
+             and not style["borderColor"] and style["frame"] == "none" and not style["crop"])
+    return None if plain else style
+
+
+def _styled_image_bytes(data, style):
+    """Bakes a picture's Picture Format into its pixels (a PNG), the same
+    look the editor draws with CSS: the crop (percent of each edge), flips,
+    rotation, a 2px border, and the Simple Frame / Soft Shadow / Rounded
+    Corners styles. Pillow only; a picture Pillow cannot read comes back as
+    it was."""
+    if not data or not style:
+        return data
+    try:
+        from PIL import Image, ImageDraw, ImageFilter
+        img = Image.open(io.BytesIO(data)).convert("RGBA")
+        crop = style.get("crop")
+        if crop:
+            w, h = img.size
+            box = (round(w * crop["left"] / 100), round(h * crop["top"] / 100),
+                   round(w * (1 - crop["right"] / 100)), round(h * (1 - crop["bottom"] / 100)))
+            if box[2] - box[0] >= 2 and box[3] - box[1] >= 2:
+                img = img.crop(box)
+        if style.get("flipH"):
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        if style.get("flipV"):
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+        unit = max(1, round(img.width / 160))          # about 1 CSS px at the size the editor shows it
+        if style.get("frame") == "rounded":
+            mask = Image.new("L", img.size, 0)
+            ImageDraw.Draw(mask).rounded_rectangle([0, 0, img.width - 1, img.height - 1], radius=14 * unit, fill=255)
+            img.putalpha(mask)
+        if style.get("borderColor"):
+            ImageDraw.Draw(img).rectangle([0, 0, img.width - 1, img.height - 1], outline=style["borderColor"], width=2 * unit)
+        if style.get("frame") == "simple":
+            pad = 4 * unit
+            framed = Image.new("RGBA", (img.width + 2 * pad + 2 * unit, img.height + 2 * pad + 2 * unit), (209, 213, 219, 255))
+            inner = Image.new("RGBA", (img.width + 2 * pad, img.height + 2 * pad), (255, 255, 255, 255))
+            inner.alpha_composite(img, (pad, pad))
+            framed.alpha_composite(inner, (unit, unit))
+            img = framed
+        elif style.get("frame") == "shadow":
+            off, blur = 4 * unit, 6 * unit
+            canvas = Image.new("RGBA", (img.width + off + blur * 2, img.height + off + blur * 2), (0, 0, 0, 0))
+            shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+            ImageDraw.Draw(shadow).rectangle([off + blur, off + blur, off + blur + img.width, off + blur + img.height], fill=(0, 0, 0, 77))
+            canvas.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(blur)))
+            canvas.alpha_composite(img, (blur, blur))
+            img = canvas
+        if style.get("rotation"):
+            img = img.rotate(-style["rotation"], expand=True)   # CSS rotates clockwise
+        out = io.BytesIO()
+        img.save(out, format="PNG")
+        return out.getvalue()
+    except Exception:
+        return data
+
+
+def _docx_baked(style):
+    """For DOCX only the frame styles are baked into the pixels; crop,
+    rotation, flips and the border go into Word's own XML (_docx_picture_format)
+    so Word, and a re-import, keep them editable."""
+    if style and style.get("frame") not in (None, "none"):
+        return {"frame": style["frame"]}
+    return None
+
+
+def _docx_picture_format(shape, style):
+    """a:srcRect (the crop, in thousandths of a percent), a:xfrm rot / flipH /
+    flipV and a:ln (the border) on the picture python-docx just added - the
+    elements the importer (docxToTiptap.js pictureFormatFrom) reads back."""
+    if not style or shape is None:
+        return
+    try:
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        pic = shape._inline.graphic.graphicData.pic
+        crop = style.get("crop")
+        if crop:
+            rect = OxmlElement("a:srcRect")
+            for key, val in (("l", crop["left"]), ("t", crop["top"]), ("r", crop["right"]), ("b", crop["bottom"])):
+                if val:
+                    rect.set(key, str(int(round(val * 1000))))
+            pic.blipFill.blip.addnext(rect)
+        xfrm = pic.spPr.find(qn("a:xfrm"))
+        if xfrm is not None:
+            if style.get("rotation"):
+                xfrm.set("rot", str(int(style["rotation"] * 60000)))
+            if style.get("flipH"):
+                xfrm.set("flipH", "1")
+            if style.get("flipV"):
+                xfrm.set("flipV", "1")
+        color = (style.get("borderColor") or "").lstrip("#")
+        if re.fullmatch(r"[0-9a-fA-F]{6}", color):
+            ln = OxmlElement("a:ln")
+            ln.set("w", "19050")                   # 1.5pt, Word's default picture border
+            fill = OxmlElement("a:solidFill")
+            clr = OxmlElement("a:srgbClr")
+            clr.set("val", color.upper())
+            fill.append(clr)
+            ln.append(fill)
+            pic.spPr.append(ln)
+    except Exception:
+        pass                                       # the picture is in; its format is a nicety
+
+
+def _fetch_image_bytes(url: str, style=None):
     if not url:
         return None
+    if style:
+        return _styled_image_bytes(_fetch_image_bytes(url), style)
     # A picture carried INLINE as a data: URI rather than hosted. The .docx
     # importer falls back to this whenever the storage upload does not happen -
     # no bucket configured, an offline laptop, a permission - and httpx cannot
@@ -362,10 +531,10 @@ def _pdf_font_face(family: str) -> str:
     return "Helvetica"
 
 
-def _pdf_image_flowable(url: str, max_width_pt: float):
+def _pdf_image_flowable(url: str, max_width_pt: float, style=None):
     from reportlab.lib.utils import ImageReader
     from reportlab.platypus import Image as RLImage
-    data = _fetch_image_bytes(url)
+    data = _fetch_image_bytes(url, style)
     if not data:
         return None
     try:
@@ -411,7 +580,7 @@ def _pdf_inline_image_markup(image: dict) -> str:
     already-inline data URI) goes through the same one reader, and reportlab
     never has to reach the network mid-render.
     """
-    data = _fetch_image_bytes(image.get("src") or "")
+    data = _fetch_image_bytes(image.get("src") or "", image.get("style"))
     if not data:
         return ""
     try:
@@ -480,7 +649,11 @@ def _runs_to_markup(runs: list) -> str:
             font_attrs.append(f"face='{_pdf_font_face(r['fontFamily'])}'")
         if font_attrs:
             t = f"<font {' '.join(font_attrs)}>{t}</font>"
-        if r.get("link"):
+        # An in-document link (the editor's "#toc:..." Table of Contents
+        # entries, a "#bookmark") is plain text here: reportlab takes a "#"
+        # href as a PDF destination and fails the whole export when it is
+        # not defined. Word's own table of contents prints as text too.
+        if r.get("link") and not str(r["link"]).startswith("#"):
             t = f'<a href="{_esc(r["link"])}" color="blue">{t}</a>'
         if r.get("fill"):
             # render_pdf's nxFill callback records where this blank is drawn.
@@ -547,22 +720,41 @@ def _shape_drawing(b: dict):
     return d
 
 
-def _para_spacing_style(style, b: dict):
+def _leading_for(style, line_height):
+    """CSS line-height -> reportlab leading: a bare multiple scales the font
+    size (the browser's own rule), "Npt" is exact."""
+    if not line_height:
+        return None
+    s = str(line_height).strip()
+    if s.endswith("pt"):
+        return _num(s[:-2])
+    ratio = _num(s)
+    return style.fontSize * ratio if ratio and ratio > 0 else None
+
+
+def _para_layout_style(style, b: dict):
     """spacingBefore/spacingAfter (points, set via the Layout tab's numeric
     fields) map straight onto ParagraphStyle's own space-before/after, which
-    reportlab already measures in points - no unit conversion needed."""
+    reportlab already measures in points - no unit conversion needed. Line
+    spacing and the indents (a Word import's, or the Layout tab's) likewise."""
     before, after = b.get("spacingBefore"), b.get("spacingAfter")
-    if before is None and after is None:
+    leading = _leading_for(style, b.get("lineHeight"))
+    left, first, right = b.get("indentLeft") or 0, b.get("indentFirst") or 0, b.get("indentRight") or 0
+    if before is None and after is None and leading is None and not left and not first and not right:
         return style
-    return style.clone(f"{style.name}_sp{before}_{after}",
+    return style.clone(f"{style.name}_lay{before}_{after}_{leading}_{left}_{first}_{right}",
                         spaceBefore=before if before is not None else style.spaceBefore,
-                        spaceAfter=after if after is not None else style.spaceAfter)
+                        spaceAfter=after if after is not None else style.spaceAfter,
+                        leading=leading if leading is not None else style.leading,
+                        leftIndent=style.leftIndent + left,
+                        rightIndent=style.rightIndent + right,
+                        firstLineIndent=first if first else style.firstLineIndent)
 
 
-def _bordered_para(flowable, content_width: float, border: str):
+def _bordered_para(flowable, content_width: float, border: str, background: str = None):
     """Wraps a single Paragraph in a 1-cell borderless-elsewhere Table, the
     same technique already used for text boxes below - reportlab's Paragraph
-    flowable has no native border/box of its own to draw one directly."""
+    flowable has no native border/box (or background) of its own."""
     from reportlab.lib import colors
     from reportlab.platypus import Table, TableStyle
     color = colors.HexColor("#111827")
@@ -570,12 +762,62 @@ def _bordered_para(flowable, content_width: float, border: str):
         if hex_str.startswith("#"):
             color = colors.HexColor(hex_str)
     tbl = Table([[flowable]], colWidths=[content_width])
-    tbl.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 1, color),
+    cmds = [
         ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
+    ]
+    if border:
+        cmds.append(("BOX", (0, 0), (-1, -1), 1, color))
+    if background:
+        try:
+            cmds.append(("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(background)))
+        except ValueError:
+            pass
+    tbl.setStyle(TableStyle(cmds))
     return tbl
+
+
+def _table_grid(rows: list):
+    """Lays a table's cells (with colspan/rowspan) onto a column grid.
+    Returns (ncols, placed) where placed is [(ri, ci, cell)] - the top-left
+    slot of every real cell; slots a merge covers hold no cell."""
+    nrows = len(rows)
+    ncols = max((sum(c["colspan"] for c in r) for r in rows), default=1)
+    occupied = [[False] * ncols for _ in range(nrows)]
+    placed = []
+    for ri, row in enumerate(rows):
+        ci = 0
+        for cell in row:
+            while ci < ncols and occupied[ri][ci]:
+                ci += 1
+            if ci >= ncols:
+                break
+            cs, rs = cell["colspan"], cell["rowspan"]
+            for r in range(ri, min(ri + rs, nrows)):
+                for c in range(ci, min(ci + cs, ncols)):
+                    occupied[r][c] = True
+            placed.append((ri, ci, cell))
+            ci += cs
+    return ncols, placed
+
+
+def _table_col_widths(ncols: int, placed: list, content_width: float) -> list:
+    """Column widths in points from the cells' own (px) widths where known,
+    the remaining width shared by the rest, never wider than the page."""
+    known = {}
+    for _ri, ci, cell in placed:
+        ws = cell.get("widths")
+        if ws and len(ws) == cell["colspan"]:
+            for k, w in enumerate(ws):
+                known.setdefault(ci + k, w * 0.75)
+    unknown = [c for c in range(ncols) if c not in known]
+    used = sum(known.values())
+    share = max(30.0, (content_width - used) / len(unknown)) if unknown else 0
+    widths = [known.get(c, share) for c in range(ncols)]
+    total = sum(widths)
+    if total > content_width and total > 0:
+        widths = [w * content_width / total for w in widths]
+    return widths
 
 
 _ANCHOR_CLASS = None
@@ -660,16 +902,18 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anch
         elif t == "paragraph":
             style = _pdf_align_style(body_style, b.get("align"))
             style = _para_style_for_runs(style, b["runs"])
-            style = _para_spacing_style(style, b)
+            style = _para_layout_style(style, b)
             para = Paragraph(_runs_to_markup(b["runs"]) or "&nbsp;", style)
-            flow.append(_bordered_para(para, content_width, b.get("border")) if b.get("border") else para)
+            boxed = b.get("border") or b.get("background")
+            flow.append(_bordered_para(para, content_width, b.get("border"), b.get("background")) if boxed else para)
         elif t == "heading":
             level = max(1, min(6, b.get("level", 1)))
             style = _pdf_align_style(styles[f"Heading{level}"], b.get("align"))
             style = _para_style_for_runs(style, b["runs"])
-            style = _para_spacing_style(style, b)
+            style = _para_layout_style(style, b)
             para = Paragraph(_runs_to_markup(b["runs"]), style)
-            flow.append(_bordered_para(para, content_width, b.get("border")) if b.get("border") else para)
+            boxed = b.get("border") or b.get("background")
+            flow.append(_bordered_para(para, content_width, b.get("border"), b.get("background")) if boxed else para)
         elif t in ("bulletList", "orderedList"):
             items = []
             for item_blocks in b["items"]:
@@ -678,28 +922,37 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anch
             if t == "bulletList":
                 flow.append(ListFlowable(items, bulletType="bullet"))
             else:
-                flow.append(ListFlowable(items, bulletType="1", start=b.get("start") or 1))
+                flow.append(ListFlowable(items, bulletType=b.get("listType") or "1", start=b.get("start") or 1))
         elif t == "table":
             rows = b["rows"]
             if rows:
-                ncols = max((len(r) for r in rows), default=1)
-                data = [[(_blocks_to_flow(cell["blocks"], body_style, styles, content_width / max(ncols, 1) - 12,
-                                          anchors) or [Paragraph("", body_style)])
-                         for cell in row] for row in rows]
-                tbl = Table(data, colWidths=[content_width / max(ncols, 1)] * ncols)
+                ncols, placed = _table_grid(rows)
+                col_widths = _table_col_widths(ncols, placed, content_width)
+                data = [[""] * ncols for _ in rows]
                 style_cmds = [
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
                     ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
                 ]
-                # Word-style cell shading (Phase 15) - one BACKGROUND command
-                # per shaded cell; unshaded cells are left to the table's
-                # default (white) background.
-                for ri, row in enumerate(rows):
-                    for ci, cell in enumerate(row):
-                        if cell.get("background"):
-                            style_cmds.append(("BACKGROUND", (ci, ri), (ci, ri), colors.HexColor(cell["background"])))
+                if b.get("borders", True):
+                    style_cmds.append(("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")))
+                for ri, ci, cell in placed:
+                    c2 = min(ci + cell["colspan"], ncols) - 1
+                    r2 = min(ri + cell["rowspan"], len(rows)) - 1
+                    width = sum(col_widths[ci:c2 + 1]) - 12
+                    data[ri][ci] = (_blocks_to_flow(cell["blocks"], body_style, styles, width, anchors)
+                                    or [Paragraph("", body_style)])
+                    if c2 > ci or r2 > ri:
+                        style_cmds.append(("SPAN", (ci, ri), (c2, r2)))
+                    # Word-style cell shading (Phase 15) - one BACKGROUND command
+                    # per shaded cell; unshaded cells are left to the table's
+                    # default (white) background.
+                    if cell.get("background"):
+                        try:
+                            style_cmds.append(("BACKGROUND", (ci, ri), (c2, r2), colors.HexColor(cell["background"])))
+                        except ValueError:
+                            pass
+                tbl = Table(data, colWidths=col_widths)
                 tbl.setStyle(TableStyle(style_cmds))
                 flow.append(tbl)
                 flow.append(Spacer(1, 3 * mm))
@@ -715,9 +968,9 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anch
             # exactly in DOCX but only approximated (width capped, height
             # follows aspect ratio) here.
             if b.get("width"):
-                img = _pdf_image_flowable(b["src"], min(b["width"] * 0.75, content_width))
+                img = _pdf_image_flowable(b["src"], min(b["width"] * 0.75, content_width), b.get("style"))
             else:
-                img = _pdf_image_flowable(b["src"], content_width)
+                img = _pdf_image_flowable(b["src"], content_width, b.get("style"))
             if img:
                 flow.append(img)
                 flow.append(Spacer(1, 3 * mm))
@@ -795,14 +1048,14 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
     from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame,
                                     NextPageTemplate, Paragraph, PageBreak)
 
-    w_in, h_in, margin_in = _resolve_page_setup(page_setup)
+    w_in, h_in, margins = _resolve_page_setup(page_setup)
     pagesize = (w_in * inch, h_in * inch)
-    margin = margin_in * inch
+    m_top, m_right, m_bottom, m_left = (margins[s] * inch for s in ("top", "right", "bottom", "left"))
 
     styles = getSampleStyleSheet()
     body_style = ParagraphStyle("body", parent=styles["Normal"], fontName="Helvetica",
                                 fontSize=10.5, leading=15, spaceAfter=8)
-    content_width = pagesize[0] - 2 * margin
+    content_width = pagesize[0] - m_left - m_right
 
     # The document's NAME is not part of the document (Sagar, Sep 18: "Document
     # name should not be posted in the document"). It was printed as a Title
@@ -811,23 +1064,44 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
     # letterhead, which reads as if the company were a subheading of the file
     # name. It still goes into the PDF's metadata title below, which is where a
     # file name belongs.
-    flow = []
     raw_anchors = [] if anchors is not None else None
-    # pages_blocks: one block-list per page (Document Builder's Pages panel -
-    # each page is now a real, independent unit, not a pageBreak marker
-    # inside one continuous body). Force a real page boundary between them;
-    # _blocks_to_flow's own pageBreak-block handling still runs too, for
-    # backward compat with content saved before pages were real, independent
-    # units (a single-page body doc could still carry manual pageBreak nodes).
-    for i, blocks in enumerate(pages_blocks):
-        if i > 0:
-            flow.append(PageBreak())
-        flow.extend(_blocks_to_flow(blocks, body_style, styles, content_width, raw_anchors))
-    if not flow:
-        flow.append(Paragraph("", body_style))
 
-    header_text = _blocks_to_plaintext(header_blocks)[:180]
-    footer_text = _blocks_to_plaintext(footer_blocks)[:180]
+    def make_flow(sink):
+        # pages_blocks: one block-list per page (Document Builder's Pages panel -
+        # each page is now a real, independent unit, not a pageBreak marker
+        # inside one continuous body). Force a real page boundary between them;
+        # _blocks_to_flow's own pageBreak-block handling still runs too, for
+        # backward compat with content saved before pages were real, independent
+        # units (a single-page body doc could still carry manual pageBreak nodes).
+        out = []
+        for i, blocks in enumerate(pages_blocks):
+            if i > 0:
+                out.append(PageBreak())
+            out.extend(_blocks_to_flow(blocks, body_style, styles, content_width, sink))
+        if not out:
+            out.append(Paragraph("", body_style))
+        return out
+
+    # The header and footer are real paragraphs drawn into the margins (they
+    # used to collapse to one plain line). The footer leaves the right quarter
+    # to the page number.
+    band_style = ParagraphStyle("band", parent=body_style, fontSize=9, leading=11, spaceAfter=2,
+                                textColor=colors.HexColor("#6b7280"))
+    header_flow = _blocks_to_flow([b for b in header_blocks or [] if b["type"] != "pageBreak"],
+                                  band_style, styles, content_width)
+    footer_flow = _blocks_to_flow([b for b in footer_blocks or [] if b["type"] != "pageBreak"],
+                                  band_style, styles, content_width * 0.75)
+
+    def band_height(flowables, width):
+        total = 0.0
+        for f in flowables:
+            try:
+                total += f.wrap(width, pagesize[1])[1]
+            except Exception:
+                pass
+        return total
+
+    total_pages = [1]   # filled by the counting pass below
 
     def fill_at(canv, _kind, token):
         """<onDraw name="nxFill"> (a blank the new hire fills while signing):
@@ -846,17 +1120,49 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
     def decorate(canvas, doc):
         canvas.nxFill = fill_at                   # every page, before its paragraphs draw
         canvas.saveState()
-        canvas.setFont("Helvetica", 9)
-        canvas.setFillColor(colors.HexColor("#6b7280"))
-        if header_text:
-            canvas.drawString(margin, pagesize[1] - margin + 8, header_text)
-        if footer_text:
-            canvas.drawString(margin, margin - 14, footer_text)
-        # Right-aligned page number, mirroring a printed SOP's footer (title
-        # left, page right). Current-page only (no "of N") - that needs a
-        # second pass to know the final page count before the first page is
-        # drawn, which SimpleDocTemplate doesn't expose here.
-        canvas.drawRightString(pagesize[0] - margin, margin - 14, f"Page {canvas.getPageNumber()}")
+        if header_flow:
+            y = pagesize[1] - m_top + 6 + band_height(header_flow, content_width)
+            for f in header_flow:
+                try:
+                    h = f.wrap(content_width, pagesize[1])[1]
+                    y -= h
+                    f.drawOn(canvas, m_left, y)
+                except Exception:
+                    pass
+        if footer_flow:
+            y = m_bottom - 8
+            for f in footer_flow:
+                try:
+                    h = f.wrap(content_width * 0.75, pagesize[1])[1]
+                    y -= h
+                    f.drawOn(canvas, m_left, y)
+                except Exception:
+                    pass
+        # A text watermark (Layout > Watermark), faint and diagonal across the page.
+        watermark = str((page_setup or {}).get("watermark") or "").strip()
+        if watermark:
+            canvas.saveState()
+            canvas.setFillAlpha(0.12)
+            canvas.setFillColor(colors.HexColor("#1f2937"))
+            canvas.setFont("Helvetica-Bold", 72)
+            canvas.translate(pagesize[0] / 2, pagesize[1] / 2)
+            canvas.rotate(45)
+            canvas.drawCentredString(0, 0, watermark[:40])
+            canvas.restoreState()
+        # The page number where Insert > Page Numbers put it (bottom right by
+        # default, as a printed SOP's footer). "of N" comes from the counting pass.
+        where = str((page_setup or {}).get("pageNumbers") or "bottom-right")
+        if where != "none":
+            canvas.setFont("Helvetica", 9)
+            canvas.setFillColor(colors.HexColor("#6b7280"))
+            label = f"Page {canvas.getPageNumber()} of {total_pages[0]}"
+            y = pagesize[1] - m_top + 8 if where.startswith("top") else m_bottom - 14
+            if where.endswith("left"):
+                canvas.drawString(m_left, y, label)
+            elif where.endswith("center"):
+                canvas.drawCentredString(pagesize[0] / 2, y, label)
+            else:
+                canvas.drawRightString(pagesize[0] - m_right, y, label)
         canvas.restoreState()
 
     # The letterhead belongs in the FIRST PAGE'S HEADER, not at the top of the
@@ -883,29 +1189,37 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
         decorate(canvas, doc)
         if not lh_flow:
             return
-        y = pagesize[1] - margin
+        y = pagesize[1] - m_top
         for f in lh_flow:
             try:
                 h = f.wrap(content_width, pagesize[1])[1]
                 y -= h
-                f.drawOn(canvas, margin, y)
+                f.drawOn(canvas, m_left, y)
             except Exception:
                 pass
 
-    buf = io.BytesIO()
-    doc_tmpl = BaseDocTemplate(buf, pagesize=pagesize, topMargin=margin, bottomMargin=margin,
-                               leftMargin=margin, rightMargin=margin, title=title)
-    body_h = pagesize[1] - 2 * margin
-    first_frame = Frame(margin, margin, content_width, max(1.0, body_h - lh_height), id="first")
-    rest_frame = Frame(margin, margin, content_width, body_h, id="rest")
-    doc_tmpl.addPageTemplates([
-        PageTemplate(id="first", frames=[first_frame], onPage=draw_letterhead),
-        PageTemplate(id="rest", frames=[rest_frame], onPage=decorate),
-    ])
-    # Without this, reportlab keeps using the FIRST template for every page and
-    # the letterhead reprints on all of them - it only switches when the flow
-    # says so. Queued ahead of the content, so it takes effect from page 2.
-    doc_tmpl.build([NextPageTemplate("rest"), *flow])
+    def build(sink):
+        buf = io.BytesIO()
+        doc_tmpl = BaseDocTemplate(buf, pagesize=pagesize, topMargin=m_top, bottomMargin=m_bottom,
+                                   leftMargin=m_left, rightMargin=m_right, title=title)
+        body_h = pagesize[1] - m_top - m_bottom
+        first_frame = Frame(m_left, m_bottom, content_width, max(1.0, body_h - lh_height), id="first")
+        rest_frame = Frame(m_left, m_bottom, content_width, body_h, id="rest")
+        doc_tmpl.addPageTemplates([
+            PageTemplate(id="first", frames=[first_frame], onPage=draw_letterhead),
+            PageTemplate(id="rest", frames=[rest_frame], onPage=decorate),
+        ])
+        # Without this, reportlab keeps using the FIRST template for every page and
+        # the letterhead reprints on all of them - it only switches when the flow
+        # says so. Queued ahead of the content, so it takes effect from page 2.
+        doc_tmpl.build([NextPageTemplate("rest"), *make_flow(sink)])
+        return buf.getvalue(), doc_tmpl.page
+
+    # Two passes: the first only counts the pages so every footer can say
+    # "Page X of N"; the second is the real render (and the one whose
+    # signature anchors are kept).
+    _, total_pages[0] = build(None)
+    pdf_bytes, _ = build(raw_anchors)
     if anchors is not None:
         pw, ph = pagesize
         for a in raw_anchors:
@@ -916,7 +1230,7 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
             anchors.append({"role": a["role"], "type": a["type"], "page": a["page"],
                             "x": a["x0"] / pw, "y": (ph - (a["y0"] + a["h"])) / ph,
                             "w": a["w"] / pw, "h": a["h"] / ph})
-    return buf.getvalue()
+    return pdf_bytes
 
 
 # ── DOCX (python-docx) ────────────────────────────────────────────────────────
@@ -962,22 +1276,51 @@ def _docx_add_inline_image(paragraph, image: dict) -> None:
     is what makes the avatar sit beside the speaker's name rather than on a
     line below it. python-docx draws a picture added to a run inline by
     default, so this needs no drawing-anchor XML of its own."""
-    from docx.shared import Pt
-    data = _fetch_image_bytes(image.get("src") or "")
+    from docx.shared import Inches
+    data = _fetch_image_bytes(image.get("src") or "", _docx_baked(image.get("style")))
     if not data:
         return
     width = _font_size_num(image.get("width"))
+    height = _font_size_num(image.get("height"))
     try:
-        # Width in POINTS, the same px-as-pt approximation the PDF path makes,
-        # so the two exports agree. No width: python-docx uses the picture's
-        # own size.
-        paragraph.add_run().add_picture(
-            io.BytesIO(data),
-            width=Pt(min(width, _INLINE_IMAGE_MAX_PT)) if width else None)
+        # The editor's px at 96 an inch, the same as the block path and what
+        # the importer reads back (11/06/2026: in points, a 240px picture
+        # came back 320px wide). No width: python-docx uses the picture's own
+        # size. Both sides given: honored exactly, a stretch included.
+        max_px = _INLINE_IMAGE_MAX_PT / 0.75
+        if width and width > max_px:
+            height = height * (max_px / width) if height else None
+            width = max_px
+        kwargs = {}
+        if width:
+            kwargs["width"] = Inches(width / 96)
+        if width and height:
+            kwargs["height"] = Inches(height / 96)
+        shape = paragraph.add_run().add_picture(io.BytesIO(data), **kwargs)
+        _docx_picture_format(shape, image.get("style"))
     except Exception:
         # A picture python-docx cannot decode must not take the document with
         # it - the text around it is the part that matters.
         pass
+
+
+def _docx_link_run(paragraph, url: str, text: str):
+    """A real, clickable Word hyperlink: python-docx's public API has none, so
+    the <w:hyperlink r:id> element and its external relationship are written
+    directly (the same shape Word itself writes)."""
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.text.run import Run
+    r_id = paragraph.part.relate_to(url, RT.HYPERLINK, is_external=True)
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), r_id)
+    r_el = OxmlElement("w:r")
+    hyperlink.append(r_el)
+    paragraph._p.append(hyperlink)
+    run = Run(r_el, paragraph)
+    run.text = text
+    return run
 
 
 def _add_runs(paragraph, runs: list) -> None:
@@ -989,11 +1332,18 @@ def _add_runs(paragraph, runs: list) -> None:
         text = r.get("text") or ""
         if not text:
             continue
-        run = paragraph.add_run(text)
+        link = r.get("link")
+        run = None
+        if link and str(link).startswith(("http://", "https://", "mailto:")):
+            try:
+                run = _docx_link_run(paragraph, str(link), text)
+            except Exception:
+                run = None
+        if run is None:
+            run = paragraph.add_run(text)
         run.bold = bool(r.get("bold"))
         run.italic = bool(r.get("italic"))
-        link = r.get("link")
-        run.underline = bool(r.get("underline")) or bool(link)  # link: styled, not clickable - see module docstring
+        run.underline = bool(r.get("underline")) or bool(link)
         run.font.strike = bool(r.get("strike"))
         run.font.subscript = bool(r.get("subscript"))
         run.font.superscript = bool(r.get("superscript"))
@@ -1082,23 +1432,101 @@ def _border_docx_paragraph(paragraph, border: str) -> None:
     pPr.append(pBdr)
 
 
+def _shade_docx_paragraph(paragraph, hex_color: str) -> None:
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    hex_color = (hex_color or "").lstrip("#")
+    if len(hex_color) != 6:
+        return
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), hex_color)
+    paragraph._p.get_or_add_pPr().append(shd)
+
+
 def _apply_docx_para_extras(paragraph, b: dict) -> None:
-    """spacingBefore/spacingAfter + border (Layout tab, editor-only until
-    now) - applied after _add_runs so this stays a thin, self-contained
-    post-processing step rather than threading extra params through the
-    run-formatting call."""
+    """spacingBefore/spacingAfter, line spacing, indents, shading + border
+    (Layout tab, and a Word import's own) - applied after _add_runs so this
+    stays a thin, self-contained post-processing step rather than threading
+    extra params through the run-formatting call."""
     from docx.shared import Pt
+    pf = paragraph.paragraph_format
     before, after = b.get("spacingBefore"), b.get("spacingAfter")
     if before is not None:
-        paragraph.paragraph_format.space_before = Pt(before)
+        pf.space_before = Pt(before)
     if after is not None:
-        paragraph.paragraph_format.space_after = Pt(after)
+        pf.space_after = Pt(after)
+    lh = str(b.get("lineHeight") or "").strip()
+    if lh.endswith("pt") and _num(lh[:-2]):
+        pf.line_spacing = Pt(_num(lh[:-2]))
+    elif lh and _num(lh):
+        # The editor's multiple is the browser's (x the font's own line
+        # height); Word's "multiple" is of single spacing, which IS that.
+        pf.line_spacing = round(_num(lh) / 1.2, 2)
+    if b.get("indentLeft"):
+        pf.left_indent = Pt(b["indentLeft"])
+    if b.get("indentFirst"):
+        pf.first_line_indent = Pt(b["indentFirst"])
+    if b.get("indentRight"):
+        pf.right_indent = Pt(b["indentRight"])
+    if b.get("background"):
+        _shade_docx_paragraph(paragraph, b["background"])
     if b.get("border"):
         _border_docx_paragraph(paragraph, b["border"])
 
 
+def _docx_table(container, b: dict, is_document: bool):
+    """A table with merged cells, column widths and borders only when the
+    editor shows them. `container` is the Document or a header/footer part
+    (whose add_table takes a width)."""
+    from docx.shared import Inches, Pt
+    rows = b["rows"]
+    ncols, placed = _table_grid(rows)
+    col_widths = _table_col_widths(ncols, placed, 6.5 * 72)
+    if is_document:
+        table = container.add_table(rows=len(rows), cols=ncols)
+    else:
+        table = container.add_table(rows=len(rows), cols=ncols, width=Inches(6.5))
+    if b.get("borders", True):
+        try:
+            table.style = "Table Grid"
+        except Exception:
+            pass
+    for ri, ci, cell in placed:
+        c2 = min(ci + cell["colspan"], ncols) - 1
+        r2 = min(ri + cell["rowspan"], len(rows)) - 1
+        docx_cell = table.cell(ri, ci)
+        if c2 > ci or r2 > ri:
+            try:
+                docx_cell = docx_cell.merge(table.cell(r2, c2))
+            except Exception:
+                pass
+        try:
+            docx_cell.width = Pt(sum(col_widths[ci:c2 + 1]))
+        except Exception:
+            pass
+        if cell.get("background"):
+            _shade_docx_cell(docx_cell, cell["background"])
+        first = True
+        for cb in cell["blocks"]:
+            if cb["type"] not in ("paragraph", "heading"):
+                continue
+            p = docx_cell.paragraphs[0] if first else docx_cell.add_paragraph()
+            align = _docx_align(cb.get("align"))
+            if align is not None:
+                p.alignment = align
+            _add_runs(p, cb["runs"])
+            _apply_docx_para_extras(p, cb)
+            first = False
+    container.add_paragraph()
+
+
 def _blocks_to_docx(doc, blocks: list) -> None:
+    """`doc` is the Document, or a header/footer part - those take paragraphs,
+    tables and pictures the same way but have no headings or page breaks."""
     from docx.shared import Inches
+    is_document = hasattr(doc, "add_page_break")
     for b in blocks or []:
         t = b["type"]
         if t == "paragraph":
@@ -1110,11 +1538,11 @@ def _blocks_to_docx(doc, blocks: list) -> None:
             _apply_docx_para_extras(p, b)
         elif t == "heading":
             level = max(1, min(6, b.get("level", 1)))
-            p = doc.add_heading("", level=level)
+            p = doc.add_heading("", level=level) if is_document else doc.add_paragraph()
             align = _docx_align(b.get("align"))
             if align is not None:
                 p.alignment = align
-            _add_runs(p, b["runs"])
+            _add_runs(p, b["runs"] if is_document else [{**r, "bold": True} for r in b["runs"]])
             _apply_docx_para_extras(p, b)
         elif t in ("bulletList", "orderedList"):
             style = "List Bullet" if t == "bulletList" else "List Number"
@@ -1122,32 +1550,16 @@ def _blocks_to_docx(doc, blocks: list) -> None:
                 if not item_blocks:
                     continue
                 first, rest = item_blocks[0], item_blocks[1:]
-                if first["type"] == "paragraph":
+                if first["type"] == "paragraph" and is_document:
                     _add_runs(doc.add_paragraph(style=style), first["runs"])
                     _blocks_to_docx(doc, rest)
                 else:
                     _blocks_to_docx(doc, item_blocks)
         elif t == "table":
-            rows = b["rows"]
-            if rows:
-                ncols = max((len(r) for r in rows), default=1)
-                table = doc.add_table(rows=len(rows), cols=ncols)
-                table.style = "Table Grid"
-                for ri, row in enumerate(rows):
-                    for ci, cell in enumerate(row):
-                        docx_cell = table.cell(ri, ci)
-                        if cell.get("background"):
-                            _shade_docx_cell(docx_cell, cell["background"])
-                        first = True
-                        for cb in cell["blocks"]:
-                            if cb["type"] != "paragraph":
-                                continue
-                            p = docx_cell.paragraphs[0] if first else docx_cell.add_paragraph()
-                            _add_runs(p, cb["runs"])
-                            first = False
-                doc.add_paragraph()
+            if b["rows"]:
+                _docx_table(doc, b, is_document)
         elif t == "image":
-            data = _fetch_image_bytes(b["src"])
+            data = _fetch_image_bytes(b["src"], _docx_baked(b.get("style")))
             if data:
                 try:
                     # Word-parity resize (Phase 15) - an explicit width/height
@@ -1164,18 +1576,19 @@ def _blocks_to_docx(doc, blocks: list) -> None:
                         kwargs["height"] = Inches(b["height"] / 96)
                     if not kwargs:
                         kwargs["width"] = Inches(5.5)
-                    doc.add_picture(io.BytesIO(data), **kwargs)
+                    shape = doc.add_paragraph().add_run().add_picture(io.BytesIO(data), **kwargs)
+                    _docx_picture_format(shape, b.get("style"))
                 except Exception:
                     pass
         elif t == "shape":
             data = _shape_png_bytes(b)
             if data:
                 try:
-                    doc.add_picture(io.BytesIO(data), width=Inches(b.get("width", 160) / 96))
+                    doc.add_paragraph().add_run().add_picture(io.BytesIO(data), width=Inches(b.get("width", 160) / 96))
                 except Exception:
                     pass
         elif t == "textbox":
-            table = doc.add_table(rows=1, cols=1)
+            table = doc.add_table(rows=1, cols=1) if is_document else doc.add_table(rows=1, cols=1, width=Inches(6.5))
             table.style = "Table Grid"
             cell = table.cell(0, 0)
             first = True
@@ -1196,8 +1609,20 @@ def _blocks_to_docx(doc, blocks: list) -> None:
                 doc.add_paragraph("Name: " + "_" * 28)
             if b.get("withDate", True):
                 doc.add_paragraph("Date: " + "_" * 18)
-        elif t == "pageBreak":
+        elif t == "pageBreak" and is_document:
             doc.add_page_break()
+
+
+def _fill_docx_band(part, blocks: list) -> None:
+    """A header or footer part, with the document's real paragraphs/tables in
+    it (it used to get one flattened line of text). The part starts with one
+    empty paragraph, which would otherwise print as a blank line above."""
+    if not blocks:
+        return
+    first = part.paragraphs[0] if part.paragraphs else None
+    _blocks_to_docx(part, blocks)
+    if first is not None and len(part.paragraphs) > 1 and not first.text:
+        first._p.getparent().remove(first._p)
 
 
 def render_docx(title: str, header_blocks: list, pages_blocks: list, footer_blocks: list,
@@ -1206,7 +1631,7 @@ def render_docx(title: str, header_blocks: list, pages_blocks: list, footer_bloc
     from docx.shared import Pt, Inches
     from docx.enum.section import WD_ORIENT
 
-    w_in, h_in, margin_in = _resolve_page_setup(page_setup)
+    w_in, h_in, margins = _resolve_page_setup(page_setup)
 
     doc = DocxDocument()
     section = doc.sections[0]
@@ -1216,17 +1641,13 @@ def render_docx(title: str, header_blocks: list, pages_blocks: list, footer_bloc
     # _resolve_page_setup for landscape) are what actually reshape the page.
     section.page_width = Inches(w_in)
     section.page_height = Inches(h_in)
-    section.left_margin = Inches(margin_in)
-    section.right_margin = Inches(margin_in)
-    section.top_margin = Inches(margin_in)
-    section.bottom_margin = Inches(margin_in)
+    section.left_margin = Inches(margins["left"])
+    section.right_margin = Inches(margins["right"])
+    section.top_margin = Inches(margins["top"])
+    section.bottom_margin = Inches(margins["bottom"])
 
-    header_text = _blocks_to_plaintext(header_blocks)
-    if header_text:
-        section.header.paragraphs[0].text = header_text
-    footer_text = _blocks_to_plaintext(footer_blocks)
-    if footer_text:
-        section.footer.paragraphs[0].text = footer_text
+    _fill_docx_band(section.header, [b for b in header_blocks or [] if b["type"] != "pageBreak"])
+    _fill_docx_band(section.footer, [b for b in footer_blocks or [] if b["type"] != "pageBreak"])
 
     # No title heading: the document's NAME is not part of the document
     # (Sagar, Sep 18). Word still carries it as the file's core title property,
