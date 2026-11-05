@@ -142,6 +142,15 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   const [weatherTyped, setWeatherTyped] = useState(false);
   const [delays, setDelays] = useState(log.delays || []);
   const [subs, setSubs] = useState(log.subs || []);
+  // The job's own subs (Round Two item 7) as the names to pick from.
+  const [jobSubs, setJobSubs] = useState([]);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve().then(() => api.getJobSubs?.(project.id))
+      .then((d) => { if (live) setJobSubs(d?.subs || []); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [project.id]);
   const [signedName, setSignedName] = useState('');
   const [pre, setPre] = useState(null);
   const [preSaved, setPreSaved] = useState('');
@@ -583,9 +592,10 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
                 onClick={() => setSubs((s) => [...s, { name: '', headcount: '', hours: '' }])}>Add Sub</button>
             </div>
             {subs.length === 0 && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>No subcontractors on site today.</div>}
+            <datalist id="subs-on-job">{jobSubs.map((j) => <option key={j.vendorId} value={j.name} />)}</datalist>
             {subs.map((s, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-                <input className="form-input" aria-label="Subcontractor" placeholder="Subcontractor" value={s.name || ''} style={{ flex: '2 1 160px' }}
+                <input className="form-input" aria-label="Subcontractor" placeholder="Subcontractor" value={s.name || ''} style={{ flex: '2 1 160px' }} list="subs-on-job"
                   onChange={(e) => setSubs((x) => x.map((y, j) => (j === i ? { ...y, name: e.target.value } : y)))} />
                 <input className="form-input" aria-label="People on site" type="number" min="0" max="500" step="1" inputMode="numeric" placeholder="People"
                   value={s.headcount} style={{ flex: '0 1 100px' }}

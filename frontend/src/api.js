@@ -3662,6 +3662,15 @@ api.removeCloseoutRecord = (recordId) => req(`/construction/closeout/records/${e
 api.updateCloseoutRecord = (recordId, data) => req(`/construction/closeout/records/${encodeURIComponent(recordId)}`, { method: 'PATCH', body: JSON.stringify(data) });
 api.closeOutJob = (jobId) => _post(`${_jp(jobId)}/closeout`, { write_back: true });
 api.sendOwnerSignoff = (jobId, data) => _post(`${_jp(jobId)}/closeout/signoff`, data);
+// Subs and their papers (Round Two item 7, 11/05/2026; routers/construction_subs.py):
+// the vendor is Intacct's (Accounting > Vendors & Customers), the papers one
+// row per vendor id, read from the job's Subs tab and the vendor record alike.
+api.searchConstructionVendors = (q, jobId) => req(`/construction/vendors?q=${encodeURIComponent(q)}&job_id=${encodeURIComponent(jobId)}`);
+api.getJobSubs = (jobId) => req(`${_jp(jobId)}/subs`);
+api.addJobSub = (jobId, data) => _post(`${_jp(jobId)}/subs`, data);
+api.endJobSub = (linkId) => _post(`/construction/sub-links/${encodeURIComponent(linkId)}/end`, {});
+api.getVendorCompliance = (vendorId) => req(`/construction/vendors/${encodeURIComponent(vendorId)}/compliance`);
+api.saveVendorCompliance = (vendorId, data) => req(`/construction/vendors/${encodeURIComponent(vendorId)}/compliance`, { method: 'PUT', body: JSON.stringify(data) });
 
 // Mark Up "Attach to" a job photo (lib/markup.js source kind construction_media).
 async function _attachConstructionMarkup(source, { name, blob }) {

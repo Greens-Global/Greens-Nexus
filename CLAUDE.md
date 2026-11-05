@@ -1039,6 +1039,18 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   events, so a change-order threshold is an automation rule, never code.
   Vendors are Intacct's, through Accounting > Vendors & Customers - never a
   Construction vendor directory (Neil, 11/05/2026).
+- **Subs and their papers (Round Two item 7, 11/05/2026,
+  `routers/construction_subs.py`, `vendor_compliance.py`):** a sub on a job
+  is a `ConstructionJobLink` kind `sub` whose `ref_id` is the Intacct
+  VENDORID (picked through `accounting_partners._get`, `note` = the trade);
+  the papers are ONE row per VENDORID (`vendor_compliance`: insurance,
+  workers comp and license expiry, W-9, with Intacct's name copied in) read
+  by the job's Subs tab and by the vendor record's Compliance tab in
+  Accounting through the same `construction/VendorCompliance.jsx`; the state
+  words (missing / expired / expiring / ok) are `vendor_compliance.state`,
+  the one rule; `expiry_tick` (in `field_loop`) bells the managers at 30 /
+  7 / 0 days once per paper and date. Never a second compliance store, no
+  contact or payment details here, nothing written to Intacct.
 
 ## Gotchas
 

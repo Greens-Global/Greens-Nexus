@@ -22,6 +22,8 @@ const ALL = [
   // Round Two (11/05/2026): permits and inspections live from day one, not
   // only at closeout. Projects only - a work order rarely pulls a permit.
   { key: 'permits', label: 'Permits And Inspections' },
+  // Round Two item 7: the subs on the job (Intacct vendors) and their papers.
+  { key: 'subs', label: 'Subs' },
   { key: 'changes', label: 'Changes' },
   { key: 'closeout', label: 'Closeout' },
 ];

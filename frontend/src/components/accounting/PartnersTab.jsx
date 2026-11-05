@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, Download, List, Pencil, Search, X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
@@ -18,6 +18,10 @@ import { linesFile } from './linesExport';
 import SidePanel, { PanelSection } from './SidePanel';
 import Amount from './Amount';
 import { AvatarName } from '../../tasks/components';
+
+// A vendor's papers (Construction Round Two item 7, 11/05/2026): the same form
+// the job's Subs tab draws, on the vendor's own record - one row per VENDORID.
+const VendorCompliance = lazy(() => import('../../construction/VendorCompliance'));
 
 // Accounting > Vendors & Customers (Charmi and Neil, 10/01: "edit a vendor,
 // change all the details and get pushed to manager for approval"). The
@@ -91,6 +95,7 @@ const GROUPS = [
   { title: 'Billing', caption: 'Payment terms and tax ID.', fields: ['terms', 'taxId'] },
 ];
 const PANEL_TABS = [{ key: 'details', label: 'Details' }, { key: 'lines', label: 'Ledger Lines' }, { key: 'history', label: 'Change History' }];
+const VENDOR_TABS = [...PANEL_TABS, { key: 'compliance', label: 'Compliance' }];
 const DEFAULT_PAGE_SIZE = 100;
 const STATUS = {
   pending: { label: 'Pending Approval', fg: '#92400e', bg: 'rgba(180,83,9,0.13)' },
@@ -654,7 +659,7 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
   return (
     <SidePanel label={`${noun} ${rec.id}`} title={`${noun} ${rec.id} - ${rec.displayName || rec.name || rec.id}`} badges={badges}
       caption={canChange ? 'Changes go to a manager for approval - nothing changes in Intacct from here.' : ''}
-      tabs={PANEL_TABS} tab={tab} onTab={onTab} onClose={tryClose}
+      tabs={kind === 'vendor' ? VENDOR_TABS : PANEL_TABS} tab={tab} onTab={onTab} onClose={tryClose}
       footer={(
         <div className="modal-footer" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" className="secondary-btn" onClick={onLines} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><List size={13} /> View All Ledger Lines</button>
@@ -742,6 +747,12 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
               ) : <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No lines on the ledger you can read.</p>}
             </>
           )}
+        </PanelSection>
+      )}
+
+      {tab === 'compliance' && kind === 'vendor' && (
+        <PanelSection title="Compliance" caption="Insurance, workers comp, license and W-9 - kept once here and on the job's Subs tab in Construction. Nothing goes to Intacct.">
+          <Suspense fallback={<SkeletonBlocks count={1} />}><VendorCompliance vendorId={rec.id} /></Suspense>
         </PanelSection>
       )}
 
