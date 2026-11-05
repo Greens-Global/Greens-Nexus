@@ -36,7 +36,8 @@ vi.mock('../api', () => ({ api: {
   hiringOptions: (...a) => hiringOptions(...a),
   getDocTemplates: (...a) => getDocTemplates(...a),
 } }));
-vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: people.current }) }));
+vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: people.current }),
+  useEntities: () => ({ data: [{ id: 'co', name: 'Greens', physicalAddress: '1 Main St, Irvine, CA' }] }) }));
 const { default: OfferModal } = await import('./OfferModal');
 
 const cand = { id: 'c1', firstName: 'Jane', lastName: 'Doe', email: 'jane@gmail.com', company: 'co', roleId: 'jr-an', expectedStart: '2030-11-02' };
@@ -68,8 +69,12 @@ describe('OfferModal', () => {
     await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
     next();
     expect(screen.getByText('The offer')).toBeTruthy();
-    expect(screen.getByLabelText('Primary Work Location')).toBeTruthy();   // the letter prints it
-    fireEvent.change(screen.getByLabelText('Primary Work Location'), { target: { value: 'Irvine, CA' } });
+    // Work Location (11/05/2026): the company's by default, or Remote / Hybrid / typed under Other.
+    expect(screen.getByText('1 Main St, Irvine, CA')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Work Location'), { target: { value: 'other' } });
+    next();
+    expect(screen.getByText('Type the work location.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Work location'), { target: { value: 'Irvine, CA' } });
     fireEvent.change(screen.getByLabelText('Pay'), { target: { value: '85000' } });
     // Timings are always asked (Neil, 11/04/2026), whatever the letter prints.
     fireEvent.change(screen.getByLabelText('Or Describe The Timings'), { target: { value: 'Rotating shifts' } });

@@ -19,7 +19,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info, RefreshCw, ExternalLink } from 'lucide-react';
 import { api } from '../api';
 import { currencyOptions } from '../asset/lib/currency';
-import { usePeopleDirectory } from '../lib/queries';
+import { useEntities, usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { DateField } from '../tasks/components';
@@ -59,6 +59,8 @@ function Warn({ children }) {
   );
 }
 
+const WORK_LOCATIONS = { remote: { text: 'Remote' }, hybrid: { text: 'Hybrid' } };   // company and other are resolved in the form
+
 function Choice({ on, onClick, title, sub, label }) {
   return (
     <button type="button" role="radio" aria-checked={on} aria-label={label || title} onClick={onClick}
@@ -77,6 +79,12 @@ function Choice({ on, onClick, title, sub, label }) {
 
 export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted, onMoveWithout, toastErr }) {
   const { data: people = [] } = usePeopleDirectory();
+  // Work Location (Pranshu, 11/05/2026): the company's location, Remote, Hybrid or typed -
+  // printed in the letter and shown in the candidate's emails instead of the company address.
+  const { data: entities } = useEntities();
+  const companyAddr = ((entities || []).find(e => e.id === c.company)?.physicalAddress || '').trim();
+  const [loc, setLoc] = useState({ kind: 'company', other: '' });
+  const workLocation = WORK_LOCATIONS[loc.kind]?.text ?? (loc.kind === 'other' ? loc.other.trim() : companyAddr);
   const first = c.firstName || 'They';
   const [step, setStep] = useState('who');
   const [tried, setTried] = useState(false);
@@ -190,6 +198,8 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
       (!person.first_name.trim() || !person.last_name.trim()) && 'Enter their legal first and last name.',
       !f.start_date && 'Pick the start date.',
       !f.offer_expires && 'Pick when the offer expires.',
+      loc.kind === 'other' && !loc.other.trim() && 'Type the work location.',
+      loc.kind === 'company' && !companyAddr && entities && 'The company has no address on file - pick Remote, Hybrid or Other, or add it under Settings > Companies.',
       f.offer_expires && f.start_date && f.offer_expires > f.start_date && 'The offer has to expire on or before the start date.',
       !jdFile && !jdId && 'Pick the Job Description document.',
       !jdFile && noDuties && (isOther ? 'Type the new role\'s duties.' : `${pickedRole?.name || 'This role'} has no job description yet - add it under Settings > People & Access > Roles.`),
@@ -212,7 +222,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
     const plain = Object.fromEntries(questions.filter(q => !q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v));
     const payQs = canSeePay ? Object.fromEntries(questions.filter(q => q.pay).map(q => [q.token, String(answers[q.token] || '').trim()]).filter(([, v]) => v)) : {};
     return {
-      inputs: { ...f, ...who, role_id: roleId, new_role_name: isOther ? f.new_role_name.trim() : '',
+      inputs: { ...f, ...who, work_location: workLocation, role_id: roleId, new_role_name: isOther ? f.new_role_name.trim() : '',
                 ...timing,
                 jd_template_id: jdFile ? '' : jdId, new_role_duties: isOther ? newDuties.trim() : '',
                 packet_id: chosenId, merge: plain },
@@ -356,10 +366,20 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           <div style={{ gridColumn: '1 / -1' }}><label style={lbl} htmlFor="of-addr">Their Address</label>
             <input id="of-addr" className="form-input" style={{ width: '100%' }} value={person.address} onChange={e => setPerson(p => ({ ...p, address: e.target.value }))} /></div>
         )}
-        {prints.has('work_location') && (
-          <div style={{ gridColumn: '1 / -1' }}><label style={lbl} htmlFor="of-loc">Primary Work Location</label>
-            <input id="of-loc" className="form-input" style={{ width: '100%' }} value={f.work_location} onChange={e => set('work_location', e.target.value)} placeholder="e.g. Irvine, CA - or Remote" /></div>
-        )}
+        <div style={{ gridColumn: '1 / -1' }}><label style={lbl} htmlFor="of-loc">Work Location</label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <select id="of-loc" className="form-input" style={{ flex: '0 1 220px' }} value={loc.kind} onChange={e => setLoc(l => ({ ...l, kind: e.target.value }))}>
+              <option value="company">Company Location</option>
+              <option value="remote">Remote</option>
+              <option value="hybrid">Hybrid</option>
+              <option value="other">Other</option>
+            </select>
+            {loc.kind === 'other' && (
+              <input aria-label="Work location" className="form-input" style={{ flex: '1 1 220px' }} value={loc.other} autoFocus
+                onChange={e => setLoc(l => ({ ...l, other: e.target.value }))} placeholder="e.g. Fresno, CA job site" />
+            )}
+          </div>
+          <div style={hint}>{loc.kind === 'company' ? (companyAddr || 'No address on file for this company.') : 'Printed in the letter and shown in their emails.'}</div></div>
         <div style={{ gridColumn: '1 / -1' }}>
           <label style={{ ...lbl, display: 'flex', alignItems: 'center', gap: 6 }} title={REPORTS_TO}>
             Supervisor <Info size={13} aria-label={REPORTS_TO} style={{ color: 'var(--muted)', cursor: 'help' }} />
