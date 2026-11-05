@@ -1,0 +1,117 @@
+"""Storage Academy content package: loader + validator. ONE FILE PER PROCESS."""
+import json
+import os
+import tempfile
+from pathlib import Path
+
+_tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+_tmp_db.close()
+os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
+os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
+os.environ.setdefault("NEXUS_RATE_LIMIT", "off")
+
+import pytest  # noqa: E402
+
+import kb_academy  # noqa: E402
+
+SLUGS = kb_academy.ORDER
+
+
+def _q(i):
+    return {"type": "single", "q": f"Question {i}?", "options": ["A", "B"], "answer": [0], "explanation": "Because."}
+
+
+def _pkg(tmp_path: Path, mutate=None) -> Path:
+    cfg = {"plan": {"name": "P", "description": "d", "due_days": 30, "courses": list(SLUGS)},
+           "page": "---\ntitle: Gate Codes\nsummary: s\npage_type: policy\ntags: a, b\n---\n\n## Codes\n\nText.\n",
+           "lesson": "---\ntitle: Welcome Aboard\nsummary: s\n---\n\n## Hi\n\nHello there.\n",
+           "lessons": [{"file": "01.md"}, {"page": "gate-codes", "title": "Gate Codes", "summary": "s"},
+                       {"checkpoint": "Checkpoint: One", "questions": [_q(1), _q(2)]}],
+           "quiz": {"passPct": 80, "drawCount": 25, "maxTries": 3, "questions": [_q(i) for i in range(45)]}}
+    if mutate:
+        mutate(cfg)
+    (tmp_path / "pages").mkdir()
+    (tmp_path / "pages" / "gate-codes.md").write_text(cfg["page"], encoding="utf-8")
+    (tmp_path / "plan.json").write_text(json.dumps(cfg["plan"]), encoding="utf-8")
+    for n, slug in enumerate(SLUGS, 1):
+        d = tmp_path / "courses" / f"{n:02d}-{slug}"
+        (d / "lessons").mkdir(parents=True)
+        (d / "lessons" / "01.md").write_text(cfg["lesson"], encoding="utf-8")
+        c = {"slug": slug, "title": "Course", "description": "d", "overview": ["o"], "est_minutes": 60, "delivery": "online",
+             "min_reading_minutes": 0, "lessons": cfg["lessons"], "quiz": cfg["quiz"]}
+        if slug == "hands-on-check":
+            c.update(delivery="in_person", quiz={})
+        (d / "course.json").write_text(json.dumps(c), encoding="utf-8")
+    return tmp_path
+
+
+def _probs(tmp_path, mutate=None):
+    return kb_academy.problems(kb_academy.load(_pkg(tmp_path, mutate)))
+
+
+def test_valid_minimal_package_has_no_problems(tmp_path):
+    assert _probs(tmp_path) == []
+
+
+def _has(probs, text):
+    assert any(text in p for p in probs), probs
+
+
+def _quiz(cfg, fn):
+    fn(cfg["quiz"]["questions"])
+
+
+CASES = {
+    "missing page": (lambda c: c["lessons"].__setitem__(1, {"page": "nope", "title": "Nope", "summary": "s"}), "does not exist"),
+    "answer out of range": (lambda c: c["quiz"]["questions"][0].update(answer=[5]), "normalizer changes"),
+    "multi one answer": (lambda c: c["quiz"]["questions"][0].update(type="multi"), "multi question needs"),
+    "order one item": (lambda c: c["quiz"]["questions"][0].update(type="order", options=["A"], answer=[]), "normalizer"),
+    "checkpoint over 10": (lambda c: c["lessons"][2].update(questions=[_q(i) for i in range(11)]), "more than 10"),
+    "bank too small": (lambda c: c["quiz"].update(questions=[_q(i) for i in range(44)]), "needs 45"),
+    "draw too low": (lambda c: c["quiz"].update(drawCount=24), "drawCount"),
+    "draw too high": (lambda c: c["quiz"].update(drawCount=41), "drawCount"),
+    "photo": (lambda c: c["quiz"]["questions"][0].update(type="photo", options=[], answer=[]), "photo"),
+    "short digit": (lambda c: c["quiz"]["questions"][0].update(type="short", options=[], answer=[], keywords=["30 days"]), "digit"),
+    "long q": (lambda c: c["quiz"]["questions"][0].update(q="x" * 601), "over 600"),
+    "long option": (lambda c: c["quiz"]["questions"][0].update(options=["x" * 301, "B"]), "over 300"),
+    "long explanation": (lambda c: c["quiz"]["questions"][0].update(explanation="x" * 401), "over 400"),
+    "seven options": (lambda c: c["quiz"]["questions"][0].update(options=list("ABCDEFG")), "more than 6"),
+    "reading minutes": (lambda c: None, "reading minutes"),
+    "em dash": (lambda c: c.update(lesson=c["lesson"] + "\nA — B\n"), "banned copy"),
+    "en dash in option": (lambda c: c["quiz"]["questions"][0].update(options=["A–Z", "B"]), "banned copy"),
+    "iso date": (lambda c: c.update(page=c["page"] + "\nOn 2026-11-04 it began.\n"), "banned copy"),
+    "timecard": (lambda c: c.update(page=c["page"] + "\nFill the timecard.\n"), "banned copy"),
+    "Global Admin": (lambda c: c.update(page=c["page"] + "\nAsk a Global Admin.\n"), "banned copy"),
+    "greens to fill": (lambda c: c.update(page=c["page"].replace("tags: a, b", "tags: cubby-filled") + "\n[Greens to fill]\n"), "Greens to fill"),
+    "title case": (lambda c: c["lessons"].__setitem__(1, {"page": "gate-codes", "title": "gate codes", "summary": "s"}), "Title Case"),
+    "page title case": (lambda c: c.update(page=c["page"].replace("Gate Codes", "gate codes")), "Title Case"),
+    "one-line callout": (lambda c: c.update(lesson=c["lesson"] + "\n> [!TIP] one line\n"), "callout"),
+    "page no title": (lambda c: c.update(page=c["page"].replace("title: Gate Codes\n", "")), "no title"),
+    "plan order": (lambda c: c["plan"].update(courses=list(reversed(SLUGS))), "in order"),
+    "too many lessons": (lambda c: c.update(lessons=[{"file": "01.md"}] * 61), "more than 60"),
+}
+
+
+@pytest.mark.parametrize("name", [n for n in CASES if n not in ("reading minutes", "order one item")])
+def test_problem_is_reported(tmp_path, name):
+    mutate, text = CASES[name]
+    _has(_probs(tmp_path, mutate), text)
+
+
+def test_order_with_one_item_is_reported(tmp_path):
+    _has(_probs(tmp_path, CASES["order one item"][0]), "normalizer")
+
+
+def test_reading_minutes_below_minimum(tmp_path):
+    pkg = _pkg(tmp_path)
+    p = pkg / "courses" / "01-nexus-fundamentals" / "course.json"
+    c = json.loads(p.read_text())
+    c["min_reading_minutes"] = 70
+    p.write_text(json.dumps(c))
+    _has(kb_academy.problems(kb_academy.load(pkg)), "reading minutes")
+
+
+def test_real_package_is_valid():
+    if not list((kb_academy.ROOT / "courses").glob("*/course.json")):
+        pytest.skip("no courses authored yet")
+    assert kb_academy.problems(kb_academy.load()) == []
