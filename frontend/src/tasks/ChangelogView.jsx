@@ -448,7 +448,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
           {!managing && tab === 'timeline' && <TimelineTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} loading={!loaded} />}
           {managing && (
             <ManageTab entries={sorted} nameOf={nameOf} myEmail={myEmail} onSetStatus={setStatus} onEdit={setEditing} flash={flash}
-              onAdd={() => setAdding(true)} onGenerate={handleGenerate} onPublish={publishEntry} onPublishAll={publishAll} onBulk={bulk}
+              onGenerate={handleGenerate} onPublish={publishEntry} onPublishAll={publishAll} onBulk={bulk}
               onDelete={async (id) => { if (window.confirm('Delete this entry? This cannot be undone.')) await deleteEntry(id).catch(() => {}); }} />
           )}
         </div>
@@ -1619,7 +1619,7 @@ function AutoDraftStatus({ refreshKey }) {
 // Manage (admin, opened from the header's Manage button) - the publish queue,
 // reach and response, and every update
 // ═══════════════════════════════════════════════════════════════════════════
-function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGenerate, onPublish, onPublishAll, onDelete, onBulk, flash }) {
+function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onGenerate, onPublish, onPublishAll, onDelete, onBulk, flash }) {
   const { openEntry } = useContext(ChangelogActions);
   // Read rate, weekly trends, most reacted, helpful votes (changelog_extras.insights).
   const [insights, setInsights] = useState(null);
@@ -1689,7 +1689,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
               {generating ? 'Checking…' : 'Check for Updates'}
             </button>
           )}
-          <button style={{ ...btn('primary'), ...(isMobile ? { flex: 1, justifyContent: 'center', minHeight: 40 } : null) }} onClick={onAdd}><Plus size={15} />{isMobile ? 'Add Update' : 'Add New Update'}</button>
+          {/* Add New Update lives once, in the page header (Neil, 11/04/2026). */}
           {!isMobile && (
             <button type="button" style={{ ...btn('outline'), opacity: checkingProd ? 0.6 : 1 }} disabled={checkingProd} onClick={checkProduction}
               title="Which merged updates have reached production">
