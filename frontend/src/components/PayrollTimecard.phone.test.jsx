@@ -7,7 +7,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // Work Log. The weekly total is a band between the weeks.
 
 const now = new Date();
-const TODAY = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+// Today on the card's clock (California) - not the test machine's, which
+// runs in UTC on CI and is a day ahead every evening Pacific time.
+const TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 const CARD = {
   payType: 'hourly', email: 'me@x.com', rate: 20, rateSet: true,
   days: [{ date: TODAY, workedMin: 510, segments: [
