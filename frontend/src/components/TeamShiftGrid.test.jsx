@@ -82,7 +82,7 @@ describe('TeamShiftGrid live strip', () => {
       draw({ rows: withShifts, days: DAYS.map((d, i) => (i === 0 ? { ...d, shifts: withShifts.flatMap((r) => r.days[0].shifts) } : d)) });
       const us = `${String(DAYS[0].date.getMonth() + 1).padStart(2, '0')}/${String(DAYS[0].date.getDate()).padStart(2, '0')}/${DAYS[0].date.getFullYear()}`;
       fireEvent.click(screen.getByRole('tab', { name: new RegExp(`^${us}`) }));
-      const total = () => screen.getByText('2 · 12 Hrs');
+      const total = () => screen.getByText('2 · 12:00 Hrs');
       expect(total()).toBeTruthy();
       fireEvent.click(chip('Late'));
       expect(total()).toBeTruthy();              // Dan alone is shown; the day is still 2 shifts, 12 h

@@ -63,7 +63,7 @@ describe('leave balances', () => {
     expect(container.textContent).toBe('');
     rerender(<LeaveBalanceCard balance={BAL} />);
     expect(screen.getByText('My Paid Time Off')).toBeTruthy();
-    expect(screen.getByText('12.77 h')).toBeTruthy();
+    expect(screen.getByText('12h 46m')).toBeTruthy();
     // No hint line under the numbers (Neil, 11/02/2026: remove the tooltips).
     expect(screen.queryByText(/Use by 12\/31\/2026/)).toBeNull();
   });
@@ -85,7 +85,7 @@ describe('leave balances', () => {
     };
     render(<LeaveBalanceCard balance={withExtras} />);
     expect(screen.getByText('Bereavement')).toBeTruthy();
-    expect(screen.getByText('24 h')).toBeTruthy();
+    expect(screen.getByText('24h 00m')).toBeTruthy();
     expect(screen.getByText('Jury Duty')).toBeTruthy();
     expect(screen.getByText('As taken')).toBeTruthy();
     expect(screen.queryByText('Floating Holiday')).toBeNull();
@@ -104,7 +104,7 @@ describe('leave balances', () => {
         available: 0, upcoming: 0, pending: 0, drawFromReasons: ['jury', 'jury duty'] },
     ] };
     const { rerender } = render(<RequestBalanceHint balance={balance} type="Bereavement" hours={8} />);
-    expect(screen.getByText(/Bereavement balance: 24 h available/)).toBeTruthy();
+    expect(screen.getByText(/Bereavement balance: 24h 00m available/)).toBeTruthy();
     rerender(<RequestBalanceHint balance={balance} type="Jury Duty" hours={8} />);
     expect(screen.getByText(/Jury Duty days are logged - no balance to run down/)).toBeTruthy();
   });
@@ -125,7 +125,7 @@ describe('leave balances', () => {
     render(<LeaveBalancesAdmin toastOk={() => {}} toastErr={() => {}} />);
     await screen.findByText('Alice Test');
     expect(screen.getByText('Other Leave')).toBeTruthy();
-    expect(screen.getAllByText(/Bereavement 24 h/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Bereavement 24h 00m/).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByText('Alice Test'));
     await screen.findByText(/Day taken/);
     // The ledger line names the extra bucket, and Adjust offers it (never a

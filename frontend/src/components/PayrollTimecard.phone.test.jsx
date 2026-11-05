@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // The Time Sheet on a phone (Oct 14): one card per day instead of the
@@ -7,7 +7,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // Work Log. The weekly total is a band between the weeks.
 
 const now = new Date();
-const TODAY = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+// Today on the card's clock (California) - not the test machine's, which
+// runs in UTC on CI and is a day ahead every evening Pacific time.
+const TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 const CARD = {
   payType: 'hourly', email: 'me@x.com', rate: 20, rateSet: true,
   days: [{ date: TODAY, workedMin: 510, segments: [
@@ -48,12 +50,24 @@ describe('the Time Sheet on a phone', () => {
     await screen.findByText('8:30', { selector: '.pr-dcard-total span' });
     expect(container.querySelector('.pr-days')).toBeTruthy();
     expect(container.querySelector('table[data-tour], [data-tour="pr-table"] table')).toBeNull();
-    expect(container.querySelectorAll('.pr-dcard')).toHaveLength(14);
+    // One week at a time (11/04/2026), opened on the week holding today.
+    expect(container.querySelectorAll('.pr-dcard')).toHaveLength(7);
+    expect(container.querySelector(`[data-ts-day="${TODAY}"]`)).toBeTruthy();
     expect(screen.getByText(/OT 0:30/)).toBeTruthy();
     expect(screen.getByText('Front Desk')).toBeTruthy();
-    expect(screen.getAllByText(/^Week of /)).toHaveLength(2);
-    // A day with no punches offers Add Punch on its one line.
-    expect(screen.getAllByRole('button', { name: 'Add Punch' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^Total hours clocked for week of /)).toHaveLength(1);
+    // The summary card on top, hours:minutes only.
+    expect(container.querySelector('.ts-psum').textContent).toContain('8:30');
+    // Add Punch: on a past day with no punches, and in the bar at the bottom.
+    expect(screen.getAllByRole('button', { name: /Add Punch/ }).length).toBeGreaterThan(0);
+    // The other week is one tap away.
+    const weekBtns = screen.getAllByRole('button', { name: /^Week [12]$/ });
+    expect(weekBtns).toHaveLength(2);
+    const other = weekBtns.find(b => b.getAttribute('aria-pressed') === 'false');
+    fireEvent.click(other);
+    expect(other.getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelector(`[data-ts-day="${TODAY}"]`)).toBeNull();
+    expect(container.querySelectorAll('.pr-dcard')).toHaveLength(7);
   }, 20000);
 
   it('keeps the table on a desktop', async () => {

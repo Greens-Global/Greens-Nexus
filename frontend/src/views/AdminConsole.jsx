@@ -114,6 +114,7 @@ import PayPremiums from '../components/PayPremiums';
 import IndiaContractorPolicySettings from '../components/IndiaContractorPolicySettings';
 import { SwitchRow, NumberBox } from '../components/settings/SettingsUI';
 import PageTrail from '../components/PageTrail';
+import { formatHMWords } from '../lib/hoursText';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
 // admin actually opens that subject. One dynamic import per home module,
@@ -2651,7 +2652,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
         <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin} onChange={v => edit('rounding', { nearestMin: v })} />
       </PolicyCard>
       <PolicyCard id="auto-lunch" title="Auto-Lunch Deduction" busy={held('autoLunch')} enabled={autoLunch.enabled} foot={foot('autoLunch', cfg.autoLunch)}
-        desc={`Deduct ${autoLunch.deductMin} minutes of lunch from any shift longer than ${Math.round((autoLunch.afterMin || 0) / 60 * 10) / 10} hours that has no recorded break (the person forgot to clock lunch).`}
+        desc={`Deduct ${autoLunch.deductMin} minutes of lunch from any shift longer than ${formatHMWords(autoLunch.afterMin || 0, { compact: true })} that has no recorded break (the person forgot to clock lunch).`}
         onToggle={on => toggle('autoLunch', on)}>
         <PolicyNumber label="Shifts over" min={60} max={1440} value={autoLunch.afterMin} onChange={v => edit('autoLunch', { afterMin: v })} />
         <PolicyNumber label="Deduct" min={0} max={240} value={autoLunch.deductMin} onChange={v => edit('autoLunch', { deductMin: v })} />

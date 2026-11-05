@@ -26,6 +26,7 @@ import { getPosition, punchPosition } from '../lib/geoPosition';
 import { askPunchPosition } from '../lib/punchLocation';
 import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
+import { formatHM, formatHoursHM } from '../lib/hoursText';
 import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 import { formatDistance, formatAccuracy } from '../lib/distance';
@@ -367,7 +368,8 @@ function IdleDial({ now, size = 128 }) {
 // Daily hours as bars against the 8-hour line - the clock card's This Week
 // and Pay Period views. Today is the solid brand bar; days still to come are
 // dashed outlines; each worked day carries its hours above the bar.
-const barHours = (m) => (m >= 60 ? `${Math.round((m / 60) * 10) / 10}h` : `${m}m`);
+// Hours read as H:MM, never decimals (Neil, 11/04/2026): "7:30", "45m".
+const barHours = (m) => (m >= 60 ? formatHM(m) : `${m}m`);
 function HoursBars({ series }) {
   const target = 8 * 60;
   const max = Math.max(target, ...series.map(x => x.min)) * 1.08;
@@ -1697,7 +1699,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   Total
                   {toPartialOk ? (
                     <>
-                      <span style={{ fontSize: 13.5 }}>{Math.round(toTotalHours * 100) / 100}</span>
+                      <span style={{ fontSize: 13.5 }}>{formatHoursHM(toTotalHours)}</span>
                       <span style={{ fontWeight: 600, color: 'var(--muted)' }}>hour{toTotalHours === 1 ? '' : 's'}</span>
                     </>
                   ) : (

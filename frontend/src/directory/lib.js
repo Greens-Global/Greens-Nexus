@@ -9,6 +9,7 @@
 // Teams links come from the one helper (lib/teamsLinks.js, 11/02/2026); these
 // names stay for the directory's callers.
 import { teamsChatUrl, teamsCallUrl, teamsVideoUrl } from '../lib/teamsLinks';
+import { formatHMWords } from '../lib/hoursText';
 export const teamsChat  = (email) => teamsChatUrl(email);
 export const teamsCall  = (email) => teamsCallUrl(email);
 export const teamsVideo = (email) => teamsVideoUrl(email);
@@ -224,7 +225,8 @@ export function localTimeLabel(timeZone, now = new Date()) {
   }
 }
 
-// Hours apart from the viewer, as "+9.5h" / "-3h" / '' when the same clock.
+// Hours apart from the viewer, as "+9h 30m" / "-3h" / '' when the same clock
+// (hours and minutes, never "9.5h" - Neil, 11/04/2026).
 export function offsetFromViewer(timeZone, now = new Date()) {
   try {
     const minutesIn = (tz) => {
@@ -238,8 +240,7 @@ export function offsetFromViewer(timeZone, now = new Date()) {
     if (diff > 14 * 60) diff -= 1440 * 28;
     if (diff < -14 * 60) diff += 1440 * 28;
     if (diff > 14 * 60 || diff < -14 * 60 || diff === 0) return '';
-    const h = diff / 60;
-    return `${h > 0 ? '+' : '-'}${Math.abs(h) % 1 === 0 ? Math.abs(h) : Math.abs(h).toFixed(1)}h`;
+    return formatHMWords(diff, { sign: true, compact: true });
   } catch {
     return '';
   }

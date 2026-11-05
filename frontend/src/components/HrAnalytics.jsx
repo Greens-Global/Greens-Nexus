@@ -18,6 +18,7 @@ import {
 import { api } from '../api';
 import { SkeletonBlocks, LoadingState, ErrorBanner } from './AsyncState';
 import { formatDate } from '../lib/datetime';
+import { formatHoursHM } from '../lib/hoursText';
 import { formatCost } from '../asset/lib/currency';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -310,7 +311,7 @@ function LiabilityCard({ li, money, onDrill }) {
   return (
     <Card Icon={Wallet} color="brand" title="Leave Liability" sub="Unused vacation of people employed today">
       <div className="bi-stats">
-        <Stat label="Unused Vacation Hours" value={count(li.hours)} onDrill={() => onDrill({ metric: 'liability' })} />
+        <Stat label="Unused Vacation Hours" value={typeof li.hours === 'number' ? formatHoursHM(li.hours) : '-'} onDrill={() => onDrill({ metric: 'liability' })} />
         <Stat label="People With Unused Vacation" value={count(li.people)} />
         {money && (li.byCurrency || []).map((c) => (
           <Stat key={c.currency} label={`Owed In ${c.currency}`} value={formatCost(c.amount, c.currency)}

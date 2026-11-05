@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Plus, RotateCcw
 import { api } from '../../api';
 import { ensureStepUp, isStepUpRequired } from '../../stepup/StepUp';
 import { formatDate } from '../../lib/datetime';
+import { formatHoursHM } from '../../lib/hoursText';
 import { DateField } from '../../tasks/components';
 import { EntityPicker, control } from './reportControls';
 import { downloadBlob } from './reportModel';
@@ -38,7 +39,9 @@ const small = { fontSize: '0.74rem', color: 'var(--text-muted)' };
 const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', height: 32, padding: '0 14px' };
 const cellInput = { ...control, width: '100%', minWidth: 70, height: 28 };
 const fmt = (n) => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtH = (n) => (n ? (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 }) : '');
+// The preview reads hours as H:MM (Neil, 11/04/2026: no decimal hours); the
+// IIF and Intacct files keep their decimal hours.
+const fmtH = (n) => (n ? formatHoursHM(n) : '');
 const PREVIEW = 60;
 const fileBase = (name, fallback) => (name || fallback).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_');
 const saveCsv = (name, rows) => downloadBlob(name, new Blob([toCsv(rows)], { type: 'text/csv;charset=utf-8' }));
@@ -364,7 +367,7 @@ export function PayrollHoursToQb() {
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: '0.8rem' }}>
               <span><strong>{people.length}</strong> employees</span>
-              <span><strong>{fmtH(totalHours) || 0}</strong> hours</span>
+              <span><strong>{fmtH(totalHours) || '0:00'}</strong> hours</span>
               {source === 'nexus' && nexus && <span style={small}>{formatDate(nexus.start)} to {formatDate(nexus.end)}</span>}
               <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
                 <button type="button" className="primary-btn" disabled={!have || busy === 'iif'} onClick={downloadIif} title={blocked || undefined} style={btn}><Download size={14} /> {draft ? 'Download Draft QuickBooks IIF' : 'Download QuickBooks IIF'}</button>

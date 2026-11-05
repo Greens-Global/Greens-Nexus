@@ -48,9 +48,9 @@ describe('RetroPayReport', () => {
     expect(await screen.findByText('Rita Retro')).toBeTruthy();
     for (const h of ['Employee', 'Period', 'Hours', 'Rate Paid', 'Rate Now', 'Owed']) expect(screen.getByText(h)).toBeTruthy();
     expect(screen.getByText('09/13/2026 - 09/26/2026')).toBeTruthy();
-    expect(screen.getByText('16.00 Regular')).toBeTruthy();
-    expect(screen.getByText('4.00 OT 1.5x')).toBeTruthy();
-    expect(screen.getByText('1.00 DT 2x')).toBeTruthy();
+    expect(screen.getByText('16:00 Regular')).toBeTruthy();
+    expect(screen.getByText('4:00 OT 1.5x')).toBeTruthy();
+    expect(screen.getByText('1:00 DT 2x')).toBeTruthy();
     expect(screen.getByText('$20.00')).toBeTruthy();
     expect(screen.getByText('$25.00')).toBeTruthy();
     expect(screen.getAllByText('$120.00').length).toBe(2);   // the row and the total

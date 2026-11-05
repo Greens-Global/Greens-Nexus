@@ -6,6 +6,7 @@ Runs on test_timesheet_review's throwaway database, one file per process:
     python -m pytest test_timesheet_pdf_pairs.py -q
 """
 import io
+import re
 import unittest
 
 from test_timesheet_review import ReviewCase, EMP, MGR, ANCHOR  # noqa: F401  (sets DATABASE_URL first)
@@ -45,12 +46,18 @@ class PdfPairs(ReviewCase):
         pdf, _last = tsr.build_pdf(self.db, r)
         from pypdf import PdfReader
         text = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
-        self.assertIn("Hrs/Day", text)
+        self.assertIn("Day Total", text)
         # Two punch-pair rows (Out at the break start, In at the break end), each
-        # with its own hours, and the day's 6:30 on the last row.
+        # with its own hours, and the day's 6:30 on the FIRST row, as the
+        # screen draws it (Neil, 11/04/2026).
         flat = " ".join(text.split())
-        self.assertIn("4:00 PM 7:00 PM - - 3:00", flat)
-        self.assertIn("7:30 PM 11:00 PM 3:30 6:30", flat)
+        self.assertIn("4:00 PM 7:00 PM - - 3:00 6:30", flat)
+        self.assertIn("7:30 PM 11:00 PM 3:30", flat)
+        self.assertNotIn("3:30 6:30", flat)
+        # The break between them is its own line (Neil, 11/04/2026).
+        self.assertIn("Break 7:00 PM 7:30 PM 30 min", flat)
+        self.assertIn("Total hours clocked for week of", flat)
+        self.assertIsNone(re.search(r"\(\d+\.\d\d\)", flat), flat)   # no decimal hours
 
 
 if __name__ == "__main__":

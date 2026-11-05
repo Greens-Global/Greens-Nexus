@@ -97,7 +97,7 @@ describe('CompensationReport', () => {
     expect(row.textContent).toContain('52,123.06');
     expect(row.textContent).toContain('850.00');
     expect(row.textContent).toContain('1,854.06');      // workers' comp
-    await waitFor(() => expect(row.textContent).toContain('100.00'));   // 6,000 minutes of regular time
+    await waitFor(() => expect(row.textContent).toContain('100:00'));   // 6,000 minutes of regular time, as H:MM
     expect(screen.getByText('Regular Hours (Time Clock)')).toBeTruthy();
     expect(screen.getByText('Salaried / Hourly Payroll')).toBeTruthy();
     expect(screen.getByText('Total Employer Expenses')).toBeTruthy();
@@ -162,7 +162,7 @@ describe('CompensationReport', () => {
     expect(groups).toEqual(['Employee Metrics', 'Rates', 'Hours Worked', 'Accruals', 'Employer Expenses', 'Payroll Expenses', 'Benefits', 'Employer Payroll Taxes', 'Other Benefits',
       'Employee Net Pay', 'Payroll Expenses', 'Deductions from Gross Pay', 'Employee Taxes Withheld']);
     expect(within(table).getByText('Fixed (per month)').closest('tr').textContent).toContain('5,133.33');   // the pay setup rate
-    expect(within(table).getByText('Regular').closest('tr').textContent).toContain('100.00');   // Time Clock hours
+    expect(within(table).getByText('Regular').closest('tr').textContent).toContain('100:00');   // Time Clock hours, as H:MM
     expect(within(table).getAllByText('Salaried / Hourly Payroll')[0].closest('tr').textContent).toContain('57,176.84');
     expect(within(table).getByText('63203 Fuel')).toBeTruthy();   // Other Benefits by account (item 12)
     expect(within(p).getByText(/2026: 3.5% of 52,973.06 gross wages = 1,854.06/)).toBeTruthy();

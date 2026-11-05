@@ -47,6 +47,7 @@ import { isOffline } from '../lib/offline/store';
 import SyncState from '../components/offline/SyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { addLogPhoto, loadPrefill, saveLogPatch, submitLog } from './constructionOffline';
+import { formatHoursWords } from '../lib/hoursText';
 
 const DELAY_CAUSES = [
   ['weather', 'Weather'], ['inspection', 'Inspection'], ['material', 'Material'], ['labor', 'Labor'],
@@ -66,8 +67,8 @@ function DraftedFrom({ pre, savedAt }) {
       <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>Drafted From Today</summary>
       {savedAt && <div style={line}>From this phone (saved {formatDateTime(savedAt, '')}).</div>}
       <div style={line}><b>Weather:</b> {pre.weather?.text ? `${pre.weather.text} (forecast)` : 'No forecast for this jobsite - type it in.'}</div>
-      <div style={line}><b>Crew:</b> {pre.crew?.count ? `${pre.crew.count} ${pre.crew.count === 1 ? 'person' : 'people'} punched in here, ${pre.crew.hours} h` : 'No Time Clock punches at this jobsite yet today.'}
-        {(pre.crew?.people || []).length > 0 && ` (${pre.crew.people.map((p) => `${p.name || p.email} ${p.hours} h`).join(', ')})`}</div>
+      <div style={line}><b>Crew:</b> {pre.crew?.count ? `${pre.crew.count} ${pre.crew.count === 1 ? 'person' : 'people'} punched in here, ${formatHoursWords(pre.crew.hours, { compact: true })}` : 'No Time Clock punches at this jobsite yet today.'}
+        {(pre.crew?.people || []).length > 0 && ` (${pre.crew.people.map((p) => `${p.name || p.email} ${formatHoursWords(p.hours, { compact: true })}`).join(', ')})`}</div>
       {(pre.photos || []).length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0' }} aria-label="Today's photos">
           {pre.photos.slice(0, 12).map((p) => <img key={p.id} src={p.thumbnailUrl || p.url} alt={p.caption || 'Photo from today'} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6 }} />)}
