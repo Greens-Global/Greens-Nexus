@@ -2396,7 +2396,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   );
 
   return (
-    <div className={`nx-docb${painterActive ? ' doc-painting' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
+    <div className={`nx-docb${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: preview ? 6 : 8, flexWrap: 'wrap' }}>
         <button onClick={close} title="Close"
           style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
@@ -3544,13 +3544,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           { label: 'Delete Picture', icon: Trash2, onClick: () => activeEditor.chain().focus().deleteSelection().run() },
         ]} />
       )}
-      <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }} onContextMenu={onPagesContextMenu}>
+      <div className="nx-docb-canvas" style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }} onContextMenu={onPagesContextMenu}>
       {kind === 'document' && !preview && !isMobile && (() => {
         const canvas = pageCanvasStyle(pageSetup);
         const thumbW = 92, thumbH = Math.round(thumbW * (canvas.minHeight / canvas.maxWidth));
         const scale = thumbW / canvas.maxWidth;
         return (
-          <div style={{ flex: '0 0 116px', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: 10, alignSelf: 'flex-start' }}>
+          <div className="nx-docb-rail" style={{ flex: '0 0 116px', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: 10, alignSelf: 'flex-start' }}>
             {/* "Pages" here means EDITOR pages - the sheets you added with
                 Add page, each its own TipTap instance. It is not the exported
                 page count: the canvas is one continuous unpaginated box (see
