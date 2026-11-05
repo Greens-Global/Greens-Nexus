@@ -89,7 +89,7 @@ Every day a clean unit sits marked "not rentable" is a day of lost rent.
 
 ## Overlocks, Done Right
 
-You learned overlocks in lesson 4. On a site routine, the rules are:
+You learned overlocks in the Access, Locks and Security lesson. On a site routine, the rules are:
 
 - Put them on only where the system flags them.
 - Record each one the same day.
@@ -141,7 +141,7 @@ When in doubt, treat it as the tenant's property and ask your manager.
 - **Never let a tenant or a vendor in on your own code.** Your code is logged as you.
 - **Change codes when staff leave.**
 - **Log every gate-code change or override.**
-- **Never give out a master code,** even to a tenant locked out at 6:00 AM (lesson 4 and Greens Site Hours and Access).
+- **Never give out a master code,** even to a tenant locked out at 6:00 AM (the Access, Locks and Security lesson and Greens Site Hours and Access).
 
 ## Cash Handling
 

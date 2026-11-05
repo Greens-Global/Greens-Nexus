@@ -12,7 +12,7 @@ summary: Scenarios 11 to 20 - the wrong person answering a collections call, an 
 
 ## Using These Scenarios
 
-Run them the way lesson 16 describes: one person plays the customer, one plays Greens staff, and someone scores. Most of these are service and safety situations, not sales calls. Score them with Hear, Own, Solve, Thank, Fix (lesson 2) and the rules in the lesson each scenario points to. Scenario 20 is a sales call: use the 22-item sheet.
+Run them the way the Practice: Twenty Scenarios, Part 1 lesson describes: one person plays the customer, one plays Greens staff, and someone scores. Most of these are service and safety situations, not sales calls. Score them with Hear, Own, Solve, Thank, Fix (the The Greens Service Standard lesson) and the rules in the lesson each scenario points to. Scenario 20 is a sales call: use the 22-item sheet.
 
 ## Scenario 11: The Wrong Person Answers a Collections Call
 
@@ -138,7 +138,7 @@ Run them the way lesson 16 describes: one person plays the customer, one plays G
 
 ## Scenario 20: An RV Owner Shopping Covered Parking
 
-**Site:** Temecula. **Lessons:** 4, and RV & Boat Storage Fundamentals lessons 6 and 12.
+**Site:** Temecula. **Lessons:** 4, and RV & Boat Storage Fundamentals, the Measuring for the Right Fit and Selling Vehicle Storage lessons.
 
 **Prompt (customer):** "Do you have a covered spot for a 34-foot fifth wheel?" You take it out about once a month, mostly in summer.
 
@@ -183,7 +183,7 @@ Before your Hands-On Check:
 1. Run every scenario once, as staff.
 2. Note the three you found hardest.
 3. Run those again, a week apart.
-4. Score yourself on five real calls a week with the lesson 6 sheet.
+4. Score yourself on five real calls a week with the the The Call Score Sheet lesson sheet.
 
 ## Key Points
 

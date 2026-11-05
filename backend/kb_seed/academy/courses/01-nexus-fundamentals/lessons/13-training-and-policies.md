@@ -117,7 +117,7 @@ How it works:
 
 ## A Greens Scenario
 
-Chris starts at a Texas site and gets a bell: the New Hire: Facility Team plan was assigned, due in 30 days. He opens **Help Center**, **Knowledge Base & Training**, **Training**, and starts Nexus Fundamentals. He finishes three lessons on his first day, clicking **Mark Lesson Complete** after each, and does the Time Clock checkpoint; he misses one question about the early clock-in, so he rereads that part of lesson 6.
+Chris starts at a Texas site and gets a bell: the New Hire: Facility Team plan was assigned, due in 30 days. He opens **Help Center**, **Knowledge Base & Training**, **Training**, and starts Nexus Fundamentals. He finishes three lessons on his first day, clicking **Mark Lesson Complete** after each, and does the Time Clock checkpoint; he misses one question about the early clock-in, so he rereads that part of the Punching In, Breaks and Punching Out lesson.
 
 At the end of the week he clicks **Start the Quiz**, answers all 25 questions and clicks **Submit Answers**. He scores 76%: "Not quite. You need 80%." He reads the lessons listed under **Reread these before you try again**, comes back the next day, clicks **Try Again** and passes. He clicks **Download Certificate** and moves on to Self-Storage Fundamentals.
 

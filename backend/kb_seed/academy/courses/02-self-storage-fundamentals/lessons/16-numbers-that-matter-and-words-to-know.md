@@ -52,7 +52,7 @@ A site gets 60 phone and web inquiries in a week and rents 15 units. Conversion 
 
 ### Worked Example 5: Average Stay and Value
 
-The average stay in the industry is about a year and a half (lesson 2). At Escondido's median enclosed street rate of $164 a month (From Greens' Cubby, 11/2026), 18 months is $164 x 18 = **$2,952** of rent from one move-in. That is what a missed call can cost.
+The average stay in the industry is about a year and a half (the Why People Rent lesson). At Escondido's median enclosed street rate of $164 a month (From Greens' Cubby, 11/2026), 18 months is $164 x 18 = **$2,952** of rent from one move-in. That is what a missed call can cost.
 
 ## Words to Know: The Glossary
 
@@ -122,16 +122,16 @@ Also useful: **unit occupancy** (units rented / total units), **value limit** (a
 
 | # | The myth | The truth |
 |---|---|---|
-| 1 | "The facility's insurance covers my stuff." | It covers the facility. The tenant needs Greens' plan or their own policy (lesson 7). |
-| 2 | "Staff have a key and can check on my unit." | The tenant has the only key and exclusive control (lesson 4). |
+| 1 | "The facility's insurance covers my stuff." | It covers the facility. The tenant needs Greens' plan or their own policy (the Tenant Protection and Insurance lesson). |
+| 2 | "Staff have a key and can check on my unit." | The tenant has the only key and exclusive control (the Access, Locks and Security lesson). |
 | 3 | "Storage auctions are full of treasure." | Most liened units hold everyday household goods; TV shows are entertainment. |
-| 4 | "You can sell a unit as soon as someone is late." | The law sets strict steps and minimum days (lesson 10). |
-| 5 | "A partial payment stops the auction," or "We can just toss the junk." | At Greens, a partial payment does not stop the ladder; nothing is thrown out outside the process (lessons 10 and 11). |
-| 6 | "Rent is fixed as long as I rent." | Agreements are month-to-month; rates can change with notice. California agreements from 01/01/2026 show the 12-month maximum on page one (lesson 8). |
-| 7 | "Police can always get in." | Only with a warrant or other legal basis, handled by the manager (lesson 15). |
-| 8 | "Family can get into a relative's unit after a death." | Only with a death certificate and proof of authority (lesson 11). |
-| 9 | "Storage is just real estate; service doesn't matter." | Most renters are in a life change; service drives reviews and how long they stay (lesson 2). |
-| 10 | "Bigger is always better to sell." | Over-selling leads to quick move-outs; under-selling ruins move-in day (lesson 3). |
+| 4 | "You can sell a unit as soon as someone is late." | The law sets strict steps and minimum days (the Delinquency and the Lien Process lesson). |
+| 5 | "A partial payment stops the auction," or "We can just toss the junk." | At Greens, a partial payment does not stop the ladder; nothing is thrown out outside the process (the Delinquency and the Lien Process and Lines You Never Cross lessons). |
+| 6 | "Rent is fixed as long as I rent." | Agreements are month-to-month; rates can change with notice. California agreements from 01/01/2026 show the 12-month maximum on page one (the The Rental Agreement lesson). |
+| 7 | "Police can always get in." | Only with a warrant or other legal basis, handled by the manager (the Privacy and Compliance lesson). |
+| 8 | "Family can get into a relative's unit after a death." | Only with a death certificate and proof of authority (the Lines You Never Cross lesson). |
+| 9 | "Storage is just real estate; service doesn't matter." | Most renters are in a life change; service drives reviews and how long they stay (the Why People Rent lesson). |
+| 10 | "Bigger is always better to sell." | Over-selling leads to quick move-outs; under-selling ruins move-in day (the The Product: Units and Sizes lesson). |
 
 ## The Mistakes New Hires Make Most
 

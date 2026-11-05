@@ -38,10 +38,10 @@ The idea reached California quickly. **Public Storage** was founded on 08/14/197
 Three things drove the growth over the next fifty years:
 
 1. **People own more things and move more often.** Homes, apartments and garages fill up.
-2. **Life events.** Deaths, divorces, downsizing and moves create sudden storage needs (lesson 2 covers these).
+2. **Life events.** Deaths, divorces, downsizing and moves create sudden storage needs (the Why People Rent lesson covers these).
 3. **Business use.** Contractors, sales reps and online sellers found storage cheaper than warehouse space.
 
-Reality TV made storage auctions famous. As you will learn in lessons 10 and 11, real lien sales are a strict legal process and a last resort, not entertainment.
+Reality TV made storage auctions famous. As you will learn in the Delinquency and the Lien Process and Lines You Never Cross lessons, real lien sales are a strict legal process and a last resort, not entertainment.
 
 ## How Big the Industry Is
 
@@ -106,7 +106,7 @@ Two things stand out:
 1. **Vehicle parking is a large share of Greens' business.** Fairfield, Murrieta and Temecula are almost all parking: RVs, boats, trailers and cars. That is why the next course, RV & Boat Storage Fundamentals, comes right after this one.
 2. **Each site is different.** Escondido and Valley Center are mostly classic storage units. Fairfield has 303 parking spaces and only 4 enclosed units. Valley Center also rents mailboxes. When you start at a site, learn its mix first.
 
-Every Greens site bills on the first of the month (From Greens' Cubby, 11/2026). You will see why that matters in lesson 6 and in the lien lessons.
+Every Greens site bills on the first of the month (From Greens' Cubby, 11/2026). You will see why that matters in the How a Storage Site Makes Money lesson and in the lien lessons.
 
 ### A Day in the Life
 
@@ -119,7 +119,7 @@ Here is what a normal day can look like at a Greens site:
 
 ## The Vocabulary of This Course
 
-A few words you will see in every lesson. The full glossary is in lesson 16.
+A few words you will see in every lesson. The full glossary is in the Numbers That Matter and Words to Know lesson.
 
 | Word | Meaning |
 |---|---|

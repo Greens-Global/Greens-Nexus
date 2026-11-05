@@ -19,7 +19,7 @@ Everything in this course comes back to one idea: **people rent from the person 
 
 ## Something Changed in Their Life
 
-Self-Storage Fundamentals lesson 2 covered the 4 Ds (Death, Divorce, Downsizing, Dislocation) and the other reasons people rent. Here is what those reasons look like in the numbers, with the year each was measured:
+Self-Storage Fundamentals, Why People Rent covered the 4 Ds (Death, Divorce, Downsizing, Dislocation) and the other reasons people rent. Here is what those reasons look like in the numbers, with the year each was measured:
 
 | Finding | Source and year |
 |---|---|
@@ -50,7 +50,7 @@ Customers do their homework before you hear from them. They look at prices onlin
 That means two things:
 
 1. **The call is not the start of the decision; it is the end of it.** They already have prices in their head. What they are testing now is you: are you helpful, honest and easy to deal with?
-2. **Your online face matters.** Photos, reviews and the price on the website set expectations. If the website price and your quote do not match, you lose trust instantly (lesson 11 covers what to do).
+2. **Your online face matters.** Photos, reviews and the price on the website set expectations. If the website price and your quote do not match, you lose trust instantly (the Objections, Honestly lesson covers what to do).
 
 ## What Drives the Choice
 
@@ -63,7 +63,7 @@ That means two things:
 Price leads. But look closer: in every survey, most people did **not** pick price as the top reason. Location, security, access, cleanliness and how they were treated decide most close calls. Nobody has measured "the office was clean and the person was kind" in a survey, but every operator you will ever meet treats it as part of security and trust.
 
 > [!NOTE]
-> Climate control shows up big in the 2026 numbers. At Greens, Escondido is where the climate-controlled units are: 549 of its 717 enclosed units carry the Climate Controlled feature (From Greens' Cubby, 11/2026). Lesson 5 covers when to recommend it.
+> Climate control shows up big in the 2026 numbers. At Greens, Escondido is where the climate-controlled units are: 549 of its 717 enclosed units carry the Climate Controlled feature (From Greens' Cubby, 11/2026). The Recommending a Size lesson covers when to recommend it.
 
 ## The First Good Conversation Wins
 
@@ -79,13 +79,13 @@ What this means for you every day:
 
 ## How Long They Stay
 
-Customers usually think they will need storage for "a month or two." They are almost always wrong. The Self Storage Association's 2023 Demand Study (as reported in industry press) put the average stay at about 20 months, up from 16.5 in 2020. Self-Storage Fundamentals lesson 2 showed what that means in dollars: one Valley Center tenant at the site's median enclosed street rate can be worth more than $2,500 over a typical stay.
+Customers usually think they will need storage for "a month or two." They are almost always wrong. The Self Storage Association's 2023 Demand Study (as reported in industry press) put the average stay at about 20 months, up from 16.5 in 2020. Self-Storage Fundamentals, Why People Rent showed what that means in dollars: one Valley Center tenant at the site's median enclosed street rate can be worth more than $2,500 over a typical stay.
 
 So the person on the phone who "only needs it till spring" may be a tenant for two years. Treat every caller like a long relationship, because most of them will be.
 
 ## RV, Boat and Trailer Customers Are Different
 
-About 38% of Greens' active spaces are vehicle parking: 1,038 parking spaces against 1,687 enclosed units (From Greens' Cubby, 11/2026). At Fairfield, Murrieta and Temecula, nearly every customer is a vehicle customer. RV & Boat Storage Fundamentals lesson 12 covered selling vehicle storage in depth. The short version for this course:
+About 38% of Greens' active spaces are vehicle parking: 1,038 parking spaces against 1,687 enclosed units (From Greens' Cubby, 11/2026). At Fairfield, Murrieta and Temecula, nearly every customer is a vehicle customer. RV & Boat Storage Fundamentals, Selling Vehicle Storage covered selling vehicle storage in depth. The short version for this course:
 
 | Household storage customer | RV, boat and trailer customer |
 |---|---|
@@ -106,7 +106,7 @@ Vehicle customers notice whether you know their world. Saying "fifth wheel" or "
 
 **Valley Center.** A young couple moving in together has "two of everything." It is their first time renting storage. You explain how the gate works before they ask, because you know they do not know.
 
-**Temecula.** A boat owner says another site is cheaper. You do not argue price first. You ask how often he takes the boat to the lake and whether he wants covered parking, which Temecula has (27 covered spaces, From Greens' Cubby, 11/2026). Lesson 11 covers the rest of that conversation.
+**Temecula.** A boat owner says another site is cheaper. You do not argue price first. You ask how often he takes the boat to the lake and whether he wants covered parking, which Temecula has (27 covered spaces, From Greens' Cubby, 11/2026). The Objections, Honestly lesson covers the rest of that conversation.
 
 **Murrieta.** A retired couple with a 38-foot motorhome asks about a pull-through space because backing in is hard for them. You know Murrieta has pull-through spaces and say so in the first minute.
 

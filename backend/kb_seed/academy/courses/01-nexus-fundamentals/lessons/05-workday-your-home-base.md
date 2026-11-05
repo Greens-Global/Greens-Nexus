@@ -19,9 +19,9 @@ Workday has four tabs:
 
 | Tab | What it is for | Lesson |
 |---|---|---|
-| **Overview** | The landing page: tiles, documents to sign, the Time Clock, your schedule, your profile, your equipment and your documents. | This lesson and lesson 6 |
-| **Time Sheet** | Your hours for the pay period, day by day, and signing them. | Lesson 8 |
-| **Time Off** | Request time off and see your requests. | Lesson 9 |
+| **Overview** | The landing page: tiles, documents to sign, the Time Clock, your schedule, your profile, your equipment and your documents. | This lesson and the Punching In, Breaks and Punching Out lesson |
+| **Time Sheet** | Your hours for the pay period, day by day, and signing them. | The Your Time Sheet lesson |
+| **Time Off** | Request time off and see your requests. | The Schedules and Time Off lesson |
 | **Performance** | My Numbers, My Goals, My Reviews and My 1:1s. | This lesson, briefly |
 
 > [!NOTE]
@@ -35,7 +35,7 @@ Whenever a Nexus Sign document is waiting on your signature, a **Documents to Si
 
 In every HR document, **you always sign first**. The company never signs before you and never sends you a pre-signed document. If a document needs a company signature too, it is added after yours.
 
-Time Sheets are the one exception to where you sign: they stay on the **Time Sheet** tab (lesson 8).
+Time Sheets are the one exception to where you sign: they stay on the **Time Sheet** tab (the Your Time Sheet lesson).
 
 ### The Tiles
 
@@ -57,15 +57,15 @@ At the right end, compact rows open the three Workday panels and forms:
 | **Purchase Request** | Ask the company to buy something it does not have yet. |
 | **Fill a Form** | Shows only when there is a form you may fill, such as an inspection or incident report. |
 
-Ask HR, Reimbursements and Purchase Request open as wide panels from the right. A click outside one of these panels does not close it; it nudges the panel and lights up its close button, so you do not lose a half-written request. Close it with **Close**, **Cancel** or the Escape key. Lesson 10 covers all three.
+Ask HR, Reimbursements and Purchase Request open as wide panels from the right. A click outside one of these panels does not close it; it nudges the panel and lights up its close button, so you do not lose a half-written request. Close it with **Close**, **Cancel** or the Escape key. The Ask HR, Reimbursements and Purchases lesson covers all three.
 
 ### The Time Clock
 
-Below the tiles is the **Time Clock** card, with **Punch In**, **Start Break**, **End Break** and **Punch Out**, a live dial for the shift you are on, and your hours with a **Today / This Week / Pay Period** switch. Lesson 6 is all about it.
+Below the tiles is the **Time Clock** card, with **Punch In**, **Start Break**, **End Break** and **Punch Out**, a live dial for the shift you are on, and your hours with a **Today / This Week / Pay Period** switch. The Punching In, Breaks and Punching Out lesson is all about it.
 
 ### My Schedule
 
-**My Schedule** shows your week of shifts: a line that sums up the week (shifts, paid hours, time off and your next shift), then your days one by one. When a manager shares a new schedule, a banner here asks you to **Confirm** it. The **My Week | Team** switch shows your group's whole week. Lesson 9 covers schedules.
+**My Schedule** shows your week of shifts: a line that sums up the week (shifts, paid hours, time off and your next shift), then your days one by one. When a manager shares a new schedule, a banner here asks you to **Confirm** it. The **My Week | Team** switch shows your group's whole week. The Schedules and Time Off lesson covers schedules.
 
 ### Contact & Emergency
 
@@ -82,11 +82,11 @@ Some details you cannot change yourself, because they affect payroll or your HR 
 | Emergency contact name, relationship and phone | Your department |
 | | Your bank details |
 
-For those, open **Ask HR**, click **New Request**, pick **Profile Change**, describe the change and click **Send to HR**. Lesson 10 walks through it.
+For those, open **Ask HR**, click **New Request**, pick **Profile Change**, describe the change and click **Send to HR**. The Ask HR, Reimbursements and Purchases lesson walks through it.
 
 ### My Equipment
 
-**My Equipment** lists what is assigned to you or checked out to you, with **Assigned** and **Checkouts** views. **Open Item Management** takes you to the full module (lesson 12).
+**My Equipment** lists what is assigned to you or checked out to you, with **Assigned** and **Checkouts** views. **Open Item Management** takes you to the full module (the People, Equipment and Notes lesson).
 
 ### My Documents
 

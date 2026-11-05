@@ -32,11 +32,11 @@ This page is the trainer's checklist and your study guide. The trainer works fro
 
 ## Part 1: The Mock Sales Call
 
-**What happens:** the trainer plays a caller and you answer the phone as you would on the job. The call lasts about 10 minutes, followed by about 10 minutes of scoring and talking it through. The trainer scores you with the same 22-item Greens call score sheet from lesson 6 of Customer Service and Sales Fundamentals.
+**What happens:** the trainer plays a caller and you answer the phone as you would on the job. The call lasts about 10 minutes, followed by about 10 minutes of scoring and talking it through. The trainer scores you with the same 22-item Greens call score sheet from Customer Service & Sales Fundamentals, The Call Score Sheet.
 
 **How the trainer runs it:**
 
-- Pick a caller from the practice scenarios in lessons 16 and 17 of that course, for example the Price-Only Caller, the Competitor Is $20 Cheaper or "I'll Think About It."
+- Pick a caller from the practice scenarios in the Practice: Twenty Scenarios, Part 1 and Part 2 lessons of that course, for example the Price-Only Caller, the Competitor Is $20 Cheaper or "I'll Think About It."
 - Play one caller who rents a unit and, if the site has vehicle spaces, one who stores an RV or a boat, such as Scenario 20, An RV Owner Shopping Covered Parking. Run at least one call; run both if time allows. The RV or boat caller is a good test of item 8, asking the length, the height and how often they use it.
 - Stay in character. Sit where you cannot see the learner's notes. Ask the questions a real caller would ask, and push back once when the learner asks for the rental.
 - Mark each item Yes, No or N/A. Not asking is a No. Score = Yes divided by the items that applied.

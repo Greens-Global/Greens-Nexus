@@ -80,7 +80,7 @@ Only clock in early when your manager has asked you to start early. Otherwise, c
 
 Press **Start Break** when you step away and **End Break** when you are back. While you are on a break, the clock counts down your allowance, for example "25 min left of your 1h daily break." If you go over, it says so, for example "Break over by 10 min - over your 1h daily allowance."
 
-If a break stays open for a long time (60 minutes by default), you get a **Still on Break?** notice in your bell. If it stays open for twice that, your manager is told. Usually it means you forgot to press **End Break**. Press it now, and if the time is wrong, fix it on your Time Sheet (lesson 8).
+If a break stays open for a long time (60 minutes by default), you get a **Still on Break?** notice in your bell. If it stays open for twice that, your manager is told. Usually it means you forgot to press **End Break**. Press it now, and if the time is wrong, fix it on your Time Sheet (the Your Time Sheet lesson).
 
 ## Long Shifts and a Forgotten Punch Out
 
@@ -89,7 +89,7 @@ If you have been clocked in for a long stretch, an amber banner asks: "You've be
 - **I'm Still Working** hides the banner. Use it only when you really are still working.
 - **Fix My Punch Out** takes you to your Time Sheet to ask for the right clock-out time.
 
-If a clock-in is never closed and becomes more than 16 hours old, that shift shows as **Missing**. A red bar explains it, with a **Fix My Punch Out** button. Submit a missing punch request with the real clock-out time (lesson 8), then punch in normally for today.
+If a clock-in is never closed and becomes more than 16 hours old, that shift shows as **Missing**. A red bar explains it, with a **Fix My Punch Out** button. Submit a missing punch request with the real clock-out time (the Your Time Sheet lesson), then punch in normally for today.
 
 > [!WARNING]
 > If you forgot to punch out yesterday, do **not** punch in and out now to "fix" it. That creates a second, wrong shift. Use **Fix My Punch Out** and ask for the real time. Your manager approves it.
@@ -105,7 +105,7 @@ In both cases a red line on the clock reminds you the punch is still owed until 
 
 ## Meal and Rest Breaks at Signing
 
-When you sign your Time Sheet (lesson 8), Nexus also handles meal and rest breaks:
+When you sign your Time Sheet (the Your Time Sheet lesson), Nexus also handles meal and rest breaks:
 
 | | California site (hourly) | Texas site |
 |---|---|---|

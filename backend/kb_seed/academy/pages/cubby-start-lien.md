@@ -16,7 +16,7 @@ tags: cubby, cubby-how-to, lien, auction, delinquency
 
 ## Before You Start
 
-- The lien process is the law's process for selling a tenant's goods to pay what they owe. It is covered in Self-Storage Fundamentals, lesson 10 (California and Texas side by side), and for vehicles in RV & Boat Storage Fundamentals. Greens' own days and fees are on Greens Delinquency Timeline and Greens Fees and Charges.
+- The lien process is the law's process for selling a tenant's goods to pay what they owe. It is covered in Self-Storage Fundamentals, Delinquency and the Lien Process (California and Texas side by side), and for vehicles in RV & Boat Storage Fundamentals. Greens' own days and fees are on Greens Delinquency Timeline and Greens Fees and Charges.
 - **Who starts liens at your site is your manager's decision.** Many sites keep it with the manager. Ask before you start one.
 - A lien is serious. Every step must happen on time, in order, with the right notice. A mistake can stop a sale or expose Greens to a claim.
 - Where a button's exact name is not given, the button name in Greens' Cubby is on the screenshot.

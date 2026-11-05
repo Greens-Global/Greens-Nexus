@@ -116,7 +116,7 @@ A Texas site faces a different set:
 2. **Do not let tenants into a damaged building** until officials and your manager say it is safe.
 3. **Photograph damage before any cleanup,** inside and out, with dates. Photos are evidence for Greens' insurance and for tenants' protection claims.
 4. **Tell your manager** everything you saw.
-5. **Communicate with tenants** the way your manager directs. Do not promise what will be covered (lesson 7).
+5. **Communicate with tenants** the way your manager directs. Do not promise what will be covered (the Tenant Protection and Insurance lesson).
 
 ## Injuries on Site
 

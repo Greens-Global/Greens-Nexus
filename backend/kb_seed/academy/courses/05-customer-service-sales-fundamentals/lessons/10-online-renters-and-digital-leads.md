@@ -14,7 +14,7 @@ summary: Why minutes matter for web leads, the first call and the follow-up sche
 
 ## Minutes Matter
 
-A web lead is a person sitting at a screen with three storage sites open in three tabs. Whoever reaches them first, helpfully, usually wins (lesson 1).
+A web lead is a person sitting at a screen with three storage sites open in three tabs. Whoever reaches them first, helpfully, usually wins (the Who Walks Through Our Door lesson).
 
 | Time to first live contact | What the trade sources say |
 |---|---|
@@ -43,12 +43,12 @@ Cubby Fundamentals (Leads and Reservations) covered the lead sources. The ones t
 Byrd's sequence for an online reservation (2021), adapted:
 
 1. **Call within 5 minutes.** During open hours, this comes before anything except a customer at the counter.
-2. **Confirm the size fits.** Run the discovery questions (lesson 4). Online renters pick their own size, and often pick too small.
+2. **Confirm the size fits.** Run the discovery questions (the The Nine Parts of a Sales Call lesson). Online renters pick their own size, and often pick too small.
 3. **Confirm the move-in date and time.**
 4. **If no answer:** leave a short voicemail, then send a text and an email right away.
 5. **Call again** later that day.
 6. **Second follow-up 24 to 48 hours later** by the channel they prefer, if you still have not reached them.
-7. **The day before move-in:** confirm the arrival time (lesson 9).
+7. **The day before move-in:** confirm the arrival time (the Move-In Done Right lesson).
 
 > [!NOTE]
 > "Hi, this is Ana with Greens Storage Temecula. I saw you just reserved a 10x20 parking space online, and I wanted to make sure it fits. What are you parking? ... A 22-foot boat on a trailer, so about 26 feet overall? Then let's put you in a 10x30 instead, so you're not squeezed. Same day, the 1st?"
@@ -65,7 +65,7 @@ For an abandoned checkout:
 - **Identify yourself and the site in the first message.** Nobody replies to a text from an unknown number.
 - **Keep texts short.** One or two sentences and one question.
 - **Text only with consent, and only at reasonable hours.** See the consent rules below.
-- **Never put a balance, a late fee or lien details in a text or email** unless Greens' policy says so (lesson 13).
+- **Never put a balance, a late fee or lien details in a text or email** unless Greens' policy says so (the Collections With Respect lesson).
 - **Personalize.** Use one detail from the conversation (DeFazio, 2026).
 
 ### A Text After a Missed First Call
@@ -132,7 +132,7 @@ What you still owe the online renter:
 
 - **Marketing texts need prior express written consent** under the federal Telephone Consumer Protection Act (TCPA). A text about a special or a sale is marketing.
 - **A customer who replies STOP gets no more texts**, right away. Note it in Cubby.
-- **Text only during reasonable hours.** Greens' collections calling window is 8:00 AM to 9:00 PM in the customer's local time (lesson 13); never text outside it.
+- **Text only during reasonable hours.** Greens' collections calling window is 8:00 AM to 9:00 PM in the customer's local time (the Collections With Respect lesson); never text outside it.
 - Texts that answer a customer's own question, or confirm a reservation they made, are service, not marketing, but they still follow the hours rule. Greens decides which messages need which consent; ask your manager.
 
 ## Greens Scenarios

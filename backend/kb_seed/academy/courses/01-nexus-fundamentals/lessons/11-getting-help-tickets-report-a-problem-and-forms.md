@@ -22,7 +22,7 @@ Help Center has a search bar at the top and these tiles:
 | **Submit a Ticket** | Raise a request with the right team: IT, HR, facilities, maintenance and more. |
 | **Ask Nexus** | Takes you to the search bar to ask a question. Written answers may not be turned on for Greens; if Ask Nexus says it is not set up, search the guide or submit a ticket instead. |
 | **Documentation** | The written guide to every Nexus screen. |
-| **Knowledge Base & Training** | Every company SOP and policy, and your courses (lesson 13). |
+| **Knowledge Base & Training** | Every company SOP and policy, and your courses (the Training and Policies lesson). |
 | **How Do I...** | Shortcuts to common things, such as Request Time Off or a Time Sheet fix, that go straight to the right screen with no ticket needed. |
 
 Below the tiles is the list of your tickets.

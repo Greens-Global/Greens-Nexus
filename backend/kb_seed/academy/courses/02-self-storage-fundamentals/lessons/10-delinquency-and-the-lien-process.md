@@ -221,7 +221,7 @@ The calls on the 2nd and the 6th are the most valuable thing you do in this whol
 
 A good collections call:
 
-1. **Confirm you are speaking with the tenant** before you mention a balance (lesson 15).
+1. **Confirm you are speaking with the tenant** before you mention a balance (the Privacy and Compliance lesson).
 2. **Be kind and direct.** "Hi, this is Sam at Greens Storage. Your payment for this month didn't go through, and I wanted to help you get it sorted before any late fee."
 3. **Offer the easy path:** take the payment now, or update the card for autopay.
 4. **Record what happened:** reached or not, what was promised, by when.

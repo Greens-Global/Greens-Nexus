@@ -21,7 +21,7 @@ A storage site earns money from four sources:
 |---|---|---|
 | **Rent** | Monthly rent on units, parking spaces and mailboxes | By far the largest |
 | **Fees** | Admin fee, late fee, lien and auction fees | Smaller, and many are tied to delinquency |
-| **Protection** | Monthly protection plan charges (lesson 7) | A real and steady line |
+| **Protection** | Monthly protection plan charges (the Tenant Protection and Insurance lesson) | A real and steady line |
 | **Merchandise** | Locks, boxes, tape, covers | Small, but adds up |
 
 Fees, protection and merchandise together are called **ancillary income**: income beyond rent.
@@ -51,7 +51,7 @@ An **ECRI** (Existing Customer Rate Increase) is a rent increase for a current t
 
 Why operators do it: moving out costs a tenant a truck, a day and a lot of work, so many will accept a modest increase rather than move. And a tenant who moved in on a promotional rate is often paying well under the street rate.
 
-Why it is risky: increases that are too large or too frequent drive move-outs, bad reviews and attention from lawmakers. California's SB 709 (lesson 8) came out of that concern.
+Why it is risky: increases that are too large or too frequent drive move-outs, bad reviews and attention from lawmakers. California's SB 709 (the The Rental Agreement lesson) came out of that concern.
 
 What you do:
 
@@ -106,7 +106,7 @@ Unit occupancy is still 100%. Economic occupancy is 89%. Discounts, free months,
 
 ### Worked Example 4: What a Late Payer Does to the Numbers
 
-A Temecula parking space rents for $164 a month (Temecula's median parking street rate, From Greens' Cubby, 11/2026). The tenant is unpaid all month. The space counts as rented in unit and physical occupancy, but the $164 is not achieved, so economic occupancy drops. Good collections calls on the 2nd and the 6th (lesson 10) protect economic occupancy.
+A Temecula parking space rents for $164 a month (Temecula's median parking street rate, From Greens' Cubby, 11/2026). The tenant is unpaid all month. The space counts as rented in unit and physical occupancy, but the $164 is not achieved, so economic occupancy drops. Good collections calls on the 2nd and the 6th (the Delinquency and the Lien Process lesson) protect economic occupancy.
 
 ## Concessions
 
@@ -117,7 +117,7 @@ A **concession** is a discount or promotion that brings in a move-in: a first mo
 | Bring in move-ins and win price shoppers | Lower economic occupancy while they last |
 | Fill units that have sat empty | Anchor the customer to a low rate, which is one reason a first rate increase can come early |
 
-In California, a promotional rate and its length must be disclosed on the first page of agreements signed on or after 01/01/2026 (SB 709, lesson 8). At Greens, Cubby showed no active discount programs (From Greens' Cubby, 11/2026). Never invent a promotion. Offer only what the system shows.
+In California, a promotional rate and its length must be disclosed on the first page of agreements signed on or after 01/01/2026 (SB 709, the The Rental Agreement lesson). At Greens, Cubby showed no active discount programs (From Greens' Cubby, 11/2026). Never invent a promotion. Offer only what the system shows.
 
 ## Fees
 

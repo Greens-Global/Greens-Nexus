@@ -26,8 +26,8 @@ Which one do you need?
 | You need an employment verification letter | **Ask HR**, Request a Letter |
 | You paid for something the company should have paid for | **Reimbursements** |
 | The site needs something the company does not have yet | **Purchase Request** |
-| Something is broken (a light, a gate, a computer) | Not a panel: a ticket (lesson 11) |
-| You need a tool or item the company already owns | Not a panel: Item Management, Borrow (lesson 12) |
+| Something is broken (a light, a gate, a computer) | Not a panel: a ticket (the Getting Help: Tickets, Report a Problem and Forms lesson) |
+| You need a tool or item the company already owns | Not a panel: Item Management, Borrow (the People, Equipment and Notes lesson) |
 
 ## Ask HR
 

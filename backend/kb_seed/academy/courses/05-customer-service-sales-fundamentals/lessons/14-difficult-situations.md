@@ -16,7 +16,7 @@ summary: Calming an angry customer, a break-in report, damage from a leak, pests
 
 ## Angry Customers: De-Escalation
 
-Most anger at a storage counter is not about you. It is a code that failed after a long drive, a fee they did not expect, or a bad week landing on the nearest person. These steps are from Tocarro Williams (Inside Self-Storage, 05/2022), combined with the Greens recovery method from lesson 2.
+Most anger at a storage counter is not about you. It is a code that failed after a long drive, a fee they did not expect, or a bad week landing on the nearest person. These steps are from Tocarro Williams (Inside Self-Storage, 05/2022), combined with the Greens recovery method from the The Greens Service Standard lesson.
 
 1. **Stay calm and lower your voice.** People match the volume around them. Let them finish.
 2. **Empathize and play it back.** "So you came to move your things and your code didn't work, after a long drive. I'd be upset too."
@@ -37,15 +37,15 @@ A tenant calls: "My lock is cut and my tools are gone!" What you do, compiled fr
 1. **Empathy first.** They may have lost something irreplaceable. "I'm so sorry. Let's take care of this together."
 2. **Secure the unit** with a facility lock.
 3. **Ask the tenant to file a police report** and get the report number.
-4. **Write an incident report** (Self-Storage Fundamentals lesson 14 covers Nexus Forms) and **tell your manager**.
+4. **Write an incident report** (Self-Storage Fundamentals, Safety and Emergencies covers Nexus Forms) and **tell your manager**.
 5. **Preserve camera footage and gate logs.** Do not promise what they show, and do not share footage with the tenant; footage goes to the police and follows Greens' policy.
 6. **Check neighboring units** for cut locks, and notify those tenants.
-7. **Explain the claim path** for their protection plan or their own insurance: the claim, the police report number, and their own list and photos of what was taken (lesson 12).
+7. **Explain the claim path** for their protection plan or their own insurance: the claim, the police report number, and their own list and photos of what was taken (the Existing Tenants: Payments, Rate Increases and Move-Outs lesson).
 8. **Do not admit liability, and do not speculate.** Facilities generally do not cover tenants' losses, and the agreement says so; say it gently if it comes up.
 9. **Do not blame the tenant.** "You should have bought a better lock" is never okay.
 10. **Keep them updated.** A news story about break-ins at another operator's sites showed what tenants hated most: nobody followed up.
 
-Any public review about the incident gets no details of the incident or the investigation (lesson 15).
+Any public review about the incident gets no details of the incident or the investigation (the Reviews and Reputation lesson).
 
 ## Damage: Leaks, Pests and Heat
 
@@ -53,10 +53,10 @@ A tenant's boxes are wet, or there are droppings in the unit, or a candle collec
 
 - **Show empathy without admitting liability.** "I'm really sorry. That's awful to find." Not "This is our fault and we'll cover it."
 - **Document it.** Photos of the unit and the damage. Report it to maintenance and your manager.
-- **Explain the agreement and the claim path**: Greens' plan or their own policy (lesson 12). Never promise coverage.
+- **Explain the agreement and the claim path**: Greens' plan or their own policy (the Existing Tenants: Payments, Rate Increases and Move-Outs lesson). Never promise coverage.
 - **For a leak:** offer to move them to a dry unit, with a concession only if your manager authorizes it. Get the leak fixed.
 - **For pests:** explain the treatment schedule and commit to handling it.
-- **For heat:** this is why lesson 5 asks about heat-sensitive items before move-in. Do not say "you should have rented climate control."
+- **For heat:** this is why the Recommending a Size lesson asks about heat-sensitive items before move-in. Do not say "you should have rented climate control."
 
 ## Lockouts, Lost Keys and Gate Trouble
 
@@ -66,7 +66,7 @@ A tenant's boxes are wet, or there are droppings in the unit, or a candle collec
 |---|---|
 | Forgot the gate code | Verify photo ID against the lease, then give or reset the code in Cubby. Never read a code to an unverified caller. |
 | Lost the key to their own lock | Cut the lock only for the verified tenant, following Greens' steps and any fee, and record it in Cubby. |
-| Code stopped working, account past due | Explain kindly that access is suspended and the amount needed to restore it (lesson 13). No lecture, no threat. |
+| Code stopped working, account past due | Explain kindly that access is suspended and the amount needed to restore it (the Collections With Respect lesson). No lecture, no threat. |
 | Code does not work, account current | Most gate failures are user error. Walk them through the keypad step by step. Check the code in Cubby, and check the gate hours. |
 | Someone stuck inside after hours | Make sure they can get out, then help with the code. |
 
@@ -84,13 +84,13 @@ Someone who is not the tenant asks you to open a unit, cut a lock, or tell them 
 - **If they threaten you or anyone, call the police.**
 - **Document it** in Cubby and tell your manager.
 
-Remember the move-in line from lesson 9: "Whoever has your gate code and key can come and go." That rule is what makes this answer simple.
+Remember the move-in line from the Move-In Done Right lesson: "Whoever has your gate code and key can come and go." That rule is what makes this answer simple.
 
 **The police** get cooperation, under Greens' rules: a warrant to open a unit, legal process for records, and your manager called right away. Greens Privacy and Records has the steps.
 
 ## A Family After a Tenant's Death
 
-Self-Storage Fundamentals lesson 11 covered the documents. The conversation:
+Self-Storage Fundamentals, Lines You Never Cross covered the documents. The conversation:
 
 > [!NOTE]
 > "I'm so sorry for your loss. I want to help you get his things. To protect his belongings, we need a few documents first: the death certificate, and the court paper or affidavit that shows who is handling his estate. Once we have those, I'll walk you through everything."
@@ -117,7 +117,7 @@ Two people who rented together are separating, or one partner shows up asking ab
 
 ## Someone Living in a Unit
 
-People living in storage units is a real problem: no ventilation, no water, no bathroom, code violations, and danger to the person and everyone around them. The agreement prohibits it (lesson 9).
+People living in storage units is a real problem: no ventilation, no water, no bathroom, code violations, and danger to the person and everyone around them. The agreement prohibits it (the Move-In Done Right lesson).
 
 **Warning signs:**
 
@@ -141,9 +141,9 @@ Prevention is in the move-in: state the rule plainly, and enforce loitering rule
 
 ## Safety When You Work Alone
 
-Many Greens shifts are one person on a big property. The trade press has documented the risk: a storage manager in Seattle was killed on duty. Self-Storage Fundamentals lesson 14 covers working alone; the habits that matter most with customers:
+Many Greens shifts are one person on a big property. The trade press has documented the risk: a storage manager in Seattle was killed on duty. Self-Storage Fundamentals, Safety and Emergencies covers working alone; the habits that matter most with customers:
 
-- **Never enter a unit with a tenant or prospect.** Stay in the doorway (lesson 8).
+- **Never enter a unit with a tenant or prospect.** Stay in the doorway (the Walk-Ins and the Tour lesson).
 - **Never say you are alone.** "My manager's in the back." "My coworker will be right out."
 - **Keep the counter between you** and visitors. Know where the exits and any panic button are.
 - **Keep little cash** in the office.

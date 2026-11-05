@@ -31,11 +31,11 @@ If they cannot, be kind and firm: "I'm sorry, I'm not able to discuss an account
 
 - Take the payment the tenant's way: card at the counter, a payment link, the tenant portal (Cubby Fundamentals, Take a Payment).
 - After every payment by phone or at the counter, **offer autopay**: "Would you like me to set this up so it pays on the 1st automatically? Then you never have to think about it, and you're far less likely to see a late fee."
-- **The failed autopay call on the 2nd** (Cubby's "2nd - Call Failed Autopay Tenants" task, From Greens' Cubby, 11/2026) is a service call, not a collections call: "Hi, it's Lee at Greens Storage Fairfield. Your card on file didn't go through on the 1st, probably an expired card. Can I help you update it so you don't get a late fee?" Lesson 13 covers what changes once rent is actually late.
+- **The failed autopay call on the 2nd** (Cubby's "2nd - Call Failed Autopay Tenants" task, From Greens' Cubby, 11/2026) is a service call, not a collections call: "Hi, it's Lee at Greens Storage Fairfield. Your card on file didn't go through on the 1st, probably an expired card. Can I help you update it so you don't get a late fee?" The Collections With Respect lesson covers what changes once rent is actually late.
 
 ### "Why Is This On My Bill?"
 
-Open the ledger in Cubby with the tenant. Explain each line. If a charge is not on Greens Fees and Charges, do not guess: "Let me check that with my manager and call you back by 3:00 PM." Most "wrong bill" calls are a prorated first month, a late fee, or a protection charge they forgot they chose. Cubby Fundamentals lessons 6 and 7 cover reading the ledger.
+Open the ledger in Cubby with the tenant. Explain each line. If a charge is not on Greens Fees and Charges, do not guess: "Let me check that with my manager and call you back by 3:00 PM." Most "wrong bill" calls are a prorated first month, a late fee, or a protection charge they forgot they chose. Cubby Fundamentals, the How a Ledger Works and Ledger Worked Examples lessons cover reading the ledger.
 
 ## Rate-Increase Conversations
 
@@ -43,13 +43,13 @@ Rate increases after a low move-in rate were the number one complaint in Modern 
 
 ### Before an Increase Goes Out
 
-- **It started at move-in.** The tenant who heard "rates are reviewed over time, and you'll get written notice" (lesson 9) is far less angry than one who heard nothing.
+- **It started at move-in.** The tenant who heard "rates are reviewed over time, and you'll get written notice" (the Move-In Done Right lesson) is far less angry than one who heard nothing.
 - **Know the reasons.** Ask your manager why rates are changing: taxes, insurance, improvements, the market. You cannot answer confidently with reasons you do not know.
 - **Flag the tenants who should not get a surprise.** If a tenant recently had a leak, a break-in or a hardship, tell your manager before the increase goes out.
 
 ### When the Tenant Calls
 
-Use Hear, Own, Solve, Thank, Fix (lesson 2).
+Use Hear, Own, Solve, Thank, Fix (the The Greens Service Standard lesson).
 
 1. **Hear.** Let them finish. They may have a lot to say.
 2. **Own.** Tocarro Williams' wording (2022): "I understand this increase is hard to hear. Here's what's driving it, and I'm glad to walk through your options."
@@ -99,12 +99,12 @@ Then:
 
 1. **Confirm the move-out steps:** the date, the unit empty and broom-clean, their lock removed. Schedule the move-out in Cubby (Cubby Fundamentals, Move-Outs).
 2. **Thank them**, by name.
-3. **Ask for a review** the same neutral way you ask everyone (lesson 15).
+3. **Ask for a review** the same neutral way you ask everyone (the Reviews and Reputation lesson).
 4. **Ask for a referral:** "If you know anyone who needs storage, we'd love to help them."
 
 ## Protection Claims
 
-When a tenant has a loss (a leak, a break-in, pests), they will ask what happens next. Lesson 14 covers the incident itself. For the claim:
+When a tenant has a loss (a leak, a break-in, pests), they will ask what happens next. The Difficult Situations lesson covers the incident itself. For the claim:
 
 1. **Check what they have**: Greens' plan or their own policy (it is on the lease in Cubby).
 2. **Explain the path, not the outcome.** "Here's how a claim works: [the claim steps on Greens Tenant Protection]. You'll want photos and a list of what was damaged, and a police report number if anything was stolen."

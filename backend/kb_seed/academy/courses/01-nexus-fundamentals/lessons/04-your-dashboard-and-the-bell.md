@@ -20,7 +20,7 @@ The Dashboard has tabs across the top:
 |---|---|
 | **Dashboard** | Your home page (this lesson). |
 | **Approvals** | Decisions waiting on you. Managers and HR always see it; an Employee sees it when something waits on them, under **Yours To Do** (a document to sign, an item to accept). |
-| **Notes** | Your private notes (lesson 12). |
+| **Notes** | Your private notes (the People, Equipment and Notes lesson). |
 | **Links** | Company and personal web links in one searchable place. |
 
 ## Reading Home
@@ -104,7 +104,7 @@ The yellow bar is the one thing in Nexus you should never ignore. It means "this
 
 ## A Greens Scenario
 
-Marco is an assistant manager at Temecula. On Monday morning his Dashboard shows **Signatures Needed: 1** and a yellow bar across the top: his Time Sheet for the last pay period is approved and waiting for his signature. He taps the bar text, reads it, and clicks **Open**. The Time Sheet opens; he checks his hours and signs (lesson 8 shows how). The yellow bar disappears and Signatures Needed drops to 0.
+Marco is an assistant manager at Temecula. On Monday morning his Dashboard shows **Signatures Needed: 1** and a yellow bar across the top: his Time Sheet for the last pay period is approved and waiting for his signature. He taps the bar text, reads it, and clicks **Open**. The Time Sheet opens; he checks his hours and signs (the Your Time Sheet lesson shows how). The yellow bar disappears and Signatures Needed drops to 0.
 
 Next, he opens the bell. There are three updates about a ticket he raised about a flickering light in the RV aisle. He reads them, then clicks **Clear All**. Later he wants to see one again, so he opens **Closed** in the bell and finds it there.
 

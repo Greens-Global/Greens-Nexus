@@ -22,8 +22,8 @@ The **rental agreement** is the contract between Greens and the tenant. It contr
 
 Three things to understand about it:
 
-1. **It is month-to-month.** It renews every month until one side ends it with the notice the agreement requires. That is why rates can change with notice (lesson 6).
-2. **It rents space; it is not a bailment.** The agreement says Greens never takes custody of the goods. The tenant has exclusive control and the only key (lesson 4).
+1. **It is month-to-month.** It renews every month until one side ends it with the notice the agreement requires. That is why rates can change with notice (the How a Storage Site Makes Money lesson).
+2. **It rents space; it is not a bailment.** The agreement says Greens never takes custody of the goods. The tenant has exclusive control and the only key (the Access, Locks and Security lesson).
 3. **It is not a home lease.** Residential landlord-tenant law does not apply. Storage has its own laws: in California, the **California Self-Service Storage Facility Act** (Bus. & Prof. Code 21700-21716); in Texas, **Texas Property Code chapter 59**.
 
 ## Key Clauses
@@ -39,17 +39,17 @@ A typical storage agreement covers these. Learn where each one is in Greens' agr
 | **Contact and change of address** | The tenant must keep their address, phone and email current | Lien notices go to the last known address |
 | **Alternate contact (California)** | A second person and address for lien notices | Required to be requested in California |
 | **Value limit** | A cap on the total value the tenant may store unless Greens agrees in writing | Limits liability; California law allows it (21713) |
-| **Release of liability and protection** | Greens is not responsible for the goods; the tenant needs protection | Lesson 7 |
+| **Release of liability and protection** | Greens is not responsible for the goods; the tenant needs protection | The Tenant Protection and Insurance lesson |
 | **Use rules** | What may and may not be stored or done | Prohibited items and uses below |
 | **Owner's right to enter** | When Greens may enter (emergencies, repairs, legal orders, prohibited items, lien enforcement) with the notice the agreement states | Entry follows the agreement, never curiosity |
 | **Access and authorized users** | Who may enter and get information | Only the tenant and people listed on the account |
-| **Military status** | Whether the tenant or spouse is on active duty | Federal and Texas protections (lesson 11) |
-| **Termination and move-out** | Notice to leave, unit left empty and broom-clean, lock removed | Lesson 13 covers move-out checks |
+| **Military status** | Whether the tenant or spouse is on active duty | Federal and Texas protections (the Lines You Never Cross lesson) |
+| **Termination and move-out** | Notice to leave, unit left empty and broom-clean, lock removed | The Running the Site: Open to Close lesson covers move-out checks |
 | **Rules and regulations** | Gate hours, speed, no smoking, no dumping | The house rules |
 
 ## Lien Language: California and Texas Side by Side
 
-The lien process in lesson 10 only works if the agreement says the right things. Here is what each state requires.
+The lien process in the Delinquency and the Lien Process lesson only works if the agreement says the right things. Here is what each state requires.
 
 | Requirement | California | Texas |
 |---|---|---|
@@ -58,7 +58,7 @@ The lien process in lesson 10 only works if the agreement says the right things.
 | Lien statement | The tenant's property will be subject to a claim of lien and may be sold if rent or other charges are unpaid for **14 consecutive days**, and the Act authorizes this | The lien must be **underlined or in conspicuous bold print**, or the facility cannot sell without a court judgment |
 | Alternate contact | The agreement must **request** an alternate name and mailing or email address for lien notices; if given, notices go to both | Not required by chapter 59 |
 | Email notices | Allowed only if the agreement says lien notices may be emailed and the tenant signs consenting; delivery must be proven | Allowed only if the agreement has **underlined or bold** language that notice may be given by email |
-| Towing vehicles | A separate statutory path (lesson 10 and the RV course) | Towing a vehicle, boat or trailer requires express authorization in the agreement (SB 1181, 2021) |
+| Towing vehicles | A separate statutory path (the Delinquency and the Lien Process lesson and the RV course) | Towing a vehicle, boat or trailer requires express authorization in the agreement (SB 1181, 2021) |
 
 Email lien notices in California came from **AB 1108**, effective 01/01/2018, which also allowed sale through an auction website. It was made permanent by **AB 2960** in 2022.
 
@@ -138,7 +138,7 @@ Cash, jewelry, heirlooms and important documents are better kept somewhere else,
 
 ### If You See a Prohibited Item or Use
 
-Do not confront the tenant about it on your own and never enter the unit. Report it to your manager. The agreement usually lets the owner enter to remove prohibited items and charge the tenant, but that is a manager's decision with the right notice. Suspected living in a unit, a gas smell or a chemical smell is reported at once (call 911 if anyone may be in danger; lesson 14).
+Do not confront the tenant about it on your own and never enter the unit. Report it to your manager. The agreement usually lets the owner enter to remove prohibited items and charge the tenant, but that is a manager's decision with the right notice. Suspected living in a unit, a gas smell or a chemical smell is reported at once (call 911 if anyone may be in danger; the Safety and Emergencies lesson).
 
 ## What Greens Can and Cannot Do
 
@@ -149,7 +149,7 @@ Do not confront the tenant about it on your own and never enter the unit. Report
 | Deny access or overlock through the lawful process | Lock out or overlock outside the lawful process |
 | Enter as the agreement allows (emergencies, repairs, legal orders, prohibited items, lien enforcement) | Hold a key or go into a rented unit casually |
 | Enforce a lien by the statutory process | Skip, shorten or back-date any lien step |
-| Refuse to rent, applying the same rules to everyone | Discriminate (lesson 15) |
+| Refuse to rent, applying the same rules to everyone | Discriminate (the Privacy and Compliance lesson) |
 | Enforce the rules equally | Open a unit for someone not on the account |
 | | Keep, take, give away or throw out anything from a unit outside the statutory process, even "obvious junk" |
 | | Ignore military status or a bankruptcy notice |

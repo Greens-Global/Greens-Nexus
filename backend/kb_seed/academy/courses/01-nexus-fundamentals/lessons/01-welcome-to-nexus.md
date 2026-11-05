@@ -36,7 +36,7 @@ Before a portal like Nexus, a site team member had to remember a different place
 3. **Everything leaves a record.** Every punch is timestamped. Every request shows who has it and what happened. That record protects you as much as it protects the company.
 
 > [!NOTE]
-> Nexus works in a computer browser and on your phone. Many site team members do most of their Nexus work from their phone during the day and use the office computer for longer tasks. Lesson 3 shows you how to install Nexus on your phone.
+> Nexus works in a computer browser and on your phone. Many site team members do most of their Nexus work from their phone during the day and use the office computer for longer tasks. The Nexus on Your Phone lesson shows you how to install Nexus on your phone.
 
 ## Tiers: Why Menus Differ From Person to Person
 
@@ -59,7 +59,7 @@ On top of the tier, your job role and any Access Groups you belong to open extra
 This is the most common surprise for new team members, so here it is plainly:
 
 > [!TIP]
-> If a coworker talks about a module you cannot see, nothing is broken. You have not been granted it. If you need it for your job, ask your manager, or raise a ticket from Help Center and ask for access. You will learn how in lesson 11.
+> If a coworker talks about a module you cannot see, nothing is broken. You have not been granted it. If you need it for your job, ask your manager, or raise a ticket from Help Center and ask for access. You will learn how in the Getting Help: Tickets, Report a Problem and Forms lesson.
 
 ### Modules Everyone Has
 
@@ -71,7 +71,7 @@ Some modules are open to everyone, whatever the tier:
 - **Item Management:** borrow equipment and see what is assigned to you.
 - **Help Center:** raise tickets, read the guide, and reach the Knowledge Base & Training.
 
-Lessons 4 through 13 walk through each of these.
+The lessons from Your Dashboard and the Bell through Training and Policies walk through each of these.
 
 ## The Mark Beside a Name
 
@@ -92,18 +92,18 @@ So if you see an outline shield beside a name, you know that person is an Admini
 
 From your first day, Nexus expects a few habits. Each one has a full lesson later:
 
-- **Punch in and out yourself, every shift**, and take your breaks on the clock (lesson 6).
-- **Check your Time Sheet** and sign it when your manager approves it. Only you sign your Time Sheet (lesson 8).
-- **Confirm your schedule** when a manager shares a new one (lesson 9).
-- **Ask for things in Nexus**, not by text: time off, HR letters, reimbursements, equipment (lessons 9, 10 and 12).
-- **Report problems with a ticket or a form**, with photos, so nothing is lost (lesson 11).
-- **Finish your training** by its due date (lesson 13).
+- **Punch in and out yourself, every shift**, and take your breaks on the clock (the Punching In, Breaks and Punching Out lesson).
+- **Check your Time Sheet** and sign it when your manager approves it. Only you sign your Time Sheet (the Your Time Sheet lesson).
+- **Confirm your schedule** when a manager shares a new one (the Schedules and Time Off lesson).
+- **Ask for things in Nexus**, not by text: time off, HR letters, reimbursements, equipment (the Schedules and Time Off, Ask HR, Reimbursements and Purchases and People, Equipment and Notes lessons).
+- **Report problems with a ticket or a form**, with photos, so nothing is lost (the Getting Help: Tickets, Report a Problem and Forms lesson).
+- **Finish your training** by its due date (the Training and Policies lesson).
 
 ## A Greens Scenario
 
 Dana starts as a relief team member covering Escondido and Murrieta. On her first morning, her coworker at Escondido says, "Just check the Tickets tab for the gate repair." Dana opens Nexus and does not see Tickets anywhere in her menu.
 
-What should Dana think? Nothing is broken. Tickets (the desk side, where tickets are worked) is a granted module, and Dana does not have that grant. She does not need it to follow the gate repair either. The gate ticket was raised by her coworker. If Dana wants to follow it or raise her own, she uses **Help Center**, which everyone has, and lesson 11 shows her exactly how.
+What should Dana think? Nothing is broken. Tickets (the desk side, where tickets are worked) is a granted module, and Dana does not have that grant. She does not need it to follow the gate repair either. The gate ticket was raised by her coworker. If Dana wants to follow it or raise her own, she uses **Help Center**, which everyone has, and the Getting Help: Tickets, Report a Problem and Forms lesson shows her exactly how.
 
 Dana also notices a small outline shield beside the name of the person who approves her Time Sheet. Now she knows that person is an Administrator, not just a Manager.
 

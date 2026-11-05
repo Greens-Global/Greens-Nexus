@@ -108,7 +108,7 @@ All five Greens sites bill on the **first of the month** with a **jump day of 26
 | 11/26 | Rent for 11/26 to 11/30, plus all of December | 01/01 |
 | 11/29 | Rent for 11/29 to 11/30, plus all of December | 01/01 |
 
-How Cubby works out the days (the exact formula and rounding) is in lesson 7, with worked numbers. Always check the formula against a real Preview Charges in Cubby, which shows the exact amounts before the tenant pays.
+How Cubby works out the days (the exact formula and rounding) is in the Ledger Worked Examples lesson, with worked numbers. Always check the formula against a real Preview Charges in Cubby, which shows the exact amounts before the tenant pays.
 
 > [!NOTE]
 > Some storage companies bill on each tenant's move-in "anniversary" instead (move in on the 18th, pay on the 18th every month). Greens does not. If a new tenant asks why their first payment was small, the answer is first-of-month billing.

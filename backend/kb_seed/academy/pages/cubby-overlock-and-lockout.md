@@ -17,7 +17,7 @@ tags: cubby, cubby-how-to, delinquency, overlock, collections
 
 - An **overlock** is Greens' own lock put on a unit so the tenant cannot get in until the account is brought current.
 - How your site overlocks a parking space, your manager shows you.
-- The **day-by-day ladder** is on Greens Delinquency Timeline, and the law behind it is in Self-Storage Fundamentals, lesson 10. This page only shows where the overlock and lockout fit and how to record them.
+- The **day-by-day ladder** is on Greens Delinquency Timeline, and the law behind it is in Self-Storage Fundamentals, Delinquency and the Lien Process. This page only shows where the overlock and lockout fit and how to record them.
 - An overlock is a physical step on a real person's belongings. Never overlock a unit Cubby has not flagged, and never one with a delinquency exemption.
 - Where a button's exact name is not given, the button name in Greens' Cubby is on the screenshot.
 

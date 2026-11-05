@@ -48,7 +48,7 @@ The tenant's own **homeowners or renters policy** may also cover belongings stor
 
 - **Fewer disputes.** After a break-in or a leak, a tenant with protection has a clear path to a claim. A tenant without it is more likely to blame the site and threaten to sue.
 - **Fewer claims against Greens.** Protection reduces lawsuits and complaints.
-- **Revenue.** Protection is a steady part of ancillary income (lesson 6).
+- **Revenue.** Protection is a steady part of ancillary income (the How a Storage Site Makes Money lesson).
 
 ## Greens' Protection
 
@@ -115,8 +115,8 @@ Every plan has **exclusions**: things it does not pay for. Typical examples in t
 When a tenant reports a loss (a break-in, a leak, pests):
 
 1. **Stay calm and kind.** This is upsetting.
-2. **Make the scene safe** and secure the unit if it is open (a facility lock, lesson 4).
-3. **Report it** to your manager the same day and write it up through Nexus Forms or the site's incident process (lesson 14).
+2. **Make the scene safe** and secure the unit if it is open (a facility lock, the Access, Locks and Security lesson).
+3. **Report it** to your manager the same day and write it up through Nexus Forms or the site's incident process (the Safety and Emergencies lesson).
 4. **Preserve evidence:** photos, and ask your manager to save camera footage and the gate log.
 5. **Point the tenant to their coverage:** Greens' plan's claim steps, or their own insurer.
 6. **Do not admit fault or promise payment.** Facts only.

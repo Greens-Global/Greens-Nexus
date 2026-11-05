@@ -132,6 +132,13 @@ def _all_text(node) -> list[str]:
 
 
 _SMALL = {"a", "an", "the", "and", "or", "but", "for", "nor", "of", "on", "in", "to", "at", "by", "as", "vs"}
+_LESSON_NUM = re.compile(r"\b[Ll]essons? \d+\b")  # the player counts pages and checkpoints, so file numbers mislead
+
+
+def _lesson_num(where: str, texts) -> list[str]:
+    return [f"{where}: names a lesson by number ({m.group(0)!r}); use its title" for t in texts if (m := _LESSON_NUM.search(str(t)))]
+
+
 _BANNED = re.compile(r"[\u2014\u2013]|\b\d{4}-\d{2}-\d{2}\b|(?i:time ?card|timesheet)|\bGlobal Admin\b|\bIT Admin\b")
 # Global Constraints, pinned in code so a course.json cannot lower them.
 MIN_READING = {"nexus-fundamentals": 70, "self-storage-fundamentals": 120, "rv-boat-storage-fundamentals": 100,
@@ -163,6 +170,7 @@ def _quiz_problems(where: str, qs: list, norm_fn) -> list[str]:
             out.append(f"{tag}: more than 6 options")
         if any(len(str(o)) > 300 for o in q.get("options") or []):
             out.append(f"{tag}: option over 300 characters")
+        out += _lesson_num(tag, [q.get("q", ""), q.get("explanation", "")] + list(q.get("options") or []))
         for s in [q.get("q", ""), q.get("explanation", "")] + list(q.get("options") or []):
             if _BANNED.search(str(s)):
                 out.append(f"{tag}: banned copy {_BANNED.search(str(s)).group(0)!r}")
@@ -193,6 +201,7 @@ def problems(a: Academy) -> list[str]:
         if not _title_case(p.title):
             out.append(f"page {p.slug}: title not in Title Case")
         texts = [p.title, p.summary] + _all_text(p.blocks)
+        out += _lesson_num(f"page {p.slug}", texts)
         out += [f"page {p.slug}: banned copy {m.group(0)!r}" for t in texts if (m := _BANNED.search(t))]
         if "cubby-filled" in p.tags and any("[Greens to fill]" in t for t in texts):
             out.append(f"page {p.slug}: [Greens to fill] left in a page Cubby data can fill")
@@ -210,6 +219,7 @@ def problems(a: Academy) -> list[str]:
             elif not _title_case(L["title"]):
                 out.append(f"{c.slug}: lesson title not in Title Case: {L['title']!r}")
             texts = [L["title"], L.get("summary", "")] + (_all_text(L["blocks"]) if L["type"] == "text" else [])
+            out += _lesson_num(f"{c.slug} {L['title']!r}", texts)
             out += [f"{c.slug} {L['title']!r}: banned copy {m.group(0)!r}" for t in texts if (m := _BANNED.search(t))]
             if L["type"] == "text":
                 minutes += kb_blocks.reading_minutes(L["blocks"])

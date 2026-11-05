@@ -24,7 +24,7 @@ The rule for this whole lesson: **when in doubt, stop and escalate.** Stopping i
 
 ### Notices and Timing
 
-- **Never skip, shorten, re-order or back-date any notice or deadline.** The minimum days in lesson 10 are the law.
+- **Never skip, shorten, re-order or back-date any notice or deadline.** The minimum days in the Delinquency and the Lien Process lesson are the law.
 - **Never send a California notice to only one address** when an alternate contact is on file. Both get it.
 - **Never "just email it"** without the agreement's email clause, the tenant's signed consent and a way to prove delivery. Otherwise, mail it the way the statute requires.
 - **Never change a date in the system** to make a step look on time.
@@ -46,7 +46,7 @@ The rule for this whole lesson: **when in doubt, stop and escalate.** Stopping i
 ### Locks and Access
 
 - **Never lock out or overlock by hand** outside what Cubby flags.
-- **Never cut a lock** without the authorized, documented process (lesson 4).
+- **Never cut a lock** without the authorized, documented process (the Access, Locks and Security lesson).
 
 > [!TIP]
 > A simple test before any lien action: "If a judge read the file tomorrow, would every notice, date and decision be there, on time, and approved?" If you are not sure, stop and ask.

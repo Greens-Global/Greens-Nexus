@@ -17,14 +17,14 @@ summary: Gate codes and keypads, gate hours versus office hours, disc, cylinder 
 
 Self-storage works on one idea: **the tenant has exclusive control of the unit.** The tenant supplies their own lock and keeps the only key. Greens does not hold a key, does not go into a rented unit, and does not know what is inside.
 
-That is why the rental agreement says it creates **no bailment**. A bailment is a legal relationship where one party takes custody of another person's goods, like a valet who takes your car keys or a dry cleaner who holds your coat. A bailee is responsible for the goods. A storage operator never takes custody; it rents space. That is a big part of why Greens' liability is limited and why the tenant needs their own protection (lesson 7).
+That is why the rental agreement says it creates **no bailment**. A bailment is a legal relationship where one party takes custody of another person's goods, like a valet who takes your car keys or a dry cleaner who holds your coat. A bailee is responsible for the goods. A storage operator never takes custody; it rents space. That is a big part of why Greens' liability is limited and why the tenant needs their own protection (the Tenant Protection and Insurance lesson).
 
 What exclusive control means for you every day:
 
 - **Never ask for a copy of a tenant's key.** Never keep one, even if they offer.
 - **Never go into a rented unit casually,** even to "check on something" for the tenant.
 - **Never ask a tenant to list everything inside.** Greens does not take an inventory of what tenants store.
-- **Never open a unit for anyone who is not the tenant** or an authorized person on the account (lesson 15).
+- **Never open a unit for anyone who is not the tenant** or an authorized person on the account (the Privacy and Compliance lesson).
 
 > [!TIP]
 > When a customer asks "Can you keep an eye on my stuff?", the honest answer is: "We watch the property with cameras and gate controls, and only you have the key to your unit. That's why we recommend protection for your belongings."
@@ -61,14 +61,14 @@ Some sites offer longer access for a fee. Each Greens site's hours are on Greens
 
 The gate system records each code use: which code, when, and whether it was allowed. At Greens, Fairfield's gate reports to Cubby today, and Cubby records each try as allowed, master code, unknown code or outside of hours (From Greens' Cubby, 11/2026). The other four sites' gates do not report to Cubby yet.
 
-The access log is evidence. It answers questions like "When was the last time this tenant came in?" after a break-in, a dispute or a police request. Never edit, delete or share it except through the right process (lesson 15).
+The access log is evidence. It answers questions like "When was the last time this tenant came in?" after a break-in, a dispute or a police request. Never edit, delete or share it except through the right process (the Privacy and Compliance lesson).
 
 ### When Gate Access Changes for a Delinquent Tenant
 
 The management system can change or suspend a delinquent tenant's gate code. In California, the law ties denying access to the lien attaching, which happens after the preliminary lien notice period (Bus. & Prof. Code 21705(a)). In Texas, access is denied on seizure under the notice of claim, as Greens' policy and counsel set it.
 
 > [!NOTE]
-> At Greens today, Cubby changes a delinquent tenant's gate code at 12:00 AM on the 11th, the same night the late fee posts (From Greens' Cubby, 11/2026). This is what Cubby does today and is under review with counsel. Follow Cubby, never explain or defend the timing to a tenant as the law, and send a tenant who disputes it to the manager. Lesson 10 covers the lien process in full.
+> At Greens today, Cubby changes a delinquent tenant's gate code at 12:00 AM on the 11th, the same night the late fee posts (From Greens' Cubby, 11/2026). This is what Cubby does today and is under review with counsel. Follow Cubby, never explain or defend the timing to a tenant as the law, and send a tenant who disputes it to the manager. The Delinquency and the Lien Process lesson covers the lien process in full.
 
 ## Locks
 
@@ -126,11 +126,11 @@ Cameras usually cover the gate, the office, hallways and drive aisles.
 
 - **Review footage after an incident** (a break-in, damage, an accident) with your manager.
 - **Preserve it.** Once there is an incident, a claim or a subpoena, footage must not be deleted by the system's automatic cleanup. Tell your manager right away so it is saved.
-- **Never share footage** with the public, another tenant or a customer. Police get it through the law enforcement process (lesson 15).
+- **Never share footage** with the public, another tenant or a customer. Police get it through the law enforcement process (the Privacy and Compliance lesson).
 
 ## Putting It Together: A Security Walk
 
-When you walk the site (lesson 13 has the full routine), you are checking the security system you just learned:
+When you walk the site (the Running the Site: Open to Close lesson has the full routine), you are checking the security system you just learned:
 
 - Every rented unit has a tenant lock.
 - Every vacant unit has a facility lock or overlock and shows vacant in the system.

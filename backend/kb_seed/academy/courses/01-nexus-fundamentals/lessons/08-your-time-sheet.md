@@ -23,7 +23,7 @@ Open **Workday** and click the **Time Sheet** tab. You see the current pay perio
 - **A shift with a break** shows as two punch pairs: clock-in to the start of the break, then the end of the break to clock-out, each with its hours, and the break between them on its own row.
 - **Sick, vacation and personal hours** show on their own lines.
 - **Hours read as hours and minutes**, for example 8:15 for eight hours and fifteen minutes. Nexus never shows hours as decimals on screen, so you will never see 8.25 and wonder what it means.
-- **Each punch shows where it was made** (lesson 6): the site name, Out of Location, Approx. Location, Location Off or No Location.
+- **Each punch shows where it was made** (the Punching In, Breaks and Punching Out lesson): the site name, Out of Location, Approx. Location, Location Off or No Location.
 
 On a phone, each day is its own card.
 
@@ -94,7 +94,7 @@ HR can correct a Time Sheet at any point. If HR changes one after you signed, yo
 
 ## Approved Time Off Is Not Punched for You
 
-When your time off request is approved (lesson 9), Nexus does **not** add those hours to your Time Sheet by itself. To be paid for approved sick or vacation time, click **Add** on the day, pick the Type **Sick** or **Vacation**, set the hours and send it. Sick, vacation and personal time then show on their own lines.
+When your time off request is approved (the Schedules and Time Off lesson), Nexus does **not** add those hours to your Time Sheet by itself. To be paid for approved sick or vacation time, click **Add** on the day, pick the Type **Sick** or **Vacation**, set the hours and send it. Sick, vacation and personal time then show on their own lines.
 
 ## A Greens Scenario
 

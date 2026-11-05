@@ -100,11 +100,11 @@ Never put a balance or a lien detail in a text, an email or a voicemail unless G
 
 ## Deceased Tenants
 
-Lesson 11 covered the steps. In privacy terms: a family member is not on the account until documents say they have authority. Ask for a death certificate and the court or affidavit document showing who handles the estate, and give no account details or access until your manager has reviewed them.
+The Lines You Never Cross lesson covered the steps. In privacy terms: a family member is not on the account until documents say they have authority. Ask for a death certificate and the court or affidavit document showing who handles the estate, and give no account details or access until your manager has reviewed them.
 
 ## Bankruptcy
 
-Lesson 11 covered the automatic stay. In privacy terms: you may confirm details to the tenant's bankruptcy attorney only as your manager directs, and you stop all collection contact right away.
+The Lines You Never Cross lesson covered the automatic stay. In privacy terms: you may confirm details to the tenant's bankruptcy attorney only as your manager directs, and you stop all collection contact right away.
 
 ## Fair Treatment for Everyone
 

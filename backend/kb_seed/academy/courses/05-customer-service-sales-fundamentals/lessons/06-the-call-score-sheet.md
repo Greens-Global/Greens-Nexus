@@ -13,10 +13,10 @@ summary: The 22-item Greens call score sheet, how each item is judged, how to sc
 
 ## Why a Score Sheet
 
-Lesson 3 showed that most storage staff are friendly but do not ask good questions, ask for the rental, capture details or follow up. A score sheet turns "be better on the phone" into 22 specific things you can check. You will use this sheet three ways:
+The Why the Phone Wins or Loses Rentals lesson showed that most storage staff are friendly but do not ask good questions, ask for the rental, capture details or follow up. A score sheet turns "be better on the phone" into 22 specific things you can check. You will use this sheet three ways:
 
 1. **On yourself**, reviewing your own calls every week.
-2. **With a coworker**, scoring each other on the practice scenarios in lessons 16 and 17.
+2. **With a coworker**, scoring each other on the practice scenarios in the Practice: Twenty Scenarios, Part 1 and Practice: Twenty Scenarios, Part 2 lessons.
 3. **In the Hands-On Check**, the in-person sign-off at the end of the Greens Storage Academy. Your trainer will play a caller in a mock sales call and score you with this exact sheet.
 
 No storage company publishes its mystery-shop score sheet; vendors keep them private. This sheet is rebuilt from the published criteria: the 2004 IntelliShop study, Carol Mixon's mystery-shop standards (SkilCheck Services, Inside Self-Storage, 10/08/2020) and DeFazio (2026).
@@ -93,9 +93,9 @@ DeFazio (2026) recommends three habits for staying sharp:
 
 1. **Review five of your own calls each week.** If your line records calls, listen back. If it does not, have a coworker listen to a live call, or score yourself right after you hang up while it is fresh.
 2. **Track outcomes per 10 calls or walk-ins.** Out of your last 10 new-rental calls, how many reserved or rented? Write the number down every week.
-3. **Practice 5 to 10 minutes a week.** One scenario from lesson 16 or 17 with a coworker, scored with this sheet.
+3. **Practice 5 to 10 minutes a week.** One scenario from the Practice: Twenty Scenarios, Part 1 and Practice: Twenty Scenarios, Part 2 lessons with a coworker, scored with this sheet.
 
-Jordheim's tip from lesson 2 applies here too: pick the two items you miss most, work only on them for a week, then pick the next two.
+Jordheim's tip from the The Greens Service Standard lesson applies here too: pick the two items you miss most, work only on them for a week, then pick the next two.
 
 > [!WARNING]
 > Training only, not legal advice. When in doubt, stop and ask your manager.
@@ -113,7 +113,7 @@ If you review recorded calls, they must have been recorded the way Greens allows
 
 ## How the Hands-On Check Uses This Sheet
 
-The Hands-On Check is the last course in the Greens Storage Academy. It is in person: a manager or senior team member signs off three things, and the first is **a mock sales call**. The trainer plays a caller, often one of the scenarios from lessons 16 and 17, and scores you on these 22 items. The pass mark is the same: 70% of the items that applied, with no wrong price or fee.
+The Hands-On Check is the last course in the Greens Storage Academy. It is in person: a manager or senior team member signs off three things, and the first is **a mock sales call**. The trainer plays a caller, often one of the scenarios from the Practice: Twenty Scenarios, Part 1 and Practice: Twenty Scenarios, Part 2 lessons, and scores you on these 22 items. The pass mark is the same: 70% of the items that applied, with no wrong price or fee.
 
 The best way to prepare: score yourself on real calls for a few weeks before your Hands-On Check. By the time you take it, the 22 items should feel like habits, not a checklist.
 

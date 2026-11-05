@@ -13,7 +13,7 @@ summary: What mystery shoppers found when they called storage sites, the calls-t
 
 ## The Phone Is Still the Sale
 
-Most customers look online first. Then they pick up the phone. A 2026 dataset from an AI phone vendor (Swivl, published 09/28/2026) credited voice calls with 88% to 91% of the rentals it tracked. Websites and online rentals are growing (lesson 10), but for now the phone is where most rentals are decided.
+Most customers look online first. Then they pick up the phone. A 2026 dataset from an AI phone vendor (Swivl, published 09/28/2026) credited voice calls with 88% to 91% of the rentals it tracked. Websites and online rentals are growing (the Online Renters and Digital Leads lesson), but for now the phone is where most rentals are decided.
 
 And a lot of the calls are not new customers at all. One vendor claims up to 80% of incoming calls come from existing tenants. That number is not well sourced, but every site manager will tell you most calls are "what's my balance," "my code doesn't work," and "what are your hours." Each of those calls is a chance, either to keep a tenant happy or to find out the caller is actually shopping.
 
@@ -55,7 +55,7 @@ Why are these so different? **The denominator.** If you count only calls from pe
 A fair target for Greens today: **aim for at least 35% of new-rental calls ending in a rental or a reservation**, and measure call-to-reservation and reservation-to-move-in separately. Greens will set its own target from Cubby data as it builds history.
 
 > [!NOTE]
-> You may see a claim online that "phone conversion fell from 65% to 57%." We could not trace it to any study, and it looks like a mix-up with the "57% rent from the first site they call" figure from lesson 1. Do not repeat it.
+> You may see a claim online that "phone conversion fell from 65% to 57%." We could not trace it to any study, and it looks like a mix-up with the "57% rent from the first site they call" figure from the Who Walks Through Our Door lesson. Do not repeat it.
 
 ### What a Missed Call Costs
 
@@ -94,7 +94,7 @@ The fastest way to turn an ordinary call into a rental is to ask why they called
 >
 > You: "We're at [address], near [landmark]. Are you coming out to see a unit? I'd love to have one ready for you. What time works?"
 
-Each of these answers the question first (never dodge it), then asks one question that opens the conversation. Lesson 4 picks up from there.
+Each of these answers the question first (never dodge it), then asks one question that opens the conversation. The The Nine Parts of a Sales Call lesson picks up from there.
 
 ## Voicemail and Callbacks
 
@@ -116,7 +116,7 @@ Then log the attempt against the lead in Cubby, and call again at 10:00 AM.
 
 ### What Never Goes in a Voicemail
 
-**Never leave a balance, a late fee, a lien or any collections detail on a voicemail or with whoever answers.** Someone else may hear it. Lesson 13 covers the rules; for collections voicemails you leave only your name, Greens, and a callback number.
+**Never leave a balance, a late fee, a lien or any collections detail on a voicemail or with whoever answers.** Someone else may hear it. The Collections With Respect lesson covers the rules; for collections voicemails you leave only your name, Greens, and a callback number.
 
 ## Overflow and After-Hours Calls
 
@@ -124,7 +124,7 @@ Many storage operators roll overflow and after-hours calls to a storage call cen
 
 ## Recorded Calls
 
-Reviewing your own recorded calls is the fastest way to get better (lesson 6). If your line records calls, the law decides what the caller must be told.
+Reviewing your own recorded calls is the fastest way to get better (the The Call Score Sheet lesson). If your line records calls, the law decides what the caller must be told.
 
 > [!WARNING]
 > Training only, not legal advice. When in doubt, stop and ask your manager.

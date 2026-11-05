@@ -22,7 +22,7 @@ Honesty is the whole method. You never need a trick to answer an objection, and 
 1. **Listen.** Let them finish. Do not jump in with an answer.
 2. **Find what is underneath.** Ask one question. "Is it the monthly price, or the move-in cost?" "Is it the size, the price, or the timing?"
 3. **Answer honestly.** With facts from Cubby and what the customer told you. Never invent urgency, never criticize a competitor, never promise what you cannot give.
-4. **Ask again.** Go back to the close (lesson 4): a rental, a free reservation, or a set time.
+4. **Ask again.** Go back to the close (the The Nine Parts of a Sales Call lesson): a rental, a free reservation, or a set time.
 
 ## The Objections Table
 
@@ -37,11 +37,11 @@ Honesty is the whole method. You never need a trick to answer an objection, and 
 | "I don't need protection; my homeowner's covers it" | Sometimes true | "Great, many policies do. Just check the off-premises limit. If it's covered, I'll note your policy number and expiration date." |
 | "That late fee isn't fair" | Embarrassment, money stress | Empathize. Explain the date it applied. Use your waiver authority per Greens Waivers, Credits and Refunds. Offer autopay going forward. |
 | "Online it said a different price" | A web rate, or the site showed something old | Never argue. Check Cubby. If Cubby shows the web price for that unit, honor it; if you're unsure, ask your manager. |
-| "Why is my rent going up again?" | Feels betrayed after a low first month | Empathize, give the reasons, compare to the street rate if it is true, and offer options (lesson 12). |
+| "Why is my rent going up again?" | Feels betrayed after a low first month | Empathize, give the reasons, compare to the street rate if it is true, and offer options (the Existing Tenants: Payments, Rate Increases and Move-Outs lesson). |
 | "It's too far from my house" | Convenience matters (location was 17% of choices in StorageCafe's 2026 survey) | Ask how often they will visit. For a long stay with rare visits, the drive matters less than security and price. |
 | "I'll only need it a month" | Underestimating the stay | Never argue. Recommend the right size and autopay anyway, and say there is no long contract: it is month to month. |
 
-For RV and boat objections (price by length, security, covered height, pausing in the off season, who covers damage), RV & Boat Storage Fundamentals lesson 12 has a full set.
+For RV and boat objections (price by length, security, covered height, pausing in the off season, who covers damage), RV & Boat Storage Fundamentals, Selling Vehicle Storage has a full set.
 
 ## Worked Conversation: "The Place Down the Road Is $20 Cheaper"
 

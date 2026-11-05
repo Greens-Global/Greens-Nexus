@@ -57,7 +57,7 @@ You only see what your tier and grants allow, so your menu may be shorter than t
 
 ### The Clock in the Left Menu
 
-At the foot of the left menu is a small time clock. It shows your shift and hours, even when the menu is folded to icons. Its dial fills toward 8 hours and changes color: green while you are on the clock, amber on a break, red when you are off. Its buttons work like a music player: Play punches in (or ends a break), Pause starts a break, Stop punches out. Clicking the dial opens the full Time Clock. Lesson 6 covers punching in detail. If your job is exempt from time tracking, there is no clock at all.
+At the foot of the left menu is a small time clock. It shows your shift and hours, even when the menu is folded to icons. Its dial fills toward 8 hours and changes color: green while you are on the clock, amber on a break, red when you are off. Its buttons work like a music player: Play punches in (or ends a break), Pause starts a break, Stop punches out. Clicking the dial opens the full Time Clock. The Punching In, Breaks and Punching Out lesson covers punching in detail. If your job is exempt from time tracking, there is no clock at all.
 
 ### The Header
 
@@ -67,7 +67,7 @@ Across the top of every screen, from left to right on the right side:
 |---|---|
 | **Search Nexus** | Finds tasks, projects, people, items, purchase requests and pages. Press Ctrl+K (Cmd+K on a Mac) or the / key to jump to it from anywhere. |
 | **+ (Create)** | Starts something new from any screen: New Note, New Ticket, Request an Item, Fill a Form, New Email, New Event, and more. You only see the rows for modules open to you. |
-| **The bell** | Your notifications. A red number means unread alerts. Lesson 4 covers it. |
+| **The bell** | Your notifications. A red number means unread alerts. The Your Dashboard and the Bell lesson covers it. |
 | **? (Help)** | The Help panel: Search for Help, What's New in Nexus, Help with This Page and Take the Tour. Pressing the ? key opens it too. |
 | **Your photo or initials** | Your profile menu. |
 
@@ -75,7 +75,7 @@ Across the top of every screen, from left to right on the right side:
 
 Click your photo or initials in the top-right corner. The menu shows:
 
-- **Profile:** your appearance (such as Dark Mode), Date & Time, Email Signature, Task Emails, Phone Notifications and Security. Lesson 3 covers the phone settings.
+- **Profile:** your appearance (such as Dark Mode), Date & Time, Email Signature, Task Emails, Phone Notifications and Security. The Nexus on Your Phone lesson covers the phone settings.
 - **What's New:** every change to Nexus, newest first.
 - **Legal:** the privacy policy and terms.
 - **Tools:** only for people who can use it. Most site team members will not see it.
@@ -94,7 +94,7 @@ Every screen has a guided tour. Open the **?** Help panel and click **Take the T
 
 ## Nexus on a Phone
 
-Nexus works in your phone's browser, and you can also install it (lesson 3). The phone layout is built for one hand:
+Nexus works in your phone's browser, and you can also install it (the Nexus on Your Phone lesson). The phone layout is built for one hand:
 
 | On a computer | On a phone |
 |---|---|

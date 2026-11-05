@@ -14,7 +14,7 @@ summary: Why reviews matter, how to ask every customer the same honest way with 
 
 ## Reviews Are the First Conversation
 
-Lesson 1 showed that customers read reviews and look at Google photos before they call. For many people, your reviews **are** the first conversation with Greens, and they happen before you get a chance to help.
+The Who Walks Through Our Door lesson showed that customers read reviews and look at Google photos before they call. For many people, your reviews **are** the first conversation with Greens, and they happen before you get a chance to help.
 
 Two things shape what a shopper sees:
 
@@ -27,9 +27,9 @@ Two things shape what a shopper sees:
 
 Ask once the customer is happy and settled:
 
-- after a smooth move-in, at the call a few days later (lesson 9);
+- after a smooth move-in, at the call a few days later (the Move-In Done Right lesson);
 - after you solved a problem for them;
-- at a happy move-out (lesson 12).
+- at a happy move-out (the Existing Tenants: Payments, Rate Increases and Move-Outs lesson).
 
 ### How
 
@@ -60,7 +60,7 @@ Ask **every** customer, the **same neutral way**. Send the direct Google review 
 - **Keep it short.** About 70 words is plenty.
 - **Thank positive reviewers by name** and mention one specific detail.
 - **On a negative review, stay calm, own real mistakes, and take it offline:** give a direct phone number.
-- **Never disclose account details** in a public reply: no balance, no lien status, no unit number, no dates of visits, not even whether the person still rents. That is a privacy problem and may break collections law (lesson 13).
+- **Never disclose account details** in a public reply: no balance, no lien status, no unit number, no dates of visits, not even whether the person still rents. That is a privacy problem and may break collections law (the Collections With Respect lesson).
 - **Fix what the review is about.** The reply is the start, not the end.
 
 Check with your manager who replies at your site. Many companies have one person reply for each site so the voice is consistent.
@@ -99,7 +99,7 @@ What you do:
 2. **Tell your manager** the same day.
 3. **Reply within 48 hours** with Template 4. Calm, short, empathetic, no details.
 4. **Take it offline.** If they call, listen. Your manager handles the conversation.
-5. **Fix the process**, if there is something to fix: Was the move-in explanation of the lien process clear (lesson 9)? Were the calls made and logged (lesson 13)?
+5. **Fix the process**, if there is something to fix: Was the move-in explanation of the lien process clear (the Move-In Done Right lesson)? Were the calls made and logged (the Collections With Respect lesson)?
 
 > [!WARNING]
 > Never write "You were sent multiple notices," "Your account was 90 days past due," or anything else about the account in a public reply, however unfair the review feels. Every future shopper reads that reply, and so might a lawyer.

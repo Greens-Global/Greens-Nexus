@@ -37,7 +37,7 @@ All over Nexus (on a ticket, an approval, your team list) you also see two small
 
 ### Why There Is No Chat in Nexus
 
-Greens talks on Microsoft Teams. Nexus deliberately has no chat of its own, so there is only one place to look for messages. When Nexus wants you to talk to someone, it sends you to Teams. Your Beginning of Day and End of Day messages also post to your team's Teams chat (lesson 6).
+Greens talks on Microsoft Teams. Nexus deliberately has no chat of its own, so there is only one place to look for messages. When Nexus wants you to talk to someone, it sends you to Teams. Your Beginning of Day and End of Day messages also post to your team's Teams chat (the Punching In, Breaks and Punching Out lesson).
 
 > [!NOTE]
 > Some Directory cards may show a colored dot for Teams status (available, busy, away). It appears only when the company has switched that on. If you see "Teams status is off," that is normal.

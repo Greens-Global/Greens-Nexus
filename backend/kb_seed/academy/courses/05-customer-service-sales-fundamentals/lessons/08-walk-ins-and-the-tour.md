@@ -23,7 +23,7 @@ Eric Mees reviewed walk-in mystery shops in 2020 (Inside Self-Storage) and found
 |---|---|
 | No urgency | Tie it to their date: "Your move is Saturday. Let's make sure this unit is yours." |
 | Assuming the customer knows storage | Explain the gate, the lock and the paperwork before they ask |
-| No stated difference from competitors | Say your site's one clear thing (lesson 4) |
+| No stated difference from competitors | Say your site's one clear thing (the The Nine Parts of a Sales Call lesson) |
 | No written quote | Hand-write a quote sheet for the units you showed, with the site's phone number and your name |
 | No contact capture | Ask for name, phone and email so you can send the quote and hold the unit |
 
@@ -37,7 +37,7 @@ Eric Mees reviewed walk-in mystery shops in 2020 (Inside Self-Storage) and found
 > [!NOTE]
 > "Hi, welcome to Greens Storage Valley Center. I'm Maria. What's your name? ... Nice to meet you, David. Did you call us earlier, or is this your first time talking with us?"
 
-Then do discovery (lesson 4, part 3) at the counter. Recommend a size (lesson 5). Then offer to show it.
+Then do discovery (the The Nine Parts of a Sales Call lesson, part 3) at the counter. Recommend a size (the Recommending a Size lesson). Then offer to show it.
 
 > [!NOTE]
 > "The best way to know it fits is to see it. Do you have ten minutes? I'll show you the 10x15 I have in mind."
@@ -47,9 +47,9 @@ Then do discovery (lesson 4, part 3) at the counter. Recommend a size (lesson 5)
 ### 1. Before You Walk Out
 
 - Pick the route and the unit before you stand up. Know the unit number.
-- Make sure the unit is clean, swept and lit. Your morning walk (Self-Storage Fundamentals lesson 13) should already have done this for your show units.
+- Make sure the unit is clean, swept and lit. Your morning walk (Self-Storage Fundamentals, Running the Site: Open to Close) should already have done this for your show units.
 - Bring a cart if the unit is near one. Bring a disc lock to show.
-- Take your phone. Tell a coworker where you are going, or follow your site's check-in routine if you are alone (lesson 14).
+- Take your phone. Tell a coworker where you are going, or follow your site's check-in routine if you are alone (the Difficult Situations lesson).
 
 ### 2. At the Gate
 
@@ -73,8 +73,8 @@ Point out what they will use, tied to what they told you:
 
 - Repeat the unit number and size.
 - Open the door and **let them look in from the doorway, then step in themselves.**
-- Show how the latch closes and let them try it. Show the difference between a disc lock and a padlock (Self-Storage Fundamentals lesson 4).
-- Place their things out loud (lesson 5): "Your sofa goes on end along this wall..."
+- Show how the latch closes and let them try it. Show the difference between a disc lock and a padlock (Self-Storage Fundamentals, Access, Locks and Security).
+- Place their things out loud (the Recommending a Size lesson): "Your sofa goes on end along this wall..."
 - If you are showing two sizes, show the smaller first, then the one you recommend.
 
 ### 5. Close at the Unit
@@ -103,14 +103,14 @@ More tour safety:
 - **Trust your instincts.** You may end a tour at any time, or offer a video tour instead of walking the property. A short video or photos of the exact unit, sent by text, is a fine substitute.
 - **Do not tour after dark alone.** Offer a time the next day.
 
-Lesson 14 and Self-Storage Fundamentals lesson 14 cover working alone in more depth.
+The Difficult Situations lesson and Self-Storage Fundamentals, Safety and Emergencies cover working alone in more depth.
 
 ## Touring a Vehicle Lot
 
 Vehicle customers want to see the space, the access and the neighbors.
 
 1. Walk the route they will drive: the gate, the turn, the aisle.
-2. Show the space and its markings. Tell them the length and the margin you allowed (RV & Boat Storage Fundamentals lesson 6).
+2. Show the space and its markings. Tell them the length and the margin you allowed (RV & Boat Storage Fundamentals, Measuring for the Right Fit).
 3. For covered spaces, point to the clear height posted for that row, or tell them you will measure it for them. Never guess a clearance.
 4. Point out lighting and cameras on the lot.
 5. Close at the space: "This one fits with room to spare. Want me to put your name on it?"
@@ -119,7 +119,7 @@ Vehicle customers want to see the space, the access and the neighbors.
 
 Not every walk-in rents on the spot. Do not let them leave with nothing.
 
-1. **Ask what is holding them back.** "Is it the size, the price, or the timing?" Lesson 11 covers each answer.
+1. **Ask what is holding them back.** "Is it the size, the price, or the timing?" The Objections, Honestly lesson covers each answer.
 2. **Write a quote sheet:** the unit numbers and sizes you showed, the rent from Cubby, any special and when it ends, the $25 admin fee (From Greens' Cubby, 11/2026), the protection options, your name and the site's phone number.
 3. **Capture their details** so you can follow up: "Can I get your email so I can send this to you, along with the unit details?"
 4. **Offer a free hold.** "I can reserve it for you with no charge. If you change your mind, just let me know." Greens charges no reservation fee (From Greens' Cubby, 11/2026).

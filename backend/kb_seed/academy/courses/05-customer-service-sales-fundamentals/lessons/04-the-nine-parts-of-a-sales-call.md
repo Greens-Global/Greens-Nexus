@@ -14,7 +14,7 @@ summary: The nine parts of a storage sales call, from the greeting to the follow
 
 ## Scripts Set the Tone, Not the Words
 
-The scripts in this lesson are assembled from the trade sources behind this course (Ballard and Maxwell 2011, Weinman 2010, Mixon 2020, DeFazio 2026 and the Inside Self-Storage script articles) and adapted for Greens. Learn the **structure** by heart. Use the words as a starting point and make them yours. Lesson 1 told you callers can tell within seconds whether you sound scripted. A script you read sounds like a script. A structure you know lets you listen.
+The scripts in this lesson are assembled from the trade sources behind this course (Ballard and Maxwell 2011, Weinman 2010, Mixon 2020, DeFazio 2026 and the Inside Self-Storage script articles) and adapted for Greens. Learn the **structure** by heart. Use the words as a starting point and make them yours. The Who Walks Through Our Door lesson told you callers can tell within seconds whether you sound scripted. A script you read sounds like a script. A structure you know lets you listen.
 
 ## The Nine Parts at a Glance
 
@@ -27,7 +27,7 @@ The scripts in this lesson are assembled from the trade sources behind this cour
 | 5 | Build value | Features tied to what they told you, and what makes this site different |
 | 6 | Price | After value: rent, any special and when it ends, admin fee, protection, lock |
 | 7 | Close | Ask for the rental, the reservation, or a set time to visit |
-| 8 | Objections | Listen, find what is underneath, answer honestly (lesson 11) |
+| 8 | Objections | Listen, find what is underneath, answer honestly (the Objections, Honestly lesson) |
 | 9 | Capture and follow up | Name, phone, email, move date, unit; a set callback time; thanks with the property name |
 
 You will not always go through all nine in order. A caller may raise an objection at part 2 or want the price in the first sentence. That is fine. Know where you are, answer what they asked, and steer back.
@@ -46,12 +46,12 @@ That is it. No long speech, no "Greens Storage where we treat you like family, h
 
 ## Part 2: Find Out Why They Called
 
-Answer what they asked first. Then ask one question that opens the conversation. Lesson 3 gave you the hours, price and directions versions. The general form:
+Answer what they asked first. Then ask one question that opens the conversation. The Why the Phone Wins or Loses Rentals lesson gave you the hours, price and directions versions. The general form:
 
 > [!NOTE]
 > "Sure, I can help you with that. Are you looking at renting, or is this about an account you already have with us?"
 
-If it is a tenant, help them (lesson 12). If it is a shopper, go to part 3.
+If it is a tenant, help them (the Existing Tenants: Payments, Rate Increases and Move-Outs lesson). If it is a shopper, go to part 3.
 
 ## Part 3: Discovery
 
@@ -60,14 +60,14 @@ These four questions come from Ballard and Maxwell's 2011 storage sales training
 | Question | Why you ask it |
 |---|---|
 | "Have you ever rented storage before?" | A first-timer needs you to explain the gate, locks and paperwork. An experienced renter needs less, and may be comparing you to their old site. |
-| "What are you planning to store?" | Decides the size and type. Also screens for things that cannot be stored (lesson 5) and spots business users and vehicles. |
+| "What are you planning to store?" | Decides the size and type. Also screens for things that cannot be stored (the Recommending a Size lesson) and spots business users and vehicles. |
 | "When do you need to move in?" | Creates honest urgency and tells you which unit to hold. |
 | "How long do you think you'll need it?" | Shapes the unit choice (ground floor for frequent access) and what you say about rates over time. |
 
 Add these at Greens:
 
-- **"Is any of it sensitive to heat?"** Wood furniture, electronics, photos, documents, instruments and mattresses (lesson 5).
-- **For vehicles:** "What's the overall length, including the tongue or hitch? And the height?" and "How often do you take it out?" (RV & Boat Storage Fundamentals lesson 6).
+- **"Is any of it sensitive to heat?"** Wood furniture, electronics, photos, documents, instruments and mattresses (the Recommending a Size lesson).
+- **For vehicles:** "What's the overall length, including the tongue or hitch? And the height?" and "How often do you take it out?" (RV & Boat Storage Fundamentals, Measuring for the Right Fit).
 - **Get the name and number early.** "Who am I speaking with? And in case we get cut off, what's the best number for you?" Asked early and naturally, almost nobody says no.
 
 > [!NOTE]
@@ -85,7 +85,7 @@ Add these at Greens:
 
 ## Part 4: Recommend
 
-**Never ask "What size do you need?"** Most callers have no idea, and the question hands them a decision they cannot make. You are the expert. Ask what they are storing, then recommend a size and say why. Lesson 5 is all about this.
+**Never ask "What size do you need?"** Most callers have no idea, and the question hands them a decision they cannot make. You are the expert. Ask what they are storing, then recommend a size and say why. The Recommending a Size lesson is all about this.
 
 > [!NOTE]
 > "From what you've told me, a two-bedroom with a sectional and about 30 boxes, I'd put you in a 10x15. That gives you room for everything plus a walkway, so you can get to the boxes you'll need before spring."
@@ -128,7 +128,7 @@ Greens charges no reservation fee and no deposit on new move-ins (From Greens' C
 
 ## Part 7: Close
 
-Ask. Most storage staff never do (lesson 3: only 25.4% in the 2004 IntelliShop study). Three closes that work:
+Ask. Most storage staff never do (the Why the Phone Wins or Loses Rentals lesson: only 25.4% in the 2004 IntelliShop study). Three closes that work:
 
 **The assumptive close.** Act as if they have decided, and ask about the details.
 
@@ -152,7 +152,7 @@ Ask. Most storage staff never do (lesson 3: only 25.4% in the 2004 IntelliShop s
 
 ## Part 8: Objections
 
-Most calls have one. "I need to check with my husband." "The place on the highway is cheaper." "I'll think about it." Lesson 11 covers them all. The short rule: **listen, find out what is underneath, answer honestly, then ask again.**
+Most calls have one. "I need to check with my husband." "The place on the highway is cheaper." "I'll think about it." The Objections, Honestly lesson covers them all. The short rule: **listen, find out what is underneath, answer honestly, then ask again.**
 
 ## Part 9: Capture and Follow Up
 
@@ -189,7 +189,7 @@ Then call at 3:00 PM.
 
 ## Greens Scenarios
 
-**Fairfield.** A caller opens with "Do you have parking for a 26-foot trailer?" You do not stop at "yes." You ask the overall length with the tongue, how often they tow it, and their name and number. Then you recommend a space size with a margin (RV & Boat Storage Fundamentals lesson 6) and ask to reserve it.
+**Fairfield.** A caller opens with "Do you have parking for a 26-foot trailer?" You do not stop at "yes." You ask the overall length with the tongue, how often they tow it, and their name and number. Then you recommend a space size with a margin (RV & Boat Storage Fundamentals, Measuring for the Right Fit) and ask to reserve it.
 
 **Murrieta.** A fifth-wheel owner wants "something easy to get in and out of." Your value statement is the pull-through space. Your close: "I can hold a pull-through for you today. Want me to?"
 

@@ -38,7 +38,7 @@ When something goes wrong (a code that will not work, a surprise fee, a wet box)
 **Fix is about the process, not blame.** Disney's version calls it "Diagnose." The question is "what made this happen?" not "whose fault is it?"
 
 > [!TIP]
-> Saying sorry for someone's experience is not the same as saying Greens caused the damage. "I'm sorry this happened" is always fine. "This is our fault and we'll pay for it" is never yours to say. Lesson 14 covers damage claims.
+> Saying sorry for someone's experience is not the same as saying Greens caused the damage. "I'm sorry this happened" is always fine. "This is our fault and we'll pay for it" is never yours to say. The Difficult Situations lesson covers damage claims.
 
 ## Listening Like You Mean It
 
@@ -50,14 +50,14 @@ Active listening is a skill you can practice. Five habits:
 4. **Write it down.** In Cubby notes, so the next person knows.
 5. **Use their words back.** If they said "my mom's dresser," say "your mom's dresser," not "the furniture."
 
-The fifth habit matters most in sales. When you recommend a unit, tie every feature to something they said (lesson 4). "You mentioned your mom's dresser is solid wood, so a climate-controlled unit keeps it out of the summer heat" is a reason. "We have climate control" is a brochure.
+The fifth habit matters most in sales. When you recommend a unit, tie every feature to something they said (the The Nine Parts of a Sales Call lesson). "You mentioned your mom's dresser is solid wood, so a climate-controlled unit keeps it out of the summer heat" is a reason. "We have climate control" is a brochure.
 
 ## Before They Arrive: You, Your Voice and Your Office
 
 ### On the Phone
 
 - **Before you pick up:** finish chewing, put the drink down, stop typing, and smile. Callers can hear attitude.
-- **Pick up by the third ring.** Lesson 3 explains why.
+- **Pick up by the third ring.** The Why the Phone Wins or Loses Rentals lesson explains why.
 - **Slow down.** A calm, unhurried voice is the single best thing you can give a stressed caller.
 
 ### At the Counter
@@ -76,7 +76,7 @@ Customers judge security and care by what they see. A 2026 operator column liste
 - [ ] Keypads wiped and working
 - [ ] Drive aisles swept, no trash near the dumpster
 - [ ] Restroom clean, if your site has one
-- [ ] A clean vacant unit ready to show (lesson 8)
+- [ ] A clean vacant unit ready to show (the Walk-Ins and the Tour lesson)
 
 ## The Second Mile
 
@@ -114,11 +114,11 @@ Every target below comes from a published source. Greens adopts them as its stan
 | A callback you promised | At the time you said. If you cannot, call before that time and say when | Greens standard |
 
 > [!NOTE]
-> These are minimums. Lesson 10 covers why minutes matter so much for web leads.
+> These are minimums. The Online Renters and Digital Leads lesson covers why minutes matter so much for web leads.
 
 ## Greens Scenarios
 
-**Valley Center, 4:45 PM.** A tenant walks in angry: his late fee posted and he says he paid. You let him finish (Hear). "So you paid on the 10th and still got a fee. I'd be upset too" (Own). You open his ledger in Cubby and see no payment on the 10th; a declined card posts nothing (Cubby Fundamentals lesson 6). You show him gently and offer to take the payment now (Solve). You thank him for coming in (Thank). Then you note that his saved card expired, and update it with him (Fix).
+**Valley Center, 4:45 PM.** A tenant walks in angry: his late fee posted and he says he paid. You let him finish (Hear). "So you paid on the 10th and still got a fee. I'd be upset too" (Own). You open his ledger in Cubby and see no payment on the 10th; a declined card posts nothing (Cubby Fundamentals, How a Ledger Works). You show him gently and offer to take the payment now (Solve). You thank him for coming in (Thank). Then you note that his saved card expired, and update it with him (Fix).
 
 **Fairfield.** A caller's voicemail came in at 7:15 PM, after the office closed. You call her back at the start of the next business day, not at lunch.
 

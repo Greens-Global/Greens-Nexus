@@ -16,7 +16,7 @@ A site team member is rarely at a desk. You walk the lot, check locks, meet a te
 
 - You can **punch in and out** where you are working, with a precise location.
 - You can **take photos** for a ticket, a form or an equipment return right from the camera.
-- You can **fill a form with no signal** at the back of the lot, and it sends itself later (lesson 11).
+- You can **fill a form with no signal** at the back of the lot, and it sends itself later (the Getting Help: Tickets, Report a Problem and Forms lesson).
 - With push turned on, you get your bell notices **as phone notifications**, even when Nexus is closed.
 
 Installing Nexus takes about one minute and makes all of this smoother.
@@ -107,7 +107,7 @@ Field work does not always have signal, especially at the back of a large lot or
 - **Workday**, **Fill a Form** and **punches** work offline. What you do is saved on the phone and sends itself when signal comes back.
 - A bar at the top tells you what is waiting, for example "Waiting to send" with a **Sync Now** button.
 
-Lesson 11 covers the offline bar in detail. For now, remember: no signal does not mean lost work. Do not redo something just because you were offline.
+The Getting Help: Tickets, Report a Problem and Forms lesson covers the offline bar in detail. For now, remember: no signal does not mean lost work. Do not redo something just because you were offline.
 
 ## A Greens Scenario
 

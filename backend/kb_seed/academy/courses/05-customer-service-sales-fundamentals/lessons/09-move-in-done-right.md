@@ -24,7 +24,7 @@ Garrett Byrd's follow-up guidance (2021) is simple: **the day before the move-in
 > [!NOTE]
 > "Hi Karen, it's Daniel at Greens Storage Escondido. Just confirming your 10x20 for tomorrow. Are you still planning on about 10:00 AM? ... Great. Bring a photo ID and the card you'd like to use. If you'd like a lock or boxes, I'll have them ready."
 
-For a vehicle customer, add: "Please bring the registration and your insurance card for the trailer." RV & Boat Storage Fundamentals lesson 8 lists what to collect.
+For a vehicle customer, add: "Please bring the registration and your insurance card for the trailer." RV & Boat Storage Fundamentals, Paperwork and Move-In lists what to collect.
 
 The confirmation call also catches the customer whose plans changed. Better to know today than to hold a unit for someone who is not coming.
 
@@ -34,7 +34,7 @@ Cubby's move-in flow drives the order: unit, Preview Charges, coverage, payment,
 
 1. **Verify identity.** Photo ID. Make sure the name on the ID matches the lease.
 2. **Collect contact details.** Name, phone, email, address, and an **alternate contact**. Explain why: "This is someone we can reach if we ever can't reach you. We won't share your account with them."
-3. **Ask about military status**, and record it. Self-Storage Fundamentals lesson 11 explains why.
+3. **Ask about military status**, and record it. Self-Storage Fundamentals, Lines You Never Cross explains why.
 4. **Walk through the terms below** and have the tenant initial where the agreement asks.
 5. **Show them the move-in total** from Preview Charges, so the first charge is never a surprise.
 
@@ -64,11 +64,11 @@ Explain the lien process accurately and the same way to everyone. Never soften i
 
 ### The Gate Code and Key Line
 
-That "whoever has your gate code and key" line is worth saying every single time. A storage law firm (Greenberger and Brewer, 2014) described a case where a divorcing tenant had listed her husband on an "authorized access" list and forgot to remove him; he demanded the lock be cut and called the police. Greens' rule is simple and protects everyone: **the tenant controls access with their code and their key.** Lesson 14 covers what to do when someone else asks to get in.
+That "whoever has your gate code and key" line is worth saying every single time. A storage law firm (Greenberger and Brewer, 2014) described a case where a divorcing tenant had listed her husband on an "authorized access" list and forgot to remove him; he demanded the lock be cut and called the police. Greens' rule is simple and protects everyone: **the tenant controls access with their code and their key.** The Difficult Situations lesson covers what to do when someone else asks to get in.
 
 ## Offering Protection Honestly
 
-Self-Storage Fundamentals lesson 7 covered how protection works. The move-in version:
+Self-Storage Fundamentals, Tenant Protection and Insurance covered how protection works. The move-in version:
 
 1. **Kill the myth.** "Our property insurance doesn't cover what's inside your unit. Most people don't know that."
 2. **Tell a real story, not a disclosure.** "A common problem at storage sites is water: a roof leak or a neighbor's unit. Protection is what helps if that happens."
@@ -92,7 +92,7 @@ Before they leave the counter:
 - [ ] **Where to load**, the carts, the dumpster rule
 - [ ] **Their unit number**, said out loud and written down
 
-Then the second mile (lesson 2): carry the lock and boxes to the car, or walk them to the unit.
+Then the second mile (the The Greens Service Standard lesson): carry the lock and boxes to the car, or walk them to the unit.
 
 ## After the Move-In
 
@@ -100,7 +100,7 @@ Then the second mile (lesson 2): carry the lock and boxes to the car, or walk th
 |---|---|---|
 | That day | A thank-you: a handwritten card or a short text | DeFazio, 2026 |
 | A few days later | A call: "How did the move go? Everything working with your code?" | DeFazio, 2026 |
-| Once they are settled | Ask for a review, the same neutral way you ask everyone (lesson 15) | |
+| Once they are settled | Ask for a review, the same neutral way you ask everyone (the Reviews and Reputation lesson) | |
 | Any time | Mention the referral program, if Greens runs one | Jordheim, 2012 |
 
 The call a few days later catches problems while they are small: a code that does not work at the exit gate, a latch that sticks, a question about the first bill.

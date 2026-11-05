@@ -16,7 +16,7 @@ summary: How Greens talks to tenants who are behind - the conduct rules every co
 
 Collections is where good people get into trouble. Not because they mean harm, but because they are tired of chasing money, and a little pressure seems harmless. "If you don't pay today, we're cutting your lock." "The system won't let me take less." "I'll have to talk to your wife about this." Every one of those lines can break the law.
 
-Self-Storage Fundamentals lesson 10 taught the lien process and Greens Delinquency Timeline has the days. This lesson is about the **conversation**: how to talk to a tenant who is behind so that they pay, they keep their dignity, and Greens stays on the right side of the law.
+Self-Storage Fundamentals, Delinquency and the Lien Process taught the lien process and Greens Delinquency Timeline has the days. This lesson is about the **conversation**: how to talk to a tenant who is behind so that they pay, they keep their dignity, and Greens stays on the right side of the law.
 
 > [!WARNING]
 > Training only, not legal advice. When in doubt, stop and ask your manager.
@@ -122,7 +122,7 @@ Never put a balance or lien detail in a text or an email unless Greens' policy s
 
 Empathy does not mean waiving everything. It means treating a person with dignity while you work the problem. Aycha Williams' collections steps (Inside Self-Storage, 2013) still hold, minus her "blame the system" tip:
 
-1. **Explain fees at move-in**, so nothing on the ladder is a surprise (lesson 9).
+1. **Explain fees at move-in**, so nothing on the ladder is a surprise (the Move-In Done Right lesson).
 2. **Be consistent** with every tenant. Same rules, same tone.
 3. **Collect emails** at move-in for reminders.
 4. **Call early**, before the late fee, not just after.
@@ -137,9 +137,9 @@ What you can offer is on Greens Waivers, Credits and Refunds. A payment plan, a 
 
 Stop collecting and call your manager the same day if:
 
-- the tenant or their spouse is on active military duty (Self-Storage Fundamentals lesson 11);
+- the tenant or their spouse is on active military duty (Self-Storage Fundamentals, Lines You Never Cross);
 - you receive a bankruptcy notice;
-- the tenant has died (lesson 14);
+- the tenant has died (the Difficult Situations lesson);
 - the tenant disputes the balance in writing, or asks in writing that you stop contacting them;
 - a California tenant sends a Declaration in Opposition;
 - anyone mentions a lawyer.

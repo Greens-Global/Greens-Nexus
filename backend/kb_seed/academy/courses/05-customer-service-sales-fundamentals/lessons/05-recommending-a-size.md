@@ -28,11 +28,11 @@ Start with "What are you planning to store?" Then:
 4. **"Anything that doesn't like heat?"** See climate control below.
 5. **"About how many boxes?"** People always underestimate. Add a third.
 
-For vehicles, the questions are different: overall length including the tongue or hitch, height to the highest point, width with mirrors and slide-outs, and how often they take it out. RV & Boat Storage Fundamentals lesson 6 covers the fit check in full.
+For vehicles, the questions are different: overall length including the tongue or hitch, height to the highest point, width with mirrors and slide-outs, and how often they take it out. RV & Boat Storage Fundamentals, Measuring for the Right Fit covers the fit check in full.
 
 ## The Size Guide
 
-Self-Storage Fundamentals lesson 3 covered unit sizes in detail. Here is the sales version: what to compare it to, and what usually fits. Room counts vary by brand and by how much stuff people have, so use this as a starting point and then listen.
+Self-Storage Fundamentals, The Product: Units and Sizes covered unit sizes in detail. Here is the sales version: what to compare it to, and what usually fits. Room counts vary by brand and by how much stuff people have, so use this as a starting point and then listen.
 
 | Size | Square feet | Compare it to | What usually fits |
 |---|---|---|---|
@@ -55,7 +55,7 @@ Customers trust a recommendation they can picture. Place their things in the uni
 > [!NOTE]
 > "In a 10x15, your sofa goes along the back wall standing on end, the bed frame and mattress beside it, the dresser on the left, and the boxes stacked on the right up to about head height. That leaves you a walkway down the middle to get to the kitchen boxes."
 
-Other visual aids: the size guide on the website, a sized-box display in the office if your site has one, and best of all, an empty unit (lesson 8).
+Other visual aids: the size guide on the website, a sized-box display in the office if your site has one, and best of all, an empty unit (the Walk-Ins and the Tour lesson).
 
 ## When in Doubt, Go Up a Size
 
@@ -90,7 +90,7 @@ Inland California and Texas summers are hot. For these items, climate control is
 
 ## Screening for What Cannot Be Stored
 
-"What are you planning to store?" also screens for things that cannot be stored. Self-Storage Fundamentals lesson 8 lists them. The common ones in a sales call:
+"What are you planning to store?" also screens for things that cannot be stored. Self-Storage Fundamentals, The Rental Agreement lists them. The common ones in a sales call:
 
 - Anything flammable or hazardous: gasoline cans, propane tanks, paint thinner, chemicals.
 - Food and perishables (they bring pests).
@@ -111,7 +111,7 @@ DeFazio's test for any add-on: **"Would the customer be upset later to learn you
 | Add-on | How to offer it | Where it comes from |
 |---|---|---|
 | **Protection** | Lead with a real situation, not a disclosure: a leak from a neighboring unit, a fire nearby. "Stories close; disclosures don't" (DeFazio, 2026). Then the choice: Greens' plan or their own policy. Never call the plan "insurance" and never say it is required unless the agreement says so. | Greens Tenant Protection |
-| **Lock** | Recommend a disc or cylinder lock made for storage and show why it is hard to cut. | Self-Storage Fundamentals lesson 4 |
+| **Lock** | Recommend a disc or cylinder lock made for storage and show why it is hard to cut. | Self-Storage Fundamentals, Access, Locks and Security |
 | **Boxes and supplies** | Offer at every rental. A trade mystery-shop standard (Mixon, 2020). Bundle a starter kit and offer to carry it to the car. | |
 | **Autopay** | "This way you never have to think about it, and you'll never get hit with a late fee." | Cubby Fundamentals, Take a Payment |
 | **A larger unit** | When their things will likely outgrow the smaller one, or the stay is long. | |
@@ -125,7 +125,7 @@ DeFazio's test for any add-on: **"Would the customer be upset later to learn you
 > [!WARNING]
 > Training only, not legal advice. When in doubt, stop and ask your manager.
 
-Selling insurance can require a license, and a protection plan is a different product from insurance (Self-Storage Fundamentals lesson 7). Describe Greens' plan only with the approved wording on Greens Tenant Protection.
+Selling insurance can require a license, and a protection plan is a different product from insurance (Self-Storage Fundamentals, Tenant Protection and Insurance). Describe Greens' plan only with the approved wording on Greens Tenant Protection.
 
 ## Greens Scenarios
 
@@ -135,7 +135,7 @@ Selling insurance can require a license, and a protection plan is a different pr
 
 **Escondido.** A caller wants a 5x10 for "a couch, a bed, a table, maybe 40 boxes." You tell her honestly that it will not fit and why, and recommend a 10x15. She had been about to rent a 5x10 down the road.
 
-**Fairfield.** A man wants to park a 30-foot travel trailer. You ask the length with the tongue: 34 feet. You recommend a space with room to spare rather than an exact fit (RV & Boat Storage Fundamentals lesson 6).
+**Fairfield.** A man wants to park a 30-foot travel trailer. You ask the length with the tongue: 34 feet. You recommend a space with room to spare rather than an exact fit (RV & Boat Storage Fundamentals, Measuring for the Right Fit).
 
 **Temecula.** A contractor mentions he will keep "a couple of gas cans for the generator" in his unit. You explain kindly that fuel cannot be stored and why, and he agrees to keep them at home.
 

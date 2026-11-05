@@ -28,7 +28,7 @@ What you may see on a day:
 The **My Week | Team** switch shows your whole group's week in the same card. The same view is under **Team**, then **Shifts**, where you are pinned at the top and a green dot marks who is on shift right now. As an Employee you can look but not change anything. Managers build the schedule in the **Shift Planner**.
 
 > [!NOTE]
-> Late, No-Show and early punch notices all work from your schedule. When your manager shares shifts, Nexus knows when you are expected and can tell your manager if you have not clocked in. That is one more reason to punch in and out every shift (lesson 6).
+> Late, No-Show and early punch notices all work from your schedule. When your manager shares shifts, Nexus knows when you are expected and can tell your manager if you have not clocked in. That is one more reason to punch in and out every shift (the Punching In, Breaks and Punching Out lesson).
 
 ### Confirm a New Schedule
 
@@ -91,7 +91,7 @@ Also on the Time Off tab:
 
 Two rules surprise new hourly team members. Learn them now:
 
-1. **Approved time off is not punched in for you.** To be paid for approved sick or vacation time, add it on your Time Sheet: **Add** on the day, Type **Sick** or **Vacation** (lesson 8).
+1. **Approved time off is not punched in for you.** To be paid for approved sick or vacation time, add it on your Time Sheet: **Add** on the day, Type **Sick** or **Vacation** (the Your Time Sheet lesson).
 2. **Company holidays are unpaid for hourly staff.** For hourly employees, a company holiday is a day off with the office closed and no pay. If you do work on a holiday, those hours are paid as usual. Salaried staff follow a separate rule.
 
 ## A Greens Scenario

@@ -6,19 +6,19 @@ summary: How to practice with a coworker using the call score sheet, and the fir
 ## What You'll Be Able to Do
 
 - Run a role-play with a coworker: caller, Greens staff and scorer.
-- Score a practice call with the 22-item call score sheet (lesson 6).
+- Score a practice call with the 22-item call score sheet (the The Call Score Sheet lesson).
 - Handle the ten sales and tenant scenarios in this lesson the way a great Greens employee would.
 - Pick your own weak spots and practice them before your Hands-On Check.
 
 ## How to Practice
 
-Reading about a sales call does not make you good at one. Saying the words out loud, with someone pushing back, does. Lessons 16 and 17 give you twenty scenarios to practice. They are the same kinds of situations your trainer may use in the Hands-On Check's mock sales call.
+Reading about a sales call does not make you good at one. Saying the words out loud, with someone pushing back, does. The Practice: Twenty Scenarios, Part 1 and Practice: Twenty Scenarios, Part 2 lessons give you twenty scenarios to practice. They are the same kinds of situations your trainer may use in the Hands-On Check's mock sales call.
 
 ### Set Up
 
 - **Two or three people.** One plays the customer, one plays Greens staff, and (if you have three) one scores. With two, the customer scores after the call.
 - **Five to ten minutes a week.** DeFazio (2026) recommends short weekly practice; one scenario a week is plenty.
-- **Use the score sheet** from lesson 6 for every sales scenario. For the service scenarios, score with Hear, Own, Solve, Thank, Fix (lesson 2) and the rules in the lesson the scenario points to.
+- **Use the score sheet** from the The Call Score Sheet lesson for every sales scenario. For the service scenarios, score with Hear, Own, Solve, Thank, Fix (the The Greens Service Standard lesson) and the rules in the lesson the scenario points to.
 
 ### The Customer's Job
 
@@ -187,4 +187,4 @@ Do not read the "what great looks like" section first. Handle the call, then com
 - Score sales scenarios with the 22-item sheet; give two things to work on, never ten.
 - The customer holds back what the staff member does not ask for.
 - Scenarios 1 to 10 cover the price-only caller, the hours question, a first-timer after a divorce, an estate, a cheaper competitor, "I'll think about it," a web reservation, a gate problem after hours, a rate increase and a hardship collections call.
-- Lesson 17 has scenarios 11 to 20 and working with Spanish-speaking customers.
+- The Practice: Twenty Scenarios, Part 2 lesson has scenarios 11 to 20 and working with Spanish-speaking customers.
