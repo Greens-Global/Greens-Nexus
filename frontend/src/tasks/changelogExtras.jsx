@@ -13,7 +13,7 @@ import {
 import { api } from '../api';
 import { MODULES } from '../contexts/RoleContext';
 import { NX, FONT, btn, card, chip, input as inputStyle } from './theme';
-import { Avatar, Modal, usePeople, useIsMobile } from './components';
+import { Avatar, ExportMenu, Modal, usePeople, useIsMobile } from './components';
 import { LoadingState } from '../components/AsyncState';
 import { formatDateTime, formatFullDate } from './changelogDates';
 import { formatDate } from '../lib/datetime';
@@ -588,21 +588,41 @@ export function FeedbackList({ nameOf, entries, flash }) {
   );
 }
 
+// One column list for every What's New export (Excel, PDF file, CSV).
+export function whatsNewColumns(analytics, insights, statusOf) {
+  const an = (e) => analytics?.entries?.[e.id] || {};
+  const ins = (e) => insights?.entries?.[e.id] || {};
+  return [
+    { header: 'Title', get: (e) => e.title, width: 40 },
+    { header: 'Category', get: (e) => e.type },
+    { header: 'Module', get: (e) => e.module },
+    { header: 'Version', get: (e) => e.version },
+    { header: 'Environment', get: (e) => e.environment, optional: true },
+    { header: 'Status', get: (e) => statusOf(e) },
+    { header: 'Released', get: (e) => (e.releasedAt ? formatDateTime(e.releasedAt) : ''), width: 20 },
+    { header: 'Pinned', get: (e) => (e.pinned ? 'Yes' : ''), optional: true },
+    { header: 'Hidden', get: (e) => (e.hidden ? 'Yes' : ''), optional: true },
+    { header: 'Breaking', get: (e) => (e.breaking ? 'Yes' : '') },
+    { header: 'Issue', get: (e) => (e.issue?.kind ? (e.issue.resolvedAt ? 'Fixed' : e.issue.kind === 'rolledBack' ? 'Rolled Back' : 'Known Issue') : '') },
+    { header: 'Going Away', get: (e) => (e.deprecation?.removeOn ? formatFullDate(e.deprecation.removeOn) : ''), optional: true },
+    { header: 'In Production', get: (e) => (e.prodAt ? formatDateTime(e.prodAt) : ''), width: 20, optional: true },
+    { header: 'People Reached', get: (e) => an(e).viewers ?? 0 },
+    { header: 'Views', get: (e) => an(e).views ?? 0 },
+    { header: 'Reactions', get: (e) => an(e).reactionTotal ?? 0 },
+    { header: 'Comments', get: (e) => an(e).comments ?? 0 },
+    { header: 'Read Rate %', get: (e) => ins(e).readRate ?? '' },
+    { header: 'Helpful Yes', get: (e) => ins(e).helpful?.yes ?? 0, optional: true },
+    { header: 'Helpful No', get: (e) => ins(e).helpful?.no ?? 0, optional: true },
+    { header: 'Feature Requests', get: (e) => ins(e).requests ?? 0, optional: true },
+    { header: 'Link', get: (e) => entryLink(e.id), width: 40, optional: true },
+  ];
+}
+
 const csvCell = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 export function exportCsv(entries, analytics, insights, statusOf) {
-  const head = ['Title', 'Category', 'Module', 'Version', 'Environment', 'Status', 'Released', 'Pinned', 'Hidden', 'Breaking',
-    'Issue', 'Going Away', 'In Production',
-    'People Reached', 'Views', 'Reactions', 'Comments', 'Read Rate %', 'Helpful Yes', 'Helpful No', 'Feature Requests', 'Link'];
-  const lines = [head.map(csvCell).join(',')];
-  for (const e of entries) {
-    const a = analytics?.entries?.[e.id] || {};
-    const i = insights?.entries?.[e.id] || {};
-    lines.push([e.title, e.type, e.module, e.version, e.environment, statusOf(e), e.releasedAt ? formatDateTime(e.releasedAt) : '',
-      e.pinned ? 'Yes' : '', e.hidden ? 'Yes' : '', e.breaking ? 'Yes' : '',
-      e.issue?.kind ? (e.issue.resolvedAt ? 'Fixed' : e.issue.kind === 'rolledBack' ? 'Rolled Back' : 'Known Issue') : '',
-      e.deprecation?.removeOn ? formatFullDate(e.deprecation.removeOn) : '', e.prodAt ? formatDateTime(e.prodAt) : '', a.viewers ?? 0, a.views ?? 0, a.reactionTotal ?? 0,
-      a.comments ?? 0, i.readRate ?? '', i.helpful?.yes ?? 0, i.helpful?.no ?? 0, i.requests ?? 0, entryLink(e.id)].map(csvCell).join(','));
-  }
+  const cols = whatsNewColumns(analytics, insights, statusOf);
+  const lines = [cols.map((c) => csvCell(c.header)).join(',')];
+  for (const e of entries) lines.push(cols.map((c) => csvCell(c.get(e))).join(','));
   const blob = new Blob([`\uFEFF${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -671,11 +691,21 @@ function printReport(html) {
   window.setTimeout(() => { frame.contentWindow.focus(); frame.contentWindow.print(); window.setTimeout(() => frame.remove(), 60_000); }, 250);
 }
 
-export function ExportButtons({ onCsv, onPrint }) {
-  return (<>
-    <button type="button" onClick={onCsv} style={btn('outline')}><Download size={14} />Export CSV</button>
-    <button type="button" onClick={() => printReport(onPrint())} style={btn('outline')}><Printer size={14} />Print / PDF</button>
-  </>);
+// ONE Export button (Neil, 11/04/2026): the shared ExportMenu's PDF and Excel,
+// plus CSV and the printable report with the totals.
+export function WhatsNewExport({ entries, analytics, insights, statusOf }) {
+  const t = analytics?.totals || {};
+  return (
+    <ExportMenu title="What's New in Nexus" filenameBase="whats-new" rows={entries}
+      subtitle={`${entries.length} updates · ${t.peopleReached ?? 0} people reached · ${t.views ?? 0} views`}
+      columns={whatsNewColumns(analytics, insights, statusOf)}
+      extra={[
+        { key: 'csv', label: 'Export as CSV', icon: <Download size={15} style={{ color: NX.dim, flexShrink: 0 }} />,
+          run: () => exportCsv(entries, analytics, insights, statusOf) },
+        { key: 'print', label: 'Print Report', icon: <Printer size={15} style={{ color: NX.dim, flexShrink: 0 }} />,
+          run: () => printReport(buildPrintReport(entries, analytics, insights, statusOf)) },
+      ]} />
+  );
 }
 
 // ── "New on this screen" (App.jsx, every view) ─────────────────────────────

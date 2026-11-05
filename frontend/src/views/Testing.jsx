@@ -795,7 +795,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
 }
 
 // ── Main view ─────────────────────────────────────────────────────────────────
-const TABS = [['run', 'Run tests', ListChecks], ['bugs', 'Report a bug', Bug], ['library', 'Library', FlaskConical], ['log', 'Log', ScrollText]];
+const TABS = [['run', 'Run Tests', ListChecks], ['bugs', 'Report a Bug', Bug], ['library', 'Library', FlaskConical], ['log', 'Log', ScrollText]];
 
 export default function Testing() {
   const { canAccessModule } = useRole();
@@ -926,8 +926,9 @@ export default function Testing() {
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div className="view-header" style={{ marginBottom: 18 }}>
         <div className="view-title-group">
-          <PageTrail title="Testing" />
-          <h2>Testing</h2>
+          {/* The heading names the open tab; the trail above it names the module. */}
+          <PageTrail title={TABS.find(([key]) => key === tab)?.[1] || 'Testing'} />
+          <h2>{TABS.find(([key]) => key === tab)?.[1] || 'Testing'}</h2>
           <p>Run the QA test cases, report what you find, and turn bugs into new cases. Dev environment only.</p>
         </div>
       </div>

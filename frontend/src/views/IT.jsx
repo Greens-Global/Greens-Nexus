@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { SkeletonBlocks, Spinner } from "../components/AsyncState";
-import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { RefreshCw, Download, AlertTriangle, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { api } from "../api";
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import PageTrail, { useTrailCrumbs } from "../components/PageTrail";
@@ -123,17 +123,12 @@ function NetworkDashboard() {
   const detailOfflineCount = detail ? (detail.offline_wired_devices || 0) + (detail.offline_wifi_devices || 0) : 0;
 
   // A site sits under the Network Dashboard: IT / NETWORK DASHBOARD over its name.
-  useTrailCrumbs(view === "detail" ? [{ label: "Network Dashboard", onClick: backToOverview }] : null);
+  useTrailCrumbs(view === "detail" ? [{ label: "Network Dashboard", onClick: backToOverview }] : null, backToOverview);
 
   return (
     <div>
       <div className="view-header">
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {view === "detail" && (
-            <button className="secondary-btn" style={{ display: "inline-flex", alignItems: "center", gap: 6 }} onClick={backToOverview}>
-              <ArrowLeft style={{ width: 14, height: 14 }} /> Overview
-            </button>
-          )}
           <div className="view-title-group">
             <PageTrail title={view === "detail" ? currentSite?.name : "Network Dashboard"} />
             <h2>

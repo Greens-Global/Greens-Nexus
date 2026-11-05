@@ -18,7 +18,7 @@
 //               current section lit as you scroll.
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Search, ArrowUpRight, ArrowLeft, ArrowRight, ChevronLeft, ChevronDown, Check,
+  Search, ArrowUpRight, ArrowLeft, ArrowRight, ChevronDown, Check,
   ShieldCheck, Lightbulb, BookOpen, X, Rocket,
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark, Users,
@@ -303,7 +303,7 @@ const firstOpen = (docId, anchor) => {
   return { docId, set: new Set([first, anchor].filter(Boolean)), closed: new Set() };
 };
 
-export default function SupportDocs({ canImplement = false, startOnGuide = false, onBack = null }) {
+export default function SupportDocs({ canImplement = false, startOnGuide = false }) {
   // Where to open: a deep link (URL, or a help search that navigated here)
   // wins over the page this person last read.
   const [initialTarget] = useState(() => takeUrlTarget() || decodeDocTarget(takePendingOpen(PENDING_DOCS_KIND)));
@@ -453,11 +453,6 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
       {/* One toolbar: back, the title, the Module Guides | Implementation Guide
           switch for administrators, and the module search on the right. */}
       <div className="docs-toolbar">
-        {onBack && (
-          <button type="button" className="docs-back" onClick={onBack} aria-label="Back to Help Center" title="Back to Help Center">
-            <ChevronLeft size={16} />
-          </button>
-        )}
         <h2 className="docs-title">Documentation</h2>
         {canImplement && (
           <div role="tablist" aria-label="Documentation sections" className="docs-tabs scroll-tabs">

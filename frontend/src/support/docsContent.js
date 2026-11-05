@@ -73,7 +73,7 @@ export const DOCS = [
       {
         title: 'Find Anything in Two Seconds',
         steps: [
-          'Press Ctrl+K (Cmd+K on a Mac) or /, or click Search Nexus in the top header.',
+          'Press Ctrl+K or Ctrl+F (Cmd+K or Cmd+F on a Mac) or /, or click Search Nexus in the top header.',
           'Type a few letters of a task, project, person, portfolio, team, item, checkout, purchase request or page.',
           'Click the result (or use the arrow keys and Enter) to jump straight to it. A person opens their tasks if you use Tasks, otherwise their contact card.',
         ],

@@ -2,7 +2,7 @@
 // view that throws must be contained (its neighbors keep rendering), reported
 // to the error trail, and given another try when resetKey changes.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 const reportError = vi.hoisted(() => vi.fn());
 vi.mock('../lib/errorReporter', () => ({ reportError }));
@@ -45,6 +45,19 @@ describe('WidgetBoundary', () => {
     render(<WidgetBoundary name="nav" fallback={<NavFallback as="nav" className="mobile-nav" />}><Flaky /></WidgetBoundary>);
     expect(screen.getByRole('alert').className).toBe('mobile-nav');
     expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy();
+  });
+
+  it("the fallback's Reload reloads the page (header hotfix 11/05/2026)", () => {
+    const reload = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...original, reload } });
+    try {
+      render(<WidgetBoundary name="top-header" fallback={<NavFallback as="header" className="top-header" label="The header hit a snag." />}><Flaky /></WidgetBoundary>);
+      fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
   });
 
   it('tries the child again when resetKey changes, and not before', () => {

@@ -234,6 +234,11 @@ keep the diff minimal.
   open on top (e.g. New Purchase Request) stay on the 60% rule. A click
   outside these three never closes them - it nudges the popup and lights up
   its close button (`lib/usePopupNudge.js`); Close, Cancel and Escape close.
+  **Exception - the Help panel** (Neil, 11/04/2026): a long Ask Nexus
+  answer or a guide article opens it to a full-height sheet on the right at
+  `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
+  Shrink / Expand button; short answers keep the small card
+  (`support/HelpWidget.jsx`).
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 - **Every amount on every Accounting report drills down to its ledger lines

@@ -16,7 +16,12 @@ One trail per screen, from one place:
     title lets the trail step aside when it would only repeat it (Settings
     over "Settings");
   - a record page names the pages above it with useTrailCrumbs([{ label,
-    onClick }]) - one line, never a hand-built trail;
+    onClick }]) - one line, never a hand-built trail. A deeper page held in
+    the module's own state (What's New > Manage, a Portfolio, a course) passes
+    `onHome` too - useTrailCrumbs(crumbs, onHome) - so the module part leaves
+    it; the page's "Back to ..." button goes (11/04/2026);
+  - a module heading names the OPEN TAB, never the module: the trail above it
+    names the module, and the tab itself is never a part of the trail;
   - a screen with no title row needs nothing: the shell draws the trail at
     the top of the page itself (`ShellTrail`) whenever no page has placed one.
 Never build a second breadcrumb in a module; extend this one.
@@ -30,19 +35,31 @@ export function PageTrailProvider({ view, label, onNavigate, children }) {
   const [crumbs, setCrumbs] = useState([]);
   const [placed, setPlaced] = useState(0);
   const navRef = useRef(onNavigate);
+  const homeRef = useRef(null);
   useEffect(() => { navRef.current = onNavigate; });
   const value = useMemo(() => ({
-    view, label, crumbs, setCrumbs, placed, setPlaced,
-    goModule: () => navRef.current?.(view),
+    view, label, crumbs, setCrumbs, placed, setPlaced, homeRef,
+    // The deep page resets only once the move really happens (Stay keeps it).
+    goModule: () => navRef.current?.(view, null, () => homeRef.current?.()),
   }), [view, label, crumbs, placed]);
   return <TrailCtx.Provider value={value}>{children}</TrailCtx.Provider>;
 }
 
-/** A record page names the pages above it: [{ label, onClick }], top-down. */
-export function useTrailCrumbs(crumbs) {
-  const set = useContext(TrailCtx)?.setCrumbs;
+/** A record page names the pages above it: [{ label, onClick }], top-down.
+ *  `onHome` (optional) takes a page held in the module's own state back to
+ *  the module's home when the module part is clicked. */
+export function useTrailCrumbs(crumbs, onHome) {
+  const ctx = useContext(TrailCtx);
+  const set = ctx?.setCrumbs;
+  const homeRef = ctx?.homeRef;
   const ref = useRef(crumbs);
-  useEffect(() => { ref.current = crumbs; });
+  const onHomeRef = useRef(onHome);
+  useEffect(() => { ref.current = crumbs; onHomeRef.current = onHome; });
+  useLayoutEffect(() => {
+    if (!homeRef) return undefined;
+    homeRef.current = () => onHomeRef.current?.();
+    return () => { homeRef.current = null; };
+  }, [homeRef]);
   const sig = (crumbs || []).map((c) => c?.label || '').join('\u0001');
   useLayoutEffect(() => {
     if (!set) return;
@@ -66,6 +83,10 @@ export function tabLabelOf(tabs, key) {
 function partsFor(ctx, title) {
   if (!ctx?.label) return [];
   if (!ctx.crumbs.length && title && same(title, ctx.label)) return [];
+  // A first crumb named like the module (Workflows > the Workflows list) is
+  // the module part itself: one "WORKFLOWS" that goes to that list.
+  const [first, ...rest] = ctx.crumbs;
+  if (first && same(first.label, ctx.label)) return [{ label: ctx.label, go: first.go, module: true }, ...rest];
   return [{ label: ctx.label, go: ctx.goModule, module: true }, ...ctx.crumbs];
 }
 
