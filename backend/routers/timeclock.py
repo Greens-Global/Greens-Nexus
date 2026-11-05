@@ -2507,8 +2507,11 @@ def _notify_period_ready(db: Session, email: str, start: str, end: str, is_fixed
     staff = {(e.work_email or "").lower() for e in db.query(NexusEmployee.work_email)
              .filter(NexusEmployee.company == company, NexusEmployee.work_email != "").all()}
     exempt = time_tracking_exempt_emails(db)
+    # Hourly people by period, salaried people whose own period is this one -
+    # a bi-weekly salary shares the hourly period (11/06/2026).
+    monthly = bool(is_fixed) and (start, end) == _month_bounds(start)
     people = {p for p in (punched & staff) - set(exempt)
-              if (_pay_type(db, p) == "fixed") == bool(is_fixed)}
+              if (_fixed_bounds(db, p, start) == (start, end) if _pay_type(db, p) == "fixed" else not monthly)}
     people.add(em)
     done = {(e or "").lower() for (e,) in db.query(TimeApproval.employee_email)
             .filter(TimeApproval.kind == "final", TimeApproval.revoked == 0,
@@ -2519,7 +2522,7 @@ def _notify_period_ready(db: Session, email: str, start: str, end: str, is_fixed
     sick = vac = 0
     for p in people:
         try:
-            t = (_fixed_card(db, p, start) if is_fixed else _compute_timecard(db, p, start, end)).get("totals", {})
+            t = (_fixed_card(db, p, start) if _pay_type(db, p) == "fixed" else _compute_timecard(db, p, start, end)).get("totals", {})
         except Exception:  # noqa: BLE001 - a card that will not read just leaves its hours out
             continue
         sick += int(t.get("sickMin") or 0) + int(t.get("personalMin") or 0)
@@ -2660,7 +2663,7 @@ def _timecard_action(db: Session, employee_email: str, local_date: str) -> dict:
     action = {"view": "hr", "sub": "hr-time", "timecard": em}
     try:
         pay_type = _pay_type(db, em)
-        start = (_month_bounds(local_date) if pay_type == "fixed" else _pay_period(local_date))[0]
+        start = _period_of(db, em, local_date)[0]
     except (ValueError, TypeError):
         return action   # no usable date: the person's card, current period
     action.update(start=start, payType=pay_type)
@@ -9994,6 +9997,35 @@ def _month_bounds(date_str: str):
     return first.isoformat(), (nxt - timedelta(days=1)).isoformat()
 
 
+# Salaried people paid BI-WEEKLY (Charmi, 11/06/2026: "you can be on a fixed
+# salary and still get paid bi-weekly"): Pay & Benefits' Pay Frequency decides
+# the Time Sheet's period - the hourly 14-day period instead of the month -
+# for periods from this date (a pay period start, so nothing is split; every
+# earlier month keeps its monthly card). Contractors invoice by the month.
+BIWEEKLY_SALARY_FROM = "2026-11-01"
+
+
+def _salary_biweekly(db: Session, em: str, anchor: str) -> bool:
+    if _pay_period(anchor)[0] < BIWEEKLY_SALARY_FROM:
+        return False
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == (em or "").lower()).first()
+    if emp is None or (emp.employment_type or "") == "contractor":
+        return False
+    comp = emp.compensation if isinstance(emp.compensation, dict) else {}
+    return comp.get("payBasis") == "salary" and comp.get("frequency") == "biweekly"
+
+
+def _fixed_bounds(db: Session, em: str, anchor: str) -> tuple:
+    """(start, end) of a salaried person's Time Sheet period holding `anchor`:
+    the bi-weekly pay period for a bi-weekly salary, else the calendar month."""
+    return _pay_period(anchor) if _salary_biweekly(db, em, anchor) else _month_bounds(anchor)
+
+
+def _period_of(db: Session, em: str, anchor: str) -> tuple:
+    """(start, end) of anyone's Time Sheet period holding `anchor`."""
+    return _fixed_bounds(db, em, anchor) if _pay_type(db, em) == "fixed" else _pay_period(anchor)
+
+
 def _company_holidays_for_employee(db: Session, em: str, start: str, end: str) -> dict:
     """Dates in [start, end] that are a paid holiday for this employee: on their
     employer's (NexusEmployee.company) calendar, and - for a holiday picked from
@@ -10117,7 +10149,8 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     are never deducted. Future weekdays in the current month don't deduct
     until they've elapsed. No work-week / no hourly OT here. A finalized
     month is pinned to its finalize-time snapshot."""
-    m_start, m_end = _month_bounds(anchor)
+    biweekly = _salary_biweekly(db, em, anchor)
+    m_start, m_end = _pay_period(anchor) if biweekly else _month_bounds(anchor)
     card = _compute_timecard(db, em, m_start, m_end, round_min=0)   # grid + worked minutes + segments; no rounding for salary
     rr = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     full_hours = float(getattr(rr, "full_day_hours", 8) or 8) if rr else 8.0
@@ -10207,6 +10240,9 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             late_today = False
 
     holidays = _company_holidays_for_employee(db, em, m_start, m_end)
+    # Weekend pay is an India rule only (Charmi, 11/06/2026): a US salaried
+    # weekend day shows its hours and earns nothing extra.
+    weekend_pay_on = india_contractor_pay.works_in_india(db, em, rate_row=rr)
     missed_full = missed_half = weekend_worked = 0
     leave_days = {"sick": 0, "vacation": 0, "personal": 0}
     # Why each deducted day was missed (Charmi, Oct 15 2026: "Missed days (3
@@ -10241,7 +10277,8 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         is_weekend = dd.weekday() >= 5      # Sat=5, Sun=6
         deduct = bonus = 0.0
         daily_d = _daily_on(ds)             # this day's rate (a raise mid-month lands here)
-        base_pay += _salary_on(ds) / days_in_month
+        # A bi-weekly period pays 1/26 of the year's salary (12 months / 26 periods).
+        base_pay += _salary_on(ds) * 12 / 26 / _PAYPERIOD_DAYS if biweekly else _salary_on(ds) / days_in_month
         hol = holidays.get(ds)
         half_holiday = bool(hol) and hol.get("type") == "half_day" and not is_weekend
         # A HALF-DAY holiday pays for the half they weren't required to work,
@@ -10281,7 +10318,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                 # worked, never a typed amount (an open punch earns the floor
                 # until the clock-out lands).
                 status = "weekend_worked"; weekend_worked += 1
-                bonus = _weekend_pay(daily_d, work_min, full_hours, currency)
+                bonus = _weekend_pay(daily_d, work_min, full_hours, currency) if weekend_pay_on else 0.0
             else:
                 status = "weekend"
         elif has_open and ds >= today:
@@ -10370,6 +10407,9 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     card["workingDaysInYear"] = working_days
     card["weekendMultiplier"] = _WEEKEND_MULT
     card["weekendFloor"] = _WEEKEND_FLOOR.get(currency, 0.0)
+    # False: no weekend pay line or "Weekend OT" words. A finalized month that
+    # was paid a weekend bonus keeps showing it.
+    card["weekendPay"] = bool((weekend_pay_on and _icp is None) or weekend_bonus)
     card["fullDayHours"] = full_hours
     card["bands"] = {"fullMin": FULL_MIN, "halfMin": HALF_MIN}
     card["fixedDays"] = fixed_days
@@ -10390,6 +10430,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     _add_advance_repayments(card, card["totals"], db, em, m_start, m_end)
     card["periodStart"], card["periodEnd"] = m_start, m_end
     card["periodDays"] = days_in_month
+    card["periodKind"] = "biweekly" if biweekly else "month"
     if _icp is not None:
         # The Month-End Reconciliation the card, the PDF and the invoice show
         # (keys only on an in-scope card - every other card is unchanged).

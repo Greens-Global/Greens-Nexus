@@ -4861,6 +4861,10 @@ def get_compensation(eid: str, user: dict = Depends(require_comp_read_or_manager
 #    and the "Pay & Benefits" compensation record mirror each other's pay amount /
 #    basis / currency, so the two never disagree. Benefits + bank stay only on comp;
 #    weekend OT stays only on the rate. Each syncs the OTHER table directly (no loop).
+# Pay-frequency salary paid per month: monthly = base x this.
+_SALARY_PER_MONTH = {"monthly": 1.0, "semimonthly": 2.0, "biweekly": 26 / 12, "weekly": 52 / 12}
+
+
 def sync_comp_from_rate(db: Session, email: str) -> None:
     """Inline Payroll wage saved → reflect it in the Pay & Benefits record."""
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == (email or "").lower()).first()
@@ -4869,8 +4873,11 @@ def sync_comp_from_rate(db: Session, email: str) -> None:
         return
     comp = dict(emp.compensation or {})
     if (getattr(rate, "pay_type", "hourly") or "hourly") == "fixed":
-        comp["payBasis"], comp["frequency"] = "salary", "monthly"
-        comp["base"] = getattr(rate, "monthly_salary", 0) or 0
+        # Keep a salary's own pay frequency (a bi-weekly salary decides its Time
+        # Sheet's period, 11/06/2026); the base is per that frequency.
+        freq = comp.get("frequency") if comp.get("payBasis") == "salary" and comp.get("frequency") in _SALARY_PER_MONTH else "monthly"
+        comp["payBasis"], comp["frequency"] = "salary", freq
+        comp["base"] = round((getattr(rate, "monthly_salary", 0) or 0) / _SALARY_PER_MONTH[freq], 2)
     else:
         comp["payBasis"] = "hourly"
         comp["base"] = getattr(rate, "hourly_rate", 0) or 0
@@ -4950,8 +4957,7 @@ def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
         row.pay_type, row.hourly_rate, row.monthly_salary = "hourly", base, 0.0
     elif basis == "salary":
         # base is per the pay frequency - normalize to a MONTHLY figure for the timecard.
-        mult = {"monthly": 1.0, "semimonthly": 2.0, "biweekly": 26 / 12, "weekly": 52 / 12}.get(
-            comp.get("frequency", "monthly"), 1.0)
+        mult = _SALARY_PER_MONTH.get(comp.get("frequency", "monthly"), 1.0)
         row.pay_type, row.monthly_salary, row.hourly_rate = "fixed", round(base * mult, 2), 0.0
     else:
         # daily / fixed_fee have NO timecard pay model - zero the timecard pay so it
