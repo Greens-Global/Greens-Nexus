@@ -3089,9 +3089,13 @@ def export_iif(start: str = "", end: str = "", company: str = "", email: str = "
         "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS",
     ]
     book = payroll_codes.codebook(db)
+    no_job = payroll_codes.blank_job_reader(db)
     for r in rows:
         card = _compute_timecard(db, r["email"], start, end)
         name = _clean(r["name"])
+        # Leave Customer:Job Blank (Charmi, 11/06/2026): the company's QuickBooks
+        # file has no customers for the work sites - JOB blank, not billable.
+        blank_job = no_job(co_of.get((r["email"] or "").lower(), ""))
         # The payroll item names of the employee's company (defaults = the
         # names this file always carried; Payroll Export Codes, Oct 17).
         codes = book(co_of.get((r["email"] or "").lower(), ""))
@@ -3103,7 +3107,7 @@ def export_iif(start: str = "", end: str = "", company: str = "", email: str = "
             # report instead, since one day-total row can't be cleanly divided
             # across jobs without splitting the OT/DT computation.
             day_sites = {_seg_site(s)[1] for s in d.get("segments", []) if _seg_site(s)[0]}
-            job = _clean(next(iter(day_sites))) if len(day_sites) == 1 else ""
+            job = _clean(next(iter(day_sites))) if len(day_sites) == 1 and not blank_job else ""
             billing = "1" if job else "0"
             for mins_key, pay_class in _IIF_PAY_CLASSES:
                 mins = d.get(mins_key, 0)
@@ -10743,7 +10747,9 @@ def _export_codes_out(db: Session, company: str) -> dict:
             # The TIMERHDR's COMPANYCREATETIME (Charmi, 11/03/2026) - off a
             # Timer Lists export of her QuickBooks company file. '' = none;
             # the IIF then carries 0 and QuickBooks may refuse the import.
-            "quickbooksCreateTime": payroll_codes.qb_create_time_override(db, company)}
+            "quickbooksCreateTime": payroll_codes.qb_create_time_override(db, company),
+            # Leave Customer:Job Blank in the IIF (Charmi, 11/06/2026).
+            "quickbooksBlankJob": payroll_codes.blank_job(db, company)}
 
 
 @router.get("/payroll/export-codes")
@@ -10759,6 +10765,8 @@ class ExportCodesIn(BaseModel):
     quickbooksCompanyName: Optional[str] = None
     # None = leave the saved COMPANYCREATETIME alone; '' clears it (Charmi, 11/03/2026).
     quickbooksCreateTime: Optional[str] = None
+    # None = leave the Customer:Job switch alone (Charmi, 11/06/2026).
+    quickbooksBlankJob: Optional[bool] = None
 
 
 @router.put("/payroll/export-codes")
@@ -10775,6 +10783,8 @@ def set_export_codes(body: ExportCodesIn, user: dict = Depends(require_administr
         raise HTTPException(400, str(e))
     if body.quickbooksCompanyName is not None:
         payroll_codes.save_qb_company_name(db, company, body.quickbooksCompanyName, user["email"])
+    if body.quickbooksBlankJob is not None:
+        payroll_codes.save_blank_job(db, company, bool(body.quickbooksBlankJob), user["email"])
     return _export_codes_out(db, company)
 
 

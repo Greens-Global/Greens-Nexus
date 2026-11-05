@@ -5,6 +5,8 @@ import { confirmDiscard } from '../lib/dialogGuard';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 import SaveRow from './SaveRow';
+import { SwitchRow } from './settings/SettingsUI';
+import { parseTimerLists, guessPayItems } from '../lib/qbTimerLists';
 
 // Payroll Export Codes (Neil, Oct 17 2026): the name each pay class carries in
 // the QuickBooks IIF (payroll item) and the Intacct payroll memo, per company.
@@ -49,6 +51,10 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
   const { draft: form, patch, dirty: rawDirty, reset } = useDraft(saved);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');
+  // What the QuickBooks Timer Lists file said (Charmi, 11/06/2026): its
+  // payroll items feed each box's suggestions; null = no file read yet.
+  const [qbFile, setQbFile] = useState(null);
+  const fileRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -92,7 +98,55 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
     } finally { setBusy(''); }
   };
 
-  const anyCustom = (data?.classes || []).some((c) => c.custom) || !!data?.quickbooksCompanyName || !!data?.quickbooksCreateTime;
+  // Leave Customer:Job Blank saves on click (the Settings switch rule); the
+  // saved names travel with it unchanged.
+  const setBlankJob = async (on) => {
+    setBusy('job');
+    try {
+      const next = await api.timeExportCodesSet(company, saved?.codes || {}, undefined, undefined, on);
+      setData(next);
+      toastOk?.(on ? 'Customer:Job will be left blank in the QuickBooks file.' : 'Customer:Job will carry the work site again.');
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not save the switch.');
+    } finally { setBusy(''); }
+  };
+
+  // Fills the boxes from the Timer Lists file; nothing is saved until Save.
+  const readTimerLists = async (file) => {
+    if (!file || !form || !data) return;
+    let text;
+    try {
+      text = typeof file.text === 'function' ? await file.text() : await new Promise((ok, fail) => {
+        const r = new FileReader();
+        r.onload = () => ok(String(r.result || ''));
+        r.onerror = () => fail(r.error);
+        r.readAsText(file);
+      });
+    } catch { toastErr?.('Could not read that file.'); return; }
+    const got = parseTimerLists(text);
+    if (!got.payrollItems.length && !got.createTime) {
+      toastErr?.('That file has no payroll items or create time. Export it from QuickBooks with File > Utilities > Export > Timer Lists.');
+      return;
+    }
+    const guess = guessPayItems(got.payrollItems);
+    const known = new Set(got.payrollItems.map((n) => n.toLowerCase()));
+    // A box keeps a name QuickBooks has; anything else takes the guess.
+    const codes = { ...form.codes };
+    for (const c of data.classes) {
+      const cur = ((codes[c.key] || '').trim() || c.default).toLowerCase();
+      if (guess[c.key] && !known.has(cur)) codes[c.key] = guess[c.key];
+    }
+    patch({ codes, qb: got.companyName || form.qb, qbCreate: got.createTime || form.qbCreate });
+    setQbFile({ ...got, guessed: Object.keys(guess).length });
+  };
+  // A pay class whose name is not a payroll item in the file: QuickBooks refuses it.
+  const missing = (key, def) => {
+    if (!qbFile?.payrollItems?.length) return false;
+    const name = ((form?.codes?.[key] || '').trim() || def).toLowerCase();
+    return !qbFile.payrollItems.some((n) => n.toLowerCase() === name);
+  };
+
+  const anyCustom = (data?.classes || []).some((c) => c.custom) || !!data?.quickbooksCompanyName || !!data?.quickbooksCreateTime || !!data?.quickbooksBlankJob;
   useEffect(() => { if (data && scoped) onOverride?.(anyCustom); }, [data, scoped, anyCustom, onOverride]);
   // Spaces alone are no change: the server trims them away.
   const dirty = rawDirty && JSON.stringify(trimmed(form)) !== JSON.stringify(saved);
@@ -128,14 +182,37 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
         <div style={{ marginTop: 12 }}><SkeletonBlocks count={2} height={36} borderRadius={8} /></div>
       ) : (
         <>
+          {/* Read the payroll item names off her QuickBooks file (Charmi, 11/06/2026). */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 12, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <span style={{ flex: 1, minWidth: 220, fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
+              {qbFile
+                ? (qbFile.payrollItems.length
+                  ? `Read ${qbFile.payrollItems.length} payroll items from QuickBooks${qbFile.guessed ? ` and matched ${qbFile.guessed}` : ''}. Check each box, then Save.`
+                  : 'The file had no payroll items, only the company details. Type the names as QuickBooks shows them under Lists > Payroll Item List.')
+                : 'In QuickBooks Desktop: File > Utilities > Export > Timer Lists, then read that file here. Nexus fills in the payroll item names, the company name and the create time from it.'}
+            </span>
+            <input ref={fileRef} type="file" accept=".iif,.txt" hidden aria-label="QuickBooks Timer Lists file"
+              onChange={(e) => { readTimerLists(e.target.files?.[0]); e.target.value = ''; }} />
+            <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={() => fileRef.current?.click()}>
+              Read QuickBooks File
+            </button>
+          </div>
+          {qbFile?.payrollItems?.length > 0 && (
+            <datalist id="qb-payroll-items">
+              {qbFile.payrollItems.map((n) => <option key={n} value={n} />)}
+            </datalist>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 10, marginTop: 12 }}>
             {data.classes.map((c) => (
               <label key={c.key} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--muted)' }}>
                 <span>{PAY_CLASS_LABELS[c.key] || c.key}</span>
                 <input className="form-input" type="text" maxLength={data.maxLength || 31} placeholder={c.default}
-                  aria-label={`${PAY_CLASS_LABELS[c.key] || c.key} code`}
+                  aria-label={`${PAY_CLASS_LABELS[c.key] || c.key} code`} list={qbFile?.payrollItems?.length ? 'qb-payroll-items' : undefined}
                   value={form.codes[c.key] || ''} onChange={(e) => patch({ codes: { ...form.codes, [c.key]: e.target.value } })}
                   style={{ fontSize: 12.5 }} />
+                {missing(c.key, c.default) && (
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>Not in this QuickBooks file - needed only if this pay is used</span>
+                )}
               </label>
             ))}
           </div>
@@ -159,6 +236,11 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
               number at the end of its TIMERHDR line. The file is then imported with File &gt; Utilities &gt; Import &gt; Timer Activities.
             </span>
           </label>
+          <div style={{ marginTop: 12 }}>
+            <SwitchRow id="qb-blank-job" title="Leave Customer:Job Blank"
+              desc="Turn on when the QuickBooks file has no customers for the work sites. Each row then carries only the employee, date, hours and payroll item, not billable."
+              checked={!!data.quickbooksBlankJob} disabled={!!busy} onChange={setBlankJob} />
+          </div>
           <SaveRow dirty={dirty} busy={busy === 'save'} onSave={saveDraft} onDiscard={reset}
             onUseDefault={anyCustom ? () => save({}, '', 'reset') : undefined} useDefaultBusy={busy === 'reset'}
             note="Applies to the next QuickBooks and Intacct payroll export." />
