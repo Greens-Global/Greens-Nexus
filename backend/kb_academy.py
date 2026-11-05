@@ -164,7 +164,11 @@ def _quiz_problems(where: str, qs: list, norm_fn) -> list[str]:
 
 def problems(a: Academy) -> list[str]:
     from routers.kb_training import _norm_quiz  # lazy: importing the router needs the app environment
+    import kb_media
     out = list(a.errors)
+
+    def changed(blocks) -> bool:   # the importer stores what sanitize keeps; nothing may be dropped silently
+        return kb_blocks.sanitize(blocks, image_ok=kb_media.is_storage_url) != blocks
     slugs = [c.slug for c in a.courses]
     if a.plan.get("courses") != ORDER or slugs != ORDER:
         out.append(f"plan/course slugs are not the six courses in order: plan={a.plan.get('courses')} courses={slugs}")
@@ -177,6 +181,8 @@ def problems(a: Academy) -> list[str]:
             out.append(f"page {p.slug}: [Greens to fill] left in a page Cubby data can fill")
         if any(t.startswith("> [!") for t in _texts(p.blocks)):
             out.append(f"page {p.slug}: callout written on one line, not converted")
+        if changed(p.blocks):
+            out.append(f"sanitize changes page {p.slug}")
     for c in a.courses:
         if len(c.lessons) > 60:
             out.append(f"{c.slug}: more than 60 lessons")
@@ -190,6 +196,8 @@ def problems(a: Academy) -> list[str]:
             out += [f"{c.slug} {L['title']!r}: banned copy {m.group(0)!r}" for t in texts if (m := _BANNED.search(t))]
             if L["type"] == "text":
                 minutes += kb_blocks.reading_minutes(L["blocks"])
+                if changed(L["blocks"]):
+                    out.append(f"sanitize changes {c.slug} {L['title']!r}")
                 if any(t.startswith("> [!") for t in _texts(L["blocks"])):
                     out.append(f"{c.slug} {L['title']!r}: callout written on one line, not converted")
             elif L["type"] == "page":

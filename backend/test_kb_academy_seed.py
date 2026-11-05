@@ -17,7 +17,7 @@ import kb_academy  # noqa: E402
 import kb_academy_seed  # noqa: E402
 import kb_access  # noqa: E402
 import models  # noqa: E402
-from test_kb_academy_content import _pkg  # noqa: E402  the same minimal package the content test validates
+from kb_academy_testpkg import _pkg  # noqa: E402  the same minimal package the content test validates
 
 ROWS = (models.KbCollection, models.KbDocument, models.KbCourse, models.KbTrainingPlan, models.NexusSetting, models.NexusEmployee)
 
@@ -128,3 +128,15 @@ def test_refuses_invalid_package(_package, monkeypatch):
     monkeypatch.setattr(kb_academy, "problems", lambda a: ["x"])
     assert kb_academy_seed.apply_once(db) is None
     assert all(n == 0 for n in _counts(db).values())
+
+
+def test_unrelated_page_with_same_title_is_not_reused(_package):
+    db = _package
+    db.add(models.KbCollection(id="col_other", name="Other", parent_id="", department="HR"))
+    db.add(models.KbDocument(id="kb_other", title="Gate Codes", status="approved", collection_id="col_other"))
+    db.commit()
+    kb_academy_seed.apply_once(db)
+    page = db.query(models.KbDocument).filter(models.KbDocument.id != "kb_other").one()
+    assert page.title == "Gate Codes" and page.status == "draft"
+    lesson = json.loads(db.query(models.KbCourse).filter(models.KbCourse.title == "Cubby Fundamentals").one().draft)["lessons"][1]
+    assert lesson["docId"] == page.id

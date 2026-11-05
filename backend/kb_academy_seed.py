@@ -6,8 +6,8 @@ nexus_settings. Refuses while kb_academy.problems() finds anything, so a
 half-built academy never lands. Everything it writes is a draft - pages
 `draft`, courses `draft` with their content in `draft`, the plan inactive
 with no rules - for the Operations Manager to review and publish. A
-collection, page, course or plan whose title already exists is left
-untouched (find-or-create by title), so a second worker adds nothing.
+collection, course or plan whose title already exists (a page: inside the
+Academy collection) is left untouched, so a second worker adds nothing.
 Fields mirror routers/kb.py create_page and routers/kb_training.py
 create_course.
 """
@@ -60,7 +60,9 @@ def apply_once(db: Session) -> dict | None:
     from models import KbCourse, KbDocument, KbTrainingPlan, NexusSetting
     import kb_academy
     import kb_access
+    import kb_blocks
     import kb_core
+    import kb_media
     from routers.kb_training import _draft_of, _norm_lessons, _norm_quiz
 
     if db.get(NexusSetting, MARK):
@@ -77,7 +79,8 @@ def apply_once(db: Session) -> dict | None:
 
     page_ids, pages_made = {}, 0
     for p in a.pages.values():
-        d = db.query(KbDocument).filter(KbDocument.title == p.title[:300]).first()
+        # pages are matched inside the Academy only, so an unrelated page elsewhere is never linked
+        d = db.query(KbDocument).filter(KbDocument.collection_id == col.id, KbDocument.title == p.title[:300]).first()
         if d is None:
             pt = p.page_type if p.page_type in kb_core.PAGE_TYPES else "how_to"
             d = KbDocument(id=kb_core.new_id("kb"), doc_code="", title=p.title[:300],
@@ -91,7 +94,7 @@ def apply_once(db: Session) -> dict | None:
                            original_title="", original_content="", page_type=pt, collection_id=col.id,
                            summary=(p.summary or "")[:300], major=0, minor=1, published_at="", audience="",
                            signing="in_page", translations="", migrated_at=kb_core.now())
-            kb_core.set_content(d, p.blocks)
+            kb_core.set_content(d, kb_blocks.sanitize(p.blocks, image_ok=kb_media.is_storage_url))
             kb_core.set_departments(d, [DEPT])
             kb_core.assign_code(db, d)
             db.add(d)

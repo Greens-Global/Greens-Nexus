@@ -2,7 +2,6 @@
 import json
 import os
 import tempfile
-from pathlib import Path
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
@@ -13,6 +12,7 @@ os.environ.setdefault("NEXUS_RATE_LIMIT", "off")
 import pytest  # noqa: E402
 
 import kb_academy  # noqa: E402
+from kb_academy_testpkg import _pkg, _q  # noqa: E402
 
 SLUGS = kb_academy.ORDER
 
@@ -21,34 +21,6 @@ SLUGS = kb_academy.ORDER
 def _no_pinned_minimums(monkeypatch):
     # the minimal package is tiny; the pinned-minimum tests restore the real values
     monkeypatch.setattr(kb_academy, "MIN_READING", dict.fromkeys(SLUGS, 0))
-
-
-def _q(i):
-    return {"type": "single", "q": f"Question {i}?", "options": ["A", "B"], "answer": [0], "explanation": "Because."}
-
-
-def _pkg(tmp_path: Path, mutate=None) -> Path:
-    cfg = {"plan": {"name": "P", "description": "d", "due_days": 30, "courses": list(SLUGS)},
-           "page": "---\ntitle: Gate Codes\nsummary: s\npage_type: policy\ntags: a, b\n---\n\n## Codes\n\nText.\n",
-           "lesson": "---\ntitle: Welcome Aboard\nsummary: s\n---\n\n## Hi\n\nHello there.\n",
-           "lessons": [{"file": "01.md"}, {"page": "gate-codes", "title": "Gate Codes", "summary": "s"},
-                       {"checkpoint": "Checkpoint: One", "questions": [_q(1), _q(2)]}],
-           "quiz": {"passPct": 80, "drawCount": 25, "maxTries": 3, "questions": [_q(i) for i in range(45)]}}
-    if mutate:
-        mutate(cfg)
-    (tmp_path / "pages").mkdir()
-    (tmp_path / "pages" / "gate-codes.md").write_text(cfg["page"], encoding="utf-8")
-    (tmp_path / "plan.json").write_text(json.dumps(cfg["plan"]), encoding="utf-8")
-    for n, slug in enumerate(SLUGS, 1):
-        d = tmp_path / "courses" / f"{n:02d}-{slug}"
-        (d / "lessons").mkdir(parents=True)
-        (d / "lessons" / "01.md").write_text(cfg["lesson"], encoding="utf-8")
-        c = {"slug": slug, "title": "Course", "description": "d", "overview": ["o"], "est_minutes": kb_academy.EST_MINUTES[slug], "delivery": "online",
-             "min_reading_minutes": 0, "lessons": cfg["lessons"], "quiz": cfg["quiz"]}
-        if slug == "hands-on-check":
-            c.update(delivery="in_person", quiz={})
-        (d / "course.json").write_text(json.dumps(c), encoding="utf-8")
-    return tmp_path
 
 
 def _probs(tmp_path, mutate=None):
@@ -159,3 +131,13 @@ def test_tf_options(tmp_path):
     (tmp_path / "b").mkdir()
     assert _probs(tmp_path / "a", lambda c: c["quiz"]["questions"].__setitem__(0, dict(tf))) == []
     _has(_probs(tmp_path / "b", lambda c: c["quiz"]["questions"].__setitem__(0, dict(tf, options=["Yes", "No"]))), "normalizer changes")
+
+
+def test_sanitize_changes_are_reported(tmp_path):
+    a = kb_academy.load(_pkg(tmp_path))
+    img = {"type": "image", "attrs": {"src": "data:image/png;base64,AAAA", "alt": "Gate"}}
+    a.pages["gate-codes"].blocks["content"].append(img)
+    a.courses[0].lessons[0]["blocks"]["content"].append(dict(img))
+    probs = kb_academy.problems(a)
+    _has(probs, "sanitize changes page gate-codes")
+    _has(probs, "sanitize changes nexus-fundamentals 'Welcome Aboard'")
