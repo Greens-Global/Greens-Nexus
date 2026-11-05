@@ -11668,16 +11668,82 @@ def _pay_premiums_for(db: Session, em: str, rate_row, fin_snap=None) -> dict:
     return cfg
 
 
+_RANGE_MAX_DAYS = 366
+
+
+def _sub_rollup(rows: list, lead: list, key) -> list:
+    """byCategory / byLocation minus the lead-in days' share (the rows hold
+    workedMin + pay); a row left with nothing is dropped."""
+    out = {key(r): dict(r) for r in rows}
+    for r in lead:
+        a = out.get(key(r))
+        if a is not None:
+            a["workedMin"] = a.get("workedMin", 0) - r.get("workedMin", 0)
+            a["pay"] = round(a.get("pay", 0) - r.get("pay", 0), 2)
+    return sorted((a for a in out.values() if a["workedMin"] or a["pay"]), key=lambda x: -x["workedMin"])
+
+
+def _range_card(db: Session, em: str, start: str, end: str) -> dict:
+    """A custom date range on an hourly Time Sheet (Neil, 11/05/2026) - a VIEW,
+    never a pay period. Overtime is decided per Sunday-Saturday week, so the
+    card is worked out from the Sunday on or before `start` and the lead-in days
+    (that Sunday to the day before `start`) are taken back out: the lead card's
+    figures are exactly those days' share, because a day's overtime split only
+    depends on the days before it in its week. Advance repayments belong to a
+    pay period and are left off."""
+    try:
+        d0, d1 = datetime.strptime(start, "%Y-%m-%d"), datetime.strptime(end, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Pick a From and a To date.")
+    if d1 < d0:
+        raise HTTPException(400, "The To date is before the From date.")
+    if (d1 - d0).days + 1 > _RANGE_MAX_DAYS:
+        raise HTTPException(400, "A custom range can be up to one year.")
+    wk = _week_start_str(start)
+    card = _compute_timecard(db, em, wk, end)
+    if wk < start:
+        lead = _compute_timecard(db, em, wk, (d0 - timedelta(days=1)).strftime("%Y-%m-%d"))
+        t = card["totals"]
+        for k, v in lead["totals"].items():
+            tv = t.get(k)
+            if isinstance(v, bool) or isinstance(tv, bool) or not isinstance(v, (int, float)) or not isinstance(tv, (int, float)):
+                continue
+            t[k] = round(tv - v, 2) if isinstance(tv, float) or isinstance(v, float) else tv - v
+        card["days"] = [d for d in card["days"] if d["date"] >= start]
+        card["pendingRequests"] = [r for r in card.get("pendingRequests") or [] if (r.get("localDate") or "") >= start]
+        if "bonuses" in card:
+            card["bonuses"] = [b for b in card["bonuses"] if (b.get("date") or "") >= start]
+        card["byCategory"] = _sub_rollup(card.get("byCategory") or [], lead.get("byCategory") or [], lambda r: r.get("category"))
+        card["byLocation"] = _sub_rollup(card.get("byLocation") or [], lead.get("byLocation") or [],
+                                         lambda r: r.get("workSiteId") or r.get("workSite"))
+    card.pop("advanceRepayments", None)
+    card["totals"].pop("advanceRepayment", None)
+    card["totals"].pop("netPay", None)
+    card["start"], card["end"] = start, end
+    card["customRange"] = {"start": start, "end": end}
+    return card
+
+
 @router.get("/payroll")
-def payroll_timecard(email: str, start: str, end: str,
+def payroll_timecard(email: str, start: str, end: str, custom: bool = False,
                      user: dict = Depends(require_team_read),
                      _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """Manager timecard (incl. $ pay) for one employee - requires a fresh step-up
-    MFA (require_stepup). See _compute_timecard."""
+    MFA (require_stepup). See _compute_timecard. `custom=true` is a custom
+    date range on an hourly card (_range_card): a view with no review, sign-off
+    or invoice; a fixed-salary person still gets their month."""
     em = email.strip().lower()
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
+    if custom and _pay_type(db, em) != "fixed":
+        card = _range_card(db, em, start, end)
+        if em == (user.get("email") or "").lower():
+            for _d in card.get("days") or []:
+                _d.pop("meal", None)
+        card["notes"] = _timecard_notes(db, em, start, end)
+        card["zoneKey"] = _employee_zone_key(db, em)
+        return _no_pay(db, user, card)
     if _pay_type(db, em) == "fixed":
         # Fixed-salary employees are paid by the calendar month; `start` anchors it.
         card = _fixed_card(db, em, start or _employee_today(db, em))

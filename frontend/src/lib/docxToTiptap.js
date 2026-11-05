@@ -276,7 +276,7 @@ function runPropsFrom(rPr, inherited = {}, theme = null) {
   return out;
 }
 
-function marksFor(props, link) {
+function marksFor(props, link, change = null) {
   const marks = [];
   if (props.bold) marks.push({ type: 'bold' });
   if (props.italic) marks.push({ type: 'italic' });
@@ -292,6 +292,7 @@ function marksFor(props, link) {
   if (Object.keys(textStyleAttrs).length) marks.push({ type: 'textStyle', attrs: textStyleAttrs });
   if (props.highlight) marks.push({ type: 'highlight', attrs: { color: props.highlight } });
   if (link) marks.push({ type: 'link', attrs: { href: link } });
+  if (change) marks.push(change);   // a tracked insertion / deletion (Review > Track Changes)
   return marks;
 }
 
@@ -440,6 +441,40 @@ function dataUriOf(bytes, mime) {
 // each one came in fifteen times too big and shoved the text around it.
 const EMU_PER_PX = 9525; // 914400 EMU per inch / 96 CSS px per inch
 
+// Word's own picture format, kept as the editor's attrs (Pranshu,
+// 11/05/2026: "the format is maintained"): a:srcRect is the crop in
+// thousandths of a percent, a:xfrm carries rot (60000ths of a degree) and
+// the flips, a:ln the border, and wp:anchor's wrap says how text goes
+// around it. The exporter writes the same elements back.
+function pictureFormatFrom(drawingEl) {
+  const out = {};
+  const src = els(drawingEl, 'a', 'srcRect')[0];
+  if (src) {
+    const pct = (k) => (parseInt(src.getAttribute(k), 10) || 0) / 1000;
+    const crop = { top: pct('t'), right: pct('r'), bottom: pct('b'), left: pct('l') };
+    if (Object.values(crop).some(Boolean)) out.crop = crop;
+  }
+  const xfrm = els(drawingEl, 'a', 'xfrm')[0];
+  if (xfrm) {
+    const rot = Math.round((parseInt(xfrm.getAttribute('rot'), 10) || 0) / 60000) % 360;
+    if (rot) out.rotation = rot;
+    if (xfrm.getAttribute('flipH') === '1') out.flipH = true;
+    if (xfrm.getAttribute('flipV') === '1') out.flipV = true;
+  }
+  const ln = els(drawingEl, 'a', 'ln')[0];
+  const clr = ln && !els(ln, 'a', 'noFill').length ? els(ln, 'a', 'srgbClr')[0] : null;
+  if (clr && /^[0-9a-f]{6}$/i.test(clr.getAttribute('val') || '')) out.borderColor = `#${clr.getAttribute('val').toLowerCase()}`;
+  const anchor = els(drawingEl, 'wp', 'anchor')[0];
+  if (anchor) {
+    if (els(anchor, 'wp', 'wrapNone').length) out.wrapMode = anchor.getAttribute('behindDoc') === '1' ? 'behind' : 'front';
+    else if (els(anchor, 'wp', 'wrapSquare').length || els(anchor, 'wp', 'wrapTight').length) {
+      const align = els(els(anchor, 'wp', 'positionH')[0], 'wp', 'align')[0];
+      out.wrapMode = align && align.textContent.trim() === 'right' ? 'squareRight' : 'square';
+    }
+  }
+  return out;
+}
+
 function drawingSizePx(drawingEl) {
   const extent = els(drawingEl, 'wp', 'extent')[0] || els(drawingEl, 'a', 'ext')[0];
   if (!extent) return null;
@@ -533,7 +568,7 @@ async function runToNodes(runEl, styleRunProps, link, ctx, state) {
   const rStyleId = rStyleEl && attr(rStyleEl, 'w', 'val');
   const inherited = rStyleId ? resolvedRunProps(rStyleId, ctx.styles, styleRunProps) : styleRunProps;
   const props = runPropsFrom(rPr, inherited, ctx.styles.theme);
-  const marks = marksFor(props, link || state.fieldLink);
+  const marks = marksFor(props, link || state.fieldLink, state.change);
   const pushText = (text) => {
     if (!text) return;
     const t = props.caps ? text.toUpperCase() : text;
@@ -550,13 +585,13 @@ async function runToNodes(runEl, styleRunProps, link, ctx, state) {
         const m = /^\s*HYPERLINK\s+"([^"]+)"/i.exec(state.instr || '');
         state.fieldLink = m ? m[1] : null;
         if (/^\s*(PAGE|NUMPAGES|SECTIONPAGES)\b/i.test(state.instr || '')) state.pageField = true;
-        marks.length = 0; marks.push(...marksFor(props, link || state.fieldLink));
-      } else if (kind === 'end') { state.field = null; state.instr = ''; state.fieldLink = null; marks.length = 0; marks.push(...marksFor(props, link)); }
+        marks.length = 0; marks.push(...marksFor(props, link || state.fieldLink, state.change));
+      } else if (kind === 'end') { state.field = null; state.instr = ''; state.fieldLink = null; marks.length = 0; marks.push(...marksFor(props, link, state.change)); }
     } else if (tag === 'instrText') {
       state.instr = (state.instr || '') + child.textContent;
     } else if (state.field === 'instr') {
       // Between begin and separate there is only the field code; nothing to show.
-    } else if (tag === 't') {
+    } else if (tag === 't' || tag === 'delText') {
       if (!state.pageField) pushText(child.textContent);
     } else if (tag === 'tab') {
       pushText('    ');
@@ -573,7 +608,7 @@ async function runToNodes(runEl, styleRunProps, link, ctx, state) {
       const rId = (blip && blip.getAttributeNS(NS.r, 'embed')) || (imagedata && imagedata.getAttributeNS(NS.r, 'id'));
       const size = tag === 'drawing' ? drawingSizePx(child) : vmlSizePx(child);
       const img = rId ? await imageNodeFor(rId, size, ctx) : null;
-      if (img) nodes.push(img);
+      if (img) { Object.assign(img.attrs, pictureFormatFrom(child)); nodes.push(img); }
       else {
         const box = await textboxFrom(child, size, ctx);
         if (box) after.push(box);
@@ -611,9 +646,17 @@ async function inlineNodes(parentEl, styleRunProps, link, ctx, state) {
       const m = /^\s*HYPERLINK\s+"([^"]+)"/i.exec(instr);
       const r = await inlineNodes(child, styleRunProps, (m && m[1]) || link, ctx, state);
       nodes.push(...r.nodes); after.push(...r.after);
-    } else if (isW(child, 'del') || isW(child, 'moveFrom')) {
-      ctx.stats.deletions = (ctx.stats.deletions || 0) + 1;
-    } else if (isW(child, 'ins') || isW(child, 'moveTo') || isW(child, 'smartTag') || isW(child, 'customXml') || isW(child, 'dir') || isW(child, 'bdo')) {
+    } else if (isW(child, 'del') || isW(child, 'moveFrom') || isW(child, 'ins') || isW(child, 'moveTo')) {
+      // A tracked change comes in as one (Review > Track Changes), author and
+      // date kept, so Accept / Reject work on it here too.
+      const type = isW(child, 'del') || isW(child, 'moveFrom') ? 'deletion' : 'insertion';
+      if (type === 'deletion') ctx.stats.deletions = (ctx.stats.deletions || 0) + 1;
+      const prev = state.change;
+      state.change = { type, attrs: { author: attr(child, 'w', 'author') || '', name: attr(child, 'w', 'author') || '', at: attr(child, 'w', 'date') || '' } };
+      const r = await inlineNodes(child, styleRunProps, link, ctx, state);
+      state.change = prev;
+      nodes.push(...r.nodes); after.push(...r.after);
+    } else if (isW(child, 'smartTag') || isW(child, 'customXml') || isW(child, 'dir') || isW(child, 'bdo')) {
       const r = await inlineNodes(child, styleRunProps, link, ctx, state);
       nodes.push(...r.nodes); after.push(...r.after);
     } else if (isW(child, 'sdt')) {
@@ -959,7 +1002,7 @@ export async function convertDocxToTiptap(file, { uploadImage } = {}) {
   const warnings = [];
   const footnotes = await countFootnotes(readText);
   if (footnotes) warnings.push(`${footnotes} footnote${footnotes === 1 ? '' : 's'} could not be brought in - the editor has no footnotes.`);
-  if (ctx.stats.deletions) warnings.push('Tracked changes were imported as accepted.');
+  if (ctx.stats.deletions) warnings.push('Tracked changes came in as changes: accept or reject them on the Review tab.');
   if (ctx.imgCounter.dropped) warnings.push(`${ctx.imgCounter.dropped} picture${ctx.imgCounter.dropped === 1 ? '' : 's'} could not be read.`);
   if (ctx.stats.pageNumberLines) warnings.push('Page numbers come from Nexus and were left out of the header and footer.');
 

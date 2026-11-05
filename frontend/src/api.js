@@ -1811,7 +1811,7 @@ export const api = {
   timeShiftGroupMembers: (id, data) => req(`/timeclock/shift-groups/${id}/members`, { method: 'POST', body: JSON.stringify(data) }),
   timeShiftGroupMeta: (id, data)  => req(`/timeclock/shift-groups/${id}/meta`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeShiftGroupReorder: (ids)    => req('/timeclock/shift-groups/reorder', { method: 'POST', body: JSON.stringify({ ids }) }),
-  timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
+  timePayroll:       (email, start, end, custom = false) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}${custom ? '&custom=true' : ''}`),
   timeAutoLunchSet:  (data, company = '') => req(`/timeclock/payroll/autolunch${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   timeRoundingSet:   (data, company = '') => req(`/timeclock/payroll/rounding${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   // Break policy: CA paid rest breaks + long/unended-break flags (Charmi, Aug 21)
@@ -1898,6 +1898,8 @@ export const api = {
   // ── Documents (DMS) - Phase 4: PDF/DOCX export with merge resolution ──
   exportDocumentPdf:  (id) => reqBlob(`/documents/${id}/export/pdf`),
   exportDocumentDocx: (id) => reqBlob(`/documents/${id}/export/docx`),
+  // Open in Word (Nov 2026): a signed path Word on the computer fetches with no sign-in.
+  documentWordLink: (id) => req(`/documents/word-link/${encodeURIComponent(id)}`, { method: 'POST' }),
 
   // ── Documents (DMS) - Phase 6: cross-module search + version content ──
   searchDocuments:    (q)         => req(`/documents/search?q=${encodeURIComponent(q)}`),

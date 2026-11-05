@@ -13,6 +13,7 @@ import Highlight from '@tiptap/extension-highlight';
 import { MergeField, PageBreak, DocShape, DocTextbox, ResizableImage, Bookmark, SectionBox, SignatureBlock } from './docBuilderExtensions';
 import { boldTextNode } from './markdownBold';
 import { CommentMark } from './docCommentMark';
+import { TrackChanges } from './docTrackChanges';
 
 // Word-style cell shading - TipTap's stock TableCell/TableHeader carry no
 // background-color attribute, so both are extended identically with one
@@ -143,6 +144,8 @@ export const BODY_EXTENSIONS = [
   Link.configure({ openOnClick: false, autolink: true }),
   // The anchor of a comment thread (Review tab); the words live on the server.
   CommentMark,
+  // Track Changes (Review tab): the insertion / deletion marks and the tracker.
+  TrackChanges,
 ];
 
 // ── Structural repair ────────────────────────────────────────────────────────
