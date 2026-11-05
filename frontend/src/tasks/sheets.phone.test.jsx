@@ -440,10 +440,13 @@ describe('Back closes the top sheet on a phone', () => {
     expect(window.location.pathname).toBe('/tasks');
     // One Back: the previous screen, and the stale entry is stepped over.
     await act(async () => { window.history.back(); });
-    await settle();
-    expect(screen.getByTestId('view').textContent).toBe('tickets');
+    // Two traversals (Back, then the hop over the stale entry), each a pair of
+    // chained jsdom timers: more than settle() allows on a coarse Windows clock.
+    await waitFor(() => {
+      expect(screen.getByTestId('view').textContent).toBe('tickets');
+      expect(window.history.state?.nxSheet).toBeUndefined();
+    });
     expect(window.location.pathname).toBe('/tickets');
-    expect(window.history.state?.nxSheet).toBeUndefined();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
@@ -512,11 +515,11 @@ describe('Back closes the top sheet on a phone', () => {
     window.history.pushState({ depth: 3, fromLabel: 'Home', nxSheet: { id: 'gone#1', uid: 'gone', idx: 1, path: '/tickets' } }, '');
     window.history.pushState(liveEntry, '');
     await act(async () => { window.history.back(); });
-    await settle();
-    await settle();
+    // Three traversals (Back, the hop over the stale entry, then over the
+    // drawer's own), each a pair of chained jsdom timers: wait for the state.
+    await waitFor(() => expect(window.history.state).toEqual({ depth: 3, fromLabel: 'Home' }));
     expect(screen.queryByRole('dialog', { name: 'Drawer' })).toBeNull();
     expect(appPop).not.toHaveBeenCalled();
-    expect(window.history.state).toEqual({ depth: 3, fromLabel: 'Home' });
   });
 
   it('a landscape phone (touch, wider than 640px) also closes the Modal on Back', async () => {
