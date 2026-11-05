@@ -44,6 +44,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import HelpCenterSearch from '../support/HelpCenterSearch';
 import HowDoI from '../support/HowDoI';
 import ExpectReply from '../support/ExpectReply';
+import PageTrail from '../components/PageTrail';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab. The
@@ -590,6 +591,7 @@ export default function Support({ activeSub, onSubChange }) {
       ) : (<>
       <div className="view-header">
         <div className="view-title-group">
+          <PageTrail title="Help Center" />
           <h2>Help Center</h2>
           <p>Get help across Nexus</p>
         </div>

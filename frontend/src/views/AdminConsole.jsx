@@ -113,6 +113,7 @@ import PayrollExportCodes from '../components/PayrollExportCodes';
 import PayPremiums from '../components/PayPremiums';
 import IndiaContractorPolicySettings from '../components/IndiaContractorPolicySettings';
 import { SwitchRow, NumberBox } from '../components/settings/SettingsUI';
+import PageTrail from '../components/PageTrail';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
 // admin actually opens that subject. One dynamic import per home module,
@@ -2430,6 +2431,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
             <Settings2 size={19} />
           </span>
           <div className="view-title-group">
+            <PageTrail title="Settings" />
             <h2 style={{ fontFamily: 'var(--wk-font)' }}>Settings</h2>
             <p>Configure Nexus for every company or for one, and manage who can access what.</p>
           </div>

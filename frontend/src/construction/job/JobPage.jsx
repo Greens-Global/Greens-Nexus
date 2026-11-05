@@ -29,6 +29,7 @@ import FieldTab from './FieldTab';
 import MoneyLine from './MoneyLine';
 import { useJobMoney } from '../lib/money';
 import { prefetchJob } from '../constructionOffline';
+import PageTrail, { useTrailCrumbs } from '../../components/PageTrail';
 
 const ScheduleTab = lazy(() => import('./ScheduleTab'));
 // Field and Closeout (11/03/2026, phase 3): each its own chunk, beyond the
@@ -215,6 +216,8 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
   // Keep what the field needs on the phone while there is signal (the punch
   // list, today's log prefill, the photos, the changes) - offline tomorrow.
   useEffect(() => { prefetchJob(project); }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // CONSTRUCTION / PROJECT DASHBOARD over the job's name (the page trail).
+  useTrailCrumbs([{ label: 'Project Dashboard', onClick: onBack }]);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }} data-job-page={project.id}>
@@ -224,6 +227,7 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
             <ArrowLeft size={16} />
           </button>
           <div className="view-title-group" style={{ minWidth: 0 }}>
+            <PageTrail title={project.name} />
             <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ overflowWrap: 'anywhere' }}>{project.name}</span>
               <StatusLabel size="sm" label={type.label} color={type.color} />
