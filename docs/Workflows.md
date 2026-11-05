@@ -61,7 +61,8 @@ What a step can DO comes from the catalog. Messages (Core): Send A
 Notification (the bell, pushed to phones), Send An Email, **Send A Text
 Message** (11/05/2026), Post To Teams and Call A Webhook (Super
 Administrators). Records: the HR actions (Start An HR Checklist, Request An
-HR Letter, Set A Custom Field, Add A Note To The Record), the Tasks and
+HR Letter, Set A Custom Field, **Set A Person Detail** (11/05/2026, see
+below), Add A Note To The Record), the Tasks and
 Tickets actions (create, comment, assign, set a field or status, request
 approval) and **Assign A Training Course** (Knowledge Base, 11/05/2026).
 
@@ -117,10 +118,12 @@ wall. Someone who already has the course keeps it as it is.
 Not offered on purpose: approving or rejecting time off (nothing approves
 by code), deciding probation (a manager recommends, HR finalizes) and
 sending a Nexus Sign envelope (the signing order and the excluded-document
-acknowledgment are a person's call). Shifts, time off requests,
-announcements and a person's own fields have no service function a
-workflow can call yet - their logic lives in the routes - so they wait for
-one rather than get a second write path.
+acknowledgment are a person's call). Shifts, time off requests and
+announcements have no service function a workflow can call yet - their
+logic lives in the routes - so they wait for one rather than get a second
+write path. A person's own fields got theirs on 11/05/2026
+(`routers/hr.apply_profile_update`, used by both the People save and Set A
+Person Detail).
 
 Text fields take fields from the record through Insert Field - nobody types
 `{{ subject.name }}` by hand. The right rail holds Settings, Test and
