@@ -21,6 +21,8 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 MONTHS = ["January", "February", "March", "April", "May", "June",
           "July", "August", "September", "October", "November", "December"]
@@ -539,9 +541,27 @@ def suggest_learned(file_name: str, source_folder: str,
 _PRECISION = {"none": 0, "year": 1, "month": 2, "day": 3}
 
 
+def modified_day(value) -> tuple[int, int, int] | None:
+    """Egnyte's last_modified ("Wed, 01 Dec 2021 18:30:00 GMT", or an ISO
+    string / epoch ms on some endpoints) -> (year, month, day), else None."""
+    if value in (None, ""):
+        return None
+    try:
+        if isinstance(value, (int, float)) or str(value).isdigit():
+            n = float(value)
+            dt = datetime.fromtimestamp(n / 1000 if n > 1e11 else n, tz=timezone.utc)
+        elif "," in str(value):
+            dt = parsedate_to_datetime(str(value))
+        else:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+    return dt.year, dt.month, dt.day
+
+
 def propose(file_name: str, source_folder: str, root_ctx: dict,
             maps: Maps, confirmed: dict[str, bool],
-            ignore_exts: set[str] | None = None) -> dict:
+            ignore_exts: set[str] | None = None, modified=None) -> dict:
     """One file -> one proposal dict (JSON-shaped for the API)."""
     out = {
         "sourcePath": f"{source_folder.rstrip('/')}/{file_name}",
@@ -563,6 +583,16 @@ def propose(file_name: str, source_folder: str, root_ctx: dict,
 
     parsed = parse_name(file_name)
     out["reasons"].extend(parsed.warnings)
+    # No date in the name (Visesh, 11/05/2026): the date is Egnyte's last
+    # modified day, so every file still gets a suggested name. Such a row is
+    # never filed automatically - a person checks the date first.
+    dated_by_egnyte = False
+    if not parsed.year:
+        day = modified_day(modified)
+        if day:
+            parsed.year, parsed.month, parsed.day = day
+            dated_by_egnyte = True
+            out["reasons"].append("no date in the name - used Egnyte's last modified date")
     if parsed.year:
         prefix = "#" if parsed.final else ""
         out["canonicalName"] = f"{prefix}{parsed.date_str()} - {parsed.rest or 'Document'}{parsed.ext}"
@@ -620,6 +650,8 @@ def propose(file_name: str, source_folder: str, root_ctx: dict,
 
     if not confirmed.get(route_key, False):
         out["reasons"].append("this document class is not switched on for auto-filing yet (Rules)")
+        return out
+    if dated_by_egnyte:
         return out
 
     out["status"] = "auto"
