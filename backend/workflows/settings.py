@@ -24,11 +24,14 @@ DEFAULTS = {
     "pausedAll": False,
     "pausedBy": "",
     "pausedAt": "",
+    # Send A Text Message (11/05/2026): texts cost money per message, so the
+    # action has its own switch - org default, a company may turn it off.
+    "textMessages": True,
 }
 HARD_RUNS_CAP = 500
 HARD_RECIPIENTS_CAP = 200
 ORG_ONLY = ("nexusRunAs", "webhookHosts", "webhookSecrets", "pausedAll", "pausedBy", "pausedAt")
-COMPANY_KEYS = ("enabled", "ownerDigest", "maxRunsPerHourCap", "maxRecipientsCap")
+COMPANY_KEYS = ("enabled", "ownerDigest", "maxRunsPerHourCap", "maxRecipientsCap", "textMessages")
 
 
 def _now() -> str:
@@ -37,7 +40,7 @@ def _now() -> str:
 
 def _clean(cfg: dict, base: dict) -> dict:
     out = dict(base)
-    for k in ("enabled", "ownerDigest", "nexusRunAs", "pausedAll"):
+    for k in ("enabled", "ownerDigest", "nexusRunAs", "pausedAll", "textMessages"):
         if k in cfg:
             out[k] = bool(cfg[k])
     for k, hard in (("maxRunsPerHourCap", HARD_RUNS_CAP), ("maxRecipientsCap", HARD_RECIPIENTS_CAP)):
@@ -172,4 +175,6 @@ def public(db, company_id: str = "") -> dict:
     out = {k: cfg.get(k) for k in DEFAULTS if k != "webhookSecrets"}
     out["webhookSecretsSet"] = sorted((cfg.get("webhookSecrets") or {}).keys())
     out["override"] = has_override(db, company_id) if company_id else False
+    import sentdm
+    out["textingReady"] = sentdm.configured()     # NEXUS_SENTDM_KEY is set on this server
     return out

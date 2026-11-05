@@ -6812,6 +6812,10 @@ class NexusPersonPref(Base):
     # the one-click link in the email or Profile > Email Settings. ALTER
     # lines in main.py.
     email_optouts = Column(String, default="")
+    # Workflow texts (11/05/2026, workflows/packs/core.py "sms"): 0 = a
+    # workflow's Send A Text Message skips this person. On by default; set in
+    # Profile > Phone Notifications. ALTER lines in main.py.
+    workflow_sms = Column(Integer, default=1)
 
 
 class TaskAutomationRun(Base):

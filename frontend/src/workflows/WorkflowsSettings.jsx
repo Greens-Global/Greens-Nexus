@@ -23,7 +23,7 @@ const RUNS_CAP = 500;
 const RECIPIENTS_CAP = 200;
 
 const pick = (m) => ({
-  enabled: !!m?.enabled, ownerDigest: !!m?.ownerDigest,
+  enabled: !!m?.enabled, ownerDigest: !!m?.ownerDigest, textMessages: m?.textMessages !== false,
   maxRunsPerHourCap: m?.maxRunsPerHourCap ?? RUNS_CAP, maxRecipientsCap: m?.maxRecipientsCap ?? RECIPIENTS_CAP,
   nexusRunAs: !!m?.nexusRunAs, webhookHosts: Array.isArray(m?.webhookHosts) ? [...m.webhookHosts] : [],
 });
@@ -139,6 +139,9 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
         <SwitchRow id={`wf-digest-${company || 'all'}`} title="Owner Digest"
           desc="A Monday email to each workflow owner: last week's runs, failures and what each workflow did most."
           checked={vals.ownerDigest} disabled={off} onChange={flip('ownerDigest')} />
+        <SwitchRow id={`wf-texts-${company || 'all'}`} title="Text Messages"
+          desc={`${company ? 'Off: this company\'s workflows cannot send a text.' : 'The default for every company. Off: Send A Text Message is refused.'} Each text is billed per message; people are texted at the phone on their People record and can turn workflow texts off in their profile.${meta.textingReady === false ? ' Texting is not set up on this server yet, so texts fail until it is.' : ''}`}
+          checked={vals.textMessages} disabled={off} onChange={flip('textMessages')} />
         <SettingRow title="Runs Per Hour Cap"
           desc={`The most runs one workflow may start in an hour before it is paused for attention. A workflow sets its own limit below this; the ceiling is ${RUNS_CAP}.`}
           control={<NumberBox label="Runs per hour cap" min={1} max={RUNS_CAP} unit="runs" disabled={off} value={vals.maxRunsPerHourCap}
@@ -149,7 +152,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
             onChange={(v) => setVals((p) => ({ ...p, maxRecipientsCap: v === '' ? '' : Number(v) }))} />} />
         {orgFace && (
           <SwitchRow id="wf-nexus-run-as" title="Nexus Run-As"
-            desc="Lets a Super Administrator set a workflow to run as Nexus for organization-wide housekeeping. Nexus can only message: notify, email, wait and stop; every module action still needs a person."
+            desc="Lets a Super Administrator set a workflow to run as Nexus for organization-wide housekeeping. Nexus can only message: notify, email, text, wait and stop; every module action still needs a person."
             checked={vals.nexusRunAs} disabled={!isGA || busy} onChange={flip('nexusRunAs')} />
         )}
         {orgFace && (

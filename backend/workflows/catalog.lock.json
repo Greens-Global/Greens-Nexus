@@ -210,6 +210,45 @@
     },
     {
       "adminOnly": false,
+      "key": "kb.assign_course",
+      "label": "Assign A Training Course",
+      "module": "kb",
+      "needsPerson": true,
+      "params": [
+        {
+          "default": null,
+          "hint": "Published courses only",
+          "key": "course",
+          "label": "Course",
+          "max": null,
+          "options": "kb_courses",
+          "required": true,
+          "type": "select"
+        },
+        {
+          "default": null,
+          "hint": "",
+          "key": "to",
+          "label": "Assign To",
+          "max": null,
+          "options": null,
+          "required": true,
+          "type": "recipients"
+        },
+        {
+          "default": null,
+          "hint": "Counted from each person's today. Blank uses the course's own default.",
+          "key": "due_days",
+          "label": "Due In Days",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
       "key": "notify",
       "label": "Send A Notification",
       "module": "core",
@@ -250,6 +289,45 @@
           "hint": "Shows the yellow priority bar",
           "key": "priority",
           "label": "Priority",
+          "max": null,
+          "options": null,
+          "required": false,
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "adminOnly": false,
+      "key": "sms",
+      "label": "Send A Text Message",
+      "module": "core",
+      "needsPerson": false,
+      "params": [
+        {
+          "default": null,
+          "hint": "Texted at the phone on their People record; people who turned texts off are skipped",
+          "key": "to",
+          "label": "To",
+          "max": null,
+          "options": null,
+          "required": true,
+          "type": "recipients"
+        },
+        {
+          "default": null,
+          "hint": "Keep it short: the company name goes first and a link to the record last",
+          "key": "message",
+          "label": "Message",
+          "max": 320,
+          "options": null,
+          "required": true,
+          "type": "template"
+        },
+        {
+          "default": true,
+          "hint": "Adds a link to the record in Nexus",
+          "key": "link",
+          "label": "Include A Link",
           "max": null,
           "options": null,
           "required": false,

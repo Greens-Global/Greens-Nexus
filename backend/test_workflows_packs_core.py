@@ -83,7 +83,7 @@ def _setup():
 @pytest.fixture
 def db():
     s = database.SessionLocal()
-    for m in (models.NexusNotification, models.TicketTeamsMessage, models.NexusSetting):
+    for m in (models.NexusNotification, models.TicketTeamsMessage, models.NexusSetting, models.NexusPersonPref):
         s.query(m).delete()
     s.commit()
     yield s
@@ -266,6 +266,129 @@ def test_teams_not_allowed_for_nexus(db):
         catalog.ACTIONS["teams"].run(ctx, {"to": [{"kind": "self"}], "message": "x"})
     assert catalog.ACTIONS["teams"].needs_person and not catalog.ACTIONS["notify"].needs_person
     assert not catalog.ACTIONS["email"].needs_person and catalog.ACTIONS["webhook"].admin_only
+
+
+# ── text message ─────────────────────────────────────────────────────────────
+@pytest.fixture
+def phones(db):
+    """Priya and Max have phones, Hana has none; restored after the test."""
+    nums = {"e-priya": "(949) 555-0101", "e-max": "+91 98765 43210", "e-hana": ""}
+    for eid, num in nums.items():
+        db.get(models.NexusEmployee, eid).phone = num
+    db.commit()
+    yield
+    for eid in nums:
+        db.get(models.NexusEmployee, eid).phone = ""
+    db.commit()
+
+
+SMS_PARAMS = {"to": [{"kind": "self"}, {"kind": "manager"}, {"kind": "hr_contact"}],
+              "message": "Probation ends {{ subject.start_date | us_date }}"}
+
+
+def _sentdm(monkeypatch, answers=None):
+    import sentdm
+    calls = []
+    monkeypatch.setattr(sentdm, "api_key", lambda: "test-key")
+    answers = list(answers or [])
+
+    def _send(phone, text):
+        calls.append((phone, text))
+        return answers.pop(0) if answers else (True, "")
+    monkeypatch.setattr(sentdm, "send_text", _send)
+    return calls
+
+
+def test_sms_plan_names_who_is_texted_and_who_is_not(db, phones, monkeypatch):
+    _sentdm(monkeypatch)
+    line = catalog.ACTIONS["sms"].plan(_ctx(db), SMS_PARAMS)
+    assert line.startswith("Would text Priya Shah and 1 other: Greens Core: Probation ends 11/12/2026")
+    assert "Not texted: Hana Hill (no phone on file)" in line
+
+
+def test_sms_text_names_the_company_links_the_record_and_is_capped(db):
+    ctx = _ctx(db)
+    text = core.sms_text(ctx, {"message": "Hello  {{ subject.name }}\nsee this"})
+    assert text == "Greens Core: Hello Priya Shah see this Open: https://nexus.test/hr/people:e-priya"
+    assert core.sms_text(ctx, {"message": "Hi", "link": False}) == "Greens Core: Hi"
+    long = core.sms_text(ctx, {"message": "x" * 2000})
+    assert len(long) <= core.SMS_MAX and long.endswith("Open: https://nexus.test/hr/people:e-priya")
+
+
+def test_sms_run_texts_each_phone_once_and_skips_opted_out(db, phones, monkeypatch):
+    monkeypatch.setattr(leader, "is_deployed_worker", lambda: True)
+    calls = _sentdm(monkeypatch)
+    db.add(models.NexusPersonPref(email=MAX, workflow_sms=0))
+    db.commit()
+    ctx = _ctx(db)
+    out = catalog.ACTIONS["sms"].run(ctx, SMS_PARAMS)
+    assert [c[0] for c in calls] == ["+19495550101"]
+    assert out["sent"] == [PRIYA]
+    assert out["line"].startswith("Texted Priya Shah. Not texted: ")
+    assert "Max Miller (texts turned off)" in out["line"] and "Hana Hill (no phone on file)" in out["line"]
+    calls.clear()
+    out = catalog.ACTIONS["sms"].run(ctx, SMS_PARAMS)     # a retry carries the same step_output
+    assert calls == [] and out["sent"] == [PRIYA]
+
+
+def test_sms_outage_is_retried_without_texting_anyone_twice(db, phones, monkeypatch):
+    monkeypatch.setattr(leader, "is_deployed_worker", lambda: True)
+    calls = _sentdm(monkeypatch, answers=[(True, ""), (False, "sent.dm returned 503 busy")])
+    ctx = _ctx(db)
+    with pytest.raises(TransientError):
+        catalog.ACTIONS["sms"].run(ctx, SMS_PARAMS)
+    assert ctx.step_output["sent"] == [PRIYA]
+    calls.clear()
+    out = catalog.ACTIONS["sms"].run(ctx, SMS_PARAMS)
+    assert [c[0] for c in calls] == ["+919876543210"] and out["sent"] == [PRIYA, MAX]
+
+
+def test_sms_bad_number_is_reported_not_retried(db, phones, monkeypatch):
+    monkeypatch.setattr(leader, "is_deployed_worker", lambda: True)
+    _sentdm(monkeypatch, answers=[(True, ""), (False, "sent.dm returned 400 invalid number")])
+    out = catalog.ACTIONS["sms"].run(_ctx(db), SMS_PARAMS)
+    assert out["sent"] == [PRIYA] and out["failed"][0]["email"] == MAX
+    assert "Max Miller (failed: sent.dm returned 400 invalid number)" in out["line"]
+    _sentdm(monkeypatch, answers=[(False, "sent.dm returned 400 a"), (False, "sent.dm returned 400 b")])
+    ctx = _ctx(db)
+    ctx.step_output = {}
+    with pytest.raises(RuntimeError, match="No text went out"):
+        catalog.ACTIONS["sms"].run(ctx, SMS_PARAMS)
+
+
+def test_sms_not_deployed_or_not_set_up_or_switched_off(db, phones, monkeypatch):
+    import sentdm
+    monkeypatch.setattr(leader, "is_deployed_worker", lambda: False)
+    calls = _sentdm(monkeypatch)
+    out = catalog.ACTIONS["sms"].run(_ctx(db), SMS_PARAMS)
+    assert out["line"] == "Text not sent (not the deployed worker)" and calls == []
+    assert out["wouldSend"] == [PRIYA, MAX]
+    monkeypatch.setattr(leader, "is_deployed_worker", lambda: True)
+    monkeypatch.setattr(sentdm, "api_key", lambda: "")
+    with pytest.raises(RuntimeError, match="not set up"):
+        catalog.ACTIONS["sms"].run(_ctx(db), SMS_PARAMS)
+    assert "(texting is not set up on this server)" in catalog.ACTIONS["sms"].plan(_ctx(db), SMS_PARAMS)
+    wf_settings.save(db, ENTITY, {"textMessages": False}, GAIL)
+    db.commit()
+    ctx = _ctx(db)
+    assert catalog.ACTIONS["sms"].allowed(ctx, {}) == "Text messages are turned off in Settings > Workflows"
+    with pytest.raises(PermissionError):
+        catalog.ACTIONS["sms"].run(ctx, SMS_PARAMS)
+    assert wf_settings.get(db, "ent-other")["textMessages"] is True     # one company's switch only
+    assert not catalog.ACTIONS["sms"].needs_person                    # Nexus may text, like it emails
+
+
+def test_profile_switch_turns_workflow_texts_off_and_on(db, phones, monkeypatch):
+    from routers import roles
+    me = {"email": PRIYA.upper(), "role": "employee", "level": 1}
+    assert roles.my_text_prefs(me, db) == {"workflowTexts": True, "phone": True}
+    assert roles.save_my_text_prefs(roles.TextPrefIn(workflowTexts=False), me, db)["workflowTexts"] is False
+    monkeypatch.setattr(leader, "is_deployed_worker", lambda: True)
+    calls = _sentdm(monkeypatch)
+    out = catalog.ACTIONS["sms"].run(_ctx(db), {"to": [{"kind": "self"}], "message": "Hi"})
+    assert calls == [] and "Priya Shah (texts turned off)" in out["line"]
+    assert roles.save_my_text_prefs(roles.TextPrefIn(workflowTexts=True), me, db)["workflowTexts"] is True
+    assert roles.my_text_prefs({"email": HANA}, db) == {"workflowTexts": True, "phone": False}
 
 
 # ── option sources ───────────────────────────────────────────────────────────

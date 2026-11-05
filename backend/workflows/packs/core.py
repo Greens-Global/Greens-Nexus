@@ -3,7 +3,8 @@
 the person, the option sources every builder picker reads (companies,
 departments, locations, ticket departments, HR checklist and letter
 templates) and the core ACTIONS (Task 6): Send A Notification, Send An
-Email, Post To Teams and Call A Webhook. Wait, Stop, If / Else, For Each
+Email, Send A Text Message (11/05/2026), Post To Teams and Call A Webhook.
+Wait, Stop, If / Else, For Each
 and Ask For Approval are STEP KINDS the engine runs itself (the pinned
 definition shape), not actions. The HR pack (Task 9) adds the HR life
 events and actions on top of these registrations.
@@ -372,6 +373,152 @@ action("email", label="Send An Email", module="core",
                P("subject", "Subject", "template", max=200),
                P("body", "Message", "template", max=5000)],
        plan=_email_plan, run=_email_run, needs_person=False)
+
+
+# ── Send A Text Message ──────────────────────────────────────────────────────
+# The ONE SMS client is sentdm.py; a workflow text goes through send_text like
+# a weather call's. Recipients are directory people only (the recipients
+# rule), each texted at the phone on their People record. A person who has
+# turned workflow texts off (nexus_person_prefs.workflow_sms = 0), has no
+# usable number, or is past the cap is skipped and named in the run log.
+# Settings > Workflows > Text Messages (org default, company override) turns
+# the action off; a server without NEXUS_SENTDM_KEY fails the step with a
+# readable reason. Only the deployed worker sends (as Send An Email).
+SMS_MAX = 480          # three SMS segments; the prefix and the link count too
+
+
+def texting_on(ctx) -> bool:
+    from workflows import settings as wf_settings
+    try:
+        return bool(wf_settings.get(ctx.db, ctx.company()).get("textMessages", True))
+    except Exception:   # noqa: BLE001 - a settings read that fails keeps the default (on)
+        return True
+
+
+def _sms_allowed(ctx, params) -> str:
+    if not texting_on(ctx):
+        return "Text messages are turned off in Settings > Workflows"
+    return ""
+
+
+def _sms_targets(ctx, emails: list[str]) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """[(email, phone)] to text and [(email, why)] skipped: no phone on the
+    People record, a number that cannot be dialed, or texts turned off."""
+    import sentdm
+    from sqlalchemy import func
+    if not emails:
+        return [], []
+    emps = (ctx.db.query(models.NexusEmployee)
+            .filter(func.lower(models.NexusEmployee.work_email).in_(emails)).all())
+    phones = {(e.work_email or "").lower(): (e.phone or "").strip() for e in emps}
+    prefs = {(r.email or "").lower(): r for r in
+             ctx.db.query(models.NexusPersonPref).filter(models.NexusPersonPref.email.in_(emails)).all()}
+    send, skipped = [], []
+    for who in emails:
+        pref = prefs.get(who)
+        if pref is not None and pref.workflow_sms is not None and not int(pref.workflow_sms):
+            skipped.append((who, "texts turned off"))
+            continue
+        raw = phones.get(who, "")
+        if not raw:
+            skipped.append((who, "no phone on file"))
+            continue
+        number = sentdm.normalize_phone(raw)
+        if not number:
+            skipped.append((who, "phone number cannot be texted"))
+            continue
+        send.append((who, number))
+    return send, skipped
+
+
+def sms_text(ctx, params) -> str:
+    """The text as it goes out: "<Company>: <message> Open: <link>", cut to
+    SMS_MAX. The company name says who is texting (carriers and people both
+    want the sender named); the link is the record's page in Nexus."""
+    msg = " ".join(_rendered(ctx, params.get("message")).split())
+    who = ""
+    cid = ctx.company()
+    if cid:
+        ent = ctx.db.get(models.HrEntity, cid)
+        who = (getattr(ent, "name", "") or "").strip() if ent is not None else ""
+    head = f"{who or 'Nexus'}: "
+    link = link_url(ctx.subject_link()) if params.get("link", True) else ""
+    tail = f" Open: {link}" if link else ""
+    room = SMS_MAX - len(head) - len(tail)
+    if len(msg) > room:
+        msg = msg[:max(0, room - 3)].rstrip() + "..."
+    return f"{head}{msg}{tail}"
+
+
+def _skipped_note(ctx, skipped: list[tuple[str, str]]) -> str:
+    if not skipped:
+        return ""
+    names = "; ".join(f"{person_name(ctx.db, e)} ({why})" for e, why in skipped[:5])
+    more = f" and {len(skipped) - 5} more" if len(skipped) > 5 else ""
+    return f". Not texted: {names}{more}"
+
+
+def _sms_plan(ctx, params) -> str:
+    import sentdm
+    to, dropped = resolve_to(ctx, params.get("to"))
+    send, skipped = _sms_targets(ctx, to)
+    text = sms_text(ctx, params)
+    setup = "" if sentdm.configured() else " (texting is not set up on this server)"
+    return (f"Would text {_names(ctx, [e for e, _ in send])}: {text[:120]}{_dropped_note(dropped)}"
+            f"{_skipped_note(ctx, skipped)}{setup}")
+
+
+def _sms_run(ctx, params) -> dict:
+    import leader
+    import sentdm
+    reason = _sms_allowed(ctx, params)
+    if reason:
+        raise PermissionError(reason)
+    to, dropped = resolve_to(ctx, params.get("to"))
+    send, skipped = _sms_targets(ctx, to)
+    text = sms_text(ctx, params)
+    if not leader.is_deployed_worker():
+        return {"line": "Text not sent (not the deployed worker)", "sent": [], "affected": [],
+                "wouldSend": [e for e, _ in send], "text": text}
+    if send and not sentdm.configured():
+        raise RuntimeError("Texting is not set up on this server (NEXUS_SENTDM_KEY)")
+    sent = _already_sent(ctx)
+    failed: list[tuple[str, str]] = []
+    retry = ""
+    for who, number in send:
+        if who in sent:
+            continue
+        ok, err = sentdm.send_text(number, text)
+        if ok:
+            sent.append(who)
+            continue
+        # sent.dm down or a 5xx / 429: worth a retry (the people already
+        # texted are in `sent` and are never texted twice); any other answer
+        # is about this number and is reported, not retried
+        if "unreachable" in err or " returned 5" in err or " returned 429" in err:
+            retry = retry or err
+        else:
+            failed.append((who, err[:120]))
+    if retry:
+        raise TransientError(f"Texting failed for now: {retry}")
+    texted = [e for e, _ in send if e in sent]
+    if send and not texted:
+        raise RuntimeError("No text went out: " + "; ".join(f"{person_name(ctx.db, e)}: {why}" for e, why in failed[:3]))
+    line = f"Texted {_names(ctx, texted)}{_dropped_note(dropped)}" if send else "Nobody was texted"
+    line += _skipped_note(ctx, skipped + [(e, f"failed: {why}") for e, why in failed])
+    return {"line": line, "sent": list(sent), "affected": [],
+            "skipped": [{"email": e, "why": why} for e, why in skipped],
+            "failed": [{"email": e, "why": why} for e, why in failed]}
+
+
+action("sms", label="Send A Text Message", module="core",
+       params=[P("to", "To", "recipients",
+                 hint="Texted at the phone on their People record; people who turned texts off are skipped"),
+               P("message", "Message", "template", max=320,
+                 hint="Keep it short: the company name goes first and a link to the record last"),
+               P("link", "Include A Link", "bool", required=False, default=True,
+                 hint="Adds a link to the record in Nexus")],
+       plan=_sms_plan, run=_sms_run, allowed=_sms_allowed, needs_person=False)
 
 
 # ── Post To Teams ────────────────────────────────────────────────────────────

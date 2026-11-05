@@ -57,6 +57,39 @@ page, not a popup, and reads top to bottom as prose:
    Approval show their branches as indented lanes. Drag to reorder, or Move
    Up / Down. A step can be set to **Skip** without deleting it.
 
+What a step can DO comes from the catalog. Messages (Core): Send A
+Notification (the bell, pushed to phones), Send An Email, **Send A Text
+Message** (11/05/2026), Post To Teams and Call A Webhook (Super
+Administrators). Records: the HR actions (Start An HR Checklist, Request An
+HR Letter, Set A Custom Field, Add A Note To The Record), the Tasks and
+Tickets actions (create, comment, assign, set a field or status, request
+approval) and **Assign A Training Course** (Knowledge Base, 11/05/2026).
+
+Send A Text Message texts each recipient at the phone on their People
+record through the one SMS client (`sentdm.py`), as "<Company>: <message>
+Open: <link>", at most 480 characters. Recipients are directory people only,
+like every message. A person with no phone, a number that cannot be texted,
+or workflow texts turned off (Profile > Phone Notifications > Texts From
+Workflows, `nexus_person_prefs.workflow_sms`) is skipped and named in the
+run log. Settings > Workflows > Text Messages turns it off for the
+organization or one company (texts are billed per message). Only the
+deployed worker sends; a server without `NEXUS_SENTDM_KEY` fails the step
+with a readable reason. sent.dm down or a 5xx / 429 retries the step without
+texting anyone twice; any other refusal is reported for that person.
+
+Assign A Training Course is the Training screen's Assign as the owner: the
+owner must be a course author (a manager, or the Knowledge Base editor
+grant), the course published, and each person inside the owner's company
+wall. Someone who already has the course keeps it as it is.
+
+Not offered on purpose: approving or rejecting time off (nothing approves
+by code), deciding probation (a manager recommends, HR finalizes) and
+sending a Nexus Sign envelope (the signing order and the excluded-document
+acknowledgment are a person's call). Shifts, time off requests,
+announcements and a person's own fields have no service function a
+workflow can call yet - their logic lives in the routes - so they wait for
+one rather than get a second write path.
+
 Text fields take fields from the record through Insert Field - nobody types
 `{{ subject.name }}` by hand. The right rail holds Settings, Test and
 Versions. On a new workflow, **Describe It** takes a sentence ("when a
@@ -337,7 +370,7 @@ Every action runs with the owner's identity and the module's own permission
 checks; re-owning a workflow re-validates it against the new owner. A Global
 Admin may set run-as to Nexus (`workflows@nexus`) for organization-wide
 housekeeping when Settings > Workflows > Nexus Run-As is on. Nexus can only
-message: Send A Notification, Send An Email, Wait, Stop, If / Else, For Each
+message: Send A Notification, Send An Email, Send A Text Message, Wait, Stop, If / Else, For Each
 over a list source. Every module action needs a directory person
 (`needs_person=True`), so the builder does not offer them under Nexus and
 Publish refuses a definition that has them. No synthetic privileged identity

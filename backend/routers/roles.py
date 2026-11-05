@@ -224,6 +224,41 @@ def save_my_email_optout(body: EmailOptoutIn, user: dict = Depends(get_current_u
         raise HTTPException(status_code=422, detail=str(e))
 
 
+# Workflow texts (11/05/2026, workflows/packs/core.py "sms"): whether a
+# workflow's Send A Text Message may text this person (on by default), and
+# whether there is a phone on their People record to text. Only ever your own.
+class TextPrefIn(BaseModel):
+    workflowTexts: bool
+
+
+def _text_pref_out(db: Session, email: str) -> dict:
+    from sqlalchemy import func
+    from models import NexusEmployee
+    row = db.get(NexusPersonPref, email)
+    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == email).first()
+    on = row is None or row.workflow_sms is None or bool(int(row.workflow_sms))
+    return {"workflowTexts": on, "phone": bool(emp is not None and (emp.phone or "").strip())}
+
+
+@router.get("/me/text-prefs")
+def my_text_prefs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _text_pref_out(db, (user.get("email") or "").strip().lower())
+
+
+@router.put("/me/text-prefs")
+def save_my_text_prefs(body: TextPrefIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    from datetime import datetime, timezone
+    email = (user.get("email") or "").strip().lower()
+    row = db.get(NexusPersonPref, email)
+    if row is None:
+        row = NexusPersonPref(email=email)
+        db.add(row)
+    row.workflow_sms = 1 if body.workflowTexts else 0
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return _text_pref_out(db, email)
+
+
 @router.get("")
 def get_all_roles(
     user: dict = Depends(require_administrator),

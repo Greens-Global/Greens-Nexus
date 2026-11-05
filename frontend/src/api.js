@@ -1689,6 +1689,9 @@ export const api = {
   // Digest emails: your own switches; the email's Stop These Emails link lands here (email_optout.py)
   getMyEmailOptouts: ()          => req('/roles/me/email-optouts'),
   setMyEmailOptout:  (kind, on)  => req('/roles/me/email-optouts', { method: 'PUT', body: JSON.stringify({ kind, on }) }),
+  // Workflow texts: may a workflow's Send A Text Message text you (workflows/packs/core.py "sms")
+  getMyTextPrefs:    ()          => req('/roles/me/text-prefs'),
+  setMyTextPrefs:    (on)        => req('/roles/me/text-prefs', { method: 'PUT', body: JSON.stringify({ workflowTexts: !!on }) }),
 
   // ── Customizable dashboards (drag-and-drop widget layouts) ──
   dashViews:      (target)     => req(`/dashboards/views?target=${encodeURIComponent(target)}`),
