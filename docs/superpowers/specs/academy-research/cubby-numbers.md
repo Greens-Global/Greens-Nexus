@@ -190,3 +190,59 @@ Query: `access_log`, last 90 days, by facility, result, reason. Only Fairfield's
 10. **Protection plan exclusions and plan names** ($9 vs $14 for the same $2,500 level, $20 vs $25 for $5,000): not in Cubby. Owners to fill and explain the two prices.
 11. **Office and gate hours per site**: not in Cubby. Owners to fill.
 12. **Texas**: no Texas site is in Cubby yet. Every Texas value waits for them to join.
+
+## Site Profiles: parking and unit mix (pulled 11/04/2026, Task 7)
+
+Cubby tables "as of" 11/05/2026 about 6:50 AM UTC. READ-ONLY aggregates over `units` (inventory) and `leases` (counts only). No tenant name, contact, plate, unit-to-tenant link or payment was selected. Cite as "From Greens' Cubby, 11/2026".
+
+**Q1 parking by size:** `SELECT facility_name, unit_type, unit_width, unit_depth, count(*), sum(is_leased) FROM units WHERE is_active = 1 AND unit_type = 'RENT_PARKING_SPACE' GROUP BY 1,2,3,4`.
+
+**Q2 parking by cover, surface, pull-through:** same rows, classified from `unit_features::text`: "Fully enclosed coverage" = Enclosed, "Overhang - partial coverage" = Covered, else Open; "Unpaved parking" = Gravel, else Paved; "Pull-Through" flag; count, leased, depth min / max, street rate (`rate_managed`) min / median (percentile_disc) / max.
+
+| Facility | Cover | Surface | Pull-through | Spaces | Leased | Depth | Street rate min / median / max |
+|---|---|---|---|---|---|---|---|
+| Escondido | Open | Gravel | no | 80 | 70 | 15-50 ft | $159 / $279 / $379 |
+| Escondido | Open | Paved | no | 10 | 10 | 20-45 ft | $169 / $239 / $349 |
+| Fairfield | Open | Gravel | no | 303 | 211 | 20-48 ft | $94 / $104 / $154 |
+| Murrieta | Open | Paved | no | 125 | 115 | 19-45 ft | $134 / $184 / $300 |
+| Murrieta | Open | Paved | yes | 36 | 35 | 33-50 ft | $249 / $249 / $279 |
+| Temecula | Covered | Gravel | no | 27 | 22 | 20-50 ft | $124 / $229 / $319 |
+| Temecula | Open | Gravel | no | 280 | 181 | 15-45 ft | $69 / $164 / $289 |
+| Temecula | Open | Gravel | yes | 1 | 1 | 30 ft | $194 |
+| Temecula | Open | Paved | no | 146 | 114 | 15-45 ft | $74 / $124 / $214 |
+| Temecula | Open | Paved | yes | 27 | 15 | 30-40 ft | $189 / $189 / $219 |
+| Valley Center | Enclosed (roll-up door) | Paved | no | 2 | 2 | 38 ft | $289 |
+| Valley Center | Open | Gravel | no | 1 | 1 | 35 ft | $149 |
+
+Totals: 1,038 parking spaces; 27 covered (all Temecula), 2 enclosed vehicle spaces (Valley Center), 64 pull-through (Murrieta 36, Temecula 28). No unit has a height recorded (`unit_height` empty on every active unit), so clear heights are owner-filled.
+
+**Q1 results, parking sizes (width x depth: spaces, leased):**
+- Escondido: 10x20 1 (1), 10x25 2 (2), 10x30 1 (1), 10x35 1 (1), 12x15 1 (1), 12x16 2 (2), 12x17 1 (1), 12x20 5 (4), 12x22 1 (1), 12x25 11 (11), 12x27 2 (2), 12x28 2 (2), 12x30 3 (3), 12x32 2 (2), 12x35 11 (11), 12x38 25 (18), 12x40 9 (7), 12x42 2 (2), 12x45 3 (3), 12x50 2 (2), 13x30 1 (1), 13x35 2 (2).
+- Fairfield: 12x20 11 (0), 12x22 6 (6), 12x26 142 (94), 12x32 114 (91), 12x48 30 (20).
+- Murrieta: 10x20 16 (16), 10x24 42 (39), 10x30 33 (31), 10x35 2 (2), 12x19 1 (1), 12x30 24 (19), 12x33 20 (20; 18 of them pull-through), 12x45 2 (2), 12x50 18 (17; all pull-through), 13x36 1 (1), 14x45 2 (2).
+- Temecula: 10x15 1 (1), 10x18 6 (5), 10x20 74 (55; 3 covered), 10x25 14 (12), 10x30 34 (21; 17 pull-through), 10x35 1 (1), 10x40 3 (3), 11x15 4 (2), 11x18 5 (5), 11x20 15 (11), 11x25 16 (15), 11x28 4 (4), 11x30 69 (65; 6 covered, 1 pull-through), 11x35 84 (50; 1 pull-through), 11x40 109 (49; 9 pull-through), 11x45 23 (16), 12x35 6 (5, covered), 12x40 4 (4, covered), 12x50 8 (8, covered), 26x34 1 (1).
+- Valley Center: 11x35 1 (1), 12x38 2 (2, enclosed).
+
+**Q3 parking by depth band:** spaces (leased): Escondido under 30 ft 28 (27), 30-39 ft 46 (39), 40 ft and up 16 (14); Fairfield 159 (100), 114 (91), 30 (20); Murrieta 59 (56), 80 (73), 22 (21); Temecula 139 (110), 195 (143), 147 (80); Valley Center 30-39 ft 3 (3).
+
+**Q4 enclosed storage by size:** `units` active, `unit_type = 'RENT_ENCLOSED_STORAGE'`, pricing group not a mailbox, grouped by width x depth.
+- Escondido (717): 10x10 202, 5x10 122, 10x15 120, 10x20 100, 5x5 87, 10x25 48, 15x40 19, 15x44 6, 15x45 5, 2 with no size recorded, one each 5x15, 10x11, 10x35, 10x8, 12x20, 60x45.
+- Fairfield (4): 8x10 2, 8x20 2.
+- Murrieta (8): 6 with no size recorded, 12x25 1, 25x25 1.
+- Temecula (34): 8x20 12, 8x16 8, 8x40 6, 8x12 3, 8x10 3, 8x30 1, 8x45 1.
+- Valley Center (568): 10x10 203, 5x10 91, 10x20 67, 8x10 49, 10x15 39, 12x35 30, 9x10 28, 12x25 26, 10x12 7, 5x5 7, 12x50 6, 4x10 3, 13x10 2, and 10 single units of other sizes.
+
+**Q5 enclosed features** (`unit_features::text`): tagged "Climate controlled" / "Drive-up": Escondido 549 / 164; Fairfield 0 / 4; Murrieta 1 / 1; Temecula 0 / 34; Valley Center 0 / 207. No enclosed storage unit carries an RV or boat parking tag.
+
+**Q6 vehicle leases by Cubby vehicle type:** `leases` active and `storing_vehicle`, grouped by facility and `vehicle_type` (count only), plus a count of rows whose `vehicle_state` is set and not CA.
+
+| Facility | Vehicle leases | Type not set | Types set | Plate state other than CA |
+|---|---|---|---|---|
+| Escondido | 79 | 74 | 3 trailer, 2 truck | 10 |
+| Fairfield | 207 | 203 | 2 trailer, 1 RV, 1 boat | 15 |
+| Murrieta | 149 | 105 | 26 trailer, 14 RV, 3 other, 1 sedan | 8 |
+| Temecula | 320 | 310 | 5 trailer, 1 RV, 1 SUV, 1 truck, 1 boat, 1 other | 27 |
+| Valley Center | 4 | 4 | none | 0 |
+| **Total** | **759** | **696** | 63 | 60 |
+
+Reading: Cubby's vehicle type is blank on 696 of 759 vehicle leases, so the mix of RVs, boats and trailers cannot be read from Cubby yet; the course teaches staff to fill it at move-in.
