@@ -12,7 +12,9 @@ import { formatTimeTz } from '../lib/displayTz';
 // hours and the pay are the server's, unchanged.
 
 const now = new Date();
-const TODAY = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+// Today on the card's clock (California) - not the test machine's, which
+// runs in UTC on CI and is a day ahead every evening Pacific time.
+const TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 const at = (hm) => `${TODAY}T${hm}:00`;
 const t = (hm) => formatTimeTz(at(hm));
 // As the grid draws it (TimeText, 11/04/2026): "8:08" then " PM" in its own box.
