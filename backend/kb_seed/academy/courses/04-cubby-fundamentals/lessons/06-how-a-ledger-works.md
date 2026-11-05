@@ -95,7 +95,7 @@ New Greens move-ins are not charged a deposit. Only some leases brought over fro
 
 A **refund** sends money back to the card or bank account it came from. A card refund can take a few days to show on the tenant's statement.
 
-Here is the trap: a refund puts the money back on the lease **as owed**, unless the charge it paid is also waived. Refunding a payment for rent the tenant still owes leaves them owing that rent again. Never refund a charge the tenant still owes, and check **Greens Waivers, Credits and Refunds** for who may approve a refund.
+Here is the trap: a refund puts the money back on the lease **as owed**, unless the charge it paid is also waived (check on a real refund). Refunding a payment for rent the tenant still owes leaves them owing that rent again. Never refund a charge the tenant still owes, and check **Greens Waivers, Credits and Refunds** for who may approve a refund.
 
 ### Failed Payments, Returns and Disputes
 
@@ -179,7 +179,7 @@ So rent of $129 gets a $20.00 fee (15% would be $19.35, less than $20.00), and r
 
 ## The Admin Fee
 
-Every new storage or parking lease is charged a one-time **Administration Fee of $25.00** at move-in; a mailbox is charged a **Mailbox Administration Fee of $10.00** instead (From Greens' Cubby, 11/2026). It is a fee charge on the first day of the ledger, beside the first rent.
+A new storage or parking lease is charged a one-time **Administration Fee of $25.00** at move-in; a mailbox is charged a **Mailbox Administration Fee of $10.00** instead (From Greens' Cubby, 11/2026). It is a fee charge on the first day of the ledger, beside the first rent.
 
 ## Reading a Ledger, Line by Line
 

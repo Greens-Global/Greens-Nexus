@@ -292,7 +292,7 @@
     },
     {
      "type": "single",
-     "q": "Rent is $160.00 and the tenant has a 5% discount program. What is the net due for the month?",
+     "q": "Rent is $160.00 and the tenant has an example 5% discount. What is the net due for the month?",
      "options": [
       "$8.00",
       "$152.00",
@@ -469,7 +469,7 @@
     "answer": [
      0
     ],
-    "explanation": "Prepaid money does not move the paid-through date until the charges it pays actually post. It moves one month at a time from 12/01.",
+    "explanation": "It stays 11/30: prepaid money does not move the paid-through date until the charges it pays actually post. It moves one month at a time from 12/01.",
     "lesson": "06-how-a-ledger-works.md"
    },
    {
@@ -544,7 +544,7 @@
     "answer": [
      1
     ],
-    "explanation": "A refund puts the money back on the lease as owed unless the charge is also waived. Never refund a charge the tenant still owes.",
+    "explanation": "A refund puts the money back on the lease as owed unless the charge is also waived (check on a real refund). Never refund a charge the tenant still owes.",
     "lesson": "06-how-a-ledger-works.md"
    },
    {
@@ -602,7 +602,7 @@
      "$159.00"
     ],
     "answer": [
-     2
+     1
     ],
     "explanation": "16 days: rent 120 x 16 / 30 = $64.00; plan 14 x 16 / 30 = $7.47; plus $25.00 = $96.47. Check whether the plan prorates on a real Preview Charges.",
     "lesson": "07-ledger-worked-examples.md"
@@ -634,7 +634,7 @@
     "answer": [
      1
     ],
-    "explanation": "Discounts post as their own line; the rent stays at its full amount. That is why a tenant's bill seems to double when a promotion ends.",
+    "explanation": "Discounts post as their own line (50% of $160.00 = -$80.00); the rent stays at its full $160.00. That is why a tenant's bill seems to double when a promotion ends.",
     "lesson": "07-ledger-worked-examples.md"
    },
    {
@@ -742,7 +742,7 @@
     "answer": [
      1
     ],
-    "explanation": "On the 2nd Cubby's workflow creates \"2nd - Call Failed Autopay Tenants.\" It is the most valuable call in collections: most failures end there.",
+    "explanation": "On the 2nd Cubby's workflow creates \"2nd - Call Failed Autopay Tenants.\" Call every tenant on it that day and note each call.",
     "lesson": "cubby-take-a-payment"
    },
    {
@@ -766,7 +766,7 @@
     "options": [
      "Call failed autopay tenants",
      "Call past due tenants",
-     "Late fee posts and Cubby changes the gate code",
+     "Late fee posts and Cubby changes the gate code (what Cubby does today; under review with counsel)",
      "CA Preliminary Lien Notice fee posts",
      "Cubby flags Overlock Needed",
      "Final collection call"
@@ -1104,7 +1104,7 @@
     "answer": [
      1
     ],
-    "explanation": "Cubby changes a delinquent tenant's gate code on the 11th (From Greens' Cubby, 11/2026). After payment, make sure the tenant has a working code before they leave.",
+    "explanation": "Cubby changes a delinquent tenant's gate code on the 11th (what Cubby does today; under review with counsel). After payment, make sure the tenant has a working code before they leave.",
     "lesson": "cubby-gate-code"
    },
    {

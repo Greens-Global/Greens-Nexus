@@ -65,14 +65,14 @@ Greens does not use credits today, and credits must be switched on per site. If 
 1. Confirm with Greens Waivers, Credits and Refunds who may approve the refund. Get the approval first if it is not you.
 2. Open the payment on the ledger.
 3. Choose to refund it, in full or in part (the button name in Greens' Cubby is on the screenshot).
-4. If the refunded payment paid a charge the tenant should **not** owe, also waive that charge, or the balance comes back as owed.
+4. If the refunded payment paid a charge the tenant should **not** owe, also waive that charge, or the balance comes back as owed (check on a real refund).
 5. Tell the tenant a card refund can take several days to show on their statement.
 6. Note what you did and why.
 
 Screenshot: [Greens to add] (refunding a payment)
 
 > [!WARNING]
-> Never refund a payment for a charge the tenant still owes. The refund puts the charge back on their balance, and the delinquency steps start again.
+> Never refund a payment for a charge the tenant still owes. The refund puts the charge back on their balance (check on a real refund).
 
 ## Waive or Credit: Which One?
 
@@ -101,6 +101,6 @@ Screenshot: [Greens to add] (refunding a payment)
 
 - A waive cancels a specific charge now and needs a real reason.
 - A credit waits for the next recurring bill; Greens does not use credits today.
-- A refund sends money back and puts the charge back as owed unless it is also waived.
+- A refund sends money back and puts the charge back as owed unless it is also waived (check on a real refund).
 - The Credits and Waives permission lets you; Greens Waivers, Credits and Refunds says whether you should.
 - In the lien process, waive nothing without your manager.

@@ -79,7 +79,7 @@ Cubby applies money to the **oldest charge first**. Charges that posted at the s
 1. Open the lease and find autopay.
 2. To turn it on, choose the saved card or bank account, or add a new one. Cubby saves a new card only after a charge on it succeeds.
 3. To change the card, add the new one and set it as the autopay method.
-4. Check the card's **expiration date**. An expired card is the commonest reason autopay fails.
+4. Check the card's **expiration date**. An expired card makes autopay fail.
 5. Add a note: "Autopay moved to new card at tenant's request."
 
 Screenshot: [Greens to add] (the autopay setting on a lease)

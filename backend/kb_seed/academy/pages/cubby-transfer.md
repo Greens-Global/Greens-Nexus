@@ -65,7 +65,7 @@ Screenshot: [Greens to add] (the transfer screen with the charges)
 
 ## Example
 
-**Temecula.** A tenant in an open 10x20 at a made-up $124.00 buys a bigger trailer, 28 ft hitch to bumper. She wants a covered space. You check Temecula's covered sizes on the site map; a covered 11x30 is vacant and rentable (Temecula's covered sizes are 10x20, 11x30, 12x35, 12x40 and 12x50, From Greens' Cubby, 11/2026). 28 ft plus a 3 ft margin is 31 ft; 11x30 is too short, so you offer a 12x35. You check the posted clear height against her trailer's height. She owes nothing, so you start the transfer, choose the 12x35, and read the charges Cubby shows for the rest of the month. She pays. You check the new lease: balance zero, her own policy carried over, the vehicle details on the lease, autopay on, gate code working. You walk the old 10x20; it is clean, so it stays rentable. You add a note.
+**Temecula.** A tenant in an open 10x20 at a made-up $124.00 buys a bigger trailer, 28 ft hitch to bumper. She wants a covered space. 28 ft plus a 3 ft margin is 31 ft, so you look for a covered 12x35, the smallest covered size that fits (Temecula's covered sizes are 10x20, 11x30, 12x35, 12x40 and 12x50, From Greens' Cubby, 11/2026). The site map shows a covered 12x35 vacant and rentable. You check the posted clear height against her trailer's height. She owes nothing, so you start the transfer, choose the 12x35, and read the charges Cubby shows for the rest of the month. She pays. You check the new lease: balance zero, her own policy carried over, the vehicle details on the lease, autopay on, gate code working. You walk the old 10x20; it is clean, so it stays rentable. You add a note.
 
 ## Transfer or Move-Out and New Rental?
 

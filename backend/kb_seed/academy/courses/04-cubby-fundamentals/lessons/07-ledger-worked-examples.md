@@ -127,7 +127,7 @@ Two things to tell the tenant:
 | 12/01 | Rent $160.00 posts; autopay declined (nothing posts for it) | $160.00 |
 | 12/02 | Task "2nd - Call Failed Autopay Tenants." You call; voicemail. You note it | $160.00 |
 | 12/06 | Task "6th - Call Past Due Tenants." You call; no answer. You note it | $160.00 |
-| 12/11 | CA Late Fee posts: the greater of $20.00 or 15% of $160.00 ($24.00) = **$24.00**. Cubby also changes the gate code that night | $184.00 |
+| 12/11 | CA Late Fee posts: the greater of $20.00 or 15% of $160.00 ($24.00) = **$24.00**. Cubby also changes the gate code that night (what Cubby does today; under review with counsel) | $184.00 |
 | 12/12 | The tenant calls. It is their first late payment. The waive is inside your limit: you waive the $24.00 with the reason "first late payment, goodwill" | $160.00 |
 | 12/12 | The tenant pays $160.00 by card | $0.00 |
 

@@ -42,7 +42,7 @@ At the 11/2026 snapshot, 20 leases were on the list (From Greens' Cubby, 11/2026
 | The 15th | CA Preliminary Lien Notice fee, $25.00 |
 | Day 35 | Task "35th - CA Lien Notice"; CA Lien Notice fee, $35.00 |
 | Day 61 | Task "61st - Vehicle Lien Filing/Tow Notice"; Vehicle Lien Fee, $350.00 |
-| Day 62 | Task "62nd - Publish 2nd Lien Sale Ad"; Advertising Fee, $120.00 |
+| Day 62 | Task "62nd - Publish 2nd Lien Sale Ad" (the Advertising Fee and its amount are on Greens Fees and Charges) |
 | The sale step | Lien Processing Fee $100.00, Auction Fee $95.00, Lock Removal/Inventory Fee $75.00 |
 
 (From Greens' Cubby, 11/2026. The full ladder and the questions still with counsel are on Greens Delinquency Timeline.)
@@ -80,9 +80,9 @@ A lease in the lien process shows a status. These are Cubby's values at Greens (
 | Delivering Lien | Notices are being delivered |
 | Waiting for Auction | Notices done; the unit is waiting for its sale |
 | Settled Unsold | The sale step happened and the unit did not sell |
-| Cancelled | The lien was stopped, most often because the tenant paid |
+| Cancelled | The lien was stopped, for example because the tenant paid |
 
-At Greens most lease liens so far ended Cancelled: at Escondido 23 cancelled, 1 settled unsold and 1 waiting for auction; Murrieta 1 and Temecula 3 delivering lien (From Greens' Cubby, 11/2026). Paying in full is the most common ending, and the best one.
+At Greens most lease liens so far ended Cancelled: at Escondido 23 cancelled, 1 settled unsold and 1 waiting for auction; Murrieta 1 and Temecula 3 delivering lien (From Greens' Cubby, 11/2026). Paying in full is the best ending.
 
 An auction itself has its own statuses in Cubby: **Listed**, **No Bids**, **Sold**, **Payment Received**, **Complete** and **Cancelled**. Settling an auction records whether the unit sold or did not. Completing it records whether a cleaning deposit is refunded or kept. Settling and completing auctions is your manager's job.
 
