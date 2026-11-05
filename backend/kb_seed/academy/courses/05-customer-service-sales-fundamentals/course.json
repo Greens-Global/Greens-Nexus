@@ -171,13 +171,16 @@
      "lesson": "04-the-nine-parts-of-a-sales-call.md"
     },
     {
-     "type": "short",
-     "q": "Write the first line you would say when you answer a call at Greens Storage Temecula.",
-     "options": [],
-     "answer": [],
-     "keywords": [
-      "greens",
-      "help"
+     "type": "single",
+     "q": "Which is the best first line when you answer a call at Greens Storage Temecula?",
+     "options": [
+      "\"Thank you for calling Greens Storage Temecula, this is Maria. How can I help you today?\"",
+      "\"Hello?\"",
+      "\"Storage, hold please.\"",
+      "\"Greens Storage, what size do you need?\""
+     ],
+     "answer": [
+      0
      ],
      "explanation": "A great greeting has the company and property name, your name and an offer to help: \"Thank you for calling Greens Storage Temecula, this is Maria. How can I help you today?\"",
      "lesson": "04-the-nine-parts-of-a-sales-call.md"
@@ -334,14 +337,14 @@
      "q": "A Fairfield caller says, \"Your website showed a lower rate yesterday.\" What do you do?",
      "options": [
       "Argue that the website is wrong",
-      "Check Cubby; honor the web price if it is still valid, or ask your manager before the customer leaves",
+      "Check Cubby; if it shows the web price for that unit, honor it; if you're unsure, ask your manager",
       "Charge the higher rate",
       "Tell them to rent online instead"
      ],
      "answer": [
       1
      ],
-     "explanation": "Never argue about a price mismatch. Check Cubby. Honor a valid web rate, and ask your manager if you are not sure.",
+     "explanation": "Never argue about a price mismatch. If Cubby shows the web price for that unit, honor it; if you're unsure, ask your manager.",
      "lesson": "11-objections-honestly.md"
     },
     {
@@ -1127,7 +1130,7 @@
     "answer": [
      1
     ],
-    "explanation": "After-hours leads are the first call of the next business morning. Calls and texts stay within reasonable hours.",
+    "explanation": "The office is closed; after-hours leads are the first call of the next business morning.",
     "lesson": "10-online-renters-and-digital-leads.md"
    },
    {
@@ -1387,17 +1390,17 @@
    },
    {
     "type": "single",
-    "q": "A Murrieta tenant who is 20 days late says he lost his job. What is the best approach?",
+    "q": "A Murrieta tenant who is 20 days late says he lost his job and can pay half today. What is the best approach?",
     "options": [
      "Threaten the lien sale",
-     "Confirm identity, show empathy, state the amount and next date factually, offer options within policy, and get a commitment with a date",
-     "Waive the whole balance",
-     "Hang up"
+     "Confirm identity, show empathy, take the half today, say honestly that a partial payment does not stop the next steps, and ask your manager about a plan for the rest",
+     "Agree to a payment plan for the rest on your own",
+     "Waive the whole balance"
     ],
     "answer": [
      1
     ],
-    "explanation": "Empathy is not waiving everything. Offer a split across cards or ask your manager about a plan, then log the commitment in Cubby.",
+    "explanation": "Empathy is not waiving everything. Take what he can pay, be honest that only payment in full stops the ladder, and escalate a plan to your manager with a callback time. Log it in Cubby.",
     "lesson": "13-collections-with-respect.md"
    },
    {
@@ -1596,12 +1599,16 @@
     "lesson": "16-practice-sales-scenarios.md"
    },
    {
-    "type": "short",
-    "q": "A caller asks only, \"How late are you open?\" After you give the hours, write the question you ask next.",
-    "options": [],
-    "answer": [],
-    "keywords": [
-     "rent|renting|rental|storage|unit|space|account"
+    "type": "single",
+    "q": "A caller asks only, \"How late are you open?\" After you give the hours, what do you ask next?",
+    "options": [
+     "\"Anything else?\"",
+     "\"Are you looking at renting a unit, or can I help you with your account?\"",
+     "\"Why do you want to know?\"",
+     "\"What size do you need?\""
+    ],
+    "answer": [
+     1
     ],
     "explanation": "Ask why they called: \"Are you looking at renting a unit, or can I help you with your account?\" It turns an hours call into a conversation.",
     "lesson": "03-why-the-phone-wins-or-loses-rentals.md"

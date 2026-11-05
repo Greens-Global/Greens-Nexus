@@ -146,7 +146,7 @@ Stop collecting and call your manager the same day if:
 
 ## Greens Scenarios
 
-**Temecula.** A boat tenant is 20 days late. He says he lost his job. You confirm it is him before naming the balance. "That sounds really hard." You tell him the amount and the next date on the ladder, factually. You offer to split it across two cards, and he commits to half today and half on the 1st. You note it, and tell your manager because a split plan is above your authority.
+**Temecula.** A boat tenant is 20 days late. He says he lost his job. You confirm it is him before naming the balance. "That sounds really hard." You tell him the amount and the next date on the ladder, factually. He can pay half today, so you take it across his two cards. You tell him honestly that a partial payment does not stop the next steps on the ladder. For the rest, you say: "I'll ask my manager today about a plan for the balance and call you back by 4:00 PM." You note everything in Cubby, ask your manager, and call him at 4:00 PM.
 
 **Escondido.** You call a tenant on the 6th and her teenage son answers. You give your first name, Greens Storage and your number. He asks what it is about. "It's a personal matter. Just ask your mom to call Lee, thanks." Nothing more.
 

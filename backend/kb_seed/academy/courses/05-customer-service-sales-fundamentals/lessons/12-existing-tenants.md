@@ -30,7 +30,7 @@ If they cannot, be kind and firm: "I'm sorry, I'm not able to discuss an account
 ### Payments
 
 - Take the payment the tenant's way: card at the counter, a payment link, the tenant portal (Cubby Fundamentals, Take a Payment).
-- After every payment by phone or at the counter, **offer autopay**: "Would you like me to set this up so it pays on the 1st automatically? Then you never have to think about it, and you'll never see a late fee."
+- After every payment by phone or at the counter, **offer autopay**: "Would you like me to set this up so it pays on the 1st automatically? Then you never have to think about it, and you're far less likely to see a late fee."
 - **The failed autopay call on the 2nd** (Cubby's "2nd - Call Failed Autopay Tenants" task, From Greens' Cubby, 11/2026) is a service call, not a collections call: "Hi, it's Lee at Greens Storage Fairfield. Your card on file didn't go through on the 1st, probably an expired card. Can I help you update it so you don't get a late fee?" Lesson 13 covers what changes once rent is actually late.
 
 ### "Why Is This On My Bill?"

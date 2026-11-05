@@ -36,7 +36,7 @@ Honesty is the whole method. You never need a trick to answer an objection, and 
 | "Why is there an admin fee?" | Feels like a junk fee | Explain plainly what it is: a one-time $25 fee at move-in (From Greens' Cubby, 11/2026). Quote it up front every time so it is never a surprise. |
 | "I don't need protection; my homeowner's covers it" | Sometimes true | "Great, many policies do. Just check the off-premises limit. If it's covered, I'll note your policy number and expiration date." |
 | "That late fee isn't fair" | Embarrassment, money stress | Empathize. Explain the date it applied. Use your waiver authority per Greens Waivers, Credits and Refunds. Offer autopay going forward. |
-| "Online it said a different price" | A web rate, or the site showed something old | Never argue. Check Cubby. If the web price is valid, honor it. If you are not sure, ask your manager before the customer leaves. |
+| "Online it said a different price" | A web rate, or the site showed something old | Never argue. Check Cubby. If Cubby shows the web price for that unit, honor it; if you're unsure, ask your manager. |
 | "Why is my rent going up again?" | Feels betrayed after a low first month | Empathize, give the reasons, compare to the street rate if it is true, and offer options (lesson 12). |
 | "It's too far from my house" | Convenience matters (location was 17% of choices in StorageCafe's 2026 survey) | Ask how often they will visit. For a long stay with rare visits, the drive matters less than security and price. |
 | "I'll only need it a month" | Underestimating the stay | Never argue. Recommend the right size and autopay anyway, and say there is no long contract: it is month to month. |
@@ -132,7 +132,7 @@ If waiving it is within your authority on Greens Waivers, Credits and Refunds, w
 
 **Murrieta.** A fifth-wheel owner says he needs to talk to his wife. You offer to email the quote, hold the pull-through space, and call when they are both home. They are free Saturday at 11:00 AM. You call at 11:00 AM.
 
-**Valley Center.** A customer says the website showed a lower rate yesterday. You check Cubby; the web rate is still valid. You honor it and thank her for telling you.
+**Valley Center.** A customer says the website showed a lower rate yesterday. You check Cubby; it shows the web price for that unit. You honor it and thank her for telling you.
 
 **Fairfield.** A trailer owner says "just looking." You agree that most people compare, ask when he needs the space, and offer a free hold with his email. He gives it.
 

@@ -23,10 +23,10 @@ Self-Storage Fundamentals lesson 2 covered the 4 Ds (Death, Divorce, Downsizing,
 
 | Finding | Source and year |
 |---|---|
-| Moving was the top reason for renting, at 37%; lack of space at home was 22% | StorageCafe survey of 1,700+ U.S. respondents |
+| Moving was the top reason for renting, at 37%; lack of space at home was 22% | StorageCafe survey of 1,700+ U.S. respondents, undated |
 | Moving drove 40% of bookings; downsizing drove 18% | Storable Tenant Insights, Spring 2024 |
 | 37% of Americans were thinking about or planning a move in the next 6 to 12 months, up from 25% | Storable Outlook, 2025 |
-| 26.5% of storage users cite at least one serious disruption, such as divorce, eviction, death or money trouble | HireAHelper storage statistics |
+| 26.5% of storage users cite at least one serious disruption, such as divorce, eviction, death or money trouble | HireAHelper storage statistics, undated |
 
 You do not need to memorize the percentages. Remember the pattern: **most people who call you are in the middle of a change**, and about one in four is going through something hard.
 

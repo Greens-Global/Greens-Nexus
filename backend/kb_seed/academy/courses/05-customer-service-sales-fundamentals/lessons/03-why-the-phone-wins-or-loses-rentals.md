@@ -130,7 +130,7 @@ Reviewing your own recorded calls is the fastest way to get better (lesson 6). I
 > Training only, not legal advice. When in doubt, stop and ask your manager.
 
 - **California** requires the consent of everyone on the call to record it (Penal Code 632). A recorded line needs a "this call may be recorded" notice at the start.
-- **Texas** allows recording with the consent of one person on the call.
+- **Texas** allows recording with the consent of one person on the call. If the caller is in California, the California rule applies wherever the site is.
 - Greens decides whether and how calls are recorded. Never record a call on your own phone.
 
 ## Greens Scenarios
