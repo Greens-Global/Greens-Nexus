@@ -158,10 +158,12 @@ describe('Timeline with Version History folded in', () => {
     expect(await screen.findByRole('option', { name: 'v2.9.0' })).toBeTruthy();
     // The day header names a typed version; a merge's date-version would only
     // repeat the date, so it is left out.
-    const day = screen.getByText('1 Improvement').parentElement;
-    expect(day.textContent.match(/10\/13\/2026/g)).toHaveLength(1);
-    expect(screen.getByText('1 Bug Fix').parentElement.textContent).toContain('v2.9.0');
-    expect(screen.getByText('1 Improvement')).toBeTruthy();
+    // Each day header is the date plus one muted count - no colored category chips.
+    const days = screen.getAllByText('1 update').map((n) => n.parentElement.textContent);
+    expect(days.some((t) => t.includes('v2.9.0'))).toBe(true);
+    const plain = days.find((t) => !t.includes('v2.9.0'));
+    expect(plain.match(/10\/13\/2026/g)).toHaveLength(1);
+    expect(screen.queryByText('1 Improvement')).toBeNull();
     fireEvent.change(screen.getByLabelText('Version'), { target: { value: '10/13/2026' } });
     expect(screen.getByText('1 entry')).toBeTruthy();
   });

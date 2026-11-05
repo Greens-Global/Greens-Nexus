@@ -56,7 +56,6 @@ import { ToolsSection, ActAsFinder } from './ToolsMenu';   // profile menu Tools
 import { useActionCounts } from '../lib/useActionCounts';
 import { clearOfflineReadCache } from '../lib/offline/read';
 
-const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
 
 export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel }) {
   const { instance, accounts } = useMsal();
@@ -308,7 +307,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
           ref={searchInputRef}
           placeholder={SEARCH_PLACEHOLDER}
           aria-label={SEARCH_LABEL}
-          title={`${SEARCH_LABEL} (${MOD_KEY} K or ${MOD_KEY} F)`}
+          title={`${SEARCH_LABEL} (Ctrl+F)`}
           aria-keyshortcuts="Control+K Meta+K Control+F Meta+F /"
           value={searchQuery}
           onChange={e => { setSearchQuery(e.target.value); setSearchIdx(0); setSearchOpen(true); }}
@@ -317,7 +316,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         />
         {searchQuery
           ? <button className="search-clear" onClick={() => closeSearch(true)} title="Clear" aria-label="Clear search"><X size={13} /></button>
-          : <kbd className="hdr-search-kbd" aria-hidden="true">{MOD_KEY} K</kbd>}
+          // One hint on every computer (Neil, 11/05/2026): Ctrl+F works on a Mac too.
+          : <kbd className="hdr-search-kbd" aria-hidden="true">Ctrl+F</kbd>}
       </div>
       {searchOpen && (
         <div className="hdr-search-panel">

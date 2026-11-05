@@ -14,6 +14,10 @@ vi.mock('../api', () => ({
     getTaskChangelogEntryAnalytics: vi.fn(),
   },
 }));
+// Photos keyed by work email - a row's developer avatar reads from here.
+vi.mock('../lib/peoplePhotos', () => ({
+  usePhotoMap: () => ({ 'pranshu.pandey@greensglobal.com': 'https://example.test/pranshu.jpg' }),
+}));
 vi.mock('../contexts/RoleContext', () => ({
   MODULES: [{ id: 'tickets', label: 'Tickets' }, { id: 'myhr', label: 'Workday' }],
   useRole: () => ({ myEmail: 'amy@greensglobal.com', can: () => false, myGrantedModules: new Map() }),
@@ -33,7 +37,7 @@ beforeEach(() => {
   try { window.localStorage.clear(); } catch { /* no storage */ }
   window.history.replaceState(null, '', '/whats-new?tab=timeline');
   api.getTaskChangelog.mockResolvedValue([
-    rel('a', 'Clock Thing', 'Workday', { prNumber: 990, prRef: '#990', prUrl: 'https://github.com/Greens-Global/Greens-Nexus/pull/990' }),
+    rel('a', 'Clock Thing', 'Workday', { environment: 'Production', prNumber: 990, prRef: '#990', prUrl: 'https://github.com/Greens-Global/Greens-Nexus/pull/990' }),
     rel('b', 'Sheet Thing', 'Time Sheet', { releasedAt: at(9) }),
     rel('c', 'Review Thing', 'Time Sheets to Review', { releasedAt: at(8) }),
     rel('d', 'Approvals Thing', 'Dashboard > Approvals', { releasedAt: at(7) }),
@@ -51,37 +55,111 @@ beforeEach(() => {
 });
 
 describe('Timeline places', () => {
-  it('lists the sections in navigation order with their pages and counts, and a section takes in its pages', async () => {
+  it('lists the sections in navigation order with their pages and counts; several modules filter together', async () => {
     render(<Changelog />);
     await screen.findAllByText('Sheet Thing');
-    const select = screen.getByLabelText('Module');
-    const options = within(select).getAllByRole('option').map((o) => o.textContent.replace(' ', '  '));
+    const group = screen.getByRole('group', { name: 'Module' });
+    fireEvent.click(within(group).getAllByRole('button')[0]);
+    const options = [...document.querySelectorAll('.nx-menu-row')].map((o) => o.textContent);
     expect(options).toEqual([
-      'All Modules', 'Dashboard (1)', '  Dashboard - Approvals (1)', 'Workday (2)', '  Workday - Time Sheet (1)',
-      'People (1)', '  People - Time (1)',
+      'Dashboard (1)', 'Dashboard - Approvals (1)', 'Workday (2)', 'Workday - Time Sheet (1)',
+      'People (1)', 'People - Time (1)',
     ]);
-    fireEvent.change(select, { target: { value: 'myhr' } });
+    fireEvent.click(screen.getByRole('option', { name: 'Workday (2)' }));       // a section takes in its pages
     expect(screen.getAllByText('Sheet Thing').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Clock Thing').length).toBeGreaterThan(0);
     expect(screen.queryByText('Review Thing')).toBeNull();
-    expect(window.location.search).toContain('module=myhr');
-    fireEvent.change(select, { target: { value: 'myhr/timesheet' } });
+    expect(screen.queryByText('Approvals Thing')).toBeNull();
+    expect(new URLSearchParams(window.location.search).get('module')).toBe('myhr');
+    fireEvent.click(screen.getByRole('option', { name: 'Dashboard (1)' }));    // a second module adds to it
+    expect(screen.getAllByText('Approvals Thing').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Clock Thing').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Review Thing')).toBeNull();
+    expect(new URLSearchParams(window.location.search).get('module')).toBe('myhr,dashboard');
+    fireEvent.click(screen.getByRole('option', { name: 'Workday (2)' }));       // and comes off again
+    fireEvent.click(screen.getByRole('option', { name: 'Dashboard (1)' }));
+    expect(screen.getAllByText('Review Thing').length).toBeGreaterThan(0);      // none picked = All
+    expect(window.location.search).not.toContain('module=');
+  });
+
+  it('a shared link with an old module name, or several modules, still filters', async () => {
+    window.history.replaceState(null, '', '/whats-new?tab=timeline&module=Time%20Sheets%20to%20Review');
+    const { unmount } = render(<Changelog />);
+    await screen.findAllByText('Review Thing');
+    expect(within(screen.getByRole('group', { name: 'Module' })).getByText('People - Time (1)')).toBeTruthy();
+    expect(screen.queryByText('Sheet Thing')).toBeNull();
+    unmount();
+    window.history.replaceState(null, '', '/whats-new?tab=timeline&module=hr/time,myhr/timesheet');
+    render(<Changelog />);
+    await screen.findAllByText('Review Thing');
+    expect(screen.getAllByText('Sheet Thing').length).toBeGreaterThan(0);
     expect(screen.queryByText('Clock Thing')).toBeNull();
   });
 
-  it('a shared link with an old module name still filters', async () => {
-    window.history.replaceState(null, '', '/whats-new?tab=timeline&module=Time%20Sheets%20to%20Review');
+  it('each row names its developer on the left, with their photo; no match shows initials', async () => {
+    api.getTaskChangelog.mockResolvedValue([
+      rel('a', 'Clock Thing', 'Workday', { developers: [
+        { login: 'pranshuup', name: 'Pranshu Pandey', email: 'pranshu.pandey@greensglobal.com' },
+        { login: 'someone', name: 'Some One' }] }),
+      rel('b', 'Sheet Thing', 'Time Sheet', { releasedAt: at(9), developers: [{ login: 'outsider', name: 'Out Sider' }] }),
+      rel('c', 'Review Thing', 'Time Sheets to Review', { releasedAt: at(8), authorId: 'amy@greensglobal.com' }),
+    ]);
     render(<Changelog />);
-    await screen.findAllByText('Review Thing');
-    expect(screen.getByLabelText('Module').value).toBe('hr/time');
-    expect(screen.queryByText('Sheet Thing')).toBeNull();
+    await screen.findAllByText('Clock Thing');
+    const authors = [...document.querySelectorAll('[data-row-author]')];
+    expect(authors.map((a) => a.getAttribute('title'))).toEqual(['Pranshu Pandey and 1 other', 'Out Sider', 'Amy']);
+    expect(within(authors[0]).getByAltText('Pranshu Pandey').getAttribute('src')).toBe('https://example.test/pranshu.jpg');
+    expect(authors[0].textContent).toContain('+1');
+    expect(within(authors[1]).getByText('OS')).toBeTruthy();                    // initials, no photo
+    // The time stays on one line in the app's font, never a typewriter face.
+    const time = document.querySelector('[data-row-time]');
+    expect(time.textContent).toMatch(/^\d{1,2}:\d{2} [AP]M$/);
+    expect(time.style.whiteSpace).toBe('nowrap');
+    expect(time.style.fontFamily).not.toMatch(/mono/i);
+  });
+
+  it('Today and Yesterday filter to the local day, combine with the module filter, and clear on a second click', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 4, 15, 0));                            // 11/04/2026, afternoon
+    try {
+      api.getTaskChangelog.mockResolvedValue([
+        rel('t', 'Today Thing', 'Workday', { releasedAt: new Date(2026, 10, 4, 0, 30).toISOString() }),
+        rel('y', 'Yesterday Thing', 'Workday', { releasedAt: new Date(2026, 10, 3, 23, 30).toISOString() }),
+        rel('o', 'Old Thing', 'Workday', { releasedAt: new Date(2026, 10, 1, 9, 0).toISOString() }),
+        rel('d', 'Dash Today', 'Dashboard > Approvals', { releasedAt: new Date(2026, 10, 4, 9, 0).toISOString() }),
+      ]);
+      render(<Changelog />);
+      await screen.findAllByText('Old Thing');
+      const today = screen.getByRole('button', { name: 'Today' });
+      fireEvent.click(today);
+      expect(today.getAttribute('aria-pressed')).toBe('true');
+      expect(screen.getAllByText('Today Thing').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Dash Today').length).toBeGreaterThan(0);
+      expect(screen.queryByText('Yesterday Thing')).toBeNull();
+      expect(screen.queryByText('Old Thing')).toBeNull();
+      fireEvent.click(within(screen.getByRole('group', { name: 'Module' })).getAllByRole('button')[0]);
+      fireEvent.click(screen.getByRole('option', { name: /^Workday/ }));
+      expect(screen.queryByText('Dash Today')).toBeNull();                      // both filters at once
+      expect(screen.getAllByText('Today Thing').length).toBeGreaterThan(0);
+      fireEvent.click(screen.getByRole('button', { name: 'Yesterday' }));
+      expect(screen.getAllByText('Yesterday Thing').length).toBeGreaterThan(0);
+      expect(screen.queryByText('Today Thing')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Yesterday' }));       // again = off
+      expect(screen.getAllByText('Old Thing').length).toBeGreaterThan(0);
+      expect(window.location.search).not.toContain('from=');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('every row and the detail name the pull request; the detail links to it', async () => {
     render(<Changelog />);
     await screen.findAllByText('Clock Thing');
     const link = await screen.findByRole('link', { name: '#990' });               // the detail
-    expect(screen.getAllByText('#990').length).toBeGreaterThanOrEqual(2);       // and the row
+    expect(screen.getAllByText('#990')).toHaveLength(2);                        // and the row
+    const row = document.querySelector('[data-row-author]').closest('button');
+    expect(row.textContent).toContain('#990');
+    expect(row.textContent).not.toContain('In Production');                     // shipped = no mark on the row
     expect(link.getAttribute('href')).toBe('https://github.com/Greens-Global/Greens-Nexus/pull/990');
     expect(screen.getAllByText('Workday - Time Sheet').length).toBeGreaterThan(0);  // the row's place
   });

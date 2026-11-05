@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act, cleanup, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, within, waitFor } from '@testing-library/react';
 
 // The Help widget behind the header "?": Home (greeting + three cards),
 // Help (one search over the guide, Knowledge Base documents and courses) and
@@ -409,7 +409,8 @@ describe('Help widget', () => {
     expect(panel().getAttribute('data-expanded')).toBe('false');
     apiState.answer = words(120);
     await ask('long question');
-    expect(panel().className).toContain('is-expanded');
+    // The answer lands a tick after the ask resolves; wait for the panel to grow.
+    await waitFor(() => expect(panel().className).toContain('is-expanded'));
     expect(screen.getByRole('button', { name: 'Shrink the help panel' }).getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -419,8 +420,8 @@ describe('Help widget', () => {
     await goToHelpSearch();
     apiState.answer = words(120);
     await ask('first long question');
+    await waitFor(() => expect(document.querySelector('.hw-scrim')).toBeTruthy());
     const scrim = document.querySelector('.hw-scrim');
-    expect(scrim).toBeTruthy();
     fireEvent.mouseDown(scrim);
     expect(panel().getAttribute('data-expanded')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'Shrink the help panel' }));

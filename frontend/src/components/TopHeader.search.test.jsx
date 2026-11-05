@@ -57,7 +57,8 @@ describe('TopHeader search', () => {
     header();
     const plain = bar();
     expect(plain.placeholder).toBe('Search Nexus');
-    expect(plain.title).toMatch(/^Search Nexus \((⌘|Ctrl) K or (⌘|Ctrl) F\)$/);
+    expect(plain.title).toBe('Search Nexus (Ctrl+F)');
+    expect(document.querySelector('.hdr-search-kbd').textContent).toBe('Ctrl+F');   // the same hint on a Mac (Neil, 11/05/2026)
     expect(inRight(plain)).toBe(true);
     expect(document.querySelector('.header-center .search-bar')).toBeNull();
     cleanup();
