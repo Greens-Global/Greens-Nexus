@@ -23,6 +23,7 @@ import SidePanel from './SidePanel';
 import EntryDetail from './EntryDetail';
 import { parkDrillReturn, requestReportDrill, takeDrillReturn } from './drill';
 import { Avatar } from '../../tasks/components';
+import { formatHM, formatHoursHM } from '../../lib/hoursText';
 
 // Accounting > Reporting > Employee Compensation (Neil, 10/15: "We still need
 // to make employee compensation report"). Rebuilt after the 10/27 call with
@@ -59,7 +60,9 @@ const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
 function defaultRange(now = new Date()) {
   return [monthKey(new Date(now.getFullYear(), 0, 1)), monthKey(new Date(now.getFullYear(), 11, 1))];
 }
-const hrs = (min) => hoursOf(min).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Hours on screen read as H:MM (Neil, 11/04/2026: no decimal hours); the
+// column's `value` and the exports keep the number.
+const hrs = (min) => formatHM(min);
 const pct = (n) => `${Number(n).toLocaleString('en-US', { maximumFractionDigits: 4 })}%`;
 
 // The table's columns for the standard table view (10/23 meeting, item 01),
@@ -420,7 +423,7 @@ function printFile(file) {
   document.body.appendChild(frame);
 }
 
-const fmtHours = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtHours = (n) => formatHoursHM(n);
 const FOLDING = new Set(['section', 'heading']);
 
 /**

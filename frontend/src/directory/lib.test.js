@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { searchPeople, groupByDepartment, buildTree, chainUp, myTeam, vCardOf, csvOf, presenceOf, splitTree, inheritedDivision, divisionNames, NO_DEPARTMENT } from './lib';
+import { describe, it, expect, vi } from 'vitest';
+import { searchPeople, groupByDepartment, buildTree, chainUp, myTeam, vCardOf, csvOf, presenceOf, splitTree, inheritedDivision, divisionNames, NO_DEPARTMENT, offsetFromViewer } from './lib';
 
 const P = (email, name, dept, mgr = '', role = '') => ({
   email, name, firstName: name.split(' ')[0], lastName: name.split(' ')[1] || '', department: dept, managerEmail: mgr,
@@ -87,5 +87,20 @@ describe('directory helpers', () => {
     expect(v).toContain('TEL;TYPE=CELL,VOICE:(760) 555-0101');
     const csv = csvOf([{ ...sam, jobTitle: 'Analyst, Sr' }]);
     expect(csv.split('\r\n')[1]).toContain('"Analyst, Sr"');
+  });
+});
+
+// Hours apart read as hours and minutes, never "5.5h" (Neil, 11/04/2026).
+describe('offsetFromViewer', () => {
+  it('says hours and minutes apart from a viewer on UTC', () => {
+    const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+    const spy = vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockImplementation(function () { return { ...real.call(this), timeZone: 'UTC' }; });
+    const at = new Date('2026-11-04T12:00:00Z');
+    try {
+      expect(offsetFromViewer('Asia/Kolkata', at)).toBe('+5h 30m');
+      expect(offsetFromViewer('Asia/Kathmandu', at)).toBe('+5h 45m');
+      expect(offsetFromViewer('America/New_York', at)).toBe('-5h');
+      expect(offsetFromViewer('UTC', at)).toBe('');
+    } finally { spy.mockRestore(); }
   });
 });

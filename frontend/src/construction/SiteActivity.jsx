@@ -37,6 +37,7 @@ import { useConstructionMeta } from './lib/meta';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { loadLogs as loadLogsThroughPhone, prefetchJob, startLog, loadPrefill } from './constructionOffline';
 import { readThrough } from '../lib/offline/store';
+import { formatHoursWords } from '../lib/hoursText';
 
 // The browser's own date - only when the server has not said the jobsite's.
 function browserToday() {
@@ -234,7 +235,7 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
                             {l.authorName || personName(l.authorEmail)}
                             {l.crewSize ? ` · crew of ${l.crewSize}` : ''}
-                            {l.hoursWorked ? ` · ${l.hoursWorked}h` : ''}
+                            {l.hoursWorked ? ` · ${formatHoursWords(l.hoursWorked, { compact: true })}` : ''}
                           </div>
                         </div>
                         {canReview && l.status === 'approved' && (

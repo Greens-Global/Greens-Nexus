@@ -46,6 +46,7 @@ describe('Panel', () => {
   it('Sessions tab shows the Stats strip with a dash for a null rate', async () => {
     render(<Panel {...props} tab="sessions" />);
     await screen.findByText('Pin To PR (Median)');
+    expect(screen.getByText('Pin To PR (Median)').previousSibling.textContent).toBe('2h 30m');   // never "2.5 h"
     expect(screen.getByText('75%')).toBeTruthy();
     expect(screen.getByText('First-Claim Hit Rate')).toBeTruthy();
     expect(screen.getByText('Reopen Rate').previousSibling.textContent).toBe('-');

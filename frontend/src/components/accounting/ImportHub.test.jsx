@@ -67,6 +67,7 @@ describe('Import Hub', () => {
     // Everyone is loaded (never the finalized-only list that came back empty).
     expect(api.timeExportHours).toHaveBeenCalledWith(expect.any(String), expect.any(String), { company: 'c1', finalizedOnly: false });
     expect(within(table).getByText('Pat Lane')).toBeTruthy();
+    expect(within(table).getByText('72:00')).toBeTruthy();   // hours as H:MM on screen (Neil, 11/04/2026)
     expect(within(table).getByText('Finalized')).toBeTruthy();
     expect(within(table).getByText('Not Finalized - Left Out')).toBeTruthy();
     const note = screen.getByTestId('iif-unfinalized').textContent;

@@ -59,21 +59,23 @@ describe('your own Time Sheet in People > Time', () => {
     const { container } = await open('mgr@x.com');
     expect(screen.getByTestId('own-card-hint').textContent).toContain('send a punch fix request from Workday > Time Sheet');
     expect(screen.queryByRole('button', { name: /Add Time/ })).toBeNull();
-    const editCol = [...container.querySelectorAll('tr.pr-day-row td:nth-child(2)')].map(td => td.textContent.trim());
-    expect(editCol.every(t => t === '')).toBe(true);
+    // The row actions sit at the row's end since 11/04/2026 (td.ts-act); only the Log is left.
+    const acts = [...container.querySelectorAll('td.ts-act')].map(td => td.textContent.trim());
+    expect(acts.length).toBeGreaterThan(0);
+    expect(acts.every(t => !/Edit|Add/.test(t))).toBe(true);
     expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Approve this edited time' })).toBeNull();
-    expect(container.querySelector('button[title*="Click to edit this punch time"]')).toBeNull();
+    expect(container.querySelector('button[title*="Click to type a new time"]')).toBeNull();
   }, 20000);
 
   it("keeps every control on someone else's card", async () => {
     const { container } = await open('emp@x.com');
     expect(screen.queryByTestId('own-card-hint')).toBeNull();
     expect(screen.getByRole('button', { name: /Add Time/ })).toBeTruthy();
-    const editCol = [...container.querySelectorAll('tr.pr-day-row td:nth-child(2)')].map(td => td.textContent.trim());
-    expect(editCol.some(t => t.includes('Edit'))).toBe(true);
+    const acts = [...container.querySelectorAll('td.ts-act')].map(td => td.textContent.trim());
+    expect(acts.some(t => t.includes('Edit'))).toBe(true);
     expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Approve this edited time' })).toBeTruthy();
-    expect(container.querySelector('button[title*="Click to edit this punch time"]')).not.toBeNull();
+    expect(container.querySelector('button[title*="Click to type a new time"]')).not.toBeNull();
   }, 20000);
 });

@@ -29,6 +29,7 @@ import ShiftPanel, { HistoryList } from './shifts/ShiftPanel';
 import { applyLive, draftFrom, movedTo, editedFields } from './shifts/shiftLive';
 import { teamsForCell, typesForTeams } from './shifts/shiftTypeTeams';
 import { weekKey, getWeek, putWeek, prefetchWeek } from './shifts/weekCache';
+import { formatHoursWords } from '../lib/hoursText';
 import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, shiftShortText, sectionKey, teamColor, dayFullyOff, addDaysIso, parseIso, conflictMap, coverageFor, todayIso, adherenceLine, flagOf, FLAG_KINDS, FLAG_ORDER } from './shifts/shiftLib';
 
 // ── The schedule (Microsoft Teams "Shifts" style, rebuilt Oct 2026) ────────
@@ -81,7 +82,7 @@ const SHORTCUTS = [
 ];
 
 
-// "Scheduled 1,312 h · $7,840 · 2 people without a rate · 1 person on fixed
+// "Scheduled 1,312h 00m · $7,840 · 2 people without a rate · 1 person on fixed
 // pay" - the trailing parts only when they are not zero; hours alone when pay
 // is hidden. A scope that spans currencies (a US and an India team) gets no
 // single total from the server (`cost` null, `costs` per currency): the parts
@@ -107,12 +108,13 @@ export function laborOver(l) {
 // fragments are merged, so a line with no budget is one text node.
 function laborParts(l) {
   if (!l || !(l.hours > 0)) return [];
-  const h = l.hours % 1 === 0 ? l.hours : Number(l.hours.toFixed(2));
+  // Hours and minutes like the adherence line beside it, never decimals
+  // (Neil, 11/04/2026): "Scheduled 312h 30m of 300h 00m budget".
   const budget = budgetOf(l);
   const plain = (text) => ({ text, budget: false });
   const over = (text) => ({ text, budget: true });
-  const items = [[plain(`Scheduled ${h.toLocaleString('en-US', { maximumFractionDigits: 2 })} h`)]];
-  if (budget?.hours != null) items[0].push(over(` of ${Number(budget.hours).toLocaleString('en-US')} h budget`));
+  const items = [[plain(`Scheduled ${formatHoursWords(l.hours)}`)]];
+  if (budget?.hours != null) items[0].push(over(` of ${formatHoursWords(budget.hours)} budget`));
   if (!l.payHidden) {
     const perCurrency = Object.entries(l.costs || {}).filter(([, v]) => v != null);
     if (l.cost != null) {

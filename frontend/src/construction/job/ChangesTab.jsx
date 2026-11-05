@@ -21,6 +21,7 @@ import Empty from '../Empty';
 import { clientId, useLoad } from '../lib/job';
 import { loadChanges } from '../constructionOffline';
 import FieldTicketSheet from './FieldTicketSheet';
+import { formatHoursWords } from '../../lib/hoursText';
 
 const CO_STATUS = {
   draft: { label: 'Draft', color: TONE.slate },
@@ -211,7 +212,7 @@ export default function ChangesTab({ project }) {
                   <div style={{ flex: '1 1 240px', minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{tk.number} · {formatDate(tk.workDate, tk.workDate)}</div>
                     <div style={{ ...quiet, overflowWrap: 'anywhere' }}>{tk.description}</div>
-                    <div style={quiet}>{[tk.laborHours ? `${tk.laborHours} h labor` : '', tk.materials.length ? `${tk.materials.length} material${tk.materials.length === 1 ? '' : 's'}` : '',
+                    <div style={quiet}>{[tk.laborHours ? `${formatHoursWords(tk.laborHours, { compact: true })} labor` : '', tk.materials.length ? `${tk.materials.length} material${tk.materials.length === 1 ? '' : 's'}` : '',
                       tk.photoUrls.length ? `${tk.photoUrls.length} photo${tk.photoUrls.length === 1 ? '' : 's'}` : '', tk.signedName ? `Signed by ${tk.signedName}` : ''].filter(Boolean).join(' · ')}</div>
                   </div>
                   {tk.signatureUrl && <img src={tk.signatureUrl} alt={`Signature of ${tk.signedName}`} style={{ height: 34, background: '#fff', borderRadius: 4, border: '1px solid var(--border-color)' }} />}

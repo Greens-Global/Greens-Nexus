@@ -25,7 +25,7 @@ const FillForm = lazy(() => import('../forms/FillForm'));
 // Shifts > My Shifts (Sep 29; rebuilt Oct 2026; decluttered 10/02). A
 // read-only week of the signed-in person's own SHARED shifts, with time off
 // and holidays beside them: one line that says the week ("This week: 2
-// shifts · 15.5 Hrs · no time off · next shift Tue 9:00a"), the 7-day
+// shifts · 15:30 Hrs · no time off · next shift Tue 9:00a"), the 7-day
 // strip of their own days, then their group's week (TeamShiftGrid) and
 // their availability. A day with nothing shared shows the usual hours of
 // their shift type as a reminder (never a shift, never counted) - and

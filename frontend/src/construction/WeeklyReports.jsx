@@ -26,6 +26,7 @@ import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
 import { CARD, REPORT_STATUS as STATUS, personName } from './ui';
 import { useConstructionMeta } from './lib/meta';
 import { weekChoices } from './lib/weeks';
+import { formatHoursWords } from '../lib/hoursText';
 
 // Mirrors construction_report.SECTIONS - the four sections of the sample
 // report. Keep the two in step; the server is the authority on order (it sends
@@ -357,7 +358,7 @@ export default function WeeklyReports({ project, canReview }) {
                 {formatDate(open.weekStart, open.weekStart)} to {formatDate(open.weekEnd, open.weekEnd)}
                 {open.stats?.logs != null && ` · ${open.stats.logs} approved log${open.stats.logs === 1 ? '' : 's'}`}
                 {open.stats?.crewDaysPunched ? ` · ${open.stats.crewDaysPunched} crew-days from punches` : open.stats?.crewDays ? ` · ${open.stats.crewDays} crew-days` : ''}
-                {open.stats?.weatherDelayHours ? ` · ${open.stats.weatherDelayHours} h weather delay` : ''}
+                {open.stats?.weatherDelayHours ? ` · ${formatHoursWords(open.stats.weatherDelayHours, { compact: true })} weather delay` : ''}
                 {aiEnabled && open.stats?.safetyFlags ? ` · ${open.stats.safetyFlags} safety flag${open.stats.safetyFlags === 1 ? '' : 's'}` : ''}
               </div>
 

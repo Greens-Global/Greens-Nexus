@@ -167,9 +167,9 @@ describe('Shift Types', () => {
   it('shows the paid hours of each shift type, and live while editing', async () => {
     timeShiftsFor.mockResolvedValue({ shifts: [{ ...preset, breakMin: 60 }], defaultTimezone: ASIA, companies: [], canPickCompany: false });
     render(<ShiftTypesPanel toastOk={toastOk} toastErr={toastErr} />);
-    expect(await screen.findByText('7 paid hours')).toBeTruthy();
+    expect(await screen.findByText('7:00 paid hours')).toBeTruthy();
     fireEvent.click(screen.getByText('New Shift Type'));
-    expect(await screen.findByText('8 paid hours a shift')).toBeTruthy();
+    expect(await screen.findByText('8:00 paid hours a shift')).toBeTruthy();
   });
 
   it('asks before deleting a shift type, and says what hangs off it', async () => {
@@ -473,7 +473,7 @@ describe('Companies', () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
     const mins = await screen.findByLabelText('Meal reminder');
     expect(mins.value).toBe('270');
-    expect(screen.getByText('Meal Reminder: Send at 4.5 Hours')).toBeTruthy();
+    expect(screen.getByText('Meal Reminder: Send at 4h 30m')).toBeTruthy();
     fireEvent.change(mins, { target: { value: '400' } });
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ mealReminderMin: 295 }, ''));

@@ -7,6 +7,7 @@ import { BarMore, BarSummary, ControlBar, SyncButton, control } from './reportCo
 import { useTableSync } from './tableSync';
 import { useFitHeight } from './tableHooks';
 import { downloadBlob } from './reportModel';
+import { formatHM } from '../../lib/hoursText';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dialog } from '../../ui/dialog';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../../stepup/StepUp';
@@ -32,7 +33,8 @@ const thNum = { ...th, textAlign: 'right' };
 const td = { padding: '4px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', verticalAlign: 'top' };
 const tdNum = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
 const warn = { display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: '#92400e', background: 'rgba(180,83,9,0.13)' };
-const hours = (min) => `${(Number(min || 0) / 60).toFixed(2)} h`;
+// Hours read as H:MM (Neil, 11/04/2026) - the exports keep their numbers.
+const hours = (min) => formatHM(min);
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const monthLabel = (key) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
 const shiftMonth = (key, n) => { const d = new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1 + n, 1); return monthKey(d); };

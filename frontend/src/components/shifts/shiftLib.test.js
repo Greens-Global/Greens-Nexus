@@ -20,10 +20,10 @@ describe('hours', () => {
     expect(planMinutes({ start: '09:00', end: '17:00', email: '', openSlots: 3 })).toBe(1440);
     expect(planMinutes({ start: '09:00', end: '17:00', email: 'a@x.com', openSlots: 3 })).toBe(480);
   });
-  it('prints two decimals and Hrs', () => {
-    expect(fmtHrs(465)).toBe('7.75 Hrs');
-    expect(fmtHrs(450)).toBe('7.5 Hrs');
-    expect(fmtHrs(480)).toBe('8 Hrs');
+  it('prints hours as H:MM and Hrs, never decimals', () => {
+    expect(fmtHrs(465)).toBe('7:45 Hrs');
+    expect(fmtHrs(450)).toBe('7:30 Hrs');
+    expect(fmtHrs(480)).toBe('8:00 Hrs');
     expect(hrsNumber(470)).toBe(7.83);
   });
   it('says what the block says under the time', () => {

@@ -377,7 +377,7 @@ def split_figures(card: dict, start: str, end: str) -> dict:
         sick_p += sick / 60 * r
         vac_p += vac / 60 * r
         pers_p += pers / 60 * r
-        hol_p += float(d.get("holidayPay") or 0)
+        hol_p += float(d.get("holidayPay") or 0)   # 0 for hourly since Neil, 11/04/2026 (unpaid days off)
         meal_p += float(d.get("mealPremiumPay") or 0)
         rest_p += float(d.get("restPremiumPay") or 0)
         diff_p += float(d.get("diffPay") or 0)

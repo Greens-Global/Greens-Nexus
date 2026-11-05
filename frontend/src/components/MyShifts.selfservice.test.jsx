@@ -183,7 +183,7 @@ describe('MyShifts week and group grid', () => {
   it('says the week in one line, and nothing repeats the date range', async () => {
     render(<MyShifts />);
     const line = await screen.findByRole('status', { name: 'Week summary' });
-    expect(line.textContent).toMatch(/^This week: 1 shift · 8 Hrs · no time off · (on shift now until 5:00p|next shift today 9:00a - 5:00p|next shift none)$/);
+    expect(line.textContent).toMatch(/^This week: 1 shift · 8:00 Hrs · no time off · (on shift now until 5:00p|next shift today 9:00a - 5:00p|next shift none)$/);
     expect(document.querySelectorAll('[data-range-title]')).toHaveLength(1);   // the decorated date, once
     expect(document.querySelector('.date-block').getAttribute('title')).toMatch(new RegExp(`^${monday.slice(5, 7)}/${monday.slice(8, 10)}/${monday.slice(0, 4)} - `));
     expect(screen.queryByText('NEXT SHIFT')).toBeNull();
@@ -224,7 +224,7 @@ describe('MyShifts week and group grid', () => {
     render(<MyShifts />);
     await waitFor(() => expect(document.querySelector('[data-timeoff="to1"]')).toBeTruthy());
     expect(document.querySelector('[data-timeoff="to1"]').textContent).toContain('Personal');
-    expect(screen.getAllByText('8 Hrs').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('8:00 Hrs').length).toBeGreaterThan(0);
   });
 
   it('shows nothing, not "Off", on a day with nothing shared; usual hours as a reminder', async () => {
@@ -234,7 +234,7 @@ describe('MyShifts week and group grid', () => {
     await screen.findAllByText('Usual Hours');
     expect(screen.getAllByText('Usual Hours')).toHaveLength(6);
     expect(screen.queryByText('Off')).toBeNull();
-    expect(screen.getAllByText('8 Hrs').length).toBeGreaterThan(0);   // only the shared shift counts
+    expect(screen.getAllByText('8:00 Hrs').length).toBeGreaterThan(0);   // only the shared shift counts
     unmount();
     // In the group grid (Team > Shifts), usual hours are one line under the name - the cells stay empty.
     render(<MyShifts part="team" />);

@@ -29,6 +29,7 @@ import FieldTab from './FieldTab';
 import MoneyLine from './MoneyLine';
 import { useJobMoney } from '../lib/money';
 import { prefetchJob } from '../constructionOffline';
+import { formatHoursWords } from '../../lib/hoursText';
 
 const ScheduleTab = lazy(() => import('./ScheduleTab'));
 // Field and Closeout (11/03/2026, phase 3): each its own chunk, beyond the
@@ -138,7 +139,7 @@ function Overview({ project, onTab, money }) {
                 <Line left={<>{formatDate(data.lastLog.logDate, data.lastLog.logDate)}{data.lastLog.authorName ? ` - ${data.lastLog.authorName}` : ''}</>}
                   right={<StatusLabel size="sm" label={(LOG_STATUS[data.lastLog.status] || LOG_STATUS.submitted).label} color={(LOG_STATUS[data.lastLog.status] || LOG_STATUS.submitted).color} />} />
                 {(data.lastLog.crewSize > 0 || data.lastLog.hoursWorked > 0) && (
-                  <div style={quiet}>{[data.lastLog.crewSize ? `${data.lastLog.crewSize} ${data.lastLog.crewSize === 1 ? 'person' : 'people'}` : '', data.lastLog.hoursWorked ? `${data.lastLog.hoursWorked} h` : ''].filter(Boolean).join(' · ')}</div>
+                  <div style={quiet}>{[data.lastLog.crewSize ? `${data.lastLog.crewSize} ${data.lastLog.crewSize === 1 ? 'person' : 'people'}` : '', data.lastLog.hoursWorked ? formatHoursWords(data.lastLog.hoursWorked, { compact: true }) : ''].filter(Boolean).join(' · ')}</div>
                 )}
               </>
             ) : <div style={quiet}>No daily log filed yet.</div>}
@@ -149,7 +150,7 @@ function Overview({ project, onTab, money }) {
               ? <div style={quiet}>No one is scheduled on this jobsite this week. Place the crew here in Shifts.</div>
               : data.crew.people.slice(0, 8).map((c) => (
                 <Line key={c.email} left={c.name || personName(c.email, names)}
-                  right={`${plural(c.days.length, 'day')} · ${c.plannedHours} h`} />
+                  right={`${plural(c.days.length, 'day')} · ${formatHoursWords(c.plannedHours, { compact: true })}`} />
               ))}
           </Card>
           {(data.tickets || []).length > 0 && (
