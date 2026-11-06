@@ -136,23 +136,33 @@ def stor_track_rows(since: date, until: date) -> list[dict]:
 
 
 # ── Tasks and staff (Cubby tasks -> Nexus Tasks, Neil, Oct 30 2026) ──────────
-# Cubby's API task carries no assignee; the warehouse's `tasks` table does
-# (`assigned_managers` / `assigned_manager_groups` are staff and group NAMES),
-# and `managers` maps a name to a work email. cubby_tasks.py reads both after
-# each Cubby sync. Same dataset and credentials as StorTrack; a server
-# without the key simply gets no assignees (facility routing still works).
+# Cubby's API task carries no assignee (its docs: "assignees ... are managed
+# in the Cubby app"); the BigQuery warehouse's `tasks` table does. The columns
+# below are Cubby's OWN published BigQuery schema
+# (https://cubbystorage.github.io/docs/data-dictionary/schema.csv, read
+# 11/06/2026) - NOT the Postgres reporting copy the Cubby MCP reads, whose
+# names differ (assigned_managers, task_title, updated_at...): every earlier
+# query was written from that copy, which is why prod never got assignees.
+#   tasks.assignee            ARRAY<STRING>  manager IDs assigned to the task
+#   tasks.manager_created_by  STRING         manager ID of the creator
+#   managers.manager_id / manager_name / manager_email
+# There is no group assignment column and no updated_at (created_at,
+# completed_at, archived_at instead). cubby_tasks.py reads both after each
+# Cubby sync. Same dataset and credentials as StorTrack; a server without the
+# key simply gets no assignees (facility routing still works).
 
 TASKS_TABLE = "cubby-partner-data.analytics.tasks"
 MANAGERS_TABLE = "cubby-partner-data.analytics.managers"
-TASK_COLUMNS = ("task_id", "facility_id", "status", "task_title", "due_date", "schedule",
-                "assigned_managers", "assigned_manager_groups", "created_by", "contact_id", "unit_id",
-                "is_workflow_generated", "created_at", "updated_at")
-MANAGER_COLUMNS = ("manager_id", "manager_name", "manager_email")
+TASK_COLUMNS = ("task_id", "facility_id", "status", "title", "due_date", "schedule", "assignee",
+                "manager_created_by", "contact_id", "unit_id", "workflow_run_id",
+                "created_at", "completed_at", "archived_at")
+TASK_STAMPS = ("created_at", "completed_at", "archived_at")
 TASK_MAX_ROWS = 20_000
-# Notes a manager typed on a task (Sagar, 11/03/2026: "get the notes also").
-# `manager_notes` holds every note on every record; only rows with a task_id
-# are read, inside a created_at window. Append-only there: an edit or a
-# delete in Cubby never reaches this table.
+# Notes on a task (Sagar, 11/03/2026: "get the notes also"). Cubby's BigQuery
+# `manager_notes` is linked to TENANTS only (contact_name, unit_name, note -
+# no task_id), so task notes cannot come from the warehouse; notes_sql says
+# so in the run's note rather than guessing. Kept for a warehouse that ever
+# carries task_id.
 NOTES_TABLE = "cubby-partner-data.analytics.manager_notes"
 NOTE_COLUMNS = ("manager_note_id_int", "task_id", "message", "manager_name", "manager_id", "created_at")
 NOTE_MAX_ROWS = 20_000
@@ -269,22 +279,25 @@ def missing_note() -> str:
 
 
 def tasks_sql(cols: dict) -> str:
-    # Every open task plus anything touched since @since, so a completion in
-    # Cubby is seen even after the task left the open list.
+    # Every open task plus anything created, completed or archived since
+    # @since, so a completion in Cubby is seen after it left the open list.
     if "task_id" not in cols:
         raise WarehouseError("The warehouse's tasks table has no task_id")
+    if "assignee" not in cols:
+        raise WarehouseError(f"The warehouse's tasks table has no assignee column "
+                             f"(it has: {', '.join(sorted(cols))[:240]})")
     have = _pick(cols, TASK_COLUMNS, TASKS_TABLE)
-    stamp = next((c for c in ("updated_at", "created_at") if c in cols), "")
-    where = "status = 'OPEN'" if "status" in cols else "TRUE"
-    if stamp:
-        where += f" OR {_window(stamp, cols[stamp])}"
-    return (f"SELECT {', '.join(have)} FROM `{TASKS_TABLE}` WHERE {where} "
-            f"ORDER BY {stamp or 'task_id'} DESC LIMIT {TASK_MAX_ROWS}")
+    where = ["status = 'OPEN'"] if "status" in cols else ["TRUE"]
+    where += [_window(c, cols[c]) for c in TASK_STAMPS if c in cols]
+    order = "created_at" if "created_at" in cols else "task_id"
+    return (f"SELECT {', '.join(have)} FROM `{TASKS_TABLE}` WHERE {' OR '.join(where)} "
+            f"ORDER BY {order} DESC LIMIT {TASK_MAX_ROWS}")
 
 
 def notes_sql(cols: dict) -> str:
     if "task_id" not in cols or "message" not in cols:
-        raise WarehouseError("The warehouse's manager_notes table has no task_id or message")
+        raise WarehouseError("Cubby's warehouse links notes to tenants only, not to tasks, "
+                             "so task notes cannot be read")
     have = _pick(cols, NOTE_COLUMNS, NOTES_TABLE)
     where = "task_id IS NOT NULL AND task_id != ''"
     if "created_at" in cols:
@@ -301,7 +314,8 @@ def managers_sql(cols: dict) -> str:
         raise WarehouseError(f"The warehouse's managers table has no {'name' if not name else 'email'} column "
                              f"(it has: {', '.join(sorted(cols))[:200]})")
     _missing[MANAGERS_TABLE] = []
-    return f"SELECT {name} AS manager_name, {email} AS manager_email FROM `{MANAGERS_TABLE}`"
+    mid = "manager_id" if "manager_id" in cols else "''"
+    return f"SELECT {mid} AS manager_id, {name} AS manager_name, {email} AS manager_email FROM `{MANAGERS_TABLE}`"
 
 
 def _since_param(since):
@@ -312,21 +326,31 @@ def _since_param(since):
         return [since]
 
 
+def _iso(v) -> str:
+    return v.isoformat() if hasattr(v, "isoformat") else (str(v) if v else "")
+
+
 def task_rows(since) -> list[dict]:
-    """Cubby tasks from the warehouse: open ones and those updated since
-    `since` (a datetime). Assignee columns come back as lists of names; a
-    column the table lacks comes back empty. [] when the warehouse is not
-    configured. Raises WarehouseError."""
+    """Cubby tasks from the warehouse: open ones and those created, completed
+    or archived since `since` (a datetime), in the shape cubby_tasks reads:
+      assignee_ids       the manager IDs Cubby assigned (`assignee`)
+      created_by_id      the creator's manager ID (`manager_created_by`)
+      task_title, is_workflow_generated, updated_at (the latest of the stamps)
+    cubby_tasks turns the IDs into names and Nexus people through
+    manager_rows. [] when the warehouse is not configured. Raises
+    WarehouseError."""
     if not configured():
         return []
     out = []
     for r in _run(tasks_sql(_columns(TASKS_TABLE)), _since_param(since)):
         row = dict(r)
-        row["assigned_managers"] = _names(row.get("assigned_managers"))
-        row["assigned_manager_groups"] = _names(row.get("assigned_manager_groups"))
-        for k in ("due_date", "created_at", "updated_at"):
-            v = row.get(k)
-            row[k] = v.isoformat() if hasattr(v, "isoformat") else (str(v) if v else "")
+        row["assignee_ids"] = _names(row.get("assignee"))
+        row["created_by_id"] = str(row.get("manager_created_by") or "")
+        row["task_title"] = row.get("title") or ""
+        row["is_workflow_generated"] = row.get("workflow_run_id") is not None
+        for k in ("due_date", *TASK_STAMPS):
+            row[k] = _iso(row.get(k))
+        row["updated_at"] = max((row[k] for k in TASK_STAMPS if row.get(k)), default="")
         out.append(row)
     return out
 
@@ -350,7 +374,7 @@ def note_rows(since) -> list[dict]:
 
 
 def manager_rows() -> list[dict]:
-    """Cubby staff: name and work email. [] when not configured."""
+    """Cubby staff: manager_id, name and work email. [] when not configured."""
     if not configured():
         return []
     return [dict(r) for r in _run(managers_sql(_columns(MANAGERS_TABLE)), [])]

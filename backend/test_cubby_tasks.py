@@ -512,22 +512,28 @@ def _warehouse_with(monkeypatch, tables: dict, rows: dict):
     return asked
 
 
-PROD_LIKE_TASKS = {"task_id": "STRING", "facility_id": "STRING", "status": "STRING", "task_title": "STRING",
-                   "assigned_managers": "STRING", "created_at": "DATETIME"}     # no updated_at, no groups
+PROD_LIKE_TASKS = {"task_id": "STRING", "facility_id": "STRING", "status": "STRING", "title": "STRING",
+                   "assignee": "STRING", "created_at": "DATETIME", "completed_at": "DATETIME"}   # no archived_at, no schedule
 
 
 def test_tasks_are_read_with_only_the_columns_the_table_has(monkeypatch):
     asked = _warehouse_with(monkeypatch, {"tasks": PROD_LIKE_TASKS}, {"tasks": [
-        {"task_id": "task_UxKstTQkZfU", "status": "OPEN", "assigned_managers": '{"Sagar Shoundik"}',
-         "created_at": "2026-11-03T13:38:14"}]})
+        {"task_id": "task_x", "status": "OPEN", "title": "Lock check", "assignee": ["user_TZnGWYd2Ndm"],
+         "created_at": "2026-11-06T05:21:00", "completed_at": None}]})
     rows = cubby_warehouse.task_rows(None)
     sql = asked[0]
-    assert "updated_at" not in sql and "assigned_manager_groups" not in sql and "schedule" not in sql
-    assert "created_at >= DATETIME(@since)" in sql and "ORDER BY created_at DESC" in sql
-    assert rows[0]["assigned_managers"] == ["Sagar Shoundik"] and rows[0]["assigned_manager_groups"] == []
-    assert rows[0]["updated_at"] == ""
-    # The run says what it read without.
-    assert "tasks has no" in cubby_warehouse.missing_note() and "updated_at" in cubby_warehouse.missing_note()
+    assert "archived_at" not in sql and "schedule" not in sql
+    assert "created_at >= DATETIME(@since)" in sql and "completed_at >= DATETIME(@since)" in sql
+    assert rows[0]["assignee_ids"] == ["user_TZnGWYd2Ndm"] and rows[0]["task_title"] == "Lock check"
+    assert rows[0]["updated_at"] == "2026-11-06T05:21:00"
+    assert "tasks has no" in cubby_warehouse.missing_note() and "archived_at" in cubby_warehouse.missing_note()
+
+
+def test_a_tasks_table_without_an_assignee_column_says_so(monkeypatch):
+    _warehouse_with(monkeypatch, {"tasks": {"task_id": "STRING", "status": "STRING", "created_at": "DATETIME"}}, {})
+    with pytest.raises(cubby_warehouse.WarehouseError) as e:
+        cubby_warehouse.task_rows(None)
+    assert "no assignee column" in str(e.value) and "task_id" in str(e.value)
 
 
 def test_the_window_compares_in_the_columns_own_type():
@@ -618,12 +624,14 @@ def test_columns_fall_back_to_a_dry_run_without_metadata_permission(monkeypatch)
 import re  # noqa: E402
 
 PROD_SCHEMA = {
-    "tasks": {"task_id": "STRING", "facility_id": "STRING", "status": "STRING", "due_date": "DATE",
-              "assigned_managers": "STRING", "assigned_manager_groups": "STRING", "created_by": "STRING",
-              "unit_id": "STRING", "is_workflow_generated": "BOOLEAN", "created_at": "DATETIME"},
-    "managers": {"manager_id": "STRING", "manager_name": "STRING", "manager_email": "STRING"},
-    "manager_notes": {"manager_note_id_int": "INTEGER", "task_id": "STRING", "message": "STRING",
-                      "manager_name": "STRING", "manager_id": "STRING", "created_at": "DATETIME"},
+    # Cubby's published BigQuery schema, column for column
+    # (https://cubbystorage.github.io/docs/data-dictionary/schema.csv, read
+    # 11/06/2026). ARRAY<STRING> is written STRING here; the fake treats both
+    # alike. Earlier versions of this test were built from guesses and passed
+    # while prod failed - this one is Cubby's own description.
+    "tasks": {"archived_at": "DATETIME", "assignee": "STRING", "completed_at": "DATETIME", "contact_id": "STRING", "created_at": "DATETIME", "description": "STRING", "due_date": "DATETIME", "facility_id": "STRING", "manager_created_by": "STRING", "org_id": "STRING", "schedule": "STRING", "status": "STRING", "task_id": "STRING", "title": "STRING", "unit_id": "STRING", "workflow_name": "STRING", "workflow_run_id": "INT64"},
+    "managers": {"manager_email": "STRING", "manager_id": "STRING", "manager_name": "STRING", "manager_permissions": "INT64", "manager_persona": "STRING", "manager_phone": "STRING", "manager_status": "STRING", "manager_username": "STRING", "org_id": "STRING"},
+    "manager_notes": {"contact_name": "STRING", "created_at": "DATETIME", "facility_name": "STRING", "manager_name": "STRING", "note": "STRING", "org_id": "STRING", "unit_name": "STRING", "updated_at": "DATETIME"},
 }
 _SQL_WORDS = {"select", "from", "where", "or", "and", "is", "not", "null", "true", "as", "order", "by", "desc",
               "limit", "open", "datetime", "date", "safe_cast", "timestamp", "since"}
@@ -670,19 +678,25 @@ class StrictBigQuery:
 
 
 def test_prod_shaped_warehouse_assigns_the_task_end_to_end(world, monkeypatch):
-    # 1. Linked while the warehouse could not be read: nobody assigned (prod, 11/03).
-    world.api_open = {"task_UxKstTQkZfU": _api_task("task_UxKstTQkZfU", "Test task after assignee fix")}
+    """Prod, 11/06/2026: "Assignee Test Task" on 04 - GS Escondido, assigned in
+    Cubby to Sagar Shoundik, came in unassigned. Cubby's BigQuery keeps the
+    assignee as manager IDs in `tasks.assignee`; the run must read it, match
+    the ID to Sagar's work email and assign him."""
+    # 1. Linked while the warehouse could not be read: nobody assigned.
+    world.api_open = {"task_aTest": _api_task("task_aTest", "Assignee Test Task")}
     monkeypatch.setattr(cubby_warehouse, "task_rows",
                         lambda since: (_ for _ in ()).throw(cubby_warehouse.WarehouseError("Unrecognized name: task_title")))
-    s = world.sync()
-    t = _tasks()["task_UxKstTQkZfU"]
-    assert task_assignees(t) == [] and "task_title" in s["warehouse"]
-    # 2. The real readers against a BigQuery shaped like prod's.
+    world.sync()
+    assert task_assignees(_tasks()["task_aTest"]) == []
+    # 2. The REAL readers against a BigQuery with Cubby's published columns.
     bq = StrictBigQuery({
-        "tasks": [{"task_id": "task_UxKstTQkZfU", "facility_id": FAC, "status": "OPEN",
-                   "assigned_managers": '{"Sagar Shoundik"}', "assigned_manager_groups": "{}",
-                   "created_at": "2026-11-03 13:38:14"}],
-        "managers": STAFF,
+        "tasks": [{"task_id": "task_aTest", "facility_id": FAC, "status": "OPEN", "title": "Assignee Test Task",
+                   "assignee": ["m2"], "manager_created_by": "m2", "unit_id": "u1",
+                   "created_at": "2026-11-06 05:21:00", "due_date": "2026-11-10 00:00:00"}],
+        "managers": [{"manager_id": "m1", "manager_name": "Amy Bolanos", "manager_email": AMY},
+                     {"manager_id": "m2", "manager_name": "Sagar Shoundik", "manager_email": SAGAR},
+                     # a second "Sagar Shoundik" with another email must not be the one matched
+                     {"manager_id": "m9", "manager_name": "Sagar Shoundik", "manager_email": "other@x.com"}],
         "manager_notes": [],
     })
     monkeypatch.setattr(cubby_warehouse, "_client", lambda: bq)
@@ -692,16 +706,36 @@ def test_prod_shaped_warehouse_assigns_the_task_end_to_end(world, monkeypatch):
     monkeypatch.setattr(cubby_warehouse, "manager_rows", REAL_MANAGER_ROWS)
     monkeypatch.setattr(cubby_warehouse, "note_rows", REAL_NOTE_ROWS)
     s = world.sync()
-    assert s["warehouse"] == "ok" and s["notesWarehouse"] == "ok" and s["errors"] == [], s
-    assert s["reassigned"] == 1
-    t = _tasks()["task_UxKstTQkZfU"]
+    assert s["warehouse"] == "ok" and s["errors"] == [], s
+    assert s["reassigned"] == 1 and s["unmatchedPeople"] == {}
+    t = _tasks()["task_aTest"]
     assert task_assignees(t) == [SAGAR]
     assert OWNER not in (t.follower_emails or [])          # the project owner is not made a collaborator
-    assert "task_title" in s["warehouseGaps"] and "updated_at" in s["warehouseGaps"]
-    # Every query BigQuery saw was one it accepts (the fake would have raised).
-    assert len(bq.asked) == 3
+    assert s["warehouseGaps"] == ""                          # every column the reader asks for exists
+    # Task notes: Cubby's warehouse links notes to tenants only - said plainly.
+    assert "tenants only" in s["notesWarehouse"]
+    # Every query BigQuery saw was one it accepts (the fake raises otherwise).
+    assert any("assignee" in q for q in bq.asked)
     # 3. The next run changes nothing.
     assert world.sync()["reassigned"] == 0
+
+
+def test_an_assignee_with_no_nexus_account_is_named(world, monkeypatch):
+    bq = StrictBigQuery({
+        "tasks": [{"task_id": "task_b", "facility_id": FAC, "status": "OPEN", "title": "Lock check",
+                   "assignee": ["m7"], "created_at": "2026-11-06 05:00:00"}],
+        "managers": [{"manager_id": "m7", "manager_name": "Pat Lee", "manager_email": "pat@nowhere.com"}],
+        "manager_notes": [],
+    })
+    monkeypatch.setattr(cubby_warehouse, "_client", lambda: bq)
+    monkeypatch.setattr(cubby_warehouse, "_columns_cache", {})
+    monkeypatch.setattr(cubby_warehouse, "_missing", {})
+    monkeypatch.setattr(cubby_warehouse, "task_rows", REAL_TASK_ROWS)
+    monkeypatch.setattr(cubby_warehouse, "manager_rows", REAL_MANAGER_ROWS)
+    world.api_open = {"task_b": _api_task("task_b", "Lock check")}
+    s = world.sync()
+    assert s["unmatchedPeople"] == {"Pat Lee": 1}             # by name, not "m7"
+    assert task_assignees(_tasks()["task_b"]) == []
 
 
 def test_close_in_cubby_works_with_only_the_sync_key(world, monkeypatch):
