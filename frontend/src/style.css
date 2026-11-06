@@ -8024,7 +8024,7 @@ label.nx-set-row-main { cursor: pointer; }
 .nx-set-group-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
 .nx-set-group-head-text { flex: 1 1 260px; min-width: 0; }
 .nx-set-group-head h4 { margin: 0; font-size: 14.5px; font-weight: 650; color: var(--ink); }
-.nx-set-group-head p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; max-width: 78ch; }
+.nx-set-group-head p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 .nx-set-group-body { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 18px; transition: box-shadow var(--transition-fast), border-color var(--transition-fast); }
 .nx-set-group-body.is-flush { padding: 0; overflow: hidden; }
 .nx-set-group.is-highlight .nx-set-group-body { border-color: var(--wk-brand); box-shadow: 0 0 0 3px var(--wk-brand-tint); }
