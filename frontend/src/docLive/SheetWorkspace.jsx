@@ -5,7 +5,7 @@
 // always works in the live session - alone it is just the save path; a viewer
 // sees the saved copy and follows saves (GET /head every 10 s).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Users, Braces } from 'lucide-react';
+import { ArrowLeft, Users, Braces, History } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { usePeople } from '../tasks/components';
@@ -15,6 +15,7 @@ import { SheetEditor, seedSheetDoc, snapshotOf, validateSheetDoc } from '../shee
 import { useLiveSession, useHeadPoll } from './useLiveSession';
 import ShareDocumentDialog, { LivePeople } from './ShareDocumentDialog';
 import SheetVariablesDialog, { useSheetVariables } from './SheetVariables';
+import SheetHistoryDialog from './SheetHistory';
 import { caretColor } from '../notes/useNoteCollab';
 import './docLive.css';
 
@@ -32,6 +33,7 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, empl
   const [saveState, setSaveState] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
   const [varsOpen, setVarsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const vars = useSheetVariables(docId);
   const [full, toggleFull] = useFullScreen('documents-sheet');
 
@@ -44,10 +46,12 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, empl
   const live = useLiveSession({ docId, enabled: canEdit, me, name: myName, seed: seedSheetDoc, validate: validateSheetDoc });
 
   // A viewer (or an editor whose live session could not start) reads the saved copy.
-  const readDoc = useMemo(() => {
-    if (!row || (canEdit && live.status !== 'failed')) return null;
-    try { const d = seedSheetDoc(row.content); validateSheetDoc(d); return d; } catch { return null; }
+  // `unreadable` = the saved copy itself cannot be shown: say so, never a skeleton forever.
+  const read = useMemo(() => {
+    if (!row || (canEdit && live.status !== 'failed')) return { doc: null, unreadable: false };
+    try { const d = seedSheetDoc(row.content); validateSheetDoc(d); return { doc: d, unreadable: false }; } catch { return { doc: null, unreadable: true }; }
   }, [row, canEdit, live.status]);
+  const readDoc = read.doc;
   const moved = useHeadPoll(docId, row?.currentVersion, !!row && !canEdit);
   useEffect(() => { if (moved) load(); }, [moved, load]);
 
@@ -114,6 +118,7 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, empl
         <button type="button" className="secondary-btn" onClick={() => setShareOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Users size={14} /> Share
         </button>
+        <button type="button" className="dl-icon-btn" aria-label="Version History" title="Version History" onClick={() => setHistoryOpen(true)}><History size={17} /></button>
         <FullScreenButton on={full} onToggle={toggleFull} className="dl-icon-btn" />
       </div>
       {canEdit && live.status === 'failed' && (
@@ -127,8 +132,20 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, empl
           ? <SheetEditor key={doc.guid} doc={doc} awareness={canEdit ? live.awareness : null} canEdit={canEdit && !!live.doc}
               me={{ email: me, name: myName, color: caretColor(me) }} title={row.title} onChange={onChange} toastErr={toastErr}
               variables={vars.variables} variableValues={vars.values} />
-          : <div style={{ padding: 16 }}><SkeletonBlocks count={10} height={28} /></div>}
+          : read.unreadable
+            ? (
+              <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
+                <ErrorBanner message="This copy of the sheet could not be opened. Restore an earlier copy from Version History." />
+                <button type="button" className="secondary-btn" onClick={() => setHistoryOpen(true)}>Version History</button>
+              </div>
+            )
+            : <div style={{ padding: 16 }}><SkeletonBlocks count={10} height={28} /></div>}
       </div>
+      {historyOpen && (
+        <SheetHistoryDialog docId={docId} canRestore={row.access !== 'view'} onClose={() => setHistoryOpen(false)}
+          nameOf={(email) => people.find((p) => p.email === (email || '').toLowerCase())?.name}
+          onRestored={(v) => { setHistoryOpen(false); toastOk?.(`Restored version ${v.versionNo}`); live.restart(); load(); }} />
+      )}
       {varsOpen && (
         <SheetVariablesDialog docId={docId} canManage={row.access === 'owner'} subject={vars.subject} employees={employees} entities={entities}
           variables={vars.variables} values={vars.values} onClose={() => setVarsOpen(false)} onChanged={vars.reload} />
