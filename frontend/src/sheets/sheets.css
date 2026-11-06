@@ -1,0 +1,279 @@
+/* Sheets (Documents > Sheets): the workbook. Theme colors only; the
+   selection is the brand (--nx-primary), other people's selections their own
+   presence color. */
+.nx-sheet {
+  --nxs-grid: #e2e8f0;
+  --nxs-head: var(--mist);
+  --nxs-head-on: color-mix(in srgb, var(--nx-primary) 14%, var(--mist));
+  display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;
+  font-family: Inter, sans-serif; color: var(--ink); background: var(--card);
+}
+[data-theme="dark"] .nx-sheet { --nxs-grid: #273042; }
+
+.nx-sheet .nxs-toolbar.doc-toolbar.doc-ribbon {
+  min-height: 0; align-items: center; gap: 2px; padding: 4px 8px; margin: 0;
+  border: none; border-bottom: 1px solid var(--line); border-radius: 0; box-shadow: none;
+}
+.nxs-select {
+  height: 26px; font: 12px Inter, sans-serif; color: var(--ink); background: var(--card);
+  border: 1px solid var(--line); border-radius: 6px; padding: 0 4px; max-width: 120px;
+}
+.nxs-dec { font-size: 11px; font-weight: 700; letter-spacing: -0.02em; }
+.nxs-frozen { display: inline-flex; color: var(--muted); padding: 0 4px; }
+.nxs-readonly { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 0 8px; }
+
+.nxs-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.nxs-namebox {
+  width: 92px; flex: 0 0 auto; height: 26px; font: 600 12px Inter, sans-serif; color: var(--ink);
+  background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px;
+}
+.nxs-fx { font: italic 600 12px Georgia, serif; color: var(--muted); padding: 0 2px; }
+.nxs-formula-wrap { position: relative; flex: 1; min-width: 0; }
+.nxs-formula {
+  width: 100%; height: 26px; font: 13px Inter, sans-serif; color: var(--ink); background: var(--card);
+  border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; box-sizing: border-box;
+}
+.nxs-namebox:focus, .nxs-formula:focus { outline: 2px solid var(--nx-primary); outline-offset: -1px; }
+.nxs-suggest {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 280px; max-width: 520px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-lg);
+  padding: 4px; display: flex; flex-direction: column;
+}
+.nxs-suggest button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; border: none;
+  background: none; border-radius: 6px; padding: 6px 8px; cursor: pointer; color: var(--ink); font: 12.5px Inter, sans-serif;
+}
+.nxs-suggest button span, .nxs-hint { font-size: 11.5px; color: var(--muted); }
+.nxs-suggest button.is-on, .nxs-suggest button:hover { background: var(--mist); }
+.nxs-hint { padding: 6px 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.nxs-find { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-bottom: 1px solid var(--line); color: var(--muted); }
+.nxs-find input {
+  flex: 0 1 260px; min-width: 0; height: 26px; font: 13px Inter, sans-serif; color: var(--ink); background: var(--card);
+  border: 1px solid var(--line); border-radius: 6px; padding: 0 8px;
+}
+.nxs-find-count { font-size: 12px; min-width: 56px; }
+.nxs-find button { border: none; background: none; color: var(--ink); width: 28px; height: 28px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.nxs-find button:hover { background: var(--mist); }
+
+.nxs-scroll {
+  flex: 1; min-height: 0; overflow: auto; position: relative; outline: none;
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain; font-size: 13px;
+}
+.nxs-canvas { position: relative; }
+.nxs-band-top { position: sticky; top: 0; z-index: 3; }
+.nxs-corner { position: sticky; left: 0; z-index: 2; }
+.nxs-band-left { position: sticky; left: 0; height: 0; z-index: 2; }
+
+.nxs-cell {
+  position: absolute; box-sizing: border-box; display: flex; padding: 0 5px; overflow: visible;
+  border-right: 1px solid var(--nxs-grid); border-bottom: 1px solid var(--nxs-grid);
+  background: var(--card); cursor: cell; user-select: none; line-height: 1.3;
+}
+.nxs-cell .nxs-text { overflow: hidden; text-overflow: clip; max-width: 100%; }
+.nxs-cell.is-in::after, .nxs-cell.is-fill::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: color-mix(in srgb, var(--nx-primary) 12%, transparent);
+}
+.nxs-cell.is-fill::after { background: color-mix(in srgb, var(--muted) 16%, transparent); outline: 1px dashed var(--muted); outline-offset: -1px; }
+.nxs-cell.has-tag { z-index: 1; }
+.nxs-cell-input {
+  position: absolute; left: 0; top: 0; height: 100%; box-sizing: border-box; z-index: 5;
+  font: inherit; color: var(--ink); background: var(--card); border: none; padding: 0 5px;
+  box-shadow: inset 0 0 0 2px var(--nx-primary), 0 2px 8px rgba(0, 0, 0, 0.12); outline: none;
+}
+.nxs-tag {
+  position: absolute; right: -2px; bottom: 100%; z-index: 6; pointer-events: none; white-space: nowrap;
+  font-size: 10.5px; font-weight: 600; color: #fff; padding: 1px 5px; border-radius: 4px 4px 4px 0;
+}
+.nxs-fill {
+  position: absolute; right: -4px; bottom: -4px; width: 7px; height: 7px; z-index: 4;
+  background: var(--nx-primary); border: 1px solid var(--card); cursor: crosshair;
+}
+
+.nxs-head {
+  position: absolute; box-sizing: border-box; display: flex; align-items: center; justify-content: center;
+  background: var(--nxs-head); color: var(--muted); font-size: 11.5px; font-weight: 600; user-select: none;
+  border-right: 1px solid var(--nxs-grid); border-bottom: 1px solid var(--nxs-grid); cursor: default;
+}
+.nxs-head.is-on { background: var(--nxs-head-on); color: var(--ink); }
+.nxs-all { cursor: pointer; }
+.nxs-rz { position: absolute; z-index: 2; }
+.nxs-rz-col { top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; }
+.nxs-rz-row { left: 0; bottom: -3px; height: 6px; width: 100%; cursor: row-resize; }
+.nxs-rz:hover { background: var(--nx-primary); opacity: 0.6; }
+
+.nxs-more { position: absolute; }
+.nxs-more button {
+  font: 600 12px Inter, sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 12px; cursor: pointer;
+}
+.nxs-more button:hover { background: var(--mist); }
+
+.nxs-tabs {
+  display: flex; align-items: stretch; gap: 2px; padding: 0 6px; border-top: 1px solid var(--line);
+  background: var(--mist); overflow-x: auto; scrollbar-width: none; min-height: 34px;
+}
+.nxs-tabs::-webkit-scrollbar { display: none; }
+.nxs-tab { display: flex; align-items: center; border-bottom: 3px solid transparent; flex: 0 0 auto; }
+.nxs-tab > button:first-child, .nxs-tab input {
+  font: 600 12.5px Inter, sans-serif; color: var(--muted); background: none; border: none; padding: 6px 12px; cursor: pointer; white-space: nowrap;
+}
+.nxs-tab input { color: var(--ink); background: var(--card); border: 1px solid var(--nx-primary); border-radius: 4px; padding: 3px 6px; width: 140px; cursor: text; }
+.nxs-tab.is-on { background: var(--card); }
+.nxs-tab.is-on > button:first-child { color: var(--ink); }
+.nxs-tab-menu, .nxs-tab-add {
+  border: none; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; border-radius: 6px;
+}
+.nxs-tab-add:hover, .nxs-tab-menu:hover { color: var(--ink); background: var(--card); }
+.nxs-pop { min-width: 200px; }
+.nxs-pop-label { font-size: 11px; font-weight: 600; color: var(--muted); padding: 2px 10px; }
+
+.nxs-empty-book { align-items: center; justify-content: center; padding: 24px 16px; }
+.nxs-empty-card { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; max-width: 360px; font-size: 13px; color: var(--muted); }
+.nxs-empty-card b { color: var(--ink); font-size: 15px; }
+
+/* ── outline (row / column groups), rotation, pivots ─────────────────── */
+.nxs-gutter-corner { position: absolute; background: var(--nxs-head); border-right: 1px solid var(--nxs-grid); border-bottom: 1px solid var(--nxs-grid); box-sizing: border-box; }
+.nxs-outline { position: absolute; left: 0; top: 0; }
+.nxs-bracket { position: absolute; pointer-events: none; border-color: var(--muted); border-style: solid; border-width: 0; opacity: 0.7; }
+.nxs-bracket-row { width: 4px; border-left-width: 2px; border-bottom-width: 2px; }
+.nxs-bracket-col { height: 4px; border-top-width: 2px; border-right-width: 2px; }
+.nxs-gbtn {
+  position: absolute; width: 12px; height: 12px; padding: 0; z-index: 3; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; font: 700 11px/1 Inter, sans-serif;
+  color: var(--ink); background: var(--card); border: 1px solid var(--muted); border-radius: 2px;
+}
+.nxs-gbtn:hover { border-color: var(--nx-primary); color: var(--nx-primary); }
+.nxs-cell .nxs-text.is-rot { overflow: visible; white-space: nowrap; }
+.nxs-pv-sec { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+.nxs-pv-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nxs-pv-add { max-width: 160px; }
+.nxs-pv-item { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; }
+.nxs-pv-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; }
+.nxs-pv-tools { display: inline-flex; }
+.nxs-pv-tools .nxs-icon { width: 26px; height: 26px; }
+.nxs-pv-item .form-input { flex: 1 1 140px; min-width: 0; }
+.nxs-pv-filter { display: flex; flex-direction: column; gap: 6px; }
+.nxs-info-pivot .nxs-link { margin-left: 6px; }
+
+/* ── round two: merges, rules, notes, links, charts, panels ─────────── */
+.nxs-band-top { z-index: 5; }
+.nxs-band-left { z-index: 4; }
+.nx-sheet .doc-ribbon-panel { max-width: calc(100vw - 16px); }
+.nxs-size { max-width: 64px; }
+.nxs-var-btn.doc-ribbon-small { width: auto !important; padding: 0 6px; gap: 4px; font: 600 12px Inter, sans-serif; }
+textarea.nxs-formula { resize: none; padding-top: 4px; line-height: 16px; overflow: hidden; white-space: pre; }
+textarea.nxs-cell-input { resize: none; padding-top: 3px; white-space: pre; overflow: hidden; line-height: 1.3; }
+.nxs-nogrid .nxs-cell { border-right-color: transparent; border-bottom-color: transparent; }
+.nxs-cell.has-note::before {
+  content: ''; position: absolute; top: 0; right: 0; width: 0; height: 0; pointer-events: none;
+  border-top: 7px solid var(--muted); border-left: 7px solid transparent;
+}
+.nxs-cell.is-invalid::before {
+  content: ''; position: absolute; top: 0; left: 0; width: 0; height: 0; pointer-events: none;
+  border-top: 7px solid hsl(var(--color-red, 4 74% 49%)); border-right: 7px solid transparent;
+}
+.nxs-cell.is-link .nxs-text { color: hsl(var(--color-blue, 221 83% 53%)); text-decoration: underline; }
+.nxs-cell.is-spilled .nxs-text { color: var(--ink); }
+.nxs-var { border-bottom: 1px dotted currentColor; }
+.nxs-var.is-missing { color: var(--muted); }
+.nxs-checkbox { display: inline-flex; align-items: center; justify-content: center; width: 100%; height: 100%; cursor: pointer; color: var(--nx-primary); }
+.nxs-dv-arrow, .nxs-filter-btn {
+  position: absolute; right: 2px; top: 50%; transform: translateY(-50%); z-index: 2; width: 18px; height: 18px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--card); color: var(--muted); cursor: pointer;
+}
+/* Room for the filter / dropdown button, so it never sits on the value (Sheets does the same). */
+.nxs-cell.has-btn { padding-right: 22px; }
+.nxs-filter-btn.is-on { color: var(--nx-primary); border-color: var(--nx-primary); }
+.nxs-head.has-hidden { box-shadow: inset 0 0 0 1px var(--nx-primary); }
+
+.nxs-info {
+  display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 4px 10px; font-size: 12px; color: var(--muted);
+  border-bottom: 1px solid var(--line); background: var(--mist);
+}
+.nxs-info > span { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.nxs-info a { color: hsl(var(--color-blue, 221 83% 53%)); }
+.nxs-info-err { color: hsl(var(--color-red, 4 74% 49%)); }
+.nxs-find { flex-wrap: wrap; }
+.nxs-text-btn { width: auto !important; padding: 0 8px; font: 600 12px Inter, sans-serif; }
+.nxs-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); padding: 3px 0; }
+.nxs-check.nxs-inline { display: inline-flex; font-size: 12px; color: var(--muted); padding: 0; }
+
+.nxs-chart {
+  position: absolute; z-index: 3; background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); overflow: hidden; display: flex; flex-direction: column;
+}
+.nxs-chart.is-on { outline: 2px solid var(--nx-primary); outline-offset: 0; }
+.nxs-chart-head { height: 28px; flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 0 6px; cursor: move; border-bottom: 1px solid var(--line); }
+.nxs-chart-head select, .nxs-chart-head input { height: 22px; font: 12px Inter, sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; }
+.nxs-chart-head input { flex: 1; min-width: 0; }
+.nxs-chart-head button { border: none; background: none; color: var(--muted); cursor: pointer; display: inline-flex; padding: 2px; }
+.nxs-chart-grip { width: 28px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto; }
+.nxs-chart-rz { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--muted) 50%); opacity: 0.6; }
+
+.nxs-panel { display: flex; flex-direction: column; font-family: Inter, sans-serif; color: var(--ink); }
+.nxs-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.nxs-panel-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.nxs-panel-body { padding: 14px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+.nxs-panel-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
+.nxs-icon { border: none; background: none; color: var(--muted); cursor: pointer; width: 30px; height: 30px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.nxs-icon:hover { background: var(--mist); color: var(--ink); }
+.nxs-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.nxs-field .form-input { font-weight: 400; }
+.nxs-sub { margin: 8px 0 0; font-size: 12px; font-weight: 700; color: var(--ink); text-transform: none; }
+.nxs-btnrow { display: flex; align-items: center; gap: 6px; }
+.nxs-btnrow.nxs-wrap { flex-wrap: wrap; }
+.nxs-small { font-size: 12px !important; padding: 5px 10px !important; }
+.nxs-toggle { width: 32px; height: 30px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.nxs-toggle.is-on { border-color: var(--nx-primary); color: var(--nx-primary); }
+.nxs-color { width: 36px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
+.nxs-rules { display: flex; flex-direction: column; gap: 6px; }
+.nxs-rule { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+.nxs-rule.is-on { border-color: var(--nx-primary); }
+.nxs-rule-main { flex: 1; display: flex; align-items: center; gap: 10px; text-align: left; border: none; background: none; color: var(--ink); font: 12.5px Inter, sans-serif; cursor: pointer; min-width: 0; }
+.nxs-swatch { width: 40px; height: 24px; border-radius: 4px; border: 1px solid var(--line); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; flex: 0 0 auto; }
+.nxs-preset { border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; font: 12px Inter, sans-serif; cursor: pointer; }
+.nxs-preset.is-on { outline: 2px solid var(--nx-primary); outline-offset: 1px; }
+.nxs-radio { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.nxs-radio legend { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+.nxs-radio label { display: flex; align-items: center; gap: 6px; }
+.nxs-sortby { font-size: 12px; font-weight: 600; color: var(--muted); min-width: 56px; }
+.nxs-hint-text, .nxs-empty { font-size: 12.5px; color: var(--muted); margin: 0; line-height: 1.5; }
+.nxs-search { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 7px; padding: 0 8px; color: var(--muted); background: var(--card); }
+.nxs-search input { flex: 1; min-width: 0; height: 30px; border: none; outline: none; background: none; color: var(--ink); font: 13px Inter, sans-serif; }
+.nxs-keys h3 { margin: 10px 0 4px; font-size: 12px; font-weight: 700; }
+.nxs-key-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.nxs-key-row kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--mist); border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; white-space: nowrap; color: var(--ink); }
+
+.nxs-popbox {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-lg);
+  padding: 10px; display: flex; flex-direction: column; gap: 8px; font-family: Inter, sans-serif; color: var(--ink); max-height: 75vh; overflow-y: auto;
+}
+.nxs-pop-title { font-size: 13px; font-weight: 700; }
+.nxs-pop-foot { display: flex; justify-content: flex-end; gap: 6px; }
+.nxs-values { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; }
+.nxs-values .nxs-check { justify-content: flex-start; }
+.nxs-values .nxs-check > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nxs-vars { max-height: 320px; }
+.nxs-count { color: var(--muted); font-size: 11.5px; }
+.nxs-opt { display: flex; justify-content: space-between; gap: 8px; text-align: left; border: none; background: none; color: var(--ink); font: 13px Inter, sans-serif; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
+.nxs-opt:hover, .nxs-opt.is-on { background: var(--mist); }
+.nxs-muted { color: var(--muted); font-size: 12px; }
+.nxs-link { border: none; background: none; color: var(--nx-primary); font: 600 12px Inter, sans-serif; cursor: pointer; padding: 0; }
+
+@media (max-width: 640px) {
+  .nxs-panel-body .form-input, .nxs-popbox .form-input, .nxs-search input, textarea.nxs-cell-input { font-size: 16px; }
+  .nxs-namebox { width: 64px; }
+  .nxs-formula, .nxs-namebox, .nxs-find input, .nxs-tab input { font-size: 16px; }   /* iOS zooms into smaller text */
+  .nxs-cell { cursor: default; }
+}
+
+/* A colleague's name tag shows when their cursor lands, then fades so it never
+   hides the cell above; hovering their cell brings it back (Google Sheets). */
+@keyframes nxs-tag-fade { 0%, 75% { opacity: 1; } 100% { opacity: 0; } }
+.nxs-tag { animation: nxs-tag-fade 3s ease-out forwards; }
+.nxs-cell:hover .nxs-tag { animation: none; opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .nxs-tag { animation-timing-function: steps(1, end); } }

@@ -224,3 +224,9 @@ export function repairDocJson(json) {
   if (!repaired.content?.length) return { ...repaired, content: [{ type: 'paragraph' }] };
   return repaired;
 }
+
+// A live Document Builder session (docLive/docModel.js, Neil 11/05/2026): the
+// same schema with StarterKit's own undo history off - Undo / Redo come from
+// the shared document instead (TipTap's Collaboration), so a person undoes
+// only their own typing, never a colleague's.
+export const LIVE_BODY_EXTENSIONS = BODY_EXTENSIONS.map((e) => (e.name === 'starterKit' ? e.configure({ undoRedo: false }) : e));

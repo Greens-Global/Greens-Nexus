@@ -803,6 +803,30 @@ keep the diff minimal.
   (`_released`) exactly as an HR packet prints it, and a template live since
   before this is released as it stands on first use or first edit.
 
+- **Sheets and live editing (Neil, 11/05/2026, `routers/documents.py`
+  "Working together", `frontend/src/sheets/`, `frontend/src/docLive/`).** A
+  spreadsheet is a Document of kind `sheet` (content = the workbook snapshot,
+  `type: 'nexus-sheet'`) - folders, tags, the library, archive and versions
+  are a document's; no templates, merge fields, PDF / Word export or signing
+  (it downloads as .xlsx / .csv in the browser). The engine is ours
+  (`sheets/`, own formula engine, no new dependency); rows and columns have
+  stable ids and formulas are stored by those ids, so concurrent inserts and
+  deletes keep every formula pointing at the right cell. The owner (or an
+  administrator) shares with Nexus People, Can Edit / Can View
+  (`documents.shared_with`); a share opens the document wherever it sits; an
+  editor changes title and content only. Editors type together live over the
+  SAME encrypted Realtime transport Notes uses (`notes/collabTransport.js`,
+  key from `GET /documents/{id}/collab`, editors only, rotated when an editor
+  leaves) through ONE hook, `docLive/useLiveSession.js`; every live save
+  carries `ydoc` + `yepoch` + `rev` (409 merges and resends; a save outside
+  the session drops the state). Every editable draft document opens live in
+  the Document Builder (`LiveDocumentGate`; `docLive/docModel.js`: pages,
+  header and footer as Yjs fragments); remote typing is never saved, scanned
+  for {{tokens}} or tracked as a change by the receiver. A viewer, a final
+  document, a template or a failed session gets the builder as it was;
+  `VITE_DOCS_LIVE=off` + a redeploy turns live Docs off. Never add a second
+  live channel, a second sheet engine or a sheet store outside `documents`.
+
 - **PDF Tools (Neil, 11/02/2026, `frontend/public/pdf-editor-app/`,
   `views/PdfEditorModule.jsx`, `views/pdfTools/`, `routers/pdf_tools.py`).** A
   static engine in a same-origin iframe, under Documents > PDF Tools. The shell
