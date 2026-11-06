@@ -35,7 +35,7 @@ import { useRole, MODULES, MODULE_LEVELS } from '../contexts/RoleContext';
 import { Switch } from '../components/settings/SettingsUI';
 import { setPendingOpen } from '../lib/pendingOpen';
 import TimeAdmin from '../components/TimeAdmin';
-import ModuleTabs from '../components/ModuleTabs';
+import ModuleTabs, { ModuleActions } from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
@@ -4016,7 +4016,9 @@ export default function HR({ activeSub, onSubChange }) {
             <p>{TAB_LINES[headTab.key] || 'People, hiring, org structure and leave - one source of truth'}</p>
           </div>
         </div>
+        {/* The page's actions ride the module bar's right end (one page header, 11/05/2026). */}
         {sub === 'hr-people' && (
+          <ModuleActions>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center', maxWidth: '100%' }}>
             {hrTeam && (
               <span title="As a manager you see the people who report to you, directly or through your managers - hours and profiles, never pay."
@@ -4048,11 +4050,12 @@ export default function HR({ activeSub, onSubChange }) {
               </button>
             )}
           </div>
+          </ModuleActions>
         )}
       </div>
 
-      {/* Tabs - desktop renders them centered in the top header; phones keep
-          the in-page strip (ModuleTabs handles both) */}
+      {/* Tabs - desktop renders them in the module bar; phones keep the
+          in-page strip (ModuleTabs handles both) */}
       <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} overflow syncTitle />
 
       {codesOpen && (

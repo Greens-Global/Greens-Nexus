@@ -8,6 +8,7 @@ import ShiftSchedule from '../components/ShiftSchedule';
 import { hasUnsavedWork, askToLeave } from '../lib/dialogGuard';
 import { canOpenWorkforceAnalytics } from '../lib/workforceAccess';
 import PageTrail from '../components/PageTrail';
+import ModuleTabs, { ModuleActions } from '../components/ModuleTabs';
 
 // Team (Neil, Oct 13 2026; was Shifts, Sep 29): everything about the people
 // you work with. Contact (the Contact Directory, moved out of Support) and
@@ -130,26 +131,12 @@ export default function Shifts({ activeSub, onSubChange }) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, borderBottom: '1px solid var(--wk-line)', flexWrap: 'wrap' }}>
-      <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
-        {tabs.map(([key, label, Icon]) => {
-          const on = tab === key;
-          const badge = key === 'headcount' ? headcount.waiting : 0;
-          return (
-            <button key={key} type="button" role="tab" aria-selected={on} onClick={() => goTab(key)}
-              aria-label={badge ? `${label}, ${badge} waiting` : undefined}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 14px', border: 'none', background: 'none',
-                cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: on ? 700 : 600,
-                color: on ? 'var(--wk-brand)' : 'var(--muted)', whiteSpace: 'nowrap', marginBottom: -1,
-                borderBottom: on ? '2.5px solid var(--wk-brand)' : '2.5px solid transparent' }}>
-              <Icon size={15} /> {label}
-              {badge > 0 && <span style={{ fontSize: 10.5, fontWeight: 800, background: 'hsl(var(--color-red))', color: '#fff', borderRadius: 10, padding: '0 6px', minWidth: 18, textAlign: 'center' }}>{badge}</span>}
-            </button>
-          );
-        })}
-      </div>
-      {tab === 'contact' && <div ref={setToolSlot} style={{ marginLeft: 'auto', padding: '4px 0' }} />}
-      </div>
+      {/* The tabs ride the module bar (one page header, 11/05/2026); phones
+          keep the in-page strip. Contact's Manage / Export go to the bar's
+          right end. */}
+      <ModuleTabs tabs={tabs.map(([key, label, Icon]) => ({ key, label, Icon, badge: key === 'headcount' ? headcount.waiting : 0 }))}
+        active={tab} onChange={goTab} />
+      {tab === 'contact' && <ModuleActions><div ref={setToolSlot} /></ModuleActions>}
 
       {tab === 'contact' ? <Suspense fallback={<SkeletonBlocks count={4} height={96} />}><Directory embedded toolsTarget={toolSlot} /></Suspense>
         : tab === 'shifts' ? <MyShifts part="team" />
