@@ -9752,6 +9752,8 @@ class NexusNote(Base):
     scene       = Column(Text, default="")
     thumb_url   = Column(String, default="")
     source      = Column(Text, default="")
+    # Board templates (Neil, 11/06/2026): the owner starts new boards from it (New Board > Your Templates).
+    is_template = Column(Boolean, default=False)
 
 
 class NexusNoteVersion(Base):

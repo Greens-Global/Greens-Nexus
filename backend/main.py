@@ -1589,6 +1589,8 @@ def _run_migrations():
             "ALTER TABLE documents ADD COLUMN ydoc TEXT DEFAULT ''",
             "ALTER TABLE documents ADD COLUMN yepoch VARCHAR DEFAULT ''",
             "ALTER TABLE documents ADD COLUMN collab_key VARCHAR DEFAULT ''",
+            # Board templates (Neil 11/06/2026) - see the Postgres list.
+            "ALTER TABLE nexus_notes ADD COLUMN is_template BOOLEAN DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3788,6 +3790,8 @@ def _run_migrations():
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS collab_key VARCHAR DEFAULT ''",
         # Commitments and lien waivers (Construction Round Two item 8, 11/06/2026): models.ConstructionCommitment.
         "ALTER TABLE construction_commitments ENABLE ROW LEVEL SECURITY",
+        # Board templates (Neil, 11/06/2026): a board its owner starts new boards from. models.NexusNote.
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
