@@ -206,6 +206,19 @@ class TestGuestAccess(_ExternalBase):
         # Granted set never opens an unmapped internal module
         self.assertEqual(self.client.get("/items").status_code, 403)
 
+    def test_guest_signs_only_what_was_sent_to_them(self):
+        """11/06/2026: Nimi Patel and Sophia (externals) could not sign their
+        Time Sheets. With no Documents grant an external reaches their OWN
+        signing routes and nothing else under /esign."""
+        self._mk_guest()
+        self._as(GUEST)
+        self.assertEqual(self.client.get("/esign/mine").status_code, 200)
+        # Someone else's party (or no party) is not found, never shown.
+        self.assertEqual(self.client.get("/esign/mine/not-mine").status_code, 404)
+        # Sending and reading envelopes stays behind the Documents grant.
+        self.assertEqual(self.client.get("/esign/requests").status_code, 403)
+        self.assertEqual(self.client.get("/esign/templates").status_code, 403)
+
     def test_inactive_guest_403(self):
         self._mk_guest(status="inactive")
         self._as(GUEST)
