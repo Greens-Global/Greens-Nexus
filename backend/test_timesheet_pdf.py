@@ -103,9 +103,9 @@ class Hourly(unittest.TestCase):
     def test_every_day_and_week_totals(self):
         self.assertIn("Sun 10/04", self.text)
         self.assertIn("Sat 10/17", self.text)
-        self.assertIn("Total hours clocked for week of 10/04 to 10/10: 7:45 · Overtime: 0:00 · Wage: $170.50",
-                      self.text)
-        self.assertIn("Total hours clocked for week of 10/11 to 10/17: 16:10", self.text)
+        # Neil, 11/06/2026: labels regular, values bold, "None" with no overtime.
+        self.assertIn("Week of 10/04 - 10/10 Total Hours: 7:45 Overtime: None Wages: $170.50", self.text)
+        self.assertIn("Week of 10/11 - 10/17 Total Hours: 16:10", self.text)
 
     def test_break_row_under_its_shift(self):
         self.assertIn("20:25 21:00", self.text); self.assertIn("21:10 23:45", self.text)   # punch pairs (Oct 20)
@@ -184,7 +184,9 @@ class Hourly(unittest.TestCase):
         brk = next(i for i, r in enumerate(rows) if "Break" in getattr(r[0], "text", ""))
         self.assertEqual((rows[brk][1].style.alignment, rows[brk][2].style.alignment), (2, 2))
         self.assertIn("10 min", rows[brk][4].text)
-        week = next(i for i, r in enumerate(rows) if "Total hours clocked" in getattr(r[0], "text", ""))
+        week = next(i for i, r in enumerate(rows) if "Week of" in getattr(r[0], "text", ""))
+        self.assertIn("Total Hours: <b>", rows[week][0].text)    # the value bold, the label not
+        self.assertEqual({rows[0][c].style.alignment for c in range(len(rows[0]))}, {1})   # no header sits right
         self.assertEqual(rows[week][0].style.alignment, 1)    # the week line is centered...
         self.assertIn(week, {c[1][1] for c in t._bkgrndcmds if c[3] == tp.WEEK})   # ...on the green tint
         self.assertEqual(tp.WEEK.hexval(), "0xe8f5ee")

@@ -56,7 +56,6 @@ _CELL = ParagraphStyle("cell", fontName="Helvetica", fontSize=7.5, leading=9, al
 _LEFT = ParagraphStyle("left", parent=_CELL, alignment=0)
 _RIGHT = ParagraphStyle("right", parent=_CELL, alignment=2)
 _HEAD = ParagraphStyle("head", parent=_CELL, fontName="Helvetica-Bold")
-_HEAD_R = ParagraphStyle("head_r", parent=_HEAD, alignment=2)
 
 # Page 1 holds the whole card (Charmi, Oct 20: "it should auto fit on one
 # page"). render steps down these (font size, leading, top / bottom cell
@@ -129,6 +128,12 @@ def _p(text: str, style=_CELL, color=None, bold=False, italic=False) -> Paragrap
     return Paragraph(s, _sz(style))
 
 
+def _rich(lead: str, *pairs) -> Paragraph:
+    """A plain lead, then "Label: <b>value</b>" pairs, three spaces apart."""
+    parts = [escape(lead)] + [f"{escape(k)}: <b>{escape(str(v))}</b>" for k, v in pairs]
+    return Paragraph("&nbsp;&nbsp;&nbsp;".join(parts), _sz(_CELL))
+
+
 def _reasons(seg: dict) -> list:
     """The human reasons on a shift's punches, each once (segReasons)."""
     out = []
@@ -147,8 +152,9 @@ class _Grid:
     """Rows and their TableStyle commands, built together."""
 
     def __init__(self, header: list, right: tuple = ()):
-        # `right`: the columns whose header sits right, over right-aligned figures.
-        self.rows = [[_p(h, _HEAD_R if c in right else _HEAD) for c, h in enumerate(header)]]
+        # Every header lines up the same way (Neil, 11/06/2026: no header sits
+        # right); `right` aligns only the figures under them.
+        self.rows = [[_p(h, _HEAD) for h in header]]
         self.cmds = [("BACKGROUND", (0, 0), (-1, 0), HEAD)]
         self.ncols = len(header)
 
@@ -271,13 +277,14 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
     week, wk_tot = None, {"min": 0, "ot": 0, "dt": 0, "wage": 0.0}
 
     def week_line():
-        # One centered full-width line (Neil, 11/04/2026): the week's hours,
-        # then its overtime and wage, on the brand's light green.
+        # One centered full-width line on the brand's light green (Neil,
+        # 11/06/2026): "Week of 10/18 - 10/24  Total Hours: 35:20  Overtime:
+        # None  Wages: $706.67" - labels regular, values bold.
         ws = date.fromisoformat(week)
         we = ws + timedelta(days=6)
-        ot = hm(wk_tot["ot"]) + (f" (incl. {hm(wk_tot['dt'])} double time)" if wk_tot["dt"] else "")
-        g.line(_p(f"Total hours clocked for week of {_mmdd(ws)} to {_mmdd(we)}: {hm(wk_tot['min'])}"
-                  f"   ·   Overtime: {ot}   ·   Wage: {money(wk_tot['wage'], cur)}", bold=True), WEEK)
+        ot = (hm(wk_tot["ot"]) + (f" (incl. {hm(wk_tot['dt'])} double time)" if wk_tot["dt"] else "")) if wk_tot["ot"] else "None"
+        g.line(_rich(f"Week of {_mmdd(ws)} - {_mmdd(we)}", ("Total Hours", hm(wk_tot["min"])),
+                     ("Overtime", ot), ("Wages", money(wk_tot["wage"], cur))), WEEK)
 
     for n in range((end - start).days + 1):
         ds = (start + timedelta(days=n)).isoformat()
