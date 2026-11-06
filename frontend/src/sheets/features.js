@@ -17,10 +17,28 @@ export function mergesOf(ctx, tab) {
     const rect = ctx.rect(tab, { r1, c1, r2: v.r2, c2: v.c2 });
     if (rect && (rect.r2 > rect.r1 || rect.c2 > rect.c1)) list.push(rect);
   });
+  // An index by row (a merge is listed under each of its rows, up to INDEX_ROWS of them);
+  // taller merges are few and stay in a short list that is scanned.
+  Object.defineProperty(list, 'byRow', { value: new Map() });
+  Object.defineProperty(list, 'tall', { value: [] });
+  for (const m of list) {
+    if (m.r2 - m.r1 >= INDEX_ROWS) { list.tall.push(m); continue; }
+    for (let r = m.r1; r <= m.r2; r += 1) {
+      let at = list.byRow.get(r);
+      if (!at) list.byRow.set(r, (at = []));
+      at.push(m);
+    }
+  }
   mergeCache.set(tab, list);
   return list;
 }
-export const mergeAt = (list, r, c) => list.find((m) => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2) || null;
+const INDEX_ROWS = 200;
+const inside = (m, r, c) => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2;
+export function mergeAt(list, r, c) {
+  if (!list.length) return null;
+  if (!list.byRow) return list.find((m) => inside(m, r, c)) || null;
+  return list.byRow.get(r)?.find((m) => inside(m, r, c)) || list.tall.find((m) => inside(m, r, c)) || null;
+}
 /** A selection grown until no merge sticks out of it (Excel's rule). */
 export function expandRect(list, rect) {
   let { r1, c1, r2, c2 } = rect;
@@ -78,8 +96,13 @@ export const shownText = (eng, ctx, tab, r, c) => {
 
 /** Row indexes hidden: by hand, or because the filter leaves them out. */
 export function hiddenRows(ctx, eng, tab) {
-  const out = new Set();
+  const out = filteredOut(ctx, eng, tab);
   tab.hidden?.forEach((_, id) => { const i = ctx.rowIndex(tab, id); if (i >= 0) out.add(i); });
+  return out;
+}
+/** Only the rows the filter leaves out - the ones Delete, fill, paste and formats skip (Excel). */
+export function filteredOut(ctx, eng, tab) {
+  const out = new Set();
   const f = filterRect(ctx, tab);
   if (!f) return out;
   const tests = [];
@@ -122,18 +145,27 @@ export function conditionalStyler(ctx, eng, tab) {
   const scales = new Map();
   const scaleOf = (rule) => {
     if (scales.has(rule.id)) return scales.get(rule.id);
-    let lo = Infinity, hi = -Infinity;
-    for (let r = rule.rect.r1; r <= rule.rect.r2; r += 1) {
-      for (let c = rule.rect.c1; c <= rule.rect.c2; c += 1) {
+    let lo = Infinity, hi = -Infinity, budget = CELL_BUDGET;
+    for (let r = rule.rect.r1; r <= rule.rect.r2 && budget > 0; r += 1) {
+      for (let c = rule.rect.c1; c <= rule.rect.c2 && budget > 0; c += 1, budget -= 1) {
         const v = eng.cellValue(tab, r, c);
-        if (typeof v === 'number') { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+        if (typeof v === 'number') { if (v < lo) lo = v; if (v > hi) hi = v; }
       }
     }
     const s = { lo, hi };
     scales.set(rule.id, s);
     return s;
   };
+  // One answer per cell per engine build: the grid asks again on every scroll.
+  const seen = new Map();
   return (r, c) => {
+    const key = r * 4096 + c;
+    if (seen.has(key)) return seen.get(key);
+    const out = styleFor(r, c);
+    seen.set(key, out);
+    return out;
+  };
+  function styleFor(r, c) {
     for (const rule of rules) {
       const { rect } = rule;
       if (r < rect.r1 || r > rect.r2 || c < rect.c1 || c > rect.c2) continue;
@@ -146,8 +178,11 @@ export function conditionalStyler(ctx, eng, tab) {
       if (ruleMatches(rule, v, eng, ctx, tab, r, c)) return rule.style || {};
     }
     return null;
-  };
+  }
 }
+/** Cells one rule, one dropdown list or one chart may read: stored ranges come from colleagues' browsers. */
+const CELL_BUDGET = 100000;
+export const CHART_POINTS = 5000;
 function ruleMatches(rule, v, eng, ctx, tab, r, c) {
   if (isErr(v)) return false;
   switch (rule.type) {
@@ -191,8 +226,9 @@ export function listItems(rule, eng, ctx, tab) {
   if (!t) return [];
   const r1 = rf.a.r ?? 0, r2 = rf.b ? rf.b.r ?? t.rows.length - 1 : r1, c1 = rf.a.c ?? 0, c2 = rf.b ? rf.b.c ?? t.cols.length - 1 : c1;
   const out = [];
-  for (let r = Math.min(r1, r2); r <= Math.min(Math.max(r1, r2), t.rows.length - 1) && out.length < 500; r += 1) {
-    for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c += 1) {
+  let budget = CELL_BUDGET;
+  for (let r = Math.min(r1, r2); r <= Math.min(Math.max(r1, r2), t.rows.length - 1) && out.length < 500 && budget > 0; r += 1) {
+    for (let c = Math.min(c1, c2); c <= Math.min(Math.max(c1, c2), t.cols.length - 1) && budget > 0; c += 1, budget -= 1) {
       const s = shownText(eng, ctx, t, r, c);
       if (s && !out.includes(s)) out.push(s);
     }
@@ -283,7 +319,10 @@ export function seriesNext(src, count, back = false) {
  * when it holds text (or the rule says header), each other column is a series
  * named by the header row.
  */
-export function chartData(eng, ctx, tab, rect, header = null) {
+export function chartData(eng, ctx, tab, rect0, header = null) {
+  // At most CHART_POINTS values in all: a chart over a whole column reads its first rows only.
+  const cols = Math.min(rect0.c2 - rect0.c1 + 1, 50);
+  const rect = { ...rect0, c2: rect0.c1 + cols - 1, r2: Math.min(rect0.r2, rect0.r1 + Math.max(1, Math.floor(CHART_POINTS / cols))) };
   const v = (r, c) => eng.cellValue(tab, r, c);
   const firstRowText = [];
   for (let c = rect.c1; c <= rect.c2; c += 1) firstRowText.push(typeof v(rect.r1, c) === 'string' || v(rect.r1, c) == null);

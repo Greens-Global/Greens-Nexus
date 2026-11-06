@@ -105,8 +105,13 @@ export function createEngine(ctx, opts = {}) {
       // The first ask: work out every array on this tab once, then answer from the map.
       building = true;
       const map = new Map();
+      // A candidate already being worked out (the formula that asked, or one it
+      // depends on) has no answer yet: a map built without it is incomplete,
+      // so it answers this one question and is not kept.
+      let partial = false;
       try {
         for (const o of list) {
+          if (busy.has(keyOf(tab, o.r, o.c))) { partial = true; continue; }
           cellValue(tab, o.r, o.c);
           const sp = spills.get(keyOf(tab, o.r, o.c));
           if (!sp || sp.blocked) continue;
@@ -117,7 +122,7 @@ export function createEngine(ctx, opts = {}) {
           }
         }
       } finally { building = false; }
-      spillMaps.set(tab.id, map);
+      if (!partial) spillMaps.set(tab.id, map);
       return map.has(`${r}|${c}`) ? map.get(`${r}|${c}`) : null;
     }
     // Asked while the map is being built (one array reading another): look directly.

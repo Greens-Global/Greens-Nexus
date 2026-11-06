@@ -33,10 +33,16 @@ export class Rng {
   flat() { return this.rows.flat(); }
 }
 
+/** Largest / smallest of a list by a loop - spreading 100,000 values into Math.max overflows the stack. */
+export function maxOf(list, start = -Infinity) { let m = start; for (const x of list) if (x > m) m = x; return m; }
+export function minOf(list, start = Infinity) { let m = start; for (const x of list) if (x < m) m = x; return m; }
+
 /** A worked-out array (FILTER, SORT, A1:A9*2...): a range with no cells behind it. */
 export class Arr extends Rng {
   constructor(rows) {
-    const h = rows.length, w = h ? Math.max(...rows.map((r) => r.length)) : 0;
+    const h = rows.length;
+    let w = 0;
+    for (const r of rows) if (r.length > w) w = r.length;
     super(null, null, 0, 0, h - 1, w - 1);
     this._rows = rows.map((r) => (r.length === w ? r : [...r, ...Array(w - r.length).fill(null)]));
   }

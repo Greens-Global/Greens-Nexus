@@ -19,9 +19,10 @@ import { Menu, SmallBtn, ColorGrid, THEME_COLORS, STANDARD_COLORS, useDismiss } 
 import { dialog } from '../ui/dialog';
 import {
   ROW_H, COL_W, buildCtx, writeCells, styleRange, styleCells, clearRange, insertLines, deleteLines, setSize, setTabMeta,
-  addTab, duplicateTab, deleteTab, moveTab, loadSnapshot, blockAt, placeRaw, undoManagerFor, formulaText,
-  setExtra, setExtras, setName, rangeIds, newId, safeLink, okName, FONTS, change, cellsOf, extraOf,
+  addTab, duplicateTab, deleteTab, moveTab, loadSnapshot, blockAt, undoManagerFor, formulaText,
+  setExtra, setExtras, setName, rangeIds, newId, safeLink, okName, FONTS, change, cellsOf, extraOf, LIMITS, AREA_MAX, MAX_TABS,
 } from './model.js';
+import { maxOf } from './formula/values.js';
 import { a1, colName, colIndex, tokenize, encodeFormula, decodeFormula, refA1, shiftFormula } from './formula/parse.js';
 import { createEngine, isErr, compare } from './formula/eval.js';
 import { SIGS } from './formula/functions.js';
@@ -29,7 +30,7 @@ import { formatValue, parseInput, editText, NUMBER_FORMATS, DEFAULT_DECIMALS, us
 import { parseTSV, toTSV, toHTML, parseHTMLTable } from './clipboard.js';
 import { importSheetFile, exportSheetFile } from './io.js';
 import {
-  mergesOf, mergeAt, expandRect, filterRect, hiddenRows, hiddenCols, conditionalStyler, validationAt, listItems,
+  mergesOf, mergeAt, expandRect, filterRect, hiddenRows, filteredOut, hiddenCols, conditionalStyler, validationAt, listItems,
   validValue, ruleWords, seriesNext, chartData, cycleRef, autoSum, findIn, replaceIn, splitText, fillTokens, shownText,
 } from './features.js';
 import { ChartBox } from './charts.jsx';
@@ -138,6 +139,8 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   const merges = mergesOf(ctx, tab);
   const hidR = useMemo(() => hiddenRows(ctx, eng, tab), [ctx, eng, tab]);
   const hidC = useMemo(() => hiddenCols(ctx, tab), [ctx, tab]);
+  // Rows the filter hides: Delete, fill, paste, formats and links pass over them, as in Excel.
+  const filtHid = useMemo(() => filteredOut(ctx, eng, tab), [ctx, eng, tab]);
   const styler = useMemo(() => conditionalStyler(ctx, eng, tab), [ctx, eng, tab]);
   const filt = useMemo(() => filterRect(ctx, tab), [ctx, tab]);
 
@@ -332,7 +335,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
           list.push(e);
         }
       }
-      writeCells(doc, tab.id, list);
+      write(list);
     } else if (text !== textOf(r, c)) {
       const e = entryFor(r, c, text);
       if (!e) return false;
@@ -432,7 +435,21 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   // ── changes ─────────────────────────────────────────────────────────
   const guard = () => { if (!canEdit) return false; if (edit) return commit(); return true; };
   const active = cellAt(sel.r, sel.c);
-  const applyStyle = (patch) => { if (guard()) styleRange(doc, tab.id, b, patch); };
+  /** Say so when the workbook's cell limit stopped part of a change. */
+  const full = (skipped) => { if (skipped) toastErr?.(`A sheet holds 500,000 cells at most; ${skipped} ${skipped === 1 ? 'cell was' : 'cells were'} left out.`); };
+  const areaOf = (rect) => (rect.r2 - rect.r1 + 1) * (rect.c2 - rect.c1 + 1);
+  const tooBig = (rect) => {
+    if (areaOf(rect) <= AREA_MAX) return false;
+    toastErr?.('Select fewer cells - 100,000 at most - to change them at once.');
+    return true;
+  };
+  const write = (list) => full(writeCells(doc, tab.id, filtHid.size ? list.filter((x) => !filtHid.has(x.r)) : list));
+  const applyStyle = (patch) => {
+    if (!guard()) return;
+    // A range past AREA_MAX restyles only the cells that hold something (styleRange's rule).
+    if (areaOf(b) > AREA_MAX) toastErr?.('That is a big selection: only the cells with something in them were formatted.');
+    full(styleRange(doc, tab.id, b, patch, { skipRows: filtHid }));
+  };
   const toggle = (k) => applyStyle({ [k]: !active?.s?.[k] });
   const numberFormat = (nf, d = null) => applyStyle({ nf: nf || null, d });
   const decimals = (delta) => {
@@ -444,10 +461,11 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     applyStyle({ nf, d: clamp(cur + delta, 0, 10) });
   };
   const borders = (kind, style = 'thin', color = '#000000') => {
-    if (!guard()) return;
+    if (!guard() || tooBig(b)) return;
     const spec = `${style} ${color.toLowerCase()}`;
     const list = [];
     for (let r = b.r1; r <= b.r2; r += 1) {
+      if (filtHid.has(r)) continue;
       for (let c = b.c1; c <= b.c2; c += 1) {
         const p = {};
         if (kind === 'none') Object.assign(p, { bt: null, bb: null, bl: null, br: null });
@@ -460,17 +478,39 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
         if (Object.keys(p).length) list.push({ r, c, patch: p });
       }
     }
-    styleCells(doc, tab.id, list);
+    full(styleCells(doc, tab.id, list));
   };
 
-  /** Sort rows of a block by keys [{c, desc}] - cells move, references in other formulas stay put (Excel's way). */
+  /**
+   * Rewrite the rows of a block in a new order: dest row rect.r1 + i takes
+   * source row from[i] (null = empty). A moved formula is re-aimed by how far
+   * its row moved, exactly like a copy (blockAt), and notes travel with their cells.
+   */
+  const moveRows = (rect, from) => {
+    const list = [];
+    const notes = [];
+    for (let i = 0; i <= rect.r2 - rect.r1; i += 1) {
+      const dr = rect.r1 + i, sr = from[i];
+      for (let c = rect.c1; c <= rect.c2; c += 1) {
+        const cell = sr == null ? null : cellAt(sr, c);
+        if (sr === dr) continue;
+        const f = cell?.f ? shiftFormula(formulaText(ctx, tab.id, cell.f), dr - sr, 0) : null;
+        list.push({ r: dr, c, v: f ? null : cell?.v ?? null, f, s: cell?.s || null, l: cell?.l || null });
+        const note = sr == null ? null : noteAt(sr, c);
+        if (note || noteAt(dr, c)) notes.push(['notes', `${tab.rows[dr]}.${tab.cols[c]}`, note || null]);
+      }
+    }
+    full(writeCells(doc, tab.id, list));
+    if (notes.length) setExtras(doc, tab.id, notes);
+  };
+
+  /** Sort rows of a block by keys [{c, desc}]; rows the filter hides stay where they are. */
   const sortRows = (rect, keys) => {
     if (!guard() || rect.r2 <= rect.r1) return;
     const rows = [];
     for (let r = rect.r1; r <= rect.r2; r += 1) {
-      const cells = [];
-      for (let c = rect.c1; c <= rect.c2; c += 1) cells.push(cellAt(r, c) || null);
-      rows.push({ keys: keys.map((k) => eng.cellValue(tab, r, k.c)), cells, r });
+      if (filtHid.has(r)) continue;
+      rows.push({ keys: keys.map((k) => eng.cellValue(tab, r, k.c)), r });
     }
     rows.sort((x, y) => {
       for (let i = 0; i < keys.length; i += 1) {
@@ -482,9 +522,10 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       }
       return x.r - y.r;
     });
-    const list = [];
-    rows.forEach((row, i) => row.cells.forEach((cell, j) => list.push({ r: rect.r1 + i, c: rect.c1 + j, cell })));
-    placeRaw(doc, tab.id, list);
+    // The sorted rows go back into the visible slots, in order; hidden rows keep theirs.
+    const from = [];
+    for (let r = rect.r1, k = 0; r <= rect.r2; r += 1) from.push(filtHid.has(r) ? r : rows[k++].r);
+    moveRows(rect, from);
   };
   const sortBy = (desc) => {
     const whole = b.r1 === b.r2;
@@ -524,6 +565,8 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       ? Array.from({ length: b.r2 - b.r1 + 1 }, (_, i) => ({ r1: b.r1 + i, r2: b.r1 + i, c1: b.c1, c2: b.c2 }))
       : [b];
     if (blocks.every((x) => x.r1 === x.r2 && x.c1 === x.c2)) return;
+    if (tooBig(b)) return;
+    if (merges.length - list.length + blocks.length > LIMITS.merges) { toastErr?.(`A tab holds ${LIMITS.merges.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')} merged blocks at most.`); return; }
     let losing = false;
     for (const x of blocks) for (let r = x.r1; r <= x.r2; r += 1) for (let c = x.c1; c <= x.c2; c += 1) if ((r !== x.r1 || c !== x.c1) && filledCell(cellAt(r, c))) losing = true;
     if (losing && !(await dialog.confirm('Merging keeps only the top-left value of each block. The others are cleared.', { title: 'Merge Cells', confirmText: 'Merge' }))) return;
@@ -569,10 +612,11 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   const openNote = () => { if (!canEdit) return; if (edit) commit(); setPop({ kind: 'note', at: cellScreen(sel.r, sel.c), r: sel.r, c: sel.c }); };
   const saveNote = (r, c, text) => {
     if (!canEdit) return;
+    if (text && !noteAt(r, c) && (tab.notes?.size || 0) >= LIMITS.notes) { toastErr?.('A tab holds 20,000 notes at most.'); return; }
     setExtra(doc, 'notes', tab.id, noteKey(r, c), text ? { text: text.slice(0, 5000), by: String(myName).slice(0, 120), at: new Date().toISOString() } : null);
   };
   const askLink = async () => {
-    if (!guard()) return;
+    if (!guard() || tooBig(b)) return;
     const cur = active?.l || '';
     const out = await dialog.prompt('Link address (http, https or mailto). Leave it empty to remove the link.', { title: 'Insert Link', defaultValue: cur || 'https://', confirmText: 'Save' });
     if (out == null) return;
@@ -581,15 +625,18 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     const list = [];
     for (let r = b.r1; r <= b.r2; r += 1) for (let c = b.c1; c <= b.c2; c += 1) {
       const cell = cellAt(r, c);
+      // A link on an empty cell only for the first cell (it shows the address); others must already exist.
+      if (!cell && !(url && r === b.r1 && c === b.c1)) continue;
       list.push({ r, c, v: cell?.f ? null : (cell?.v ?? (url && r === b.r1 && c === b.c1 ? url : null)), f: cell?.f ? formulaText(ctx, tab.id, cell.f) : null, l: url || null });
     }
-    writeCells(doc, tab.id, list);
+    write(list);
   };
   const openLink = (url) => { const u = safeLink(url); if (u) window.open(u, '_blank', 'noopener,noreferrer'); };
   const pickVariable = (token) => {
     if (!canEdit) return;
-    if (edit) { insertAtCaret(edit.text.startsWith('=') ? `VAR("${token}")` : `{{${token}}}`); return; }
-    writeCells(doc, tab.id, [{ r: sel.r, c: sel.c, f: `=VAR("${token}")` }]);
+    const call = `VAR("${String(token).replace(/"/g, '""')}")`;     // a quote inside a formula string is doubled
+    if (edit) { insertAtCaret(edit.text.startsWith('=') ? call : `{{${token}}}`); return; }
+    write([{ r: sel.r, c: sel.c, f: '=' + call }]);
   };
 
   // validation
@@ -617,7 +664,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   })() : null;
   /** Fill area from the selection: a series where the cells make one, else copies with formulas re-aimed. */
   const doFill = (area, { series = true } = {}) => {
-    if (!area || !guard()) return;
+    if (!area || !guard() || tooBig(area)) return;
     const vertical = area.dir === 'down' || area.dir === 'up';
     const back = area.dir === 'up' || area.dir === 'left';
     const list = [];
@@ -640,7 +687,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
         list.push(...blockAt(block, r, c, r - p.r, c - p.c));
       }
     }
-    writeCells(doc, tab.id, list);
+    write(list);
     select({ r: Math.min(b.r1, area.r1), c: Math.min(b.c1, area.c1), r2: Math.max(b.r2, area.r2), c2: Math.max(b.c2, area.c2) }, false);
   };
   /** Ctrl+D / Ctrl+R: the first row (column) of the selection copied over the rest. */
@@ -648,6 +695,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     if (!guard()) return;
     const down = dir === 'down';
     const rect = (down ? b.r1 === b.r2 : b.c1 === b.c2) ? (down ? { ...b, r1: Math.max(0, b.r1 - 1) } : { ...b, c1: Math.max(0, b.c1 - 1) }) : b;
+    if (tooBig(rect)) return;
     const list = [];
     for (let r = rect.r1; r <= rect.r2; r += 1) {
       for (let c = rect.c1; c <= rect.c2; c += 1) {
@@ -657,7 +705,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
         list.push(...blockAt([[cell ? { v: cell.v, f: cell.f ? formulaText(ctx, tab.id, cell.f) : null, s: cell.s } : null]], r, c, r - pr, c - pc));
       }
     }
-    writeCells(doc, tab.id, list);
+    write(list);
   };
 
   // ── mouse ───────────────────────────────────────────────────────────
@@ -792,12 +840,13 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   const copyBlock = (e, cut) => {
     if (e.target !== scroller.current) return;
     e.preventDefault();
+    if (tooBig(b)) return;
     const { block, texts, html } = readBlock(b);
     const tsv = toTSV(texts);
     e.clipboardData.setData('text/plain', tsv);
     e.clipboardData.setData('text/html', toHTML(html));
     clipRef.current = { tsv, block, r1: b.r1, c1: b.c1, cut };
-    if (cut && canEdit) clearRange(doc, tab.id, b, { formats: true });
+    if (cut && canEdit) clearRange(doc, tab.id, b, { formats: true, skipRows: filtHid });
   };
   /** Paste text at the selection; `mode` = values | formats | formulas | transpose for Paste Special. */
   const pasteText = (text, html, mode = '') => {
@@ -811,6 +860,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       if (mode === 'transpose') block = (block[0] || []).map((_, j) => block.map((row) => row[j]));
       h = block.length; w = block[0].length;
       const tile = h === 1 && w === 1 && (b.r2 > b.r1 || b.c2 > b.c1);
+      if (tile && tooBig(b)) return;
       const spots = tile ? Array.from({ length: (b.r2 - b.r1 + 1) * (b.c2 - b.c1 + 1) }, (_, k) => [b.r1 + Math.floor(k / (b.c2 - b.c1 + 1)), b.c1 + (k % (b.c2 - b.c1 + 1))]) : [[b.r1, b.c1]];
       for (const [r0, c0] of spots) {
         block.forEach((row, i) => row.forEach((cell, j) => {
@@ -831,7 +881,8 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       if (!rows || !rows.length) return;
       if (mode === 'transpose') rows = (rows[0] || []).map((_, j) => rows.map((row) => row[j] ?? ''));
       const single = rows.length === 1 && rows[0].length === 1;
-      const area = single ? b : { r1: b.r1, c1: b.c1, r2: b.r1 + rows.length - 1, c2: b.c1 + Math.max(...rows.map((x) => x.length)) - 1 };
+      const area = single ? b : { r1: b.r1, c1: b.c1, r2: b.r1 + rows.length - 1, c2: b.c1 + maxOf(rows.map((x) => x.length), 1) - 1 };
+      if (tooBig(area)) return;
       for (let r = area.r1; r <= area.r2; r += 1) {
         for (let c = area.c1; c <= area.c2; c += 1) {
           const raw = single ? rows[0][0] : rows[r - area.r1]?.[c - area.c1];
@@ -845,7 +896,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       }
       h = area.r2 - area.r1 + 1; w = area.c2 - area.c1 + 1;
     }
-    writeCells(doc, tab.id, list);
+    write(list);
     select({ r: b.r1, c: b.c1, r2: b.r1 + h - 1, c2: b.c1 + w - 1 }, false);
   };
   const onPaste = (e) => {
@@ -892,7 +943,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       const p = parseInput(replaceIn(editText(cell?.v, cell?.s), find.q, find.rep || '', opts), cell?.s?.nf);
       list.push({ r: m.r, c: m.c, v: p.v ?? null, f: p.f || null });
     }
-    if (list.length) writeCells(doc, tab.id, list);
+    if (list.length) write(list);
     if (skipped) toastErr?.(`${skipped} ${skipped === 1 ? 'cell has a formula' : 'cells have formulas'} and ${skipped === 1 ? 'was' : 'were'} left as is.`);
     if (!all) findStep(1);
   };
@@ -902,7 +953,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     if (!guard()) return;
     let rect = b;
     if (b.r1 === b.r2 && b.c1 === b.c2) { const ext = usedExtent(); if (ext.r < 0) { toastErr?.('Select the cells to chart first.'); return; } rect = { r1: 0, c1: 0, r2: ext.r, c2: ext.c }; }
-    if (tab.charts?.size >= 50) { toastErr?.('A tab holds 50 charts at most.'); return; }
+    if ((tab.charts?.size || 0) >= LIMITS.charts) { toastErr?.(`A tab holds ${LIMITS.charts} charts at most.`); return; }
     const id = newId();
     setExtra(doc, 'charts', tab.id, id, {
       type: 'column', range: rangeIds(tab, rect), title: '',
@@ -944,7 +995,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       case 'Tab': { e.preventDefault(); const p = step(sel.r, sel.c, 0, e.shiftKey ? -1 : 1); select({ r: p.r, c: p.c, r2: p.r, c2: p.c }); return; }
       case 'F2': e.preventDefault(); if (e.shiftKey) openNote(); else startEdit(undefined, 'edit'); return;
       case 'Escape': setFind(null); setChartSel(''); return;
-      case 'Delete': case 'Backspace': e.preventDefault(); if (canEdit) clearRange(doc, tab.id, b); return;
+      case 'Delete': case 'Backspace': e.preventDefault(); if (canEdit) clearRange(doc, tab.id, b, { skipRows: filtHid }); return;
       case 'PageDown': e.preventDefault(); moveTo(from.r + page, from.c); return;
       case 'PageUp': e.preventDefault(); moveTo(from.r - page, from.c); return;
       case 'Home': e.preventDefault(); moveTo(from.r, 0); return;
@@ -953,7 +1004,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
         if (e.shiftKey) { e.preventDefault(); select({ r: sel.r, c: 0, r2: sel.r2, c2: C - 1 }, false); return; }
         break;
       case 'F11':
-        if (e.shiftKey) { e.preventDefault(); if (canEdit) { const nid = addTab(doc, null); switchTab(nid); } return; }
+        if (e.shiftKey) { e.preventDefault(); if (canEdit) { newTab(); } return; }
         break;
       default:
     }
@@ -964,11 +1015,25 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     const next = ctx.tabs[clamp(i + d, 0, ctx.tabs.length - 1)];
     if (next && next.id !== tab.id) switchTab(next.id);
   };
-  const insertOrDelete = (del) => {
+  const newTab = () => {
+    const nid = addTab(doc, null);
+    if (nid) switchTab(nid); else toastErr?.(`A sheet holds ${MAX_TABS} tabs at most.`);
+  };
+  const insertOrDelete = async (del) => {
     if (!guard()) return;
     const rowsWhole = b.c1 === 0 && b.c2 === C - 1, colsWhole = b.r1 === 0 && b.r2 === R - 1;
-    if (rowsWhole) { lines('rows', del ? 'delete' : 'before'); return; }
-    if (colsWhole) { lines('cols', del ? 'delete' : 'before'); return; }
+    const axis = rowsWhole ? 'rows' : colsWhole ? 'cols' : '';
+    if (axis) {
+      // Ctrl/Cmd+- is also the browser's zoom out: a whole-row delete is asked first.
+      if (del) {
+        const k = axis === 'rows' ? b.r2 - b.r1 + 1 : b.c2 - b.c1 + 1;
+        const what = axis === 'rows' ? (k === 1 ? `row ${b.r1 + 1}` : `${k} rows`) : (k === 1 ? `column ${colName(b.c1)}` : `${k} columns`);
+        const ok = await dialog.confirm(`Delete ${what}? Undo brings ${k === 1 ? 'it' : 'them'} back.`, { title: axis === 'rows' ? 'Delete Rows' : 'Delete Columns', confirmText: 'Delete', danger: true });
+        if (!ok) return;
+      }
+      lines(axis, del ? 'delete' : 'before');
+      return;
+    }
     const at = cellScreen(sel.r, sel.c);
     const n = (axis) => (axis === 'rows' ? b.r2 - b.r1 + 1 : b.c2 - b.c1 + 1);
     setMenu({ x: at.x, y: at.y, kind: 'choose', items: del
@@ -1060,30 +1125,36 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     if (!guard()) return;
     const rect = dataRect();
     const r0 = header ? rect.r1 + 1 : rect.r1;
+    if (tooBig(rect)) return;
     const seen = new Set(), keep = [];
     for (let r = r0; r <= rect.r2; r += 1) {
       const key = JSON.stringify(cols.map((c) => shown(r, c).toLowerCase()));
       if (seen.has(key)) continue;
       seen.add(key);
-      const cells = [];
-      for (let c = rect.c1; c <= rect.c2; c += 1) cells.push(cellAt(r, c) || null);
-      keep.push(cells);
+      keep.push(r);
     }
     const gone = rect.r2 - r0 + 1 - keep.length;
-    const list = [];
-    for (let i = 0; i <= rect.r2 - r0; i += 1) for (let j = 0; j <= rect.c2 - rect.c1; j += 1) list.push({ r: r0 + i, c: rect.c1 + j, cell: keep[i]?.[j] || null });
-    placeRaw(doc, tab.id, list);
+    // The rows that stay move up; their formulas are re-aimed and their notes go with them.
+    if (gone) moveRows({ ...rect, r1: r0 }, Array.from({ length: rect.r2 - r0 + 1 }, (_, i) => keep[i] ?? null));
     toastErr?.(gone ? `Removed ${gone} duplicate ${gone === 1 ? 'row' : 'rows'}; ${keep.length} left.` : 'No duplicates found.');
   };
-  const splitColumns = (sep) => {
+  const splitColumns = async (sep) => {
     if (!guard()) return;
     const list = [];
+    let over = 0;
     for (let r = b.r1; r <= b.r2; r += 1) {
+      if (filtHid.has(r)) continue;
       const cell = cellAt(r, b.c1);
       if (!cell || cell.f || typeof cell.v !== 'string') continue;
-      splitText(cell.v, sep).forEach((part, j) => { const p = parseInput(part); list.push({ r, c: b.c1 + j, v: p.v ?? null, f: null }); });
+      splitText(cell.v, sep).forEach((part, j) => {
+        if (j > 0 && filledCell(cellAt(r, b.c1 + j))) over += 1;
+        const p = parseInput(part);
+        list.push({ r, c: b.c1 + j, v: p.v ?? null, f: null });
+      });
     }
-    if (list.length) writeCells(doc, tab.id, list);
+    if (!list.length) return;
+    if (over && !(await dialog.confirm(`Splitting replaces what is in ${over} ${over === 1 ? 'cell' : 'cells'} to the right.`, { title: 'Split Text to Columns', confirmText: 'Replace' }))) return;
+    write(list);
   };
   const trimWhitespace = () => {
     if (!guard()) return;
@@ -1092,7 +1163,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       const cell = cellAt(r, c);
       if (cell && !cell.f && typeof cell.v === 'string') { const t = cell.v.replace(/[ \t]+/g, ' ').trim(); if (t !== cell.v) list.push({ r, c, v: t, f: null }); }
     }
-    if (list.length) writeCells(doc, tab.id, list);
+    if (list.length) write(list);
   };
 
   // rule lists for the panels
@@ -1115,6 +1186,10 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   };
   const saveRule = (kind) => (id, form) => {
     if (!guard()) return false;
+    if (!id && extraOf(doc, kind, tab.id).size >= LIMITS[kind]) {
+      toastErr?.(`A tab holds ${LIMITS[kind]} ${kind === 'cf' ? 'formatting rules' : 'validation rules'} at most. Delete one first.`);
+      return false;
+    }
     const got = rangeFrom(form.range);
     if (!got || got.tab.id !== tab.id) { toastErr?.('That range is not on this tab. Use something like A1:C20.'); return false; }
     const rule = { ...form, range: rangeIds(tab, got.rect) };
@@ -1131,6 +1206,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     if (!guard()) return false;
     if (!okName(name)) { toastErr?.('A name starts with a letter, has no spaces, and is not a cell address like B2.'); return false; }
     if (ctx.names.has(name.toLowerCase())) { toastErr?.('That name is already used.'); return false; }
+    if (ctx.names.size >= LIMITS.names) { toastErr?.(`A sheet holds ${LIMITS.names} names at most.`); return false; }
     const got = rangeFrom(range);
     if (!got) { toastErr?.('Type the range like B2:B50 or Sales!A1:A9.'); return false; }
     setName(doc, name.toLowerCase(), { name, tab: got.tab.id, range: rangeIds(got.tab, got.rect) });
@@ -1295,7 +1371,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     ...(hasHiddenRows ? [{ label: 'Unhide Rows', onClick: () => hideLines('rows', false), disabled: !canEdit }] : []),
     ...(hasHiddenCols ? [{ label: 'Unhide Columns', onClick: () => hideLines('cols', false), disabled: !canEdit }] : []),
     '-',
-    { label: 'Clear Contents', onClick: () => clearRange(doc, tab.id, b), disabled: !canEdit },
+    { label: 'Clear Contents', onClick: () => clearRange(doc, tab.id, b, { skipRows: filtHid }), disabled: !canEdit },
     { label: 'Clear Formatting', onClick: () => applyStyle({ b: null, i: null, u: null, st: null, fc: null, bg: null, ha: null, va: null, wrap: null, nf: null, d: null, ff: null, fs: null, bt: null, bb: null, bl: null, br: null }), disabled: !canEdit },
     { label: noteAt(sel.r, sel.c) ? 'Edit Note' : 'Insert Note', icon: StickyNote, onClick: openNote, disabled: !canEdit },
     { label: active?.l ? 'Edit Link' : 'Insert Link', icon: Link2, onClick: askLink, disabled: !canEdit },
@@ -1364,7 +1440,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
           { label: `${many(n('rows'), 'Row')} Below`, onClick: () => lines('rows', 'after'), disabled: !canEdit },
           { label: `${many(n('cols'), 'Column')} Left`, onClick: () => lines('cols', 'before'), disabled: !canEdit },
           { label: `${many(n('cols'), 'Column')} Right`, onClick: () => lines('cols', 'after'), disabled: !canEdit },
-          { label: 'Tab', onClick: () => { const nid = addTab(doc, null); switchTab(nid); }, disabled: !canEdit },
+          { label: 'Tab', onClick: () => { newTab(); }, disabled: !canEdit },
         ]} />
         <Menu label="Format" title="Format" items={[
           { label: `Format Cells (${MOD}+1)`, onClick: () => setPanel('format'), disabled: !canEdit },
@@ -1565,7 +1641,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       <div className="nxs-tabs" role="tablist" aria-label="Tabs">
         {canEdit && (
           <button type="button" className="nxs-tab-add" title="Add Tab (Shift+F11)" aria-label="Add Tab"
-            onClick={() => { const nid = addTab(doc, null); switchTab(nid); }}><Plus size={15} /></button>
+            onClick={() => { newTab(); }}><Plus size={15} /></button>
         )}
         {ctx.tabs.map((t) => {
           const on = t.id === tab.id;
