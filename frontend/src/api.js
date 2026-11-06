@@ -3694,6 +3694,16 @@ api.addJobSub = (jobId, data) => _post(`${_jp(jobId)}/subs`, data);
 api.endJobSub = (linkId) => _post(`/construction/sub-links/${encodeURIComponent(linkId)}/end`, {});
 api.getVendorCompliance = (vendorId) => req(`/construction/vendors/${encodeURIComponent(vendorId)}/compliance`);
 api.saveVendorCompliance = (vendorId, data) => req(`/construction/vendors/${encodeURIComponent(vendorId)}/compliance`, { method: 'PUT', body: JSON.stringify(data) });
+// Drawings, the current set (Round Two item 9, 11/06/2026; routers/construction_drawings.py).
+api.getJobDrawings = (jobId) => req(`${_jp(jobId)}/drawings`);
+api.addJobDrawing = (jobId, data) => _post(`${_jp(jobId)}/drawings`, data);
+api.removeJobDrawing = (drawingId) => req(`/construction/drawings/${encodeURIComponent(drawingId)}`, { method: 'DELETE' });
+// Commitments and lien waivers (Round Two item 8, 11/06/2026; routers/construction_money.py):
+// read with the job's Money (getJobMoney), kept by its managers with Accounting access.
+api.addCommitment = (jobId, data) => _post(`${_jp(jobId)}/commitments`, data);
+api.updateCommitment = (id, data) => req(`/construction/commitments/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
+api.addCommitmentWaiver = (id, data) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers`, data);
+api.removeCommitmentWaiver = (id, waiverId) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers/${encodeURIComponent(waiverId)}/remove`, {});
 
 // Mark Up "Attach to" a job photo (lib/markup.js source kind construction_media).
 async function _attachConstructionMarkup(source, { name, blob }) {

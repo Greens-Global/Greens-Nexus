@@ -22,12 +22,14 @@ export const MAX_BYTES = {
   photo: 25 * 1024 * 1024,
   video: 100 * 1024 * 1024,   // matches routers/egnyte.py MAX_UPLOAD_BYTES
   audio: 25 * 1024 * 1024,
+  drawing: 50 * 1024 * 1024,  // one sheet (Drawings tab), never picked by kindOf
 };
 
 export const ALLOWED_MIME = {
   photo: ['image/jpeg', 'image/png', 'image/heic', 'image/heif', 'image/webp'],
   video: ['video/mp4', 'video/quicktime', 'video/webm'],
   audio: ['audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/ogg', 'audio/webm', 'audio/wav'],
+  drawing: ['application/pdf', 'image/png', 'image/jpeg'],
 };
 
 const HEIC = ['image/heic', 'image/heif'];
@@ -68,8 +70,7 @@ export function kindOf(file) {
 /** '' when acceptable, else a message written for a worker holding a phone.
  *  It names the real size and the real limit: "Upload failed" on a jobsite
  *  means the day's update simply never gets filed. */
-export function validate(file) {
-  const kind = kindOf(file);
+export function validate(file, kind = kindOf(file)) {
   if (!kind) return 'That file type is not supported here.';
   const mime = (file.type || '').toLowerCase();
   if (mime && !ALLOWED_MIME[kind].includes(mime)) return `${mime} is not a supported ${kind} format.`;
@@ -158,11 +159,12 @@ const safeExt = (file) => {
  *  this bucket is addressed only by URL from the app and the PDF, and an id key
  *  means a link already printed into a published report cannot break when the
  *  file is renamed or re-filed. */
-export async function uploadConstructionMedia(file, { projectId }) {
-  const invalid = validate(file);
+export async function uploadConstructionMedia(file, { projectId, kind: asKind = '' }) {
+  // `asKind` 'drawing': the Drawings tab's sheet, a kind the file's type alone never says.
+  const kind = asKind || kindOf(file);
+  const invalid = validate(file, kind);
   if (invalid) return { payload: null, error: invalid };
 
-  const kind = kindOf(file);
   // EXIF is read from the ORIGINAL - conversion drops it.
   const exif = await readExif(file);
   const upload = await toWebSafe(file);
@@ -240,4 +242,26 @@ export function filesFromPaste(e) {
     out.push(f.name ? f : new File([f], `paste-${Date.now()}.${(f.type.split('/')[1] || 'bin')}`, { type: f.type }));
   }
   return out;
+}
+
+// A job's documents (Round Two item 8, 11/06/2026: a signed subcontract, a
+// lien waiver) - a PDF or a photo of the page, into the job's own folder in
+// construction-media like every job file, so the server's one check
+// (construction_storage.check_media) accepts the link. No media row: the
+// record that holds the link (a commitment) is what keeps it.
+export const DOC_MIME = ['application/pdf', ...ALLOWED_MIME.photo];
+
+export async function uploadJobDocument(file, { projectId }) {
+  const type = (file?.type || '').toLowerCase();
+  if (!file || !DOC_MIME.includes(type)) return { url: '', name: '', error: 'Attach a PDF or a photo of the page.' };
+  if (file.size > MAX_BYTES.photo) return { url: '', name: '', error: 'That file is over 25 MB.' };
+  if (!supabase) return { url: '', name: '', error: 'Storage is not connected, so files cannot be attached here.' };
+  const id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const path = `construction/${projectId}/${id}.${type === 'application/pdf' ? 'pdf' : safeExt(file)}`;
+  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    contentType: type, upsert: false, cacheControl: '31536000',
+  });
+  if (error || !data) return { url: '', name: '', error: uploadErrorWords(error) };
+  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
+  return { url: toViewUrl(pub.publicUrl), name: file.name || 'Document', error: null };
 }

@@ -81,7 +81,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe('Who sees Money', () => {
   it('the tab sits before Closeout on either size, only when allowed', () => {
     expect(jobTabs('project').some((t) => t.key === 'money')).toBe(false);
-    expect(jobTabs('project', { money: true }).map((t) => t.key)).toEqual(['overview', 'schedule', 'punch', 'field', 'photos', 'rfis', 'permits', 'subs', 'changes', 'money', 'closeout']);
+    expect(jobTabs('project', { money: true }).map((t) => t.key)).toEqual(['overview', 'schedule', 'punch', 'field', 'photos', 'rfis', 'drawings', 'permits', 'subs', 'changes', 'money', 'closeout']);
     expect(jobTabs('work_order', { money: true }).map((t) => t.label)).toEqual(['Overview', 'Tasks', 'Field', 'Photos', 'Changes', 'Money', 'Closeout']);
   });
 
@@ -200,6 +200,27 @@ describe('The Money tab', () => {
     for (const t of ['Changes', 'Reimbursements', 'Purchase requests']) expect(within(screen.getByRole('table', { name: t })).getAllByRole('separator').length).toBeGreaterThan(0);
     fireEvent.doubleClick(within(actual).getByRole('separator', { name: 'Resize the Accounts column' }));
     await waitFor(() => expect(within(actual).getByRole('columnheader', { name: /Accounts/ }).style.width).toBe('60px'));
+  });
+
+  it('commitments: Committed is a figure, Billed to Date opens that vendor\'s lines, a billed vendor with no waiver is flagged', async () => {
+    const commitments = {
+      total: 900, open: 400, billedKnown: true,
+      rows: [{
+        id: 'k1', number: 'SC-001', kind: 'subcontract', kindLabel: 'Subcontract', vendorId: 'V-1', vendorName: 'Sample Plumbing',
+        title: 'Plumbing', originalAmount: 900, amount: 900, retainagePct: 10, status: 'active', contractUrl: '', contractName: '', notes: '',
+        billed: 500, billedAccounts: [{ account_no: '17100', title: 'Construction in Progress', amount: 500 }], sharedVendor: false,
+        remaining: 400, retainageHeld: 50, waivers: [], lastWaiver: null, waiverMissing: true,
+      }],
+    };
+    const { container } = render(<MoneyTab project={job} money={loaded(money({ commitments }))} />);
+    expect(container.querySelector('[data-money-figure="commitments"]').textContent).toContain('$900.00');
+    const table = screen.getByRole('table', { name: 'Commitments' });
+    expect(within(table).getByText('No Waiver')).toBeInTheDocument();
+    expect(within(table).getAllByRole('separator').length).toBeGreaterThan(0);
+    fireEvent.click(within(table).getByRole('button', { name: 'Ledger lines behind Sample Plumbing billing' }));
+    await waitFor(() => expect(api.searchAccountingLedger).toHaveBeenCalledTimes(1));
+    expect(api.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ account: '17100', project: 'PJ-1', vendor: 'V-1', location: 'E1' });
+    expect(api.searchAccountingLedger.mock.calls[0][0].item).toBeUndefined();
   });
 
   it('an unmapped job says so and reads nothing from the books', () => {
