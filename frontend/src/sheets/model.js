@@ -47,25 +47,51 @@ export const colsOf = (doc, tab) => doc.getArray('cols:' + tab);
 export const cellsOf = (doc, tab) => doc.getMap('cells:' + tab);
 export const sizesOf = (doc, tab) => doc.getMap('sizes:' + tab);
 
+// The rest of a tab, each a Y.Map keyed by stable ids so concurrent edits merge:
+//   merges:<tab>  '<rowId>.<colId>' (top-left) -> {r2, c2} (bottom-right ids)
+//   hidden:<tab>  row or column id -> true (hidden by hand; a filter hides on its own)
+//   notes:<tab>   '<rowId>.<colId>' -> {text, by, at}
+//   charts:<tab>  chart id -> {type, range, x, y, w, h, title, header}
+//   cf:<tab>      rule id -> conditional format {range, type, a, b, f, style, colors, order}
+//   dv:<tab>      rule id -> data validation {range, kind, items, src, op, a, b, reject}
+//   filter:<tab>  'f' -> {r (header row), c1, c2, crit: {colId: {hide, op, a, b}}}
+// and, for the whole workbook, names: lower-case name -> {name, tab, range}.
+export const EXTRAS = ['merges', 'hidden', 'notes', 'charts', 'cf', 'dv', 'filter'];
+export const extraOf = (doc, kind, tab) => doc.getMap(kind + ':' + tab);
+export const namesOf = (doc) => doc.getMap('names');
+
+function clearTab(doc, id) {
+  const rows = rowsOf(doc, id), cols = colsOf(doc, id);
+  if (rows.length) rows.delete(0, rows.length);
+  if (cols.length) cols.delete(0, cols.length);
+  cellsOf(doc, id).clear(); sizesOf(doc, id).clear();
+  for (const k of EXTRAS) extraOf(doc, k, id).clear();
+}
+
 function writeTab(doc, t, at) {
   const tabs = tabsOf(doc);
   tabs.insert(at == null ? tabs.length : at, [t.id]);
-  metaOf(doc).set(t.id, { name: t.name, color: t.color || '', frozenRows: t.frozenRows | 0, frozenCols: t.frozenCols | 0 });
-  const rows = rowsOf(doc, t.id), cols = colsOf(doc, t.id), cells = cellsOf(doc, t.id), sizes = sizesOf(doc, t.id);
-  if (rows.length) rows.delete(0, rows.length);
-  if (cols.length) cols.delete(0, cols.length);
-  cells.clear(); sizes.clear();
-  rows.push(t.rows);
-  cols.push(t.cols);
+  metaOf(doc).set(t.id, { name: t.name, color: t.color || '', frozenRows: t.frozenRows | 0, frozenCols: t.frozenCols | 0, ...(t.grid === false ? { grid: false } : {}) });
+  clearTab(doc, t.id);
+  rowsOf(doc, t.id).push(t.rows);
+  colsOf(doc, t.id).push(t.cols);
+  const cells = cellsOf(doc, t.id), sizes = sizesOf(doc, t.id);
   for (const [k, v] of Object.entries(t.cells || {})) cells.set(k, v);
   for (const [k, v] of Object.entries(t.sizes || {})) sizes.set(k, v);
+  for (const kind of EXTRAS) {
+    const m = extraOf(doc, kind, t.id);
+    for (const [k, v] of Object.entries(t[kind] || {})) m.set(k, v);
+  }
 }
 
 /** A shared document built from a stored snapshot. */
 export function seedSheetDoc(snapshot) {
   const doc = new Y.Doc();
   const snap = snapshot?.type === 'nexus-sheet' && snapshot.tabs?.length ? snapshot : newSheetContent();
-  doc.transact(() => { for (const t of snap.tabs) writeTab(doc, t); });
+  doc.transact(() => {
+    for (const t of snap.tabs) writeTab(doc, t);
+    for (const [k, v] of Object.entries(snap.names || {})) namesOf(doc).set(k, v);
+  });
   return doc;
 }
 
@@ -82,8 +108,15 @@ export function snapshotOf(doc) {
       cellsOf(doc, id).forEach((v, k) => { const [r, c] = k.split('.'); if (rs.has(r) && cs.has(c)) cells[k] = v; });
       const sizes = {};
       sizesOf(doc, id).forEach((v, k) => { if (rs.has(k) || cs.has(k)) sizes[k] = v; });
-      return { id, name: m.name || 'Sheet', color: m.color || '', frozenRows: m.frozenRows | 0, frozenCols: m.frozenCols | 0, rows, cols, cells, sizes };
+      const out = { id, name: m.name || 'Sheet', color: m.color || '', frozenRows: m.frozenRows | 0, frozenCols: m.frozenCols | 0, rows, cols, cells, sizes };
+      if (m.grid === false) out.grid = false;
+      for (const kind of EXTRAS) {
+        const got = readExtra(doc, kind, id);
+        if (got.size) out[kind] = Object.fromEntries(got);
+      }
+      return out;
     }),
+    ...(namesOf(doc).size ? { names: Object.fromEntries(readNames(doc)) } : {}),
   };
 }
 
@@ -92,7 +125,23 @@ const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
 const NF = new Set(['', 'number', 'currency', 'percent', 'date', 'time', 'datetime', 'text']);
 const HA = new Set(['left', 'center', 'right']);
+const VA = new Set(['top', 'middle', 'bottom']);
+export const FONTS = ['Inter', 'Arial', 'Calibri', 'Georgia', 'Times New Roman', 'Courier New', 'Verdana', 'Trebuchet MS'];
+const FONT_SET = new Set(FONTS);
+export const BORDER_STYLES = ['thin', 'medium', 'thick', 'dashed', 'dotted'];
+const BORDER_RE = /^(thin|medium|thick|dashed|dotted) #[0-9a-fA-F]{3,8}$/;
 const plain = (o) => o && typeof o === 'object' && !Array.isArray(o) && Object.getPrototypeOf(o) === Object.prototype;
+
+/** A link a cell may carry: http, https or mailto only, normalized; '' for anything else. */
+export function safeLink(u) {
+  if (typeof u !== 'string' || !u || u.length > 2000) return '';
+  const t = u.trim();
+  if (!/^(https?:\/\/|mailto:)/i.test(t)) return '';
+  try {
+    const p = new URL(t);
+    return ['http:', 'https:', 'mailto:'].includes(p.protocol) ? p.href : '';
+  } catch { return ''; }
+}
 
 export function validStyle(s) {
   if (s == null) return true;
@@ -103,14 +152,19 @@ export function validStyle(s) {
     else if (k === 'ha') { if (!HA.has(v)) return false; }
     else if (k === 'nf') { if (!NF.has(v)) return false; }
     else if (k === 'd') { if (!Number.isInteger(v) || v < 0 || v > 10) return false; }
+    else if (k === 'va') { if (!VA.has(v)) return false; }
+    else if (k === 'ff') { if (!FONT_SET.has(v)) return false; }
+    else if (k === 'fs') { if (!Number.isInteger(v) || v < 6 || v > 96) return false; }
+    else if (k === 'bt' || k === 'bb' || k === 'bl' || k === 'br') { if (typeof v !== 'string' || !BORDER_RE.test(v)) return false; }
     else return false;
   }
   return true;
 }
 export function validCell(c) {
   if (!plain(c)) return false;
-  for (const k of Object.keys(c)) if (!['v', 'f', 's'].includes(k)) return false;
+  for (const k of Object.keys(c)) if (!['v', 'f', 's', 'l'].includes(k)) return false;
   const { v, f } = c;
+  if (c.l != null && !safeLink(c.l)) return false;
   if (!(v == null || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.length <= MAX_STR))) return false;
   if (f != null && (typeof f !== 'string' || f[0] !== '=' || f.length > MAX_STR)) return false;
   return validStyle(c.s);
@@ -137,7 +191,66 @@ export function validateSheetDoc(doc) {
     if (total > MAX_CELLS) fail('too many cells');
     cells.forEach((v, k) => { if (k.length > 81 || !validCell(v)) fail('cell'); });
     sizesOf(doc, id).forEach((v) => { if (typeof v !== 'number' || !(v >= 4 && v <= 2000)) fail('size value'); });
+    if (m.grid != null && typeof m.grid !== 'boolean') fail('grid');
+    for (const kind of EXTRAS) {
+      const x = extraOf(doc, kind, id);
+      if (x.size > EXTRA_MAX[kind]) fail(`too many ${kind}`);
+      x.forEach((v, k) => { if (!VALID[kind](v, k)) fail(kind); });
+    }
   }
+  const names = namesOf(doc);
+  if (names.size > 1000) fail('too many names');
+  names.forEach((v, k) => { if (!validName(v, k)) fail('name'); });
+}
+
+const isId = (x) => typeof x === 'string' && ID_RE.test(x);
+const isRange = (g) => plain(g) && ['r1', 'c1', 'r2', 'c2'].every((k) => isId(g[k]));
+const isStr = (x, n) => typeof x === 'string' && x.length <= n;
+const isNum = (x, lo, hi) => typeof x === 'number' && Number.isFinite(x) && x >= lo && x <= hi;
+const isScalar = (x) => x == null || isNum(x, -1e300, 1e300) || isStr(x, 500);
+const isFormula = (x) => typeof x === 'string' && x[0] === '=' && x.length <= 2000;
+const isKey = (k) => typeof k === 'string' && k.split('.').length === 2 && k.split('.').every(isId);
+export const CHART_TYPES = ['column', 'bar', 'line', 'area', 'pie', 'scatter'];
+export const CF_TYPES = ['gt', 'gte', 'lt', 'lte', 'eq', 'neq', 'between', 'contains', 'notContains', 'before', 'after', 'empty', 'notEmpty', 'formula', 'scale'];
+export const DV_KINDS = ['list', 'range', 'checkbox', 'number', 'date'];
+export const DV_OPS = ['between', 'gte', 'lte', 'gt', 'lt', 'eq'];
+export const FILTER_OPS = ['', 'gt', 'gte', 'lt', 'lte', 'eq', 'neq', 'between', 'contains', 'notContains', 'empty', 'notEmpty'];
+const CF_STYLE_KEYS = new Set(['fc', 'bg', 'b', 'i', 'u', 'st']);
+const EXTRA_MAX = { merges: 20000, hidden: MAX_ROWS + MAX_COLS, notes: 20000, charts: 50, cf: 200, dv: 500, filter: 1 };
+const VALID = {
+  merges: (v, k) => isKey(k) && plain(v) && isId(v.r2) && isId(v.c2),
+  hidden: (v, k) => v === true && isId(k),
+  notes: (v, k) => isKey(k) && plain(v) && isStr(v.text, 5000) && v.text.length > 0 && (v.by == null || isStr(v.by, 120)) && (v.at == null || isStr(v.at, 40)),
+  charts: (v, k) => isId(k) && plain(v) && CHART_TYPES.includes(v.type) && isRange(v.range) && isNum(v.x, 0, 1e6) && isNum(v.y, 0, 1e7)
+    && isNum(v.w, 160, 2000) && isNum(v.h, 120, 2000) && (v.title == null || isStr(v.title, 200)) && (v.header == null || typeof v.header === 'boolean'),
+  cf: (v, k) => isId(k) && plain(v) && isRange(v.range) && CF_TYPES.includes(v.type) && isScalar(v.a) && isScalar(v.b) && (v.f == null || isFormula(v.f))
+    && (v.style == null || (validStyle(v.style) && Object.keys(v.style).every((x) => CF_STYLE_KEYS.has(x))))
+    && (v.colors == null || (Array.isArray(v.colors) && v.colors.length >= 2 && v.colors.length <= 3 && v.colors.every((c) => typeof c === 'string' && COLOR_RE.test(c))))
+    && (v.order == null || isNum(v.order, -1e15, 1e15)),
+  dv: (v, k) => isId(k) && plain(v) && isRange(v.range) && DV_KINDS.includes(v.kind)
+    && (v.items == null || (Array.isArray(v.items) && v.items.length <= 500 && v.items.every((x) => isStr(x, 200))))
+    && (v.src == null || isFormula(v.src)) && (v.op == null || DV_OPS.includes(v.op)) && isScalar(v.a) && isScalar(v.b)
+    && (v.reject == null || typeof v.reject === 'boolean'),
+  filter: (v, k) => k === 'f' && plain(v) && isId(v.r) && isId(v.c1) && isId(v.c2) && (v.crit == null || (plain(v.crit)
+    && Object.keys(v.crit).length <= MAX_COLS && Object.entries(v.crit).every(([ck, cv]) => isId(ck) && plain(cv)
+      && (cv.hide == null || (Array.isArray(cv.hide) && cv.hide.length <= 5000 && cv.hide.every((x) => isStr(x, 500))))
+      && (cv.op == null || FILTER_OPS.includes(cv.op)) && isScalar(cv.a) && isScalar(cv.b)))),
+};
+export const NAME_RE = /^[A-Za-z_][A-Za-z0-9_.]{0,63}$/;
+/** A name may not read as a cell (B2), a boolean or an R1C1 address. */
+export const okName = (n) => typeof n === 'string' && NAME_RE.test(n) && !/^[A-Za-z]{1,3}\d+$/.test(n) && !/^(true|false)$/i.test(n) && !/^R\d*C\d*$/i.test(n);
+const validName = (v, k) => plain(v) && okName(v.name) && v.name.toLowerCase() === k && isId(v.tab) && isRange(v.range);
+
+/** The valid entries of one of a tab's extra maps (a live edit is read this way, never trusted). */
+export function readExtra(doc, kind, id) {
+  const out = new Map();
+  extraOf(doc, kind, id).forEach((v, k) => { if (VALID[kind](v, k)) out.set(k, v); });
+  return out;
+}
+export function readNames(doc) {
+  const out = new Map();
+  namesOf(doc).forEach((v, k) => { if (validName(v, k)) out.set(k, v); });
+  return out;
 }
 
 // ── reading ──────────────────────────────────────────────────────────────
@@ -156,13 +269,14 @@ export function buildCtx(doc, { grow = false } = {}) {
     return { id, name: typeof m.name === 'string' && m.name ? m.name.slice(0, 100) : 'Sheet',
       color: typeof m.color === 'string' && COLOR_RE.test(m.color) ? m.color : '',
       frozenRows: frozen(m.frozenRows), frozenCols: frozen(m.frozenCols),
-      rows: rowsOf(doc, id).toArray().slice(0, MAX_ROWS).map(String), cols: colsOf(doc, id).toArray().slice(0, MAX_COLS).map(String), cells: cellsOf(doc, id), sizes: sizesOf(doc, id) };
+      rows: rowsOf(doc, id).toArray().slice(0, MAX_ROWS).map(String), cols: colsOf(doc, id).toArray().slice(0, MAX_COLS).map(String), cells: cellsOf(doc, id), sizes: sizesOf(doc, id),
+      grid: m.grid !== false, ...Object.fromEntries(EXTRAS.map((kind) => [kind, readExtra(doc, kind, id)])) };
   });
   return makeCtx(tabs, grow ? (tab, axis, n) => {
     const fresh = ids(n);
     (axis === 'rows' ? rowsOf(doc, tab.id) : colsOf(doc, tab.id)).push(fresh);
     return fresh;
-  } : null);
+  } : null, readNames(doc));
 }
 
 /** The same view over plain tabs (cells/sizes as Map-like or plain objects). */
@@ -175,7 +289,7 @@ function okCell(x) {
   return ok;
 }
 
-export function makeCtx(tabs, grow) {
+export function makeCtx(tabs, grow, names = new Map()) {
   const byId = new Map(tabs.map((t) => [t.id, t]));
   const byName = new Map(tabs.map((t) => [t.name.toLowerCase(), t]));
   const idx = new WeakMap();
@@ -213,8 +327,28 @@ export function makeCtx(tabs, grow) {
       return x && okCell(x) ? x : undefined;
     },
     size: (tab, id, dflt) => { const v = get(tab.sizes, id); return typeof v === 'number' && v >= 4 && v <= 2000 ? v : dflt; },
+    /** {r1, c1, r2, c2} as indexes for a range stored by ids, or null when a row or column is gone. */
+    rect: (tab, g) => {
+      if (!tab || !g) return null;
+      const r1 = indexOf(tab, 'rows', g.r1), r2 = indexOf(tab, 'rows', g.r2), c1 = indexOf(tab, 'cols', g.c1), c2 = indexOf(tab, 'cols', g.c2);
+      if (r1 < 0 || r2 < 0 || c1 < 0 || c2 < 0) return null;
+      return { r1: Math.min(r1, r2), r2: Math.max(r1, r2), c1: Math.min(c1, c2), c2: Math.max(c1, c2) };
+    },
+    names,
+    /** A named range: { tab, r1, c1, r2, c2 } or null. */
+    nameRef: (name) => {
+      const n = names.get(String(name).toLowerCase());
+      const tab = n ? byId.get(n.tab) : null;
+      if (!tab) return null;
+      const r1 = indexOf(tab, 'rows', n.range.r1), r2 = indexOf(tab, 'rows', n.range.r2), c1 = indexOf(tab, 'cols', n.range.c1), c2 = indexOf(tab, 'cols', n.range.c2);
+      if (r1 < 0 || r2 < 0 || c1 < 0 || c2 < 0) return null;
+      return { tab, r1: Math.min(r1, r2), r2: Math.max(r1, r2), c1: Math.min(c1, c2), c2: Math.max(c1, c2) };
+    },
   };
 }
+
+/** A range of indexes on a tab -> the ids it is stored by. */
+export const rangeIds = (tab, { r1, c1, r2, c2 }) => ({ r1: tab.rows[r1], c1: tab.cols[c1], r2: tab.rows[r2], c2: tab.cols[c2] });
 
 /** The A1 text of a stored cell's formula. */
 export const formulaText = (ctx, tabId, f) => decodeFormula(f, ctx, tabId);
@@ -228,6 +362,7 @@ function putCell(map, key, next) {
   if (next.v != null && next.v !== '') clean.v = next.v;
   if (next.f) clean.f = next.f;
   if (next.s && Object.keys(next.s).length) clean.s = next.s;
+  if (next.l) clean.l = next.l;
   if (!Object.keys(clean).length) { if (map.has(key)) map.delete(key); return; }
   if (!sameObj(map.get(key), clean)) map.set(key, clean);
 }
@@ -248,7 +383,7 @@ export function writeCells(doc, tabId, list) {
       const cur = map.get(key) || {};
       let f = null;
       if (it.f) { try { f = encodeFormula(it.f, ctx, tabId); } catch { f = it.f; } }
-      putCell(map, key, { v: f ? null : it.v, f, s: it.s !== undefined ? it.s : cur.s });
+      putCell(map, key, { v: f ? null : it.v, f, s: it.s !== undefined ? it.s : cur.s, l: it.l !== undefined ? it.l : cur.l });
     }
   });
 }
@@ -277,6 +412,22 @@ export function styleRange(doc, tabId, { r1, c1, r2, c2 }, patch) {
         for (const [k, v] of Object.entries(patch)) { if (v == null || v === false || v === '') delete s[k]; else s[k] = v; }
         putCell(map, key, { ...cur, s });
       }
+    }
+  });
+}
+
+/** A style patch per cell ([{r, c, patch}]) in one step - borders, Clear Formatting of a block. */
+export function styleCells(doc, tabId, list) {
+  change(doc, () => {
+    const ctx = buildCtx(doc, { grow: true });
+    const tab = ctx.tabById(tabId);
+    const map = cellsOf(doc, tabId);
+    for (const { r, c, patch } of list) {
+      const key = ctx.rowId(tab, r) + '.' + ctx.colId(tab, c);
+      const cur = map.get(key) || {};
+      const s = { ...(cur.s || {}) };
+      for (const [k, v] of Object.entries(patch)) { if (v == null || v === false || v === '') delete s[k]; else s[k] = v; }
+      putCell(map, key, { ...cur, s });
     }
   });
 }
@@ -314,9 +465,38 @@ export function deleteLines(doc, tabId, axis, at, n = 1) {
       const [r, c] = key.split('.');
       if (gone.has(axis === 'rows' ? r : c)) map.delete(key);
     }
-    const sizes = sizesOf(doc, tabId);
-    for (const id of gone) if (sizes.has(id)) sizes.delete(id);
+    const sizes = sizesOf(doc, tabId), hidden = extraOf(doc, 'hidden', tabId);
+    for (const id of gone) { if (sizes.has(id)) sizes.delete(id); if (hidden.has(id)) hidden.delete(id); }
+    // A note or merge whose corner went with the row or column goes too; ranges
+    // stored by ids (rules, charts, names) simply stop reading once an end is gone.
+    for (const kind of ['notes', 'merges']) {
+      const m = extraOf(doc, kind, tabId);
+      for (const [key, v] of Array.from(m.entries())) {
+        const [r, c] = key.split('.');
+        if (gone.has(axis === 'rows' ? r : c) || (kind === 'merges' && gone.has(axis === 'rows' ? v?.r2 : v?.c2))) m.delete(key);
+      }
+    }
   });
+}
+
+/** Set (or with null, remove) one entry of a tab's extra map. */
+export function setExtra(doc, kind, tabId, key, value) {
+  change(doc, () => {
+    const m = extraOf(doc, kind, tabId);
+    if (value == null) { if (m.has(key)) m.delete(key); } else m.set(key, value);
+  });
+}
+/** Several entries at once, one undo step: [[kind, key, value|null], ...]. */
+export function setExtras(doc, tabId, list) {
+  change(doc, () => {
+    for (const [kind, key, value] of list) {
+      const m = extraOf(doc, kind, tabId);
+      if (value == null) { if (m.has(key)) m.delete(key); } else m.set(key, value);
+    }
+  });
+}
+export function setName(doc, key, value) {
+  change(doc, () => { const m = namesOf(doc); if (value == null) m.delete(key); else m.set(key, value); });
 }
 
 export const setSize = (doc, tabId, id, px) => change(doc, () => { sizesOf(doc, tabId).set(id, Math.max(16, Math.min(2000, Math.round(px)))); });
@@ -354,9 +534,7 @@ export function deleteTab(doc, tabId) {
     if (i < 0) return;
     tabs.delete(i, 1);
     metaOf(doc).delete(tabId);
-    const rows = rowsOf(doc, tabId), cols = colsOf(doc, tabId);
-    rows.delete(0, rows.length); cols.delete(0, cols.length);
-    cellsOf(doc, tabId).clear(); sizesOf(doc, tabId).clear();
+    clearTab(doc, tabId);
   });
 }
 
@@ -377,13 +555,13 @@ export function loadSnapshot(doc, snap, { replace }) {
     if (replace) {
       for (const id of tabsOf(doc).toArray()) {
         metaOf(doc).delete(id);
-        const rows = rowsOf(doc, id), cols = colsOf(doc, id);
-        rows.delete(0, rows.length); cols.delete(0, cols.length);
-        cellsOf(doc, id).clear(); sizesOf(doc, id).clear();
+        clearTab(doc, id);
       }
       tabsOf(doc).delete(0, tabsOf(doc).length);
+      namesOf(doc).clear();
     }
     for (const t of snap.tabs) writeTab(doc, { ...t, name: uniqueTabName(doc, t.name) });
+    for (const [k, v] of Object.entries(snap.names || {})) if (!namesOf(doc).has(k)) namesOf(doc).set(k, v);
   });
 }
 
@@ -395,14 +573,14 @@ export function loadSnapshot(doc, snap, { replace }) {
 export function blockAt(block, r0, c0, dr, dc, move = false) {
   const out = [];
   block.forEach((row, i) => row.forEach((cell, j) => {
-    out.push({ r: r0 + i, c: c0 + j, v: cell?.v ?? null, f: cell?.f ? (move ? cell.f : shiftFormula(cell.f, dr, dc)) : null, s: cell?.s || null });
+    out.push({ r: r0 + i, c: c0 + j, v: cell?.v ?? null, f: cell?.f ? (move ? cell.f : shiftFormula(cell.f, dr, dc)) : null, s: cell?.s || null, l: cell?.l || null });
   }));
   return out;
 }
 
 export function undoManagerFor(doc) {
-  const scope = (id) => [rowsOf(doc, id), colsOf(doc, id), cellsOf(doc, id), sizesOf(doc, id)];
-  const um = new Y.UndoManager([tabsOf(doc), metaOf(doc), ...tabsOf(doc).toArray().flatMap(scope)], {
+  const scope = (id) => [rowsOf(doc, id), colsOf(doc, id), cellsOf(doc, id), sizesOf(doc, id), ...EXTRAS.map((k) => extraOf(doc, k, id))];
+  const um = new Y.UndoManager([tabsOf(doc), metaOf(doc), namesOf(doc), ...tabsOf(doc).toArray().flatMap(scope)], {
     trackedOrigins: new Set([LOCAL]), captureTimeout: 400,
   });
   const onTabs = () => { for (const id of tabsOf(doc).toArray()) um.addToScope(scope(id)); };
