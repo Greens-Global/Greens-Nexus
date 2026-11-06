@@ -241,3 +241,25 @@ export function filesFromPaste(e) {
   }
   return out;
 }
+
+// A job's documents (Round Two item 8, 11/06/2026: a signed subcontract, a
+// lien waiver) - a PDF or a photo of the page, into the job's own folder in
+// construction-media like every job file, so the server's one check
+// (construction_storage.check_media) accepts the link. No media row: the
+// record that holds the link (a commitment) is what keeps it.
+export const DOC_MIME = ['application/pdf', ...ALLOWED_MIME.photo];
+
+export async function uploadJobDocument(file, { projectId }) {
+  const type = (file?.type || '').toLowerCase();
+  if (!file || !DOC_MIME.includes(type)) return { url: '', name: '', error: 'Attach a PDF or a photo of the page.' };
+  if (file.size > MAX_BYTES.photo) return { url: '', name: '', error: 'That file is over 25 MB.' };
+  if (!supabase) return { url: '', name: '', error: 'Storage is not connected, so files cannot be attached here.' };
+  const id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const path = `construction/${projectId}/${id}.${type === 'application/pdf' ? 'pdf' : safeExt(file)}`;
+  const { data, error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    contentType: type, upsert: false, cacheControl: '31536000',
+  });
+  if (error || !data) return { url: '', name: '', error: uploadErrorWords(error) };
+  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
+  return { url: toViewUrl(pub.publicUrl), name: file.name || 'Document', error: null };
+}
