@@ -118,3 +118,29 @@ test('two people typing in one document both keep their words', async ({ browser
   await expect(pageC).toContainText('Words from A.', { timeout: 20_000 });
   await expect(pageC).toContainText('Words from B.');
 });
+
+test('a pivot table sums by region and follows its data', async ({ page }) => {
+  await openApp(page);
+  await page.goto('/documents');
+  await skipTour(page);
+  await page.getByRole('button', { name: 'New Sheet' }).click();
+  await expect(page.locator('[role=grid]')).toBeVisible({ timeout: 20_000 });
+  const rows = [['Region', 'Rep', 'Amount'], ['East', 'Ann', '100'], ['East', 'Bo', '30'], ['North', 'Ann', '20'], ['West', 'Bo', '50']];
+  await page.locator('[role=grid]').focus();
+  await page.keyboard.press('Control+Home');
+  for (const row of rows) {
+    for (const [i, v] of row.entries()) { await page.keyboard.type(v); await page.keyboard.press(i < row.length - 1 ? 'Tab' : 'Enter'); }
+  }
+  await page.keyboard.press('Control+Home');
+  for (let i = 0; i < 4; i += 1) await page.keyboard.press('Shift+ArrowDown');
+  for (let i = 0; i < 2; i += 1) await page.keyboard.press('Shift+ArrowRight');
+  await page.getByRole('button', { name: 'Insert', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Pivot Table' }).or(page.getByRole('menuitem', { name: 'Pivot Table' })).first().click();
+  await page.getByRole('dialog', { name: 'Create Pivot Table' }).getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByLabel('Add to Rows').selectOption({ label: 'Region' });
+  await page.getByLabel('Add to Values').selectOption({ label: 'Amount' });
+  const grid = page.locator('[role=grid]');
+  await expect(grid).toContainText('Grand Total');
+  await expect(grid).toContainText('130');      // East: 100 + 30
+  await expect(grid).toContainText('200');
+});
