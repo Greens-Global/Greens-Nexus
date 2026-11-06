@@ -437,11 +437,25 @@ def _check_company(db: Session, scope: "_Scope", existing, payload: Dict[str, An
 # with the company, a row saved without the key keeps its pin, and an
 # unchanged value is never re-checked (roots moved since stay the filer's
 # business - it holds the files rather than guess).
+#
+# Connecting is ONE TIME (Neil, 11/05/2026): any editor of the asset connects
+# an unpinned asset; once pinned, only an Asset Management OWNER (the Owner
+# grant on property-asset, or a Super Administrator) may change or clear it.
 
 _EGNYTE_KEY = "egnyteFolder"
+_REPIN_REFUSED = "This asset's Egnyte folder is connected - only an Asset Management Owner can change it."
 
 
-def _check_egnyte_folder(existing, payload: Dict[str, Any]):
+def may_repin_egnyte(db: Session, user) -> bool:
+    """True when this caller may change or clear a connected Egnyte folder."""
+    from auth import _module_level, _MODULE_LEVEL_RANK
+    user = user or {}
+    if int(user.get("level", 0) or 0) >= 5:
+        return True
+    return _module_level(user.get("email", ""), "property-asset", db) >= _MODULE_LEVEL_RANK["owner"]
+
+
+def _check_egnyte_folder(existing, payload: Dict[str, Any], may_repin: bool = False):
     """None when the row's Egnyte Folder may be saved as it stands, else the
     refusal (status, message) - per row, like _check_company."""
     from services import egnyte as egnyte_svc
@@ -457,6 +471,8 @@ def _check_egnyte_folder(existing, payload: Dict[str, Any]):
     if new == had:
         payload[_EGNYTE_KEY] = had
         return None
+    if had and not may_repin:
+        return 403, _REPIN_REFUSED
     try:
         payload[_EGNYTE_KEY] = egnyte_svc.normalize_pinned_folder(new)
     except ValueError as e:
@@ -573,12 +589,116 @@ def find_egnyte_folders(pid: str, q: str = "", db: Session = Depends(get_db), us
     return out
 
 
+# ── Documents from the connected Egnyte folder (Neil, 11/05/2026) ───────────
+# "Nobody should be lost in Egnyte to see the docs": anyone who may see the
+# asset in Asset Management - viewers included - browses and opens the files
+# in its connected folder, read only, whether or not they have Egnyte access
+# of their own. So these routes read with the SHARED Egnyte service token and
+# the asset is the permission: the caller must see the asset (privacy and
+# scope rows, 404 otherwise) and every path must sit inside its pinned folder.
+# Nothing is copied or indexed; no write path. Sync routes - FastAPI runs them
+# in its thread pool, off the event loop.
+
+_DOCS_TIMEOUT = 50   # a big folder can take Egnyte this long (routers/egnyte._BROWSE_TIMEOUT)
+
+
+def _pinned_for(db: Session, user, pid: str) -> str:
+    prop = db.get(PropertyAsset, pid)
+    if prop is None or pid not in _visible_ids(db, user):
+        raise HTTPException(status_code=404, detail="That asset is not here.")
+    return str((prop.payload or {}).get(_EGNYTE_KEY) or "").strip()
+
+
+def inside_folder(root: str, path: str, allow_root: bool = True) -> bool:
+    """True when `path` is `root` (if allowed) or below it. Egnyte paths are
+    case-insensitive; '.' / '..' segments are refused outright."""
+    from services import egnyte as egnyte_svc
+    if not root:
+        return False
+    p = egnyte_svc.norm(path)
+    if any(s in (".", "..") for s in p.split("/")):
+        return False
+    r, pl = egnyte_svc.norm(root).lower(), p.lower()
+    return (allow_root and pl == r) or pl.startswith(r.rstrip("/") + "/")
+
+
+def _egnyte_refusal(e: Exception, what: str) -> HTTPException:
+    from services import egnyte as egnyte_svc
+    if isinstance(e, egnyte_svc.EgnyteError) and e.status == 404:
+        return HTTPException(status_code=404, detail=f"That {what} is not in Egnyte any more.")
+    print(f"[property-assets] Egnyte {what}: {e}")
+    return HTTPException(status_code=502, detail="Egnyte did not answer - try again in a minute.")
+
+
+@router.get("/property-assets/{pid}/egnyte/folder")
+def asset_egnyte_folder(pid: str, path: str = "", db: Session = Depends(get_db), user=Depends(require_asset_read)):
+    """The asset's connected folder (or a subfolder of it) as Egnyte lists it.
+    `connected: false` when nothing is pinned; `configured: false` when Egnyte
+    is not set up here; `missing: true` when the pinned folder itself is gone."""
+    from services import egnyte as egnyte_svc
+    pinned = _pinned_for(db, user, pid)
+    out: Dict[str, Any] = {"connected": bool(pinned), "configured": egnyte_svc.configured(),
+                           "folder": pinned, "mayChange": may_repin_egnyte(db, user)}
+    if not pinned or not out["configured"]:
+        return out
+    target = path.strip() or pinned
+    if not inside_folder(pinned, target):
+        raise HTTPException(status_code=403, detail="That folder is outside this asset's Egnyte folder.")
+    try:
+        data = egnyte_svc.list_folder(target, timeout=_DOCS_TIMEOUT)
+    except Exception as e:
+        if isinstance(e, egnyte_svc.EgnyteError) and e.status == 404 and egnyte_svc.norm(target).lower() == egnyte_svc.norm(pinned).lower():
+            return {**out, "missing": True}
+        # A 200 with `error`, like Find Folder: Egnyte being down is not Nexus
+        # being down (a 5xx would trip api.js's retry and reconnecting banner).
+        return {**out, "error": _egnyte_refusal(e, "folder").detail}
+    for f in data["files"]:
+        f["webUrl"] = egnyte_svc.file_web_url(f.get("groupId", "")) or egnyte_svc.web_url(f["path"])
+    for d in data["folders"]:
+        d["webUrl"] = egnyte_svc.web_url(d["path"])
+    return {**out, "path": data["path"], "folders": data["folders"], "files": data["files"],
+            "webUrl": egnyte_svc.web_url(pinned)}
+
+
+@router.get("/property-assets/{pid}/egnyte/file")
+def asset_egnyte_file(pid: str, path: str, inline: bool = False, db: Session = Depends(get_db),
+                      user=Depends(require_asset_read)):
+    """One file from the asset's connected folder - a download, or a view for
+    the /egnyte/file allowlist (PDF, images, text) so a file can never run as
+    script on Nexus's origin."""
+    from urllib.parse import quote
+    from fastapi import Response
+    from services import egnyte as egnyte_svc
+    from routers.egnyte import preview_type
+    pinned = _pinned_for(db, user, pid)
+    if not inside_folder(pinned, path, allow_root=False):
+        raise HTTPException(status_code=403, detail="That file is outside this asset's Egnyte folder.")
+    if not egnyte_svc.configured():
+        raise HTTPException(status_code=503, detail="Egnyte is not connected here.")
+    want = egnyte_svc.norm(path)
+    try:
+        content = egnyte_svc.read_file(want)
+    except Exception as e:
+        raise _egnyte_refusal(e, "file")
+    name = want.rsplit("/", 1)[-1] or "download"
+    kind = preview_type(name) if inline else None
+    return Response(
+        content=content,
+        media_type=kind or "application/octet-stream",
+        # filename* (RFC 5987): a name with quotes or non-Latin letters cannot break the header.
+        headers={"Content-Disposition": f"{'inline' if kind else 'attachment'}; filename*=UTF-8''{quote(name, safe='')}",
+                 "X-Content-Type-Options": "nosniff",
+                 "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"},
+    )
+
+
 @router.post("/property-assets/changes")
 def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(require_asset_write)):
     now = _now()
     email = (user or {}).get("email", "")
     sees_private, allowed = _reach(db, user)
     company_scope = _Scope(db, user)
+    may_repin = may_repin_egnyte(db, user)
     fill = _FillRevs(db)
     conflicts: List[str] = []
     refused: List[Dict[str, Any]] = []   # rows the server would not take: {id, status, message}
@@ -644,7 +764,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             if not str(row.get(_COMPANY_KEY) or "").strip():
                 row[_COMPANY_KEY] = filled
         payload = _strip_rev(row)
-        why = _check_company(db, company_scope, existing, payload) or _check_egnyte_folder(existing, payload)
+        why = _check_company(db, company_scope, existing, payload) or _check_egnyte_folder(existing, payload, may_repin)
         if why:
             refused.append({"id": pid, "status": why[0], "message": why[1]})
             if existing is None:

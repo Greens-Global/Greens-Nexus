@@ -33,6 +33,7 @@ import { AssemblageParcels } from './components/asset/AssemblageParcels.jsx';
 import { AddAssetModal } from './components/asset/AddAssetModal.jsx';
 import { TimelineTracker } from './components/asset/TimelineTracker.jsx';
 import { SimpleRecordTable } from './components/shared/SimpleRecordTable.jsx';
+import { AssetEgnyteDocs } from './components/asset/AssetEgnyteDocs.jsx';
 import { SimpleRowModal } from './components/shared/SimpleRowModal.jsx';
 import { TimelineStatusModal } from './components/asset/TimelineStatusModal.jsx';
 
@@ -61,6 +62,11 @@ const cityRegion = (p) => (p.city || '') + (p.state ? ', ' + p.state : '');
 export default function App({ activeSub = null, onSubChange = null } = {}) {
   const session = useSession();
   const canManage = session?.can ? session.can('manager') : false;
+  // The Egnyte folder (Neil, 11/05/2026): editors connect it once; only an
+  // Asset Management Owner (or a Super Administrator) changes it - the server
+  // enforces both (routers/property_assets.may_repin_egnyte).
+  const canEditAssets = session.level >= 4 || ['editor', 'full', 'owner'].includes(session.moduleLevel);
+  const mayRepinEgnyte = session.level >= 5 || session.moduleLevel === 'owner';
 
   // `store` is the whole app's data: { properties, warranties, inspections, documents, ahj,
   // utilities, vendors, logs, vservice, odometer, vdocs, maintenance, _ts }. useNexusStore
@@ -994,12 +1000,17 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         <PropertyJobs property={active} />
       )}
       {view === 'property' && active && (
-        <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} companies={companyList.companies} canClearCompany={companyList.canClear} />
+        <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} companies={companyList.companies} canClearCompany={companyList.canClear}
+          egnyteLocked={!!egnyteFolderOf(active) && !mayRepinEgnyte} />
       )}
       {view === 'property' && active && inferAssetKind(active) === 'property' && (
         <PropertyLoans property={active} onSaveEntityCode={(code) => setEntityCode(active.id, code)} />
       )}
 
+      {view === 'documents' && active && (
+        <AssetEgnyteDocs asset={active} canConnect={canEditAssets}
+          onConnect={(path) => saveDetail({ 'Egnyte Folder': path })} />
+      )}
       {['warranties', 'inspections', 'documents', 'vdocs', 'utilities', 'ahj', 'vendors', 'odometer'].map((coll) => (
         view === coll && active && (
           <CollectionTable

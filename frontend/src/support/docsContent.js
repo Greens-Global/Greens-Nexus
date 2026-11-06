@@ -1488,6 +1488,15 @@ export const DOCS = [
         ],
       },
       {
+        title: 'See an Asset\'s Documents From Egnyte',
+        steps: [
+          'Open the asset and go to Records > Plans & Docs. Documents in Egnyte sits at the top.',
+          'Not connected yet? If you edit the asset, click Connect Egnyte Folder, press Find Folder (or paste the folder\'s path or Egnyte link), pick the folder and click Connect Folder. You only do this once.',
+          'From then on everyone who can open the asset - viewers too - sees that folder\'s files right here: open a subfolder, search the folder, click a file to preview it, or download it. You do not need an Egnyte account of your own.',
+          'Once connected, only an Asset Management Owner can change the folder (Change Folder, or Egnyte Folder on Details). Everyone else sees it locked.',
+        ],
+      },
+      {
         title: 'Delete or Restore an Asset',
         steps: [
           'Deleting a live asset moves it to Trash - nothing is erased.',
@@ -1501,6 +1510,7 @@ export const DOCS = [
       { name: 'Overview', desc: 'The asset\'s health in three cards - Needs Attention, Data Gaps and Recent Activity - then Details, its full spec sheet (parcel and zoning, units, financials, loans, insurance and title for a property; make, model and home base for a vehicle or equipment).' },
       { name: 'Records', desc: 'A property\'s Warranties, Inspections, Documents, Utilities, AHJ (Authority Having Jurisdiction), Vendors and Permits; a vehicle\'s or equipment\'s Service, Odometer and Documents - one segment each. Warranties show Current, Due Soon, Expired or Lapsed.' },
       { name: 'Maintenance', desc: 'Properties: Needs Action (resolved tickets waiting for the asset manager), Open Tickets, Closed Tickets and Preventive Maintenance (schedules that file tickets on their own, with what is overdue) for every ticket raised for the property and its parcels, the Maintenance Log with Total Spend, and Recommended Maintenance. With units set up (Set Up Units), the log can be scoped to one unit or Common Areas. A ticket closed as Duplicate or Won\'t Fix is listed under Closed Without Work.' },
+      { name: 'Documents in Egnyte', desc: 'Plans & Docs shows the files in the asset\'s connected Egnyte folder, read only, to everyone who can open the asset. An editor connects the folder once; after that only an Asset Management Owner can change it.' },
       { name: 'Timeline', desc: 'A property\'s milestones and their status, searchable on their own.' },
       { name: 'Private', desc: 'Mark Private (company officers only) hides an asset from everyone but the officers; Make Public shows it again.' },
       { name: 'Files', desc: 'Photos and documents are uploaded straight to private storage and open through a signed link; paste an image with Ctrl+V.' },
