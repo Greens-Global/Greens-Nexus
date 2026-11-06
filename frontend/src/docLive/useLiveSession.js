@@ -12,7 +12,8 @@
 // `seed(content)` builds a Y.Doc from saved content and `validate(doc)`
 // throws when a stored state is not safe to show.
 //
-// status: off | connecting | live | stale | failed. `stale` = the tab was
+// status: off | connecting | live | stale | failed | saves (no Realtime here:
+// the saves alone carry everyone's changes). `stale` = the tab was
 // hidden or a message did not open (the key may have moved on): nothing from
 // the channel is applied until the server confirms the key and resync()
 // catches up.
@@ -181,7 +182,7 @@ export function useLiveSession({ docId, enabled, me, name, seed, validate }) {
     if (docId) api.documentCollabReset(docId).catch(() => { /* the next opener checks it again */ });
   }, [docId]);
 
-  const status = !on ? 'off' : phase === 'failed' ? 'failed' : phase !== 'ready' || !live ? 'connecting' : trusted ? 'live' : 'stale';
+  const status = !on ? 'off' : phase === 'failed' ? 'failed' : phase === 'ready' && !supabase ? 'saves' : phase !== 'ready' || !live ? 'connecting' : trusted ? 'live' : 'stale';
 
   return useMemo(() => ({
     status, ready: !!session, peers, restart, fail, save,
