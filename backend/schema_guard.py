@@ -178,13 +178,16 @@ def run_once_per_deploy(engine, is_sqlite: bool, fingerprint_fn, work) -> str:
         work()
         print("[startup] schema: applied (SQLite - no once-per-deploy guard)")
         return "applied"
-    if transaction_pooled(engine):
-        # The pre-guard behavior: every worker runs the (idempotent) work.
-        work()
-        print(f"[startup] schema: applied (DATABASE_URL is on the transaction pooler, port "
-              f"{TRANSACTION_POOLER_PORT} - a session lock would not hold, so no once-per-deploy guard; "
-              f"use the session pooler or a direct connection to get it)")
-        return "applied"
+    # On the transaction pooler there is no lock (see TRANSACTION_POOLER_PORT):
+    # workers starting together may each run the work, as before the guard. But
+    # the stored fingerprint still says whether THIS build's work already went
+    # through - it is stored only after a run that reported success - so a
+    # match skips. Until 11/05/2026 this path ran the whole pass on every worker
+    # start: on dev (port 6543) every deploy and --max-requests recycle sent
+    # DROP COLUMN / ALTER COLUMN / CREATE INDEX on tasks, nexus_employees and
+    # the rest again, each an exclusive table lock live reads queue behind
+    # (pg_stat_statements: 16k+ runs of each, waits up to 120 s).
+    pooled = transaction_pooled(engine)
 
     fingerprint = None
     try:
@@ -198,15 +201,17 @@ def run_once_per_deploy(engine, is_sqlite: bool, fingerprint_fn, work) -> str:
         if fingerprint:
             try:
                 conn = open_lock_connection(engine)
-                locked = acquire_lock(conn, lock_wait_seconds())
-                if not locked:
-                    print(f"[startup] schema: *** waited {lock_wait_seconds()}s for another worker's "
-                          f"migrations and it still holds the lock - running them here anyway")
+                if not pooled:
+                    locked = acquire_lock(conn, lock_wait_seconds())
+                    if not locked:
+                        print(f"[startup] schema: *** waited {lock_wait_seconds()}s for another worker's "
+                              f"migrations and it still holds the lock - running them here anyway")
             except Exception as e:  # noqa: BLE001
                 print(f"[startup] schema: *** advisory lock unavailable, running migrations unguarded: {e}")
-            if locked and force_requested():
+            readable = locked or (pooled and conn is not None)
+            if readable and force_requested():
                 print("[startup] schema: NEXUS_FORCE_MIGRATIONS set - ignoring the stored fingerprint")
-            elif locked:
+            elif readable:
                 try:
                     if read_fingerprint(conn) == fingerprint:
                         print("[startup] schema: up to date, skipped")
