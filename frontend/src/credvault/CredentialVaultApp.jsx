@@ -441,11 +441,11 @@ export default function CredentialVaultApp({ activeSub }) {
             </label>
             {orgOpts.companies.length > 1 && (
               <select className="form-input cv-dir-select" value={fCompany} onChange={(e) => setFCompany(e.target.value)} aria-label="Company">
-                <option value="">All companies</option>{orgOpts.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <option value="">All Companies</option>{orgOpts.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             )}
             <select className="form-input cv-dir-select" value={fDept} onChange={(e) => setFDept(e.target.value)} aria-label="Department">
-              <option value="">All departments</option>{deptsInUse.map((d) => <option key={d} value={d}>{d}</option>)}
+              <option value="">All Departments</option>{deptsInUse.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
             <select className="form-input cv-dir-select" value={fType} onChange={(e) => setFType(e.target.value)} aria-label="Type">
               <option value="All">All types</option>{TYPES.map((t) => <option key={t}>{t}</option>)}

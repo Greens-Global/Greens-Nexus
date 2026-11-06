@@ -75,7 +75,7 @@ describe('TimeSheetAdvances', () => {
   it('gives HR with the pay grant the grant form, and the HR actions', async () => {
     person.mockResolvedValue({ ...base, canAsk: 'grant', advances: [adv({ canDecide: true })] });
     render(<Sheet email="amy@x.com" me="hana@x.com" />);
-    fireEvent.click(await screen.findByRole('button', { name: /Grant A Salary Advance/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Salary Advance' }));
     fill();
     fireEvent.click(screen.getByRole('button', { name: 'Grant Advance' }));
     await waitFor(() => expect(askFor).toHaveBeenCalledWith('amy@x.com', expect.objectContaining({ amount: 500 })));

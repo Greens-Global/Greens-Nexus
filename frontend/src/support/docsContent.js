@@ -1967,7 +1967,7 @@ export const DOCS = [
         title: 'Ask for a Salary Advance for Someone',
         steps: [
           'Nobody asks for their own advance, and it is not in Workday. Open the person\'s Time Sheet in People > Time - you must be their direct manager, or HR for them.',
-          'In Salary Advance, click Ask For A Salary Advance (or Grant A Salary Advance if you are HR with the Pay & Benefits grant). Enter the amount, Repay Over (Pay Periods) and What It Is For.',
+          'In Salary Advance, click Ask For A Salary Advance (or Salary Advance if you are HR with the Pay & Benefits grant). Enter the amount, Repay Over (Pay Periods) and What It Is For.',
           'A manager\'s or HR\'s request goes to HR with the pay grant (Send To HR), who approves or declines it. A grant is approved at once.',
           'HR clicks Mark Paid Out with the date and method once the money has gone out. Each repayment is a Salary Advance Repayment line on the person\'s Time Sheet; HR can move an installment or Change Schedule. Whoever asked can Cancel Request while it waits.',
         ],

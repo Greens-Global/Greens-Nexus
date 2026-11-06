@@ -83,7 +83,7 @@ function AdvanceForm({ grant, email, name, payCurrency = 'USD', maxInstallments 
   };
   const per = amount > 0 && n > 0 ? amount / n : 0;
   return (
-    <Modal title={grant ? `Grant A Salary Advance - ${name}` : `Ask For A Salary Advance - ${name}`} onClose={onClose}
+    <Modal title={grant ? `Salary Advance - ${name}` : `Ask For A Salary Advance - ${name}`} onClose={onClose}
       isDirty={!!(f.amount || f.reason)}
       footer={<>
         <button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
@@ -117,7 +117,7 @@ function AdvanceForm({ grant, email, name, payCurrency = 'USD', maxInstallments 
   );
 }
 
-/** The toolbar button: "Grant A Salary Advance" (HR with the pay grant) or
+/** The toolbar button: "Salary Advance" (HR with the pay grant) or
  *  "Ask For A Salary Advance" (the direct manager, HR without it). Nothing
  *  when the viewer may not ask - never on your own Time Sheet. */
 export function AskAdvanceButton({ adv, toastOk, toastErr }) {
@@ -129,7 +129,7 @@ export function AskAdvanceButton({ adv, toastOk, toastErr }) {
     <>
       <button type="button" data-ask-advance onClick={() => setOpen(true)} style={pill}
         title={grant ? 'Give this person a salary advance - approved at once, repaid from later pay periods' : 'Ask HR for a salary advance for this person - repaid from later pay periods'}>
-        <Banknote size={13} /> {grant ? 'Grant A Salary Advance' : 'Ask For A Salary Advance'}
+        <Banknote size={13} /> {grant ? 'Salary Advance' : 'Ask For A Salary Advance'}
       </button>
       {open && (
         <AdvanceForm grant={grant} email={d.email} name={d.name || d.email} payCurrency={d.payCurrency} maxInstallments={d.maxInstallments}
