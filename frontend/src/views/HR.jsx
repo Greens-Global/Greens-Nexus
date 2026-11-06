@@ -30,7 +30,7 @@ import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
-import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading } from '../components/AsyncState';
+import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading, CountSkeleton } from '../components/AsyncState';
 import { useRole, MODULES, MODULE_LEVELS } from '../contexts/RoleContext';
 import { Switch } from '../components/settings/SettingsUI';
 import { setPendingOpen } from '../lib/pendingOpen';
@@ -76,7 +76,7 @@ import TimeTab from '../people/TimeTab';
 import PayTab from '../people/PayTab';
 import ComplianceTab from '../people/ComplianceTab';
 import { guardRecordLeave } from '../people/useTabDraft';
-import { daysUntil } from '../people/lib';
+import { daysUntil, INACTIVE_STATUSES, peopleTallies } from '../people/lib';
 import PageTrail from '../components/PageTrail';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
@@ -116,9 +116,8 @@ const STATUS_META = {
   offboarded: { label: 'Left',       bg: 'var(--mist)',                    fg: 'var(--muted)' },
 };
 
-// The statuses the directory's Inactive tab holds (Neil, Oct 12): Left and
-// Inactive people stay in Nexus with their record, out of the working list.
-const INACTIVE_STATUSES = new Set(['inactive', 'offboarded']);
+// INACTIVE_STATUSES (the Inactive tab's statuses) and peopleTallies (every
+// people count on this screen) live in people/lib.js.
 // Guest (Microsoft 365 guest) and external (no M365 login) rows - one
 // predicate for the whole screen.
 const isExternalPerson = (e) => ['guest', 'external'].includes(e?.identityType || 'internal');
@@ -3466,7 +3465,7 @@ function KpiTile({ label, value, delta, sub, solid, onGo, goTitle, loading }) {
       <span style={{ fontSize: 13.5, fontWeight: 500, color: solid ? 'rgba(255,255,255,.8)' : 'var(--muted)' }}>{label}</span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', color: fg, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-          {loading ? '-' : value}
+          {loading ? <CountSkeleton /> : value}
         </span>
         {delta && (
           <span style={{
@@ -3560,11 +3559,8 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
   // 58) - the tiles now add up to the Active tab: Total = Active + Onboarding,
   // and Total + external = the Active tab's count.
   const isExt = isExternalPerson;
-  const nExternal = externals.filter(e => isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active')).length;
   const current = employees.filter(e => !isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active'));
-  const total = current.length;
-  const nActive = current.filter(e => e.status === 'active').length;
-  const nOnboarding = current.filter(e => e.status === 'onboarding').length;
+  const { people: total, active: nActive, onboarding: nOnboarding, external: nExternal } = peopleTallies(employees, externals);
   const joined = current.filter(e => (e.startDate || '').slice(0, 4) === String(new Date().getFullYear())).length;
   const types = EMP_TYPES
     .map(([k, label], i) => ({ key: k, label, color: WK_TYPE_COLORS[i % WK_TYPE_COLORS.length], n: current.filter(e => e.employmentType === k).length }));
@@ -3882,24 +3878,16 @@ export default function HR({ activeSub, onSubChange }) {
   }, [employees, extEmployees, deletedEmployees, showingDeleted, typeF, companyF, deptF, statusF, search, listTab, cfField, cfF]);
   // Tab counts over the whole directory (not the other filters), so the
   // Inactive count reads the same whichever company or department is open.
-  const tabCounts = useMemo(() => {
-    const c = { active: 0, inactive: 0 };
-    for (const e of [...employees, ...extEmployees]) c[INACTIVE_STATUSES.has(e.status || 'active') ? 'inactive' : 'active'] += 1;
-    return c;
-  }, [employees, extEmployees]);
-  // What each tab count is made of, on hover: the Active tab holds active +
+  const tally = useMemo(() => peopleTallies(employees, extEmployees), [employees, extEmployees]);
+  const tabCounts = { active: tally.current, inactive: tally.inactive };
+  // What each tab count is made of, on hover: the Current tab holds active +
   // onboarding people AND external users, which is why it reads more than
-  // the Active tile above (Charmi, Oct 20 2026: "Active 47" vs "Active 58").
-  const tabTitles = useMemo(() => {
-    const inside = es => es.filter(e => !INACTIVE_STATUSES.has(e.status || 'active'));
-    const nPeople = inside(employees).length;
-    const nExt = inside(extEmployees).length;
-    const nOnb = employees.filter(e => e.status === 'onboarding').length;
-    return {
-      active: `${nPeople} people${nOnb ? ` (${nOnb} onboarding)` : ''} + ${nExt} external`,
-      inactive: 'People who have Left or are Inactive - their record stays in Nexus',
-    };
-  }, [employees, extEmployees]);
+  // the Active tile above (Charmi, Oct 20 2026: "Active 47" vs "Active 58") -
+  // and why it is called Current, not Active (Neil, 11/05/2026).
+  const tabTitles = {
+    active: `${tally.people} people${tally.onboarding ? ` (${tally.onboarding} onboarding)` : ''} + ${tally.external} external`,
+    inactive: 'People who have Left or are Inactive - their record stays in Nexus',
+  };
 
   // Pagination over the FILTERED list, so search/filters always reach the whole
   // directory - a match "on page 10" simply becomes page 1 of the results.
@@ -3913,12 +3901,6 @@ export default function HR({ activeSub, onSubChange }) {
 
   const selected = (showingDeleted ? deletedEmployees : [...employees, ...extEmployees])
     .find(e => e.id === selectedId) || null;
-  const counts = useMemo(() => ({
-    total: employees.length,
-    active: employees.filter(e => e.status === 'active').length,
-    onboarding: employees.filter(e => e.status === 'onboarding').length,
-    depts: new Set(employees.filter(e => e.department).map(e => e.department)).size,
-  }), [employees]);
 
   const onRemovedFromNexus = (id) => {   // Nexus-only removal: drop from the live list and close the profile
     setEmployees(prev => prev.filter(e => e.id !== id));
@@ -4236,12 +4218,12 @@ export default function HR({ activeSub, onSubChange }) {
             </div>
             {!showingDeleted && statusF === 'All' && (
               <div className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: '0 14px', borderBottom: '1px solid var(--line)' }}>
-                {[['active', 'Active'], ['inactive', 'Inactive']].map(([id, label]) => (
+                {[['active', 'Current'], ['inactive', 'Inactive']].map(([id, label]) => (
                   <button key={id} onClick={() => { setListTab(id); setSelectedId(null); setPage(1); }}
                     title={tabTitles[id]}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 12px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${listTab === id ? 'var(--pine)' : 'transparent'}`, color: listTab === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
                     {label}
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: listTab === id ? 'var(--wk-brand-tint)' : 'var(--mist)', color: listTab === id ? 'var(--pine)' : 'var(--muted)' }}>{tabCounts[id]}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: listTab === id ? 'var(--wk-brand-tint)' : 'var(--mist)', color: listTab === id ? 'var(--pine)' : 'var(--muted)' }}>{loading ? <CountSkeleton width="1.2em" /> : tabCounts[id]}</span>
                   </button>
                 ))}
               </div>

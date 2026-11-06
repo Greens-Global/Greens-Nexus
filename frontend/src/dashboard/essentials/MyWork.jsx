@@ -77,6 +77,9 @@ export function pickRows(data, cap = ROW_CAP) {
   return out;
 }
 
+/** The card's line: what the number is made of. */
+export const workSub = (total) => `${total} Open ${total === 1 ? 'Task or Ticket' : 'Tasks and Tickets'}`;
+
 // A task and a ticket can share a numeric id: every row is keyed by both.
 const rowKey = (it) => `${it.kind || 'task'}:${it.id}`;
 // The fallback spinner goes to <body> like the composers it stands in for -
@@ -247,13 +250,17 @@ export default function MyWork({ phone }) {
       ))}
       <button type="button" className="secondary-btn" onClick={() => navigate('tasks', 'mine')}
         style={{ marginTop: 'auto', alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 8, minHeight: mobile ? 44 : 0 }}>
-        View All{total > ROW_CAP ? ` (${total})` : ''} <ArrowRight size={13} />
+        View All <ArrowRight size={13} />
       </button>
     </div>
   );
 
   return (
-    <DashCard title="My Work" sub={total ? `${total} open` : undefined} action={actions}>
+    // Tasks AND tickets, every due date - not the My Open Tasks number (live
+    // tasks only) or Tasks Home's tiles (tasks only), so it says so (Neil,
+    // 11/05/2026: 50 here read against 35 there). View All opens My Tasks,
+    // which holds no tickets, so it carries no count.
+    <DashCard title="My Work" sub={total ? workSub(total) : undefined} action={actions}>
       {body}
       {composer === 'task' && <Suspense fallback={<PortalLoading />}><QuickActionModal kind="task" onClose={closeComposer} /></Suspense>}
       {composer === 'ticket' && <Suspense fallback={<PortalLoading />}><TicketComposer onClose={closeComposer} /></Suspense>}

@@ -21,7 +21,8 @@ import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { useRole } from '../contexts/RoleContext';
 import { readIds, pushRecentId } from '../links/shortcutStorage';
 import { looksLikeUrl } from '../links/personalLinkModal.jsx';
-import { ModalLoading, LoadingState } from '../components/AsyncState';
+import { ModalLoading, LoadingState, CountSkeleton } from '../components/AsyncState';
+import { useBellLists } from '../lib/notificationCounts';
 import { MoreRow } from './listParts.jsx';
 import { colorForLinkCategory, PERSONAL_TILE_COLOR, useFavoriteLinks, openFavorite, FavoriteTileGrid } from './favoriteLinks.jsx';
 
@@ -159,7 +160,7 @@ function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onCli
         <span className={`dk-chip dk-chip--${color}`}><I /></span>
         {clickable && <ArrowUpRight size={15} className="dk-stat-arrow" />}
       </span>
-      <span className="dk-stat-num">{value}</span>
+      <span className="dk-stat-num">{value ?? <CountSkeleton />}</span>
       <span className="dk-stat-label">{label}</span>
       {hint && <span className="dk-stat-sub">{hintShort
         ? <><span className="dk-sub-long">{hint}</span><span className="dk-sub-short">{hintShort}</span></>
@@ -186,15 +187,24 @@ function openMyTickets(kpis) {
   setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:ticket-filter', { detail: { filter } })), 0);
 }
 
+// Unread Notifications is the bell's own count (lib/notificationCounts.js),
+// never the server's; null (a placeholder) until it has loaded.
+function useKpiValue(metric, kpis) {
+  const { unread } = useBellLists();
+  if (metric === 'unread_notifications') return unread;
+  return kpis ? (kpis[metric] ?? 0) : null;
+}
+
 function KpiWidget({ config, kpis }) {
   const { openPanel } = useNotifications();
   const metric = config?.metric;
+  const value = useKpiValue(metric, kpis);
   const meta = KPI_CATALOG[metric] || { label: 'Metric', color: 'blue', Icon: BarChart3 };
   const onClick = metric === 'unread_notifications' ? openPanel
     : metric === 'my_open_tickets' ? () => openMyTickets(kpis) : undefined;
   const foot = FOOTNOTES[metric];
   const note = foot ? foot.note(kpis) : null;
-  return <StatCard label={meta.label} value={kpis?.[metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={note || meta.hint} hintShort={note ? foot.note(kpis, true) : undefined} hero={!!config?.hero} onClick={onClick}
+  return <StatCard label={meta.label} value={value} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={note || meta.hint} hintShort={note ? foot.note(kpis, true) : undefined} hero={!!config?.hero} onClick={onClick}
     tip={foot ? `${meta.label} - ${foot.rule}${note ? `. ${note}` : ''}` : undefined} noted={!!note} />;
 }
 
@@ -202,15 +212,17 @@ function TeamStatWidget({ config, kpis }) {
   const { openPanel } = useNotifications();
   const meta = KPI_CATALOG[config?.metric] || { label: config?.metric, color: 'green', Icon: Users };
   const onClick = config?.metric === 'unread_notifications' ? openPanel : undefined;
-  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} onClick={onClick} />;
+  const value = useKpiValue(config?.metric, kpis);
+  return <StatCard label={meta.label} value={value} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} onClick={onClick} />;
 }
 
 function KpiBarWidget({ config, kpis }) {
   const { openPanel } = useNotifications();
   const metrics = config?.metrics?.length ? config.metrics
     : ['open_tasks', 'pending_requisitions', 'my_checkouts', 'warranties_expiring'];
-  const rows = metrics.map(m => ({ m, v: kpis?.[m] ?? 0, meta: KPI_CATALOG[m] || { label: m, color: 'blue' } }));
-  const max = Math.max(1, ...rows.map(r => r.v));
+  const { unread } = useBellLists();
+  const rows = metrics.map(m => ({ m, v: m === 'unread_notifications' ? unread : (kpis ? (kpis[m] ?? 0) : null), meta: KPI_CATALOG[m] || { label: m, color: 'blue' } }));
+  const max = Math.max(1, ...rows.map(r => r.v || 0));
   const clickFor = (r) => r.m === 'unread_notifications' ? openPanel : (r.meta.nav && (() => navigate(r.meta.nav.view, r.meta.nav.sub)));
   return (
     <DashCard title="At a Glance">
@@ -225,10 +237,10 @@ function KpiBarWidget({ config, kpis }) {
           <div key={r.m} onClick={onClick || undefined} style={{ cursor: onClick ? 'pointer' : 'default' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12.5, marginBottom: 3 }}>
               <span style={{ color: 'var(--muted)', fontWeight: 600, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.meta.label}>{r.meta.label}</span>
-              <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{r.v}</strong>
+              <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{r.v ?? <CountSkeleton />}</strong>
             </div>
             <div style={{ height: 7, background: 'var(--mist)', borderRadius: 99, overflow: 'hidden' }}>
-              <div style={{ width: `${(r.v / max) * 100}%`, height: '100%', background: C(r.meta.color), borderRadius: 99 }} />
+              <div style={{ width: `${((r.v || 0) / max) * 100}%`, height: '100%', background: C(r.meta.color), borderRadius: 99 }} />
             </div>
           </div>
           );
@@ -935,10 +947,13 @@ const importanceOf = (n) => NOTIF_IMPORTANCE[n.type] ?? 1;
 
 function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, clearAll, phone }) {
   const { openPanel } = useNotifications();
+  // The bell's own rows and unread count (lib/notificationCounts.js) - this
+  // card read 60 unread while the bell held fewer (Neil, 11/05/2026).
+  const { actionable, updates, unread } = useBellLists(notifications);
   // Unread first, then most-important type, then most recent - so the thing
   // that most needs your attention is always at the top of the list.
   // Closed ones live in the bell's Closed list, not here.
-  const sorted = (notifications || []).filter(n => !n.closed).sort((a, b) => {
+  const sorted = [...actionable, ...updates].sort((a, b) => {
     if (!!a.read !== !!b.read) return a.read ? 1 : -1;
     const diff = importanceOf(b) - importanceOf(a);
     if (diff) return diff;
@@ -946,7 +961,6 @@ function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, cl
   });
   const NOTIF_LIMIT = 12;
   const list = sorted.slice(0, NOTIF_LIMIT);
-  const unread = sorted.filter(n => !n.read).length;
   // Header links are 16px-tall text on desktop; a phone gets 36px targets.
   const headBtn = { marginTop: 0, ...(phone ? { minHeight: 36, padding: '0 4px' } : null) };
   return (

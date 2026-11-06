@@ -8,7 +8,7 @@ import {
   FileSignature, CircleHelp, MessageSquare, UserPen,
 } from 'lucide-react';
 import { api } from '../api';
-import { SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner, LoadingState, CountSkeleton } from '../components/AsyncState';
 import { formatDate, formatDateLong } from '../lib/datetime';
 import { approvedLeaveDays, fmtDays, tenureLabel, openShiftMinutes } from '../lib/workdayStats';
 import { fmtLeave } from '../components/LeaveBalances';
@@ -481,7 +481,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
   // added calendar days incl. weekends and whole days for 2-hour requests.
   const yr = new Date().getFullYear();
   const leaveDaysThisYear = Array.isArray(leave) ? approvedLeaveDays(leave, yr) : null;
-  const leaveLabel = leave === null ? '…' : leaveDaysThisYear == null ? '-' : `${fmtDays(leaveDaysThisYear)}d`;
+  const leaveLabel = leave === null ? <CountSkeleton /> : leaveDaysThisYear == null ? '-' : `${fmtDays(leaveDaysThisYear)}d`;
   const tenure = tenureLabel(profile?.startDate) || '-';
 
   const em = profile?.personal?.emergency || {};
@@ -546,7 +546,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                   title={`Your punched hours from ${formatDate(rStart)} to ${formatDate(rEnd)}, after breaks${openMin ? ', including the shift you are on now' : ''}. Opens your Time Sheet.`}>
                   <span className="dk-chip dk-chip--blue"><Clock /></span>
                   <span className="wd-stat-text">
-                    <span className="dk-stat-num">{sheet ? hm(hoursTotal) : '…'}</span>
+                    <span className="dk-stat-num">{sheet ? hm(hoursTotal) : <CountSkeleton width="2.4em" />}</span>
                     <span className="dk-stat-label">Hours · This Week</span>
                     <span className="dk-stat-sub">{`${formatDate(rStart)} - ${formatDate(rEnd)} · ${daysWorkedLive} day${daysWorkedLive === 1 ? '' : 's'} worked`}</span>
                   </span>
