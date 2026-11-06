@@ -20,7 +20,8 @@ import { createPortal } from 'react-dom';
 import { CheckSquare, Ticket as TicketIcon, Check, ArrowRight, Plus } from 'lucide-react';
 
 import { api } from '../../api';
-import { LoadingState, ModalLoading } from '../../components/AsyncState';
+import { ModalLoading } from '../../components/AsyncState';
+import { WidgetSkeleton } from '../listParts.jsx';
 import { formatDate, formatTime } from '../../lib/datetime';
 import { pollWhileVisible } from '../../lib/pollWhileVisible';
 import { setPendingOpen } from '../../lib/pendingOpen';
@@ -230,7 +231,7 @@ export default function MyWork({ phone }) {
   const sections = pickRows(data);
   const total = data?.counts?.total ?? sections.reduce((n, s) => n + s.count, 0);
   let body;
-  if (!data && !error) body = <LoadingState compact minHeight={120} label="Loading your work" />;
+  if (!data && !error) body = <WidgetSkeleton />;
   else if (!data && error) body = <div style={noteStyle}>{error}</div>;
   else if (!sections.length) body = <div style={noteStyle}>Nothing due this week.</div>;
   else body = (

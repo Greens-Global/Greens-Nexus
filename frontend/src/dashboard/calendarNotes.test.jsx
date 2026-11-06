@@ -7,7 +7,7 @@
 //  - The Notes tile is the Notes module's (Oct 29) - see the Notes block.
 import { Suspense } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 const apiMock = vi.hoisted(() => ({
   dashAgenda: vi.fn(),
@@ -34,10 +34,13 @@ const events = Array.from({ length: 9 }, (_, i) => ({
 describe('Calendar agenda', () => {
   beforeEach(() => { apiMock.dashAgenda.mockResolvedValue({ available: true, events }); });
 
-  it('lists every event for the day in a bounded scroller and says how many there are', async () => {
+  it('shows the first six events, says how many there are, and Show All lists the rest', async () => {
     render(<CalendarPanel />);
-    expect(await screen.findByText('Meeting 9')).toBeTruthy();
+    expect(await screen.findByText('Meeting 6')).toBeTruthy();
+    expect(screen.queryByText('Meeting 7')).toBeNull();
     expect(screen.getByText('9 items')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Show All \(9\)/ }));
+    expect(screen.getByText('Meeting 9')).toBeTruthy();
     const list = screen.getByLabelText('My Agenda');
     expect(list.className).toContain('dash-scroll');
     expect(list.style.flex).toMatch(/^1/);
@@ -55,8 +58,9 @@ describe('Calendar agenda', () => {
     expect(await screen.findByText('Meeting 1')).toBeTruthy();
   });
 
-  it('gives the stacked phone tile room for the agenda, and the old My Agenda alias the same bounds', () => {
-    expect(WIDGETS.calendar.phoneRowsWhen()).toBeGreaterThan(WIDGETS.calendar.size.h);
+  it('sizes the tile to its content (fit), and the old My Agenda alias the same way and bounds', () => {
+    expect(WIDGETS.calendar.fit).toBe(true);
+    expect(WIDGETS.agenda.fit).toBe(true);
     expect(WIDGETS.agenda.limits).toEqual(WIDGETS.calendar.limits);
   });
 });

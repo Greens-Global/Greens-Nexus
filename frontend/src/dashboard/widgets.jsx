@@ -21,8 +21,8 @@ import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { useRole } from '../contexts/RoleContext';
 import { readIds, pushRecentId } from '../links/shortcutStorage';
 import { looksLikeUrl } from '../links/personalLinkModal.jsx';
-import { ModalLoading, LoadingState } from '../components/AsyncState';
-import { MoreRow } from './listParts.jsx';
+import { ModalLoading } from '../components/AsyncState';
+import { MoreRow, WidgetSkeleton } from './listParts.jsx';
 import { colorForLinkCategory, PERSONAL_TILE_COLOR, useFavoriteLinks, openFavorite, FavoriteTileGrid } from './favoriteLinks.jsx';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
@@ -412,7 +412,7 @@ function LinksFolderWidget({ config }) {
     <DashCard title={title} sub={config.itemType === 'personal' ? 'Personal' : 'Company'}
       action={<FolderOpen size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <LoadingState />
+        <WidgetSkeleton />
       ) : !state.folder ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
           This folder no longer exists - edit this tile to pick a different one.
@@ -538,7 +538,7 @@ function FavoritesWidget() {
   return (
     <DashCard title={mode === 'recents' ? 'Recently Used' : 'Favorites'} sub={sub} action={tabs}>
       {state.loading ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : links.length === 0 ? (
         mode === 'recents' ? (
           <div style={noteStyle}>Nothing opened yet in this browser. Company links you open show up here.</div>
@@ -603,7 +603,7 @@ function PersonalLinksWidget() {
       <DashCard title="My Personal Links" sub={note || 'Only visible to you'}
         action={<Lock size={15} style={{ color: 'var(--muted)' }} />}>
         {state.loading ? (
-          <LoadingState compact />
+          <WidgetSkeleton />
         ) : (
           <>
             <LinkTileGrid links={state.links} colorFor={() => PERSONAL_TILE_COLOR} onOpen={open}
@@ -944,7 +944,8 @@ function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, cl
     if (diff) return diff;
     return new Date(b.timestamp) - new Date(a.timestamp);
   });
-  const NOTIF_LIMIT = 12;
+  // Six: the tile is as tall as its rows now (fit), the bell has the rest.
+  const NOTIF_LIMIT = 6;
   const list = sorted.slice(0, NOTIF_LIMIT);
   const unread = sorted.filter(n => !n.read).length;
   // Header links are 16px-tall text on desktop; a phone gets 36px targets.
@@ -1041,8 +1042,10 @@ function ClockWidget() {
 // `minRole: 'manager'` - the "Team" category below is the current manager-only
 // set). limits bound how far each widget can be resized - enforced during drag
 // AND re-applied to saved layouts on load, so a stat tile can never balloon.
+// `fit` (11/05/2026): a list tile sized to its content outside Customize - it
+// caps its own rows and links to its module for the rest, never an inner
+// scrollbar (DashboardGrid's fitTops). Stat, action and tool tiles stay boxes.
 const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
-const CALENDAR_PHONE_ROWS = 9;
 export const WIDGETS = {
   kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi', compact: true },
   // At a Glance, retired (Neil, Oct 13 2026: "nobody cares that there's 1,925
@@ -1054,26 +1057,26 @@ export const WIDGETS = {
   // maxH 2 so every saved board shrinks with it on load, minW 3 so today
   // and the week fit on one baseline.
   'time-clock':  { title: 'Time Clock',      cat: 'Workday',   icon: Clock,        size: { w: 3, h: 2 }, limits: { minW: 3, minH: 2, maxW: 4, maxH: 2 }, render: TimeClockWidget, timeTracked: true },
-  'my-requests': { title: 'My Requests',     cat: 'Workday',   icon: ClipboardList, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: MyRequestsWidget },
-  'due-back':    { title: 'Due Back Soon',   cat: 'Workday',   icon: Boxes,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: DueBackWidget },
-  'coming-up':   { title: 'Coming Up',       cat: 'Workday',   icon: Cake,         size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 5 }, render: ComingUpWidget },
+  'my-requests': { title: 'My Requests',     cat: 'Workday',   icon: ClipboardList, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: MyRequestsWidget, fit: true },
+  'due-back':    { title: 'Due Back Soon',   cat: 'Workday',   icon: Boxes,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: DueBackWidget, fit: true },
+  'coming-up':   { title: 'Coming Up',       cat: 'Workday',   icon: Cake,         size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 5 }, render: ComingUpWidget, fit: true },
   // Action Tile (Oct 11): one action per tile, app-icon face, down to one
   // row tall (a pill) - the smallest tile on the board. `compact`: on a
   // phone two of these sit side by side instead of each taking a full row.
   action:        { title: 'Action Tile',     cat: 'Actions',   icon: Zap,          size: { w: 2, h: 2 }, limits: { minW: 2, minH: 1, maxW: 4, maxH: 2 }, render: ActionTile, configurable: 'action', compact: true,
                    timeTrackedWhen: (config) => (config?.action || DEFAULT_ACTION) === 'punch' },
   shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut', compact: true },
-  links:         { title: 'Quick Links',     cat: 'Links',     icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
-  'links-folder': { title: 'Links Folder',   cat: 'Links',     icon: FolderOpen,   size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder' },
+  links:         { title: 'Quick Links',     cat: 'Links',     icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget, fit: true },
+  'links-folder': { title: 'Links Folder',   cat: 'Links',     icon: FolderOpen,   size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder', fit: true },
   favorites:     { title: 'Favorites',       cat: 'Links',     icon: Bookmark,     size: { w: 4, h: 5 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: FavoritesWidget },
-  'personal-links': { title: 'My Personal Links', cat: 'Links', icon: Link2,       size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: PersonalLinksWidget },
+  'personal-links': { title: 'My Personal Links', cat: 'Links', icon: Link2,       size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: PersonalLinksWidget, fit: true },
   // Quick Actions (styles Oct 13): the size, the resize bounds and the phone
   // height all follow the style in the tile's config - a bare icon dock is
   // one row on a phone, the list keeps what it had.
   'quick-actions': { title: 'Quick Actions', cat: 'Actions',   icon: ListTodo,         size: QUICK_SIZE.icons, limits: QUICK_LIMITS.list, render: QuickActionsWidget, configurable: 'quick-actions',
                      sizeWhen: (config) => QUICK_SIZE[quickStyleOf(config)], limitsWhen: (config) => QUICK_LIMITS[quickStyleOf(config)],
                      phoneRowsWhen: (config) => (quickStyleOf(config) === 'icons' ? 1 : undefined) },
-  notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
+  notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget, fit: true },
   // 'agenda' is the pre-merge widget type (My Agenda, list-only) - kept as a
   // hidden alias so dashboards that already have one keep working, but it now
   // renders the merged Calendar+Agenda panel instead of the old list-only
@@ -1082,12 +1085,11 @@ export const WIDGETS = {
   // Widget gallery so new placements only ever go through 'calendar'.
   // Same bounds as Calendar (Oct 14): at three columns the merged panel's
   // month grid left the agenda a sliver.
-  agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel, hidden: true, phoneRowsWhen: () => CALENDAR_PHONE_ROWS },
+  agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel, hidden: true, fit: true },
   weather:       { title: 'Weather',         cat: 'Live',      icon: CloudSun,     size: { w: 4, h: 6 }, limits: { minW: 2, minH: 2, maxW: 8, maxH: 7 }, render: WeatherWidget, configurable: 'weather' },
-  // Phone: the month grid runs full width with the agenda under it, so the
-  // stacked tile is taller than its board height (Oct 14 - at five rows the
-  // grid filled the tile and the agenda never showed).
-  calendar:      { title: 'Calendar',        cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel, phoneRowsWhen: () => CALENDAR_PHONE_ROWS },
+  // `fit` (11/05/2026): as tall as the month grid and the day's agenda, on
+  // the board and in the phone stack (where the agenda runs under the grid).
+  calendar:      { title: 'Calendar',        cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel, fit: true },
   clock:         { title: 'Clock & Greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
   notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget },
   'team-attendance': { title: 'Team Clocked-In', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor', compact: true },
@@ -1107,10 +1109,10 @@ export const WIDGETS = {
   // Tickets (administrators, or the tickets grant - the module is
   // grant-driven). The KPI Stat tile can pick the same metric.
   'my-tickets':        { title: 'My Open Tickets',   cat: 'Team', icon: TicketIcon,   size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <KpiWidget {...p} config={{ ...(p.config || {}), metric: 'my_open_tickets' }} />, module: 'tickets', moduleLabel: 'Tickets', compact: true },
-  'ticket-queue':      { title: 'My Ticket Queue',   cat: 'Team', icon: TicketIcon,   size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TicketQueueWidget,      minRole: 'supervisor' },
-  'time-exceptions':   { title: 'Time Exceptions',   cat: 'Team', icon: Timer,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TimeExceptionsWidget,   minRole: 'manager' },
-  'out-today':         { title: 'Out Today',         cat: 'Team', icon: UserMinus,    size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: OutTodayWidget,         minRole: 'manager' },
-  'pending-purchases': { title: 'Pending Purchases', cat: 'Team', icon: ShoppingCart, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: PendingPurchasesWidget, minRole: 'manager' },
+  'ticket-queue':      { title: 'My Ticket Queue',   cat: 'Team', icon: TicketIcon,   size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TicketQueueWidget,      minRole: 'supervisor', fit: true },
+  'time-exceptions':   { title: 'Time Exceptions',   cat: 'Team', icon: Timer,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TimeExceptionsWidget,   minRole: 'manager', fit: true },
+  'out-today':         { title: 'Out Today',         cat: 'Team', icon: UserMinus,    size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: OutTodayWidget,         minRole: 'manager', fit: true },
+  'pending-purchases': { title: 'Pending Purchases', cat: 'Team', icon: ShoppingCart, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: PendingPurchasesWidget, minRole: 'manager', fit: true },
   // Essentials (Oct 7): the five tiles the dashboard plan calls the daily
   // core. Not in DEFAULT_PERSONAL / ROLE_EXTRAS - people add them from the
   // gallery. The sample-data Portfolio widgets (Occupancy Trend, Facilities,
@@ -1120,15 +1122,15 @@ export const WIDGETS = {
   // "Unknown widget" card, never a crash.
   // Shown as "Action Required" since Oct 23 2026 (Neil): Tasks has its own
   // My Day list now. The key stays 'my-day' - saved boards point at it.
-  'my-day':        { title: 'Action Required', aka: ['My Day'], cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyDayWidget },
-  'my-work':       { title: 'My Work',       cat: 'Workday', icon: Briefcase,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyWorkWidget },
+  'my-day':        { title: 'Action Required', aka: ['My Day'], cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyDayWidget, fit: true },
+  'my-work':       { title: 'My Work',       cat: 'Workday', icon: Briefcase,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyWorkWidget, fit: true },
   // My Time (Oct 8, Neil): the simple punch tile - status, Punch In / Out /
   // Start Break / End Break, today's hours; the card opens Workday for the
   // rest. `timeTracked`: only for people who are time-tracked - a salaried
   // (exempt) person never sees it placed or offered (see widgetHidden).
   'my-time':       { title: 'My Time',       cat: 'Workday', icon: Hourglass,  size: { w: 3, h: 3 }, limits: { minW: 3, minH: 3, maxW: 4, maxH: 4 },  render: MyTimeWidget, timeTracked: true },
-  announcements:   { title: 'Announcements', cat: 'Live',    icon: Megaphone,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 8 },  render: AnnouncementsWidget },
-  'my-team':       { title: 'My Team',       cat: 'Team',    icon: Users,      size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 12, maxH: 8 }, render: MyTeamWidget, minRole: 'supervisor' },
+  announcements:   { title: 'Announcements', cat: 'Live',    icon: Megaphone,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 8 },  render: AnnouncementsWidget, fit: true },
+  'my-team':       { title: 'My Team',       cat: 'Team',    icon: Users,      size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 12, maxH: 8 }, render: MyTeamWidget, minRole: 'supervisor', fit: true },
   // Oct 1: a module-gated tile - `module` names the Access Group grant that
   // opens it (administrators bypass, same rule as the Accounting screen and
   // the backend's require_module_grant). No minRole: a Viewer-level grant is enough.
