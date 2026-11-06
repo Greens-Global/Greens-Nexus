@@ -33,6 +33,18 @@ export class Rng {
   flat() { return this.rows.flat(); }
 }
 
+/** A worked-out array (FILTER, SORT, A1:A9*2...): a range with no cells behind it. */
+export class Arr extends Rng {
+  constructor(rows) {
+    const h = rows.length, w = h ? Math.max(...rows.map((r) => r.length)) : 0;
+    super(null, null, 0, 0, h - 1, w - 1);
+    this._rows = rows.map((r) => (r.length === w ? r : [...r, ...Array(w - r.length).fill(null)]));
+  }
+  at(i, j) { return this._rows[i]?.[j] ?? null; }
+}
+/** A range or array of more than one cell (it spills, operators broadcast over it). */
+export const isMulti = (x) => x instanceof Rng && (x.h > 1 || x.w > 1);
+
 export function toNum(v) {
   if (v == null) return 0;
   if (typeof v === 'number') return v;
