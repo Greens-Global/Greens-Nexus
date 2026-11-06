@@ -20,7 +20,7 @@ import { dialog } from '../ui/dialog';
 import {
   ROW_H, COL_W, buildCtx, writeCells, styleRange, styleCells, clearRange, insertLines, deleteLines, setSize, setTabMeta,
   addTab, duplicateTab, deleteTab, moveTab, loadSnapshot, blockAt, undoManagerFor, formulaText,
-  setExtra, setExtras, setName, rangeIds, newId, safeLink, okName, FONTS, change, cellsOf, extraOf, LIMITS, AREA_MAX, MAX_TABS, newTabSnapshot, labelKey,
+  setExtra, setExtras, setName, rangeIds, newId, safeLink, okName, FONTS, change, cellsOf, extraOf, LIMITS, AREA_MAX, MAX_TABS, newTabSnapshot, labelKey, hasUsableTab,
 } from './model.js';
 import { maxOf } from './formula/values.js';
 import { a1, colName, colIndex, tokenize, encodeFormula, decodeFormula, refA1, shiftFormula } from './formula/parse.js';
@@ -110,9 +110,35 @@ function PopMenu({ at, items, onClose, children }) {
   );
 }
 
+/**
+ * The workbook, or - when no tab is left (two people deleted the last tabs at
+ * once) - a short notice with Add Sheet for an editor, never a crash.
+ */
+export default function SheetEditor(props) {
+  const { doc, canEdit = true } = props;
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const f = () => bump((n) => n + 1);
+    doc.on('update', f);
+    return () => doc.off('update', f);
+  }, [doc]);
+  if (!hasUsableTab(doc)) {
+    return (
+      <div className="nx-sheet nxs-empty-book" role="status">
+        <div className="nxs-empty-card">
+          <b>This sheet has no tabs left.</b>
+          <span>{canEdit ? 'Add a tab to keep working, or undo the delete.' : 'Ask someone who can edit it to add a tab.'}</span>
+          {canEdit && <button type="button" className="primary-btn" onClick={() => addTab(doc, null)}>Add Sheet</button>}
+        </div>
+      </div>
+    );
+  }
+  return <SheetGrid {...props} />;
+}
+
 // `me` is who you are ({email, name, color}): presence comes from the host,
 // notes are signed with it.
-export default function SheetEditor({ doc, awareness = null, canEdit = true, me = null, title = '', onChange, toastErr, variables = [], variableValues = {} }) {
+function SheetGrid({ doc, awareness = null, canEdit = true, me = null, title = '', onChange, toastErr, variables = [], variableValues = {} }) {
   const scroller = useRef(null);
   const editEl = useRef(null);       // the cell editor or the formula bar, whichever has the caret
   const fileRef = useRef(null);
@@ -462,10 +488,10 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   };
   const usedExtent = () => {
     let r = -1, c = -1;
-    tab.cells.forEach((cell, k) => {
+    ctx.eachCell(tab, (ri, ci, cell) => {
       if (!filledCell(cell)) return;
-      const [ri, ci] = k.split('.');
-      r = Math.max(r, ctx.rowIndex(tab, ri)); c = Math.max(c, ctx.colIndex(tab, ci));
+      if (ri > r) r = ri;
+      if (ci > c) c = ci;
     });
     return { r, c };
   };
@@ -677,7 +703,8 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
         if (x.r1 === x.r2 && x.c1 === x.c2) continue;
         for (let r = x.r1; r <= x.r2; r += 1) for (let c = x.c1; c <= x.c2; c += 1) {
           const key = `${tab.rows[r]}.${tab.cols[c]}`;
-          if ((r !== x.r1 || c !== x.c1) && map.has(key)) { const cur = map.get(key); if (cur.s) map.set(key, { s: cur.s }); else map.delete(key); }
+          // The cell as read (cleaned): a colleague's bad write never reaches the map again.
+          if ((r !== x.r1 || c !== x.c1) && map.has(key)) { const cur = cellAt(r, c); if (cur?.s) map.set(key, { s: cur.s }); else map.delete(key); }
         }
         mm.set(`${tab.rows[x.r1]}.${tab.cols[x.c1]}`, { r2: tab.rows[x.r2], c2: tab.cols[x.c2] });
       }
@@ -1018,10 +1045,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     if (!q) return [];
     const opts = { matchCase: !!find?.mc, whole: !!find?.whole };
     const out = [];
-    tab.cells.forEach((cell, k) => {
-      const [ri, ci] = k.split('.');
-      const r = ctx.rowIndex(tab, ri), c = ctx.colIndex(tab, ci);
-      if (r < 0 || c < 0) return;
+    ctx.eachCell(tab, (r, c, cell) => {
       if (findIn(formatValue(eng.cellValue(tab, r, c), cell.s), q, opts)) out.push({ r, c });
     });
     return out.sort((x, y) => x.r - y.r || x.c - y.c);

@@ -128,10 +128,8 @@ function download(blob, name) {
 function cellsShown(ctx, eng, tab) {
   const out = [];
   const seen = new Set();
-  tab.cells.forEach((cell, k) => {
-    const [rid, cid] = k.split('.');
-    const r = ctx.rowIndex(tab, rid), c = ctx.colIndex(tab, cid);
-    if (r < 0 || c < 0 || (!cell.f && (cell.v == null || cell.v === '') && !cell.s && !cell.l)) return;
+  ctx.eachCell(tab, (r, c, cell) => {
+    if (!cell.f && (cell.v == null || cell.v === '') && !cell.s && !cell.l) return;
     out.push({ r, c, cell, v: eng.cellValue(tab, r, c) });
     seen.add(`${r}|${c}`);
     const sp = cell.f ? eng.spillOf(tab, r, c) : null;
@@ -231,5 +229,7 @@ export async function exportSheetFile(doc, title, kind = 'xlsx', tabId = '', { v
     names.push({ Name: n.name, Ref: `${sheet}!${abs(at.r1, at.c1)}:${abs(at.r2, at.c2)}` });
   });
   if (names.length) wb.Workbook = { ...(wb.Workbook || {}), Names: names };
-  XLSX.writeFile(wb, `${fileName(title)}.xlsx`, { compression: true });
+  // Bytes, then the same browser download as .csv (writeFile would write to disk under node).
+  const bytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array', compression: true });
+  download(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${fileName(title)}.xlsx`);
 }

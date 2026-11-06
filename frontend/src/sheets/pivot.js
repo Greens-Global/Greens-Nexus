@@ -103,10 +103,12 @@ export function pivotValues(eng, ctx, cfg, colId) {
  * combination of the Columns fields and Value; Grand Total row and column
  * when totals are on.
  */
-// Results kept between engine builds (every keystroke builds a new engine):
-// per source cells map, keyed by the pivot's settings and the versions of the
-// source tab's cells, rows and columns. A source with formulas is not kept -
-// its values can change with cells anywhere.
+// Results kept between engine builds (every keystroke builds a new engine).
+// ONLY for a plain source - no formula in its range, nothing on its tab that
+// can spill, no pivot on its tab - whose values can change only by an edit to
+// that tab. Keyed by the settings object (a new object on every settings
+// write: readExtra hands back the same object until the stored entry
+// changes) plus the versions of the source tab's cells, rows and columns.
 const versions = new WeakMap();
 function versionOf(ytype) {
   if (!ytype || typeof ytype.observe !== 'function') return null;
@@ -114,7 +116,21 @@ function versionOf(ytype) {
   if (!v) { v = { n: 0 }; versions.set(ytype, v); ytype.observe(() => { v.n += 1; }); }
   return v.n;
 }
-const results = new WeakMap();
+const results = new WeakMap();          // settings object -> { vs, out }
+const tabFormulas = new WeakMap();      // tab view -> { cells: [{r, c}], spills: bool }
+const SPILLS = /:|\b(FILTER|SORT|UNIQUE|SEQUENCE|TRANSPOSE|ARRAYFORMULA|SPLIT|OFFSET|INDIRECT)\s*\(|^=\s*[A-Za-z_][A-Za-z0-9_.]*\s*$/i;
+function plainSource(ctx, tab, cfg) {
+  if (tab.pivots?.size) return false;
+  let info = tabFormulas.get(tab);
+  if (!info) {
+    info = { cells: [], spills: false };
+    ctx.eachCell(tab, (r, c, cell) => { if (cell.f) { info.cells.push({ r, c }); if (SPILLS.test(cell.f)) info.spills = true; } });
+    tabFormulas.set(tab, info);
+  }
+  if (info.spills) return false;
+  const rect = ctx.rect(tab, cfg.src);
+  return !!rect && !info.cells.some(({ r, c }) => r >= rect.r1 && r <= rect.r2 && c >= rect.c1 && c <= rect.c2);
+}
 const TOO_LARGE = 'The pivot is too large to show - add a filter or fewer fields';
 const NONE = [];
 const SEPARATORS = ['\u0001', '\u0002', '\u0003'];     // the characters keys are joined with
@@ -122,19 +138,14 @@ const SEPARATORS = ['\u0001', '\u0002', '\u0003'];     // the characters keys ar
 export function computePivot(eng, ctx, cfg) {
   const srcTab = ctx.tabById(cfg.src?.tab);
   const vs = srcTab ? [versionOf(srcTab.cells), versionOf(srcTab.yrows), versionOf(srcTab.ycols)] : [null];
-  const cacheable = vs.every((x) => x != null);
-  const key = cacheable ? `${JSON.stringify(cfg)}|${vs.join('.')}` : '';
+  const cacheable = vs.every((x) => x != null) && plainSource(ctx, srcTab, cfg);
+  const key = vs.join('.');
   if (cacheable) {
-    const hit = results.get(srcTab.cells)?.get(key);
-    if (hit) return hit;
+    const hit = results.get(cfg);
+    if (hit && hit.vs === key && hit.cells === srcTab.cells) return hit.out;
   }
   const out = computeFresh(eng, ctx, cfg);
-  if (cacheable && !out.volatile) {
-    let m = results.get(srcTab.cells);
-    if (!m) results.set(srcTab.cells, (m = new Map()));
-    if (m.size > 40) m.clear();
-    m.set(key, out);
-  }
+  if (cacheable && !out.volatile) results.set(cfg, { vs: key, cells: srcTab.cells, out });
   return out;
 }
 

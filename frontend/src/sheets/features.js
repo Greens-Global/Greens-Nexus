@@ -64,9 +64,7 @@ export function filterRect(ctx, tab) {
   const r = ctx.rowIndex(tab, f.r), c1 = ctx.colIndex(tab, f.c1), c2 = ctx.colIndex(tab, f.c2);
   if (r < 0 || c1 < 0 || c2 < 0) return null;
   let last = r;
-  tab.cells.forEach((cell, k) => {
-    const [ri, ci] = k.split('.');
-    const ri2 = ctx.rowIndex(tab, ri), cc = ctx.colIndex(tab, ci);
+  ctx.eachCell(tab, (ri2, cc, cell) => {
     if (ri2 > last && cc >= Math.min(c1, c2) && cc <= Math.max(c1, c2) && (cell.v != null || cell.f != null)) last = ri2;
   });
   return { r, c1: Math.min(c1, c2), c2: Math.max(c1, c2), last, crit: f.crit || {}, raw: f };

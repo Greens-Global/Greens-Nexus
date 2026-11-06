@@ -137,11 +137,8 @@ export function createEngine(ctx, opts = {}) {
     let list = candidates.get(tab.id);
     if (!list) {
       list = [];
-      tab.cells.forEach((cell, k) => {
-        if (!cell || typeof cell.f !== 'string' || !MAY_SPILL.test(cell.f)) return;
-        const [ri, ci] = k.split('.');
-        const r = ctx.rowIndex(tab, ri), c = ctx.colIndex(tab, ci);
-        if (r >= 0 && c >= 0) list.push({ r, c });
+      ctx.eachCell(tab, (r, c, cell) => {
+        if (typeof cell.f === 'string' && MAY_SPILL.test(cell.f)) list.push({ r, c });
       });
       candidates.set(tab.id, list);
     }
