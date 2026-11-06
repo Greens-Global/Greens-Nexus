@@ -57,7 +57,9 @@ export const sizesOf = (doc, tab) => doc.getMap('sizes:' + tab);
 //   dv:<tab>      rule id -> data validation {range, kind, items, src, op, a, b, reject}
 //   filter:<tab>  'f' -> {r (header row), c1, c2, crit: {colId: {hide, op, a, b}}}
 // and, for the whole workbook, names: lower-case name -> {name, tab, range}.
-export const EXTRAS = ['merges', 'hidden', 'notes', 'charts', 'cf', 'dv', 'filter'];
+//   pivots:<tab>  pivot id -> {src: {tab, r1, c1, r2, c2}, at: {r, c}, rows, cols, values, filters, totals}
+//   groups:<tab>  group id -> {axis: rows | cols, a, b (first and last id), collapsed}
+export const EXTRAS = ['merges', 'hidden', 'notes', 'charts', 'cf', 'dv', 'filter', 'pivots', 'groups'];
 export const extraOf = (doc, kind, tab) => doc.getMap(kind + ':' + tab);
 export const namesOf = (doc) => doc.getMap('names');
 
@@ -132,6 +134,8 @@ const VA = new Set(['top', 'middle', 'bottom']);
 export const FONTS = ['Inter', 'Arial', 'Calibri', 'Georgia', 'Times New Roman', 'Courier New', 'Verdana', 'Trebuchet MS'];
 const FONT_SET = new Set(FONTS);
 export const BORDER_STYLES = ['thin', 'medium', 'thick', 'dashed', 'dotted'];
+/** Text rotation: degrees counterclockwise (45 = tilt up), or 'v' for letters stacked top to bottom. */
+export const ROTATIONS = [45, -45, 90, -90, 'v'];
 const BORDER_RE = /^(thin|medium|thick|dashed|dotted) #[0-9a-fA-F]{3,8}$/;
 const plain = (o) => o && typeof o === 'object' && !Array.isArray(o) && Object.getPrototypeOf(o) === Object.prototype;
 
@@ -159,6 +163,7 @@ export function validStyle(s) {
     else if (k === 'ff') { if (!FONT_SET.has(v)) return false; }
     else if (k === 'fs') { if (!Number.isInteger(v) || v < 6 || v > 96) return false; }
     else if (k === 'bt' || k === 'bb' || k === 'bl' || k === 'br') { if (typeof v !== 'string' || !BORDER_RE.test(v)) return false; }
+    else if (k === 'rot') { if (!ROTATIONS.includes(v)) return false; }
     else return false;
   }
   return true;
@@ -201,7 +206,7 @@ export function validateSheetDoc(doc) {
 }
 
 /** How many of each a tab (or, for names, the workbook) keeps; reads and saves stop here. */
-export const LIMITS = { merges: 20000, hidden: MAX_ROWS + MAX_COLS, notes: 20000, charts: 50, cf: 200, dv: 500, filter: 1, names: 1000 };
+export const LIMITS = { merges: 20000, hidden: MAX_ROWS + MAX_COLS, notes: 20000, charts: 50, cf: 200, dv: 500, filter: 1, names: 1000, pivots: 20, groups: 200 };
 /** Cells one format, border or link may touch at once. */
 export const AREA_MAX = 100000;
 /** Cells in the whole workbook (stored cells count, empty ones do not). */
@@ -238,7 +243,19 @@ const VALID = {
     && Object.keys(v.crit).length <= MAX_COLS && Object.entries(v.crit).every(([ck, cv]) => isId(ck) && plain(cv)
       && (cv.hide == null || (Array.isArray(cv.hide) && cv.hide.length <= 5000 && cv.hide.every((x) => isStr(x, 500))))
       && (cv.op == null || FILTER_OPS.includes(cv.op)) && isScalar(cv.a) && isScalar(cv.b)))),
+  pivots: (v, k) => isId(k) && plain(v) && plain(v.src) && isId(v.src.tab) && isRange(v.src) && plain(v.at) && isId(v.at.r) && isId(v.at.c)
+    && fields(v.rows, 5, axisField) && fields(v.cols, 5, axisField) && fields(v.values, 10, valueField) && fields(v.filters, 10, filterField)
+    && (v.totals == null || typeof v.totals === 'boolean'),
+  groups: (v, k) => isId(k) && plain(v) && (v.axis === 'rows' || v.axis === 'cols') && isId(v.a) && isId(v.b) && (v.collapsed == null || typeof v.collapsed === 'boolean'),
 };
+export const PIVOT_FNS = ['SUM', 'COUNT', 'COUNTA', 'COUNTUNIQUE', 'AVERAGE', 'MIN', 'MAX', 'MEDIAN', 'PRODUCT', 'STDEV', 'VAR'];
+export const PIVOT_SHOW = ['', 'row', 'col', 'total'];
+export const PIVOT_GROUPS = ['', 'year', 'quarter', 'month', 'day'];
+const fields = (list, max, ok) => list == null || (Array.isArray(list) && list.length <= max && list.every(ok));
+const axisField = (f) => plain(f) && isId(f.col) && (f.sort == null || f.sort === 'asc' || f.sort === 'desc')
+  && (f.by == null || (Number.isInteger(f.by) && f.by >= 0 && f.by < 10)) && (f.group == null || PIVOT_GROUPS.includes(f.group));
+const valueField = (f) => plain(f) && isId(f.col) && PIVOT_FNS.includes(f.fn) && (f.show == null || PIVOT_SHOW.includes(f.show));
+const filterField = (f) => plain(f) && isId(f.col) && (f.hide == null || (Array.isArray(f.hide) && f.hide.length <= 5000 && f.hide.every((x) => isStr(x, 500))));
 export const NAME_RE = /^[A-Za-z_][A-Za-z0-9_.]{0,63}$/;
 /** A name may not read as a cell (B2), a boolean or an R1C1 address. */
 export const okName = (n) => typeof n === 'string' && NAME_RE.test(n) && !/^[A-Za-z]{1,3}\d+$/.test(n) && !/^(true|false)$/i.test(n) && !/^R\d*C\d*$/i.test(n);

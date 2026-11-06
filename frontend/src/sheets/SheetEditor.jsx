@@ -13,14 +13,14 @@ import {
   Undo2, Redo2, Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter, AlignRight, WrapText,
   Baseline, PaintBucket, ArrowDownAZ, ArrowUpZA, Search, ChevronUp, ChevronDown, X, Plus, MoreVertical,
   FileUp, FileDown, Snowflake, Filter, Combine, Grid3x3, Link2, Variable, ChevronDown as Caret, CheckSquare, Square,
-  AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, BarChart3, StickyNote, Keyboard,
+  AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, BarChart3, StickyNote, Keyboard, Table2,
 } from 'lucide-react';
 import { Menu, SmallBtn, ColorGrid, THEME_COLORS, STANDARD_COLORS, useDismiss } from '../components/docRibbon/ui';
 import { dialog } from '../ui/dialog';
 import {
   ROW_H, COL_W, buildCtx, writeCells, styleRange, styleCells, clearRange, insertLines, deleteLines, setSize, setTabMeta,
   addTab, duplicateTab, deleteTab, moveTab, loadSnapshot, blockAt, undoManagerFor, formulaText,
-  setExtra, setExtras, setName, rangeIds, newId, safeLink, okName, FONTS, change, cellsOf, extraOf, LIMITS, AREA_MAX, MAX_TABS,
+  setExtra, setExtras, setName, rangeIds, newId, safeLink, okName, FONTS, change, cellsOf, extraOf, LIMITS, AREA_MAX, MAX_TABS, newTabSnapshot,
 } from './model.js';
 import { maxOf } from './formula/values.js';
 import { a1, colName, colIndex, tokenize, encodeFormula, decodeFormula, refA1, shiftFormula } from './formula/parse.js';
@@ -30,10 +30,12 @@ import { formatValue, parseInput, editText, NUMBER_FORMATS, DEFAULT_DECIMALS, us
 import { parseTSV, toTSV, toHTML, parseHTMLTable } from './clipboard.js';
 import { importSheetFile, exportSheetFile } from './io.js';
 import {
-  mergesOf, mergeAt, expandRect, filterRect, hiddenRows, filteredOut, hiddenCols, conditionalStyler, validationAt, listItems,
+  mergesOf, mergeAt, expandRect, filterRect, hiddenRows, filteredOut, hiddenCols, conditionalStyler, validationAt, listItems, groupsOf, groupProblem,
   validValue, ruleWords, seriesNext, chartData, cycleRef, autoSum, findIn, replaceIn, splitText, fillTokens, shownText,
 } from './features.js';
 import { ChartBox } from './charts.jsx';
+import { PivotPanel, PivotCreatePanel } from './pivotPanel.jsx';
+import { pivotSource, pivotValues, newPivot } from './pivot.js';
 import {
   ShortcutsPanel, FormatPanel, ConditionalPanel, ValidationPanel, NamesPanel, SortPanel, DedupePanel, SplitPanel,
   FilterPop, ListPick, NoteEditor, VariablePicker,
@@ -41,8 +43,9 @@ import {
 import { keyId, isMac } from './shortcuts.js';
 import './sheets.css';
 
-const RH = 46;          // row number column
-const CH = 24;          // column letter row
+const RH0 = 46;         // row number column (the outline gutter adds to it)
+const CH0 = 24;         // column letter row
+const GUTTER = 14;      // one outline level
 const REMOTE = 'nx-remote';
 const COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
 const COLOR_ROWS = [THEME_COLORS.map((h) => [h]), STANDARD_COLORS.map((h) => [h])];
@@ -50,6 +53,9 @@ const ZOOMS = [50, 75, 90, 100, 125, 150, 200];
 const BORDER_CSS = { thin: '1px solid', medium: '2px solid', thick: '3px solid', dashed: '1px dashed', dotted: '1px dotted' };
 const borderCss = (spec) => { if (!spec) return undefined; const [w, color] = spec.split(' '); return `${BORDER_CSS[w] || '1px solid'} ${COLOR_RE.test(color) ? color : '#000'}`; };
 const MOD = isMac ? 'Cmd' : 'Ctrl';
+/** The text span's style for a rotation (degrees counterclockwise, or 'v' stacked). */
+const rotation = (rot) => (rot === 'v' ? { writingMode: 'vertical-rl', textOrientation: 'upright' }
+  : typeof rot === 'number' ? { display: 'inline-block', transform: `rotate(${-rot}deg)`, transformOrigin: 'center' } : undefined);
 
 /** Largest i with off[i] <= y, within 0..n-1. */
 function idxAt(off, y) {
@@ -143,6 +149,12 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   const filtHid = useMemo(() => filteredOut(ctx, eng, tab), [ctx, eng, tab]);
   const styler = useMemo(() => conditionalStyler(ctx, eng, tab), [ctx, eng, tab]);
   const filt = useMemo(() => filterRect(ctx, tab), [ctx, tab]);
+  // The outline: groups make a gutter left of the row numbers and above the column letters.
+  const rowGroups = useMemo(() => groupsOf(ctx, tab, 'rows'), [ctx, tab]);
+  const colGroups = useMemo(() => groupsOf(ctx, tab, 'cols'), [ctx, tab]);
+  const rowDepth = maxOf(rowGroups.map((g) => g.level), 0), colDepth = maxOf(colGroups.map((g) => g.level), 0);
+  const gutW = rowDepth ? rowDepth * GUTTER + 6 : 0, gutH = colDepth ? colDepth * GUTTER + 6 : 0;
+  const RH = RH0 + gutW, CH = CH0 + gutH;
 
   // ── view state ──────────────────────────────────────────────────────
   const [selRaw, setSel] = useState({ r: 0, c: 0, r2: 0, c2: 0 });
@@ -228,7 +240,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       if (l < el.scrollLeft + frozenW * z) el.scrollLeft = l - frozenW * z;
       else if (rr > el.scrollLeft + viewW) el.scrollLeft = rr - viewW;
     }
-  }, [rowY, colX, fr, fc, frozenH, frozenW, z]);
+  }, [rowY, colX, fr, fc, frozenH, frozenW, z, RH, CH]);
 
   const select = (next, scroll = true) => {
     setSel(next);
@@ -303,6 +315,10 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   // ── editing ─────────────────────────────────────────────────────────
   const startEdit = (text, mode, from = 'cell') => {
     if (!canEdit) return;
+    if (!filledCell(cellAt(sel.r, sel.c)) && eng.pivotAt(tab, sel.r, sel.c)) {
+      toastErr?.('This cell is part of a pivot table - change it in the Pivot Table Editor.');
+      return;
+    }
     setEdit({ r: sel.r, c: sel.c, text: text ?? textOf(sel.r, sel.c), mode, from });
     setPick(0);
   };
@@ -552,6 +568,63 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     if (hide && list.length >= (axis === 'rows' ? R : C)) { toastErr?.(`At least one ${axis === 'rows' ? 'row' : 'column'} stays visible.`); return; }
     setExtras(doc, tab.id, list);
   };
+  // groups (the outline)
+  /** Group (add) or ungroup the selected rows - or columns, when whole columns are selected. */
+  const groupLines = (add, axisIn) => {
+    if (!guard()) return;
+    const axis = axisIn || (b.r1 === 0 && b.r2 === R - 1 && !(b.c1 === 0 && b.c2 === C - 1) ? 'cols' : 'rows');
+    const list = axis === 'rows' ? rowGroups : colGroups;
+    const [s, e] = axis === 'rows' ? [b.r1, b.r2] : [b.c1, b.c2];
+    const ids = axis === 'rows' ? tab.rows : tab.cols;
+    const word = axis === 'rows' ? 'rows' : 'columns';
+    if (add) {
+      const why = groupProblem(list, s, e);
+      if (why) { toastErr?.(why.replace('Those rows', `Those ${word}`)); return; }
+      if (extraOf(doc, 'groups', tab.id).size >= LIMITS.groups) { toastErr?.(`A tab holds ${LIMITS.groups} groups at most.`); return; }
+      setExtra(doc, 'groups', tab.id, newId(), { axis, a: ids[s], b: ids[e] });
+      return;
+    }
+    const inside = list.filter((g) => g.s >= s && g.e <= e);
+    const target = inside.length ? inside : list.filter((g) => g.s <= s && g.e >= e).sort((x, y) => y.level - x.level).slice(0, 1);
+    if (!target.length) { toastErr?.(`No group of ${word} here.`); return; }
+    setExtras(doc, tab.id, target.map((g) => ['groups', g.id, null]));
+  };
+  const toggleGroup = (id) => {
+    if (!canEdit) return;
+    const g = tab.groups?.get(id);
+    if (g) setExtra(doc, 'groups', tab.id, id, { ...g, collapsed: !g.collapsed });
+  };
+  const collapseAll = (axis, collapsed) => {
+    if (!guard()) return;
+    const list = [];
+    tab.groups?.forEach((g, id) => { if (g.axis === axis && !!g.collapsed !== collapsed) list.push(['groups', id, { ...g, collapsed }]); });
+    if (list.length) setExtras(doc, tab.id, list);
+  };
+
+  // pivot tables
+  const [pivotEdit, setPivotEdit] = useState(null);     // { tab, id } | 'new'
+  const createPivot = ({ src, where, at }) => {
+    if (!guard()) return;
+    const got = rangeFrom(src);
+    if (!got || got.rect.r2 <= got.rect.r1) { toastErr?.('Pick a range with a header row and at least one row under it, like A1:D100.'); return; }
+    let target, r = 0, c = 0;
+    if (where === 'here') {
+      const spot = rangeFrom(at);
+      if (!spot) { toastErr?.("Type the starting cell, like H1 or 'Sheet 2'!A1."); return; }
+      target = spot.tab.id; r = spot.rect.r1; c = spot.rect.c1;
+      if (target === got.tab.id && r <= got.rect.r2 && r >= got.rect.r1 && c <= got.rect.c2 && c >= got.rect.c1) { toastErr?.('Start the pivot outside its data range.'); return; }
+    } else {
+      target = addTab(doc, { ...newTabSnapshot('Pivot Table', 1000, 26) });
+      if (!target) { toastErr?.(`A sheet holds ${MAX_TABS} tabs at most.`); return; }
+    }
+    if (extraOf(doc, 'pivots', target).size >= LIMITS.pivots) { toastErr?.(`A tab holds ${LIMITS.pivots} pivot tables at most.`); return; }
+    const t2 = buildCtx(doc).tabById(target);
+    const id = newId();
+    setExtra(doc, 'pivots', target, id, newPivot(rangeIds(got.tab, got.rect), got.tab.id, { r: t2.rows[r], c: t2.cols[c] }));
+    if (target !== tab.id) switchTab(target);
+    setPivotEdit({ tab: target, id });
+  };
+
   const undo = () => { if (guard()) umRef.current?.undo(); };
   const redo = () => { if (guard()) umRef.current?.redo(); };
 
@@ -741,6 +814,8 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     const t = e.target;
     if (t.closest('input, textarea, select')) return;
     if (t.closest('[data-chart]')) return;
+    const gb = t.closest('[data-group]');
+    if (gb) { e.preventDefault(); toggleGroup(gb.dataset.group); return; }
     const rz = t.closest('[data-resize]');
     if (rz) { const [axis, i] = rz.dataset.resize.split(':'); startResize(e, axis, +i); return; }
     if (t.closest('[data-fill]')) { e.preventDefault(); dragRef.current = 'fill'; setFillTo(null); return; }
@@ -1075,6 +1150,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     'Mod+Alt+KeyM': openNote, 'Shift+F2': openNote,
     'Mod+Slash': () => setPanel('shortcuts'),
     'Mod+Shift+KeyV': () => pasteSpecial('values'),
+    'Alt+Shift+ArrowRight': () => groupLines(true), 'Alt+Shift+ArrowLeft': () => groupLines(false),
   };
 
   // ── tabs ────────────────────────────────────────────────────────────
@@ -1112,7 +1188,12 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     importMode.current = replace;
     fileRef.current?.click();
   };
-  const download = (kind) => exportSheetFile(doc, title, kind, tab.id, { variables, variableValues }).catch((err) => toastErr?.(err?.message || 'The download did not work.'));
+  const download = (kind) => exportSheetFile(doc, title, kind, tab.id, { variables, variableValues })
+    .then(() => {
+      const pivots = kind === 'csv' ? !!tab.pivots?.size : ctx.tabs.some((t) => t.pivots?.size);
+      if (pivots) toastErr?.('Pivot tables were saved as their values - the file cannot carry a live pivot.');
+    })
+    .catch((err) => toastErr?.(err?.message || 'The download did not work.'));
 
   // ── data tools ──────────────────────────────────────────────────────
   const blockCols = () => Array.from({ length: b.c2 - b.c1 + 1 }, (_, i) => ({ c: b.c1 + i, letter: colName(b.c1 + i), head: shown(b.r1, b.c1 + i) }));
@@ -1222,7 +1303,8 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     if (w <= 0 || h <= 0) return null;
     const raw = cellAt(r, c);
     const cf = styler ? styler(r, c) : null;
-    const s = cf ? { ...(raw?.s || {}), ...cf } : raw?.s || {};
+    const pv = tab.pivots?.size && !filledCell(raw) ? eng.pivotAt(tab, r, c) : null;
+    const s = cf || pv?.s ? { ...(pv?.s || {}), ...(raw?.s || {}), ...(cf || {}) } : raw?.s || {};
     const isEdit = edit && edit.r === r && edit.c === c;
     const v = eng.cellValue(tab, r, c);
     const rule = tab.dv?.size ? validationAt(ctx, tab, r, c) : null;
@@ -1257,7 +1339,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     const spilled = !raw?.f && !filledCell(raw) && v != null;
     // Long text runs into empty cells to its right, as in Excel.
     let spillW = 0;
-    if (!m && !isEdit && text && !s.wrap && align === 'left' && typeof v === 'string' && !isList) {
+    if (!m && !isEdit && text && !s.wrap && align === 'left' && typeof v === 'string' && !isList && !s.rot) {
       for (let cc = c + 1; cc <= Math.min(C - 1, c + 20) && spillW < 2000; cc += 1) {
         if (hidC.has(cc)) continue;
         if (filledCell(cellAt(r, cc)) || eng.cellValue(tab, r, cc) != null || mergeAt(merges, r, cc)) break;
@@ -1292,7 +1374,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
             {v === true ? <CheckSquare size={15} /> : <Square size={15} />}
           </span>
         ) : (
-          <span className="nxs-text" style={spillW ? { width: w + spillW - 10, maxWidth: 'none', background: s.bg || 'var(--card)' } : undefined}>
+          <span className={`nxs-text${s.rot ? ' is-rot' : ''}`} style={spillW ? { width: w + spillW - 10, maxWidth: 'none', background: s.bg || 'var(--card)' } : rotation(s.rot)}>
             {tokens ? tokens.parts.map((p, i) => (p.token ? <span key={i} className={`nxs-var${p.missing ? ' is-missing' : ''}`} title={p.missing ? 'Pick a person or company for this sheet' : `{{${p.token}}}`}>{p.text}</span> : p.text)) : text}
           </span>
         )}
@@ -1323,16 +1405,47 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     }
     return out;
   };
+  /** The outline gutter for row groups: a bracket per group and a - / + button on the row after it. */
+  const outlineRows = (groups, yOf) => groups.map((g) => {
+    const btn = g.e + 1 < R ? g.e + 1 : g.s;
+    if (btn < rA - 1 && g.e < rA) return null;
+    if (g.s > rB + 1) return null;
+    const x = (g.level - 1) * GUTTER + 4;
+    const top = yOf(g.s), bot = yOf(g.e + 1 <= R ? g.e + 1 : R);
+    const by = yOf(btn) + Math.max(0, (rowY[btn + 1] - rowY[btn] - 12) / 2);
+    return (
+      <div key={g.id} className="nxs-outline">
+        {!g.collapsed && <span className="nxs-bracket nxs-bracket-row" style={{ left: x + 5, top: top + 2, height: Math.max(0, bot - top - 2) }} />}
+        <button type="button" className="nxs-gbtn" data-group={g.id} style={{ left: x, top: by }} tabIndex={-1}
+          aria-label={g.collapsed ? `Expand rows ${g.s + 1} to ${g.e + 1}` : `Collapse rows ${g.s + 1} to ${g.e + 1}`}>{g.collapsed ? '+' : '-'}</button>
+      </div>
+    );
+  });
+  const groupsBody = rowGroups.filter((g) => g.s >= fr);
+  const outlineCols = (xOf) => colGroups.filter((g) => g.s >= fc).map((g) => {
+    const btn = g.e + 1 < C ? g.e + 1 : g.s;
+    if (g.e + 1 < cA - 1 || g.s > cB + 1) return null;
+    const y = (g.level - 1) * GUTTER + 4;
+    const left = xOf(g.s), right = xOf(g.e + 1 <= C ? g.e + 1 : C);
+    const bx = xOf(btn) + Math.max(0, (colX[btn + 1] - colX[btn] - 12) / 2);
+    return (
+      <div key={g.id} className="nxs-outline">
+        {!g.collapsed && <span className="nxs-bracket nxs-bracket-col" style={{ top: y + 5, left: left + 2, width: Math.max(0, right - left - 2) }} />}
+        <button type="button" className="nxs-gbtn" data-group={g.id} style={{ top: y, left: bx }} tabIndex={-1}
+          aria-label={g.collapsed ? `Expand columns ${colName(g.s)} to ${colName(g.e)}` : `Collapse columns ${colName(g.s)} to ${colName(g.e)}`}>{g.collapsed ? '+' : '-'}</button>
+      </div>
+    );
+  });
   const colHead = (c, x) => (hidC.has(c) ? null : (
     <div key={`h${c}`} className={`nxs-head nxs-colhead${c >= b.c1 && c <= b.c2 ? ' is-on' : ''}${hidC.has(c + 1) || hidC.has(c - 1) ? ' has-hidden' : ''}`} data-col={c}
-      style={{ left: x, top: 0, width: colX[c + 1] - colX[c], height: CH }}>
+      style={{ left: x, top: gutH, width: colX[c + 1] - colX[c], height: CH0 }}>
       {colName(c)}
       {canEdit && <span className="nxs-rz nxs-rz-col" data-resize={`col:${c}`} aria-hidden="true" />}
     </div>
   ));
   const rowHead = (r, y) => (hidR.has(r) ? null : (
     <div key={`r${r}`} className={`nxs-head nxs-rowhead${r >= b.r1 && r <= b.r2 ? ' is-on' : ''}${hidR.has(r + 1) || hidR.has(r - 1) ? ' has-hidden' : ''}`} data-row={r}
-      style={{ left: 0, top: y, width: RH, height: rowY[r + 1] - rowY[r] }}>
+      style={{ left: gutW, top: y, width: RH0, height: rowY[r + 1] - rowY[r] }}>
       {r + 1}
       {canEdit && <span className="nxs-rz nxs-rz-row" data-resize={`row:${r}`} aria-hidden="true" />}
     </div>
@@ -1401,6 +1514,8 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   if (activeNote) info.push({ k: 'note', text: `${activeNote.by ? activeNote.by + ': ' : ''}${activeNote.text}` });
   if (active?.l) info.push({ k: 'link', text: active.l });
   if (isErr(activeV) && activeV.note) info.push({ k: 'err', text: `${activeV.code} ${activeV.note}` });
+  const activePivot = !filledCell(active) && tab.pivots?.size ? eng.pivotAt(tab, sel.r, sel.c) : null;
+  if (activePivot) info.push({ k: 'pivot', text: 'Pivot Table', id: activePivot.pivot });
   if (activeRule && activeRule.kind !== 'checkbox' && !validValue(activeRule, activeV, eng, ctx, tab)) info.push({ k: 'err', text: `Not valid: this cell takes ${ruleWords(activeRule)}.` });
 
   return (
@@ -1431,6 +1546,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
         ]} />
         <Menu label="Insert" title="Insert" items={[
           { label: 'Chart', icon: BarChart3, onClick: insertChart, disabled: !canEdit },
+          { label: 'Pivot Table', icon: Table2, onClick: () => setPivotEdit('new'), disabled: !canEdit },
           { label: 'Note', icon: StickyNote, onClick: openNote, disabled: !canEdit },
           { label: 'Link', icon: Link2, onClick: askLink, disabled: !canEdit },
           { label: 'Checkbox', icon: CheckSquare, onClick: () => saveRule('dv')(null, { range: selA1, kind: 'checkbox' }), disabled: !canEdit },
@@ -1445,6 +1561,13 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
         <Menu label="Format" title="Format" items={[
           { label: `Format Cells (${MOD}+1)`, onClick: () => setPanel('format'), disabled: !canEdit },
           { label: 'Conditional Formatting', onClick: () => setPanel('cf'), disabled: !canEdit },
+          '-',
+          { label: 'Rotate: None', active: !s0.rot, onClick: () => applyStyle({ rot: null }), disabled: !canEdit },
+          { label: 'Rotate: Tilt Up', active: s0.rot === 45, onClick: () => applyStyle({ rot: 45 }), disabled: !canEdit },
+          { label: 'Rotate: Tilt Down', active: s0.rot === -45, onClick: () => applyStyle({ rot: -45 }), disabled: !canEdit },
+          { label: 'Rotate: Stack Vertically', active: s0.rot === 'v', onClick: () => applyStyle({ rot: 'v' }), disabled: !canEdit },
+          { label: 'Rotate: Up', active: s0.rot === 90, onClick: () => applyStyle({ rot: 90 }), disabled: !canEdit },
+          { label: 'Rotate: Down', active: s0.rot === -90, onClick: () => applyStyle({ rot: -90 }), disabled: !canEdit },
           '-',
           { label: 'Merge All', onClick: () => mergeCells('all'), disabled: !canEdit },
           { label: 'Merge Horizontally', onClick: () => mergeCells('rows'), disabled: !canEdit },
@@ -1461,6 +1584,13 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
           { label: 'Remove Duplicates', onClick: () => setPanel('dedupe'), disabled: !canEdit },
           { label: 'Split Text to Columns', onClick: () => setPanel('split'), disabled: !canEdit },
           { label: 'Trim Whitespace', onClick: trimWhitespace, disabled: !canEdit },
+          '-',
+          { label: 'Group Rows (Alt+Shift+Right)', onClick: () => groupLines(true, 'rows'), disabled: !canEdit },
+          { label: 'Ungroup Rows (Alt+Shift+Left)', onClick: () => groupLines(false, 'rows'), disabled: !canEdit },
+          { label: 'Group Columns', onClick: () => groupLines(true, 'cols'), disabled: !canEdit },
+          { label: 'Ungroup Columns', onClick: () => groupLines(false, 'cols'), disabled: !canEdit },
+          { label: 'Collapse All Groups', onClick: () => { collapseAll('rows', true); collapseAll('cols', true); }, disabled: !canEdit || !tab.groups?.size },
+          { label: 'Expand All Groups', onClick: () => { collapseAll('rows', false); collapseAll('cols', false); }, disabled: !canEdit || !tab.groups?.size },
         ]} />
         <Menu label="View" title="View" items={[
           ...freezeItems('rows'), '-', ...freezeItems('cols'), '-',
@@ -1569,7 +1699,9 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
           {info.map((x, i) => (
             <span key={i} className={`nxs-info-${x.k}`}>
               {x.k === 'note' && <StickyNote size={12} />}
-              {x.k === 'link' ? <><Link2 size={12} /><a href={safeLink(x.text)} target="_blank" rel="noopener noreferrer">{x.text}</a></> : x.text}
+              {x.k === 'link' ? <><Link2 size={12} /><a href={safeLink(x.text)} target="_blank" rel="noopener noreferrer">{x.text}</a></>
+                : x.k === 'pivot' ? <><Table2 size={12} />{x.text}<button type="button" className="nxs-link" onClick={() => setPivotEdit({ tab: tab.id, id: x.id })}>Edit Pivot Table</button></>
+                  : x.text}
             </span>
           ))}
         </div>
@@ -1607,15 +1739,17 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
         <div className="nxs-canvas" style={{ width: totalW, height: totalH, zoom: z === 1 ? undefined : z }}>
           <div className="nxs-band-top" style={{ height: CH + frozenH }}>
             <div className="nxs-corner" style={{ width: RH + frozenW, height: CH + frozenH }}>
-              <div className="nxs-head nxs-all" data-all="1" title="Select All" style={{ left: 0, top: 0, width: RH, height: CH }} />
-              {frozenColList.map((c) => colHead(c, RH + colX[c]))}
+              {(gutW > 0 || gutH > 0) && <div className="nxs-gutter-corner" style={{ left: 0, top: 0, width: RH, height: CH }} />}
+              <div className="nxs-head nxs-all" data-all="1" title="Select All" style={{ left: gutW, top: gutH, width: RH0, height: CH0 }} />              {frozenColList.map((c) => colHead(c, RH + colX[c]))}
               {frozenRowList.map((r) => rowHead(r, CH + rowY[r]))}
               {region(frozenRowList, frozenColList, (c) => RH + colX[c], (r) => CH + rowY[r])}
             </div>
             {bodyCols.map((c) => colHead(c, RH + colX[c]))}
+            {outlineCols((c) => RH + colX[c])}
             {region(frozenRowList, bodyCols, (c) => RH + colX[c], (r) => CH + rowY[r])}
           </div>
           <div className="nxs-band-left" style={{ width: RH + frozenW }}>
+            {outlineRows(groupsBody, (r) => rowY[r] - frozenH)}
             {bodyRows.map((r) => rowHead(r, rowY[r] - frozenH))}
             {region(bodyRows, frozenColList, (c) => RH + colX[c], (r) => rowY[r] - frozenH)}
           </div>
@@ -1708,6 +1842,29 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       {panel === 'sort' && <SortPanel cols={blockCols()} onClose={() => setPanel(null)} onSort={({ header, keys }) => { const rect = dataRect(); sortRows({ ...rect, r1: header ? rect.r1 + 1 : rect.r1 }, keys); }} />}
       {panel === 'dedupe' && <DedupePanel cols={(() => { const rect = dataRect(); return Array.from({ length: rect.c2 - rect.c1 + 1 }, (_, i) => ({ c: rect.c1 + i, letter: colName(rect.c1 + i), head: shown(rect.r1, rect.c1 + i) })); })()} onClose={() => setPanel(null)} onRun={removeDuplicates} />}
       {panel === 'split' && <SplitPanel onClose={() => setPanel(null)} onRun={splitColumns} />}
+      {pivotEdit === 'new' && <PivotCreatePanel srcA1={a1Of(tab, dataRect())} onClose={() => setPivotEdit(null)} onCreate={createPivot} />}
+      {pivotEdit && pivotEdit !== 'new' && (() => {
+        const ptab = ctx.tabById(pivotEdit.tab);
+        const cfg = ptab?.pivots?.get(pivotEdit.id);
+        if (!cfg) return null;
+        const src = pivotSource(eng, ctx, cfg);
+        const srcTab = ctx.tabById(cfg.src.tab);
+        const srcRect = srcTab && ctx.rect(srcTab, cfg.src);
+        const save = (next) => { if (canEdit) setExtra(doc, 'pivots', pivotEdit.tab, pivotEdit.id, next); };
+        return (
+          <PivotPanel key={pivotEdit.id} cfg={cfg} fields={src?.fields || []} canEdit={canEdit}
+            srcA1={srcTab && srcRect ? a1Of(srcTab, srcRect) : ''}
+            valuesOf={(col) => pivotValues(eng, ctx, cfg, col)}
+            onChange={save}
+            onSource={(text) => {
+              const got = rangeFrom(text);
+              if (!got || got.rect.r2 <= got.rect.r1) { toastErr?.('Pick a range with a header row and at least one row under it.'); return; }
+              save({ ...cfg, src: { tab: got.tab.id, ...rangeIds(got.tab, got.rect) } });
+            }}
+            onDelete={() => { if (canEdit) setExtra(doc, 'pivots', pivotEdit.tab, pivotEdit.id, null); setPivotEdit(null); }}
+            onClose={() => { setPivotEdit(null); focusGrid(); }} />
+        );
+      })()}
     </div>
   );
 }

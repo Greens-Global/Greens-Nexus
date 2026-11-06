@@ -13,6 +13,7 @@
 import { parse, decodeFormula, tokenize } from './parse.js';
 import { FN } from './functions.js';
 import { Err, isErr, err, Rng, Arr, isMulti, toNum, toStr, toBool, compare } from './values.js';
+import { computePivot } from '../pivot.js';
 
 export { Err, isErr, err, Rng, Arr, toNum, toStr, toBool, compare };
 
@@ -47,9 +48,48 @@ export function createEngine(ctx, opts = {}) {
 
   const keyOf = (tab, r, c) => `${tab.id}|${r}|${c}`;
 
+  // Pivot tables: tab id -> Map('r|c' -> {v, s, pivot}), built once per engine.
+  const pivotMaps = new Map();
+  const pivotBuilding = new Set();
+  function pivotsOf(tab) {
+    if (!tab.pivots?.size) return null;
+    if (pivotMaps.has(tab.id)) return pivotMaps.get(tab.id);
+    // A pivot whose source reads this tab's other pivots while they are built sees them blank.
+    if (pivotBuilding.has(tab.id)) return null;
+    pivotBuilding.add(tab.id);
+    const map = new Map();
+    try {
+      tab.pivots.forEach((cfg, id) => {
+        const r0 = ctx.rowIndex(tab, cfg.at.r), c0 = ctx.colIndex(tab, cfg.at.c);
+        if (r0 < 0 || c0 < 0) return;
+        const out = computePivot(eng, ctx, cfg);
+        const corner = `${r0}|${c0}`;
+        if (out.error) { map.set(corner, { v: err('#REF!', out.error), pivot: id, corner: true }); return; }
+        const h = out.cells.length;
+        let w = 0;
+        for (const row of out.cells) if (row.length > w) w = row.length;
+        let blocked = r0 + h > tab.rows.length || c0 + w > tab.cols.length;
+        for (let i = 0; i < h && !blocked; i += 1) {
+          for (let j = 0; j < w && !blocked; j += 1) if (filled(ctx.cell(tab, r0 + i, c0 + j)) || map.has(`${r0 + i}|${c0 + j}`)) blocked = true;
+        }
+        if (blocked) { map.set(corner, { v: err('#REF!', 'This pivot would overwrite cells - clear them or move the pivot'), pivot: id, corner: true }); return; }
+        out.cells.forEach((row, i) => row.forEach((x, j) => {
+          map.set(`${r0 + i}|${c0 + j}`, { v: x ? x.v : null, s: x?.s, pivot: id, corner: !i && !j });
+        }));
+      });
+    } finally { pivotBuilding.delete(tab.id); }
+    pivotMaps.set(tab.id, map);
+    return map;
+  }
+  const pivotAt = (tab, r, c) => pivotsOf(tab)?.get(`${r}|${c}`) || null;
+
   function cellValue(tab, r, c) {
     const cell = ctx.cell(tab, r, c);
-    if (!cell || (cell.f == null && (cell.v == null || cell.v === ''))) return spilledInto(tab, r, c);
+    if (!cell || (cell.f == null && (cell.v == null || cell.v === ''))) {
+      const sp = spilledInto(tab, r, c);
+      if (sp != null) return sp;
+      return pivotAt(tab, r, c)?.v ?? null;
+    }
     if (cell.f == null) return cell.v;
     const key = keyOf(tab, r, c);
     if (memo.has(key)) return memo.get(key);
@@ -310,6 +350,10 @@ export function createEngine(ctx, opts = {}) {
     /** The size of the array (r, c) spills, once it has been worked out - {h, w, blocked} or null. */
     spillOf: (tab, r, c) => { cellValue(tab, r, c); return spills.get(keyOf(tab, r, c)) || null; },
     rawCell: (tab, r, c) => ctx.cell(tab, r, c),
+    /** The pivot drawn at (r, c): {v, s, pivot, corner} or null. */
+    pivotAt,
+    /** Every cell a tab's pivots draw: Map('r|c' -> {v, s, pivot}). */
+    pivotCells: (tab) => pivotsOf(tab) || new Map(),
   };
   return eng;
 }

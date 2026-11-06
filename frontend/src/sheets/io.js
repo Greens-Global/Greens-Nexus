@@ -143,6 +143,14 @@ function cellsShown(ctx, eng, tab) {
       }
     }
   });
+  // Pivot tables go out as their values (and their number formats).
+  eng.pivotCells(tab).forEach((x, key) => {
+    if (seen.has(key) || x.v == null) return;
+    const [r, c] = key.split('|').map(Number);
+    if (ctx.cell(tab, r, c)) return;
+    seen.add(key);
+    out.push({ r, c, cell: x.s ? { s: x.s } : null, v: x.v });
+  });
   return out;
 }
 

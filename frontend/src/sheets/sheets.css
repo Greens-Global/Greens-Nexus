@@ -130,6 +130,30 @@
 .nxs-pop { min-width: 200px; }
 .nxs-pop-label { font-size: 11px; font-weight: 600; color: var(--muted); padding: 2px 10px; }
 
+/* ── outline (row / column groups), rotation, pivots ─────────────────── */
+.nxs-gutter-corner { position: absolute; background: var(--nxs-head); border-right: 1px solid var(--nxs-grid); border-bottom: 1px solid var(--nxs-grid); box-sizing: border-box; }
+.nxs-outline { position: absolute; left: 0; top: 0; }
+.nxs-bracket { position: absolute; pointer-events: none; border-color: var(--muted); border-style: solid; border-width: 0; opacity: 0.7; }
+.nxs-bracket-row { width: 4px; border-left-width: 2px; border-bottom-width: 2px; }
+.nxs-bracket-col { height: 4px; border-top-width: 2px; border-right-width: 2px; }
+.nxs-gbtn {
+  position: absolute; width: 12px; height: 12px; padding: 0; z-index: 3; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; font: 700 11px/1 Inter, sans-serif;
+  color: var(--ink); background: var(--card); border: 1px solid var(--muted); border-radius: 2px;
+}
+.nxs-gbtn:hover { border-color: var(--nx-primary); color: var(--nx-primary); }
+.nxs-cell .nxs-text.is-rot { overflow: visible; white-space: nowrap; }
+.nxs-pv-sec { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+.nxs-pv-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nxs-pv-add { max-width: 160px; }
+.nxs-pv-item { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; }
+.nxs-pv-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; }
+.nxs-pv-tools { display: inline-flex; }
+.nxs-pv-tools .nxs-icon { width: 26px; height: 26px; }
+.nxs-pv-item .form-input { flex: 1 1 140px; min-width: 0; }
+.nxs-pv-filter { display: flex; flex-direction: column; gap: 6px; }
+.nxs-info-pivot .nxs-link { margin-left: 6px; }
+
 /* ── round two: merges, rules, notes, links, charts, panels ─────────── */
 .nxs-band-top { z-index: 5; }
 .nxs-band-left { z-index: 4; }

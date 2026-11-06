@@ -94,11 +94,44 @@ export const shownText = (eng, ctx, tab, r, c) => {
   return formatValue(eng.cellValue(tab, r, c), cell?.s);
 };
 
-/** Row indexes hidden: by hand, or because the filter leaves them out. */
+/** Row indexes hidden: by hand, in a collapsed group, or because the filter leaves them out. */
 export function hiddenRows(ctx, eng, tab) {
   const out = filteredOut(ctx, eng, tab);
   tab.hidden?.forEach((_, id) => { const i = ctx.rowIndex(tab, id); if (i >= 0) out.add(i); });
+  for (const g of groupsOf(ctx, tab, 'rows')) if (g.collapsed) for (let i = g.s; i <= g.e; i += 1) out.add(i);
   return out;
+}
+
+// ── row and column groups (the outline) ─────────────────────────────────
+export const GROUP_DEPTH = 3;
+/** The tab's groups on one axis as {id, s, e, collapsed, level} (level 1 = outermost), outer first. */
+export function groupsOf(ctx, tab, axis) {
+  const list = [];
+  tab.groups?.forEach((g, id) => {
+    if (g.axis !== axis) return;
+    const idx = axis === 'rows' ? ctx.rowIndex : ctx.colIndex;
+    const a = idx(tab, g.a), b = idx(tab, g.b);
+    if (a < 0 || b < 0) return;
+    list.push({ id, s: Math.min(a, b), e: Math.max(a, b), collapsed: !!g.collapsed });
+  });
+  list.sort((x, y) => x.s - y.s || y.e - x.e);
+  for (const g of list) g.level = 1 + list.filter((o) => o !== g && o.s <= g.s && o.e >= g.e && (o.s < g.s || o.e > g.e || o.id < g.id)).length;
+  return list;
+}
+/** Why a new group s..e on this axis cannot be made, or ''. Groups nest; they never cross. */
+export function groupProblem(list, s, e) {
+  for (const g of list) {
+    if (g.s === s && g.e === e) return 'Those rows are already a group.';
+    const crosses = (s < g.s && e >= g.s && e < g.e) || (s > g.s && s <= g.e && e > g.e);
+    if (crosses) return 'A group has to sit inside another group or around it, not across it.';
+  }
+  const outside = list.filter((g) => g.s <= s && g.e >= e).length;
+  // The longest chain of groups inside the new one: for each, how many inside groups hold it.
+  const inner = list.filter((g) => g.s >= s && g.e <= e);
+  let deepest = 0;
+  for (const g of inner) deepest = Math.max(deepest, inner.filter((o) => o.s <= g.s && o.e >= g.e).length);
+  if (outside + 1 + deepest > GROUP_DEPTH) return `Groups go ${GROUP_DEPTH} levels deep at most.`;
+  return '';
 }
 /** Only the rows the filter leaves out - the ones Delete, fill, paste and formats skip (Excel). */
 export function filteredOut(ctx, eng, tab) {
@@ -123,6 +156,7 @@ export function filteredOut(ctx, eng, tab) {
 export function hiddenCols(ctx, tab) {
   const out = new Set();
   tab.hidden?.forEach((_, id) => { const i = ctx.colIndex(tab, id); if (i >= 0) out.add(i); });
+  for (const g of groupsOf(ctx, tab, 'cols')) if (g.collapsed) for (let i = g.s; i <= g.e; i += 1) out.add(i);
   return out;
 }
 
