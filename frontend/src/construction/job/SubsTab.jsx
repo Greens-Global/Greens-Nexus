@@ -15,50 +15,61 @@ import VendorCompliance, { PapersLabel } from '../VendorCompliance';
 
 const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)' };
 
-function AddSub({ project, onAdded }) {
+/** Find one of Intacct's vendors (the job's managers only - names and ids,
+ *  never contact details). Shared with the Money tab's commitments. */
+export function VendorPicker({ projectId, pick, onPick, onError }) {
   const [q, setQ] = useState('');
   const [found, setFound] = useState([]);
-  const [pick, setPick] = useState(null);
-  const [trade, setTrade] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   useEffect(() => {
     const text = q.trim();
     if (!text || pick) { setFound([]); return undefined; }
     let live = true;
     const t = setTimeout(() => {
-      api.searchConstructionVendors(text, project.id)
+      api.searchConstructionVendors(text, projectId)
         .then((d) => { if (live) setFound(d?.vendors || []); })
-        .catch((e) => { if (live) setError(e?.message || 'The vendor list could not be read.'); });
+        .catch((e) => { if (live) onError?.(e?.message || 'The vendor list could not be read.'); });
     }, 250);
     return () => { live = false; clearTimeout(t); };
-  }, [q, pick, project.id]);
+  }, [q, pick, projectId, onError]);
+  return (
+    <div style={{ position: 'relative', width: '100%' }}>
+      <input className="form-input" aria-label="Find a vendor" placeholder="Find a vendor on the Intacct list…" value={pick ? pick.name : q}
+        style={{ width: '100%' }} onChange={(e) => { onPick(null); setQ(e.target.value); }} />
+      {found.length > 0 && (
+        <ul role="listbox" aria-label="Vendors" style={{ listStyle: 'none', margin: '4px 0 0', padding: 4, border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)', position: 'absolute', left: 0, right: 0, zIndex: 5, boxShadow: 'var(--shadow-md)' }}>
+          {found.map((v) => (
+            <li key={v.id}>
+              <button type="button" role="option" aria-selected={false} onClick={() => { onPick(v); setFound([]); }}
+                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '6px 8px', fontFamily: 'inherit', fontSize: '0.86rem', cursor: 'pointer', color: 'var(--text-primary)' }}>
+                {v.name} <span style={{ ...quiet, fontSize: '0.76rem' }}>{v.id}{v.inactive ? ' · Inactive in Intacct' : ''}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AddSub({ project, onAdded }) {
+  const [pick, setPick] = useState(null);
+  const [round, setRound] = useState(0);   // a new picker after each add
+  const [trade, setTrade] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const add = async (e) => {
     e.preventDefault();
     if (!pick) return;
     setBusy(true); setError('');
-    try { await api.addJobSub(project.id, { vendor_id: pick.id, trade: trade.trim() }); setQ(''); setPick(null); setTrade(''); onAdded(); }
+    try { await api.addJobSub(project.id, { vendor_id: pick.id, trade: trade.trim() }); setPick(null); setRound((r) => r + 1); setTrade(''); onAdded(); }
     catch (err) { setError(err?.message || 'Could not add that sub.'); }
     setBusy(false);
   };
   return (
     <form onSubmit={add} aria-label="Add a Sub" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ flex: '2 1 240px', position: 'relative' }}>
-          <input className="form-input" aria-label="Find a vendor" placeholder="Find a vendor on the Intacct list…" value={pick ? pick.name : q}
-            onChange={(e) => { setPick(null); setQ(e.target.value); }} />
-          {found.length > 0 && (
-            <ul role="listbox" aria-label="Vendors" style={{ listStyle: 'none', margin: '4px 0 0', padding: 4, border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)', position: 'absolute', left: 0, right: 0, zIndex: 5, boxShadow: 'var(--shadow-md)' }}>
-              {found.map((v) => (
-                <li key={v.id}>
-                  <button type="button" role="option" aria-selected={false} onClick={() => { setPick(v); setFound([]); }}
-                    style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '6px 8px', fontFamily: 'inherit', fontSize: '0.86rem', cursor: 'pointer', color: 'var(--text-primary)' }}>
-                    {v.name} <span style={{ ...quiet, fontSize: '0.76rem' }}>{v.id}{v.inactive ? ' · Inactive in Intacct' : ''}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+        <div style={{ flex: '2 1 240px' }}>
+          <VendorPicker key={round} projectId={project.id} pick={pick} onPick={setPick} onError={setError} />
         </div>
         <input className="form-input" aria-label="Trade" placeholder="Trade (e.g. Plumbing)" value={trade} onChange={(e) => setTrade(e.target.value)} style={{ flex: '1 1 160px' }} />
         <button type="submit" className="primary-btn" disabled={!pick || busy}><Plus size={14} />{busy ? 'Adding…' : 'Add Sub'}</button>

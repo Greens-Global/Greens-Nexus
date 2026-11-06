@@ -3786,6 +3786,8 @@ def _run_migrations():
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS ydoc TEXT DEFAULT ''",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS yepoch VARCHAR DEFAULT ''",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS collab_key VARCHAR DEFAULT ''",
+        # Commitments and lien waivers (Construction Round Two item 8, 11/06/2026): models.ConstructionCommitment.
+        "ALTER TABLE construction_commitments ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

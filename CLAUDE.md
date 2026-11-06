@@ -1081,6 +1081,17 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   `<job folder>/Drawings`); a new revision of a sheet number marks the current
   one Superseded (kept), bells the crew and managers once per sheet in place
   and emits `drawing.revised`. Never hard-deleted.
+- **Commitments and lien waivers (Round Two item 8, 11/06/2026,
+  `construction_commitments`, `construction_money.commitments_view`):** a
+  subcontract or purchase order is one row per Intacct VENDORID on the job,
+  kept on the Money tab by the job's managers who may see its money. Billed
+  to Date is READ from the books (`/reports/buckets?by=vendor` on the job's
+  Project-Job, cost accounts only) and drills to the lines - never typed;
+  Committed = the live commitments, and the forecast adds only what is not
+  billed yet. A new amount needs a reason (activity row, before / after);
+  nothing is deleted (Void). Lien waivers are the vendor's own signed form,
+  attached as received (`waivers` on the row) - Nexus never writes waiver
+  wording (several states mandate statutory forms).
 
 ## Gotchas
 
