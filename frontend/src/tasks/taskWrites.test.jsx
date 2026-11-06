@@ -33,6 +33,9 @@ const SEED = [
 ];
 vi.mock('./taskStore', () => ({
   FIRST_PAINT: [],
+  loadOlderTasks: async () => [],
+  withRecent: (prev, recent) => recent,
+  withOlder: (prev) => prev,
   taskSnapshot: () => null,
   rememberTaskData: () => {},
   loadTaskData: async (apply) => { apply('tasks', { tasks: SEED.map((t) => ({ ...t })), serverTime: 's' }); },

@@ -64,6 +64,25 @@ class TasksDeltaTests(unittest.TestCase):
         self.assertEqual(res["deletedIds"], [])
         self.assertTrue(res["serverTime"])
 
+    def test_first_load_in_two_parts_splits_on_long_done_tasks(self):
+        """part=recent + part=older together are the whole list, no overlap:
+        only tasks completed over 60 days ago move to `older` (11/05/2026)."""
+        open_ = self._task()
+        recent = self._task(completed=True, completed_at=now_iso())
+        old = self._task(completed=True, completed_at="2020-01-02T00:00:00+00:00")
+        undated = self._task(completed=True, completed_at="")
+        nulls = self._task(completed=None, completed_at=None)
+
+        first = {t["id"] for t in list_tasks_delta(since="", part="recent", user=MANAGER, db=self.db)["tasks"]}
+        rest = {t["id"] for t in list_tasks_delta(since="", part="older", user=MANAGER, db=self.db)["tasks"]}
+
+        self.assertEqual(first, {open_.id, recent.id, undated.id, nulls.id})
+        self.assertEqual(rest, {old.id})
+        # A poll ignores the part: a changed long-done task still comes through.
+        polled = list_tasks_delta(since="2000-01-01", part="recent", user=MANAGER, db=self.db)["tasks"]
+        self.assertIn(old.id, {t["id"] for t in polled})
+        self.assertNotIn("activityIds", polled[0])
+
     def test_since_a_future_timestamp_returns_nothing(self):
         self._task()
         future = "9999-01-01T00:00:00+00:00"
