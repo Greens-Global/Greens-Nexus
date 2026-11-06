@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, itemsRedirect, addressFor, itemLinkSub, ticketPlaceSub } from './lib/routes';
+import { PATH_TO_VIEW, tabAddress, VIEW_TO_PATH, purchaseRedirect, itemsRedirect, addressFor, itemLinkSub, ticketPlaceSub } from './lib/routes';
 import { workforceRedirect, WORKFORCE_GRANTS } from './lib/workforceAccess';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
@@ -463,6 +463,9 @@ function parsePath() {
   // where the person lands - devnotes/BuildMode.jsx read ?pin= at module load
   // and navigates there once the pin is fetched. Dashboard in the meantime.
   if (raw === 'dev-notes') return { view: 'dashboard', sub: null };
+  // A module tab's obvious address - /notes is Dashboard > Notes (11/05/2026, lib/routes.js).
+  const tab = tabAddress(raw, segs[1] || null);
+  if (tab) return tab;
   const view = PATH_TO_VIEW[raw] || raw;
   // Team > Requests moved into Dashboard > Approvals (Neil, 11/04/2026).
   if (view === 'shifts' && segs[1] === 'requests') return { view: 'dashboard', sub: 'approvals:shifts' };
@@ -753,6 +756,9 @@ function MainApp() {
     if (view === 'dashboard' && sub === 'external-links') sub = 'links';
     // Retired Nexus Access Manager -> Settings > Access (see parsePath).
     if (view === 'admin') { view = 'admin-console'; sub = 'access'; }
+    // A module tab's obvious address ({ view: 'notes' } -> Dashboard > Notes, see parsePath).
+    const tab = tabAddress(view, sub);
+    if (tab) ({ view, sub } = tab);
     // Contact Directory -> Team > Contact, My Shifts -> Workday (see parsePath).
     if (view === 'directory') { view = 'shifts'; sub = 'contact'; }
     // Workforce Analytics -> Team > Workforce Analytics (see parsePath).
