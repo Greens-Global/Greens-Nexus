@@ -28,7 +28,7 @@
 // Lazy: NotesPage imports this file with React.lazy; the engine's chunk is
 // fetched only when a board opens.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser } from 'lucide-react';
+import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, X } from 'lucide-react';
 import './board.css';
 import { loadEngine, CAPTURE } from './engine';
 import BoardFallback, { EngineBoundary, BoardLoading } from './engine/fallback';
@@ -37,6 +37,11 @@ import { uploadBoardFile, loadBoardFiles } from './files';
 import { remoteWins } from './boardSync';
 import { exportPng, exportSvg, exportThumb, copyPng, downloadBlob, downloadScene } from './exportBoard';
 import { saveDraft, loadDraft, clearDraft } from './draft';
+import MarkupBar from './MarkupBar';
+import {
+  DEFAULT_MARKUP, TOOL_KEYS, MARKUP_COLORS, MARKUP_SIZES, toolByKey, strokeStyle, toolFromEngine,
+  commentPin, pinMeasurer, nextCommentNumber, stageToBoard, restyle, removeSelected, PIN_MAX,
+} from './markupTools';
 import { dataUrlToFile } from '../../tasks/lib';
 import { exportFileName } from '../notesModel';
 import { dialog } from '../../ui/dialog';
@@ -57,6 +62,30 @@ const CANVAS_COLORS = [
 
 const elKey = (e) => `${e?.version || 0}:${e?.versionNonce ?? 0}`;
 const nonce = () => Math.floor(Math.random() * 0x7fffffff);
+
+// The markup bar's last ink, width and highlighter ink, per browser (a
+// convenience - never board data; the tool itself always starts at Select so
+// a board opened on a phone pans before it draws).
+const MARKUP_PREF = 'nx-board-markup';
+function readMarkupPref() {
+  const base = { ...DEFAULT_MARKUP, tool: 'select' };
+  try {
+    const p = JSON.parse(localStorage.getItem(MARKUP_PREF) || '{}');
+    const okColor = (k) => MARKUP_COLORS.some((c) => c.key === k);
+    return {
+      ...base,
+      color: okColor(p.color) ? p.color : base.color,
+      highlightColor: okColor(p.highlightColor) ? p.highlightColor : base.highlightColor,
+      size: MARKUP_SIZES.some((z) => z.key === p.size) ? p.size : base.size,
+    };
+  } catch { return base; }
+}
+function writeMarkupPref(m) {
+  try { localStorage.setItem(MARKUP_PREF, JSON.stringify({ color: m.color, highlightColor: m.highlightColor, size: m.size })); } catch { /* private window */ }
+}
+// Tools the ink and width do not apply to (they draw nothing, or a picture).
+const NO_INK = new Set(['select', 'hand', 'eraser', 'image', 'frame', 'laser']);
+const anySelected = (ids) => !!ids && Object.keys(ids).some((k) => ids[k]);
 
 function readTheme() {
   if (typeof document === 'undefined') return 'light';
@@ -107,6 +136,19 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   const [notice, setNotice] = useState(null);     // { text, error, code }
   const [draftOffer, setDraftOffer] = useState(null);   // { scene, rev, at } from draft.js
   const stageRef = useRef(null);
+  // The markup bar (MarkupBar.jsx): an editor's, whenever the engine offers
+  // it, and the ONE tool bar - the engine's own strip is hidden (its other
+  // tools are under More Tools). On a phone it is all the chrome: the
+  // engine's properties panel opens above it from Style.
+  const markupApi = canEdit ? engine?.markup : null;
+  const [mk, setMk] = useState(readMarkupPref);
+  const mkRef = useRef(mk);
+  useEffect(() => { mkRef.current = mk; }, [mk]);
+  const [hasSelection, setHasSelection] = useState(false);
+  const selRef = useRef(false);
+  const [phoneMore, setPhoneMore] = useState(false);
+  const [styleOpen, setStyleOpen] = useState(false);
+  const styleRef = useRef(false);
   // File meta the scene keeps (id -> {id, mimeType, url, created}); uploads add to it.
   const filesMeta = useRef({ ...initial.files });
   const uploading = useRef(new Set());
@@ -348,6 +390,15 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
 
   // The engine's live state after a change (the adapter's Canvas onChange).
   const onChange = useCallback(({ elements, appState, files }) => {
+    // The markup bar follows the engine: the tool it is really on (its own
+    // strip, a shortcut, text dropping back to Select) and whether anything
+    // is selected - state only when either moved.
+    const sel = anySelected(appState?.selectedElementIds);
+    if (sel !== selRef.current) { selRef.current = sel; setHasSelection(sel); }
+    const style = appState?.openMenu === 'shape';
+    if (style !== styleRef.current) { styleRef.current = style; setStyleOpen(style); }
+    const t = toolFromEngine(appState?.activeTool?.type, mkRef.current.tool);
+    if (t && t !== mkRef.current.tool) setMk((m) => ({ ...m, tool: t }));
     storeNewFiles(files, elements);
     // Into the shared document first (the others see it as it is drawn),
     // then the save timer.
@@ -399,6 +450,68 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     scheduleSave();
   }, [api, scheduleSave]);
 
+  // ---- The markup bar ---------------------------------------------------
+  const inkFor = (m, tool = m.tool) => (tool === 'highlight' ? m.highlightColor : m.color);
+  const chooseTool = useCallback((key) => {
+    if (!api || !markupApi || !TOOL_KEYS.includes(key)) return;
+    const m = { ...mkRef.current, tool: key };
+    mkRef.current = m;
+    setMk(m);
+    markupApi.setTool(api, toolByKey(key));
+    if (!NO_INK.has(key)) markupApi.setStyle(api, strokeStyle(key, inkFor(m, key), m.size));
+  }, [api, markupApi]);
+  // An ink or a width: the next stroke's, and - with Select on and something
+  // picked - the selection's too (one undo step, carried to the others).
+  const restyleSelection = useCallback((opts) => {
+    if (!api || mkRef.current.tool !== 'select' || !selRef.current) return;
+    const ids = api.getAppState()?.selectedElementIds;
+    const els = api.getSceneElementsIncludingDeleted();
+    const next = restyle(els, ids, opts);
+    if (next !== els) { api.updateScene({ elements: next, captureUpdate: CAPTURE.IMMEDIATELY }); scheduleSave(); }
+  }, [api, scheduleSave]);
+  const chooseColor = useCallback((key) => {
+    const cur = mkRef.current;
+    const m = cur.tool === 'highlight' ? { ...cur, highlightColor: key } : { ...cur, color: key };
+    mkRef.current = m; setMk(m); writeMarkupPref(m);
+    if (api && markupApi && !NO_INK.has(m.tool)) markupApi.setStyle(api, strokeStyle(m.tool, inkFor(m), m.size));
+    restyleSelection({ colorKey: key });
+  }, [api, markupApi, restyleSelection]);
+  const chooseSize = useCallback((key) => {
+    const m = { ...mkRef.current, size: key };
+    mkRef.current = m; setMk(m); writeMarkupPref(m);
+    if (api && markupApi && !NO_INK.has(m.tool)) markupApi.setStyle(api, strokeStyle(m.tool, inkFor(m), m.size));
+    restyleSelection({ sizeKey: key });
+  }, [api, markupApi, restyleSelection]);
+  const undo = useCallback(() => { markupApi?.undo(stageRef.current); }, [markupApi]);
+  const toggleStyle = useCallback(() => { if (api) markupApi?.toggleStyle?.(api); }, [api, markupApi]);
+  const redo = useCallback(() => { markupApi?.redo(stageRef.current); }, [markupApi]);
+  const deleteSelected = useCallback(() => {
+    if (!api) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    const next = removeSelected(els, api.getAppState()?.selectedElementIds);
+    if (next === els) return;
+    api.updateScene({ elements: next, appState: { selectedElementIds: {} }, captureUpdate: CAPTURE.IMMEDIATELY });
+    selRef.current = false; setHasSelection(false);
+    scheduleSave();
+  }, [api, scheduleSave]);
+  // Comment: the next tap on the stage drops a numbered pin there, with the
+  // words asked for first (a cancel places nothing); then back to Select.
+  const placeComment = useCallback(async (e) => {
+    if (!api || !markupApi) return;
+    const rect = stageRef.current?.getBoundingClientRect?.();
+    const at = stageToBoard(e, rect, api.getAppState());
+    const words = await dialog.prompt('What should change here?', {
+      title: 'Add Comment', confirmText: 'Add Comment', placeholder: 'Make this railing taller', multiline: true, required: true,
+    });
+    chooseTool('select');
+    const text = String(words || '').trim().slice(0, PIN_MAX);
+    if (!text) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    const pin = markupApi.prepare(commentPin({ x: at.x, y: at.y, text, number: nextCommentNumber(els), colorKey: mkRef.current.color, look: lookRef.current, measure: pinMeasurer(lookRef.current) }));
+    api.updateScene({ elements: [...els, ...pin], captureUpdate: CAPTURE.IMMEDIATELY });
+    scheduleSave();
+  }, [api, markupApi, chooseTool, scheduleSave]);
+
   const lookToggle = (
     <div className="nx-board-look" role="group" aria-label="Look">
       {LOOKS.map((k) => (
@@ -436,8 +549,13 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     </Menu.Root>
   ) : null;
 
+  const showBar = !!(markupApi && api);
+  const barOnly = showBar && isPhone;
+  const sheetRow = (Icon, label, onClick) => (
+    <button type="button" className="nx-mk-sheet-row" onClick={() => { setPhoneMore(false); onClick(); }}><Icon size={18} /> {label}</button>
+  );
   return (
-    <div className={`nx-board${isPhone ? ' is-phone' : ''}${canEdit ? '' : ' is-view'}`} data-look={look}
+    <div className={`nx-board${isPhone ? ' is-phone' : ''}${canEdit ? '' : ' is-view'}${showBar ? ' has-markup' : ''}${barOnly ? ' is-markup-only' : ''}`} data-look={look}
       style={kbInset ? { '--nx-kb-inset': `${kbInset}px` } : undefined} data-testid="nx-board">
       {draftOffer && canEdit && (
         <div className="nx-board-draft" role="status" aria-label="Unsaved drawing">
@@ -469,7 +587,43 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
                 />
               </EngineBoundary>
             )}
+        {showBar && mk.tool === 'comment' && (
+          <div className="nx-mk-place" data-testid="nx-markup-place" role="button" tabIndex={0} aria-label="Tap where the comment goes"
+            onClick={placeComment} onKeyDown={(e) => { if (e.key === 'Escape') chooseTool('select'); }}>
+            <span className="nx-mk-place-hint">Tap where the comment goes</span>
+          </div>
+        )}
+        {showBar && (
+          <MarkupBar phone={isPhone} tool={mk.tool} colorKey={inkFor(mk)} sizeKey={mk.size} hasSelection={hasSelection}
+            onTool={chooseTool} onColor={chooseColor} onSize={chooseSize} onUndo={undo} onRedo={redo} onDelete={deleteSelected}
+            styleOpen={styleOpen} onStyle={isPhone ? toggleStyle : undefined}
+            onMore={isPhone ? () => setPhoneMore(true) : undefined} />
+        )}
         {notice && <div className={`nx-board-note${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</div>}
+        {showBar && isPhone && phoneMore && (
+          <div className="nx-mk-sheet-wrap" onPointerDown={(e) => { if (e.target === e.currentTarget) setPhoneMore(false); }}>
+            <div className="nx-mk-sheet" role="dialog" aria-label="Board Options">
+              <div className="nx-mk-sheet-head">
+                <span>Board</span>
+                <button type="button" className="nx-mk-btn" onClick={() => setPhoneMore(false)} aria-label="Close"><X size={18} /></button>
+              </div>
+              <div className="nx-board-menu-kicker">Look</div>
+              {lookToggle}
+              {sheetRow(Maximize2, 'Fit to Screen', fit)}
+              {sheetRow(ImageIcon, 'Export as PNG', doExportPng)}
+              {sheetRow(Copy, 'Copy as Picture', doCopy)}
+              {sheetRow(FileJson, 'Download Board File', doDownload)}
+              <div className="nx-board-menu-kicker">Canvas Background</div>
+              <div className="nx-board-swatches" role="group" aria-label="Canvas Background">
+                {CANVAS_COLORS.map((c) => (
+                  <button key={c.color} type="button" className="nx-board-swatch" style={{ background: c.color }}
+                    aria-label={c.label} title={c.label} onClick={() => setBackground(c.color)} />
+                ))}
+              </div>
+              {sheetRow(Eraser, 'Clear Board', doClear)}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

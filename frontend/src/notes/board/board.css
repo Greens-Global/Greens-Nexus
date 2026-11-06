@@ -96,3 +96,153 @@
 }
 .nx-board .nx-board-draft button.is-primary { background: var(--wk-brand, #15803d); color: #fff; border-color: transparent; }
 .nx-board .nx-board-draft button:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
+
+/* ---- The markup bar (MarkupBar.jsx, Neil 11/06/2026) ---------------------
+   A computer: a floating pill at the foot of the stage, beside the engine's
+   full strip. A phone: a dock along the bottom edge, thumb reach, 44px
+   targets, the tools scrolling sideways, clear of the home indicator and the
+   keyboard's strip; the engine's own strips are hidden (is-markup-only)
+   until More > All Tools. Transform and opacity only for motion. */
+.nx-board > .nx-board-stage { container-type: inline-size; }
+/* ONE tool bar (the best of both, Neil 11/06/2026): wherever the markup bar
+   shows, the engine's own tool strip does not - its other tools are under
+   More Tools. A computer keeps the engine's hint line under where the strip
+   was, and its properties panel on the left (fill, opacity, font, layers). */
+.nx-board.has-markup .excalidraw .shapes-section .App-toolbar { background: transparent !important; box-shadow: none !important; pointer-events: none; }
+.nx-board.has-markup .excalidraw .shapes-section .App-toolbar > .Stack { display: none !important; }
+.nx-board.has-markup .excalidraw .shapes-section .HintViewer { left: 50%; width: max-content; max-width: min(560px, 80cqi); transform: translateX(-50%); margin-top: 6px; padding: 0; }
+/* A phone: the engine's top strip goes; its bottom bar stays only for its
+   properties panel (Style), lifted above the dock - never its own footer. */
+.nx-board.is-markup-only .excalidraw .App-top-bar { display: none !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px) + var(--nx-kb-inset, 0px)) !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar footer.App-toolbar { display: none !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar .Island:not(:has(.App-mobile-menu)) { display: none !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar .App-mobile-menu { max-height: 46vh; }
+.nx-board.is-markup-only .nx-board-note { top: 64px; }
+
+.nx-mk { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; max-width: calc(100% - 24px); }
+.nx-mk > * { pointer-events: auto; }
+@container (max-width: 860px) { .nx-mk:not(.is-phone) { bottom: 66px; } }
+.nx-mk-bar {
+  display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 14px; max-width: 100%;
+  background: var(--card, #fff); box-shadow: 0 10px 28px rgba(15, 23, 42, .12), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+}
+[data-theme="dark"] .nx-mk-bar { box-shadow: 0 10px 28px rgba(0, 0, 0, .45), 0 0 0 1px var(--line, rgba(255, 255, 255, .09)); }
+.nx-mk-tools { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.nx-mk-btn {
+  position: relative; flex: 0 0 auto; display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0;
+  border: 0; border-radius: 10px; background: transparent; color: var(--ink, #1c2420); cursor: pointer;
+  transition: background-color 140ms var(--ease-out, ease-out), color 140ms var(--ease-out, ease-out), transform 140ms var(--ease-out, ease-out);
+}
+.nx-mk-btn:hover { background: var(--wk-hover, #f1f4f1); }
+.nx-mk-btn:active { transform: scale(.94); }
+.nx-mk-btn.is-on { background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); }
+.nx-mk-btn.is-danger { color: var(--wk-red, #b91c1c); }
+.nx-mk-btn:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 1px; }
+/* The pen's and highlighter's ink, a dot under the glyph while it is on. */
+.nx-mk-tip { position: absolute; bottom: 4px; left: 50%; width: 10px; height: 3px; margin-left: -5px; border-radius: 2px; }
+.nx-mk-sep { flex: 0 0 auto; width: 1px; height: 22px; margin: 0 4px; background: var(--line, rgba(0, 0, 0, .1)); }
+.nx-mk-dot > span { width: 20px; height: 20px; border-radius: 50%; box-shadow: 0 0 0 2px var(--card, #fff), 0 0 0 3px var(--line, rgba(0, 0, 0, .18)); }
+
+.nx-mk-tray {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 14px;
+  background: var(--card, #fff); box-shadow: 0 10px 28px rgba(15, 23, 42, .14), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+  animation: nx-mk-rise 180ms var(--ease-out, ease-out) both;
+}
+[data-theme="dark"] .nx-mk-tray { box-shadow: 0 10px 28px rgba(0, 0, 0, .5), 0 0 0 1px var(--line, rgba(255, 255, 255, .09)); }
+.nx-mk-tray-kicker { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8b958f); }
+.nx-mk-inks, .nx-mk-sizes { display: flex; align-items: center; gap: 8px; }
+.nx-mk-ink {
+  display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+  background: var(--ink); color: #fff; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12);
+  transition: transform 140ms var(--ease-out, ease-out);
+}
+.nx-mk-ink:hover { transform: scale(1.08); }
+.nx-mk-ink[aria-checked="true"] { box-shadow: 0 0 0 2px var(--card, #fff), 0 0 0 4px var(--ink); }
+.nx-mk-ink:focus-visible, .nx-mk-size:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 3px; }
+.nx-mk-size {
+  flex: 1 1 0; display: grid; place-items: center; height: 32px; min-width: 44px; padding: 0 8px; cursor: pointer;
+  border: 1px solid var(--line, rgba(0, 0, 0, .1)); border-radius: 9px; background: transparent;
+}
+.nx-mk-size > span { display: block; width: 100%; border-radius: 4px; }
+.nx-mk-size[aria-checked="true"] { border-color: var(--wk-brand, #15803d); background: var(--wk-brand-tint, #e3f3e8); }
+
+/* Comment: the next tap on the stage places a pin. */
+.nx-mk-place { position: absolute; inset: 0; z-index: 5; cursor: crosshair; touch-action: none; }
+.nx-mk-place:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -2px; }
+.nx-mk-place-hint {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); pointer-events: none; white-space: nowrap;
+  padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: var(--ink, #1c2420); color: var(--card, #fff); box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+  animation: nx-mk-rise 180ms var(--ease-out, ease-out) both;
+}
+
+/* ---- Phone ---- */
+.nx-mk.is-phone { position: absolute; inset: 0; left: 0; bottom: 0; transform: none; max-width: none; display: block; pointer-events: none; }
+.nx-mk.is-phone .nx-mk-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; border-radius: 18px 18px 0 0; gap: 0;
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px) + var(--nx-kb-inset, 0px));
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, .08), 0 -1px 0 var(--line, rgba(0, 0, 0, .08));
+}
+.nx-mk.is-phone .nx-mk-tools {
+  flex: 1 1 auto; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
+  touch-action: pan-x; -webkit-overflow-scrolling: touch;
+  /* The tools fade out at the edge they scroll under. */
+  mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent);
+}
+.nx-mk.is-phone .nx-mk-tools::-webkit-scrollbar { display: none; }
+.nx-mk.is-phone .nx-mk-btn { width: 44px; height: 44px; border-radius: 12px; scroll-snap-align: start; }
+.nx-mk.is-phone .nx-mk-tip { bottom: 6px; }
+.nx-mk.is-phone .nx-mk-dot > span { width: 24px; height: 24px; }
+.nx-mk.is-phone .nx-mk-float {
+  position: absolute; left: 10px; top: 10px; display: flex; gap: 2px; padding: 3px; border-radius: 14px;
+  background: var(--card, #fff); box-shadow: 0 6px 18px rgba(15, 23, 42, .1), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+}
+.nx-mk.is-phone .nx-mk-float .nx-mk-btn { width: 40px; height: 40px; }
+.nx-mk.is-phone .nx-mk-tray {
+  position: absolute; right: 8px; left: 8px; bottom: calc(68px + env(safe-area-inset-bottom, 0px) + var(--nx-kb-inset, 0px));
+}
+.nx-mk.is-phone .nx-mk-inks { justify-content: space-between; }
+.nx-mk.is-phone .nx-mk-ink { width: 40px; height: 40px; }
+.nx-mk.is-phone .nx-mk-size { height: 40px; }
+.nx-board.is-phone.has-markup .nx-mk-place-hint { top: 62px; }
+
+/* The phone's Board options (More): a sheet up from the dock. */
+.nx-mk-sheet-wrap { position: absolute; inset: 0; z-index: 8; background: rgba(15, 23, 42, .32); display: flex; align-items: flex-end; animation: nx-mk-fade 200ms var(--ease-out, ease-out) both; }
+.nx-mk-sheet {
+  width: 100%; max-height: 82%; overflow-y: auto; overscroll-behavior: contain; background: var(--card, #fff); border-radius: 18px 18px 0 0;
+  padding: 6px 8px calc(12px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -12px 32px rgba(0, 0, 0, .18);
+  animation: nx-mk-up 260ms var(--ease-out, ease-out) both;
+}
+.nx-mk-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 2px 10px; font-weight: 700; font-size: 15px; color: var(--ink, #1c2420); }
+.nx-mk-sheet .nx-board-look { padding: 4px 6px 8px; }
+.nx-mk-sheet .nx-board-look button { padding: 10px 8px; font-size: 14px; }
+.nx-mk-sheet .nx-board-swatch { width: 36px; height: 36px; border-radius: 10px; }
+.nx-mk-sheet .nx-board-swatches { gap: 10px; padding: 4px 10px 10px; }
+.nx-mk-sheet-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 12px; border: 0; border-radius: 12px;
+  background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 15px; text-align: left; cursor: pointer;
+}
+.nx-mk-sheet-row:active { background: var(--wk-hover, #f1f4f1); }
+.nx-mk-sheet-row:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -2px; }
+
+@keyframes nx-mk-rise { from { opacity: 0; transform: translate(var(--nx-mk-x, 0), 6px); } to { opacity: 1; transform: translate(var(--nx-mk-x, 0), 0); } }
+.nx-mk-place-hint { --nx-mk-x: -50%; }
+@keyframes nx-mk-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes nx-mk-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+/* More Tools: the rest of the whiteboard, one tap away. */
+.nx-mk-more { gap: 2px; padding: 6px; min-width: 210px; }
+.nx-mk-more-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.nx-mk-more-row > span { flex: 1; }
+.nx-mk-more-row kbd { font: inherit; font-size: 11px; color: var(--muted, #8b958f); border: 1px solid var(--line, rgba(0, 0, 0, .1)); border-radius: 5px; padding: 0 5px; }
+.nx-mk-more-row:hover { background: var(--wk-hover, #f1f4f1); }
+.nx-mk-more-row.is-on { background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); }
+.nx-mk-more-row:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -2px; }
+.nx-mk.is-phone .nx-mk-more { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.nx-mk.is-phone .nx-mk-more-row { flex-direction: column; justify-content: center; gap: 4px; min-height: 64px; padding: 6px; font-size: 12.5px; text-align: center; background: var(--wk-hover, #f1f4f1); }
+.nx-mk.is-phone .nx-mk-more-row > span { flex: 0 0 auto; }
+.nx-mk.is-phone .nx-mk-more-row.is-on { background: var(--wk-brand-tint, #e3f3e8); }
