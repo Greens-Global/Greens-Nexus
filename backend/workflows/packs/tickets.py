@@ -23,6 +23,7 @@ from datetime import date, datetime, timezone
 
 import models
 from workflows.catalog import F, P, action, entity, event, list_source
+from workflows.outbox import record_files
 
 PRIORITIES = [("urgent", "Urgent"), ("high", "High"), ("medium", "Medium"), ("low", "Low")]
 STATUSES = [("open", "Open"), ("in_progress", "In Progress"), ("waiting_user", "Waiting For User"),
@@ -138,6 +139,7 @@ entity("ticket", label="Ticket", model=models.TaskTicket, module="tickets",
        label_of=_label,
        visible_to=_ticket_visible,
        nexus_visible=_nexus_visible,
+       files=record_files,
        # `self` is the requester: the person an approval about the ticket
        # may not decide unless the step allows it (allowSelf)
        people_labels={"self": "The Person (Requester)", "creator": "Filed By"})

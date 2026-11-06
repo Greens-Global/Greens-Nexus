@@ -807,6 +807,159 @@ action("hr.set_custom_field", label="Set A Custom Field", module=MODULE,
        plan=_custom_plan, run=_custom_run, allowed=_custom_allowed)
 
 
+# ── Set A Person Detail (Neil, 11/05/2026) ───────────────────────────────────
+# A workflow sets ONE of a few profile fields through the People screen's own
+# save (`routers.hr.apply_profile_update`): the same scope wall, the same
+# normalization, the probation / checklist hooks and the same masked
+# field-level audit row, with "Workflow: <name>" as its source. Company, work
+# email, names, the start date and pay are never offered; offboarding stays
+# in People > Offboard. The write fires `employee.field_changed` through the
+# record observer like any People save - a workflow that listens to it and
+# sets a detail again is held by the engine's chaining limit (`caused_by_run`,
+# depth 2), so this action adds no loop guard of its own.
+PERSON_FIELDS = [{"value": "department", "label": "Department"},
+                 {"value": "job_title", "label": "Job Title"},
+                 {"value": "manager_email", "label": "Manager"},
+                 {"value": "backup_manager_email", "label": "Backup Manager"},
+                 {"value": "location", "label": "Location"},
+                 {"value": "employment_type", "label": "Employment Type"},
+                 {"value": "status", "label": "Status"}]
+PERSON_FIELD_LABELS = {o["value"]: o["label"] for o in PERSON_FIELDS}
+PERSON_EMPLOYMENT_TYPES = {"full_time": "Full Time", "part_time": "Part Time", "contractor": "Contractor",
+                           "intern": "Intern"}
+PERSON_STATUSES = {"onboarding": "Onboarding", "active": "Active", "inactive": "Inactive"}
+PERSON_MAY_CLEAR = ("job_title", "location", "backup_manager_email")
+PERSON_MANAGER_FIELDS = ("manager_email", "backup_manager_email")
+
+
+def _person_field(params) -> str:
+    key = str(params.get("field") or "").strip()
+    if key not in PERSON_FIELD_LABELS:
+        raise ValueError(f"{key or '(blank)'} is not a detail a workflow may set")
+    return key
+
+
+def _person_value(ctx, key: str, raw: str, emp: Optional[models.NexusEmployee]) -> tuple:
+    """(value to store, the words to show) for `raw` on `key`, or ValueError
+    with the reason. `emp` is the person being changed (None at save time)."""
+    label = PERSON_FIELD_LABELS[key]
+    value = (raw or "").strip()
+    if not value:
+        if key in PERSON_MAY_CLEAR:
+            return "", "blank"
+        raise ValueError(f"{label} cannot be blank")
+    if key == "department":
+        from workflows.packs.core import _departments
+        names = {o["value"].lower(): o["value"] for o in _departments(ctx.db)}
+        if value.lower() not in names:
+            raise ValueError(f"{value} is not a department in Settings > Companies > Departments")
+        value = names[value.lower()]
+        return value, value
+    if key == "employment_type":
+        by_label = {lbl.lower(): k for k, lbl in PERSON_EMPLOYMENT_TYPES.items()}
+        value = by_label.get(value.lower(), value.lower().replace(" ", "_"))
+        if value not in PERSON_EMPLOYMENT_TYPES:
+            raise ValueError(f"{raw.strip()} is not an employment type - use Full Time, Part Time, Contractor "
+                             f"or Intern")
+        return value, PERSON_EMPLOYMENT_TYPES[value]
+    if key == "status":
+        value = value.lower()
+        if value in ("offboarded", "left"):
+            raise ValueError("A workflow cannot mark someone Left - use Offboard in People, which records the "
+                             "termination date and runs the leaver steps")
+        if value not in PERSON_STATUSES:
+            raise ValueError(f"{raw.strip()} is not a status - use Onboarding, Active or Inactive")
+        return value, PERSON_STATUSES[value]
+    if key in PERSON_MANAGER_FIELDS:
+        email = value.lower()
+        mgr = _emp_by_email(ctx.db, email)
+        if mgr is None or (mgr.status or "active") != "active":
+            raise ValueError(f"{label}: {value} is not an active person in Nexus People - give their work email")
+        if emp is not None and (emp.work_email or "").strip().lower() == email:
+            raise ValueError(f"{employee_name(emp)} cannot be their own {label.lower()}")
+        user = ctx.run_as or {}
+        if user:
+            import auth
+            from routers.hr import _in_scope
+            if not _in_scope(mgr, auth.hr_scope(user, ctx.db)):
+                raise ValueError(f"{label}: {employee_name(mgr)} is outside "
+                                 f"{_name_of(ctx.db, user.get('email') or '')}'s People access")
+        return email, employee_name(mgr)
+    return value[:200], value[:200]
+
+
+def _person_detail_plan(ctx, params) -> str:
+    try:
+        key = _person_field(params)
+        _value, shown = _person_value(ctx, key, _render(ctx, params.get("value")), _person_of(ctx))
+    except ValueError as e:
+        return str(e)
+    return f"Would set {PERSON_FIELD_LABELS[key]} to {shown} on {_subject_name(ctx)}"
+
+
+def _person_detail_run(ctx, params) -> dict:
+    from fastapi import HTTPException
+    from routers import hr as hr_router
+    import auth
+    emp = _need_person(ctx)
+    key = _person_field(params)
+    label = PERSON_FIELD_LABELS[key]
+    value, shown = _person_value(ctx, key, _render(ctx, params.get("value")), emp)
+    name = employee_name(emp)
+    before = getattr(emp, key, None) or ""
+    if (before.strip().lower() if key in PERSON_MANAGER_FIELDS else before.strip()) == value:
+        return {"line": f"{label} is already {shown} on {name} - nothing changed", "affected": [], "sent": []}
+    user = ctx.run_as or {}
+    try:
+        changes = hr_router.apply_profile_update(ctx.db, emp, {key: value}, user,
+                                                 scope=auth.hr_scope(user, ctx.db), source=_workflow_line(ctx))
+    except HTTPException as e:
+        raise ValueError(str(e.detail)) from None
+    if not changes:
+        return {"line": f"{label} is already {shown} on {name} - nothing changed", "affected": [], "sent": []}
+    # Keep the linked Microsoft 365 account in step, as the People save does
+    # (best-effort; this runs in the workflow runner's thread, off the loop).
+    try:
+        hr_router.mirror_profile_to_entra(ctx.db, emp, {key: value}, changes, {})
+    except Exception as e:   # noqa: BLE001 - the save is done; Entra catches up on the next sync
+        print(f"[workflows] hr.set_person_field: Entra mirror skipped: {type(e).__name__}")
+    return {"line": f"Set {label} to {shown} on {name}", "affected": _affected(emp), "sent": []}
+
+
+def _person_detail_allowed(ctx, params) -> str:
+    why = _hr_allowed(ctx, params, "change a person's details")
+    if why:
+        return why
+    try:
+        key = _person_field(params)
+    except ValueError as e:
+        return str(e)
+    emp = _person_of(ctx)
+    user = ctx.run_as or {}
+    if emp is not None and user:
+        import auth
+        from routers.hr import _in_scope
+        scope = auth.hr_scope(user, ctx.db)
+        if scope is not None and not _in_scope(emp, scope):
+            return (f"{employee_name(emp)} is outside {_name_of(ctx.db, user.get('email') or '')}'s People "
+                    f"access")
+    raw = str(params.get("value") or "")
+    if "{{" not in raw:   # a fixed value is checked now; a filled-in one when the step runs
+        try:
+            _person_value(ctx, key, raw, emp)
+        except ValueError as e:
+            return str(e)
+    return ""
+
+
+action("hr.set_person_field", label="Set A Person Detail", module=MODULE,
+       params=[P("field", "Detail", "select", options=PERSON_FIELDS),
+               P("value", "Value", "template", required=False, max=200,
+                 hint="{{ fields }} are filled in. For Manager or Backup Manager, give their work email. "
+                      "Blank clears Job Title, Location or Backup Manager only.")],
+       plan=_person_detail_plan, run=_person_detail_run, allowed=_person_detail_allowed)
+
+
 def _note_plan(ctx, params) -> str:
     text = _render(ctx, params.get("note"))
     return f"Would add a note to {_subject_name(ctx)}'s record: {text[:80] or '(empty)'}"

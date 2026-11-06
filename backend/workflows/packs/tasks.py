@@ -29,6 +29,7 @@ from sqlalchemy.orm import object_session
 import models
 from workflows import catalog
 from workflows.catalog import F, P, action, entity, event, list_source
+from workflows.outbox import record_files
 
 PRIORITIES = [("low", "Low"), ("medium", "Medium"), ("high", "High"), ("urgent", "Urgent")]
 TASK_TYPES = [("task", "Task"), ("subtask", "Subtask"), ("milestone", "Milestone"), ("approval", "Approval")]
@@ -143,6 +144,7 @@ entity("task", label="Task", model=models.Task, module="tasks",
        label_of=_label,
        visible_to=_task_visible,
        nexus_visible=_nexus_visible,
+       files=record_files,
        # `self` is the task's owner: the person an approval about the task
        # may not decide unless the step allows it (allowSelf)
        people_labels={"self": "The Person (Task Owner)", "owner": "Task Owner"})

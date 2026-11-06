@@ -10003,20 +10003,33 @@ def _month_bounds(date_str: str):
 
 # Salaried people paid BI-WEEKLY (Charmi, 11/06/2026: "you can be on a fixed
 # salary and still get paid bi-weekly"): Pay & Benefits' Pay Frequency decides
-# the Time Sheet's period - the hourly 14-day period instead of the month -
-# for periods from this date (a pay period start, so nothing is split; every
-# earlier month keeps its monthly card). Contractors invoice by the month.
-BIWEEKLY_SALARY_FROM = "2026-11-01"
+# the Time Sheet's period - the hourly 14-day period instead of the month.
+# Contractors invoice by the month. Every period is bi-weekly for them, not
+# only those from 11/01/2026: Charmi pays Valinda's 10/18 - 10/31 period now
+# and an October MONTH card was no use for it (11/06/2026). The salary is
+# priced from the monthly figure either way, so only the bounds change. What
+# stays monthly is a pay period touching a month HR already FINALIZED as a
+# month - that month is paid and locked as it was.
+BIWEEKLY_SALARY_FROM = "2024-01-14"   # the pay period series' own start
 
 
 def _salary_biweekly(db: Session, em: str, anchor: str) -> bool:
-    if _pay_period(anchor)[0] < BIWEEKLY_SALARY_FROM:
+    p_start, p_end = _pay_period(anchor)
+    if p_start < BIWEEKLY_SALARY_FROM:
         return False
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == (em or "").lower()).first()
     if emp is None or (emp.employment_type or "") == "contractor":
         return False
     comp = emp.compensation if isinstance(emp.compensation, dict) else {}
-    return comp.get("payBasis") == "salary" and comp.get("frequency") == "biweekly"
+    if not (comp.get("payBasis") == "salary" and comp.get("frequency") == "biweekly"):
+        return False
+    # A month finalized as a month keeps its monthly card.
+    locked = (db.query(TimeApproval.period_start, TimeApproval.period_end)
+              .filter(TimeApproval.employee_email == (em or "").lower(),
+                      TimeApproval.revoked == 0, TimeApproval.kind == "final",
+                      TimeApproval.period_start <= p_end, TimeApproval.period_end >= p_start)
+              .all())
+    return not any((r.period_start, r.period_end) != (p_start, p_end) for r in locked)
 
 
 def _fixed_bounds(db: Session, em: str, anchor: str) -> tuple:

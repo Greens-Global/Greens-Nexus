@@ -24,11 +24,22 @@ DEFAULTS = {
     "pausedAll": False,
     "pausedBy": "",
     "pausedAt": "",
+    # Send A Text Message (11/05/2026): texts cost money per message, so the
+    # action has its own switch - org default, a company may turn it off.
+    "textMessages": True,
+    # At most this many workflow texts reach one person in 24 hours; past it
+    # the message goes to their bell instead (workflows/outbox.py).
+    "textDailyCap": 3,
+    # Send One Summary Per Person: how long the first message waits for
+    # others from the same workflow before the summary goes out.
+    "summaryMinutes": 60,
 }
 HARD_RUNS_CAP = 500
 HARD_RECIPIENTS_CAP = 200
+HARD_TEXT_DAILY_CAP = 20
 ORG_ONLY = ("nexusRunAs", "webhookHosts", "webhookSecrets", "pausedAll", "pausedBy", "pausedAt")
-COMPANY_KEYS = ("enabled", "ownerDigest", "maxRunsPerHourCap", "maxRecipientsCap")
+COMPANY_KEYS = ("enabled", "ownerDigest", "maxRunsPerHourCap", "maxRecipientsCap", "textMessages", "textDailyCap",
+                "summaryMinutes")
 
 
 def _now() -> str:
@@ -37,13 +48,14 @@ def _now() -> str:
 
 def _clean(cfg: dict, base: dict) -> dict:
     out = dict(base)
-    for k in ("enabled", "ownerDigest", "nexusRunAs", "pausedAll"):
+    for k in ("enabled", "ownerDigest", "nexusRunAs", "pausedAll", "textMessages"):
         if k in cfg:
             out[k] = bool(cfg[k])
-    for k, hard in (("maxRunsPerHourCap", HARD_RUNS_CAP), ("maxRecipientsCap", HARD_RECIPIENTS_CAP)):
+    for k, low, hard in (("maxRunsPerHourCap", 1, HARD_RUNS_CAP), ("maxRecipientsCap", 1, HARD_RECIPIENTS_CAP),
+                         ("textDailyCap", 1, HARD_TEXT_DAILY_CAP), ("summaryMinutes", 5, 1440)):
         if k in cfg:
             try:
-                out[k] = max(1, min(int(cfg[k]), hard))
+                out[k] = max(low, min(int(cfg[k]), hard))
             except (TypeError, ValueError):
                 pass
     if "webhookHosts" in cfg:
@@ -172,4 +184,6 @@ def public(db, company_id: str = "") -> dict:
     out = {k: cfg.get(k) for k in DEFAULTS if k != "webhookSecrets"}
     out["webhookSecretsSet"] = sorted((cfg.get("webhookSecrets") or {}).keys())
     out["override"] = has_override(db, company_id) if company_id else False
+    import sentdm
+    out["textingReady"] = sentdm.configured()     # NEXUS_SENTDM_KEY is set on this server
     return out

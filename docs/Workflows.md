@@ -57,6 +57,74 @@ page, not a popup, and reads top to bottom as prose:
    Approval show their branches as indented lanes. Drag to reorder, or Move
    Up / Down. A step can be set to **Skip** without deleting it.
 
+What a step can DO comes from the catalog. Messages (Core): Send A
+Notification (the bell, pushed to phones), Send An Email, **Send A Text
+Message** (11/05/2026), Post To Teams and Call A Webhook (Super
+Administrators). Records: the HR actions (Start An HR Checklist, Request An
+HR Letter, Set A Custom Field, **Set A Person Detail** (11/05/2026, see
+below), Add A Note To The Record), the Tasks and
+Tickets actions (create, comment, assign, set a field or status, request
+approval) and **Assign A Training Course** (Knowledge Base, 11/05/2026).
+
+Send A Text Message texts each recipient at the phone on their People
+record through the one SMS client (`sentdm.py`), as "<Company>: <message>
+Open: <link>", at most 480 characters. Recipients are directory people only,
+like every message. A person with no phone, a number that cannot be texted,
+or workflow texts turned off (Profile > Phone Notifications > Texts From
+Workflows, `nexus_person_prefs.workflow_sms`) is skipped and named in the
+run log. Settings > Workflows > Text Messages turns it off for the
+organization or one company (texts are billed per message). Only the
+deployed worker sends; a server without `NEXUS_SENTDM_KEY` fails the step
+with a readable reason. sent.dm down or a 5xx / 429 retries the step without
+texting anyone twice; any other refusal is reported for that person.
+
+Three rules keep texts considerate (Neil, 11/05/2026, `workflows/outbox.py`):
+
+- **Quiet hours, California only.** A person who works in California (the
+  `work_state` rule the California Review reads: their work site, punches,
+  People location or company; or HR put them on the California rule) is
+  never texted between 9:00 PM and 8:00 AM Pacific. Their text waits in
+  `workflow_messages` and goes out at 8:00 AM Pacific; everyone else is
+  texted at once, and the step finishes either way. Emails never wait.
+- **Texts Per Person Per Day** (Settings > Workflows, default 3, at most
+  20, per company): a person past it in the last 24 hours (held texts
+  count) gets the message in their bell instead.
+- **Send One Summary Per Person** (on Send An Email and Send A Text
+  Message): the step queues its message; the first one waits Summary Wait
+  (Settings > Workflows, default 60 minutes) for more from the same
+  workflow, then the person gets ONE email ("<Workflow>: 3 Updates") or one
+  text with them all.
+
+The outbox is flushed every workflows tick (the deployed worker only, even
+while workflows are paused). A send that fails is tried again 5, 15 and 60
+minutes later, then marked failed and the workflow owner is belled ("Workflow
+Message Not Sent"). Sent and failed rows are kept 30 days.
+
+Send An Email also takes **CC** (directory people; one email goes to
+everyone in To with the CC line, as a person would send it), **Replies Go To
+The Owner** (on by default), **Send From** the Nexus mailbox or the owner's
+own (when Nexus may not send from the owner's mailbox, the Nexus mailbox
+sends it and replies still go to the owner, `accounting_saved`'s rule) and
+**Attach The Record's Files** (a task's or ticket's files from Nexus's own
+storage, 3 MB in all; what does not fit is named in the email with the link).
+A record kind offers files by registering `files=` on its entity. A summary
+email cannot carry CC.
+
+Assign A Training Course is the Training screen's Assign as the owner: the
+owner must be a course author (a manager, or the Knowledge Base editor
+grant), the course published, and each person inside the owner's company
+wall. Someone who already has the course keeps it as it is.
+
+Not offered on purpose: approving or rejecting time off (nothing approves
+by code), deciding probation (a manager recommends, HR finalizes) and
+sending a Nexus Sign envelope (the signing order and the excluded-document
+acknowledgment are a person's call). Shifts, time off requests and
+announcements have no service function a workflow can call yet - their
+logic lives in the routes - so they wait for one rather than get a second
+write path. A person's own fields got theirs on 11/05/2026
+(`routers/hr.apply_profile_update`, used by both the People save and Set A
+Person Detail).
+
 Text fields take fields from the record through Insert Field - nobody types
 `{{ subject.name }}` by hand. The right rail holds Settings, Test and
 Versions. On a new workflow, **Describe It** takes a sentence ("when a
@@ -136,6 +204,24 @@ longer exists is paused as Needs Attention with a bell to the owner and the
 Super Administrators. Publish, pause, resume, re-own and restore are written to the
 Audit Log (Settings > Logs). The Monday **Owner Digest** (Settings >
 Workflows) lists each owned workflow's runs, failures and what it did most.
+
+### Set A Person Detail
+
+The HR action **Set A Person Detail** (`hr.set_person_field`, 11/05/2026)
+changes one of seven fields on a person's record: Department, Job Title,
+Manager, Backup Manager, Location, Employment Type or Status. It saves through
+the People screen's own save (`routers.hr.apply_profile_update`), so the owner
+must be HR for the person and the person must be inside the owner's People
+access, and the record's history shows the change with "Workflow: <name>".
+The value may use inserted fields. A department must be one in Settings >
+Companies > Departments; Employment Type is Full Time, Part Time, Contractor
+or Intern; Status is Onboarding, Active or Inactive; a Manager or Backup
+Manager is given by work email and must be an active person in Nexus People,
+inside the owner's People access, and never the person themselves. Only Job
+Title, Location and Backup Manager may be set to blank. A value that is
+already there changes nothing. Company, work email, names, the start date and
+pay are never offered, and marking someone Left stays in People > Offboard,
+which records the termination date and runs the leaver steps.
 
 ### Templates
 
@@ -337,7 +423,7 @@ Every action runs with the owner's identity and the module's own permission
 checks; re-owning a workflow re-validates it against the new owner. A Global
 Admin may set run-as to Nexus (`workflows@nexus`) for organization-wide
 housekeeping when Settings > Workflows > Nexus Run-As is on. Nexus can only
-message: Send A Notification, Send An Email, Wait, Stop, If / Else, For Each
+message: Send A Notification, Send An Email, Send A Text Message, Wait, Stop, If / Else, For Each
 over a list source. Every module action needs a directory person
 (`needs_person=True`), so the builder does not offer them under Nexus and
 Publish refuses a definition that has them. No synthetic privileged identity

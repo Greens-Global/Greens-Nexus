@@ -407,6 +407,8 @@ def purge(db, now: Optional[datetime] = None) -> int:
           .delete(synchronize_session=False))
     old_runs = (now - timedelta(days=RUN_DAYS)).isoformat()
     n += db.query(R).filter(R.started_at < old_runs, R.status.in_(FINISHED)).delete(synchronize_session=False)
+    from workflows import outbox
+    n += outbox.purge(db, now)
     db.commit()
     return n
 
@@ -420,7 +422,7 @@ def tick(now: Optional[datetime] = None, *, force_health: bool = False, force_pu
     catalog.load_packs()
     now = now or datetime.now(timezone.utc)
     out = {"events": 0, "runs": 0, "requeued": 0, "resumed": 0, "scheduled": 0, "purged": 0, "attention": 0,
-           "approvals": {}, "digests": 0, "skipped": ""}
+           "approvals": {}, "digests": 0, "messages": 0, "skipped": ""}
     if not may_run_here():
         out["skipped"] = "not the deployed worker"
         return out
@@ -443,6 +445,14 @@ def tick(now: Optional[datetime] = None, *, force_health: bool = False, force_pu
             if force_dates or mono - _last_dates > DATES_EVERY:
                 out["scheduled"] += fire_dates(db, now)
                 _last_dates = mono
+        try:
+            # held texts (California quiet hours) and per-person summaries -
+            # messages already queued go out even while workflows are paused
+            from workflows import outbox
+            out["messages"] = outbox.flush(db, now)
+        except Exception as e:   # noqa: BLE001 - the outbox never stops the tick
+            db.rollback()
+            print(f"[workflows] message outbox failed: {type(e).__name__}: {str(e)[:200]}")
         try:
             out["digests"] = send_owner_digests(db, now)
         except Exception as e:   # noqa: BLE001 - the digest never stops the tick
