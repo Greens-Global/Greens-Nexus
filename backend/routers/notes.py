@@ -103,7 +103,7 @@ TITLE_MAX = 200
 BODY_MAX = 300_000
 SCENE_MAX = 2_000_000                 # characters of board JSON
 SCENE_TYPE = "nexus-board"
-SOURCE_KINDS = ("task", "ticket", "note", "walkthrough", "file", "construction_media")
+SOURCE_KINDS = ("task", "ticket", "note", "walkthrough", "file", "construction_media", "construction_job")
 SOURCE_ID_MAX, SOURCE_LABEL_MAX = 100, 200
 # A Mark Up source link is a Nexus page: one leading slash and never two
 # (`//evil.com` is another site to a browser), no backslash, no

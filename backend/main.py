@@ -4221,6 +4221,14 @@ def _tier_seeds():
             db.rollback()
             print(f"[startup] tier words pass skipped: {e}")
         try:
+            import construction_safety   # Toolbox Talk + Near Miss / Incident forms, seeded once (11/06/2026)
+            res = construction_safety.apply_once(db)
+            if res is not None:
+                print(f"[startup] safety forms seeded: {', '.join(res) or 'none (already there)'}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] safety forms seed skipped: {e}")
+        try:
             import kb_academy_seed   # Storage Academy, imported once as drafts (11/04/2026)
             res = kb_academy_seed.apply_once(db)
             if res:

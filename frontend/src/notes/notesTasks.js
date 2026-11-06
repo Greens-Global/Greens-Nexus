@@ -7,12 +7,26 @@ import { noteTitle } from './notesModel';
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export function createTaskFrom(text, note, myEmail) {
+export async function createTaskFrom(text, note, myEmail) {
   const title = (text || '').slice(0, 250);
   const description = note ? `<p>From the note "${esc(noteTitle(note))}".</p>` : '';
-  return api.createTask({
+  const body = {
     title, description, assignee_emails: myEmail ? [myEmail] : [], status: 'not_started', priority: 'medium', type: 'task',
-  });
+  };
+  // A job's meeting note (Round Two item 10): the action item goes into the
+  // job's task project - unless the writer may not add work there (or the
+  // job has none), then it is their own task as before.
+  if (note?.source?.kind === 'construction_job' && note.source.id) {
+    const projectId = await api.getConstructionProject(note.source.id).then((p) => p?.taskProjectId || '').catch(() => '');
+    if (projectId) {
+      try {
+        return await api.createTask({ ...body, project_id: projectId });
+      } catch (e) {
+        if (e?.status !== 403 && e?.status !== 404) throw e;
+      }
+    }
+  }
+  return api.createTask(body);
 }
 
 export function openTask(taskId) {
