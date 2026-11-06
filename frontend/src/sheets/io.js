@@ -229,5 +229,7 @@ export async function exportSheetFile(doc, title, kind = 'xlsx', tabId = '', { v
     names.push({ Name: n.name, Ref: `${sheet}!${abs(at.r1, at.c1)}:${abs(at.r2, at.c2)}` });
   });
   if (names.length) wb.Workbook = { ...(wb.Workbook || {}), Names: names };
-  XLSX.writeFile(wb, `${fileName(title)}.xlsx`, { compression: true });
+  // Bytes, then the same browser download as .csv (writeFile would write to disk under node).
+  const bytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array', compression: true });
+  download(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${fileName(title)}.xlsx`);
 }
