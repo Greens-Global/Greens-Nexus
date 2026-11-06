@@ -1063,6 +1063,24 @@ function shortenSummaries(el) {
 }
 /** A menu opened from the bar (or the More menu itself) is open: leave the row as it is. */
 const menuOpen = (el) => !!el.querySelector('[aria-haspopup][aria-expanded="true"]');
+// Where the Accounting ledger search docks (Neil, 11/06/2026: "find the best
+// spot for this within the module"): the right end of the screen's own
+// toolbar. Accounting provides { add, remove } and portals the search into
+// the first slot on the page; a screen with no slot keeps it in the page's
+// first row. Outside Accounting (no provider) a slot draws nothing.
+export const BarSearchSlotContext = createContext(null);
+export function BarSearchSlot() {
+  const slots = useContext(BarSearchSlotContext);
+  const el = useRef(null);
+  useLayoutEffect(() => {
+    const node = el.current;
+    if (!slots || !node) return undefined;
+    slots.add(node);
+    return () => slots.remove(node);
+  }, [slots]);
+  return slots ? <span ref={el} className="acct-bar-search" /> : null;
+}
+
 export function ControlBar({ children, className = '', style = null, ...rest }) {
   const ref = useRef(null);
   const moreRef = useRef(null);
@@ -1224,6 +1242,7 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
             <MoreHorizontal size={14} style={{ flexShrink: 0 }} />{changed > 0 && <span>{changed}</span>}
           </button>
         )}
+        <BarSearchSlot />
         <div ref={setPanel} className="acct-bar-more-panel" role="group" aria-label="More controls" hidden={!shown} style={{ position: 'absolute' }} />
       </div>
     </BarContext.Provider>

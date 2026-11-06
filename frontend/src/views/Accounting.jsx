@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Activity, ArrowLeftRight, Banknote, BookOpen, Building2, Calculator, ChartColumn, CheckSquare, CreditCard, Database, FileStack, FileText,
   Hammer, HandCoins, Handshake, KeyRound, Landmark, LayoutGrid, Library, ListChecks, MessageCircleQuestion, PieChart, Receipt,
@@ -9,6 +10,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import ModuleTabs, { ModuleActions } from '../components/ModuleTabs';
 import ModuleSearch from '../components/accounting/ModuleSearch';
+import { BarSearchSlotContext } from '../components/accounting/reportControls';
 import { dashDensityOf, useAccountingPrefs } from '../components/accounting/prefs';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
@@ -342,6 +344,18 @@ export default function Accounting({ activeSub, onSubChange }) {
     if (!isReports(sub) && searchText.trim().length >= 2) searchTimer.current = setTimeout(() => goSearch(searchText), 600);
     return () => clearTimeout(searchTimer.current);
   }, [searchText]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Where the search docks (Neil, 11/06/2026): the right end of the screen's
+  // own toolbar (BarSearchSlot in ControlBar and the Report Center row) - the
+  // first one on the page; none (a screen with no toolbar) = the page's first
+  // row, as before. `searchInUse` brings the box back open when typing on one
+  // screen opens Reports and the search moves to that toolbar.
+  const [searchSlots, setSearchSlots] = useState([]);
+  const searchSlotApi = useMemo(() => ({
+    add: (el) => setSearchSlots((s) => (s.includes(el) ? s : [...s, el])),
+    remove: (el) => setSearchSlots((s) => s.filter((x) => x !== el)),
+  }), []);
+  const searchSlot = [...searchSlots].sort((a, b) => ((a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1))[0] || null;
+  const [searchInUse, setSearchInUse] = useState(false);
   const lastSub = useRef(sub);
   useEffect(() => {
     if (isReports(lastSub.current) && !isReports(sub)) { setSearchText(''); setSearchWaiting(false); }
@@ -379,23 +393,26 @@ export default function Accounting({ activeSub, onSubChange }) {
   // when switching tabs.
 
   return (
+    <BarSearchSlotContext.Provider value={searchSlotApi}>
     <div className="acct-module" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* One header for every tab (Visesh, 10/02: the search "keeps jumping
           on every screen change"). Oct 6 (Neil): the search sits at the TOP
           RIGHT on every tab, Reports included - title left, the search box
           last. One line, one height, everywhere. */}
       {/* No page title (Neil, 11/06/2026): the module bar names the module and
-          the lit tab. The search rides the bar's right end, the same place on
-          every tab. Chat 10/26, item 13: an icon that opens on a click or
-          Ctrl+F (ModuleSearch). Oct 7 (Neil, screenshot 3): none on PFS. */}
-      {access && sub !== 'pfs' && (
-        <ModuleActions>
-          <div className="acct-header-search">
-            <ModuleSearch value={searchText} onChange={setSearchText} waiting={searchWaiting && isReports(sub)}
+          the lit tab. The search docks at the right end of the screen's own
+          toolbar (searchSlot above). Chat 10/26, item 13: an icon that opens
+          on a click or Ctrl+F (ModuleSearch). Oct 7 (Neil, screenshot 3): none
+          on PFS. */}
+      {access && sub !== 'pfs' && (() => {
+        const search = (
+          <div className="acct-header-search" onFocus={() => setSearchInUse(true)} onBlur={() => setSearchInUse(false)}>
+            <ModuleSearch value={searchText} onChange={setSearchText} waiting={searchWaiting && isReports(sub)} startOpen={searchInUse}
               onSubmit={(text) => { clearTimeout(searchTimer.current); goSearch(text); }} />
           </div>
-        </ModuleActions>
-      )}
+        );
+        return searchSlot ? createPortal(search, searchSlot) : <ModuleActions>{search}</ModuleActions>;
+      })()}
 
       {access && <ModuleTabs tabs={withBadges(tabs, counts, 'accounting')} active={menuKey(sub)} onChange={onSubChange} compactGroups />}
 
@@ -461,5 +478,6 @@ export default function Accounting({ activeSub, onSubChange }) {
         </DashProvider>
       )}
     </div>
+    </BarSearchSlotContext.Provider>
   );
 }

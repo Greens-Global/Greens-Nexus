@@ -192,8 +192,9 @@ describe('Landing on a desk list', () => {
     VIEWS = [{ id: 'v1', name: 'My Desk', view: 'list', filters: { scope: 'assigned', sort: { key: 'due', dir: 'asc' } } }];
     render(<TicketsView />);
     await screen.findByText('Printer jam');
-    fireEvent.click(screen.getByRole('button', { name: 'My Desk' }));
-    expect(activeTab()).toBe('My Desk');
+    fireEvent.click(screen.getByRole('button', { name: /^Other Queues/ }));   // saved views sit under Other Queues (11/06/2026)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'My Desk' }));
+    expect(activeTab()).toBe('Other QueuesMy Desk');   // the dropdown names the picked view
     expect(screen.getByText('Printer jam')).toBeTruthy();           // assigned to me
     expect(screen.queryByText('VPN down')).toBeNull();
     expect(screen.queryByText('Badge reader offline')).toBeNull();
@@ -202,20 +203,30 @@ describe('Landing on a desk list', () => {
   });
 });
 
-// The bar's order (Neil, 10/31/2026): queues through Done, the approval
-// queues when they have something, saved views, Raised by Me, then + View.
-// A count pill is work waiting on you, so Done / All Open / Raised by Me show none.
+// The bar (Neil, 11/06/2026: "too cluttered"): four queues, then ONE More
+// Queues dropdown with the rest in the old order - Due Soon, Waiting, Done,
+// the approval queues when they have something, saved views, Raised by Me.
+// No "+ View" tab (Save View is in the ... menu). A count pill is work
+// waiting on you, so Done / All Open / Raised by Me show none.
 describe('The desk bar', () => {
-  it('runs the built-in queues, then saved views, then Raised by Me, then + View', async () => {
+  it('shows four queues and puts the rest, saved views included, under Other Queues', async () => {
     VIEWS = [{ id: 'v1', name: 'My Desk', view: 'list', filters: {} }];
     render(<TicketsView />);
     await screen.findByText('Printer jam');
-    const labels = [...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.replace(/\d+$/, '').trim());
-    expect(labels).toEqual(['Needs Reply', 'Unassigned', 'Mine', 'Due Soon', 'Waiting', 'All Open', 'Done', 'My Desk', 'Raised by Me', '+ View']);
+    const labels = [...document.querySelectorAll('.module-tab-inline-btn')].map((b) => {
+      const c = b.cloneNode(true);
+      c.querySelectorAll('.hdr-tab-badge, .tab-group-current').forEach((n) => n.remove());
+      return c.textContent.trim();
+    });
+    expect(labels).toEqual(['Needs Reply', 'Unassigned', 'Mine', 'All Open', 'Other Queues']);
     const pill = (name) => screen.getByRole('button', { name: new RegExp(`^${name}`) }).querySelector('.hdr-tab-badge');
     expect(pill('Unassigned')).toBeTruthy();
-    expect(pill('Done')).toBeNull();
     expect(pill('All Open')).toBeNull();
-    expect(pill('Raised by Me')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Other Queues/ }));
+    const rows = screen.getAllByRole('menuitem');
+    expect(rows.map((r) => r.textContent.replace(/\d+$/, '').trim())).toEqual(['Due Soon', 'Waiting', 'Done', 'My Desk', 'Raised by Me']);
+    const rowPill = (name) => rows.find((r) => r.textContent.startsWith(name)).querySelector('.hdr-tab-badge');
+    expect(rowPill('Done')).toBeNull();
+    expect(rowPill('Raised by Me')).toBeNull();
   });
 });

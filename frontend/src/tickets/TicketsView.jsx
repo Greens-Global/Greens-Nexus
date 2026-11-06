@@ -82,6 +82,8 @@ const LAYOUTS = ['modal', 'pane'];
 const PANE_COLS = ['checkbox', 'type', 'title', 'state', 'clock'];
 // Tabs whose count is a tally, not work waiting on you - no pill.
 const UNCOUNTED = new Set(['done', 'open', 'raised']);
+// The queues that stand as tabs on their own; the rest sit under Other Queues (Neil, 11/06/2026).
+const PRIMARY_QUEUES = new Set(['needs_reply', 'unassigned', 'mine', 'open']);
 
 // What an empty queue says - not "no tickets match your filters", which is
 // for a filter someone set. Title Case titles, sentence-case hints.
@@ -618,13 +620,14 @@ export default function TicketsView() {
   const moveOnBoard = useCallback((id, status) => guardedUpdate(id, { status })
     .catch((e) => appDialog.alert(`Could not move the ticket: ${e?.message || e}`)), [guardedUpdate]);
 
-  // The bar's tabs: the queues this person has (To Route only on the desk,
-  // and the two approval queues only with something in them), then their
-  // saved views, then "+ View" (desktop - saving is a desktop job).
-  // Order (Neil, 10/31/2026): the built-in queues through Done, To Route and
-  // To Approve when they have something, the person's saved views, Raised by
-  // Me, then "+ View". A count pill means something waiting on you, so Done,
-  // All Open and Raised by Me carry none.
+  // The bar's tabs (Neil, 11/06/2026: "too cluttered ... simpler and more
+  // efficient"): the four queues a desk works from - Needs Reply, Unassigned,
+  // Mine, All Open - and ONE "Other Queues" dropdown holding the rest in the
+  // old order: Due Soon, Waiting, Done, To Route / To Approve / Preventive
+  // when they have something, the person's saved views, Raised by Me. Saving
+  // a view is the ... menu's Save View (no "+ View" tab). A count pill means
+  // something waiting on you, so Done, All Open and Raised by Me carry none;
+  // the dropdown adds up the counts inside it.
   const queueTabs = useMemo(() => {
     const shown = QUEUES.filter((q) => !(q.onlyDesk && !itAdmin) && !(q.hideWhenEmpty && !counts[q.key]));
     // Preventive counts what is overdue when anything is, in the alarm tone
@@ -633,16 +636,19 @@ export default function TicketsView() {
     const tab = (q) => (q.key === 'preventive'
       ? { key: q.key, label: q.label, badge: late || counts[q.key], tone: late ? 'alarm' : q.tone }
       : { key: q.key, label: q.label, badge: UNCOUNTED.has(q.key) ? 0 : counts[q.key], tone: q.tone });
-    return [
-      ...shown.filter((q) => q.key !== 'raised').map(tab),
+    const more = [
+      ...shown.filter((q) => !PRIMARY_QUEUES.has(q.key) && q.key !== 'raised').map(tab),
       ...ticketViews.map((v) => ({ key: `view:${v.id}`, label: v.name })),
       ...shown.filter((q) => q.key === 'raised').map(tab),
-      ...(isMobile ? [] : [{ key: '__save', label: '+ View' }]),
     ];
-  }, [counts, itAdmin, ticketViews, isMobile]);
+    return [
+      ...shown.filter((q) => PRIMARY_QUEUES.has(q.key)).map(tab),
+      ...(more.length ? [{ key: '__more_queues', label: 'Other Queues', items: more,
+        badge: more.reduce((n, t) => n + (Number(t.badge) || 0), 0) }] : []),
+    ];
+  }, [counts, itAdmin, ticketViews]);
   const activeTab = activeSaved && ticketViews.some((v) => v.id === activeSaved) ? `view:${activeSaved}` : queue;
   const onTab = (key) => {
-    if (key === '__save') { setNamingView(true); return; }
     if (key.startsWith('view:')) {
       const v = ticketViews.find((x) => `view:${x.id}` === key);
       if (v) applyTicketView(v);

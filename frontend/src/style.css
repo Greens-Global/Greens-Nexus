@@ -6946,6 +6946,11 @@ body.sched-stretching, body.sched-stretching * { cursor: ew-resize !important; u
 .acct-header-search { min-width: 0; display: flex; justify-content: flex-end; }
 .acct-header-search form[role="search"] { width: clamp(260px, 30vw, 400px); }
 .acct-header-actions { display: flex; justify-content: flex-end; min-width: 0; }
+/* Docked in a screen's toolbar (11/06/2026): last on the row, the open box a
+   little narrower so the toolbar keeps its controls. */
+.acct-bar-search { display: inline-flex; align-items: center; flex-shrink: 0; }
+.acct-bar-search:empty { display: none; }
+.acct-bar-search .acct-header-search form[role="search"] { width: clamp(200px, 22vw, 320px); }
 @media (max-width: 900px) {
   /* The icon stays beside the title; the open box takes its own line. */
   .acct-header-search:has(form[role="search"]) { grid-column: 1 / -1; grid-row: 2; }
