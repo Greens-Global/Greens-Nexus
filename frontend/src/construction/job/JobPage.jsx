@@ -9,9 +9,10 @@
 // an Approvals row lands on RFIs And Submittals. Lazy: its own chunk, and the
 // Schedule tab (the Tasks timeline) a chunk of its own beyond that.
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { Pencil, Flag, ClipboardList, CheckSquare, Users, Ticket, Building2, Inbox, ExternalLink } from 'lucide-react';
+import { Pencil, Flag, ClipboardList, CheckSquare, Users, Ticket, Building2, Inbox, ExternalLink, NotebookPen, ShieldCheck } from 'lucide-react';
 import { api } from '../../api';
-import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
+import { ErrorBanner, ModalLoading, SkeletonBlocks } from '../../components/AsyncState';
+import { dialog } from '../../ui/dialog';
 import { StatusLabel } from '../../components/StatusLabel';
 import ProgressTrack from '../../ui/ProgressTrack';
 import ViewErrorBoundary from '../../components/ViewErrorBoundary';
@@ -43,6 +44,8 @@ const SubsTab = lazy(() => import('./SubsTab'));
 const DrawingsTab = lazy(() => import('./DrawingsTab'));
 // Money (phase 4): its own chunk with the Accounting side panel.
 const MoneyTab = lazy(() => import('./MoneyTab'));
+// Meetings and Safety (Round Two item 10): the ONE fill screen, the job pre-linked.
+const FillForm = lazy(() => import('../../forms/FillForm'));
 const tabWait = <SkeletonBlocks count={3} height={120} borderRadius={12} />;
 
 const go = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }));
@@ -87,6 +90,18 @@ function Line({ left, right, onClick }) {
 // ── Overview ────────────────────────────────────────────────────────────────
 function Overview({ project, onTab, money }) {
   const { data, error, reload } = useLoad(() => api.getJobConnected(project.id), project.id);
+  const [filling, setFilling] = useState('');
+  const [starting, setStarting] = useState(false);
+  const newMeeting = async () => {
+    setStarting(true);
+    try {
+      const n = await api.newJobMeeting(project.id);
+      go('dashboard', `notes:${n.id}`);
+    } catch (e) {
+      dialog.alert(e?.message || 'Could not start the meeting.');
+    } finally { setStarting(false); }
+  };
+  const safety = data?.safety;
   const isProject = project.jobType !== 'work_order';
   const names = { ...(project.names || {}), ...(data?.names || {}) };
   const pct = Math.round(project.percentComplete || 0);
@@ -193,6 +208,25 @@ function Overview({ project, onTab, money }) {
               </>
             ) : <div style={quiet}>{project.propertyId ? 'A property you cannot open.' : 'Not linked to a property. Edit Job to link one.'}</div>}
           </Card>
+          <Card icon={NotebookPen} title="Meetings" testId="meetings">
+            {(data.meetings || []).length === 0
+              ? <div style={quiet}>No meeting notes yet. New Meeting starts the minutes, shared with the job's people.</div>
+              : data.meetings.map((m) => (
+                <Line key={m.id} left={m.title} right="Open" onClick={() => go('dashboard', `notes:${m.id}`)} />
+              ))}
+            <div><button type="button" style={linkBtn} onClick={newMeeting} disabled={starting}>{starting ? 'Starting…' : 'New Meeting'}</button></div>
+          </Card>
+          {safety && (
+            <Card icon={ShieldCheck} title="Safety" testId="safety">
+              <Line left="Last Toolbox Talk" right={safety.lastToolboxTalk ? formatDate(safety.lastToolboxTalk, safety.lastToolboxTalk) : 'None recorded'} />
+              <Line left="Days Since a Near Miss or Incident" right={safety.daysSinceIncident == null ? 'None recorded' : String(safety.daysSinceIncident)} />
+              <Line left="Open Safety Tags on Logs" right={String(safety.openSafetyTags || 0)} />
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                <button type="button" style={linkBtn} onClick={() => setFilling(safety.toolboxFormId)}>Fill Toolbox Talk</button>
+                <button type="button" style={linkBtn} onClick={() => setFilling(safety.incidentFormId)}>Report a Near Miss</button>
+              </div>
+            </Card>
+          )}
           <Card icon={Users} title="Team" testId="team">
             {team.map(([label, list]) => (
               <div key={label} style={{ fontSize: '0.84rem' }}>
@@ -205,6 +239,11 @@ function Overview({ project, onTab, money }) {
         </div>
       )}
       <SiteWeatherCard project={project} />
+      {filling && (
+        <Suspense fallback={<ModalLoading zIndex={4100} />}>
+          <FillForm templateId={filling} projectId={project.id} onClose={() => setFilling('')} onSent={() => reload()} />
+        </Suspense>
+      )}
     </div>
   );
 }

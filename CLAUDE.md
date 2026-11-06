@@ -1063,6 +1063,10 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   events, so a change-order threshold is an automation rule, never code.
   Vendors are Intacct's, through Accounting > Vendors & Customers - never a
   Construction vendor directory (Neil, 11/05/2026).
+  Meetings and Safety (Round Two item 10, no new tables): a meeting is a Note
+  with source kind `construction_job`, shared with the job's people; safety is
+  two Forms seeded once (`construction_safety.apply_once`) linked by
+  `linked_project_id`; `construction_safety.facts` is counts and dates only.
 - **Subs and their papers (Round Two item 7, 11/05/2026,
   `routers/construction_subs.py`, `vendor_compliance.py`):** a sub on a job
   is a `ConstructionJobLink` kind `sub` whose `ref_id` is the Intacct

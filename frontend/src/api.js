@@ -3630,6 +3630,7 @@ api.addPunchItem = (jobId, data) => req(`/construction/projects/${encodeURICompo
 api.setPunchDone = (taskId, done) => req(`/construction/punch/${encodeURIComponent(taskId)}/done`, { method: 'POST', body: JSON.stringify({ done: !!done }) });
 api.setPunchVerified = (taskId, verified) => req(`/construction/punch/${encodeURIComponent(taskId)}/verify`, { method: 'POST', body: JSON.stringify({ verified: !!verified }) });
 api.getJobConnected = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/connected`);
+api.newJobMeeting = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/meetings`, { method: 'POST' });
 api.getJobLabor = (jobId, from = '', to = '') => req(`/construction/projects/${encodeURIComponent(jobId)}/labor?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(to)}`);
 api.getJobForms = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/forms`);
 api.getJobPhotos = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/photos`);
