@@ -44,7 +44,6 @@ import { PersonMultiSelect } from '../tasks/components';
 import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
 import WorkSiteAddressMap from '../components/WorkSiteAddressMap';
 import { googleMapsUrl } from '../lib/addressSearch';
-import PageTrail from '../components/PageTrail';
 import { useTableValue } from '../tasks/tableCols';
 import ProgramTable from './ProgramTable';
 
@@ -391,9 +390,14 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
             {asTable ? 'Every job on one table: health, dates, money and cost per square foot, compared. Open a row for the job.' : 'Late and at-risk jobs first. Open one for its schedule, punch list, crew and weather.'}
           </p>
         </div>
-        {!isMobile && projects.length > 0 && (
-          <ChoicePills label="Jobs view" options={['Cards', 'Table']} value={jobsView === 'Table' ? 'Table' : 'Cards'} onChange={setJobsView} />
-        )}
+        {/* New Job sits in the Jobs card's own header (Neil, 11/06/2026). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {!isMobile && projects.length > 0 && (
+            <ChoicePills label="Jobs view" options={['Cards', 'Table']} value={jobsView === 'Table' ? 'Table' : 'Cards'} onChange={setJobsView} />
+          )}
+          {/* An empty list offers New Job in its own empty state. */}
+          {!(data && projects.length === 0) && <button className="primary-btn" onClick={() => setShowNew(true)}><Plus size={16} />New Job</button>}
+        </div>
       </div>
       {data === null ? (
         <SkeletonBlocks count={3} height={110} borderRadius={8} />
@@ -416,15 +420,7 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
 
   return (
     <>
-      <div className="view-header" style={{ marginBottom: 24 }}>
-        <div className="view-title-group">
-          {/* The heading names the open tab (Project Dashboard), the trail the module. */}
-          <PageTrail title="Project Dashboard" />
-          <h2>Project Dashboard</h2>
-          <p>Jobsite daily logs, media and weekly reporting</p>
-        </div>
-        <button className="primary-btn" onClick={() => setShowNew(true)}><Plus size={16} />New Job</button>
-      </div>
+      {/* No page title (Neil, 11/06/2026): the module bar in the top header names the tab. */}
 
       {error && <ErrorBanner message={error} onRetry={load} />}
 

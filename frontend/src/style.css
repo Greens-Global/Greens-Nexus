@@ -9266,12 +9266,12 @@ body:has(.apv-phone) { overflow-x: clip; }
 .it-tl-photo img { width: 120px; height: 90px; object-fit: cover; border-radius: 8px; border: 1px solid var(--wk-line2, var(--line)); }
 .it-tl-photo span { font-size: 12px; color: var(--muted); }
 
-.it-tabs { margin-top: -4px; border-bottom: 1px solid var(--wk-line2, var(--line)); }
-.it-tabs .module-tabs-inline { margin: 0; border-bottom: none; }
+/* The tab's name is in the top header on a computer (11/06/2026); a phone,
+   whose bottom bar carries no names, keeps it. */
+@media (min-width: 901px) { .it-title { display: none; } .it-sub { margin-top: 0; } }
 @media (max-width: 900px) {
   .it-cartbar { bottom: calc(74px + env(safe-area-inset-bottom)); }
   .it-borrow.has-cart { padding-bottom: 140px; }
-  .it-tabs { display: none; }   /* the bottom bar is the tabs on a phone */
 }
 @media (max-width: 640px) {
   .it-page { gap: 12px; }
@@ -9700,6 +9700,13 @@ body:has(.apv-phone) { overflow-x: clip; }
 .module-bar .hdr-tab:active { transform: none; }
 .module-bar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 6px 0; }
 .module-bar-actions:empty { display: none; }
+/* A module's buttons (<ModuleActions>, 11/06/2026): never in the top header -
+   the right end of the page's first row, at every width; nothing when empty. */
+.module-actions-row {
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap;
+  gap: 8px; margin-bottom: 16px;
+}
+.module-actions-row:empty { display: none; }
 .module-bar-meta { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 /* The module's name: the trail riding the bar, in Title Case as written -
    never the uppercase eyebrow. A record's parent pages follow it, quieter. */
@@ -9711,14 +9718,47 @@ body:has(.apv-phone) { overflow-x: clip; }
    placed above its own title stand down (computers only - a phone has no bar
    tabs and keeps them). */
 @media (min-width: 901px) {
-  .main-content:has(> .module-bar) .viewport .page-trail { display: none; }
+  .main-content:has(.module-bar--header) .viewport .page-trail { display: none; }
 }
-@media (max-width: 1180px) { .module-bar { padding: 0 20px; } }
-/* Phones keep their swipeable in-page strip: the bar shows only a module's
-   actions, and only when it has some. */
+/* The bar IN the top header (Neil, 11/06/2026: "on the top navigation bar
+   instead of on the page"): Back, then the module's name or a record's
+   trail and its tabs (a measured strip that folds into More), then the
+   search and the account cluster - never a module's buttons. One row; the page starts under it.
+   Below 1440px the account pill keeps just the photo and the search gets
+   shorter so the tabs keep their room; Ctrl+F still opens the search. */
+@media (min-width: 901px) {
+  .header-center:has(> .module-bar--header) { display: flex; align-self: stretch; }
+  .module-bar--header {
+    position: static; z-index: auto; flex: 1; min-width: 0; min-height: 0;
+    align-self: stretch; padding: 0; background: none; border-bottom: 0;
+  }
+  /* No tabs (Help Center, Asset Management): the name stands alone, no divider. */
+  .module-bar--header:not(:has(.hdr-tabs)) .page-trail--bar { border-right: 0; }
+  /* Back is just the arrow, not a chip (Neil, 11/06/2026): it shares the row
+     with the module's name and tabs and must not crowd them. */
+  .top-header .breadcrumb-back,
+  [data-theme="dark"] .top-header .breadcrumb-back {
+    width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: var(--muted);
+  }
+  .top-header .breadcrumb-back:hover { color: var(--wk-brand); background: none; }
+}
+@media (min-width: 901px) and (max-width: 1439px) {
+  .top-header:has(.module-bar--header .hdr-tabs) .header-user-info { display: none; }
+}
+@media (min-width: 1181px) and (max-width: 1439px) {
+  .top-header:has(.module-bar--header .hdr-tabs) .hdr-search { width: 200px; }
+}
+@media (max-width: 640px) { .module-actions-row { margin-bottom: 12px; } }
+/* Tasks and Tickets: their tabs ride the top header on a computer too. The
+   Tickets bar then holds nothing and is not drawn (Create is in its toolbar);
+   the Tasks bar keeps its buttons, at a tab row's height. Below 901px the
+   strip is back in the bar, flat inside it. */
+@media (min-width: 901px) {
+  .tk-primary-bar { display: none !important; }
+  .nx-primary-bar { min-height: 46px; }
+}
 @media (max-width: 900px) {
-  .module-bar { position: static; min-height: 0; padding: 6px 12px; justify-content: flex-end; }
-  .module-bar > .page-trail, .module-bar-tabs { display: none; }
-  .module-bar:not(:has(.module-bar-actions > *)) { display: none; }
-  .module-bar-actions { flex-wrap: wrap; justify-content: flex-end; padding: 0; }
+  .nx-primary-bar .module-tabs-inline {
+    position: static; margin: 0; padding-bottom: 0; border-bottom: 0; background: none; overflow-x: auto;
+  }
 }

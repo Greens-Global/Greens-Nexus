@@ -284,8 +284,10 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
               a row. */}
           <PageTrail className="page-trail--bar" />
           <div data-tour="task-tabs" style={{ flex: 1, minWidth: 0 }}>
+            {/* The tabs ride the top header on a computer (Neil, 11/06/2026);
+                between a phone and a computer (641-900px) they stay here. */}
             {!isMobile && (
-              <ModuleTabs inline
+              <ModuleTabs
                 tabs={MODULE_TABS.map(({ key, label, icon }) => ({ key, label, Icon: icon }))}
                 active={(sub === 'tasks' || sub === 'templates') ? 'projects' : sub}
                 onChange={go} />

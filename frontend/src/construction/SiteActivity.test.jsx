@@ -57,7 +57,7 @@ describe('SiteActivity', () => {
   it('shows a loading state that is not mistakable for empty', () => {
     api.getConstructionOverview.mockReturnValue(new Promise(() => {}));
     const { container } = render(<SiteActivity />);
-    expect(container.querySelector('h2').textContent).toBe('Site Activity');
+    expect(container.querySelector('.nx-skel')).toBeTruthy();   // skeletons, not the empty state (no page title since 11/06/2026)
     expect(screen.queryByText('No daily logs yet')).toBeNull();
   });
 
@@ -114,7 +114,7 @@ describe('SiteActivity', () => {
     api.getConstructionLogs.mockRejectedValue(new Error('503'));
     render(<SiteActivity />);
     expect(await screen.findByText(/503/)).toBeTruthy();
-    expect(screen.getByText('Site Activity')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Start Today's Log/ })).toBeTruthy();   // the screen stays
   });
 
   it('surfaces a failure to start a log instead of doing nothing', async () => {

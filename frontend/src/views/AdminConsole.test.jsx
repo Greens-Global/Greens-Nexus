@@ -151,9 +151,10 @@ describe('AdminConsole', () => {
     expect(await find('Company list')).toBeInTheDocument();
   });
 
-  it('has one Settings tab beside Tools and Logs - no Global or Company Settings tabs', () => {
+  it('has one General tab beside Tools and Logs - no Global or Company Settings tabs', () => {
+    // "General", not "Settings": the bar already names the module (Neil, 11/06/2026).
     render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
-    for (const name of ['Settings', 'Tools', 'Logs']) {
+    for (const name of ['General', 'Tools', 'Logs']) {
       expect(screen.getByRole('button', { name: new RegExp(`^${name}$`) })).toBeInTheDocument();
     }
     expect(screen.queryByRole('button', { name: /Global Settings|Company Settings|Audit Logs/ })).not.toBeInTheDocument();

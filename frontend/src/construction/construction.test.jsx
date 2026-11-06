@@ -162,6 +162,7 @@ describe('ConstructionDashboard', () => {
     api.resolveProjectLink.mockResolvedValue({ lat: 33.517652, lng: -117.155831, precision: 'place', address: '41715 Enterprise Cir N, Temecula, CA 92590', placeName: 'GS Temecula' });
     api.createConstructionProject.mockResolvedValue({ id: 'p9', name: 'GS Temecula' });
     render(<ConstructionDashboard />);
+    await screen.findByText(/No jobs yet/i);   // New Job moves from the Jobs card's header to the empty state
     fireEvent.click((await screen.findAllByRole('button', { name: /New Job/ }))[0]);
     fireEvent.change(screen.getByLabelText('Google Maps link or coordinates'), { target: { value: 'https://maps.app.goo.gl/abc' } });
     fireEvent.click(screen.getByRole('button', { name: /Use Link/ }));
@@ -176,7 +177,7 @@ describe('ConstructionDashboard', () => {
 
   it('renders the overview once loaded', async () => {
     render(<ConstructionDashboard />);
-    expect(screen.getByRole('heading', { name: 'Project Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /New Job/ })).toBeInTheDocument();   // the frame; the title is the module bar's (11/06/2026)
     // Asserted on the address, not the name: the review queue renders above the
     // project list and names the same jobsite, so getByText(name) matches twice.
     await waitFor(() => expect(screen.getByText(project.address)).toBeInTheDocument());
@@ -189,7 +190,7 @@ describe('ConstructionDashboard', () => {
     // an in-flight fetch that renders the empty state reads as "our data is
     // gone". Skeletons carry no text, so the check is that the page has its
     // frame and the empty state is absent.
-    expect(screen.getByRole('heading', { name: 'Project Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /New Job/ })).toBeInTheDocument();   // the frame; the title is the module bar's (11/06/2026)
     expect(screen.queryByText(/No jobs yet/i)).not.toBeInTheDocument();
   });
 
@@ -207,7 +208,7 @@ describe('ConstructionDashboard', () => {
     render(<ConstructionDashboard />);
     await waitFor(() => expect(screen.getByText('network down')).toBeInTheDocument());
     // The header must still be there - a failed fetch is a banner, not a blank screen.
-    expect(screen.getByRole('heading', { name: 'Project Dashboard' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /New Job/ }).length).toBeGreaterThan(0);   // the frame; the title is the module bar's (11/06/2026)
   });
 });
 
