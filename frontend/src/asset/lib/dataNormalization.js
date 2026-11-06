@@ -182,6 +182,14 @@ export function splitAddress(property) {
   return next;
 }
 
+// A compound stage is "Stabilized - Renovation" with a plain hyphen - the form's
+// options (STAGE_FORM) spell it that way. Older imports joined it with an em or
+// en dash, which the tiles printed as is and the stage select could not match.
+const STAGE_JOIN_RE = /\s*[\u2013\u2014]\s*/g;
+export function canonicalStage(stage) {
+  return typeof stage === 'string' ? stage.replace(STAGE_JOIN_RE, ' - ') : stage;
+}
+
 export function VNORM(state) {
   if (!state || !Array.isArray(state.properties)) return state;
   let stateChanged = false;
@@ -189,7 +197,8 @@ export function VNORM(state) {
     let propertyChanged = false;
     const newType = renameRvToVehicle(property.type);
     const newParcelRole = renameRvToVehicle(property.parcelRole);
-    if (newType !== property.type || newParcelRole !== property.parcelRole) propertyChanged = true;
+    const newStage = canonicalStage(property.devStage);
+    if (newType !== property.type || newParcelRole !== property.parcelRole || newStage !== property.devStage) propertyChanged = true;
 
     const snapshot = (property.snapshot || []).map((group) => ({
       ...group,
@@ -204,7 +213,7 @@ export function VNORM(state) {
       }),
     }));
 
-    const base = propertyChanged ? { ...property, type: newType, parcelRole: newParcelRole, snapshot } : property;
+    const base = propertyChanged ? { ...property, type: newType, parcelRole: newParcelRole, ...(newStage !== property.devStage ? { devStage: newStage } : {}), snapshot } : property;
     const healed = splitAddress(healPropTeam(base));
     if (healed !== base || propertyChanged) {
       stateChanged = true;

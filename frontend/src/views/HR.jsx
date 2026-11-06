@@ -3492,9 +3492,11 @@ function KpiTile({ label, value, delta, sub, solid, onGo, goTitle, loading }) {
   );
 }
 
-// Rounded bar chart (the concept's Revenue card): fully-rounded monthly
-// headcount bars, latest bar solid brand with a value callout, labels under
-// every bar, native tooltips.
+// Flat monthly bar chart (11/05/2026, Neil's flat sweep - it was one fat
+// pill when a single month had joiners): thin bars with barely rounded tops
+// on a baseline rule, heights in proportion to the count, the count over
+// every month that has one, the latest month in the brand color, the rest a
+// quiet tint of it. An empty month is just the baseline. Native tooltips.
 function MonthlyBars({ employees }) {
   // NEW JOINERS per month, from recorded start dates - deliberately NOT a
   // cumulative headcount curve. Most legacy profiles were imported without a
@@ -3519,23 +3521,23 @@ function MonthlyBars({ employees }) {
   const max = Math.max(...buckets.map(b => b.n), 1);
   return (
     <div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', height: 132 }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', height: 132, borderBottom: '1px solid var(--line, var(--border-color))' }}>
         {buckets.map((b, i) => {
           const isLast = i === buckets.length - 1;
           return (
             <div key={i} title={`${b.label}: ${b.n} joined`}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 6, height: '100%' }}>
-              {isLast && (
-                <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{b.n}</span>
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4, height: '100%' }}>
+              {b.n > 0 && (
+                <span style={{ fontSize: 11.5, fontWeight: isLast ? 700 : 600, color: isLast ? 'var(--wk-brand)' : 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{b.n}</span>
               )}
-              <div style={{
-                width: '100%', maxWidth: 30,
-                height: b.n === 0 ? 4 : Math.max(12, Math.round((b.n / max) * 100)),
-                borderRadius: 99,
-                background: isLast
-                  ? 'linear-gradient(180deg, #5f74ec 0%, var(--wk-brand) 100%)'
-                  : 'linear-gradient(180deg, var(--wk-brand-tint) 0%, #ccd5f8 100%)',
-              }} />
+              {b.n > 0 && (
+                <div style={{
+                  width: '100%', maxWidth: 14,
+                  height: Math.max(3, Math.round((b.n / max) * 100)),
+                  borderRadius: '2px 2px 0 0',
+                  background: isLast ? 'var(--wk-brand)' : 'color-mix(in srgb, var(--wk-brand) 32%, transparent)',
+                }} />
+              )}
             </div>
           );
         })}
@@ -3590,8 +3592,8 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
         <KpiTile label="Departments" value={depts.length} loading={loading} sub="across the company" />
       </div>
 
-      {/* Rounded-bar headcount chart (the concept's Revenue card) */}
-      <StatCardShell Icon={Users} title="New joiners" meta="last 8 months">
+      {/* New joiners per month - a flat bar chart (MonthlyBars) */}
+      <StatCardShell Icon={Users} title="New Joiners" meta="last 8 months">
         <MonthlyBars employees={employees} />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 14px', fontSize: 12.5, color: 'var(--muted)' }}>
           {types.filter(t => t.n > 0).map(t => (
