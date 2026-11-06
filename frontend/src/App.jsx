@@ -12,7 +12,7 @@ import Sidebar from "./components/Sidebar";
 import MobileNav from "./components/MobileNav";
 import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
-import { HeaderTabsProvider } from "./components/ModuleTabs";
+import { HeaderTabsProvider, ModuleBar } from "./components/ModuleTabs";
 import { PageTrailProvider, ShellTrail } from "./components/PageTrail";
 import NotificationToasts from "./components/NotificationToasts";
 import PriorityBar from "./components/PriorityBar";
@@ -955,6 +955,9 @@ function MainApp() {
             {!pdfHasDoc && <WidgetBoundary name="priority-bar" resetKey={widgetKey}><PriorityBar onNavigate={navigate} /></WidgetBoundary>}
             {/* A clock-in with no location (Neil, Oct 21 2026): the red Turn On / Skip bar. */}
             {!pdfHasDoc && <WidgetBoundary name="location-bar" resetKey={widgetKey}><LocationNoticeBar /></WidgetBoundary>}
+            {/* The module bar (11/05/2026): the module's name, its tabs, its actions -
+                one page header for every module (ModuleBar in ModuleTabs.jsx). */}
+            {!pdfHasDoc && <WidgetBoundary name="module-bar" resetKey={widgetKey}><ModuleBar /></WidgetBoundary>}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
                 dashboard surfaces - see the Work OS section in style.css */}
             {/* pdf-editor is flush for the same reason tasks is: it owns its

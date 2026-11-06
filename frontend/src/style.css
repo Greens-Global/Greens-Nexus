@@ -9642,3 +9642,62 @@ body:has(.apv-phone) { overflow-x: clip; }
 .doc-ctx-hint { font-size: 11px; color: var(--muted); }
 /* Format Painter armed: a brush for a cursor over the pages. */
 .doc-painting .doc-page .ProseMirror { cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='%23111827' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z'/><path d='M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7'/><path d='M14.5 17.5 4.5 15'/></svg>") 2 20, text; }
+
+/* ── One page header: the module bar (11/05/2026) ─────────────────────────
+   Every module reads the same way: its name on the left, its tabs, its
+   actions on the right - flat, one hairline under it. The shell draws it
+   under the top header (ModuleBar in components/ModuleTabs.jsx) and pins it
+   there, so the tabs stay one click away on a long page, as they did in the
+   header. Tasks and Tickets keep the same anatomy in their own full-bleed
+   bar (.nx-primary-bar). The tabs are the underline kind on the hairline,
+   the same as the Task bar's; the module name is a name, not an eyebrow. */
+.module-bar {
+  position: sticky;
+  top: calc(var(--nx-announce-h, 0px) + 64px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 46px;
+  padding: 0 28px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
+  font-family: var(--wk-font);
+}
+.module-bar-tabs { position: relative; flex: 1; min-width: 0; display: flex; align-self: stretch; }
+.module-bar .hdr-tabs { gap: 2px; align-self: stretch; }
+.module-bar .hdr-tab {
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+  align-self: stretch;
+}
+.module-bar .hdr-tab:hover { background: none; color: var(--ink); }
+.module-bar .hdr-tab.active { background: none; box-shadow: none; color: var(--ink); }
+.module-bar .hdr-tab:active { transform: none; }
+.module-bar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 6px 0; }
+.module-bar-actions:empty { display: none; }
+.module-bar-meta { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+/* The module's name: the trail riding the bar, in Title Case as written -
+   never the uppercase eyebrow. A record's parent pages follow it, quieter. */
+.page-trail--bar { letter-spacing: normal; text-transform: none; }
+@media (min-width: 641px) { .page-trail--bar { font-size: 15px; font-weight: 700; color: var(--ink); } }
+.page-trail--bar li + li button { font-weight: 500; color: var(--muted); }
+.page-trail--bar li + li::before { margin: 0 8px; }
+/* With the bar up, the module's name is said once: the eyebrow trails a page
+   placed above its own title stand down (computers only - a phone has no bar
+   tabs and keeps them). */
+@media (min-width: 901px) {
+  .main-content:has(> .module-bar) .viewport .page-trail { display: none; }
+}
+@media (max-width: 1180px) { .module-bar { padding: 0 20px; } }
+/* Phones keep their swipeable in-page strip: the bar shows only a module's
+   actions, and only when it has some. */
+@media (max-width: 900px) {
+  .module-bar { position: static; min-height: 0; padding: 6px 12px; justify-content: flex-end; }
+  .module-bar > .page-trail, .module-bar-tabs { display: none; }
+  .module-bar:not(:has(.module-bar-actions > *)) { display: none; }
+  .module-bar-actions { flex-wrap: wrap; justify-content: flex-end; padding: 0; }
+}
