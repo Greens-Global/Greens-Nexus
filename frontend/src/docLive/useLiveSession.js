@@ -32,6 +32,10 @@ export function useLiveSession({ docId, enabled, me, name, seed, validate }) {
   const [session, setSession] = useState(null);   // { rt, doc, awareness, epoch, rev, conn }
   const [gen, setGen] = useState(0);
   const restart = useCallback(() => setGen((g) => g + 1), []);
+  // The host's "save what is waiting" (setFlush): run before a planned
+  // restart (the key moved on) while this session's epoch still saves.
+  const flushRef = useRef(null);
+  const setFlush = useCallback((fn) => { flushRef.current = fn; }, []);
   const sessionRef = useRef(null);
   useEffect(() => { sessionRef.current = session; }, [session]);
   const nameRef = useRef(name);
@@ -70,6 +74,9 @@ export function useLiveSession({ docId, enabled, me, name, seed, validate }) {
             }
           }
           const fresh = engineRef.current.seed(st.content);
+          // Saved content that does not make a showable state never goes live
+          // (two openers would otherwise reset each other in a loop).
+          engineRef.current.validate(fresh);
           const epoch = newEpoch();
           try {
             await api.documentCollabSeed(docId, { rev: st.rev, ydoc: rt.encodeState(fresh), yepoch: epoch });
@@ -105,7 +112,12 @@ export function useLiveSession({ docId, enabled, me, name, seed, validate }) {
           try {
             const cur = await api.documentHead(docId);
             if (!alive) return;
-            if (cur.yepoch !== st.yepoch || (cur.keyTag && cur.keyTag !== st.keyTag)) { restart(); return; }
+            if (cur.yepoch !== st.yepoch) { restart(); return; }
+            if (cur.keyTag && cur.keyTag !== st.keyTag) {
+              try { await flushRef.current?.(); } catch { /* the restart rejoins from what was saved */ }
+              if (alive) restart();
+              return;
+            }
             if (!trustedNow) { trustedNow = true; setTrusted(true); conn?.resync(); }
           } catch (err) {
             if (alive && (err?.status === 403 || err?.status === 404)) { setPhase('failed'); setLive(false); }
@@ -185,9 +197,9 @@ export function useLiveSession({ docId, enabled, me, name, seed, validate }) {
   const status = !on ? 'off' : phase === 'failed' ? 'failed' : phase === 'ready' && !supabase ? 'saves' : phase !== 'ready' || !live ? 'connecting' : trusted ? 'live' : 'stale';
 
   return useMemo(() => ({
-    status, ready: !!session, peers, restart, fail, save,
+    status, ready: !!session, peers, restart, fail, save, setFlush,
     doc: session?.doc || null, awareness: session?.awareness || null,
-  }), [status, session, peers, restart, fail, save]);
+  }), [status, session, peers, restart, fail, save, setFlush]);
 }
 
 /** A viewer's follow-along: true once the document moved since `rev`. Polls /head every 10 s while visible. */

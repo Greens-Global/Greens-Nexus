@@ -120,3 +120,12 @@ export function isRemoteTr(tr) {
   const m = tr?.getMeta?.('y-sync$');
   return !!m?.isChangeOrigin && !m.isUndoRedoOperation;
 }
+
+/** The page ids a save writes: the shared list, each once (a move two people made at once can list one twice). */
+export const livePageIds = (doc) => [...new Set(doc.getArray('pages').toArray())];
+
+/** A page's words straight from the shared document (a page whose editor has not mounted yet). */
+export const livePageJson = (doc, id) => {
+  const json = yXmlFragmentToProsemirrorJSON(doc.getXmlFragment(pageField(id)));
+  return json?.content?.length ? json : EMPTY;
+};

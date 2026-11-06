@@ -1993,9 +1993,10 @@ def _notify_owner(db: Session, row: Document, user: dict, title: str, body: str)
 
 def _get_owned_or_admin(db: Session, did: str, user: dict) -> Document:
     """Write gate - readable first (so another company's row is 404 rather than
-    a 403 that confirms it exists), then ownership."""
+    a 403 that confirms it exists), then ownership. An administrator owns only
+    what their own walls reach - never through a share alone."""
     row = _get_readable(db, did, user)
-    if user["level"] < _ADMIN_LEVEL and row.owner_email != user["email"].lower():
+    if _access(row, user, db) != "owner":
         raise HTTPException(403, "You don't own this document")
     return row
 
@@ -2015,11 +2016,17 @@ def _share_of(row: Document, email: str) -> str:
     return next((x["can"] for x in _shares(row) if x["email"] == me), "")
 
 
-def _access(row: Document, user: dict) -> str:
-    """'owner' (the owner or an administrator), 'edit' or 'view' - for a row
-    _get_readable already let through."""
-    if user["level"] >= _ADMIN_LEVEL or (row.owner_email or "").lower() == user["email"].lower():
+def _access(row: Document, user: dict, db: Session) -> str:
+    """'owner' (the owner, or an administrator inside their company walls),
+    'edit' or 'view' - for a row _get_readable already let through. An
+    administrator who reaches a document only through a share (another
+    company's) gets the share's level, nothing more."""
+    if (row.owner_email or "").lower() == user["email"].lower():
         return "owner"
+    if user["level"] >= _ADMIN_LEVEL:
+        import auth
+        if auth.company_ok(auth.company_of(row.owner_email or "", db), auth.company_scope(user, db)):
+            return "owner"
     return "edit" if _share_of(row, user["email"]) == "edit" else "view"
 
 
@@ -2054,7 +2061,7 @@ def _clean_sheet(content) -> dict:
 def _full_document(db: Session, row: Document, user: dict) -> dict:
     statuses = _sign_statuses(db, [row])
     out = _ser_document(row, statuses.get(row.sign_request_id, ""))
-    can = _access(row, user)
+    can = _access(row, user, db)
     out["access"] = can
     # Who else is on it: editors and the owner see the list; a viewer does not.
     out["sharedWith"] = _shares(row) if can != "view" else []
@@ -2109,7 +2116,7 @@ def unshare_document(did: str, email: str, user: dict = Depends(get_current_user
     """The owner takes someone off; anyone may take themselves off."""
     email = (email or "").strip().lower()
     row = _get_readable(db, did, user)
-    if _access(row, user) != "owner" and email != user["email"].lower():
+    if _access(row, user, db) != "owner" and email != user["email"].lower():
         raise HTTPException(403, "Only the document's owner changes who it is shared with")
     shares = _shares(row)
     if any(x["email"] == email for x in shares):
@@ -2126,7 +2133,7 @@ def document_head(did: str, user: dict = Depends(get_current_user), db: Session 
     row = _get_readable(db, did, user)
     out = {"rev": row.current_version or 1, "updatedBy": row.updated_by or "", "updatedAt": row.updated_at or "",
            "yepoch": row.yepoch or "", "status": row.status or "draft"}
-    if _access(row, user) != "view" and row.collab_key:
+    if _access(row, user, db) != "view" and row.collab_key:
         out["keyTag"] = _key_tag(row)
     return out
 
@@ -2135,7 +2142,7 @@ def _live_editor(db: Session, did: str, user: dict, lock: bool = False) -> Docum
     row = _get_readable(db, did, user)
     if lock:
         row = db.query(Document).filter(Document.id == row.id).with_for_update().populate_existing().first()
-    if _access(row, user) == "view":
+    if _access(row, user, db) == "view":
         raise HTTPException(403, "This document was shared with you to view only")
     if row.status == "final":
         raise HTTPException(409, "This document is final. Unlock it before editing.")
@@ -2464,7 +2471,7 @@ def unlock_document(did: str, user: dict = Depends(get_current_user), db: Sessio
 @router.patch("/{did}")
 def update_document(did: str, body: DocumentUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = _get_readable(db, did, user)
-    can = _access(row, user)
+    can = _access(row, user, db)
     if can == "view":
         raise HTTPException(403, "This document was shared with you to view only")
     if can == "edit" and any(v is not None for v in (body.folderId, body.tags, body.letterheadId, body.employeeId,

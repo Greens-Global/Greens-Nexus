@@ -41,7 +41,7 @@ import { api, API_BASE } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
 import { FILLED_WHEN } from '../lib/mergeFieldTypes';
 import { BODY_EXTENSIONS, LIVE_BODY_EXTENSIONS, repairDocJson } from '../lib/docBuilderSchema';
-import { seedLiveDoc, validateLiveDoc, pageField, syncPageIds, isRemoteTr, LOCAL } from '../docLive/docModel';
+import { seedLiveDoc, validateLiveDoc, pageField, syncPageIds, isRemoteTr, LOCAL, livePageIds, livePageJson } from '../docLive/docModel';
 import { useLiveSession } from '../docLive/useLiveSession';
 import ShareDocumentDialog, { LivePeople } from '../docLive/ShareDocumentDialog';
 import { caretColor } from '../notes/useNoteCollab';
@@ -1112,16 +1112,24 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     [...editorsRef.current.values(), headerEditor, footerEditor].forEach(applyTracking);
   }, [applyTracking, headerEditor, footerEditor, pages]);
 
+  // Live: the page list and which bands show are read from the shared
+  // document itself, so a save made right after merging a colleague's newer
+  // state carries their pages too (React state catches up a render later).
   const currentContent = useCallback(() => ({
-    pages: pages.map(p => {
-      const ed = editorsRef.current.get(p.id);
-      return { id: p.id, json: ed ? ed.getJSON() : (p.json || { type: 'doc', content: [] }) };
-    }),
-    header: headerVisible ? (headerEditor?.getJSON() ?? null) : null,
-    footer: footerVisible ? (footerEditor?.getJSON() ?? null) : null,
+    pages: live
+      ? livePageIds(live.doc).map((id) => {
+        const ed = editorsRef.current.get(id);
+        return { id, json: ed ? ed.getJSON() : livePageJson(live.doc, id) };
+      })
+      : pages.map(p => {
+        const ed = editorsRef.current.get(p.id);
+        return { id: p.id, json: ed ? ed.getJSON() : (p.json || { type: 'doc', content: [] }) };
+      }),
+    header: (live ? live.doc.getMap('meta').get('header') : headerVisible) ? (headerEditor?.getJSON() ?? null) : null,
+    footer: (live ? live.doc.getMap('meta').get('footer') : footerVisible) ? (footerEditor?.getJSON() ?? null) : null,
     pageSetup,
     trackChanges: tracking === 'everyone',
-  }), [pages, headerEditor, footerEditor, headerVisible, footerVisible, pageSetup, tracking]);
+  }), [pages, headerEditor, footerEditor, headerVisible, footerVisible, pageSetup, tracking, live]);
 
   // Every save goes through this ref, never through a captured currentContent.
   // TipTap/useEditor option callbacks and any useCallback that forgets a dep
@@ -1238,6 +1246,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     saveTimer.current = setTimeout(doSave, AUTOSAVE_MS);
   }, [doSave]);
   useEffect(() => { scheduleSaveRef.current = scheduleSave; });
+  // Live: a planned restart (the channel key moved on) saves what is waiting first.
+  useEffect(() => { live?.setFlush(() => (saveTimer.current ? doSave() : null)); }, [live, doSave]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -3944,7 +3954,17 @@ function LiveDocumentSession(props) {
   const live = useLiveSession({ docId: props.docId, enabled: true, me, name, seed: seedLiveDoc, validate: validateLiveDoc });
   const user = useMemo(() => ({ name, color: caretColor(me) }), [name, me]);
   const liveProp = useMemo(() => (live.doc ? { ...live, user } : null), [live, user]);
-  if (live.status === 'failed') return <DocumentBuilderInner {...props} />;
+  // A session that could not start opens the saved copy READ ONLY: an
+  // editable copy outside the session would save over what others type live.
+  if (live.status === 'failed') return (
+    <>
+      <div role="status" style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 12px', marginBottom: 8, border: '1px solid var(--line)', borderRadius: 10, fontSize: 13, background: 'var(--card)' }}>
+        Live editing could not start, so this is the saved copy, read only.
+        <button type="button" className="secondary-btn" onClick={live.restart}>Try Again</button>
+      </div>
+      <DocumentBuilderInner {...props} readOnly />
+    </>
+  );
   if (!liveProp) return <div style={{ padding: 20, display: 'flex', gap: 8, alignItems: 'center', color: 'var(--muted)', fontSize: 13 }}><Spinner size={16} /> Opening...</div>;
   return <DocumentBuilderInner key={liveProp.doc.guid} {...props} live={liveProp} />;
 }

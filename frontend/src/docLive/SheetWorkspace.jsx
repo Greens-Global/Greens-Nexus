@@ -62,7 +62,7 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr }) {
       .then(() => setSaveState('saved'))
       .catch((e) => {
         if (e?.status === 403) { setSaveState(''); toastErr?.('You can only view this sheet now.'); load(); return; }
-        if (e?.status === 413) { setSaveState('error'); toastErr?.(e.message); return; }
+        if (e?.status === 413) { setSaveState('error'); pending.current = true; toastErr?.(e.message); return; }
         setSaveState('error');
         pending.current = true;
         timer.current = setTimeout(() => flushRef.current?.(), 5000);
@@ -70,6 +70,7 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr }) {
     return saving.current;
   }, [live, toastErr, load]);
   useEffect(() => { flushRef.current = flush; }, [flush]);
+  useEffect(() => { live.setFlush(flush); }, [live, flush]);
   const onChange = useCallback(() => {
     pending.current = true;
     clearTimeout(timer.current);

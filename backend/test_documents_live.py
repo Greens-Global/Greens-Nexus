@@ -160,6 +160,21 @@ class LiveDocuments(unittest.TestCase):
         self.assertEqual(head["yepoch"], "")
         self.assertEqual(len(self.client.get(f"/documents/{self.did}/versions").json()), 2)
 
+    def test_administrator_reaching_a_document_only_by_share_gets_the_share_level(self):
+        self.share(STRANGER, "view")
+        db = database.SessionLocal()
+        db.add(models.NexusRole(email=STRANGER, role="administrator"))
+        db.commit(); db.close()
+        self.as_user(STRANGER)
+        import auth as _auth
+        with mock.patch.object(_auth, "company_scope", return_value={"other-company"}), \
+             mock.patch.object(_auth, "company_of", return_value="owner-company"):
+            self.assertEqual(self.client.get(f"/documents/{self.did}").json()["access"], "view")
+            self.assertEqual(self.client.patch(f"/documents/{self.did}", json={"title": "Taken"}).status_code, 403)
+            self.assertEqual(self.client.get(f"/documents/{self.did}/collab").status_code, 403)
+            self.assertEqual(self.client.post(f"/documents/{self.did}/archive").status_code, 403)
+            self.assertEqual(self.client.put(f"/documents/{self.did}/share", json={"email": EDITOR, "can": "edit"}).status_code, 403)
+
     def test_final_document_is_never_live_and_sheet_does_not_export(self):
         self.assertEqual(self.client.get(f"/documents/{self.did}/export/pdf").status_code, 400)
         self.assertEqual(self.client.patch(f"/documents/{self.did}", json={"status": "final"}).status_code, 200)

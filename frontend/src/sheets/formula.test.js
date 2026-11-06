@@ -191,3 +191,17 @@ describe('typing', () => {
     expect(textFormat(0.25, '0%')).toBe('25%');
   });
 });
+
+describe('formula growth cap', () => {
+  it('a reference far past the end reads #REF! instead of growing the sheet', async () => {
+    const { seedSheetDoc, newSheetContent, buildCtx } = await import('./model');
+    const { encodeFormula } = await import('./formula/parse');
+    const doc = seedSheetDoc(newSheetContent());
+    const tab = buildCtx(doc).tabs[0];
+    let stored;
+    doc.transact(() => { stored = encodeFormula('=A900000+A1500', buildCtx(doc, { grow: true }), tab.id); });
+    expect(buildCtx(doc).tabs[0].rows.length).toBe(1500);
+    const { decodeFormula } = await import('./formula/parse');
+    expect(decodeFormula(stored, buildCtx(doc), tab.id)).toBe('=#REF!+A1500');
+  });
+});

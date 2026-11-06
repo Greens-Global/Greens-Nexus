@@ -21,6 +21,7 @@ export const COL_W = 100;
 export const ROW_H = 24;
 export const MAX_CELLS = 500000;
 export const MAX_ROWS = 200000, MAX_COLS = 2000;
+const GROW_MAX = 10000;    // rows or columns one formula may add
 const MAX_TABS = 200, MAX_STR = 50000;
 
 export function newId() {
@@ -155,7 +156,7 @@ export function buildCtx(doc, { grow = false } = {}) {
     return { id, name: typeof m.name === 'string' && m.name ? m.name.slice(0, 100) : 'Sheet',
       color: typeof m.color === 'string' && COLOR_RE.test(m.color) ? m.color : '',
       frozenRows: frozen(m.frozenRows), frozenCols: frozen(m.frozenCols),
-      rows: rowsOf(doc, id).toArray().map(String), cols: colsOf(doc, id).toArray().map(String), cells: cellsOf(doc, id), sizes: sizesOf(doc, id) };
+      rows: rowsOf(doc, id).toArray().slice(0, MAX_ROWS).map(String), cols: colsOf(doc, id).toArray().slice(0, MAX_COLS).map(String), cells: cellsOf(doc, id), sizes: sizesOf(doc, id) };
   });
   return makeCtx(tabs, grow ? (tab, axis, n) => {
     const fresh = ids(n);
@@ -189,6 +190,9 @@ export function makeCtx(tabs, grow) {
   const idAt = (tab, axis, i) => {
     if (i >= tab[axis].length) {
       if (!grow) return newId();      // a read-only view cannot add the row: an id nobody has, so it reads #REF!
+      // Never past the sheet's limits, and at most GROW_MAX at a time: one typed
+      // =A900000 must not make the sheet too big to save. Beyond that it reads #REF!.
+      if (i >= (axis === 'rows' ? MAX_ROWS : MAX_COLS) || i + 1 - tab[axis].length > GROW_MAX) return newId();
       const add = grow(tab, axis, i + 1 - tab[axis].length);
       tab[axis].push(...add);
       idx.delete(tab);
