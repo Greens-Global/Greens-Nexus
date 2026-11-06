@@ -129,9 +129,12 @@ describe('shortcuts', () => {
     t.click('A1'); t.click('C1', { shiftKey: true }); t.key('Mod+R');
     expect(valueAt(t.doc, t.tab, 'C1')).toBe(5);   // A1's 5 copied across B1 and C1
   });
-  it('Mod+Minus and Mod+Shift+Equal delete and insert whole rows', () => {
+  it('Mod+Minus asks, then deletes whole rows; Mod+Shift+Equal inserts', async () => {
     const t = mount({ A2: 'keep' });
-    t.click('A1'); t.key('Shift+Space'); t.key('Mod+Minus');
+    t.click('A1'); t.key('Shift+Space');
+    await act(async () => { t.key('Mod+Minus'); await Promise.resolve(); await Promise.resolve(); });
+    const { dialog } = await import('../ui/dialog');
+    expect(dialog.confirm).toHaveBeenCalledWith(expect.stringContaining('Delete row 1'), expect.objectContaining({ danger: true }));
     expect(buildCtx(t.doc).tabs[0].rows).toHaveLength(999);
     expect(cell(t.doc, 'A1').v).toBe('keep');
     t.key('Mod+Shift+Equal');

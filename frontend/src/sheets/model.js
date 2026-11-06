@@ -22,7 +22,8 @@ export const ROW_H = 24;
 export const MAX_CELLS = 500000;
 export const MAX_ROWS = 200000, MAX_COLS = 2000;
 const GROW_MAX = 10000;    // rows or columns one formula may add
-const MAX_TABS = 200, MAX_STR = 50000;
+export const MAX_TABS = 200;
+const MAX_STR = 50000;
 
 export function newId() {
   const b = new Uint8Array(6);
@@ -98,14 +99,16 @@ export function seedSheetDoc(snapshot) {
 /** The workbook as a snapshot (what the server stores). Cells of deleted rows or columns are left out. */
 export function snapshotOf(doc) {
   const meta = metaOf(doc);
+  // Everything is cut to the sheet's limits here, so what is saved always opens again.
+  let budget = MAX_CELLS;
   return {
     type: 'nexus-sheet', v: 1,
-    tabs: tabsOf(doc).toArray().filter((id) => meta.has(id)).map((id) => {
+    tabs: tabsOf(doc).toArray().filter((id) => meta.has(id)).slice(0, MAX_TABS).map((id) => {
       const m = meta.get(id) || {};
-      const rows = rowsOf(doc, id).toArray(), cols = colsOf(doc, id).toArray();
+      const rows = rowsOf(doc, id).toArray().slice(0, MAX_ROWS), cols = colsOf(doc, id).toArray().slice(0, MAX_COLS);
       const rs = new Set(rows), cs = new Set(cols);
       const cells = {};
-      cellsOf(doc, id).forEach((v, k) => { const [r, c] = k.split('.'); if (rs.has(r) && cs.has(c)) cells[k] = v; });
+      cellsOf(doc, id).forEach((v, k) => { const [r, c] = k.split('.'); if (budget > 0 && rs.has(r) && cs.has(c)) { cells[k] = v; budget -= 1; } });
       const sizes = {};
       sizesOf(doc, id).forEach((v, k) => { if (rs.has(k) || cs.has(k)) sizes[k] = v; });
       const out = { id, name: m.name || 'Sheet', color: m.color || '', frozenRows: m.frozenRows | 0, frozenCols: m.frozenCols | 0, rows, cols, cells, sizes };
@@ -170,38 +173,39 @@ export function validCell(c) {
   return validStyle(c.s);
 }
 
-/** Throws when the shared document is not a well-formed workbook. */
+/**
+ * Throws when the shared document is not a well-formed workbook. Too MANY of
+ * something (cells, tabs, rows, rules) is not malformed: reads and saves cut
+ * them to the limits, so a sheet that grew past one still opens.
+ */
 export function validateSheetDoc(doc) {
   const fail = (why) => { throw new Error(`Not a sheet: ${why}`); };
   const tabs = tabsOf(doc).toArray();
-  if (!tabs.length || tabs.length > MAX_TABS) fail('tabs');
+  if (!tabs.length) fail('tabs');
   const meta = metaOf(doc);
-  let total = 0;
-  for (const id of tabs) {
+  for (const id of tabs.slice(0, MAX_TABS)) {
     if (typeof id !== 'string' || !ID_RE.test(id)) fail('tab id');
     const m = meta.get(id);
     if (!plain(m) || typeof m.name !== 'string' || !m.name || m.name.length > 100) fail('tab name');
     if (m.color && (typeof m.color !== 'string' || !COLOR_RE.test(m.color))) fail('tab color');
     for (const k of ['frozenRows', 'frozenCols']) if (m[k] != null && (!Number.isInteger(m[k]) || m[k] < 0 || m[k] > 100)) fail('freeze');
     const rows = rowsOf(doc, id).toArray(), cols = colsOf(doc, id).toArray();
-    if (!rows.length || rows.length > MAX_ROWS || !cols.length || cols.length > MAX_COLS) fail('size');
+    if (!rows.length || !cols.length) fail('size');
     if (!rows.every((x) => typeof x === 'string' && ID_RE.test(x)) || !cols.every((x) => typeof x === 'string' && ID_RE.test(x))) fail('row or column id');
-    const cells = cellsOf(doc, id);
-    total += cells.size;
-    if (total > MAX_CELLS) fail('too many cells');
-    cells.forEach((v, k) => { if (k.length > 81 || !validCell(v)) fail('cell'); });
+    cellsOf(doc, id).forEach((v, k) => { if (k.length > 81 || !validCell(v)) fail('cell'); });
     sizesOf(doc, id).forEach((v) => { if (typeof v !== 'number' || !(v >= 4 && v <= 2000)) fail('size value'); });
     if (m.grid != null && typeof m.grid !== 'boolean') fail('grid');
-    for (const kind of EXTRAS) {
-      const x = extraOf(doc, kind, id);
-      if (x.size > EXTRA_MAX[kind]) fail(`too many ${kind}`);
-      x.forEach((v, k) => { if (!VALID[kind](v, k)) fail(kind); });
-    }
+    for (const kind of EXTRAS) extraOf(doc, kind, id).forEach((v, k) => { if (!VALID[kind](v, k)) fail(kind); });
   }
-  const names = namesOf(doc);
-  if (names.size > 1000) fail('too many names');
-  names.forEach((v, k) => { if (!validName(v, k)) fail('name'); });
+  namesOf(doc).forEach((v, k) => { if (!validName(v, k)) fail('name'); });
 }
+
+/** How many of each a tab (or, for names, the workbook) keeps; reads and saves stop here. */
+export const LIMITS = { merges: 20000, hidden: MAX_ROWS + MAX_COLS, notes: 20000, charts: 50, cf: 200, dv: 500, filter: 1, names: 1000 };
+/** Cells one format, border or link may touch at once. */
+export const AREA_MAX = 100000;
+/** Cells in the whole workbook (stored cells count, empty ones do not). */
+export const cellCount = (doc) => tabsOf(doc).toArray().reduce((s, id) => s + cellsOf(doc, id).size, 0);
 
 const isId = (x) => typeof x === 'string' && ID_RE.test(x);
 const isRange = (g) => plain(g) && ['r1', 'c1', 'r2', 'c2'].every((k) => isId(g[k]));
@@ -216,7 +220,6 @@ export const DV_KINDS = ['list', 'range', 'checkbox', 'number', 'date'];
 export const DV_OPS = ['between', 'gte', 'lte', 'gt', 'lt', 'eq'];
 export const FILTER_OPS = ['', 'gt', 'gte', 'lt', 'lte', 'eq', 'neq', 'between', 'contains', 'notContains', 'empty', 'notEmpty'];
 const CF_STYLE_KEYS = new Set(['fc', 'bg', 'b', 'i', 'u', 'st']);
-const EXTRA_MAX = { merges: 20000, hidden: MAX_ROWS + MAX_COLS, notes: 20000, charts: 50, cf: 200, dv: 500, filter: 1 };
 const VALID = {
   merges: (v, k) => isKey(k) && plain(v) && isId(v.r2) && isId(v.c2),
   hidden: (v, k) => v === true && isId(k),
@@ -244,12 +247,19 @@ const validName = (v, k) => plain(v) && okName(v.name) && v.name.toLowerCase() =
 /** The valid entries of one of a tab's extra maps (a live edit is read this way, never trusted). */
 export function readExtra(doc, kind, id) {
   const out = new Map();
-  extraOf(doc, kind, id).forEach((v, k) => { if (VALID[kind](v, k)) out.set(k, v); });
+  const cap = LIMITS[kind];
+  for (const [k, v] of extraOf(doc, kind, id).entries()) {
+    if (out.size >= cap) break;
+    if (VALID[kind](v, k)) out.set(k, v);
+  }
   return out;
 }
 export function readNames(doc) {
   const out = new Map();
-  namesOf(doc).forEach((v, k) => { if (validName(v, k)) out.set(k, v); });
+  for (const [k, v] of namesOf(doc).entries()) {
+    if (out.size >= LIMITS.names) break;
+    if (validName(v, k)) out.set(k, v);
+  }
   return out;
 }
 
@@ -262,7 +272,7 @@ export function readNames(doc) {
  */
 export function buildCtx(doc, { grow = false } = {}) {
   const meta = metaOf(doc);
-  const tabs = tabsOf(doc).toArray().filter((id) => meta.has(id)).map((id) => {
+  const tabs = tabsOf(doc).toArray().filter((id) => meta.has(id)).slice(0, MAX_TABS).map((id) => {
     // A live edit arrives after the mount check: read every field defensively.
     const m = plain(meta.get(id)) ? meta.get(id) : {};
     const frozen = (v) => (Number.isInteger(v) ? Math.max(0, Math.min(100, v)) : 0);
@@ -357,94 +367,134 @@ export const formulaText = (ctx, tabId, f) => decodeFormula(f, ctx, tabId);
 export const change = (doc, fn) => doc.transact(fn, LOCAL);
 const sameObj = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-function putCell(map, key, next) {
+/**
+ * Store one cell. `room` keeps the workbook under MAX_CELLS: a cell that does
+ * not exist yet is only made while there is room (else it is counted in
+ * room.skipped and the caller says so) - a save can never outgrow what opens.
+ */
+function putCell(map, key, next, room) {
   const clean = {};
   if (next.v != null && next.v !== '') clean.v = next.v;
   if (next.f) clean.f = next.f;
   if (next.s && Object.keys(next.s).length) clean.s = next.s;
   if (next.l) clean.l = next.l;
-  if (!Object.keys(clean).length) { if (map.has(key)) map.delete(key); return; }
+  if (!Object.keys(clean).length) { if (map.has(key)) { map.delete(key); if (room) room.left += 1; } return; }
+  if (!map.has(key)) {
+    if (room && room.left <= 0) { room.skipped += 1; return; }
+    if (room) room.left -= 1;
+  }
   if (!sameObj(map.get(key), clean)) map.set(key, clean);
+}
+const roomIn = (doc) => ({ left: MAX_CELLS - cellCount(doc), skipped: 0 });
+/** The cells of a range: every position, or (for a big range) only the cells that exist. */
+function eachInRange(tab, map, ctx, { r1, c1, r2, c2 }, skipRows, fn, { existingOnly = false } = {}) {
+  const area = (r2 - r1 + 1) * (c2 - c1 + 1);
+  if (area > AREA_MAX || (existingOnly && area > map.size * 4)) {
+    for (const key of Array.from(map.keys())) {
+      const [ri, ci] = key.split('.');
+      const r = ctx.rowIndex(tab, ri), c = ctx.colIndex(tab, ci);
+      if (r >= r1 && r <= r2 && c >= c1 && c <= c2 && !skipRows?.has(r)) fn(r, c, key);
+    }
+    return area > AREA_MAX;
+  }
+  for (let r = r1; r <= r2; r += 1) {
+    if (skipRows?.has(r)) continue;
+    for (let c = c1; c <= c2; c += 1) fn(r, c, ctx.rowId(tab, r) + '.' + ctx.colId(tab, c));
+  }
+  return false;
 }
 
 /**
- * Write cells: [{r, c, v?, f?(A1 text), s?, keepStyle}] on one tab. A
- * formula is encoded here (and may grow the tab); v/f replace the content,
- * s replaces the style when given.
+ * Write cells: [{r, c, v?, f?(A1 text), s?, l?}] on one tab. A formula is
+ * encoded here (and may grow the tab); v/f replace the content, s / l replace
+ * the style / link when given. Returns how many new cells did not fit.
  */
 export function writeCells(doc, tabId, list) {
+  let skipped = 0;
   change(doc, () => {
     const ctx = buildCtx(doc, { grow: true });
     const tab = ctx.tabById(tabId);
     if (!tab) return;
     const map = cellsOf(doc, tabId);
+    const room = roomIn(doc);
     for (const it of list) {
       const key = ctx.rowId(tab, it.r) + '.' + ctx.colId(tab, it.c);
       const cur = map.get(key) || {};
       let f = null;
       if (it.f) { try { f = encodeFormula(it.f, ctx, tabId); } catch { f = it.f; } }
-      putCell(map, key, { v: f ? null : it.v, f, s: it.s !== undefined ? it.s : cur.s, l: it.l !== undefined ? it.l : cur.l });
+      putCell(map, key, { v: f ? null : it.v, f, s: it.s !== undefined ? it.s : cur.s, l: it.l !== undefined ? it.l : cur.l }, room);
     }
+    skipped = room.skipped;
   });
+  return skipped;
 }
 
-/** Put stored cells (formulas already encoded) at positions - a sort moves cells this way. */
+/** Put stored cells (formulas already encoded) at positions. */
 export function placeRaw(doc, tabId, list) {
+  let skipped = 0;
   change(doc, () => {
     const ctx = buildCtx(doc, { grow: true });
     const tab = ctx.tabById(tabId);
     const map = cellsOf(doc, tabId);
-    for (const it of list) putCell(map, ctx.rowId(tab, it.r) + '.' + ctx.colId(tab, it.c), it.cell || {});
+    const room = roomIn(doc);
+    for (const it of list) putCell(map, ctx.rowId(tab, it.r) + '.' + ctx.colId(tab, it.c), it.cell || {}, room);
+    skipped = room.skipped;
   });
+  return skipped;
 }
 
-/** Merge a style patch into every cell of the range (null removes a key). */
-export function styleRange(doc, tabId, { r1, c1, r2, c2 }, patch) {
+const patched = (cur, patch) => {
+  const s = { ...(cur.s || {}) };
+  for (const [k, v] of Object.entries(patch)) { if (v == null || v === false || v === '') delete s[k]; else s[k] = v; }
+  return s;
+};
+/**
+ * Merge a style patch into every cell of the range (null removes a key).
+ * A range over AREA_MAX restyles only the cells that exist. Rows in
+ * skipRows (the ones a filter hides) are left alone. Returns new cells that did not fit.
+ */
+export function styleRange(doc, tabId, rect, patch, { skipRows } = {}) {
+  let skipped = 0;
   change(doc, () => {
     const ctx = buildCtx(doc, { grow: true });
     const tab = ctx.tabById(tabId);
     const map = cellsOf(doc, tabId);
-    for (let r = r1; r <= r2; r += 1) {
-      for (let c = c1; c <= c2; c += 1) {
-        const key = ctx.rowId(tab, r) + '.' + ctx.colId(tab, c);
-        const cur = map.get(key) || {};
-        const s = { ...(cur.s || {}) };
-        for (const [k, v] of Object.entries(patch)) { if (v == null || v === false || v === '') delete s[k]; else s[k] = v; }
-        putCell(map, key, { ...cur, s });
-      }
-    }
+    const room = roomIn(doc);
+    eachInRange(tab, map, ctx, rect, skipRows, (r, c, key) => { const cur = map.get(key) || {}; putCell(map, key, { ...cur, s: patched(cur, patch) }, room); });
+    skipped = room.skipped;
   });
+  return skipped;
 }
 
 /** A style patch per cell ([{r, c, patch}]) in one step - borders, Clear Formatting of a block. */
 export function styleCells(doc, tabId, list) {
+  let skipped = 0;
   change(doc, () => {
     const ctx = buildCtx(doc, { grow: true });
     const tab = ctx.tabById(tabId);
     const map = cellsOf(doc, tabId);
+    const room = roomIn(doc);
     for (const { r, c, patch } of list) {
       const key = ctx.rowId(tab, r) + '.' + ctx.colId(tab, c);
       const cur = map.get(key) || {};
-      const s = { ...(cur.s || {}) };
-      for (const [k, v] of Object.entries(patch)) { if (v == null || v === false || v === '') delete s[k]; else s[k] = v; }
-      putCell(map, key, { ...cur, s });
+      putCell(map, key, { ...cur, s: patched(cur, patch) }, room);
     }
+    skipped = room.skipped;
   });
+  return skipped;
 }
 
-/** Clear the content (keep the formatting) of a range. */
-export function clearRange(doc, tabId, { r1, c1, r2, c2 }, { formats = false } = {}) {
+/** Clear the content (keep the formatting) of a range; skipRows are left as they are. */
+export function clearRange(doc, tabId, rect, { formats = false, skipRows } = {}) {
   change(doc, () => {
     const ctx = buildCtx(doc);
     const tab = ctx.tabById(tabId);
     const map = cellsOf(doc, tabId);
-    for (let r = r1; r <= Math.min(r2, tab.rows.length - 1); r += 1) {
-      for (let c = c1; c <= Math.min(c2, tab.cols.length - 1); c += 1) {
-        const key = tab.rows[r] + '.' + tab.cols[c];
-        const cur = map.get(key);
-        if (cur) putCell(map, key, formats ? {} : { s: cur.s });
-      }
-    }
+    const r2 = Math.min(rect.r2, tab.rows.length - 1), c2 = Math.min(rect.c2, tab.cols.length - 1);
+    eachInRange(tab, map, ctx, { ...rect, r2, c2 }, skipRows, (r, c, key) => {
+      const cur = map.get(key);
+      if (cur) putCell(map, key, formats ? {} : { s: cur.s });
+    }, { existingOnly: true });
   });
 }
 
@@ -511,7 +561,9 @@ export function uniqueTabName(doc, base) {
   for (let k = 2; ; k += 1) if (!taken.has(`${base} ${k}`.toLowerCase())) return `${base} ${k}`;
 }
 
+/** A new tab (null when the workbook already has MAX_TABS). */
 export function addTab(doc, snapshotTab, at) {
+  if (tabsOf(doc).length >= MAX_TABS) return null;
   const t = snapshotTab || newTabSnapshot();
   t.name = uniqueTabName(doc, t.name || 'Sheet');
   change(doc, () => writeTab(doc, t, at));

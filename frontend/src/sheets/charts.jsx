@@ -6,6 +6,7 @@ import { useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { withCommas, formatValue } from './format.js';
 import { CHART_TYPES } from './model.js';
+import { maxOf, minOf } from './formula/values.js';
 
 // Eight categorical colors that hold up on light and dark cards.
 const PALETTE = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#db2777', '#65a30d', '#64748b'];
@@ -91,10 +92,10 @@ export function ChartSVG({ type, data, width, height, title }) {
   const ys = scatter && series.length > 1 ? series.slice(1) : series;
   const xsNum = scatter && series.length > 1 ? series[0].values : null;
   const allY = ys.flatMap((s) => s.values).filter((v) => v != null);
-  const lo = Math.min(0, ...allY), hi = Math.max(0, ...allY);
+  const lo = minOf(allY, 0), hi = maxOf(allY, 0);
   const ticks = niceTicks(lo, hi);
   const tLo = ticks[0], tHi = ticks[ticks.length - 1];
-  const left = horiz ? Math.min(110, 12 + Math.max(...categories.map((c) => String(c).length)) * 6.5) : 12 + Math.max(...ticks.map((t) => axisLabel(t, nf).length)) * 6.5;
+  const left = horiz ? Math.min(110, 12 + maxOf(categories.map((c) => String(c).length), 0) * 6.5) : 12 + maxOf(ticks.map((t) => axisLabel(t, nf).length), 0) * 6.5;
   const right = 14, bottom = 28;
   const pw = Math.max(20, W - left - right), ph = Math.max(20, H - top - bottom);
   const vPos = (v) => (horiz ? left + ((v - tLo) / (tHi - tLo || 1)) * pw : top + ph - ((v - tLo) / (tHi - tLo || 1)) * ph);
@@ -104,7 +105,7 @@ export function ChartSVG({ type, data, width, height, title }) {
   let xTicks = null, xPos = cPos;
   if (xsNum) {
     const xv = xsNum.filter((v) => v != null);
-    xTicks = niceTicks(Math.min(...xv), Math.max(...xv));
+    xTicks = niceTicks(minOf(xv), maxOf(xv));
     const xl = xTicks[0], xh = xTicks[xTicks.length - 1];
     xPos = (i) => left + (((xsNum[i] ?? xl) - xl) / (xh - xl || 1)) * pw;
   }

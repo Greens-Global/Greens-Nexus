@@ -1,6 +1,6 @@
 // Sheets formulas: the functions. Each takes (args, env, eng) - args already
 // worked out (a range stays a Rng) - and returns a value or an Err.
-import { isErr, err, Rng, Arr, toNum, toStr, toBool, compare } from './values.js';
+import { isErr, err, Rng, Arr, toNum, toStr, toBool, compare, maxOf, minOf } from './values.js';
 import { serialFromYMD, ymdFromSerial, hmsFromSerial, serialFromDate, textFormat, parseDateText, parseNumber } from '../format.js';
 
 const NA = () => err('#N/A');
@@ -48,16 +48,54 @@ function roundTo(x, d, how) {
 }
 
 // ── criteria (SUMIF, COUNTIFS...) ────────────────────────────────────────
-function wildcard(pat) {
-  let re = '';
+// Excel wildcards (* any run, ? any one, ~ escapes) matched without a regular
+// expression: the two-pointer matcher is O(text x pattern) at worst and never
+// backtracks exponentially, whatever a colleague types into a criterion.
+const STAR = { star: true }, ANY = { any: true };
+const WILD_STEPS = 2000000;
+function globTokens(pat) {
+  const out = [];
   for (let i = 0; i < pat.length; i += 1) {
     const ch = pat[i];
-    if (ch === '~' && (pat[i + 1] === '*' || pat[i + 1] === '?')) { re += '\\' + pat[i + 1]; i += 1; }
-    else if (ch === '*') re += '.*';
-    else if (ch === '?') re += '.';
-    else re += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    if (ch === '~' && (pat[i + 1] === '*' || pat[i + 1] === '?')) { out.push(pat[i + 1]); i += 1; }
+    else if (ch === '*') { if (out[out.length - 1] !== STAR) out.push(STAR); }
+    else if (ch === '?') out.push(ANY);
+    else out.push(ch.toLowerCase());
   }
-  return new RegExp(`^${re}$`, 'i');
+  return out;
+}
+/** Does s (lower case) from index i match the whole pattern? budget = {left} steps, shared by one call. */
+function globFrom(toks, s, i, budget) {
+  let t = 0, star = -1, mark = i;
+  while (i < s.length) {
+    if ((budget.left -= 1) < 0) return false;
+    const tk = toks[t];
+    if (t < toks.length && tk !== STAR && (tk === ANY || tk === s[i])) { t += 1; i += 1; }
+    else if (t < toks.length && tk === STAR) { star = t; t += 1; mark = i; }
+    else if (star >= 0) { t = star + 1; mark += 1; i = mark; }
+    else return false;
+  }
+  while (t < toks.length && toks[t] === STAR) t += 1;
+  return t === toks.length;
+}
+function wildcard(pat) {
+  const toks = globTokens(String(pat));
+  const plain = toks.every((x) => typeof x === 'string');
+  const lit = plain ? toks.join('') : '';
+  return {
+    test: (v) => { const s = String(v).toLowerCase(); return plain ? s === lit : globFrom(toks, s, 0, { left: WILD_STEPS }); },
+    /** First index in s at or after `from` where the pattern starts, or -1. */
+    find: (v, from = 0) => {
+      const s = String(v).toLowerCase();
+      if (plain) return s.indexOf(lit, from);
+      const open = [...toks, STAR], budget = { left: WILD_STEPS };
+      for (let i = from; i <= s.length; i += 1) {
+        if (globFrom(open, s, i, budget)) return i;
+        if (budget.left < 0) return -1;
+      }
+      return -1;
+    },
+  };
 }
 export function criteria(crit) {
   if (isErr(crit)) throw crit;
@@ -156,8 +194,8 @@ export const FN = {
   // math
   SUM: (a) => nums(a).reduce((s, x) => s + x, 0),
   AVERAGE: (a) => { const n = nums(a); return n.length ? n.reduce((s, x) => s + x, 0) / n.length : err('#DIV/0!'); },
-  MIN: (a) => { const n = nums(a); return n.length ? Math.min(...n) : 0; },
-  MAX: (a) => { const n = nums(a); return n.length ? Math.max(...n) : 0; },
+  MIN: (a) => { const n = nums(a); return n.length ? minOf(n) : 0; },
+  MAX: (a) => { const n = nums(a); return n.length ? maxOf(n) : 0; },
   COUNT: (a) => { let k = 0; for (const { v, inRange } of each(a)) if (typeof v === 'number' || (!inRange && v != null && !isErr(toNum(v)) && typeof v !== 'boolean')) k += 1; return k; },
   COUNTA: (a) => { let k = 0; for (const { v } of each(a)) if (v != null) k += 1; return k; },
   COUNTBLANK: (a) => { const r = range(a[0]); let filled = 0; for (const v of r.flat()) if (v != null && v !== '') filled += 1; return r.h * r.w - filled; },
@@ -198,8 +236,8 @@ export const FN = {
   },
   AVERAGEIF: (a) => { const n = ifs(a[2] != null ? range(a[2]) : null, [a[0], a[1]], 0); return n.length ? n.reduce((s, x) => s + x, 0) / n.length : err('#DIV/0!'); },
   AVERAGEIFS: (a) => { const n = ifs(range(a[0]), a, 1); return n.length ? n.reduce((s, x) => s + x, 0) / n.length : err('#DIV/0!'); },
-  MAXIFS: (a) => { const n = ifs(range(a[0]), a, 1); return n.length ? Math.max(...n) : 0; },
-  MINIFS: (a) => { const n = ifs(range(a[0]), a, 1); return n.length ? Math.min(...n) : 0; },
+  MAXIFS: (a) => { const n = ifs(range(a[0]), a, 1); return n.length ? maxOf(n) : 0; },
+  MINIFS: (a) => { const n = ifs(range(a[0]), a, 1); return n.length ? minOf(n) : 0; },
   RAND: () => Math.random(),
   RANDBETWEEN: (a) => { const lo = Math.ceil(num(a[0])), hi = Math.floor(num(a[1])); return hi < lo ? NUM() : lo + Math.floor(Math.random() * (hi - lo + 1)); },
 
@@ -249,9 +287,9 @@ export const FN = {
   FIND: (a) => { const i = str(a[1]).indexOf(str(a[0]), int(opt(a[2], 1)) - 1); return i < 0 ? VALUE() : i + 1; },
   SEARCH: (a) => {
     const hay = str(a[1]), start = int(opt(a[2], 1)) - 1;
-    const re = new RegExp(wildcard(str(a[0])).source.slice(1, -1), 'i');
-    const m = re.exec(hay.slice(start));
-    return m ? m.index + start + 1 : VALUE();
+    if (start < 0 || start > hay.length) return VALUE();
+    const i = wildcard(str(a[0])).find(hay, start);
+    return i < 0 ? VALUE() : i + 1;
   },
   TEXT: (a) => textFormat(typeof (a[0] instanceof Rng ? a[0].at(0, 0) : a[0]) === 'string' ? str(a[0]) : num(a[0]), str(a[1])),
   VALUE: (a) => { const v = a[0] instanceof Rng ? a[0].at(0, 0) : a[0]; return typeof v === 'number' ? v : toNum(String(v ?? '').replace(/^\$/, '')); },

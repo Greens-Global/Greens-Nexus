@@ -5,12 +5,13 @@
 import { newTabSnapshot, makeCtx, buildCtx, newId, safeLink, MAX_CELLS, MAX_ROWS, MAX_COLS, DEFAULT_ROWS, DEFAULT_COLS } from './model.js';
 import { encodeFormula, decodeFormula } from './formula/parse.js';
 import { createEngine, isErr } from './formula/eval.js';
+import { maxOf } from './formula/values.js';
 import { parseInput, formatValue, serialFromDate } from './format.js';
 import { mergesOf, fillTokens } from './features.js';
 
 const TOO_BIG = 'This file has more than 500,000 cells - split it and import the parts.';
 // Formulas Excel would not read the same way: Nexus variables, and arrays that spill.
-const VALUE_ONLY = /\b(VAR|FILTER|SORT|UNIQUE|SEQUENCE|TRANSPOSE|SPLIT|ARRAYFORMULA|LET|TEXTBEFORE|TEXTAFTER|COUNTUNIQUE|JOIN)\s*\(/i;
+const VALUE_ONLY = /\b(VAR|FILTER|SORT|UNIQUE|SEQUENCE|TRANSPOSE|SPLIT|ARRAYFORMULA|LET|TEXTBEFORE|TEXTAFTER|COUNTUNIQUE|JOIN|OFFSET|INDIRECT)\s*\(/i;
 
 /** An Excel number format -> ours. */
 function nfFrom(z) {
@@ -157,9 +158,13 @@ export async function exportSheetFile(doc, title, kind = 'xlsx', tabId = '', { v
   if (kind === 'csv') {
     const tab = ctx.tabById(tabId) || ctx.tabs[0];
     const all = cellsShown(ctx, eng, tab);
-    const maxR = Math.max(-1, ...all.map((x) => x.r)), maxC = Math.max(-1, ...all.map((x) => x.c));
+    const maxR = maxOf(all.map((x) => x.r), -1), maxC = maxOf(all.map((x) => x.c), -1);
     const grid = Array.from({ length: maxR + 1 }, () => Array(maxC + 1).fill(''));
-    for (const x of all) grid[x.r][x.c] = text(formatValue(x.v, x.cell?.s));
+    for (const x of all) {
+      const t = text(formatValue(x.v, x.cell?.s));
+      // A text cell that starts like a formula is written so a spreadsheet opening the file reads it as text.
+      grid[x.r][x.c] = typeof x.v === 'string' && /^[=+\-@\t\r]/.test(t) ? `'${t}` : t;
+    }
     const csv = grid.map((r) => r.map((v) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)).join(',')).join('\r\n');
     download(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `${fileName(title)}.csv`);
     return;
@@ -184,7 +189,8 @@ export async function exportSheetFile(doc, title, kind = 'xlsx', tabId = '', { v
       const val = text(v);
       const out = isErr(val) ? { t: 'e', v: XL_ERR[val.code] ?? 15, w: val.code }
         : typeof val === 'number' ? { t: 'n', v: val } : typeof val === 'boolean' ? { t: 'b', v: val } : { t: 's', v: val == null ? '' : String(val) };
-      if (cell?.f && !VALUE_ONLY.test(cell.f)) out.f = decodeFormula(cell.f, xlCtx, tab.id).slice(1);
+      // A formula that spills (=A1:A9*2) is a dynamic array Excel would need marked as one: its values go instead.
+      if (cell?.f && !VALUE_ONLY.test(cell.f) && !eng.spillOf(tab, r, c)) out.f = decodeFormula(cell.f, xlCtx, tab.id).slice(1);
       const z = xlFormat(cell?.s);
       if (z) out.z = z;
       if (cell?.l) out.l = { Target: cell.l };
@@ -206,5 +212,16 @@ export async function exportSheetFile(doc, title, kind = 'xlsx', tabId = '', { v
     if (tab.frozenRows || tab.frozenCols) ws['!freeze'] = { xSplit: tab.frozenCols, ySplit: tab.frozenRows };
     XLSX.utils.book_append_sheet(wb, ws, xt.name);
   }
+  // Named ranges, so formulas that use them still work in Excel.
+  const names = [];
+  ctx.names.forEach((n) => {
+    const at = ctx.nameRef(n.name);
+    const xt = at && xlTabs.find((t) => t.id === at.tab.id);
+    if (!xt) return;
+    const sheet = `'${xt.name.replace(/'/g, "''")}'`;
+    const abs = (r, c) => `$${XLSX.utils.encode_col(c)}$${r + 1}`;
+    names.push({ Name: n.name, Ref: `${sheet}!${abs(at.r1, at.c1)}:${abs(at.r2, at.c2)}` });
+  });
+  if (names.length) wb.Workbook = { ...(wb.Workbook || {}), Names: names };
   XLSX.writeFile(wb, `${fileName(title)}.xlsx`, { compression: true });
 }
