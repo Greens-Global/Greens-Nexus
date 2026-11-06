@@ -248,9 +248,11 @@ class HonestSlaTests(unittest.TestCase):
                                          last_name="T", status="active", company="c1"))
         self.db.commit()
 
-    def test_a_ticket_born_assigned_still_needs_a_reply(self):
-        """An agent logs a phone call for someone and takes it: the clock
-        runs until a reply - and the filing agent's own reply counts."""
+    def test_a_ticket_born_assigned_is_being_worked_not_reply_overdue(self):
+        """An agent logs a phone call for someone and takes it: it is born In
+        Progress, so no first-response clock runs (Neil, 11/05/2026 - this
+        reverses the old "born assigned still needs a reply"); the filing
+        agent's own reply still stamps the first response."""
         self._people()
         out = T.create_ticket(T.TicketBody(subject="s", priority="urgent", assignee_email=AGENT["email"],
                                            requester_email=REQUESTER["email"]),
@@ -259,7 +261,7 @@ class HonestSlaTests(unittest.TestCase):
         self.assertIsNone(out["firstResponseAt"])
         t = self.db.get(models.TaskTicket, out["id"])
         self.assertEqual(t.created_by_email, AGENT["email"])
-        self.assertTrue(S.response_breached(t, datetime.now(timezone.utc) + h(5)))
+        self.assertFalse(S.response_breached(t, datetime.now(timezone.utc) + h(5)))
         self._comment(t, AGENT)
         self.assertTrue(t.first_response_at)
 
@@ -530,6 +532,28 @@ class HonestSlaTests(unittest.TestCase):
         t = self.ticket()
         ctx = ticket_notify._time_fields(t, "America/Los_Angeles")
         self.assertEqual(ctx["dueDateDisplay"], "10/20/2026 9:00 AM PDT")
+
+
+class FirstResponseApplies(unittest.TestCase):
+    """Neil, 11/05/2026: an assigned, In Progress ticket is being worked -
+    no first-response clock, so it never reads "Reply overdue"."""
+
+    def _t(self, **kw):
+        from types import SimpleNamespace
+        base = dict(requester_email="req@example.com", assignee_email="", status="open")
+        return SimpleNamespace(**{**base, **kw})
+
+    def test_assigned_in_progress_has_no_reply_clock(self):
+        self.assertFalse(S.first_response_applies(self._t(assignee_email="agent@example.com", status="in_progress")))
+
+    def test_assigned_but_open_still_has_one(self):
+        self.assertTrue(S.first_response_applies(self._t(assignee_email="agent@example.com")))
+
+    def test_in_progress_with_nobody_assigned_still_has_one(self):
+        self.assertTrue(S.first_response_applies(self._t(status="in_progress")))
+
+    def test_own_ticket_still_has_none(self):
+        self.assertFalse(S.first_response_applies(self._t(assignee_email="req@example.com")))
 
 
 if __name__ == "__main__":

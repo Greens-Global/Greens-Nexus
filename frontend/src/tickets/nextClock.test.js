@@ -117,5 +117,8 @@ describe('Next Clock color', () => {
     expect(colorOf(live({ ...late, approvalStatus: 'pending' }))).not.toBe(NX.red);
     expect(colorOf(live({ ...late, requesterId: 'agent@example.com' }))).toBeNull(); // own ticket: no reply clock
     expect(colorOf(live({ ...late, status: 'resolved' }))).toBeNull();
+    // assigned and In Progress: no reply clock, the resolution clock leads
+    expect(colorOf(live({ ...late, status: 'in_progress', assigneeId: 'agent@example.com', requesterId: 'req@example.com' }))).toBeNull();
+    expect(nextClock(live({ ...late, status: 'in_progress', assigneeId: 'agent@example.com', requesterId: 'req@example.com' })).kind).toBe('resolve');
   });
 });
