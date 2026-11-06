@@ -121,7 +121,9 @@ function download(blob, name) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Taken now, used once the browser has the file; a cleanup that fails must never surface as an error.
+  const revoke = typeof URL.revokeObjectURL === 'function' ? URL.revokeObjectURL.bind(URL) : null;
+  setTimeout(() => { try { revoke?.(url); } catch { /* nothing to free */ } }, 1000);
 }
 
 /** Every cell a tab shows: its stored cells plus the cells arrays spill into. -> { r, c, cell, v } */
