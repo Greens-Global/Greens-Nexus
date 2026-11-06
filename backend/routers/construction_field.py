@@ -214,6 +214,8 @@ def add_job_media(job_id: str, body: JobMediaBody, user: dict = Depends(get_curr
     p = _project(db, job_id, user)
     if not _may_log(db, user, p):
         raise HTTPException(403, "You are not on this job.")
+    if body.kind == "drawing":
+        raise HTTPException(422, "Drawings go on the job's Drawings tab.")
     mid = (body.id or "").strip()
     if mid:
         if not _ID.match(mid):

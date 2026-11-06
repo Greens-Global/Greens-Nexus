@@ -40,12 +40,16 @@ MAX_BYTES = {
     "photo": 25 * 1024 * 1024,    # a 25 MP phone JPEG is ~8 MB; 25 leaves room for RAW-ish
     "video": 100 * 1024 * 1024,   # hard cap - see above
     "audio": 25 * 1024 * 1024,    # ~30 min of AAC voice; far beyond a site note
+    # A drawing sheet (Round Two item 9, 11/06/2026): a PDF or a scan. One
+    # sheet, not a bound set - a set goes up sheet by sheet.
+    "drawing": 50 * 1024 * 1024,
 }
 
 ALLOWED_MIME = {
     "photo": {"image/jpeg", "image/png", "image/heic", "image/heif", "image/webp"},
     "video": {"video/mp4", "video/quicktime", "video/webm"},
     "audio": {"audio/mpeg", "audio/mp4", "audio/aac", "audio/ogg", "audio/webm", "audio/wav"},
+    "drawing": {"application/pdf", "image/png", "image/jpeg"},
 }
 
 # HEIC is what an iPhone produces by default and is not renderable in most
@@ -60,6 +64,7 @@ _EXT_FOR_MIME = {
     "video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm",
     "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/aac": "aac",
     "audio/ogg": "ogg", "audio/webm": "weba", "audio/wav": "wav",
+    "application/pdf": "pdf",
 }
 
 

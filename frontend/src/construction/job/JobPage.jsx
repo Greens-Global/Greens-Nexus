@@ -40,6 +40,7 @@ const ChangesTab = lazy(() => import('./ChangesTab'));
 const CloseoutTab = lazy(() => import('./CloseoutTab'));
 const PermitsTab = lazy(() => import('./PermitsTab'));
 const SubsTab = lazy(() => import('./SubsTab'));
+const DrawingsTab = lazy(() => import('./DrawingsTab'));
 // Money (phase 4): its own chunk with the Accounting side panel.
 const MoneyTab = lazy(() => import('./MoneyTab'));
 const tabWait = <SkeletonBlocks count={3} height={120} borderRadius={12} />;
@@ -286,6 +287,7 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
         )}
         {active === 'permits' && <Suspense fallback={tabWait}><PermitsTab project={project} /></Suspense>}
         {active === 'subs' && <Suspense fallback={tabWait}><SubsTab project={project} /></Suspense>}
+        {active === 'drawings' && <Suspense fallback={tabWait}><DrawingsTab project={project} /></Suspense>}
         {active === 'money' && (
           <Suspense fallback={tabWait}>
             <MoneyTab project={project} money={money} onEdit={project.canEdit ? () => setEditing(true) : null} />

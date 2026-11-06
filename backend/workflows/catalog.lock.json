@@ -4607,6 +4607,15 @@
     },
     {
       "changes": [],
+      "entity": "job",
+      "group": "Construction",
+      "key": "drawing.revised",
+      "label": "Drawing Is Revised",
+      "module": "construction",
+      "volume": "normal"
+    },
+    {
+      "changes": [],
       "entity": "employee",
       "group": "People",
       "key": "employee.created",
