@@ -7,7 +7,7 @@ import {
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
-import ModuleTabs from '../components/ModuleTabs';
+import ModuleTabs, { ModuleActions } from '../components/ModuleTabs';
 import ModuleSearch from '../components/accounting/ModuleSearch';
 import { dashDensityOf, useAccountingPrefs } from '../components/accounting/prefs';
 import { SkeletonBlocks } from '../components/AsyncState';
@@ -17,7 +17,6 @@ import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { REPORTS, REPORT_VIEWS, parseActivitySub } from '../components/accounting/reportModel';
 import { STATEMENTS_SUB } from '../components/accounting/drill';
 import { BUILDER_PUBLISH_MIN_LEVEL, PAYROLL_SUMMARY_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
-import PageTrail from '../components/PageTrail';
 
 // Oct 24 (bundle budget, 10/23 meeting round 2): every screen behind the bar
 // is fetched the first time it is opened, not with the Accounting view - all
@@ -257,16 +256,6 @@ const reportOf = (key) => {
 };
 const viewOf = (key) => (REPORT_VIEWS[rptKey(key)] ? rptKey(key) : null);
 const DASH_SUBS = ['overview', 'cash', 'performance', 'close'];
-/** The bar tab the open page belongs to - its word is the page heading (Neil,
- *  10/30: "If we are on dashboard it should say Dashboard here, not
- *  accounting. This wiring is wrong or incomplete"). Unknown subs keep the
- *  module's name. */
-// Urmi, Teams 11/05/2026: an older statement key (rpt-pnl) or an alias still
-// says which tab it is under - every `rpt-` key is Reports.
-const headingFor = (sub) => {
-  const k = menuKey(ALIAS[sub] || sub);
-  return TABS.find((t) => leafKeys([t]).includes(k))?.label || (isReports(k) ? 'Reports' : 'Accounting');
-};
 
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
@@ -374,37 +363,6 @@ export default function Accounting({ activeSub, onSubChange }) {
       searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />
   );
 
-  const subtitle = {
-    overview: 'Your dashboard view of the ledger - arrange the widgets that matter to your role',
-    cash: 'Consolidated cash position, monthly cash plan by category, and the near-term forecast',
-    performance: 'Actuals against budget and prior year, ranked by what matters, with commentary',
-    close: 'Month-end close: checklist, reconciliations, balance sheet flux and controls',
-    reports: 'Every report in one place - the standard ones, the memorized ones and the custom reports from the Report Builder',
-    statements: 'Financial reports from the Nexus Accounting ledger',
-    'report-builder': 'Custom reports built from the GL accounts, row groups and dimensions you pick - saved for you or published to the team',
-    packages: 'Sets of memorized reports, built into one PDF for a lender',
-    mri: 'Monthly recurring income - leases, and the interest and loan payments coming in',
-    loans: 'Every loan from the ledger - balances, principal and interest paid, NOI and DSCR against the covenant',
-    pfs: 'Personal financial statements of the guarantors, for any date',
-    data: 'Partner capital, cap rates, close plan, filing calendar and close history',
-    intercompany: 'Due-from and due-to balances between the entities, matched before consolidation',
-    investments: 'Brokerage and money-market holdings at market value, against the book value in the ledger',
-    access: 'Which entities each person on the accounting team may read',
-    budget: 'The budget per entity and year, by account and month, against the actuals',
-    partners: 'Vendor and customer records, with changes sent to a manager for approval before they are keyed into Intacct',
-    allocations: 'The monthly payroll allocation entry - wages split across entities by hours worked at each site',
-    mre: 'Monthly recurring expenses - what posts every month, by vendor and entity',
-    imports: 'Turn a bank or brokerage statement into an Intacct journal entry import file',
-    ama: 'Ask My Accountant - lines parked for the accountant and questions on any ledger line',
-    'mgmt-fees': 'Asset management agreements - the fee per managed entity, billed against expected',
-    profitability: 'Revenue, NOI, net income and cash flow after debt service per entity, against the prior year',
-    compensation: 'Payroll, benefits and taxes per employee from the Intacct ledger, with hours from Time Clock',
-    'payroll-summary': 'Gross pay, taxes, deductions, net pay and employer costs per employee, from the QuickBooks payroll in PYRJ',
-    'gl-accounts': 'The chart of accounts - every general ledger account, read-only',
-    'manual-je': 'Journal entries a person keyed in Intacct - who created and posted each one, for review',
-    entities: 'The entities (Intacct locations) on the ledger, with their parents',
-    journal: 'One journal\'s lines, with every report filter, search and column',
-  }[isReports(sub) ? 'statements' : sub === 'customers' ? 'partners' : journalOf(sub) ? 'journal' : sub];
   const records = (
     <>
       {sub === 'gl-accounts' && <GlAccountsTab />}
@@ -426,28 +384,18 @@ export default function Accounting({ activeSub, onSubChange }) {
           on every screen change"). Oct 6 (Neil): the search sits at the TOP
           RIGHT on every tab, Reports included - title left, the search box
           last. One line, one height, everywhere. */}
-      <div className="view-header acct-header">
-        <div className="acct-header-title">
-          {/* The heading is the bar tab the page belongs to (Neil, 10/30):
-              Dashboard on the dashboards, Reports on a statement, and so on -
-              the sidebar already says Accounting. */}
-          <PageTrail title={headingFor(sub)} />
-          <h2>{headingFor(sub)}</h2>
-          <p title={subtitle}>{subtitle}</p>
-        </div>
-        {/* Oct 7 (Neil, comment 6: "Remove Nexus Accounting"): the "Open Nexus
-            Accounting" link is gone from every tab. The slot stays so the
-            search keeps its place. */}
-        <div className="acct-header-actions" />
-        {/* Chat 10/26, item 13: an icon that opens on a click or Ctrl+F (ModuleSearch). */}
-        <div className="acct-header-search">
-          {/* Oct 7 (Neil, screenshot 3): no ledger search on the PFS tab. */}
-          {access && sub !== 'pfs' && (
+      {/* No page title (Neil, 11/06/2026): the module bar names the module and
+          the lit tab. The search rides the bar's right end, the same place on
+          every tab. Chat 10/26, item 13: an icon that opens on a click or
+          Ctrl+F (ModuleSearch). Oct 7 (Neil, screenshot 3): none on PFS. */}
+      {access && sub !== 'pfs' && (
+        <ModuleActions>
+          <div className="acct-header-search">
             <ModuleSearch value={searchText} onChange={setSearchText} waiting={searchWaiting && isReports(sub)}
               onSubmit={(text) => { clearTimeout(searchTimer.current); goSearch(text); }} />
-          )}
-        </div>
-      </div>
+          </div>
+        </ModuleActions>
+      )}
 
       {access && <ModuleTabs tabs={withBadges(tabs, counts, 'accounting')} active={menuKey(sub)} onChange={onSubChange} compactGroups />}
 

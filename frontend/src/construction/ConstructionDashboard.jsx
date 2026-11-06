@@ -44,7 +44,7 @@ import { PersonMultiSelect } from '../tasks/components';
 import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
 import WorkSiteAddressMap from '../components/WorkSiteAddressMap';
 import { googleMapsUrl } from '../lib/addressSearch';
-import PageTrail from '../components/PageTrail';
+import { ModuleActions } from '../components/ModuleTabs';
 import { useTableValue } from '../tasks/tableCols';
 import ProgramTable from './ProgramTable';
 
@@ -416,15 +416,10 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
 
   return (
     <>
-      <div className="view-header" style={{ marginBottom: 24 }}>
-        <div className="view-title-group">
-          {/* The heading names the open tab (Project Dashboard), the trail the module. */}
-          <PageTrail title="Project Dashboard" />
-          <h2>Project Dashboard</h2>
-          <p>Jobsite daily logs, media and weekly reporting</p>
-        </div>
+      {/* No page title (Neil, 11/06/2026): the module bar names the tab; New Job rides its right end. */}
+      <ModuleActions>
         <button className="primary-btn" onClick={() => setShowNew(true)}><Plus size={16} />New Job</button>
-      </div>
+      </ModuleActions>
 
       {error && <ErrorBanner message={error} onRetry={load} />}
 

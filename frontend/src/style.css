@@ -9711,7 +9711,37 @@ body:has(.apv-phone) { overflow-x: clip; }
    placed above its own title stand down (computers only - a phone has no bar
    tabs and keeps them). */
 @media (min-width: 901px) {
-  .main-content:has(> .module-bar) .viewport .page-trail { display: none; }
+  .main-content:has(> .module-bar) .viewport .page-trail,
+  .main-content:has(.module-bar--header) .viewport .page-trail { display: none; }
+}
+/* The bar IN the top header (Neil, 11/06/2026: "on the top navigation bar
+   instead of on the page"): Back, then the module's name or a record's
+   trail, its tabs (a measured strip that folds into More), its actions, then
+   the search and the account cluster. One row; the page starts under it.
+   Below 1440px the account pill keeps just the photo and the search gets
+   shorter so the tabs keep their room; Ctrl+F still opens the search. */
+@media (min-width: 901px) {
+  .header-center:has(> .module-bar--header) { display: flex; align-self: stretch; }
+  .module-bar--header {
+    position: static; z-index: auto; flex: 1; min-width: 0; min-height: 0;
+    align-self: stretch; padding: 0; background: none; border-bottom: 0;
+  }
+  .module-bar--header .module-bar-actions { padding: 0 14px 0 0; border-right: 1px solid var(--wk-line); }
+  /* No tabs (Help Center, Asset Management): the name stands alone, no divider. */
+  .module-bar--header:not(:has(.hdr-tabs)) .page-trail--bar { border-right: 0; }
+  /* Back is just the arrow, not a chip (Neil, 11/06/2026): it shares the row
+     with the module's name and tabs and must not crowd them. */
+  .top-header .breadcrumb-back,
+  [data-theme="dark"] .top-header .breadcrumb-back {
+    width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: var(--muted);
+  }
+  .top-header .breadcrumb-back:hover { color: var(--wk-brand); background: none; }
+}
+@media (min-width: 901px) and (max-width: 1439px) {
+  .top-header:has(.module-bar--header .hdr-tabs) .header-user-info { display: none; }
+}
+@media (min-width: 1181px) and (max-width: 1439px) {
+  .top-header:has(.module-bar--header .hdr-tabs) .hdr-search { width: 200px; }
 }
 @media (max-width: 1180px) { .module-bar { padding: 0 20px; } }
 /* Phones keep their swipeable in-page strip: the bar shows only a module's

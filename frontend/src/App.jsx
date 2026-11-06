@@ -976,8 +976,9 @@ function MainApp() {
             {/* A clock-in with no location (Neil, Oct 21 2026): the red Turn On / Skip bar. */}
             {!pdfHasDoc && <WidgetBoundary name="location-bar" resetKey={widgetKey}><LocationNoticeBar /></WidgetBoundary>}
             {/* The module bar (11/05/2026): the module's name, its tabs, its actions -
-                one page header for every module (ModuleBar in ModuleTabs.jsx). */}
-            {!pdfHasDoc && <WidgetBoundary name="module-bar" resetKey={widgetKey}><ModuleBar /></WidgetBoundary>}
+                one page header for every module (ModuleBar in ModuleTabs.jsx).
+                In the top header on a computer since 11/06/2026; here only on a phone. */}
+            {!pdfHasDoc && <WidgetBoundary name="module-bar" resetKey={widgetKey}><ModuleBar where="below" /></WidgetBoundary>}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
                 dashboard surfaces - see the Work OS section in style.css */}
             {/* pdf-editor is flush for the same reason tasks is: it owns its

@@ -64,9 +64,9 @@ describe('Accounting view', () => {
   it('shows a skeleton, never nothing, while access is being asked', () => {
     apiMock.getMyAccountingAccess.mockReturnValue(new Promise(() => {}));
     const { container } = render(<Accounting activeSub="overview" onSubChange={() => {}} />);
-    // The heading is the bar tab the page belongs to (Neil, 10/30) - on
-    // overview that is Dashboard, not Accounting.
-    expect(container.querySelector('.skeleton-block, [class*="skeleton"]') || container.textContent.includes('Dashboard')).toBeTruthy();
+    // No page title any more (Neil, 11/06/2026): the module bar names the tab.
+    expect(container.querySelector('.nx-skel')).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Overview' })).toBeNull();
   });
 

@@ -20,6 +20,7 @@ vi.mock('../components/ModuleTabs', () => ({
   default: ({ tabs, active, onChange }) => (
     <div role="tablist">{tabs.map((t) => <button key={t.key} role="tab" aria-selected={active === t.key} onClick={() => onChange(t.key)}>{t.label}{t.badge ? ` (${t.badge})` : ''}</button>)}</div>
   ),
+  ModuleActions: ({ children }) => children,
 }));
 
 const { default: CredentialVaultApp } = await import('./CredentialVaultApp');

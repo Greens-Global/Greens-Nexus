@@ -3,7 +3,7 @@ import { Menu, Search, LogOut, User, ArrowLeft, ChevronDown, Sparkles, X, UserCo
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
 import QuickNoteButton from "../notes/QuickNoteButton";
-import { useHeaderTabs } from "./ModuleTabs";
+import { useHeaderTabs, ModuleBar } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
 import QuickCreate from "./QuickCreate";   // the "+" Create menu (Oct 29 2026)
 import { readStopEmail, setPendingEmailStop } from "../lib/emailStop";
@@ -371,10 +371,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         </div>
       </div>
 
-      {/* The module's tabs live in the module bar under this header since
-          11/05/2026 (ModuleBar in ModuleTabs.jsx); the center only spaces the
-          two clusters apart. */}
-      <div className="header-center" />
+      {/* The module bar - the module's name (or a record's trail), its tabs,
+          its actions - rides here, right after Back, on a computer (Neil,
+          11/06/2026: one row, more of the page to work with). Phones draw
+          it under the header instead (ModuleBar in ModuleTabs.jsx). */}
+      <div className="header-center"><ModuleBar where="header" /></div>
 
       <div className="header-right">
         {searchBar}

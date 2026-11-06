@@ -197,6 +197,12 @@ keep the diff minimal.
 - Cross-view navigation uses the `nexus:navigate` window event
   (`window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }))`).
 - Tab strips use the `.scroll-tabs` class (hidden scrollbars, mobile swipe).
+- **The module bar lives in the top header (Neil, 11/06/2026):** the module's
+  name (the page trail, with the pages above a record), its tabs and its
+  buttons (`<ModuleActions>`) - a page never repeats the module or tab name as
+  a title of its own, and a module with one tab shows no tabs.
+  `scripts/check-module-headers.mjs` (in `npm run lint`) fails a new
+  `view-title-group`; record pages that name the record are on its list.
 - **Popups are sheets from the right** (Neil, 11/01/2026): on a desktop,
   every popup that is a record, a form or a workspace is a SHEET - docked to
   the right edge, the full height, rounded only where it meets the page -

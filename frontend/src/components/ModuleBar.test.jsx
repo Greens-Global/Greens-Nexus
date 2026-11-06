@@ -53,6 +53,44 @@ describe('the module bar', () => {
     expect(document.querySelector('.module-bar')).toBeNull();
   });
 
+  it('shows no strip for a single tab: it would only repeat the module (Neil, 11/06/2026)', () => {
+    shell(<ModuleTabs tabs={[{ key: 'help', label: 'Help Center' }]} active="help" onChange={() => {}} />, 'Help Center');
+    expect(document.querySelector('.module-bar .page-trail--bar').textContent).toBe('Help Center');
+    expect(document.querySelector('.module-bar .hdr-tabs')).toBeNull();
+    expect(document.querySelector('.module-tabs-inline')).toBeNull();
+  });
+
+  it('rides in the top header on a computer and under it on a phone - one at a time', () => {
+    const real = window.matchMedia;
+    const at = (phone) => {
+      window.matchMedia = (q) => ({ matches: phone && /max-width:\s*900px/.test(q), media: q,
+        addEventListener() {}, removeEventListener() {} });
+      return render(
+        <HeaderTabsProvider>
+          <PageTrailProvider view="hr" label="People" onNavigate={() => {}}>
+            <header><ModuleBar where="header" /></header>
+            <ModuleBar where="below" />
+            <ModuleTabs tabs={[{ key: 'a', label: 'People' }, { key: 'b', label: 'Hiring' }]} active="a" onChange={() => {}} />
+            <ModuleActions><button type="button">Add Person</button></ModuleActions>
+          </PageTrailProvider>
+        </HeaderTabsProvider>,
+      );
+    };
+    try {
+      at(false);
+      expect(document.querySelectorAll('.module-bar')).toHaveLength(1);
+      expect(document.querySelector('header .module-bar--header nav.hdr-tabs').textContent).toContain('Hiring');
+      expect(screen.getByRole('button', { name: 'Add Person' }).closest('header')).toBeTruthy();
+      cleanup();
+      at(true);
+      expect(document.querySelectorAll('.module-bar')).toHaveLength(1);
+      expect(document.querySelector('header .module-bar')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Add Person' }).closest('.module-bar-actions')).toBeTruthy();
+    } finally {
+      window.matchMedia = real;
+    }
+  });
+
   it('renders actions in place when there is no shell (a module rendered alone)', () => {
     render(<ModuleActions><button type="button">Add Asset</button></ModuleActions>);
     expect(screen.getByRole('button', { name: 'Add Asset' })).toBeTruthy();

@@ -9,7 +9,7 @@
 // folds the left navigation away for the wide tables and maps.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge, Map as MapIcon, Lightbulb, Users, LineChart, Tags, ArrowUpRight, ShieldAlert, Percent, Target, CalendarClock, Wrench, Download, MapPinned } from 'lucide-react';
-import ModuleTabs from '../components/ModuleTabs';
+import ModuleTabs, { ModuleActions } from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
@@ -29,7 +29,6 @@ import FacilityPicker, { StatePicker } from '../operations/FacilityPicker';
 import { useRole } from '../contexts/RoleContext';
 import FullScreenButton, { useFullScreen } from '../components/FullScreenButton';
 import '../operations/ops.css';
-import PageTrail, { tabLabelOf } from '../components/PageTrail';
 // Ops Budget (Oct 21): results vs budget and last year per site. Lazy, its own chunk.
 const OpsBudget = lazy(() => import('../operations/OpsBudget'));
 // Site Map (Oct 20): the 3D site model with layers. Lazy, so three.js loads only on that tab.
@@ -290,27 +289,22 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} />
 
-      <div className="view-header">
-        <div className="view-title-group">
-          {/* OPERATIONS over the tab you are on (the page trail, Neil, 11/04/2026). */}
-          <PageTrail title={tabLabelOf(tabs, sub) || 'Operations'} />
-          <h2>{tabLabelOf(tabs, sub) || 'Operations'}</h2>
-          <p>
-            {state.data
-              ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
-              : 'Storage facility figures from Cubby'}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <FullScreenButton on={full} onToggle={toggleFull} className="secondary-btn" />
-          {state.data && (
-            <button type="button" className="secondary-btn" onClick={refresh} disabled={refreshing}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <RefreshCw size={14} aria-hidden="true" /> {refreshing ? 'Syncing…' : 'Refresh'}
-            </button>
-          )}
-        </div>
-      </div>
+      {/* No page title (Neil, 11/06/2026): the module bar names the tab and
+          carries Full Screen / Refresh; the sync line stays - it is live data. */}
+      <ModuleActions>
+        <FullScreenButton on={full} onToggle={toggleFull} className="secondary-btn" />
+        {state.data && (
+          <button type="button" className="secondary-btn" onClick={refresh} disabled={refreshing}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <RefreshCw size={14} aria-hidden="true" /> {refreshing ? 'Syncing…' : 'Refresh'}
+          </button>
+        )}
+      </ModuleActions>
+      <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>
+        {state.data
+          ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
+          : 'Storage facility figures from Cubby'}
+      </p>
       {notice && <p className="ops-note" role="status" style={{ margin: '0 0 12px' }}>{notice}</p>}
 
       {screen === 'budget' && (

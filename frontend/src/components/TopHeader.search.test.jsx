@@ -33,7 +33,7 @@ vi.mock('../contexts/InventoryContext', () => ({ useInventory: () => ({ items: [
 vi.mock('../contexts/RequisitionContext', () => ({ useRequisitions: () => ({ requisitions: [] }) }));
 
 const { default: TopHeader } = await import('./TopHeader');
-const { HeaderTabsProvider, ModuleBar, default: ModuleTabs } = await import('./ModuleTabs');
+const { HeaderTabsProvider, default: ModuleTabs } = await import('./ModuleTabs');
 
 let PHONE = false;
 const realMatchMedia = window.matchMedia;
@@ -47,7 +47,6 @@ const header = (props = {}, tabs = false) => render(
   <HeaderTabsProvider>
     {tabs && <ModuleTabs tabs={[{ key: 'a', label: 'Alpha' }, { key: 'b', label: 'Beta' }]} active="a" onChange={() => {}} />}
     <TopHeader title="Tasks" activeView="tasks" theme="light" onThemeToggle={() => {}} onNavigate={() => {}} {...props} />
-    <ModuleBar />
   </HeaderTabsProvider>,
 );
 const bar = () => screen.getByRole('textbox', { name: 'Search Nexus' });
@@ -67,9 +66,8 @@ describe('TopHeader search', () => {
     const withTabs = bar();
     expect(withTabs.placeholder).toBe('Search Nexus');
     expect(inRight(withTabs)).toBe(true);
-    // The tabs left the header for the module bar under it (one page header, 11/05/2026).
-    expect(document.querySelector('.header-center .hdr-tabs')).toBeNull();
-    expect(document.querySelector('.module-bar .hdr-tabs')?.textContent).toContain('Alpha');
+    // The module bar rides in the header's center on a computer (Neil, 11/06/2026).
+    expect(document.querySelector('.header-center .module-bar--header nav.hdr-tabs')?.textContent).toContain('Alpha');
     expect(document.querySelector('.hdr-search-pop')).toBeNull();           // no icon-and-popover any more
     expect(document.querySelector('.header-right button[aria-label="Search Nexus"]')).toBeNull();   // no icon trigger on the right
   });
@@ -220,15 +218,14 @@ describe('TopHeader search', () => {
       <HeaderTabsProvider>
         <ModuleTabs tabs={[{ key: 'd', label: 'Dashboard', items }, { key: 'r', label: 'Reports', items: [{ key: 'y', label: 'Y' }] }]} active="x" onChange={() => {}} compactGroups />
         <TopHeader title="Accounting" activeView="accounting" theme="light" onThemeToggle={() => {}} onNavigate={() => {}} />
-        <ModuleBar />
       </HeaderTabsProvider>,
     );
-    const nav = document.querySelector('.module-bar .hdr-tabs');
+    const nav = document.querySelector('.module-bar nav.hdr-tabs');
     expect(nav.classList.contains('hdr-tabs--compact')).toBe(true);
     expect(nav.querySelectorAll('.hdr-tab .tab-group-caret')).toHaveLength(2);
     cleanup();
     header({}, true);
-    expect(document.querySelector('.module-bar .hdr-tabs').classList.contains('hdr-tabs--compact')).toBe(false);
+    expect(document.querySelector('.module-bar nav.hdr-tabs').classList.contains('hdr-tabs--compact')).toBe(false);
     const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
     const rules = css.split('\n').filter((l) => l.includes('hdr-tabs--compact'));
     expect(rules.length).toBeGreaterThan(0);
