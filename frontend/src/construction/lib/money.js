@@ -47,6 +47,14 @@ export function spendTrack(m) {
   return { value: Math.min(actual / budget, 1), state: over ? 'overdue' : 'live', over, actual, budget, committed, by: actual + committed - budget };
 }
 
+// Lien waivers (Round Two item 8) - the four kinds every state's forms come in.
+export const WAIVER_KIND = {
+  conditional_progress: 'Conditional Progress',
+  unconditional_progress: 'Unconditional Progress',
+  conditional_final: 'Conditional Final',
+  unconditional_final: 'Unconditional Final',
+};
+
 export const REQUEST_STAGE = {
   requested: 'Requested, Not Yet Billed',
   posting: 'Approved, Posting Soon',

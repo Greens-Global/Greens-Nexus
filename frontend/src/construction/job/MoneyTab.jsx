@@ -10,8 +10,8 @@
 // Percent Spent) or kept in Nexus (the budget from the job's contract value,
 // changes, requests not yet billed) stays plain and says where it comes from.
 // Every table's columns resize, kept per person (useColumnWidths).
-import { useState } from 'react';
-import { Landmark, Pencil } from 'lucide-react';
+import { lazy, Suspense, useState } from 'react';
+import { Landmark, Pencil, Plus } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { StatusLabel } from '../../components/StatusLabel';
 import ProgressTrack from '../../ui/ProgressTrack';
@@ -21,8 +21,11 @@ import { useColumnWidths } from '../../components/accounting/tableHooks';
 import { cellStyle, headStyle } from '../../components/accounting/columnStyles';
 import { formatDate } from '../../lib/datetime';
 import { CARD, TONE } from '../ui';
-import { REQUEST_STAGE, spendTrack, usd } from '../lib/money';
+import { REQUEST_STAGE, WAIVER_KIND, spendTrack, usd } from '../lib/money';
 import ActualLines from './ActualLines';
+
+// Its own chunk: only a manager adding or opening a commitment loads it.
+const CommitmentSheet = lazy(() => import('./CommitmentSheet'));
 
 const quiet = { fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 };
 const h3 = { fontSize: '0.98rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' };
@@ -86,11 +89,23 @@ const PR_COLS = [
   { key: 'stage', label: 'Status', width: 190 },
 ];
 
+// Commitments (Round Two item 8, 11/06/2026): subcontracts and purchase
+// orders with Intacct's vendors; Billed to Date is the books' (the job's
+// Project-Job lines for that vendor) and opens them; Remaining and Retainage
+// Held are worked out.
+const COMMIT_COLS = [
+  { key: 'number', label: 'Number', width: 90 }, { key: 'vendor', label: 'Vendor', width: 200 },
+  { key: 'title', label: 'Scope', width: 220 }, { key: 'amount', label: 'Amount', width: 130, num: true },
+  { key: 'billed', label: 'Billed to Date', width: 130, num: true }, { key: 'remaining', label: 'Remaining', width: 120, num: true },
+  { key: 'retainage', label: 'Retainage Held', width: 120, num: true }, { key: 'waiver', label: 'Lien Waiver', width: 220 },
+];
+
 const pct = (v) => `${(Math.round(v * 1000) / 10).toFixed(1)}%`;
 
 export default function MoneyTab({ project, money, onEdit }) {
   const { data: m, error, reload } = money;
   const [lines, setLines] = useState(null);   // { row } - null row = the total
+  const [sheet, setSheet] = useState(null);   // null | 'new' | a commitment id
 
   if (error) return <ErrorBanner message={error} onRetry={reload} />;
   if (!m) return <SkeletonBlocks count={3} height={110} borderRadius={12} />;
@@ -102,6 +117,8 @@ export default function MoneyTab({ project, money, onEdit }) {
   const open = (row = null) => setLines({ row });
   const spend = m.spend || { purchaseRequests: [], reimbursements: [] };
   const changes = m.changes || { rows: [], approved: 0, pending: 0 };
+  const commits = m.commitments || { rows: [], total: 0, open: 0 };
+  const openCommit = sheet && sheet !== 'new' ? commits.rows.find((c) => c.id === sheet) : null;
 
   return (
     <div className="acct-module" data-money-tab={project.id} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -131,13 +148,15 @@ export default function MoneyTab({ project, money, onEdit }) {
             hint={m.budget?.amount ? `The job's contract value${m.budget.approvedChanges ? ' plus approved changes' : ''}. Not in the books by Project-Job.` : 'Set a contract value on Edit Job.'} />
           <Figure testId="committed" label="Requested, Not Yet Billed" value={m.committed?.amount ?? 0}
             hint={`Reimbursements on this job their approver approved and HR has not yet${m.committed?.purchaseRequests ? `; ${m.committed.purchaseRequests === 1 ? '1 open purchase request carries' : `${m.committed.purchaseRequests} open purchase requests carry`} no amount` : ''}.`} />
+          <Figure testId="commitments" label="Committed" value={commits.total}
+            hint={commits.rows.length ? `${commits.rows.length === 1 ? '1 subcontract or purchase order' : `${commits.rows.length} subcontracts and purchase orders`}; ${usd(commits.open)} not billed yet${commits.billedKnown ? '' : ' (the books are read once the job is mapped)'}.` : 'No subcontract or purchase order on this job yet.'} />
           <Figure testId="actual" label="Actual to Date" value={actual ? actual.amount : null}
             hint={actual ? 'Posted cost on this Project-Job. Open it for the ledger lines.' : 'Read from the books once the job is mapped.'}
             onDrill={actual ? () => open() : null} />
           <Figure testId="approved" label="Approved Changes" value={changes.approved} hint="Approved change orders on this job." />
           <Figure testId="pending" label="Pending Changes" value={changes.pending} hint="Change orders not decided yet." />
           <Figure testId="forecast" label="Forecast at Completion" value={m.forecast}
-            hint="Worked out: the larger of the budget with its pending changes and actual to date plus requested, not yet billed." />
+            hint="Worked out: the larger of the budget with its pending changes and actual to date plus commitments not billed yet plus requested, not yet billed." />
           {m.variance != null && (
             <Figure testId="variance" label="Variance" value={m.variance} tone={m.variance < 0 ? 'hsl(var(--color-red))' : undefined}
               hint="Worked out: budget less the forecast." />
@@ -204,6 +223,54 @@ export default function MoneyTab({ project, money, onEdit }) {
         </div>
       )}
 
+      {(commits.rows.length > 0 || m.canMap) && (
+        <div data-money-commitments="" style={{ ...CARD, marginBottom: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <h3 style={h3}>Commitments</h3>
+            {m.canMap && (
+              <button type="button" className="secondary-btn" onClick={() => setSheet('new')} style={{ marginLeft: 'auto', padding: '6px 12px', fontSize: '0.8rem' }}>
+                <Plus size={13} />Add Commitment
+              </button>
+            )}
+          </div>
+          <div style={quiet}>
+            Subcontracts and purchase orders with Intacct&apos;s vendors. Billed to Date is read from the books - this Project-Job&apos;s lines for the vendor - and opens them; Remaining and Retainage Held are worked out.
+          </div>
+          {commits.rows.length === 0 ? <div style={quiet}>No commitment yet. Add the signed subcontracts and purchase orders so Committed and the forecast are real.</div> : (
+            <Table tableKey="construction-money-commitments" label="Commitments" cols={COMMIT_COLS}>
+              {(w) => commits.rows.map((c) => {
+                const drill = c.billed != null && c.billedAccounts.length > 0
+                  ? () => setLines({ row: { key: `v:${c.vendorId}`, label: `${c.vendorName} Billed`, code: '', vendor: c.vendorId, amount: c.billed, accounts: c.billedAccounts } })
+                  : null;
+                return (
+                  <tr key={c.id} data-commitment={c.number}>
+                    <td style={cellStyle(w.width('number'))}>
+                      {m.canMap ? <button type="button" className="acct-drill" onClick={() => setSheet(c.id)} title="Open this commitment">{c.number}</button> : c.number}
+                    </td>
+                    <td style={cellStyle(w.width('vendor'))} title={`${c.vendorName} (${c.vendorId})`}>{c.vendorName}</td>
+                    <td style={cellStyle(w.width('title'))} title={c.title}>{c.title || c.kindLabel}{c.status === 'closed' ? ' (Closed)' : ''}</td>
+                    <td className="acct-num" style={cellStyle(w.width('amount'))}><Amount value={c.amount} /></td>
+                    <td className="acct-num" style={cellStyle(w.width('billed'))} title={c.sharedVendor ? 'Every line for this vendor on the job - it has more than one commitment here.' : undefined}>
+                      {c.billed == null ? '-' : drill ? (
+                        <button type="button" className="acct-drill" aria-label={`Ledger lines behind ${c.vendorName} billing`} title="See the ledger lines behind this amount" onClick={drill}>
+                          <Amount value={c.billed} zero="dash" />
+                        </button>
+                      ) : <Amount value={c.billed} zero="dash" />}
+                    </td>
+                    <td className="acct-num" style={cellStyle(w.width('remaining'))} title="Worked out">{c.remaining == null ? '-' : <Amount value={c.remaining} zero="dash" />}</td>
+                    <td className="acct-num" style={cellStyle(w.width('retainage'))} title="Worked out">{c.retainageHeld == null ? '-' : <Amount value={c.retainageHeld} zero="dash" />}</td>
+                    <td style={cellStyle(w.width('waiver'))}>
+                      {c.waiverMissing ? <StatusLabel size="sm" label="No Waiver" color={TONE.yellow} />
+                        : c.lastWaiver ? `${WAIVER_KIND[c.lastWaiver.kind] || ''} through ${formatDate(c.lastWaiver.throughOn, c.lastWaiver.throughOn)}` : '-'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </Table>
+          )}
+        </div>
+      )}
+
       {changes.rows.length > 0 && (
         <div style={{ ...CARD, marginBottom: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <h3 style={h3}>Changes</h3>
@@ -263,6 +330,11 @@ export default function MoneyTab({ project, money, onEdit }) {
       </div>
 
       {lines && <ActualLines money={m} row={lines.row} onClose={() => setLines(null)} />}
+      {(sheet === 'new' || openCommit) && (
+        <Suspense fallback={null}>
+          <CommitmentSheet project={project} commitment={openCommit} onClose={() => setSheet(null)} onSaved={reload} />
+        </Suspense>
+      )}
     </div>
   );
 }
