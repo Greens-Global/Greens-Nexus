@@ -94,6 +94,25 @@ class TestDefaultDeny(unittest.TestCase):
         self.assertEqual(auth.apply_external_policy(None, user), user)
 
 
+class TestGuestTimeSheetSigning(unittest.TestCase):
+    """Sophia Martinez, 11/06/2026: a guest employee with Time Clock could not
+    press Sign on her own Time Sheet - /timesheet-review was outside her grants."""
+
+    def test_time_clock_opens_the_time_sheet_review(self):
+        from types import SimpleNamespace
+        req = SimpleNamespace(url=SimpleNamespace(path="/timesheet-review/abc/sign"))
+        old_rec, old_grants = auth._external_record, auth._grants_for
+        auth._external_record = lambda em: {"external": True, "status": "active", "expires_at": ""}
+        try:
+            auth._grants_for = lambda em, db: {"timeclock"}
+            self.assertTrue(auth.apply_external_policy(req, {"email": "g@gmail.com", "role": "employee", "level": 1})["external"])
+            auth._grants_for = lambda em, db: set()
+            with self.assertRaises(HTTPException):
+                auth.apply_external_policy(req, {"email": "g@gmail.com", "role": "employee", "level": 1})
+        finally:
+            auth._external_record, auth._grants_for = old_rec, old_grants
+
+
 class _ExternalBase(unittest.TestCase):
     """Shared setup: dev-identity path + guaranteed-clean guest/admin rows."""
 
