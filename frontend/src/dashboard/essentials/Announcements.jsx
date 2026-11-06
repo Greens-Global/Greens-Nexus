@@ -32,7 +32,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Megaphone, Pin, Plus, ChevronDown, ChevronUp, Image, ImagePlus, Paperclip, X, CalendarClock } from 'lucide-react';
 
 import { api } from '../../api';
-import { LoadingState } from '../../components/AsyncState';
+import { WidgetSkeleton } from '../listParts.jsx';
 import { useRole } from '../../contexts/RoleContext';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { pollWhileVisible } from '../../lib/pollWhileVisible';
@@ -208,7 +208,7 @@ export default function Announcements({ phone }) {
           onSaved={() => { setComposer(null); load(); }} />
       )}
       {!items ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : list.length === 0 ? (
         <div style={noteStyle}>
           {error ? (
@@ -329,7 +329,7 @@ function ReadsList({ reads }) {
   return (
     <div style={{ margin: '0 8px 10px 26px', padding: '8px 10px', borderRadius: 8, background: 'var(--mist)', fontSize: 12 }}>
       {reads.rows === null ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : reads.error ? (
         <div style={{ color: 'var(--muted)' }}>{reads.error}</div>
       ) : (

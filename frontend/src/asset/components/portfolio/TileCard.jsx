@@ -84,10 +84,9 @@ function PropertyTile({ pr: property, openProperty, secondaries = [], metric = n
   const photo = (lead.images && lead.images[0]) || lead.image || '';
   const openLead = () => openProperty(lead.id);
 
-  // Stat tiles: prefer up to 4 stats that actually have a value; if NONE do, fall back to
-  // showing the first 3 regardless (so the grid isn't empty for a barely-filled-in asset).
-  let visibleStats = stats.filter((s) => s.v && s.v !== '-').slice(0, 4);
-  if (!visibleStats.length) visibleStats = stats.slice(0, 3);
+  // Stat tiles: up to 4 stats that actually have a value. A stat with no value is
+  // hidden, never printed as "- Acres" (11/05/2026); no values = no stat row.
+  const visibleStats = stats.filter((s) => s.v && s.v !== '-').slice(0, 4);
 
   const titleFontSize =
     (title || '').length > 34 ? '0.74rem'
@@ -235,7 +234,7 @@ function PropertyTile({ pr: property, openProperty, secondaries = [], metric = n
 
           {/* minmax(0, 1fr), not 1fr: style.css's phone guard stacks any inline
               "repeat(3, 1fr)", which turned three stats into three tall rows (Oct 17). */}
-          <div style={{ marginTop: 'auto', display: 'grid', gridTemplateColumns: `repeat(${visibleStats.length}, minmax(0, 1fr))`, gap: '12px', borderTop: '1px solid var(--border-color)', paddingTop: 13 }}>
+          {visibleStats.length > 0 && <div style={{ marginTop: 'auto', display: 'grid', gridTemplateColumns: `repeat(${visibleStats.length}, minmax(0, 1fr))`, gap: '12px', borderTop: '1px solid var(--border-color)', paddingTop: 13 }}>
             {visibleStats.map((s, i) => {
               const valStr = String(s.v == null ? '' : s.v);
               const valFontSize = valStr.length > 12 ? '0.72rem' : valStr.length > 9 ? '0.85rem' : '1.06rem';
@@ -250,7 +249,7 @@ function PropertyTile({ pr: property, openProperty, secondaries = [], metric = n
                 </div>
               );
             })}
-          </div>
+          </div>}
         </div>
       </div>
     </div>

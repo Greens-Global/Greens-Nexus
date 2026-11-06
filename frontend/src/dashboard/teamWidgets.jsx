@@ -8,7 +8,6 @@
 // noteStyle come from workdayWidgets.jsx so every list tile reads the same.
 import { useState, useEffect } from 'react';
 
-import { LoadingState } from '../components/AsyncState';
 import { Ticket as TicketIcon, Timer, UserMinus, ShoppingCart } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -17,7 +16,7 @@ import { setPendingOpen } from '../lib/pendingOpen';
 import { TICKET_STATUS_META, CLOSED_STATES, slaState, ticketNoShort } from '../tickets/ticketMeta';
 import { DashCard, navigate } from './widgets.jsx';
 import { Row, noteStyle } from './workdayWidgets.jsx';
-import { MoreRow, WidgetError } from './listParts.jsx';
+import { MoreRow, WidgetError, WidgetSkeleton } from './listParts.jsx';
 
 const DAY_MS = 86400000;
 const localKey = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -104,7 +103,7 @@ export function TicketQueueWidget() {
   return (
     <DashCard title="My Ticket Queue" sub={sub} action={<TicketIcon size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : state.error ? (
         <WidgetError message="Couldn't load your tickets." onRetry={retry} />
       ) : state.mine.length === 0 && state.unassigned.length === 0 ? (
@@ -169,7 +168,7 @@ export function TimeExceptionsWidget() {
     <DashCard title="Time Exceptions" sub={state.loading || state.denied || state.error ? undefined : blocking ? `${blocking} blocking sign-off` : `Last ${EXCEPTION_WINDOW_DAYS} days`}
       action={<Timer size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : state.denied ? (
         <div style={noteStyle}>This tile needs Time editor access in People.</div>
       ) : state.error ? (
@@ -256,7 +255,7 @@ export function OutTodayWidget() {
     <DashCard title="Out Today" sub={state.loading || state.error ? undefined : state.today.length ? `${state.today.length} out` : 'Everyone is in'}
       action={<UserMinus size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : state.error ? (
         <WidgetError message="Couldn't load time off." onRetry={retry} />
       ) : (
@@ -323,7 +322,7 @@ export function PendingPurchasesWidget() {
     <DashCard title="Pending Purchases" sub={state.loading || state.error ? undefined : state.rows.length ? `${state.rows.length} pending · ${usd.format(total)}` : undefined}
       action={<ShoppingCart size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : state.error ? (
         <WidgetError message="Couldn't load purchase requests." onRetry={retry} />
       ) : state.rows.length === 0 ? (

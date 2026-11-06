@@ -3,8 +3,7 @@ import { Menu, Search, LogOut, User, ArrowLeft, ChevronDown, Sparkles, X, UserCo
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
 import QuickNoteButton from "../notes/QuickNoteButton";
-import { HeaderOverflowTabs, TabGroupButton, useHeaderTabs } from "./ModuleTabs";
-import TabInk from "./TabInk";
+import { useHeaderTabs } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
 import QuickCreate from "./QuickCreate";   // the "+" Create menu (Oct 29 2026)
 import { readStopEmail, setPendingEmailStop } from "../lib/emailStop";
@@ -60,9 +59,9 @@ import { clearOfflineReadCache } from '../lib/offline/read';
 export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel }) {
   const { instance, accounts } = useMsal();
   const { actingAs, stopActAs, isExternal, myTier, myTitle } = useRole();
-  // Module tab strip published by the active module (<ModuleTabs>). When
-  // present it takes the header center (Work OS shell). The search bar is
-  // NOT part of that bargain any more: it sits in the right cluster on
+  // Module tab strip published by the active module (<ModuleTabs>) - drawn
+  // in the module bar under this header (11/05/2026); read here only for the
+  // screen-reader page name. The search bar sits in the right cluster on
   // every module, the same size in the same place (Neil, Oct 14 2026).
   const headerTabs = useHeaderTabs();
   const actionCounts = useActionCounts();
@@ -372,49 +371,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         </div>
       </div>
 
-      <div className={`header-center${headerTabs ? ' has-tabs' : ''}`}>
-        {/* A module that opts into overflow (People, Oct 27 2026) folds the
-            tabs that do not fit into More instead of scrolling them away. */}
-        {headerTabs?.overflow && (
-          <HeaderOverflowTabs entry={headerTabs}
-            ink={<TabInk key={headerTabs.tabs.map((t) => t.key).join('|')} active={headerTabs.active} />}
-            onPick={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }}
-            renderTab={({ key, label, Icon, badge, items, landing }, probe) => (items && !probe ? (
-              // A dropdown tab (People, 11/03/2026) keeps only its own label in
-              // the bar, so the width measured for it is the width it takes.
-              <TabGroupButton key={key} tab={{ key, label, Icon, items, landing, badge }} active={headerTabs.active} className="hdr-tab" compact
-                onSelect={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }} />
-            ) : (
-              <button key={key} type="button" tabIndex={probe ? -1 : undefined}
-                className={`hdr-tab${!probe && headerTabs.active === key ? ' active' : ''}`}
-                aria-current={!probe && headerTabs.active === key ? 'page' : undefined}
-                onClick={probe ? undefined : () => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(key); }}>
-                {Icon && <Icon size={16} strokeWidth={2} />}
-                <span>{label}</span>
-                {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
-                {items && <ChevronDown size={14} className="tab-group-caret" />}
-              </button>
-            ))} />
-        )}
-        {headerTabs && !headerTabs.overflow && (
-          <nav className={`hdr-tabs${headerTabs.compactGroups ? ' hdr-tabs--compact' : ''}`} aria-label="Module sections" data-tour="module-tabs">
-            <TabInk key={headerTabs.tabs.map((t) => t.key).join('|')} active={headerTabs.active} />
-            {headerTabs.tabs.map(({ key, label, Icon, badge, items, landing }) => (items ? (
-              <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={headerTabs.active} className="hdr-tab" compact={!!headerTabs.compactGroups}
-                onSelect={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }} />
-            ) : (
-              <button key={key}
-                className={`hdr-tab${headerTabs.active === key ? ' active' : ''}`}
-                aria-current={headerTabs.active === key ? 'page' : undefined}
-                onClick={() => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(key); }}>
-                {Icon && <Icon size={16} strokeWidth={2} />}
-                <span>{label}</span>
-                {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
-              </button>
-            )))}
-          </nav>
-        )}
-      </div>
+      {/* The module's tabs live in the module bar under this header since
+          11/05/2026 (ModuleBar in ModuleTabs.jsx); the center only spaces the
+          two clusters apart. */}
+      <div className="header-center" />
 
       <div className="header-right">
         {searchBar}

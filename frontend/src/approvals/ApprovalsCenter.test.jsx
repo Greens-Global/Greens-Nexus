@@ -76,6 +76,14 @@ afterEach(() => { vi.useRealTimers(); });
 const chip = (name) => screen.getAllByRole('tab').find((t) => t.textContent.startsWith(name));
 
 describe('Approvals', () => {
+  it('shows a placeholder, never "0 Waiting On You", while the list loads', async () => {
+    approvalsInbox.mockReturnValue(new Promise(() => {}));   // never answers
+    render(<Approvals />);
+    const tile = screen.getByText('Waiting On You').closest('button');
+    expect(tile.querySelector('[data-count-skeleton]')).toBeTruthy();
+    expect(tile.querySelector('.apv-tile-n').textContent).toBe('');
+  });
+
   it('renders the rows oldest first, with chips that count and filter', async () => {
     approvalsInbox.mockResolvedValue(INBOX);
     const onSubChange = vi.fn();

@@ -19,7 +19,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { LogIn, LogOut, Palmtree, AlarmClock, ListTodo, Ticket as TicketIcon, MessageSquare, ArrowRight } from 'lucide-react';
 
 import { api } from '../../api';
-import { LoadingState } from '../../components/AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useIsMobile } from '../../lib/useIsMobile';
 import { formatDate, formatTime } from '../../lib/datetime';
@@ -27,11 +26,13 @@ import { openPersonProfile } from '../../lib/personNav';
 import { setPendingOpen } from '../../lib/pendingOpen';
 import { DashCard, navigate } from '../widgets.jsx';
 import { Row, noteStyle } from '../workdayWidgets.jsx';
-import { WidgetError } from '../listParts.jsx';
+import { WidgetError, WidgetSkeleton, MoreRow } from '../listParts.jsx';
 import { openTicket, ticketViewFor } from '../teamWidgets.jsx';
 
 export const REFRESH_MS = 60_000;
 export const PUSH_CAP = 7;
+// An open In / Out / Late list shows this many people, then Show All.
+export const BUCKET_CAP = 8;
 
 export const TILES = [
   { key: 'in',      label: 'In',       color: 'green',  Icon: LogIn },
@@ -111,6 +112,7 @@ export default function MyTeam({ phone }) {
   // "In 0 / Out 0" and the empty line as "No one reports to you" - both false.
   const [todayFailed, setTodayFailed] = useState(false);
   const [openBucket, setOpenBucket] = useState(null);
+  const [bucketAll, setBucketAll] = useState(false);
   const alive = useRef(true);
 
   const load = useCallback(async () => {
@@ -183,7 +185,7 @@ export default function MyTeam({ phone }) {
 
   return (
     <DashCard title="My Team" sub={data?.date ? `Today, ${formatDate(data.date)}` : undefined}>
-      {loading && <LoadingState compact minHeight={120} label="Loading your team" />}
+      {loading && <WidgetSkeleton />}
       {!loading && !data && (
         <WidgetError message={todayMissing ? "Couldn't load who is in today." : "Couldn't load your team."} onRetry={load} />
       )}
@@ -194,7 +196,7 @@ export default function MyTeam({ phone }) {
           <div data-testid="team-tiles" style={{ display: 'grid', gridTemplateColumns: `repeat(${isMobile ? 2 : tiles.length}, minmax(0, 1fr))`, gap: 8 }}>
             {tiles.map(t => (
               <Tile key={t.key} tile={t} count={data.counts?.[t.key] || 0} open={openBucket === t.key} mobile={isMobile}
-                onClick={() => setOpenBucket(openBucket === t.key ? null : t.key)} />
+                onClick={() => { setOpenBucket(openBucket === t.key ? null : t.key); setBucketAll(false); }} />
             ))}
           </div>
           {openBucket && (
@@ -202,9 +204,12 @@ export default function MyTeam({ phone }) {
               {(data[openBucket] || []).length === 0 && (
                 <div style={{ ...noteStyle, padding: '12px 8px' }}>No one here right now.</div>
               )}
-              {(data[openBucket] || []).map(p => (
+              {(bucketAll ? (data[openBucket] || []) : (data[openBucket] || []).slice(0, BUCKET_CAP)).map(p => (
                 <Row key={p.email} title={p.name || p.email} meta={bucketMeta(openBucket, p)} onClick={() => openPersonProfile(p.email)} />
               ))}
+              {!bucketAll && (
+                <MoreRow count={(data[openBucket] || []).length - BUCKET_CAP} label={`Show All (${(data[openBucket] || []).length})`} onClick={() => setBucketAll(true)} />
+              )}
             </div>
           )}
           {teamSize === 0 && people.length === 0 && (

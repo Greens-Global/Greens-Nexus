@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 import AnchoredMenu from './AnchoredMenu';
 import TabInk from './TabInk';
+import PageTrail from './PageTrail';
 
 /*
 Module tab strip -> header center (Work OS shell, Jul 28).
@@ -31,25 +33,103 @@ tab may name a `landing` item that a click on the group opens (Dashboard ->
 Overview); and `compactGroups` keeps the picked item's name OUT of the bar,
 so choosing a page never widens it.
 
-On desktop the strip renders in the header (TopHeader reads it via
-useHeaderTabs). Below 900px the header center is hidden, so <ModuleTabs>
-renders the classic in-page `.scroll-tabs` strip itself - phones keep the
-swipeable tabs exactly where they were.
+On desktop the strip renders in the module bar (ModuleBar below, drawn by the
+shell under the top header). Below 900px the bar's tabs are hidden, so
+<ModuleTabs> renders the classic in-page `.scroll-tabs` strip itself - phones
+keep the swipeable tabs exactly where they were.
+
+ONE page header (11/05/2026): every module reads the same way - the module's
+name on the left, its tabs, its actions on the right, flat, one hairline under
+it. The bar is ModuleBar; a module's page-level buttons go in it through
+<ModuleActions> (a portal into the bar's right end; rendered in place when no
+shell is around, as in a unit test). Tasks and Tickets draw the same anatomy
+in their own full-bleed bar (`.nx-primary-bar`).
 */
 
 const HeaderTabsContext = createContext(null);
 
 export function HeaderTabsProvider({ children }) {
   const [entry, setEntry] = useState(null); // { tabs, active, onChange }
+  const [actionsEl, setActionsEl] = useState(null); // the bar's right end, for <ModuleActions>
   return (
-    <HeaderTabsContext.Provider value={{ entry, setEntry }}>
+    <HeaderTabsContext.Provider value={{ entry, setEntry, actionsEl, setActionsEl }}>
       {children}
     </HeaderTabsContext.Provider>
   );
 }
 
-// TopHeader-facing: the currently published strip, or null (-> header shows
-// the plain search bar, e.g. on the dashboard).
+// A module's page-level actions (Add Person, Add Asset, a search box), drawn
+// at the right end of the module bar. Outside the shell (no provider) they
+// render where they stand, so a module rendered alone still shows them.
+export function ModuleActions({ children }) {
+  const ctx = useContext(HeaderTabsContext);
+  if (!ctx) return children;
+  return ctx.actionsEl ? createPortal(children, ctx.actionsEl) : null;
+}
+
+// The module bar (11/05/2026): module name (the page trail, with the pages
+// above a record when there are any), the published tabs, the actions slot.
+// Drawn by the shell (App.jsx) right under the top header, pinned with it.
+export function ModuleBar() {
+  const { entry, setActionsEl } = useContext(HeaderTabsContext) || {};
+  if (!entry) return null;
+  return (
+    <div className="module-bar" data-tour="module-bar">
+      <PageTrail className="page-trail--bar" standalone />
+      <div className="module-bar-tabs">
+        {entry.tabs.length > 0 && <HeaderStrip entry={entry} />}
+      </div>
+      <div className="module-bar-actions" ref={setActionsEl} />
+    </div>
+  );
+}
+
+// The published tab strip itself (it lived in the top header's center until
+// 11/05/2026): a plain strip, or the measured one with a More dropdown.
+function HeaderStrip({ entry }) {
+  const pick = (k) => entry.onChange(k);
+  const ink = <TabInk key={entry.tabs.map((t) => t.key).join('|')} active={entry.active} variant="line" />;
+  if (entry.overflow) {
+    return (
+      <HeaderOverflowTabs entry={entry} ink={ink} onPick={pick}
+        renderTab={({ key, label, Icon, badge, items, landing, tone }, probe) => (items && !probe ? (
+          // A dropdown tab (People, 11/03/2026) keeps only its own label in
+          // the bar, so the width measured for it is the width it takes.
+          <TabGroupButton key={key} tab={{ key, label, Icon, items, landing, badge }} active={entry.active} className="hdr-tab" compact onSelect={pick} />
+        ) : (
+          <button key={key} type="button" tabIndex={probe ? -1 : undefined}
+            className={`hdr-tab${!probe && entry.active === key ? ' active' : ''}`}
+            aria-current={!probe && entry.active === key ? 'page' : undefined}
+            onClick={probe ? undefined : () => pick(key)}>
+            {Icon && <Icon size={16} strokeWidth={2} />}
+            <span>{label}</span>
+            {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}</span>}
+            {items && <ChevronDown size={14} className="tab-group-caret" />}
+          </button>
+        ))} />
+    );
+  }
+  return (
+    <nav className={`hdr-tabs${entry.compactGroups ? ' hdr-tabs--compact' : ''}`} aria-label="Module sections" data-tour="module-tabs">
+      {ink}
+      {entry.tabs.map(({ key, label, Icon, badge, items, landing, tone }) => (items ? (
+        <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={entry.active} className="hdr-tab" compact={!!entry.compactGroups} onSelect={pick} />
+      ) : (
+        <button key={key} type="button"
+          className={`hdr-tab${entry.active === key ? ' active' : ''}`}
+          aria-current={entry.active === key ? 'page' : undefined}
+          onClick={() => pick(key)}>
+          {Icon && <Icon size={16} strokeWidth={2} />}
+          <span>{label}</span>
+          {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}</span>}
+        </button>
+      )))}
+    </nav>
+  );
+}
+
+// The currently published strip, or null (-> no module bar). The top header
+// reads it only for the screen-reader page name (syncTitle).
 export function useHeaderTabs() {
   return useContext(HeaderTabsContext)?.entry ?? null;
 }
@@ -102,7 +182,8 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   }, [setEntry]);
 
   // <=900px fallback - same markup contract as the old in-page strips.
-  if (!inline && !mobileInline) return null;
+  // No tabs (Asset Management's portfolio publishes only to get the bar): no strip.
+  if ((!inline && !mobileInline) || !tabs.length) return null;
   return (
     <div className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
       <TabInk key={signature} active={active} variant="line" />

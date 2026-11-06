@@ -26,7 +26,11 @@ vi.mock('./Directory', () => ({ default: ({ embedded }) => <div>Directory{embedd
 vi.mock('../components/ShiftSchedule', () => ({ default: ({ focus }) => <div>Schedule grid{focus ? ` at ${focus.date} for ${focus.groupId || 'all'}` : ''}</div> }));
 
 const Shifts = (await import('./Shifts')).default;
-const tabNames = () => screen.getAllByRole('tab').map((t) => t.textContent.trim());
+// The tabs are the module's ModuleTabs strip (the module bar on a computer,
+// 11/05/2026); rendered alone, the module draws the in-page strip.
+const tabButtons = () => [...document.querySelectorAll('.module-tab-inline-btn')];
+const tabNames = () => tabButtons().map((t) => t.textContent.trim());
+const tabNamed = (re) => tabButtons().find((t) => re.test(t.textContent));
 
 beforeEach(() => {
   role.grants = new Set();
@@ -59,7 +63,7 @@ describe('Team module', () => {
   it('lands a manager on the day and group a weather advisory points at', async () => {
     role.level = 3;
     render(<Shifts activeSub="schedule:2026-10-16:g1" onSubChange={vi.fn()} />);
-    expect(screen.getByRole('tab', { name: /Shift Planner/ }).getAttribute('aria-selected')).toBe('true');
+    expect(tabNamed(/Shift Planner/).classList.contains('active')).toBe(true);
     expect(screen.getByText('Schedule grid at 2026-10-16 for g1')).toBeTruthy();
     role.level = 1;
     render(<Shifts activeSub="schedule:2026-10-16:g1" onSubChange={vi.fn()} />);
@@ -72,7 +76,7 @@ describe('Team module', () => {
     const { rerender } = render(<Shifts activeSub="shifts" onSubChange={onSubChange} />);
     expect(tabNames()).toEqual(['Shifts', 'Shift Planner', 'Directory']);
     expect(screen.queryByText(/Presets/)).toBeNull();
-    fireEvent.click(screen.getByRole('tab', { name: /Shift Planner/ }));
+    fireEvent.click(tabNamed(/Shift Planner/));
     expect(onSubChange).toHaveBeenCalledWith('schedule');
     rerender(<Shifts activeSub="schedule" onSubChange={onSubChange} />);
     expect(screen.getByText('Schedule grid')).toBeTruthy();
@@ -126,7 +130,7 @@ describe('Team module', () => {
     unmount();
     role.grants = new Set();   // a guest without it: no tab, no content, no manager page
     render(<Shifts activeSub="requests" onSubChange={vi.fn()} />);
-    expect(screen.queryAllByRole('tab')).toEqual([]);
+    expect(tabButtons()).toEqual([]);
     expect(screen.queryByText(/Group week|Workforce Analytics on/)).toBeNull();
   });
 });

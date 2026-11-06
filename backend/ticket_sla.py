@@ -136,9 +136,14 @@ def running(t) -> bool:
 
 def first_response_applies(t) -> bool:
     """No first-response clock on a ticket its own assignee filed for
-    themselves - there is nobody to respond to."""
+    themselves - there is nobody to respond to - nor on one that is assigned
+    and In Progress: someone is working it, so it is not "Reply overdue"
+    (Neil, 11/05/2026). frontend ticketMeta.nextClock mirrors this."""
+    assignee = (t.assignee_email or "").strip().lower()
+    if assignee and (t.status or "") == "in_progress":
+        return False
     requester = (t.requester_email or "").strip().lower()
-    return not requester or requester != (t.assignee_email or "").strip().lower()
+    return not requester or requester != assignee
 
 
 def _set_due(t, due: datetime) -> None:

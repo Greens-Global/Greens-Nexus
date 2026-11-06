@@ -152,6 +152,41 @@ class SweepTests(unittest.TestCase):
         worker._file_one = lambda db, media: self.fail("must not touch deleted media")
         self.assertEqual(worker.sweep_once()["filed"], 0)
 
+    def test_a_tick_another_worker_holds_is_skipped_not_waited_for(self):
+        """Every worker runs the loop; while one holds the sweep lock the rest
+        skip the tick (pg_try_advisory_xact_lock) instead of each pinning a
+        connection in a blocking wait (dev, 11/05/2026)."""
+        saved = worker._try_sweep_lock
+        worker._try_sweep_lock = lambda db: False
+        worker._file_one = lambda db, media: self.fail("must not file while another worker sweeps")
+        try:
+            self.assertEqual(worker.sweep_once()["skipped"], 1)
+            self.assertEqual(worker.run_ai_jobs_once()["skipped"], 1)
+        finally:
+            worker._try_sweep_lock = saved
+        self.assertEqual(self._media().egnyte_status, "pending")
+
+    def test_the_try_lock_asks_postgres_without_waiting(self):
+        class Bind:
+            class dialect:
+                name = "postgresql"
+
+        class FakeDb:
+            bind = Bind()
+            sql = ""
+
+            def execute(self, stmt, params):
+                FakeDb.sql = str(stmt)
+
+                class R:
+                    @staticmethod
+                    def scalar():
+                        return False
+                return R()
+        self.assertFalse(worker._try_sweep_lock(FakeDb()))
+        self.assertIn("pg_try_advisory_xact_lock", FakeDb.sql)
+        self.assertTrue(worker._try_sweep_lock(self.db))   # SQLite: one process
+
 
 if __name__ == "__main__":
     unittest.main()

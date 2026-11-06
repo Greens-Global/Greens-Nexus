@@ -46,6 +46,7 @@ import task_schedule
 import task_history
 import code_sequence
 import task_card_preview
+from json_response import rendered_in_thread
 from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
 from routers.task_config import coerce_custom_field_values, missing_required_fields
@@ -2275,7 +2276,6 @@ def _series_groups(rows: list, by_id: Optional[dict] = None) -> list[list[models
     return list(groups.values())
 
 
-@router.get("")
 def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = wall_tasks(db, user, db.query(models.Task).all())   # company wall first
     if is_manager(user):
@@ -2287,6 +2287,11 @@ def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get
     # (task_util.ParentSight): the parents come from these same rows.
     parents = ParentSight(db, rows, user=user)
     return _with_previews(db, [t for t in rows if task_is_visible(t, user, visible_projects, parents)], user)
+
+
+# Several MB of JSON: rendered in the route's thread, never on the event loop
+# (json_response.py). The plain function stays callable from Python.
+router.get("")(rendered_in_thread(list_tasks))
 
 
 def _csv_set(value: str) -> set:
@@ -2778,7 +2783,6 @@ def _not_long_done(cutoff: str):
                T.completed_at >= cutoff)
 
 
-@router.get("/delta")
 def list_tasks_delta(since: str = "", part: str = "", user: dict = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     """Incremental fetch for TasksContext's mount load + repeated refresh
@@ -2849,6 +2853,10 @@ def list_tasks_delta(since: str = "", part: str = "", user: dict = Depends(get_c
     return {"tasks": _with_previews(db, rows, user),
             "deletedIds": deleted_ids,
             "serverTime": server_time}
+
+
+# ~11 MB on dev for the mount load: rendered off the event loop (json_response.py).
+router.get("/delta")(rendered_in_thread(list_tasks_delta))
 
 
 def _inherited_below(db: Session, tops: list, skip: set) -> list:

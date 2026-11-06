@@ -4,6 +4,32 @@ export const fullName = e => [e?.firstName, e?.lastName].filter(Boolean).join(' 
 
 export const isExternalPerson = (e) => ['guest', 'external'].includes(e?.identityType || 'internal');
 
+// The statuses the directory's Inactive tab holds (Neil, Oct 12): Left and
+// Inactive people stay in Nexus with their record, out of the working list.
+export const INACTIVE_STATUSES = new Set(['inactive', 'offboarded']);
+
+/** The ONE people tally (11/05/2026) - the People overview tiles and the
+ *  directory tabs both read it. Three different sets, three honest names:
+ *    people      the company's own people still here (Total People)
+ *    active      of those, status Active (the Active tile)
+ *    current     every row the Current tab lists: people + external users
+ *  So Total = Active + Onboarding (+ any other live status) and
+ *  Current = Total + external. The tab was labeled "Active" and read 57
+ *  against the Active tile's 55 (Neil, 11/05/2026). */
+export function peopleTallies(employees = [], externals = []) {
+  const live = (e) => !INACTIVE_STATUSES.has(e.status || 'active');
+  const people = employees.filter(e => !isExternalPerson(e) && live(e));
+  const all = [...employees, ...externals];
+  return {
+    people: people.length,
+    active: people.filter(e => e.status === 'active').length,
+    onboarding: people.filter(e => e.status === 'onboarding').length,
+    external: externals.filter(e => isExternalPerson(e) && live(e)).length,
+    current: all.filter(live).length,
+    inactive: all.filter(e => !live(e)).length,
+  };
+}
+
 // "••••1234" - the last four only.
 export function maskId(v) {
   const s = (v || '').replace(/\s/g, '');

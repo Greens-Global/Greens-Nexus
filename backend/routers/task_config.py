@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import models
 from database import get_db
+from json_response import rendered_in_thread
 from notify_company import notification_company
 from auth import get_current_user, require_level, require_manager, require_any_module_grant, module_owner_acts_as
 from routers.task_util import (now_iso, gen_id, is_manager, require_project_access, assert_row_wall,
@@ -1370,7 +1371,6 @@ def _reaction_summary(db: Session, email: str, entry_ids=None) -> dict:
     return out
 
 
-@view_router.get("/task-changelog")
 def list_changelog(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Everything this person may see (changelog_reach.visible): admins get
     every update; everyone else what is Released, not hidden and aimed at
@@ -1390,6 +1390,10 @@ def list_changelog(user: dict = Depends(get_current_user), db: Session = Depends
         d["commentCount"] = comments.get(e.id, 0)
         out.append(d)
     return out
+
+
+# ~600 KB on dev, on every page load: rendered off the event loop (json_response.py).
+view_router.get("/task-changelog")(rendered_in_thread(list_changelog))
 
 
 def _seen_row(db: Session, email: str) -> models.ChangelogSeen:
