@@ -430,6 +430,14 @@ keep the diff minimal.
   (`board/draft.js`, offered back on open with Restore / Discard, cleared
   when the save lands); `scene.js compact` runs before a save and a scene
   still over 2 MB is refused with a notice, never sent as a 413.
+  **The markup bar** (Neil, 11/06/2026, `board/MarkupBar.jsx`,
+  `board/markupTools.js`): an editor's short tool set (Select, Move Around,
+  Pen, Highlighter, Arrow, Box, Text, Comment, Eraser, six inks, three
+  widths) reaching the engine only through the adapter's `markup` member. A
+  Comment is a numbered pin made of ordinary board elements
+  (`customData.nexusComment`), so it saves, syncs and exports like any
+  shape. On a phone the bar IS the chrome (the engine's strips hidden until
+  More > All Tools); a computer keeps the engine's full strip beside it.
 - **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
   on the phone (`public/manifest.webmanifest`, `public/sw.js` - push plus the
   offline app shell, see Field offline below) and pushes the BELL: a Web Push

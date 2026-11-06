@@ -3,7 +3,7 @@ import { render, screen, act, fireEvent } from '@testing-library/react';
 
 // jsdom has no canvas, so the engine is a stand-in that exposes what Board
 // hands it and gives Board a fake imperative api.
-const { engine, fakeApi, uploadBoardFile, loadBoardFiles, exportThumb, restoreElements, confirm, exportPng, downloadBlob, draft, engineLoad } = vi.hoisted(() => {
+const { engine, fakeApi, uploadBoardFile, loadBoardFiles, exportThumb, restoreElements, confirm, prompt, exportPng, downloadBlob, draft, engineLoad } = vi.hoisted(() => {
   const fakeApi = {
     scene: [], appState: { zoom: { value: 1 }, viewBackgroundColor: '#ffffff' }, files: {},
     getSceneElementsIncludingDeleted: vi.fn(() => fakeApi.scene),
@@ -14,6 +14,7 @@ const { engine, fakeApi, uploadBoardFile, loadBoardFiles, exportThumb, restoreEl
     updateScene: vi.fn((p) => { if (p.elements) fakeApi.scene = p.elements; }),
     scrollToContent: vi.fn(),
     setToast: vi.fn(),
+    setActiveTool: vi.fn(),
   };
   return {
     fakeApi,
@@ -24,6 +25,7 @@ const { engine, fakeApi, uploadBoardFile, loadBoardFiles, exportThumb, restoreEl
     // The engine's repair: a pass-through that marks what went through it.
     restoreElements: vi.fn((els) => (els || []).map((e) => ({ ...e, restored: true }))),
     confirm: vi.fn(async () => true),
+    prompt: vi.fn(async () => null),
     exportPng: vi.fn(async () => new Blob(['x'])),
     downloadBlob: vi.fn(),
     // The local draft (draft.js) - IndexedDB is not here; the unit tests cover it.
@@ -54,7 +56,7 @@ vi.mock('./exportBoard', () => ({
   downloadBlob, downloadScene: vi.fn(),
 }));
 vi.mock('../../tasks/lib', () => ({ dataUrlToFile: (d, name) => new File(['x'], name, { type: 'image/png' }) }));
-vi.mock('../../ui/dialog', () => ({ dialog: { confirm, alert: vi.fn() } }));
+vi.mock('../../ui/dialog', () => ({ dialog: { confirm, prompt, alert: vi.fn() } }));
 vi.mock('./draft', () => draft);
 vi.mock('./engine', async (importOriginal) => {
   const real = await importOriginal();
@@ -80,6 +82,8 @@ describe('Board', () => {
     confirm.mockReset(); confirm.mockResolvedValue(true); exportPng.mockClear(); downloadBlob.mockClear();
     draft.saveDraft.mockClear(); draft.loadDraft.mockReset(); draft.loadDraft.mockResolvedValue(null); draft.clearDraft.mockClear();
     engineLoad.next = null;
+    prompt.mockReset(); prompt.mockResolvedValue(null);
+    fakeApi.appState = { zoom: { value: 1 }, viewBackgroundColor: '#ffffff' };
     document.documentElement.removeAttribute('data-theme');
   });
   afterEach(() => { vi.useRealTimers(); });
@@ -588,5 +592,87 @@ describe('Board', () => {
     // between and has not seen it yet - never pruned by this tab's own clock
     expect(out.elements.map((e) => e.id)).toEqual(['e1', 'hourAgo']);
     expect(Object.keys(out.files)).toEqual(['fHour']);
+  });
+
+  describe('markup bar', () => {
+    it('is an editor\'s: the tools over the canvas, none for a viewer', async () => {
+      const { unmount } = render(<Board note={note()} />);
+      await act(async () => {});
+      expect(screen.getByRole('toolbar', { name: 'Markup Tools' })).toBeTruthy();
+      expect(screen.getByTestId('nx-board').className).toContain('has-markup');
+      unmount();
+      await act(async () => { render(<Board note={note({ canEdit: false })} />); });
+      expect(screen.queryByRole('toolbar', { name: 'Markup Tools' })).toBeNull();
+    });
+
+    it('picks the engine tool and draws the next stroke in the picked ink; the highlighter wide and see-through', async () => {
+      await act(async () => { render(<Board note={note()} />); });
+      fakeApi.updateScene.mockClear();
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Pen' })); });
+      expect(fakeApi.setActiveTool).toHaveBeenLastCalledWith({ type: 'freedraw', locked: true });
+      expect(fakeApi.updateScene).toHaveBeenLastCalledWith(expect.objectContaining({ appState: expect.objectContaining({ currentItemStrokeColor: '#e03131', currentItemOpacity: 100 }), captureUpdate: 'NEVER' }));
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Highlighter' })); });
+      expect(fakeApi.updateScene).toHaveBeenLastCalledWith(expect.objectContaining({ appState: expect.objectContaining({ currentItemOpacity: 35, currentItemStrokeWidth: 4 }) }));
+      expect(screen.getByRole('button', { name: 'Highlighter' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('follows the engine back to Select (text placed, its own strip)', async () => {
+      await act(async () => { render(<Board note={note()} />); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Text' })); });
+      act(() => { engine.props.onChange(fakeApi.scene, { ...fakeApi.appState, activeTool: { type: 'selection' } }, {}); });
+      expect(screen.getByRole('button', { name: 'Select' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('re-inks the selection with Select on, and saves it', async () => {
+      const onScene = vi.fn();
+      fakeApi.scene = [el({ id: 'a', type: 'freedraw', strokeColor: '#000' })];
+      await act(async () => { render(<Board note={note()} onScene={onScene} />); });
+      fakeApi.appState = { ...fakeApi.appState, selectedElementIds: { a: true }, activeTool: { type: 'selection' } };
+      act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: /^Ink:/ })); });
+      act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Blue' })); vi.advanceTimersByTime(800); });
+      expect(fakeApi.scene[0]).toMatchObject({ strokeColor: '#1971c2', version: 2 });
+      expect(onScene).toHaveBeenCalled();
+    });
+
+    it('Comment: a tap asks for the words and drops a numbered pin there, then back to Select', async () => {
+      const onScene = vi.fn();
+      prompt.mockResolvedValue('Raise the railing');
+      await act(async () => { render(<Board note={note()} onScene={onScene} />); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Comment' })); });
+      const layer = screen.getByTestId('nx-markup-place');
+      await act(async () => { fireEvent.click(layer, { clientX: 120, clientY: 80 }); });
+      expect(prompt).toHaveBeenCalledWith('What should change here?', expect.objectContaining({ title: 'Add Comment', required: true }));
+      const pin = fakeApi.scene.filter((e) => e.customData?.nexusComment === 1);
+      expect(pin.map((e) => e.type).sort()).toEqual(['rectangle', 'text']);
+      expect(pin.find((e) => e.type === 'text').text).toBe('1. Raise the railing');
+      expect(screen.queryByTestId('nx-markup-place')).toBeNull();
+      act(() => { vi.advanceTimersByTime(800); });
+      expect(onScene).toHaveBeenCalled();
+    });
+
+    it('Comment cancelled places nothing', async () => {
+      await act(async () => { render(<Board note={note()} />); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Comment' })); });
+      await act(async () => { fireEvent.click(screen.getByTestId("nx-markup-place"), { clientX: 1, clientY: 1 }); });
+      expect(fakeApi.scene).toEqual([]);
+    });
+
+    it('on a phone the bar is the chrome: Undo, Delete, and More with All Tools to bring the engine strips back', async () => {
+      fakeApi.scene = [el({ id: 'a' })];
+      await act(async () => { render(<Board note={note()} isPhone />); });
+      const board = screen.getByTestId('nx-board');
+      expect(board.className).toContain('is-markup-only');
+      expect(screen.getByRole('button', { name: 'Move Around' })).toBeTruthy();
+      fakeApi.appState = { ...fakeApi.appState, selectedElementIds: { a: true } };
+      act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' })); });
+      expect(fakeApi.scene[0].isDeleted).toBe(true);
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'More' })); });
+      const sheet = screen.getByRole('dialog', { name: 'Board Options' });
+      expect(sheet).toBeTruthy();
+      act(() => { fireEvent.click(screen.getAllByRole('button', { name: 'All Tools' })[0]); });
+      expect(board.className).not.toContain('is-markup-only');
+    });
   });
 });

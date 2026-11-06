@@ -157,8 +157,34 @@ export function Canvas({
   );
 }
 
+/**
+ * The markup bar's hands on the engine (Board.jsx's MarkupBar, Neil
+ * 11/06/2026). `root` is the element the Canvas sits in (undo / redo are the
+ * engine's own history actions, reached through its keyboard handler on its
+ * container - 0.18 has no api call for them).
+ */
+function pressKey(root, init) {
+  const target = root?.querySelector?.('.excalidraw') || root;
+  if (!target?.dispatchEvent) return false;
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+  target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ctrlKey: !mac, metaKey: mac, ...init }));
+  return true;
+}
+export const markup = {
+  setTool(handle, { engine: type, locked = false } = {}) {
+    try { handle?.setActiveTool?.({ type, locked }); return true; } catch { return false; }
+  },
+  setStyle(handle, appState) {
+    try { handle?.updateScene?.({ appState, captureUpdate: CaptureUpdateAction.NEVER }); } catch { /* engine not ready */ }
+  },
+  undo: (root) => pressKey(root, { key: 'z', code: 'KeyZ' }),
+  redo: (root) => pressKey(root, { key: 'z', code: 'KeyZ', shiftKey: true }),
+  /** Built elements (a comment pin) through the engine's repair: the text measured, the box sized round it. */
+  prepare: (elements) => restore(elements, { refreshDimensions: true }),
+};
+
 /** The contract's capture words are the engine's own strings (store.ts) - checked by excalidraw.test.jsx. */
 export const captureWords = () => ({ IMMEDIATELY: CaptureUpdateAction.IMMEDIATELY, NEVER: CaptureUpdateAction.NEVER });
 
-const engine = { Canvas, toScene, fromScene, exportPng, exportSvg, reconcile, version, restore, copyPng, Menu, CAPTURE };
+const engine = { Canvas, toScene, fromScene, exportPng, exportSvg, reconcile, version, restore, copyPng, Menu, CAPTURE, markup };
 export default engine;
