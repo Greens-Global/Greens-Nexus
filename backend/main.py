@@ -3750,6 +3750,8 @@ def _run_migrations():
         "ALTER TABLE construction_closeout_records ENABLE ROW LEVEL SECURITY",
         # Subs and their papers (Round Two item 7, 11/05/2026): models.VendorCompliance.
         "ALTER TABLE vendor_compliance ENABLE ROW LEVEL SECURITY",
+        # Drawings, the current set (Round Two item 9, 11/06/2026): models.ConstructionDrawing.
+        "ALTER TABLE construction_drawings ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS group_ids VARCHAR DEFAULT ''",
         # A role's job description from Documents (Nov 4 2026): models.NexusGroup.jd_template_id.
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS jd_template_id VARCHAR DEFAULT ''",
@@ -5831,3 +5833,5 @@ from routers import construction_handover as construction_handover_router  # noq
 app.include_router(construction_handover_router.router)  # Construction: field tickets, change orders through Nexus Sign, closeout to Asset Management and Items (Neil, 11/03/2026, phase 3)
 from routers import construction_subs as construction_subs_router  # noqa: E402 - vendor_compliance: create_all + explicit RLS line
 app.include_router(construction_subs_router.router)  # Construction: subs on a job (Intacct vendors through Accounting) and their papers (Round Two item 7, 11/05/2026)
+from routers import construction_drawings as construction_drawings_router  # noqa: E402 - construction_drawings: create_all + explicit RLS line
+app.include_router(construction_drawings_router.router)  # Construction: the drawing register, current set and superseded revisions (Round Two item 9, 11/06/2026)

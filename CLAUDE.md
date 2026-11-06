@@ -1075,6 +1075,12 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   the one rule; `expiry_tick` (in `field_loop`) bells the managers at 30 /
   7 / 0 days once per paper and date. Never a second compliance store, no
   contact or payment details here, nothing written to Intacct.
+- **Drawings (Round Two item 9, 11/06/2026, `routers/construction_drawings.py`):**
+  a register only, no pins. A sheet's file is a `construction_media` row of kind
+  `drawing` (the one upload, `make_media`, the one Egnyte sweep, filed to
+  `<job folder>/Drawings`); a new revision of a sheet number marks the current
+  one Superseded (kept), bells the crew and managers once per sheet in place
+  and emits `drawing.revised`. Never hard-deleted.
 
 ## Gotchas
 

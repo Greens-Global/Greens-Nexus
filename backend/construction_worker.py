@@ -271,6 +271,8 @@ def _file_one(db, media) -> None:
     # Where it goes first: a property whose pinned folder is missing holds the
     # file (PinnedFolderMissing) before any bytes are pulled.
     folder = media_folder(db, project, day)
+    if media.kind == "drawing":   # a sheet files with the job's set, not under a day (Round Two item 9)
+        folder = folder.rsplit("/Daily Logs/", 1)[0] + "/Drawings"
 
     # The bytes live in Supabase. Pull them back rather than asking the phone to
     # upload twice - the worker has bandwidth, the jobsite does not.

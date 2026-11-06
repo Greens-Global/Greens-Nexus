@@ -19,6 +19,8 @@ const ALL = [
   { key: 'field', label: 'Field' },
   { key: 'photos', label: 'Photos' },
   { key: 'rfis', label: 'RFIs And Submittals' },
+  // Round Two item 9: the drawing register - the current set, superseded kept.
+  { key: 'drawings', label: 'Drawings' },
   // Round Two (11/05/2026): permits and inspections live from day one, not
   // only at closeout. Projects only - a work order rarely pulls a permit.
   { key: 'permits', label: 'Permits And Inspections' },
