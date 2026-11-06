@@ -5365,6 +5365,11 @@ app.add_middleware(
 )
 # Oct 24 (Neil, item 13): a table's own Sync (fresh=1) reads past the accounting cache.
 app.add_middleware(accounting.AccountingFreshReads)
+# Server-Timing (app time, SQL time and statement count) on every answer and a
+# [slow] log line past 2 s (11/05/2026, request_timing.py). Outermost on purpose.
+import request_timing  # noqa: E402
+request_timing.wire(engine)
+app.add_middleware(request_timing.RequestTiming)
 
 
 @app.exception_handler(Exception)
