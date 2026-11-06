@@ -28,7 +28,7 @@
 // Lazy: NotesPage imports this file with React.lazy; the engine's chunk is
 // fetched only when a board opens.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, Shapes, X } from 'lucide-react';
+import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, X } from 'lucide-react';
 import './board.css';
 import { loadEngine, CAPTURE } from './engine';
 import BoardFallback, { EngineBoundary, BoardLoading } from './engine/fallback';
@@ -40,7 +40,7 @@ import { saveDraft, loadDraft, clearDraft } from './draft';
 import MarkupBar from './MarkupBar';
 import {
   DEFAULT_MARKUP, TOOL_KEYS, MARKUP_COLORS, MARKUP_SIZES, toolByKey, strokeStyle, toolFromEngine,
-  commentPin, nextCommentNumber, stageToBoard, restyle, removeSelected, PIN_MAX,
+  commentPin, pinMeasurer, nextCommentNumber, stageToBoard, restyle, removeSelected, PIN_MAX,
 } from './markupTools';
 import { dataUrlToFile } from '../../tasks/lib';
 import { exportFileName } from '../notesModel';
@@ -83,6 +83,8 @@ function readMarkupPref() {
 function writeMarkupPref(m) {
   try { localStorage.setItem(MARKUP_PREF, JSON.stringify({ color: m.color, highlightColor: m.highlightColor, size: m.size })); } catch { /* private window */ }
 }
+// Tools the ink and width do not apply to (they draw nothing, or a picture).
+const NO_INK = new Set(['select', 'hand', 'eraser', 'image', 'frame', 'laser']);
 const anySelected = (ids) => !!ids && Object.keys(ids).some((k) => ids[k]);
 
 function readTheme() {
@@ -135,8 +137,9 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   const [draftOffer, setDraftOffer] = useState(null);   // { scene, rev, at } from draft.js
   const stageRef = useRef(null);
   // The markup bar (MarkupBar.jsx): an editor's, whenever the engine offers
-  // it. On a phone it IS the chrome - the engine's own cramped strips are
-  // hidden until More > All Tools brings them back for this visit.
+  // it, and the ONE tool bar - the engine's own strip is hidden (its other
+  // tools are under More Tools). On a phone it is all the chrome: the
+  // engine's properties panel opens above it from Style.
   const markupApi = canEdit ? engine?.markup : null;
   const [mk, setMk] = useState(readMarkupPref);
   const mkRef = useRef(mk);
@@ -144,7 +147,8 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   const [hasSelection, setHasSelection] = useState(false);
   const selRef = useRef(false);
   const [phoneMore, setPhoneMore] = useState(false);
-  const [allTools, setAllTools] = useState(false);
+  const [styleOpen, setStyleOpen] = useState(false);
+  const styleRef = useRef(false);
   // File meta the scene keeps (id -> {id, mimeType, url, created}); uploads add to it.
   const filesMeta = useRef({ ...initial.files });
   const uploading = useRef(new Set());
@@ -391,6 +395,8 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     // is selected - state only when either moved.
     const sel = anySelected(appState?.selectedElementIds);
     if (sel !== selRef.current) { selRef.current = sel; setHasSelection(sel); }
+    const style = appState?.openMenu === 'shape';
+    if (style !== styleRef.current) { styleRef.current = style; setStyleOpen(style); }
     const t = toolFromEngine(appState?.activeTool?.type, mkRef.current.tool);
     if (t && t !== mkRef.current.tool) setMk((m) => ({ ...m, tool: t }));
     storeNewFiles(files, elements);
@@ -452,7 +458,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     mkRef.current = m;
     setMk(m);
     markupApi.setTool(api, toolByKey(key));
-    if (key !== 'select' && key !== 'hand' && key !== 'eraser') markupApi.setStyle(api, strokeStyle(key, inkFor(m, key), m.size));
+    if (!NO_INK.has(key)) markupApi.setStyle(api, strokeStyle(key, inkFor(m, key), m.size));
   }, [api, markupApi]);
   // An ink or a width: the next stroke's, and - with Select on and something
   // picked - the selection's too (one undo step, carried to the others).
@@ -467,16 +473,17 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     const cur = mkRef.current;
     const m = cur.tool === 'highlight' ? { ...cur, highlightColor: key } : { ...cur, color: key };
     mkRef.current = m; setMk(m); writeMarkupPref(m);
-    if (api && markupApi && m.tool !== 'select') markupApi.setStyle(api, strokeStyle(m.tool, inkFor(m), m.size));
+    if (api && markupApi && !NO_INK.has(m.tool)) markupApi.setStyle(api, strokeStyle(m.tool, inkFor(m), m.size));
     restyleSelection({ colorKey: key });
   }, [api, markupApi, restyleSelection]);
   const chooseSize = useCallback((key) => {
     const m = { ...mkRef.current, size: key };
     mkRef.current = m; setMk(m); writeMarkupPref(m);
-    if (api && markupApi && m.tool !== 'select') markupApi.setStyle(api, strokeStyle(m.tool, inkFor(m), m.size));
+    if (api && markupApi && !NO_INK.has(m.tool)) markupApi.setStyle(api, strokeStyle(m.tool, inkFor(m), m.size));
     restyleSelection({ sizeKey: key });
   }, [api, markupApi, restyleSelection]);
   const undo = useCallback(() => { markupApi?.undo(stageRef.current); }, [markupApi]);
+  const toggleStyle = useCallback(() => { if (api) markupApi?.toggleStyle?.(api); }, [api, markupApi]);
   const redo = useCallback(() => { markupApi?.redo(stageRef.current); }, [markupApi]);
   const deleteSelected = useCallback(() => {
     if (!api) return;
@@ -500,7 +507,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     const text = String(words || '').trim().slice(0, PIN_MAX);
     if (!text) return;
     const els = api.getSceneElementsIncludingDeleted();
-    const pin = markupApi.prepare(commentPin({ x: at.x, y: at.y, text, number: nextCommentNumber(els), colorKey: mkRef.current.color, look: lookRef.current }));
+    const pin = markupApi.prepare(commentPin({ x: at.x, y: at.y, text, number: nextCommentNumber(els), colorKey: mkRef.current.color, look: lookRef.current, measure: pinMeasurer(lookRef.current) }));
     api.updateScene({ elements: [...els, ...pin], captureUpdate: CAPTURE.IMMEDIATELY });
     scheduleSave();
   }, [api, markupApi, chooseTool, scheduleSave]);
@@ -543,7 +550,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   ) : null;
 
   const showBar = !!(markupApi && api);
-  const barOnly = showBar && isPhone && !allTools;
+  const barOnly = showBar && isPhone;
   const sheetRow = (Icon, label, onClick) => (
     <button type="button" className="nx-mk-sheet-row" onClick={() => { setPhoneMore(false); onClick(); }}><Icon size={18} /> {label}</button>
   );
@@ -589,6 +596,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
         {showBar && (
           <MarkupBar phone={isPhone} tool={mk.tool} colorKey={inkFor(mk)} sizeKey={mk.size} hasSelection={hasSelection}
             onTool={chooseTool} onColor={chooseColor} onSize={chooseSize} onUndo={undo} onRedo={redo} onDelete={deleteSelected}
+            styleOpen={styleOpen} onStyle={isPhone ? toggleStyle : undefined}
             onMore={isPhone ? () => setPhoneMore(true) : undefined} />
         )}
         {notice && <div className={`nx-board-note${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</div>}
@@ -602,7 +610,6 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
               <div className="nx-board-menu-kicker">Look</div>
               {lookToggle}
               {sheetRow(Maximize2, 'Fit to Screen', fit)}
-              {sheetRow(Shapes, allTools ? 'Markup Tools Only' : 'All Tools', () => setAllTools((v) => !v))}
               {sheetRow(ImageIcon, 'Export as PNG', doExportPng)}
               {sheetRow(Copy, 'Copy as Picture', doCopy)}
               {sheetRow(FileJson, 'Download Board File', doDownload)}

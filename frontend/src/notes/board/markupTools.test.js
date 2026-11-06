@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MARKUP_TOOLS, strokeStyle, toolFromEngine, commentPin, nextCommentNumber, stageToBoard, restyle, removeSelected, colorByKey, PIN_MAX,
+  MARKUP_TOOLS, strokeStyle, toolFromEngine, commentPin, wrapWords, nextCommentNumber, stageToBoard, restyle, removeSelected, colorByKey, PIN_MAX,
 } from './markupTools';
 import { FONT_HAND, FONT_SANS } from './scene';
 
@@ -21,7 +21,8 @@ describe('markup tools', () => {
     expect(toolFromEngine('selection', 'comment')).toBe('comment');
     expect(toolFromEngine('selection', 'pen')).toBe('select');
     expect(toolFromEngine('rectangle', 'pen')).toBe('box');
-    expect(toolFromEngine('diamond', 'pen')).toBeNull();
+    expect(toolFromEngine('diamond', 'pen')).toBe('diamond');
+    expect(toolFromEngine('embeddable', 'pen')).toBeNull();
     expect(toolFromEngine(undefined, 'pen')).toBeNull();
   });
 
@@ -35,11 +36,21 @@ describe('markup tools', () => {
     const [box, text] = commentPin({ x: 10, y: 20, text: '  Raise this  ', number: 4, colorKey: 'blue', look: 'sketch' });
     expect(box).toMatchObject({ type: 'rectangle', x: 10, y: 20, backgroundColor: colorByKey('blue').tint, strokeColor: colorByKey('blue').color, roughness: 1 });
     expect(box.boundElements).toEqual([{ id: text.id, type: 'text' }]);
-    expect(text).toMatchObject({ type: 'text', containerId: box.id, text: '4. Raise this', fontFamily: FONT_HAND });
+    expect(text).toMatchObject({ type: 'text', containerId: box.id, text: '4. Raise this', originalText: '4. Raise this', fontFamily: FONT_HAND, textAlign: 'center' });
+    // the text sits centered in its box, which is sized to the words
+    expect(text.x - box.x).toBeCloseTo(box.x + box.width - (text.x + text.width));
+    expect(box.height).toBe(text.height + 20);
     expect(box.customData.nexusComment).toBe(4);
     const [, clean] = commentPin({ x: 0, y: 0, text: 'x'.repeat(PIN_MAX + 50), number: 1 });
     expect(clean.fontFamily).toBe(FONT_SANS);
-    expect(clean.text.length).toBe(PIN_MAX + 3);
+    expect(clean.originalText.length).toBe(PIN_MAX + 3);
+    expect(clean.text.split('\n').length).toBeGreaterThan(1);
+  });
+
+  it('wraps at spaces under the width, a long word on its own line', () => {
+    const m = (t) => t.length * 10;
+    expect(wrapWords('aaa bbb ccc', 70, m)).toEqual(['aaa bbb', 'ccc']);
+    expect(wrapWords('x supercalifragilistic y', 50, m)).toEqual(['x', 'supercalifragilistic', 'y']);
   });
 
   it('maps a tap on the stage to a board point', () => {

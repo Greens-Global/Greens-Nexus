@@ -26,8 +26,22 @@ export const MARKUP_TOOLS = Object.freeze([
   { key: 'comment', label: 'Comment', hint: 'C', engine: 'selection', locked: false },
   { key: 'eraser', label: 'Eraser', hint: 'E', engine: 'eraser', locked: true },
 ]);
-export const TOOL_KEYS = MARKUP_TOOLS.map((t) => t.key);
-export const toolByKey = (key) => MARKUP_TOOLS.find((t) => t.key === key) || MARKUP_TOOLS[0];
+// The rest of the engine's tools, one tap away under More Tools (Neil,
+// 11/06/2026: the best of both - Claude's short set up front, the full
+// whiteboard behind it, one bar, never two strips). Single-use like the
+// engine's own: a shape drawn, back to Select.
+export const MORE_TOOLS = Object.freeze([
+  { key: 'ellipse', label: 'Ellipse', hint: 'O', engine: 'ellipse', locked: false },
+  { key: 'diamond', label: 'Diamond', hint: 'D', engine: 'diamond', locked: false },
+  { key: 'line', label: 'Line', hint: 'L', engine: 'line', locked: false },
+  { key: 'image', label: 'Image', hint: '9', engine: 'image', locked: false },
+  { key: 'frame', label: 'Frame', hint: 'F', engine: 'frame', locked: false },
+  { key: 'laser', label: 'Laser Pointer', hint: 'K', engine: 'laser', locked: true },
+]);
+const ALL_TOOLS = [...MARKUP_TOOLS, ...MORE_TOOLS];
+export const TOOL_KEYS = ALL_TOOLS.map((t) => t.key);
+export const isMoreTool = (key) => MORE_TOOLS.some((t) => t.key === key);
+export const toolByKey = (key) => ALL_TOOLS.find((t) => t.key === key) || MARKUP_TOOLS[0];
 
 // The inks: the engine's own palette values where the Nexus palette has a
 // match, so a stroke drawn here reads the same in the engine's picker and
@@ -68,14 +82,14 @@ export function strokeStyle(toolKey, colorKey, sizeKey) {
   };
 }
 
-/** Which of our tools the engine's live tool id is (the engine's own strip on
- *  a computer can change it). A freedraw keeps the pen / highlighter we last
+/** Which of our tools the engine's live tool id is (a shortcut key can
+ *  change it). A freedraw keeps the pen / highlighter we last
  *  picked; anything we do not offer reads as null (no button lit). */
 export function toolFromEngine(engineTool, current) {
   if (!engineTool) return null;
   if (engineTool === 'freedraw') return current === 'highlight' ? 'highlight' : 'pen';
   if (engineTool === 'selection') return current === 'comment' ? 'comment' : 'select';
-  const hit = MARKUP_TOOLS.find((t) => t.engine === engineTool && t.key !== 'comment');
+  const hit = ALL_TOOLS.find((t) => t.engine === engineTool && t.key !== 'comment');
   return hit ? hit.key : null;
 }
 
@@ -97,22 +111,56 @@ export function nextCommentNumber(elements) {
 
 export const PIN_MAX = 280;
 const PIN_FONT = 16;
-const PIN_PAD = 10;
+const PIN_LINE = 1.25;
+const PIN_PAD_X = 14;
+const PIN_PAD_Y = 10;
+const PIN_TEXT_MAX = 260;      // the widest a line runs before it wraps
+const PIN_MIN_W = 120;
+const FONT_NAME = { [FONT_SANS]: 'Nunito', [FONT_HAND]: 'Excalifont' };
+
+/** A rough width when there is no canvas to measure with (tests, a server). */
+const roughMeasure = (text) => String(text).length * PIN_FONT * 0.55;
+
+/** Text in lines no wider than `max`, broken at spaces (a word longer than a line keeps its own line). */
+export function wrapWords(text, max, measure = roughMeasure) {
+  const lines = [];
+  for (const para of String(text).split('\n')) {
+    let line = '';
+    for (const word of para.split(/\s+/).filter(Boolean)) {
+      const next = line ? `${line} ${word}` : word;
+      if (line && measure(next) > max) { lines.push(line); line = word; } else line = next;
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+/** A canvas text measurer for the pin's face, or the rough one where there is no canvas. */
+export function pinMeasurer(look = 'clean') {
+  try {
+    const ctx = document.createElement('canvas').getContext('2d');
+    if (!ctx) return roughMeasure;
+    ctx.font = `${PIN_FONT}px ${FONT_NAME[look === 'sketch' ? FONT_HAND : FONT_SANS]}, sans-serif`;
+    return (t) => ctx.measureText(String(t)).width;
+  } catch { return roughMeasure; }
+}
 
 /**
  * A numbered comment pin at a board point, as plain engine elements: a
  * rounded paper box in the ink's tint with the ink as its edge and the text
- * bound inside it (`customData.nexusComment` = its number). The caller runs
- * them through the engine's repair, which measures the text and sizes the
- * box around it - nothing here imports the engine.
+ * bound inside it, centered (`customData.nexusComment` = its number). Sized
+ * to its words - `measure` (pinMeasurer) is the face's real width - so the
+ * engine draws it exactly where it is placed; nothing here imports the engine.
  */
-export function commentPin({ x, y, text, number, colorKey = 'red', look = 'clean', now = Date.now() }) {
+export function commentPin({ x, y, text, number, colorKey = 'red', look = 'clean', now = Date.now(), measure = roughMeasure }) {
   const c = colorByKey(colorKey);
   const body = String(text || '').trim().slice(0, PIN_MAX);
   const label = `${number}. ${body}`;
-  const width = Math.max(140, Math.min(300, Math.round(label.length * PIN_FONT * 0.55) + PIN_PAD * 2));
-  const lines = Math.max(1, Math.ceil((label.length * PIN_FONT * 0.55) / (width - PIN_PAD * 2)));
-  const height = Math.round(lines * PIN_FONT * 1.25 + PIN_PAD * 2);
+  const lines = wrapWords(label, PIN_TEXT_MAX, measure);
+  const textW = Math.ceil(Math.max(...lines.map((l) => measure(l)), 1));
+  const textH = Math.round(lines.length * PIN_FONT * PIN_LINE);
+  const width = Math.max(PIN_MIN_W, textW + PIN_PAD_X * 2);
+  const height = textH + PIN_PAD_Y * 2;
   const boxId = rid(), textId = rid();
   const base = {
     angle: 0, strokeColor: c.color, fillStyle: 'solid', strokeWidth: 2, strokeStyle: 'solid',
@@ -125,10 +173,10 @@ export function commentPin({ x, y, text, number, colorKey = 'red', look = 'clean
     backgroundColor: c.tint, roundness: { type: 3 }, boundElements: [{ id: textId, type: 'text' }],
   };
   const label_ = {
-    ...base, id: textId, type: 'text', x: x + PIN_PAD, y: y + PIN_PAD, width: width - PIN_PAD * 2, height: height - PIN_PAD * 2,
+    ...base, id: textId, type: 'text', x: x + (width - textW) / 2, y: y + PIN_PAD_Y, width: textW, height: textH,
     backgroundColor: 'transparent', roundness: null, boundElements: null, strokeColor: '#1e1e1e',
-    text: label, originalText: label, fontSize: PIN_FONT, fontFamily: look === 'sketch' ? FONT_HAND : FONT_SANS,
-    textAlign: 'left', verticalAlign: 'middle', containerId: boxId, autoResize: true, lineHeight: 1.25,
+    text: lines.join('\n'), originalText: label, fontSize: PIN_FONT, fontFamily: look === 'sketch' ? FONT_HAND : FONT_SANS,
+    textAlign: 'center', verticalAlign: 'middle', containerId: boxId, autoResize: true, lineHeight: PIN_LINE,
   };
   return [box, label_];
 }

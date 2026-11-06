@@ -177,10 +177,18 @@ export const markup = {
   setStyle(handle, appState) {
     try { handle?.updateScene?.({ appState, captureUpdate: CaptureUpdateAction.NEVER }); } catch { /* engine not ready */ }
   },
+  /** The engine's own properties panel (fill, opacity, font, layers) - on
+   *  a phone it opens above the markup dock; again closes it. */
+  toggleStyle(handle) {
+    try {
+      const open = handle?.getAppState?.()?.openMenu === 'shape';
+      handle?.updateScene?.({ appState: { openMenu: open ? null : 'shape' }, captureUpdate: CaptureUpdateAction.NEVER });
+    } catch { /* engine not ready */ }
+  },
   undo: (root) => pressKey(root, { key: 'z', code: 'KeyZ' }),
   redo: (root) => pressKey(root, { key: 'z', code: 'KeyZ', shiftKey: true }),
-  /** Built elements (a comment pin) through the engine's repair: the text measured, the box sized round it. */
-  prepare: (elements) => restore(elements, { refreshDimensions: true }),
+  /** Built elements (a comment pin, already measured) through the engine's repair. */
+  prepare: (elements) => restore(elements, { refreshDimensions: false }),
 };
 
 /** The contract's capture words are the engine's own strings (store.ts) - checked by excalidraw.test.jsx. */

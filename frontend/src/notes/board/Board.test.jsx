@@ -658,21 +658,34 @@ describe('Board', () => {
       expect(fakeApi.scene).toEqual([]);
     });
 
-    it('on a phone the bar is the chrome: Undo, Delete, and More with All Tools to bring the engine strips back', async () => {
+    it('More Tools reaches the rest of the whiteboard, and lights when a shortcut picks one', async () => {
+      await act(async () => { render(<Board note={note()} />); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'More Tools' })); });
+      act(() => { fireEvent.click(screen.getByRole('menuitemradio', { name: /Ellipse/ })); });
+      expect(fakeApi.setActiveTool).toHaveBeenLastCalledWith({ type: 'ellipse', locked: false });
+      act(() => { engine.props.onChange(fakeApi.scene, { ...fakeApi.appState, activeTool: { type: 'diamond' } }, {}); });
+      expect(screen.getByRole('button', { name: 'More Tools: Diamond' })).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('on a phone the bar is the chrome: Undo, Style for the full properties panel, Delete, and More', async () => {
       fakeApi.scene = [el({ id: 'a' })];
       await act(async () => { render(<Board note={note()} isPhone />); });
       const board = screen.getByTestId('nx-board');
       expect(board.className).toContain('is-markup-only');
       expect(screen.getByRole('button', { name: 'Move Around' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Style' })).toBeNull();
       fakeApi.appState = { ...fakeApi.appState, selectedElementIds: { a: true } };
       act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Style' })); });
+      expect(fakeApi.updateScene).toHaveBeenLastCalledWith(expect.objectContaining({ appState: { openMenu: 'shape' } }));
+      act(() => { engine.props.onChange(fakeApi.scene, { ...fakeApi.appState, openMenu: 'shape' }, {}); });
+      expect(screen.getByRole('button', { name: 'Style' })).toHaveAttribute('aria-pressed', 'true');
       act(() => { fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' })); });
       expect(fakeApi.scene[0].isDeleted).toBe(true);
       act(() => { fireEvent.click(screen.getByRole('button', { name: 'More' })); });
       const sheet = screen.getByRole('dialog', { name: 'Board Options' });
       expect(sheet).toBeTruthy();
-      act(() => { fireEvent.click(screen.getAllByRole('button', { name: 'All Tools' })[0]); });
-      expect(board.className).not.toContain('is-markup-only');
+      expect(screen.queryByRole('button', { name: 'All Tools' })).toBeNull();
     });
   });
 });

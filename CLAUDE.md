@@ -436,8 +436,11 @@ keep the diff minimal.
   widths) reaching the engine only through the adapter's `markup` member. A
   Comment is a numbered pin made of ordinary board elements
   (`customData.nexusComment`), so it saves, syncs and exports like any
-  shape. On a phone the bar IS the chrome (the engine's strips hidden until
-  More > All Tools); a computer keeps the engine's full strip beside it.
+  shape. ONE tool bar, the best of both: the engine's own tool strip is
+  hidden everywhere and its other tools (ellipse, diamond, line, image,
+  frame, laser pointer) are under More Tools; a computer keeps the engine's
+  hints and properties panel, a phone opens that panel above the dock from
+  Style. Never bring back a second tool strip.
 - **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
   on the phone (`public/manifest.webmanifest`, `public/sw.js` - push plus the
   offline app shell, see Field offline below) and pushes the BELL: a Web Push

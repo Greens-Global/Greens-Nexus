@@ -46,4 +46,15 @@ describe('MarkupBar', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('radio', { name: 'Blue' })).toBeNull();
   });
+
+  it('opens More Tools and picks one; the button shows the one in use', () => {
+    const p = props();
+    const { rerender } = render(<MarkupBar {...p} />);
+    fireEvent.click(screen.getByRole('button', { name: 'More Tools' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Laser Pointer/ }));
+    expect(p.onTool).toHaveBeenCalledWith('laser');
+    expect(screen.queryByRole('menu', { name: 'More Tools' })).toBeNull();
+    rerender(<MarkupBar {...p} tool="laser" />);
+    expect(screen.getByRole('button', { name: 'More Tools: Laser Pointer' })).toBeTruthy();
+  });
 });

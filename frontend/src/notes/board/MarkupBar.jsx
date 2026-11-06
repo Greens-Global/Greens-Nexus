@@ -1,7 +1,9 @@
 // The Board's markup bar (Neil, 11/06/2026): the reviewer's tools - Select,
 // Move Around, Pen, Highlighter, Arrow, Box, Text, Comment, Eraser - one ink
-// dot that opens the inks and widths, and on a phone Undo / Redo, Delete and
-// More. A computer gets a floating pill at the foot of the stage beside the
+// dot that opens the inks and widths, More Tools for the rest of the
+// whiteboard (ellipse, diamond, line, image, frame, laser pointer), and on a
+// phone Undo / Redo, Style (the engine's full properties panel), Delete and
+// More. ONE bar: the engine's own tool strip is hidden wherever it shows. A computer gets a floating pill at the foot of the stage beside the
 // engine's full strip; a phone gets a dock along the bottom edge, in thumb
 // reach, every target 44px, the tools scrolling sideways when the screen is
 // narrow, clear of the home indicator and the keyboard's strip.
@@ -11,39 +13,46 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   MousePointer2, Hand, PenLine, Highlighter, MoveUpRight, Square, Type, MessageSquarePlus, Eraser,
-  Undo2, Redo2, Trash2, MoreHorizontal, Check,
+  Undo2, Redo2, Trash2, MoreHorizontal, Check, Circle, Diamond, Minus, ImagePlus, Frame, Pointer, Shapes, SlidersHorizontal,
 } from 'lucide-react';
-import { MARKUP_TOOLS, MARKUP_COLORS, MARKUP_SIZES, colorByKey } from './markupTools';
+import { MARKUP_TOOLS, MORE_TOOLS, MARKUP_COLORS, MARKUP_SIZES, colorByKey, isMoreTool } from './markupTools';
 
 const ICONS = {
   select: MousePointer2, hand: Hand, pen: PenLine, highlight: Highlighter, arrow: MoveUpRight,
   box: Square, text: Type, comment: MessageSquarePlus, eraser: Eraser,
+  ellipse: Circle, diamond: Diamond, line: Minus, image: ImagePlus, frame: Frame, laser: Pointer,
 };
 
 export default function MarkupBar({
-  phone = false, tool, colorKey, sizeKey, hasSelection = false,
-  onTool, onColor, onSize, onUndo, onRedo, onDelete, onMore,
+  phone = false, tool, colorKey, sizeKey, hasSelection = false, styleOpen = false,
+  onTool, onColor, onSize, onUndo, onRedo, onDelete, onMore, onStyle,
 }) {
-  const [tray, setTray] = useState(false);
+  // One pop-up at a time: the inks ('ink') or More Tools ('more').
+  const [pop, setPop] = useState('');
+  const tray = pop === 'ink';
+  const setTray = (v) => setPop((p) => ((typeof v === 'function' ? v(p === 'ink') : v) ? 'ink' : ''));
   const trayRef = useRef(null);
   const dotRef = useRef(null);
+  const moreRef = useRef(null);
+  const moreBtnRef = useRef(null);
   const ink = colorByKey(colorKey);
   // The highlighter has one width (wide); the tray says so instead of
   // offering widths that would not apply.
   const sizes = tool === 'highlight' ? [] : MARKUP_SIZES;
 
-  // The tray closes on a tap anywhere else or on Escape.
+  // A pop-up closes on a tap anywhere else or on Escape.
   useEffect(() => {
-    if (!tray) return undefined;
-    const away = (e) => {
-      if (trayRef.current?.contains(e.target) || dotRef.current?.contains(e.target)) return;
-      setTray(false);
-    };
-    const esc = (e) => { if (e.key === 'Escape') { setTray(false); dotRef.current?.focus(); } };
+    if (!pop) return undefined;
+    const mine = [trayRef, dotRef, moreRef, moreBtnRef];
+    const away = (e) => { if (!mine.some((r) => r.current?.contains(e.target))) setPop(''); };
+    const esc = (e) => { if (e.key === 'Escape') { const back = pop === 'ink' ? dotRef : moreBtnRef; setPop(''); back.current?.focus(); } };
     document.addEventListener('pointerdown', away, true);
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc); };
-  }, [tray]);
+  }, [pop]);
+  const moreOn = isMoreTool(tool);
+  const MoreIcon = moreOn ? ICONS[tool] : Shapes;
+  const moreLabel = moreOn ? MORE_TOOLS.find((t) => t.key === tool)?.label : '';
 
   const tools = MARKUP_TOOLS.filter((t) => phone || t.key !== 'hand');   // a computer pans with Space or the wheel
 
@@ -53,6 +62,10 @@ export default function MarkupBar({
         <div className="nx-mk-float" role="group" aria-label="History">
           <button type="button" className="nx-mk-btn" onClick={onUndo} aria-label="Undo" title="Undo"><Undo2 size={18} /></button>
           <button type="button" className="nx-mk-btn" onClick={onRedo} aria-label="Redo" title="Redo"><Redo2 size={18} /></button>
+          {onStyle && (hasSelection || styleOpen) && (
+            <button type="button" className={`nx-mk-btn${styleOpen ? ' is-on' : ''}`} onClick={onStyle} aria-pressed={styleOpen}
+              aria-label="Style" title="Fill, Opacity, Font and Layers"><SlidersHorizontal size={18} /></button>
+          )}
           {hasSelection && (
             <button type="button" className="nx-mk-btn is-danger" onClick={onDelete} aria-label="Delete Selected" title="Delete Selected"><Trash2 size={18} /></button>
           )}
@@ -83,6 +96,20 @@ export default function MarkupBar({
         </div>
       )}
 
+      {pop === 'more' && (
+        <div className="nx-mk-tray nx-mk-more" ref={moreRef} role="menu" aria-label="More Tools">
+          {MORE_TOOLS.map((t) => {
+            const Icon = ICONS[t.key];
+            return (
+              <button key={t.key} type="button" role="menuitemradio" aria-checked={tool === t.key} className={`nx-mk-more-row${tool === t.key ? ' is-on' : ''}`}
+                onClick={() => { setPop(''); onTool?.(t.key); }} data-tool={t.key}>
+                <Icon size={18} /> <span>{t.label}</span>{!phone && <kbd>{t.hint}</kbd>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="nx-mk-bar" role="toolbar" aria-label="Markup Tools">
         <div className="nx-mk-tools">
           {tools.map((t) => {
@@ -97,6 +124,10 @@ export default function MarkupBar({
               </button>
             );
           })}
+          <button ref={moreBtnRef} type="button" className={`nx-mk-btn${moreOn || pop === 'more' ? ' is-on' : ''}`} aria-expanded={pop === 'more'} aria-haspopup="menu"
+            aria-label={moreOn ? `More Tools: ${moreLabel}` : 'More Tools'} title="More Tools" onClick={() => setPop((p) => (p === 'more' ? '' : 'more'))}>
+            <MoreIcon size={phone ? 20 : 18} />
+          </button>
         </div>
         <span className="nx-mk-sep" aria-hidden />
         <button ref={dotRef} type="button" className={`nx-mk-btn nx-mk-dot${tray ? ' is-on' : ''}`} aria-expanded={tray} aria-label={`Ink: ${ink.label}`} title="Ink and Width"

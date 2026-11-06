@@ -104,8 +104,20 @@
    keyboard's strip; the engine's own strips are hidden (is-markup-only)
    until More > All Tools. Transform and opacity only for motion. */
 .nx-board > .nx-board-stage { container-type: inline-size; }
-.nx-board.is-markup-only .excalidraw .App-top-bar,
-.nx-board.is-markup-only .excalidraw .App-bottom-bar { display: none !important; }
+/* ONE tool bar (the best of both, Neil 11/06/2026): wherever the markup bar
+   shows, the engine's own tool strip does not - its other tools are under
+   More Tools. A computer keeps the engine's hint line under where the strip
+   was, and its properties panel on the left (fill, opacity, font, layers). */
+.nx-board.has-markup .excalidraw .shapes-section .App-toolbar { background: transparent !important; box-shadow: none !important; pointer-events: none; }
+.nx-board.has-markup .excalidraw .shapes-section .App-toolbar > .Stack { display: none !important; }
+.nx-board.has-markup .excalidraw .shapes-section .HintViewer { left: 50%; width: max-content; max-width: min(560px, 80cqi); transform: translateX(-50%); margin-top: 6px; padding: 0; }
+/* A phone: the engine's top strip goes; its bottom bar stays only for its
+   properties panel (Style), lifted above the dock - never its own footer. */
+.nx-board.is-markup-only .excalidraw .App-top-bar { display: none !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px) + var(--nx-kb-inset, 0px)) !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar footer.App-toolbar { display: none !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar .Island:not(:has(.App-mobile-menu)) { display: none !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar .App-mobile-menu { max-height: 46vh; }
 .nx-board.is-markup-only .nx-board-note { top: 64px; }
 
 .nx-mk { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; max-width: calc(100% - 24px); }
@@ -218,3 +230,19 @@
 .nx-mk-place-hint { --nx-mk-x: -50%; }
 @keyframes nx-mk-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes nx-mk-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+/* More Tools: the rest of the whiteboard, one tap away. */
+.nx-mk-more { gap: 2px; padding: 6px; min-width: 210px; }
+.nx-mk-more-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.nx-mk-more-row > span { flex: 1; }
+.nx-mk-more-row kbd { font: inherit; font-size: 11px; color: var(--muted, #8b958f); border: 1px solid var(--line, rgba(0, 0, 0, .1)); border-radius: 5px; padding: 0 5px; }
+.nx-mk-more-row:hover { background: var(--wk-hover, #f1f4f1); }
+.nx-mk-more-row.is-on { background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); }
+.nx-mk-more-row:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -2px; }
+.nx-mk.is-phone .nx-mk-more { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.nx-mk.is-phone .nx-mk-more-row { flex-direction: column; justify-content: center; gap: 4px; min-height: 64px; padding: 6px; font-size: 12.5px; text-align: center; background: var(--wk-hover, #f1f4f1); }
+.nx-mk.is-phone .nx-mk-more-row > span { flex: 0 0 auto; }
+.nx-mk.is-phone .nx-mk-more-row.is-on { background: var(--wk-brand-tint, #e3f3e8); }
