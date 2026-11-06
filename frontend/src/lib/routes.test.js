@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor } from './routes';
+import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor, tabAddress, TAB_ADDRESSES } from './routes';
 
 // The address-bar aliases. Insights (Neil, Oct 14 2026): the module reads
 // /insights; old /bi links (bookmarks, emails) still open it; the view id
@@ -59,5 +59,30 @@ describe('credentials address', () => {
     expect(VIEW_TO_PATH.credvault).toBe('credentials');
     expect(PATH_TO_VIEW.credentials).toBe('credvault');
     expect(PATH_TO_VIEW.credvault).toBe('credvault');
+  });
+});
+
+// A module tab's obvious address (11/05/2026): /notes was Page Not Found
+// because Notes is a Dashboard tab.
+describe('tab addresses', () => {
+  it('/notes opens Dashboard > Notes, and /notes/<id> that note', () => {
+    expect(tabAddress('notes', null)).toEqual({ view: 'dashboard', sub: 'notes' });
+    expect(tabAddress('notes', 'n42')).toEqual({ view: 'dashboard', sub: 'notes:n42' });
+  });
+
+  it('lands the other obvious tab addresses on their tab', () => {
+    expect(tabAddress('time-sheet', null)).toEqual({ view: 'myhr', sub: 'timesheet' });
+    expect(tabAddress('time-off', 'x')).toEqual({ view: 'myhr', sub: 'timeoff' });
+    expect(tabAddress('shift-planner', null)).toEqual({ view: 'shifts', sub: 'schedule' });
+    expect(tabAddress('org-chart', null)).toEqual({ view: 'hr', sub: 'hr-org' });
+    expect(tabAddress('nexus-sign', null)).toEqual({ view: 'documents', sub: 'documents-esign' });
+    expect(tabAddress('pdf-tools', null)).toEqual({ view: 'documents', sub: 'documents-pdf' });
+  });
+
+  it('never shadows a real module or its address alias', () => {
+    for (const alias of Object.keys(TAB_ADDRESSES)) expect(PATH_TO_VIEW[alias]).toBeUndefined();
+    expect(tabAddress('dashboard', 'notes')).toBeNull();
+    expect(tabAddress('toString', null)).toBeNull();
+    expect(tabAddress(null, null)).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { nextClock, fmtMoment, fmtDate } from './ticketMeta';
+import { nextClock, fmtMoment, fmtDate, NEXT_CLOCK_META } from './ticketMeta';
+import { NX } from '../tasks/theme';
 
 // The Next Clock cell (Tickets desk re-cut, 10/31/2026): whichever SLA clock
 // bites next, in words - red only when overdue - with the exact deadline in
@@ -81,5 +82,43 @@ describe('nextClock', () => {
     expect(paused.at).toBeLessThan(Infinity);
     // Awaiting approval pauses too; without a pause time the word stands alone.
     expect(nextClock(live({ approvalStatus: 'pending', slaDueAt: hours(10) }), NOW).label).toBe('Paused');
+  });
+});
+
+// The list paints the Next Clock cell from NEXT_CLOCK_META[state] (no entry =
+// the quiet dim text). Red belongs to one state only, so a red cell always
+// means a deadline that has actually passed (11/05/2026: red was on nearly
+// every row of dev's desk - those rows are genuinely overdue test tickets,
+// and this pins that nothing else ever turns red).
+describe('Next Clock color', () => {
+  const colorOf = (t) => NEXT_CLOCK_META[nextClock(t, NOW).state]?.color || null;
+
+  it('only the overdue state is red', () => {
+    const red = Object.entries(NEXT_CLOCK_META).filter(([, m]) => m.color === NX.red).map(([k]) => k);
+    expect(red).toEqual(['overdue']);
+  });
+
+  it('is red only once the deadline has passed, for either clock', () => {
+    for (const h of [-24 * 30, -3, -0.02]) {
+      expect(colorOf(live({ slaDueAt: hours(h) }))).toBe(NX.red);
+      expect(colorOf(live({ firstResponseDueAt: hours(h), slaDueAt: hours(48) }))).toBe(NX.red);
+    }
+    for (const h of [0.02, 2, 5]) {
+      expect(colorOf(live({ slaDueAt: hours(h) }))).not.toBe(NX.red);              // at risk: amber
+      expect(colorOf(live({ firstResponseDueAt: hours(h), slaDueAt: hours(48) }))).not.toBe(NX.red);
+    }
+    expect(colorOf(live({ slaDueAt: hours(4 * 24) }))).toBeNull();                 // comfortably in time: no color
+  });
+
+  it('never red once replied, paused, self-filed or done - however late the reply clock', () => {
+    const late = { firstResponseDueAt: hours(-72), slaDueAt: hours(40) };
+    expect(colorOf(live({ ...late, firstResponseAt: hours(-70) }))).toBeNull();     // replied: the resolution clock is in time
+    expect(colorOf(live({ ...late, status: 'waiting_user', slaPaused: true }))).not.toBe(NX.red);
+    expect(colorOf(live({ ...late, approvalStatus: 'pending' }))).not.toBe(NX.red);
+    expect(colorOf(live({ ...late, requesterId: 'agent@example.com' }))).toBeNull(); // own ticket: no reply clock
+    expect(colorOf(live({ ...late, status: 'resolved' }))).toBeNull();
+    // assigned and In Progress: no reply clock, the resolution clock leads
+    expect(colorOf(live({ ...late, status: 'in_progress', assigneeId: 'agent@example.com', requesterId: 'req@example.com' }))).toBeNull();
+    expect(nextClock(live({ ...late, status: 'in_progress', assigneeId: 'agent@example.com', requesterId: 'req@example.com' })).kind).toBe('resolve');
   });
 });

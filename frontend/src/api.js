@@ -496,7 +496,8 @@ export const api = {
   // Incremental fetch - {tasks, deletedIds, serverTime}. `since` blank returns
   // everything (no deletions), so this serves both the mount load and every
   // repeated refresh through one path. See TasksContext's sinceRef.
-  getTasksDelta: (since = '') => req(`/tasks/delta${since ? `?since=${encodeURIComponent(since)}` : ''}`),
+  // part (11/05/2026): a first load as 'recent' then 'older' (tasks completed over 60 days ago).
+  getTasksDelta: (since = '', part = '') => req(`/tasks/delta${since ? `?since=${encodeURIComponent(since)}` : part ? `?part=${part}` : ''}`),
   // Header search: tasks, projects, portfolios, teams and people in one call,
   // already scoped to what the caller may see.
   // 20 is the endpoint's cap. Six looked final when 92 subtasks matched.
@@ -2736,7 +2737,7 @@ export const api = {
   caReviewSettings:      () => req('/ca-review/settings'),
   caReviewSaveSettings:  (data) => req('/ca-review/settings', { method: 'PUT', body: JSON.stringify(data) }),
   // What is waiting on me: {counts: {view: {tab: n}}} - routers/action_counts.py.
-  actionCounts:          () => req('/me/action-counts'),
+  actionCounts:          (fresh = false) => req(`/me/action-counts${fresh ? '?fresh=1' : ''}`),
   // Ticket default assignee per department (Oct 2026, ticket_auto_assign.py) - "" clears it.
   setTicketDepartmentDefaultAssignee: (deptId, email) => req(`/ticket-departments/${deptId}`, { method: 'PATCH', body: JSON.stringify({ default_assignee_email: email }) }),
   // Ticket saved replies (Oct 2026, routers/ticket_saved_replies.py). companyId

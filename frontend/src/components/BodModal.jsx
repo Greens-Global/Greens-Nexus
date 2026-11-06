@@ -252,7 +252,8 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
       // Status alongside the tasks: it carries the punch history the completed
       // list is windowed on. It must never block the suggestion, so a failed
       // lookup resolves to null and the window falls back to midnight.
-      Promise.all([api.getTasks(), api.timeStatus().catch(() => null)]).then(([rows, status]) => {
+      // Open tasks and today's done ones: the recent part is enough (11/05/2026) - the full list was 16 MB.
+      Promise.all([api.getTasksDelta('', 'recent').then((r) => r?.tasks || []), api.timeStatus().catch(() => null)]).then(([rows, status]) => {
         if (!live) return;
         const email = (msalInstance.getActiveAccount()?.username || '')
           .toLowerCase().replace('@greensg.onmicrosoft.com', '@greensglobal.com');

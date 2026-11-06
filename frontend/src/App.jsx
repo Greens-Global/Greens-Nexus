@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, itemsRedirect, addressFor, itemLinkSub, ticketPlaceSub } from './lib/routes';
+import { PATH_TO_VIEW, tabAddress, VIEW_TO_PATH, purchaseRedirect, itemsRedirect, addressFor, itemLinkSub, ticketPlaceSub } from './lib/routes';
 import { workforceRedirect, WORKFORCE_GRANTS } from './lib/workforceAccess';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
@@ -12,7 +12,7 @@ import Sidebar from "./components/Sidebar";
 import MobileNav from "./components/MobileNav";
 import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
-import { HeaderTabsProvider } from "./components/ModuleTabs";
+import { HeaderTabsProvider, ModuleBar } from "./components/ModuleTabs";
 import { PageTrailProvider, ShellTrail } from "./components/PageTrail";
 import NotificationToasts from "./components/NotificationToasts";
 import PriorityBar from "./components/PriorityBar";
@@ -29,6 +29,8 @@ import BuildMode from "./devnotes/BuildMode";   // Build Mode shell (Oct 24 2026
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import WidgetBoundary, { NavFallback } from "./components/WidgetBoundary";
 import { Spinner, ViewLoading } from "./components/AsyncState";
+import SettingsSkeleton from "./components/settings/SettingsSkeleton";   // Settings and Tasks draw their own frame while their chunk loads (11/05/2026)
+import TasksLoading from "./tasks/TasksLoading";
 import { onBackendHealth, isBackendDown } from "./api";
 import { applyBrandAccent } from "./lib/brandAccent";
 import { BFF_MODE } from "./bffAuth";
@@ -288,6 +290,9 @@ function RoleGate({ children }) {
 // competes with the screen the user actually landed on, and only for people who
 // can open it at all: the module is grant-driven, so warming it for anyone else
 // would just be a handful of 403s.
+// The DATA waits for intent (11/05/2026): pointing at or focusing Tasks /
+// Tickets in the sidebar. Fetched at idle on every page it was 16 requests
+// and a 16 MB task list landing on top of whatever screen was loading.
 function TaskPrefetch() {
   const { can, myGrantedModules } = useRole();
   const mayOpenTasks = can('administrator')
@@ -298,12 +303,21 @@ function TaskPrefetch() {
     const warm = () => {
       if (cancelled) return;
       import('./views/Tasks').catch(() => {});
+    };
+    const intent = (e) => {
+      if (!e.target?.closest?.('[data-view="tasks"], [data-view="tickets"]')) return;
+      document.removeEventListener('pointerover', intent);
+      document.removeEventListener('focusin', intent);
       import('./tasks/taskStore').then(m => m.prefetchTaskData()).catch(() => {});
     };
+    document.addEventListener('pointerover', intent);
+    document.addEventListener('focusin', intent);
     const idle = typeof window.requestIdleCallback === 'function';
     const id = idle ? window.requestIdleCallback(warm, { timeout: 4000 }) : setTimeout(warm, 2500);
     return () => {
       cancelled = true;
+      document.removeEventListener('pointerover', intent);
+      document.removeEventListener('focusin', intent);
       if (idle) window.cancelIdleCallback?.(id); else clearTimeout(id);
     };
   }, [mayOpenTasks]);
@@ -375,7 +389,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
 
   switch (activeView) {
     case "dashboard":          return <Dashboard onNavigate={onNavigate} activeSub={activeSub} onSubChange={onSubChange} />;
-    case "tasks":              return <TasksProvider><Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} /></TasksProvider>;
+    case "tasks":              return <Suspense fallback={<TasksLoading sub={activeSub || 'home'} />}><TasksProvider><Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} /></TasksProvider></Suspense>;
     case "tickets":            return <TasksProvider><Tickets activeSub={activeSub} onSubChange={onSubChange} /></TasksProvider>;
     case "sop":                return <SOP activeSub={activeSub} onSubChange={onSubChange} />;
     case "it":                 return <IT activeSub={activeSub} onSubChange={onSubChange} />;
@@ -393,7 +407,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     // top-level route working: land on Documents' PDF Editor tab.
     case "pdf-editor":         return <Documents activeSub="documents-pdf" onSubChange={onSubChange} />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
-    case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
+    case "admin-console":      return <Suspense fallback={<SettingsSkeleton />}><AdminConsole activeSub={activeSub} onSubChange={onSubChange} /></Suspense>;
     case "support":            return <Support activeSub={activeSub} onSubChange={onSubChange} />;
     case "whats-new":          return <WhatsNew activeSub={activeSub} onSubChange={onSubChange} />;
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
@@ -463,6 +477,9 @@ function parsePath() {
   // where the person lands - devnotes/BuildMode.jsx read ?pin= at module load
   // and navigates there once the pin is fetched. Dashboard in the meantime.
   if (raw === 'dev-notes') return { view: 'dashboard', sub: null };
+  // A module tab's obvious address - /notes is Dashboard > Notes (11/05/2026, lib/routes.js).
+  const tab = tabAddress(raw, segs[1] || null);
+  if (tab) return tab;
   const view = PATH_TO_VIEW[raw] || raw;
   // Team > Requests moved into Dashboard > Approvals (Neil, 11/04/2026).
   if (view === 'shifts' && segs[1] === 'requests') return { view: 'dashboard', sub: 'approvals:shifts' };
@@ -753,6 +770,9 @@ function MainApp() {
     if (view === 'dashboard' && sub === 'external-links') sub = 'links';
     // Retired Nexus Access Manager -> Settings > Access (see parsePath).
     if (view === 'admin') { view = 'admin-console'; sub = 'access'; }
+    // A module tab's obvious address ({ view: 'notes' } -> Dashboard > Notes, see parsePath).
+    const tab = tabAddress(view, sub);
+    if (tab) ({ view, sub } = tab);
     // Contact Directory -> Team > Contact, My Shifts -> Workday (see parsePath).
     if (view === 'directory') { view = 'shifts'; sub = 'contact'; }
     // Workforce Analytics -> Team > Workforce Analytics (see parsePath).
@@ -955,6 +975,9 @@ function MainApp() {
             {!pdfHasDoc && <WidgetBoundary name="priority-bar" resetKey={widgetKey}><PriorityBar onNavigate={navigate} /></WidgetBoundary>}
             {/* A clock-in with no location (Neil, Oct 21 2026): the red Turn On / Skip bar. */}
             {!pdfHasDoc && <WidgetBoundary name="location-bar" resetKey={widgetKey}><LocationNoticeBar /></WidgetBoundary>}
+            {/* The module bar (11/05/2026): the module's name, its tabs, its actions -
+                one page header for every module (ModuleBar in ModuleTabs.jsx). */}
+            {!pdfHasDoc && <WidgetBoundary name="module-bar" resetKey={widgetKey}><ModuleBar /></WidgetBoundary>}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
                 dashboard surfaces - see the Work OS section in style.css */}
             {/* pdf-editor is flush for the same reason tasks is: it owns its

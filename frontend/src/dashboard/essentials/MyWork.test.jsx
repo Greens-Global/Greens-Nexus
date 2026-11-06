@@ -13,7 +13,7 @@ vi.mock('../QuickActionModals.jsx', () => ({ default: ({ kind }) => <div>compose
 vi.mock('../../tasks/TasksContext', () => ({ TasksProvider: ({ children }) => <div>{children}</div> }));
 vi.mock('../../tickets/TicketsView', () => ({ CreateTicketModal: () => <div>composer:ticket</div> }));
 
-import MyWork, { pickRows, openItem } from './MyWork.jsx';
+import MyWork, { pickRows, openItem, workSub } from './MyWork.jsx';
 import { takePendingOpen, __clearPendingOpen } from '../../lib/pendingOpen';
 
 const task = (id, dueOn, extra = {}) => ({
@@ -65,6 +65,13 @@ describe('pickRows', () => {
   });
 });
 
+describe('workSub', () => {
+  it('names both kinds the number counts', () => {
+    expect(workSub(1)).toBe('1 Open Task or Ticket');
+    expect(workSub(50)).toBe('50 Open Tasks and Tickets');
+  });
+});
+
 describe('My Work tile', () => {
   it('renders the groups with counts, seven rows at most, and View All goes to My Tasks', async () => {
     apiMock.getMyWork.mockResolvedValue(shape({
@@ -79,7 +86,10 @@ describe('My Work tile', () => {
     expect(screen.getByText('This Week')).toBeTruthy();
     expect(screen.queryByText('Later')).toBeNull();           // beyond the cap
     expect(screen.getAllByLabelText(/^Open /)).toHaveLength(7);
-    expect(screen.getByText('9 open')).toBeTruthy();
+    // Tasks and tickets together, so it says so - never read against the
+    // My Open Tasks number (live tasks only).
+    expect(screen.getByText('9 Open Tasks and Tickets')).toBeTruthy();
+    expect(screen.getByText(/View All/).textContent).not.toMatch(/\d/);   // My Tasks holds no tickets
     expect(screen.getByText('Rollout · Due 10/01/2026')).toBeTruthy();   // US date
     expect(screen.getByText('#27 · Due 10/08/2026')).toBeTruthy();       // ticket number, not project
     fireEvent.click(screen.getByText(/View All/));

@@ -5326,7 +5326,10 @@ if os.getenv("NEXUS_SENTRY_DSN"):
 
 # Gzip every response over ~1 KB. The item list is ~300 KB of JSON that compresses
 # to ~10% - the single biggest win for the slow Item Management load over the wire.
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# compresslevel 6, not Starlette's default 9 (11/05/2026): the compression runs
+# ON THE EVENT LOOP, and on an ~11 MB task list 9 took ~3x as long as 6 for
+# ~3% smaller output - time every other request on the worker waits.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 # ETag/304 revalidation + auth-failure throttling (see middleware_hardening.py).
 # Added after GZip so ETags hash the compressed bytes; CORS stays outermost.
 from middleware_hardening import ETagMiddleware, AuthFailureThrottle, RequestRateLimit  # noqa: E402
@@ -5362,6 +5365,11 @@ app.add_middleware(
 )
 # Oct 24 (Neil, item 13): a table's own Sync (fresh=1) reads past the accounting cache.
 app.add_middleware(accounting.AccountingFreshReads)
+# Server-Timing (app time, SQL time and statement count) on every answer and a
+# [slow] log line past 2 s (11/05/2026, request_timing.py). Outermost on purpose.
+import request_timing  # noqa: E402
+request_timing.wire(engine)
+app.add_middleware(request_timing.RequestTiming)
 
 
 @app.exception_handler(Exception)

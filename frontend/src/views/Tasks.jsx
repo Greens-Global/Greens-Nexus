@@ -345,7 +345,7 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           /* Nothing below mounts until the data is in, so a ?task= link from
              an email is still in the URL when My Tasks reads it and opens the
              drawer - this just says that is what is happening. */
-          <TasksLoading opening={!!taskIdFromUrl()} />
+          <TasksLoading opening={!!taskIdFromUrl()} sub={sub} />
         ) : searchAll ? (
           <TasksWorkspace
             key={`search-${searchAll}`}

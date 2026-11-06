@@ -58,6 +58,21 @@ def _acquire_sweep_lock(db) -> None:
         db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _CONSTRUCTION_SWEEP_LOCK_KEY})
 
 
+def _try_sweep_lock(db) -> bool:
+    """The same lock, without waiting: False while another worker holds it,
+    and that worker is draining the same queue, so this tick has nothing to do.
+    Every worker runs the loop; with the blocking form the other workers each
+    sat in pg_advisory_xact_lock for as long as the holder's Egnyte uploads
+    took (dev, 11/05/2026: 786k waits, mean 613 ms, longest 120 s), each wait
+    pinning a pooled connection - and, on the transaction pooler, one of the
+    few server connections every API request needs. True on SQLite."""
+    if db.bind.dialect.name != "postgresql":
+        return True
+    from sqlalchemy import text
+    return bool(db.execute(text("SELECT pg_try_advisory_xact_lock(:k)"),
+                           {"k": _CONSTRUCTION_SWEEP_LOCK_KEY}).scalar())
+
+
 # One answer per property (and one job folder per job) per sweep tick: a
 # batch of 20 photos from one job must not list the Egnyte roots 20 times -
 # nor, while Egnyte is down, fail 20 times over by re-listing them (a lookup
@@ -537,7 +552,9 @@ def sweep_once() -> dict:
     _FOLDER_MEMO.clear()   # each tick sees Egnyte as it is now
     db = SessionLocal()
     try:
-        _acquire_sweep_lock(db)
+        if not _try_sweep_lock(db):
+            counts["skipped"] = 1   # another worker is on this tick
+            return counts
         # Inside the lock's transaction; committed with the rows below.
         counts["released"] = _release_held(db)
         rows = (db.query(models.ConstructionMedia)
@@ -732,7 +749,9 @@ def run_ai_jobs_once() -> dict:
 
     db = SessionLocal()
     try:
-        _acquire_sweep_lock(db)
+        if not _try_sweep_lock(db):
+            counts["skipped"] += 1   # another worker is on this tick
+            return counts
         jobs = (db.query(models.ConstructionAIJob)
                 .filter(models.ConstructionAIJob.status == "queued",
                         models.ConstructionAIJob.kind.in_(kinds))

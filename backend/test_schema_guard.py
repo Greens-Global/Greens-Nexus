@@ -161,19 +161,45 @@ class RunOncePerDeployTests(GuardCase):
 
 class TransactionPoolerTests(GuardCase):
     """On the transaction pooler (port 6543) a session advisory lock would land
-    on a random server connection and never be released, so the guard steps
-    aside and the work runs unguarded, as it did before the guard existed."""
+    on a random server connection and never be released, so no lock is taken
+    and the work runs unguarded - but a stored fingerprint equal to ours
+    (stored only after a successful run) still skips it (11/05/2026: dev ran
+    the whole DDL pass on every worker start)."""
 
     @staticmethod
     def _engine(port):
         return types.SimpleNamespace(url=types.SimpleNamespace(port=port))
 
-    def test_port_6543_runs_the_work_with_no_lock_and_no_state(self):
-        opener = mock.Mock()
-        with mock.patch.object(schema_guard, "open_lock_connection", opener):
+    def _run(self, conn, port=6543):
+        with mock.patch.object(schema_guard, "open_lock_connection", mock.Mock(return_value=conn)):
+            return schema_guard.run_once_per_deploy(self._engine(port), False, lambda: "fp-new", self.work)
+
+    def test_port_6543_skips_when_this_build_already_ran_and_never_locks(self):
+        conn = FakeConn(stored="fp-new")
+        self.assertEqual((self._run(conn), self.calls), ("skipped", 0))
+        self.assertFalse(conn.ran("pg_advisory_lock") or conn.ran("pg_advisory_unlock"))
+        self.assertTrue(conn.closed)
+
+    def test_port_6543_runs_and_stores_a_new_build_without_a_lock(self):
+        conn = FakeConn(stored="fp-old")
+        self.assertEqual((self._run(conn), self.calls), ("applied", 1))
+        self.assertEqual(conn.stored, "fp-new")
+        self.assertFalse(conn.ran("pg_advisory_lock"))
+
+    def test_port_6543_failed_work_is_not_recorded_and_force_still_runs(self):
+        self.work_result = False
+        conn = FakeConn(stored="fp-old")
+        self._run(conn)
+        self.assertEqual(conn.stored, "fp-old")
+        os.environ["NEXUS_FORCE_MIGRATIONS"] = "1"
+        self.work_result = True
+        self.assertEqual(self._run(FakeConn(stored="fp-new")), "applied")
+        self.assertEqual(self.calls, 2)
+
+    def test_port_6543_with_no_connection_still_runs_the_work(self):
+        with mock.patch.object(schema_guard, "open_lock_connection", mock.Mock(side_effect=OSError("down"))):
             out = schema_guard.run_once_per_deploy(self._engine(6543), False, lambda: "fp-new", self.work)
         self.assertEqual((out, self.calls), ("applied", 1))
-        opener.assert_not_called()
 
     def test_session_pooler_and_direct_ports_keep_the_guard(self):
         for port in (5432, None):

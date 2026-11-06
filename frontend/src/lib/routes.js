@@ -20,6 +20,29 @@ export const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory
   team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support', credentials: 'credvault', credvault: 'credvault', people: 'hr' };
 export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', bi: 'insights', shifts: 'team', support: 'help-center', credvault: 'credentials' };
 
+// A module tab's obvious address (11/05/2026): /notes is Dashboard > Notes -
+// it used to say Page Not Found because Notes lives under Dashboard. Each
+// lands on its tab, typed into the address bar or sent through navigate();
+// the address then reads the tab's full path. `item`: a second segment is
+// one record on that tab (/notes/<id> -> notes:<id>, a note's own link).
+export const TAB_ADDRESSES = {
+  notes:           { view: 'dashboard', sub: 'notes', item: true },
+  'time-sheet':    { view: 'myhr', sub: 'timesheet' },
+  timesheet:       { view: 'myhr', sub: 'timesheet' },
+  'time-off':      { view: 'myhr', sub: 'timeoff' },
+  'shift-planner': { view: 'shifts', sub: 'schedule' },
+  'org-chart':     { view: 'hr', sub: 'hr-org' },
+  'nexus-sign':    { view: 'documents', sub: 'documents-esign' },
+  'pdf-tools':     { view: 'documents', sub: 'documents-pdf' },
+};
+
+// { view, sub } for a tab address, or null when `view` is not one.
+export function tabAddress(view, sub) {
+  const hit = Object.hasOwn(TAB_ADDRESSES, view || '') ? TAB_ADDRESSES[view] : null;
+  if (!hit) return null;
+  return { view: hit.view, sub: hit.item && sub ? `${hit.sub}:${sub}` : hit.sub };
+}
+
 // Purchase Requisition moved to Workday > Purchase Requests (Neil, Oct 22
 // 2026). Where an old address goes: the retired 'purchase' view (sub 'new' =
 // the form, 'log' = the list) and Item Management's old 'purchasereqs' tab -

@@ -93,7 +93,7 @@ describe('My Personal Links widget', () => {
     apiMock.getPersonalLinks.mockResolvedValueOnce([]);
     mount('personal-links');
     expect(await screen.findByText('Add Link')).toBeTruthy();
-    await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
+    await waitFor(() => expect(document.querySelector('[data-widget-skeleton]')).toBeNull());
   });
 });
 

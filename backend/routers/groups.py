@@ -48,8 +48,19 @@ def _parse_modules(raw: str) -> list[dict]:
     return out
 
 
-def _serialize(group: NexusGroup, db: Session) -> dict:
-    members = db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group.id).all()
+def _members_by_group(db: Session, groups: list) -> dict:
+    """{group_id: [member rows]} for many groups in one query - the list
+    used to run one member query per group (~2 s on prod, 11/05/2026)."""
+    out: dict = {g.id: [] for g in groups}
+    if out:
+        for m in db.query(NexusGroupMember).filter(NexusGroupMember.group_id.in_(list(out))).all():
+            out[m.group_id].append(m)
+    return out
+
+
+def _serialize(group: NexusGroup, db: Session, members: list | None = None) -> dict:
+    if members is None:
+        members = db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group.id).all()
     return {
         "id": group.id,
         "name": group.name,
@@ -141,7 +152,8 @@ def list_groups(user: dict = Depends(get_current_user), db: Session = Depends(ge
         if scope is not None:
             groups = [g for g in groups if auth.company_ok(g.company_id or "", scope, shared_when_blank=True)]
             emp_co = auth.company_of_email_map(db)
-            result = [_serialize(g, db) for g in groups]
+            by_group = _members_by_group(db, groups)
+            result = [_serialize(g, db, by_group[g.id]) for g in groups]
             for g in result:
                 g["members"] = [m for m in g["members"]
                                 if auth.company_ok(emp_co.get(m.lower(), ""), scope, shared_when_blank=True)]
@@ -153,7 +165,8 @@ def list_groups(user: dict = Depends(get_current_user), db: Session = Depends(ge
             NexusGroupMember.email == user["email"]
         ).all()]
         groups = db.query(NexusGroup).filter(NexusGroup.id.in_(member_ids)).order_by(NexusGroup.created_at).all() if member_ids else []
-    result = [_serialize(g, db) for g in groups]
+    by_group = _members_by_group(db, groups)
+    result = [_serialize(g, db, by_group[g.id]) for g in groups]
     if user["level"] < 4:
         # Non-admins must not see other members' emails - they only need to
         # know they're in the group (for myGrantedModules computation).

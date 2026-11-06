@@ -46,6 +46,7 @@ import task_schedule
 import task_history
 import code_sequence
 import task_card_preview
+from json_response import rendered_in_thread
 from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
 from routers.task_config import coerce_custom_field_values, missing_required_fields
@@ -148,7 +149,10 @@ def _with_previews(db: Session, rows: list, user: dict) -> list:
     the module's views, so there is no request that is known never to reach
     a board."""
     previews = task_card_preview.card_previews(db, rows, user)
-    return [{**task_to_dict(t), "cardPreview": previews.get(t.id)} for t in rows]
+    # activityIds is left off the lists (11/05/2026): no screen reads it and it
+    # was the biggest field in the payload (2 MB of 16); GET /tasks/{id} keeps it.
+    return [{**{k: v for k, v in task_to_dict(t).items() if k != "activityIds"},
+             "cardPreview": previews.get(t.id)} for t in rows]
 
 
 def time_entry_to_dict(e: models.TaskTimeEntry) -> dict:
@@ -2272,7 +2276,6 @@ def _series_groups(rows: list, by_id: Optional[dict] = None) -> list[list[models
     return list(groups.values())
 
 
-@router.get("")
 def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = wall_tasks(db, user, db.query(models.Task).all())   # company wall first
     if is_manager(user):
@@ -2284,6 +2287,11 @@ def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get
     # (task_util.ParentSight): the parents come from these same rows.
     parents = ParentSight(db, rows, user=user)
     return _with_previews(db, [t for t in rows if task_is_visible(t, user, visible_projects, parents)], user)
+
+
+# Several MB of JSON: rendered in the route's thread, never on the event loop
+# (json_response.py). The plain function stays callable from Python.
+router.get("")(rendered_in_thread(list_tasks))
 
 
 def _csv_set(value: str) -> set:
@@ -2752,8 +2760,31 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
     }
 
 
-@router.get("/delta")
-def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+# Completed tasks older than this are left out of the first load
+# (`part=recent`) and fetched behind it (`part=older`) - Neil, 11/05/2026:
+# the whole workspace was 9,559 tasks / 16 MB, ~7,000 of them long done.
+RECENT_COMPLETED_DAYS = 60
+
+
+def _completed_cutoff() -> str:
+    # Date prefix: compares right against every stored ISO stamp shape.
+    return (datetime.now(timezone.utc) - timedelta(days=RECENT_COMPLETED_DAYS)).date().isoformat()
+
+
+def _long_done(cutoff: str):
+    return and_(models.Task.completed.is_(True), models.Task.completed_at != "",
+                models.Task.completed_at < cutoff)
+
+
+def _not_long_done(cutoff: str):
+    # Spelled out rather than ~_long_done: NOT over a NULL column drops the row.
+    T = models.Task
+    return or_(T.completed.isnot(True), T.completed_at.is_(None), T.completed_at == "",
+               T.completed_at >= cutoff)
+
+
+def list_tasks_delta(since: str = "", part: str = "", user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
     """Incremental fetch for TasksContext's mount load + repeated refresh
     (45s poll, realtime ping) - GET /tasks ships the full ~2,400-task
     workspace every call even when nothing changed. `since=""` (the mount
@@ -2777,6 +2808,13 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
     `deletedIds` (a task binned and restored inside one window is live)."""
     server_time = now_iso()
     q = db.query(models.Task)
+    if not since and part in ("recent", "older"):
+        # A first load in two parts (`part`, 11/05/2026): `recent` is every
+        # task except those completed over RECENT_COMPLETED_DAYS ago, `older`
+        # is exactly those. Polls (`since`) ignore it - a changed task comes
+        # through whenever it was completed.
+        cutoff = _completed_cutoff()
+        q = q.filter(_long_done(cutoff) if part == "older" else _not_long_done(cutoff))
     if since:
         # Trashed rows too (their deleted_at is set): they leave the caller's
         # list like any other row they can no longer see.
@@ -2815,6 +2853,10 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
     return {"tasks": _with_previews(db, rows, user),
             "deletedIds": deleted_ids,
             "serverTime": server_time}
+
+
+# ~11 MB on dev for the mount load: rendered off the event loop (json_response.py).
+router.get("/delta")(rendered_in_thread(list_tasks_delta))
 
 
 def _inherited_below(db: Session, tops: list, skip: set) -> list:

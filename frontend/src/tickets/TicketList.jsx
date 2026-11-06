@@ -2,7 +2,7 @@
 // moved verbatim, see TicketsView.jsx for the module overview.
 import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import { Link2, CheckCircle2, Clock, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Check } from 'lucide-react';
-import { NX, FONT, chip, btn, PRIORITY_META } from '../tasks/theme';
+import { NX, FONT, btn, PRIORITY_META } from '../tasks/theme';
 import { Avatar, PriorityChip, UnassignedAvatar, SelectMenu } from '../tasks/components';
 import { dialog as appDialog } from '../ui/dialog';
 import { ColResizer } from '../tasks/tableCols';
@@ -236,16 +236,14 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
               needs a comment. */}
           {clock.kind !== 'none' && (
             <span data-testid="ticket-row-due" title={clock.title}
-              style={clockM
-                ? { ...chip(clockM.color, `color-mix(in srgb, ${clockM.color} 14%, transparent)`), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px', fontWeight: 700 }
-                : { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: NX.dim }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: clockM ? clockM.color : NX.dim, fontWeight: clockM ? 600 : 400 }}>
               {clockM ? <clockM.Icon size={11} /> : <Clock size={11} style={{ color: NX.faint }} />}
               {clock.label}
             </span>
           )}
           {staleM && (
             <span title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h - past this priority's check-in window`}
-              style={{ ...chip(staleM.color, staleM.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, fontWeight: 600, color: staleM.color }}>
               <staleM.Icon size={11} /> {staleM.label}
             </span>
           )}
@@ -334,8 +332,8 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
         <InlineTicketSelect value={t.status} options={statusOptions()} meta={TICKET_STATUS_META} editable={canEditStatus}
           onChange={(v) => updateTicket(t.id, { status: v })}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
-            <StatusLabel label={stateM.label} color={stateM.color} />
-            {approvalM && <StatusLabel size="sm" label={approvalM.label} color={approvalM.color} />}
+            <StatusLabel className="nx-label-flat" label={stateM.label} color={stateM.color} />
+            {approvalM && <StatusLabel className="nx-label-flat" size="sm" label={approvalM.label} color={approvalM.color} />}
           </span>
         </InlineTicketSelect>
       </div>

@@ -31,7 +31,7 @@ import { RecommendationChip, recommendationReasons } from '../components/Recomme
 import { useTableValue } from '../tasks/tableCols';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { api } from '../api';
-import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
+import AsyncSection, { SkeletonBlocks, CountSkeleton } from '../components/AsyncState';
 import { ForChip } from '../components/DelegateApprovals';
 import { NAV } from '../components/Sidebar';
 import { Modal } from '../tasks/components';
@@ -440,7 +440,7 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   const Tile = ({ label, n, Icon, tone, on, onClick, hint }) => (
     <button type="button" className={`apv-tile${on ? ' is-on' : ''}`} data-tone={tone} onClick={onClick} aria-pressed={on} title={hint}>
       <span className="apv-tile-ic"><Icon size={16} /></span>
-      <span className="apv-tile-n">{n}</span>
+      <span className="apv-tile-n">{n ?? <CountSkeleton />}</span>
       <span className="apv-tile-l">{label}</span>
     </button>
   );
@@ -452,10 +452,11 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
         <button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'is-on' : ''} onClick={() => setTab('history')}><History size={14} /> History</button>
       </div>
       <div className="apv-tiles">
-        <Tile label="Waiting On You" n={counts.all} Icon={Inbox} tone="brand" on={!ageFilter && prioFilter === 'all' && tab === 'waiting'} onClick={() => { setTab('waiting'); clearFilters(); }} hint="Everything you decide" />
-        <Tile label="Urgent" n={urgent} Icon={Flame} tone="red" on={prioFilter === 'urgent'} onClick={() => { setTab('waiting'); setPrioFilter(prioFilter === 'urgent' ? 'all' : 'urgent'); }} hint="Due tomorrow or sooner, or the module says urgent" />
-        <Tile label="Over 3 Days" n={aging.over3 || 0} Icon={Hourglass} tone="amber" on={ageFilter === 3} onClick={() => { setTab('waiting'); setAgeFilter(ageFilter === 3 ? 0 : 3); }} hint="Waiting three days or more - first come, first served" />
-        <Tile label="Decided This Week" n={history?.decidedWeek || 0} Icon={CheckCircle2} tone="green" on={tab === 'history'} onClick={() => setTab('history')} hint="What you decided here in the last 7 days" />
+        {/* null = still loading: a placeholder, never "0 Waiting On You". */}
+        <Tile label="Waiting On You" n={data ? counts.all : null} Icon={Inbox} tone="brand" on={!ageFilter && prioFilter === 'all' && tab === 'waiting'} onClick={() => { setTab('waiting'); clearFilters(); }} hint="Everything you decide" />
+        <Tile label="Urgent" n={data ? urgent : null} Icon={Flame} tone="red" on={prioFilter === 'urgent'} onClick={() => { setTab('waiting'); setPrioFilter(prioFilter === 'urgent' ? 'all' : 'urgent'); }} hint="Due tomorrow or sooner, or the module says urgent" />
+        <Tile label="Over 3 Days" n={data ? (aging.over3 || 0) : null} Icon={Hourglass} tone="amber" on={ageFilter === 3} onClick={() => { setTab('waiting'); setAgeFilter(ageFilter === 3 ? 0 : 3); }} hint="Waiting three days or more - first come, first served" />
+        <Tile label="Decided This Week" n={history ? (history.decidedWeek || 0) : null} Icon={CheckCircle2} tone="green" on={tab === 'history'} onClick={() => setTab('history')} hint="What you decided here in the last 7 days" />
       </div>
     </div>
   );

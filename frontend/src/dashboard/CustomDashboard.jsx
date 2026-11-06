@@ -1,11 +1,11 @@
 import { useState, useRef, Suspense } from 'react';
-import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
+import { SkeletonBlocks } from '../components/AsyncState';
 import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal, Check } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards, resolveCollisions } from './useDashboards';
 import WidgetBoundary from '../components/WidgetBoundary';
-import { WidgetCrashCard } from './listParts.jsx';
+import { WidgetCrashCard, WidgetSkeleton } from './listParts.jsx';
 import { WIDGETS, widgetAllowed, widgetHidden, limitsOf } from './widgets.jsx';
 import DashboardGrid from './DashboardGrid';
 import DeskHome, { DeskGreeting } from './DeskHome';
@@ -146,7 +146,7 @@ export default function CustomDashboard() {
     // boundary and turn the whole dashboard into one error card.
     return (
       <WidgetBoundary name={`dashboard:${it.type}`} resetKey={`${it.i}:${it.type}`} fallback={<WidgetCrashCard title={def.title} />}>
-        <Suspense fallback={<div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState compact /></div>}>
+        <Suspense fallback={<div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', overflow: 'hidden' }}><WidgetSkeleton rows={2} /></div>}>
           <Comp
             config={it.config || {}} size={{ w: it.w, h: it.h }} phone={phone} kpis={d.kpis} notifications={notifications}
             markRead={markRead} markAllRead={markAllRead} dismiss={dismiss} clearAll={clearAllNotifs}
@@ -368,6 +368,7 @@ export default function CustomDashboard() {
               limitsFor={(it) => limitsOf(it.type, it.config)}
               compactFor={(it) => !!WIDGETS[it.type]?.compact}
               rowsFor={(it) => WIDGETS[it.type]?.phoneRowsWhen?.(it.config)}
+              fitFor={(it) => !!WIDGETS[it.type]?.fit}
               stacked={isPhone}
               onMove={(i, dir) => d.moveWidget(i, dir, hiddenItems)}
               emptyState={(

@@ -96,7 +96,7 @@ describe('Documents tour steps', () => {
 
   it('every spotlight target exists in the code it points at', () => {
     const src = (f) => fs.readFileSync(path.resolve(__dirname, f), 'utf8');
-    const code = ['../components/TopHeader.jsx', '../components/DocumentsBrowser.jsx', '../components/DocumentTemplates.jsx',
+    const code = ['../components/ModuleTabs.jsx', '../components/DocumentsBrowser.jsx', '../components/DocumentTemplates.jsx',
       '../components/ESign.jsx', './Documents.jsx'].map(src).join('\n');
     const targets = buildDocumentsTourSteps({ go: () => {}, isMobile: false }).map((s) => s.target).filter(Boolean);
     for (const t of targets) {

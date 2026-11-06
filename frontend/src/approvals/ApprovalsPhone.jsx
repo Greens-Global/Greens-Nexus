@@ -135,7 +135,8 @@ export default function ApprovalsPhone({
     <div className="apv-ph-head">
       <div className="apv-ph-title">
         <h2>Approvals</h2>
-        {counts && <b key={bump} className={`apv-ph-pill${bump ? ' is-bump' : ''}`} aria-live="polite">{waiting} Waiting</b>}
+        {/* Not while the list loads - never "0 Waiting" before it is known. */}
+        {counts && !loading && <b key={bump} className={`apv-ph-pill${bump ? ' is-bump' : ''}`} aria-live="polite">{waiting} Waiting</b>}
       </div>
       <div className="apv-tabs" role="tablist" aria-label="Approvals views">
         <button type="button" role="tab" aria-selected={tab === 'waiting'} className={tab === 'waiting' ? 'is-on' : ''} onClick={() => setTab('waiting')}><Inbox size={15} /> Waiting</button>

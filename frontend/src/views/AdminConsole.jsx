@@ -2003,8 +2003,11 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
       case 'company-list':
         return (
           <Group key={key} {...g} {...chrome}>
-            <CompanyPage entities={entities} refreshEntities={refreshEntities} onOpen={cid => nav({ subject: 'companies', group: '', company: cid })}
-              onDirtyChange={reporterFor(id)} toastOk={toastOk} toastErr={toastErr} />
+            {/* Not before the companies are in: an empty list there reads "No companies yet". */}
+            {entitiesState === 'loading' ? <SkeletonBlocks count={4} height={56} borderRadius={10} /> : (
+              <CompanyPage entities={entities} refreshEntities={refreshEntities} onOpen={cid => nav({ subject: 'companies', group: '', company: cid })}
+                onDirtyChange={reporterFor(id)} toastOk={toastOk} toastErr={toastErr} />
+            )}
           </Group>
         );
       case 'email-signature':      return <EmailSignatureSection key={key} chrome={chrome} company={company} toastOk={toastOk} toastErr={toastErr} />;
