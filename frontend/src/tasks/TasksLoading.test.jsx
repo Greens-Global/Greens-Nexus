@@ -16,6 +16,19 @@ describe('TasksLoading', () => {
     expect(screen.queryByText(/No Tasks/)).toBeNull();
   });
 
+  it('is shaped like the page it turns into, full width, with no spinner (11/05/2026)', () => {
+    const { container, unmount } = render(<TasksLoading />);
+    const status = screen.getByRole('status');
+    expect(status.dataset.tasksLoading).toBe('home');           // Home: tiles and two columns
+    expect(status.style.maxWidth).toBe('');
+    expect(status.style.width).toBe('100%');
+    expect(container.querySelector('svg')).toBeNull();          // no ring
+    expect(container.querySelectorAll('.skel').length).toBeGreaterThan(10);
+    unmount();
+    render(<TasksLoading sub="mine" />);
+    expect(screen.getByRole('status').dataset.tasksLoading).toBe('list');
+  });
+
   it('says it is opening the task when one was linked', () => {
     render(<TasksLoading opening />);
     expect(screen.getByText('Opening your task…')).toBeTruthy();

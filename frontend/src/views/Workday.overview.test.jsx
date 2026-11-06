@@ -56,7 +56,9 @@ describe('Workday Overview with the Time Clock', () => {
     expect(await screen.findByRole('region', { name: 'Time Clock' })).toBeTruthy();
     expect(await screen.findByRole('button', { name: /Punch In/ })).toBeTruthy();
     expect(screen.getByText('Clocked Out')).toBeTruthy();
-    expect(screen.getByText('Not Clocked In')).toBeTruthy();
+    // One state word (11/05/2026): the idle dial captions the time, it does not say a second state.
+    expect(screen.getByText('Time Now')).toBeTruthy();
+    expect(screen.queryByText('Not Clocked In')).toBeNull();
     // Phone layout hooks (Oct 13): the punch row is its own cell of the clock
     // card and the card is wrapped so the phone stylesheet can lead with it.
     expect(screen.getByRole('button', { name: /Punch In/ }).closest('.wd-punch-row')).toBeTruthy();
@@ -291,6 +293,24 @@ describe('Workday Overview with the Time Clock', () => {
     // mock has no email, so the key is the bare prefix).
     // Written by an effect after the status lands - wait for it (CI once read it before the write).
     await waitFor(() => expect(localStorage.getItem('nexus.timeExempt.')).toBe('1'));
+  }, SLOW);
+
+  it('reads the Hours tile from the week the clock card shows, and hides Time With Us with no start date', async () => {
+    // 11/05/2026: the tile waited on /time/me (a placeholder) while the card
+    // under it already said 1h 40m; a missing start date showed a bare dash.
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    globalThis.__answers.timeStatus = { allowed: ['in'], days: { [today]: { workedMin: 100, punches: [] } }, lastPunch: null };
+    globalThis.__answers.timeMy = new Promise(() => {});
+    globalThis.__answers.myHrProfile = { ...PROFILE, startDate: '' };
+    await renderWorkday('overview');
+    await screen.findByText('Amy Test');
+    await waitFor(() => expect(document.querySelector('.wd-hero .dk-stat-num').textContent).toBe('1h 40m'));
+    const clock = screen.getByRole('region', { name: 'Time Clock' });
+    fireEvent.click(within(clock).getByRole('tab', { name: 'This Week' }));
+    expect(clock.querySelector('.wd-hp-total').textContent).toBe('1h 40m');
+    expect(screen.queryByText('Time With Us')).toBeNull();
+    expect(document.querySelector('.wd-statgrid').style.getPropertyValue('--wd-n')).toBe('2');
   }, SLOW);
 
   it('shows a remembered-exempt person no clock skeleton or Hours tile while the status is still loading', async () => {

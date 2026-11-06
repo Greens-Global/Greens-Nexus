@@ -194,11 +194,11 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     [data-theme="dark"] .wd-clock-side { background: rgba(255,255,255,.02); }
     /* Overview tiles (dk-stat look, hero gradient included) in one compact
        row: chip, then number / label / hint, then the arrow. */
-    .wd-statgrid { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-    .wd-statgrid--nohours { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    /* My Tickets (Neil, 11/04/2026): one more full tile when there is work. */
-    .wd-statgrid--tickets { grid-template-columns: minmax(0, 1.3fr) repeat(4, minmax(0, 1fr)); }
-    .wd-statgrid--nohours.wd-statgrid--tickets { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    /* --wd-n: the tiles after Hours, counted by MyHR (Time Off, Time With Us
+       when there is a start date, My Tickets when there is work - Neil,
+       11/04/2026 - and the actions cell). */
+    .wd-statgrid { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(var(--wd-n, 3), minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .wd-statgrid--nohours { grid-template-columns: repeat(var(--wd-n, 3), minmax(0, 1fr)); }
     /* Ask HR + Reimbursements (Oct 18 2026) + Purchase Request (Oct 22 2026):
        compact rows sharing the last cell, so none squeezes the row to
        "Document..." - the same tile look, a smaller badge, no pill. Three
@@ -359,7 +359,8 @@ function IdleDial({ now, size = 128 }) {
           <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)' }}>{hm}</span>
           <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{ap}</span>
         </span>
-        <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>Not Clocked In</span>
+        {/* The number's caption, not a second state word: the state chip beside it says Clocked Out. */}
+        <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>Time Now</span>
       </div>
     </div>
   );
@@ -503,7 +504,7 @@ function GeoChip({ p }) {
   if (p.geoStatus === 'out_of_fence') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#b45309' }}
       title={`Not inside any of your company's locations${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${formatDistance(p.distanceM)} away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
-      <AlertTriangle size={12} /> Out of Location - flagged
+      <AlertTriangle size={12} /> Out of Location · Flagged for Review
     </span>);
   // Tagged remote by HR: any location is accepted and nothing is flagged.
   if (p.geoStatus === 'remote') return (
@@ -1167,6 +1168,21 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const dayOf = (k) => new Date(k + 'T12:00:00');
   const withLive = (k, min) => (min || 0) + (k === liveDay ? liveMin : 0);
   const avgOf = (total, n) => (n ? fmtMin(Math.round(total / n)) : '-');
+  // This week, Monday to Sunday, the running shift included - the This Week
+  // view below AND Overview's Hours tile (clockWidget), so the two never
+  // disagree (11/05/2026: the tile read its own /time/me and sat on a
+  // placeholder while the card already said 1h 40m).
+  const weekSeries = (() => {
+    const base = dayOf(todayKey);
+    const monday = new Date(base); monday.setDate(base.getDate() - ((base.getDay() + 6) % 7));
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday); d.setDate(monday.getDate() + i);
+      const k = keyOf(d);
+      return { key: k, label: formatWeekday(d, 'short'), sub: String(d.getDate()), min: withLive(k, days[k]?.workedMin), today: k === todayKey, future: k > todayKey };
+    });
+  })();
+  const weekMin = weekSeries.reduce((a, x) => a + x.min, 0);
+  const weekDaysWorked = weekSeries.filter(x => x.min > 0).length;
   const hp = (() => {
     if (hoursView === 'today') {
       const firstIn = (todayData?.punches || []).find(p => p.kind === 'in' && !p.voided);
@@ -1199,15 +1215,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         series,
       };
     }
-    const base = dayOf(todayKey);
-    const monday = new Date(base); monday.setDate(base.getDate() - ((base.getDay() + 6) % 7));
-    const series = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(monday); d.setDate(monday.getDate() + i);
-      const k = keyOf(d);
-      return { key: k, label: formatWeekday(d, 'short'), sub: String(d.getDate()), min: withLive(k, days[k]?.workedMin), today: k === todayKey, future: k > todayKey };
-    });
-    const total = series.reduce((a, x) => a + x.min, 0);
-    const worked = series.filter(x => x.min > 0).length;
+    const series = weekSeries;
+    const total = weekMin;
+    const worked = weekDaysWorked;
     const breaks = series.reduce((a, x) => a + (days[x.key]?.breakMin || 0), 0);
     return {
       total, caption: `Worked this week · ${formatMonthDay(dayOf(series[0].key))} - ${formatMonthDay(dayOf(series[6].key))}`,
@@ -1234,7 +1244,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // on the remembered answer too, instead of waiting on /time/me.
   // No greeting line (Neil, Oct 14 2026: the Dashboard already greets; here
   // it only pushed the clock down).
-  const clockWidget = () => ({ card: clockCard(), shift: todayShift, exempt: exemptKnown });
+  // `week`: this week's minutes and days worked, null until /time/status answers.
+  const clockWidget = () => ({ card: clockCard(), shift: todayShift, exempt: exemptKnown,
+    week: status ? { min: weekMin, days: weekDaysWorked } : null });
   // Salaried/exempt people get no clock card at all (Neil, 10/06: "if it's
   // off, please take it off so the data that's coming in is relevant") - the
   // old "Time Tracking Is Off for You" note was a card about nothing. Not

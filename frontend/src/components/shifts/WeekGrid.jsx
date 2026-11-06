@@ -147,7 +147,7 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
 }
 
 // A day header: "Mon 28" bold (the month said once, where the view enters
-// it), "8 · 65 Hrs" muted under it, a note icon whose text is the hover.
+// it), "8 Shifts · 65 Hrs" muted under it, a note icon whose text is the hover.
 export function DayHeader({ d, stats, isToday, isHol, note, weather = null, onWeather = null, canManage, compact, coarse, onOpen, onNote, coverage = null, style, ...rest }) {
   const ds = isoDate(d);
   const month = (d.getDate() === 1 || stats?.first) ? formatMonthDay(d).replace(/ \d+$/, '') : '';
@@ -184,7 +184,10 @@ export function DayHeader({ d, stats, isToday, isHol, note, weather = null, onWe
       {stats && (
         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, ...ELLIPSIS }}
           title={`${stats.shifts} shift${stats.shifts === 1 ? '' : 's'} · ${stats.people} ${stats.people === 1 ? 'person' : 'people'}${stats.min === undefined ? '' : ` · ${fmtHrs(stats.min)}`}`}>
-          {compact ? (stats.shifts || '') : stats.min === undefined ? `${stats.shifts}` : `${stats.shifts} · ${fmtHrs(stats.min)}`}
+          {/* Labeled (11/05/2026: a bare "0" sat under every day); a day with no
+              shifts says nothing, the space kept so the headers line up. */}
+          {compact ? (stats.shifts || '') : !stats.shifts ? ' '
+            : `${stats.shifts} ${stats.shifts === 1 ? 'Shift' : 'Shifts'}${stats.min === undefined ? '' : ` · ${fmtHrs(stats.min)}`}`}
         </div>
       )}
       {coverage && <div style={{ marginTop: 6 }}>{coverage}</div>}
