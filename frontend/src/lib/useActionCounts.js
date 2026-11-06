@@ -21,27 +21,29 @@ let stop = null;
 let timer = null;
 let inflight = false;
 let again = false;
+let againFresh = false;
 
-function load() {
-  if (inflight) { again = true; return; }
+// fresh: after the app's own write - the server otherwise answers from a 30 s cache.
+function load(fresh = false) {
+  if (inflight) { again = true; againFresh = againFresh || fresh; return; }
   inflight = true;
-  Promise.resolve().then(() => api.actionCounts())   // a throw, too, lands in catch
+  Promise.resolve().then(() => api.actionCounts(fresh))   // a throw, too, lands in catch
     .then((r) => { counts = r?.counts || {}; subs.forEach((f) => f()); })
     .catch(() => { /* a badge is never worth an error - keep the last counts */ })
-    .finally(() => { inflight = false; if (again) { again = false; load(); } });
+    .finally(() => { inflight = false; if (again) { const f = againFresh; again = false; againFresh = false; load(f); } });
 }
 
 // Writes come in bursts (save, then a reload of the list) - wait for the dust.
 function soon() {
   clearTimeout(timer);
-  timer = setTimeout(load, 800);
+  timer = setTimeout(() => load(true), 800);
 }
 
 function subscribe(fn) {
   subs.add(fn);
   if (subs.size === 1) {
     load();
-    const unpoll = pollWhileVisible(load, EVERY);
+    const unpoll = pollWhileVisible(() => load(), EVERY);
     window.addEventListener(DATA_WRITTEN, soon);
     stop = () => { unpoll(); window.removeEventListener(DATA_WRITTEN, soon); clearTimeout(timer); };
   }

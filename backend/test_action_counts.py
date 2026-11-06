@@ -66,10 +66,10 @@ class ActionCountsCase(unittest.TestCase):
         auth.SKIP_AUTH = self._skip
         self.db.close()
 
-    def _counts(self, who):
+    def _counts(self, who, fresh=True):
         os.environ["NEXUS_DEV_EMAIL"] = who
         auth._role_cache.clear()
-        res = self.client.get("/me/action-counts")
+        res = self.client.get("/me/action-counts" + ("?fresh=1" if fresh else ""))
         self.assertEqual(res.status_code, 200, res.text)
         return res.json()["counts"]
 
@@ -102,6 +102,22 @@ class ActionCountsCase(unittest.TestCase):
         self.assertEqual(mgr.get("myhr", {}).get("timesheet", 0), 0)
         self.db.query(models.TimesheetReview).delete()
         self.db.commit()
+
+    def test_counts_are_cached_until_asked_fresh(self):
+        """30 s per caller (11/05/2026); fresh=1 - what the app sends after its
+        own writes - recounts at once."""
+        from routers import action_counts as ac
+        calls = []
+        real = ac._action_counts
+        ac._action_counts = lambda db, user: calls.append(1) or real(db, user)
+        try:
+            self._counts(EMP)
+            self._counts(EMP, fresh=False)
+            self.assertEqual(len(calls), 1)
+            self._counts(EMP)
+            self.assertEqual(len(calls), 2)
+        finally:
+            ac._action_counts = real
 
     def test_nothing_waiting_is_an_empty_map(self):
         self.assertEqual(self._counts(EMP), {})

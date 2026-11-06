@@ -31,6 +31,9 @@ vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => (e) => e }));
 // The first load hands the provider one ticket; the refresh is what is tested.
 vi.mock('./taskStore', () => ({
   FIRST_PAINT: [],
+  loadOlderTasks: async () => [],
+  withRecent: (prev, recent) => recent,
+  withOlder: (prev) => prev,
   taskSnapshot: () => null,
   rememberTaskData: () => {},
   loadTaskData: async (apply) => { apply('tickets', [{ id: 'a', subject: 'First' }]); },

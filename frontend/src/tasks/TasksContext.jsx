@@ -11,7 +11,8 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { STATUS_META, STATUS_ORDER, NX } from './theme';
 import { celebrateCompletion } from './celebrate';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
-import { loadTaskData, taskSnapshot, rememberTaskData, FIRST_PAINT } from './taskStore';
+import { loadTaskData, loadOlderTasks, withRecent, withOlder, taskSnapshot, rememberTaskData, FIRST_PAINT } from './taskStore';
+
 import { noteStatusChanges } from './recentChanges';
 import { applyFieldUpdate } from './formula';
 import { moveUndoBody } from './lib';
@@ -176,7 +177,7 @@ export function TasksProvider({ children }) {
   const applyRef = useRef(null);
   if (!applyRef.current) {
     applyRef.current = {
-      tasks: (v) => { setTasks(v?.tasks || []); sinceRef.current = v?.serverTime || ''; },
+      tasks: (v) => { setTasks((prev) => withRecent(prev, v?.tasks || [])); sinceRef.current = v?.serverTime || ''; },
       projects: setProjects, portfolios: setPortfolios, teams: setTeams,
       tickets: (v) => { setTickets(v); setTicketsLoaded(true); }, ticketComponents: setTicketComponents,
       savedViews: setSavedViews, ticketViews: setTicketViews, rules: setRules,
@@ -203,6 +204,8 @@ export function TasksProvider({ children }) {
       if (FIRST_PAINT.includes(key) && --firstPaintLeft === 0) setLoading(false);
     });
     setLoading(false);
+    const older = await loadOlderTasks();
+    if (older.length) setTasks((prev) => withOlder(prev, older));
   }, []);
 
   const loadNotifications = useCallback(async () => {
