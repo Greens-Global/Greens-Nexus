@@ -61,7 +61,8 @@ export default function Dashboard({ activeSub, onSubChange }) {
   );
 
   const tabs = [
-    { key: 'dashboard', label: 'Dashboard' },
+    // "Home", not "Dashboard": the bar already names the module (Neil, 11/06/2026).
+    { key: 'dashboard', label: 'Home' },
     ...(showApprovals ? [{ key: 'approvals', label: 'Approvals', badge: approvalsWaiting }] : []),
     { key: 'notes', label: 'Notes' },
     { key: 'links', label: 'Links' },

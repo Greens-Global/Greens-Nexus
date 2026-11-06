@@ -174,9 +174,9 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
         {/* Scan a tag: always on a phone, on a computer only with a camera. */}
         <ItemScanButton />
       </header>
-      {/* The tabs live in the page (never behind the header search at any
-          width); phones use the bottom bar instead (style.css hides these). */}
-      <div className="it-tabs"><ModuleTabs tabs={tabs} active={tab} onChange={k => go({ tab: k })} inline /></div>
+      {/* The tabs ride the top header on a computer (Neil, 11/06/2026); a
+          phone uses the bottom bar instead, so no in-page strip at any width. */}
+      <ModuleTabs tabs={tabs} active={tab} onChange={k => go({ tab: k })} mobileInline={false} />
 
       {tab === 'mystuff' && (
         <MyStuffTab items={items} checkouts={checkouts} me={myEmail} isManager={isManager}

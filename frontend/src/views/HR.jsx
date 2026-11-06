@@ -77,7 +77,6 @@ import PayTab from '../people/PayTab';
 import ComplianceTab from '../people/ComplianceTab';
 import { guardRecordLeave } from '../people/useTabDraft';
 import { daysUntil, INACTIVE_STATUSES, peopleTallies } from '../people/lib';
-import PageTrail from '../components/PageTrail';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -3983,39 +3982,11 @@ export default function HR({ activeSub, onSubChange }) {
     ? [{ key: 'hr-people-menu', label: 'People', Icon: Users, landing: 'hr-people', items: PEOPLE_ITEMS },
       ...FLAT_TABS.filter(t => !IN_PEOPLE.has(t.key))]
     : FLAT_TABS;
-  // The heading names the open tab (Neil, Oct 29 2026: "when we click on
-  // Hiring it doesn't change the heading at the top to Hiring, it still says
-  // People") - the page title, its icon and line, and the header breadcrumb.
-  const TAB_LINES = {
-    'hr-people': 'Every person\'s profile, role and status',
-    'hr-hiring': 'Openings, candidates, offers and onboarding',
-    'hr-org': 'Who reports to whom, across every company',
-    'hr-time': 'Time sheets, time off and punch fixes to review',
-    'hr-checklists': 'Onboarding and offboarding steps for each person',
-    'hr-analytics': 'Headcount, attrition, tenure, absence and leave',
-    'hr-reports': 'Filterable people lists - directory, employees, contractors',
-    'hr-exits': 'People leaving and their final settlement',
-    'hr-performance': 'Review cycles and goals',
-  };
-  const headTab = FLAT_TABS.find(t => t.key === sub) || FLAT_TABS[0] || { label: 'People', Icon: Users };
-  const HeadIcon = headTab.Icon || Users;
-
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* Full-bleed (owner call, Jul 28): use the whole viewport width - the
-          .viewport padding provides the slight edge margin */}
-      <div className="view-header" style={{ marginBottom: 18 }}>
-        {/* Icon-chip page title (Work OS grammar - the module's meaning color) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <HeadIcon size={19} />
-          </span>
-          <div className="view-title-group">
-            <PageTrail title={headTab.label} />
-            <h2 style={{ fontFamily: 'var(--wk-font)' }}>{headTab.label}</h2>
-            <p>{TAB_LINES[headTab.key] || 'People, hiring, org structure and leave - one source of truth'}</p>
-          </div>
-        </div>
+          .viewport padding provides the slight edge margin. No page title: the
+          module bar names the module and the lit tab (Neil, 11/06/2026). */}
         {/* The page's actions ride the module bar's right end (one page header, 11/05/2026). */}
         {sub === 'hr-people' && (
           <ModuleActions>
@@ -4052,7 +4023,6 @@ export default function HR({ activeSub, onSubChange }) {
           </div>
           </ModuleActions>
         )}
-      </div>
 
       {/* Tabs - desktop renders them in the module bar; phones keep the
           in-page strip (ModuleTabs handles both) */}

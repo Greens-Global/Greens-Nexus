@@ -86,8 +86,8 @@ const renderAt = (sub, onSubChange = vi.fn()) => {
   render(<HeaderTabsProvider><HeaderTabs /><InventoryManagement activeSub={sub} onSubChange={onSubChange} /></HeaderTabsProvider>);
   return onSubChange;
 };
-// The tabs live in the page (never behind the header search) - read them there.
-const tabs = () => [...document.querySelectorAll('.it-tabs .module-tab-inline-btn')].map(b => b.childNodes[1]?.textContent?.trim() || b.textContent.trim()).join('|');
+// The tabs ride the top header (Neil, 11/06/2026) - read what was published.
+const tabs = () => document.querySelector('[data-testid="header-tabs"]')?.textContent || '';
 const body = () => (document.body.textContent || '').replace(/\s+/g, ' ');
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW); });

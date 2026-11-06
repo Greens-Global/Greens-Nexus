@@ -44,8 +44,8 @@ describe('Team module', () => {
     role.level = 1;
     const onSubChange = vi.fn();
     const { rerender } = render(<Shifts activeSub={null} onSubChange={onSubChange} />);
-    // The title is the tab you are on; TEAM is the page trail above it (11/04/2026).
-    expect(screen.getByRole('heading', { name: 'Shifts' })).toBeTruthy();
+    // No page title (Neil, 11/06/2026): the module bar names the module and lights the tab.
+    expect(screen.queryByRole('heading', { name: 'Shifts' })).toBeNull();
     expect(screen.getByText('Group week')).toBeTruthy();
     expect(tabNames()).toEqual(['Shifts', 'Directory']);
     rerender(<Shifts activeSub="contact" onSubChange={onSubChange} />);
@@ -123,7 +123,7 @@ describe('Team module', () => {
   it('gives an external guest with the grant that one tab, and nothing of Team else', async () => {
     role.level = 1; role.external = true; role.grants = new Set(['employee-tracking']);
     const { unmount } = render(<Shifts activeSub="contact" onSubChange={vi.fn()} />);
-    expect(tabNames()).toEqual(['Workforce Analytics']);
+    expect(tabNames()).toEqual([]);   // one tab draws no strip (Neil, 11/06/2026)
     expect(await screen.findByText('Workforce Analytics on its first tab (embedded)')).toBeTruthy();
     expect(screen.queryByText(/Directory/)).toBeNull();
     expect(screen.queryByText('Group week')).toBeNull();

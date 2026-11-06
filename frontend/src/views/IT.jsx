@@ -4,6 +4,7 @@ import { RefreshCw, Download, AlertTriangle, ChevronDown, ChevronUp, ExternalLin
 import { api } from "../api";
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import PageTrail, { useTrailCrumbs } from "../components/PageTrail";
+import ModuleTabs from "../components/ModuleTabs";
 
 // Asset Management tab removed Jun 12 (Visesh) - the legacy hardware_assets
 // flow is superseded by the Items module; equipment lives on the items table.
@@ -125,25 +126,25 @@ function NetworkDashboard() {
   // A site sits under the Network Dashboard: IT / NETWORK DASHBOARD over its name.
   useTrailCrumbs(view === "detail" ? [{ label: "Network Dashboard", onClick: backToOverview }] : null, backToOverview);
 
+  // IT has one page: it publishes no tabs, only its name to the top header
+  // (Neil, 11/06/2026), so the overview needs no title of its own; a site
+  // keeps its name as the record's title. The buttons stay in the page.
   return (
     <div>
-      <div className="view-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <ModuleTabs tabs={[]} active="" onChange={() => {}} />
+      <div className="view-header" style={view === "overview" ? { justifyContent: "flex-end" } : undefined}>
+        {view === "detail" && <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div className="view-title-group">
-            <PageTrail title={view === "detail" ? currentSite?.name : "Network Dashboard"} />
+            <PageTrail title={currentSite?.name} />
             <h2>
-              {view === "detail" ? currentSite?.name : "Network Dashboard"}
+              {currentSite?.name}
               {view === "detail" && detail?.firmware_version && (
                 <span style={{ fontSize: "0.75rem", fontWeight: 400, color: "var(--text-muted)", marginLeft: 10 }}>OS {detail.firmware_version}</span>
               )}
             </h2>
-            <p>
-              {view === "overview"
-                ? "UniFi site overview - devices, clients, and alerts"
-                : `${detail?.isp_name || ""}${detail?.location?.text ? ` · ${detail.location.text}` : ""}`}
-            </p>
+            <p>{`${detail?.isp_name || ""}${detail?.location?.text ? ` · ${detail.location.text}` : ""}`}</p>
           </div>
-        </div>
+        </div>}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {lastUpdated && <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Updated {lastUpdated}</span>}
           {view === "detail" && detail?.hostId && (
