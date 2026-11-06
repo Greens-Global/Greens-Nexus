@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } fr
 import { useEditor, EditorContent } from '@tiptap/react';
 import { generateJSON, generateHTML } from '@tiptap/core';
 import Placeholder from '@tiptap/extension-placeholder';
+import Collaboration from '@tiptap/extension-collaboration';
+import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import {
   X, Eye, EyeOff, Bold, Italic, Underline, List, ListOrdered,
   Table as TableIcon, ImagePlus, SeparatorHorizontal, Undo, Redo, Check, AlertCircle, Award,
@@ -38,7 +40,11 @@ import FullScreenButton, { useFullScreen } from './FullScreenButton';
 import { api, API_BASE } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
 import { FILLED_WHEN } from '../lib/mergeFieldTypes';
-import { BODY_EXTENSIONS, repairDocJson } from '../lib/docBuilderSchema';
+import { BODY_EXTENSIONS, LIVE_BODY_EXTENSIONS, repairDocJson } from '../lib/docBuilderSchema';
+import { seedLiveDoc, validateLiveDoc, pageField, syncPageIds, isRemoteTr, LOCAL } from '../docLive/docModel';
+import { useLiveSession } from '../docLive/useLiveSession';
+import ShareDocumentDialog, { LivePeople } from '../docLive/ShareDocumentDialog';
+import { caretColor } from '../notes/useNoteCollab';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import { slugifyToken, variableFromDrop, VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
@@ -52,7 +58,7 @@ import TemplateFieldsPanel from './TemplateFieldsPanel';
 import VariableLibrary from './VariableLibrary';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
-import { PersonSelect } from '../tasks/components';
+import { PersonSelect, usePeople } from '../tasks/components';
 import { formatPacificDateTime } from '../lib/datetime';
 
 const FONT_GROUPS = {
@@ -194,13 +200,19 @@ function stripToFormat(nodes) {
 // inside the parent's render, so each page is its own component instance -
 // that's the actual reason this is split out, not just organization.
 function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, compact, zoom, firstSheetPx, showMarks,
-  bandInfo, sheetBase = 0, onSheets, topSlot, headerSlot, footerSlot, paginate = true,
+  bandInfo, sheetBase = 0, onSheets, topSlot, headerSlot, footerSlot, paginate = true, live = null,
   onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
+  // Live (docLive/docModel.js): the page's words are its fragment of the
+  // shared document, with everyone's named carets; otherwise its own JSON.
   const editor = useEditor({
-    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination],
-    content: initialJson || null,
+    extensions: live
+      ? [...LIVE_BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination,
+          Collaboration.configure({ document: live.doc, field: pageField(pageId) }),
+          CollaborationCaret.configure({ provider: { awareness: live.awareness }, user: live.user })]
+      : [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination],
+    content: live ? undefined : (initialJson || null),
     editable,
-    onUpdate: () => onUpdate(pageId),
+    onUpdate: ({ transaction }) => onUpdate(pageId, transaction),
     onSelectionUpdate: () => onActivity(pageId),
     editorProps: {
       // A variable dragged in (from the library or the Variables Used rail)
@@ -224,6 +236,9 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   });
   useEffect(() => {
     if (!editor) return;
+    // A page this person just added with words in it (Duplicate, an import):
+    // live, its fragment starts empty - the words go in once, from here.
+    if (live && initialJson && !live.doc.getXmlFragment(pageField(pageId)).length) editor.commands.setContent(initialJson);
     onReady(pageId, editor);
     return () => onReady(pageId, null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -451,7 +466,7 @@ function ToolbarBtn({ onClick, active, disabled, title, children }) {
   );
 }
 
-export default function DocumentBuilder({ docId, kind = 'document', employees = [], entities = [], onClose, toastOk, toastErr, quickSections = [], onContentSaved }) {
+function DocumentBuilderInner({ docId, kind = 'document', employees = [], entities = [], onClose, toastOk, toastErr, quickSections = [], onContentSaved, live = null, readOnly = false }) {
   const { get: apiGet, update: apiUpdate, nameKey, getVersions, getVersion } = KIND_API[kind];
   // Phone layout. The editor is a Word-shaped surface - a fixed-width page, a
   // 36-button ribbon and a thumbnail rail - none of which fit a 375px screen
@@ -498,6 +513,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [cropping, setCropping] = useState(false);        // Picture > Crop: the edge handles are out
   const changePictureRef = useRef(false);                 // the next picked file replaces the selected picture
   const [saveStatus, setSaveStatus] = useState('idle');
+  const [shareOpen, setShareOpen] = useState(false);
   // Whether this document has ever held real content in this session - the
   // empty-save guard only bites once we know there is something to lose.
   const lastGoodRef = useRef(false);
@@ -855,7 +871,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [bandHtml, setBandHtml] = useState({ headerHtml: '', footerHtml: '' });
 
 
-  const onPageUpdate = useCallback((pageId) => {
+  const onPageUpdate = useCallback((pageId, tr) => {
+    // Someone else's typing arrived: they save it, and their own {{token}} scan runs on their side.
+    if (isRemoteTr(tr)) { setSelectionTick((t) => t + 1); scheduleUsedScan(); return; }
     scheduleSaveRef.current?.();
     setSelectionTick((t) => t + 1);
     scheduleUsedScan();
@@ -921,16 +939,21 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   // The same schema as the pages, so a header imported from Word keeps its
   // font, size, alignment and table - a plain StarterKit threw them away.
+  const bandExtensions = (field, placeholder) => (live
+    ? [...LIVE_BODY_EXTENSIONS, Placeholder.configure({ placeholder }),
+        Collaboration.configure({ document: live.doc, field }),
+        CollaborationCaret.configure({ provider: { awareness: live.awareness }, user: live.user })]
+    : [...BODY_EXTENSIONS, Placeholder.configure({ placeholder })]);
   const headerEditor = useEditor({
-    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Header text…' })],
-    content: null,
-    onUpdate: () => { if (hydratedRef.current) scheduleSave(); scheduleUsedScan(); },
+    extensions: bandExtensions('header', 'Header text…'),
+    content: live ? undefined : null,
+    onUpdate: ({ transaction }) => { if (hydratedRef.current && !isRemoteTr(transaction)) scheduleSave(); scheduleUsedScan(); },
   });
 
   const footerEditor = useEditor({
-    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Footer text…' })],
-    content: null,
-    onUpdate: () => { if (hydratedRef.current) scheduleSave(); scheduleUsedScan(); },
+    extensions: bandExtensions('footer', 'Footer text…'),
+    content: live ? undefined : null,
+    onUpdate: ({ transaction }) => { if (hydratedRef.current && !isRemoteTr(transaction)) scheduleSave(); scheduleUsedScan(); },
   });
 
   // The static copies every sheet band shows. `pages` is a dependency on
@@ -976,6 +999,19 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // stale per-page editor state can bleed through.
   const applyContent = useCallback((content) => {
     const c = content && typeof content === 'object' ? content : {};
+    if (live) {
+      // Live: the words are in the shared document already - only the page
+      // list and which bands show are read from it; nothing is pushed in.
+      const meta = live.doc.getMap('meta');
+      const ids = live.doc.getArray('pages').toArray();
+      editorsRef.current = new Map();
+      if (!isEmptyContent({ pages: c.pages || [], header: c.header, footer: c.footer })) lastGoodRef.current = true;
+      setPages(ids.map((id) => ({ id, json: null })));
+      setActivePageId(ids[0] || '');
+      setHeaderVisible(!!meta.get('header'));
+      setFooterVisible(!!meta.get('footer'));
+      return;
+    }
     const pageList = Array.isArray(c.pages) && c.pages.length
       // repairDocJson: a document saved by the old .docx importer holds block
       // images inside paragraphs, which ProseMirror loads and then throws on as
@@ -996,7 +1032,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     else { setHeaderVisible(false); headerEditor?.commands.clearContent(); }
     if (c.footer) { setFooterVisible(true); footerEditor?.commands.setContent(c.footer, { emitUpdate: false }); }
     else { setFooterVisible(false); footerEditor?.commands.clearContent(); }
-  }, [headerEditor, footerEditor]);
+  }, [headerEditor, footerEditor, live]);
 
   // Load the document once. Pages mount themselves with their real content
   // already in place (no separate hydration push needed - see DocPage).
@@ -1014,8 +1050,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       setMergeOverrides(d.mergeOverrides || {});
       setFieldDefs(d.fieldDefs || []);
       setSignerRoles(d.signerRoles || []);
-      setPageSetup({ ...DEFAULT_PAGE_SETUP, ...(d.content?.pageSetup || {}) });
-      setTracking(d.content?.trackChanges ? 'everyone' : 'off');
+      const liveMeta = live ? live.doc.getMap('meta') : null;
+      setPageSetup({ ...DEFAULT_PAGE_SETUP, ...((liveMeta ? liveMeta.get('pageSetup') : null) || d.content?.pageSetup || {}) });
+      setTracking((liveMeta ? liveMeta.get('trackChanges') : d.content?.trackChanges) ? 'everyone' : 'off');
       applyContent(d.content);
       hydratedRef.current = true;
       setLoading(false);
@@ -1024,13 +1061,53 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docId, headerEditor, footerEditor]);
 
+  // Live: a colleague's page added / removed / moved, a band shown or hidden,
+  // the page setup or Track Changes changed - all arrive through the shared
+  // document. And what this person does to them goes out the same way.
+  useEffect(() => {
+    if (!live) return undefined;
+    const arr = live.doc.getArray('pages');
+    const meta = live.doc.getMap('meta');
+    const onPages = () => {
+      const ids = arr.toArray();
+      setPages((prev) => (prev.length === ids.length && prev.every((p, i) => p.id === ids[i]))
+        ? prev : ids.map((id) => prev.find((p) => p.id === id) || { id, json: null }));
+    };
+    const onMeta = (ev) => {
+      if (ev.transaction.origin === LOCAL) return;
+      setHeaderVisible(!!meta.get('header'));
+      setFooterVisible(!!meta.get('footer'));
+      const ps = meta.get('pageSetup');
+      if (ps) setPageSetup({ ...DEFAULT_PAGE_SETUP, ...ps });
+      const on = !!meta.get('trackChanges');
+      setTracking((t) => (on ? 'everyone' : t === 'everyone' ? 'off' : t));
+    };
+    arr.observe(onPages);
+    meta.observe(onMeta);
+    return () => { arr.unobserve(onPages); meta.unobserve(onMeta); };
+  }, [live]);
+  useEffect(() => {
+    if (!live || loading || !pages.length) return;
+    syncPageIds(live.doc, pages.map((p) => p.id));
+  }, [live, loading, pages]);
+  useEffect(() => {
+    if (!live || loading || readOnly) return;
+    const meta = live.doc.getMap('meta');
+    live.doc.transact(() => {
+      if (meta.get('header') !== headerVisible) meta.set('header', headerVisible);
+      if (meta.get('footer') !== footerVisible) meta.set('footer', footerVisible);
+      if (JSON.stringify(meta.get('pageSetup') || null) !== JSON.stringify(pageSetup)) meta.set('pageSetup', pageSetup);
+      if (meta.get('trackChanges') !== (tracking === 'everyone')) meta.set('trackChanges', tracking === 'everyone');
+    }, LOCAL);
+  }, [live, loading, readOnly, headerVisible, footerVisible, pageSetup, tracking]);
+
   useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
   useEffect(() => { api.getDocVariables().then(v => setVariables(Array.isArray(v) ? v : [])).catch(() => setVariables([])); }, []);
 
   useEffect(() => {
-    headerEditor?.setEditable(!preview && !viewingOnly);
-    footerEditor?.setEditable(!preview && !viewingOnly);
-  }, [preview, viewingOnly, headerEditor, footerEditor]);
+    headerEditor?.setEditable(!preview && !viewingOnly && !readOnly);
+    footerEditor?.setEditable(!preview && !viewingOnly && !readOnly);
+  }, [preview, viewingOnly, readOnly, headerEditor, footerEditor]);
   useEffect(() => {
     [...editorsRef.current.values(), headerEditor, footerEditor].forEach(applyTracking);
   }, [applyTracking, headerEditor, footerEditor, pages]);
@@ -1063,7 +1140,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     setPageSetup(next);
     const content = { ...currentContent(), pageSetup: next };
     const payload = kind === 'document' ? { content, note: 'Page setup changed' } : { content };
-    apiUpdate(docId, payload).catch((e) => toastErr?.(e.message || 'Failed to update page setup'));
+    (live ? live.save(() => ({ ...currentContentRef.current(), pageSetup: next }), { note: payload.note }) : apiUpdate(docId, payload))
+      .catch((e) => toastErr?.(e.message || 'Failed to update page setup'));
   };
   // Track Changes For Everyone is a document setting: saved at once, like Page Setup.
   const setTrackingMode = (mode) => {
@@ -1071,7 +1149,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (isLocked) return;
     const content = { ...currentContent(), trackChanges: mode === 'everyone' };
     const payload = kind === 'document' ? { content, note: mode === 'everyone' ? 'Track Changes turned on' : 'Track Changes turned off' } : { content };
-    apiUpdate(docId, payload).catch((e) => toastErr?.(e.message || 'Failed to save Track Changes'));
+    (live ? live.save(() => ({ ...currentContentRef.current(), trackChanges: mode === 'everyone' }), { note: payload.note }) : apiUpdate(docId, payload))
+      .catch((e) => toastErr?.(e.message || 'Failed to save Track Changes'));
   };
   useEffect(() => { setTrackingModeRef.current = setTrackingMode; });
   // Accept / Reject at the cursor (or the next change when the cursor is not on one), then move on.
@@ -1104,7 +1183,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     // Defensive, belt-and-suspenders: even if something calls doSave directly
     // (Ctrl+S, the close-flush) before load finishes, never persist an
     // unhydrated editor's empty default doc over real saved content.
-    if (!hydratedRef.current) return Promise.resolve();
+    if (!hydratedRef.current || readOnly) return Promise.resolve();
     const content = currentContentRef.current();
     // A document ALWAYS has at least one page: applyContent seeds one for even
     // an empty/legacy document, and Delete Page refuses to remove the last.
@@ -1132,7 +1211,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (!isEmptyContent(content)) lastGoodRef.current = true;
     setSaveStatus('saving');
     const payload = kind === 'document' ? { content, note: 'Autosave' } : { content };
-    return apiUpdate(docId, payload)
+    // Live: the save carries the shared state and merges a colleague's newer save first.
+    return (live ? live.save(() => currentContentRef.current(), { note: 'Autosave' }) : apiUpdate(docId, payload))
       .then((res) => {
         setSaveStatus('saved'); onContentSaved?.(payload.content);
         // A template's chip (Published / Unpublished Changes) follows each save.
@@ -1143,7 +1223,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         }
       })
       .catch(() => setSaveStatus('error'));
-  }, [docId, kind, apiUpdate, onContentSaved]);
+  }, [docId, kind, apiUpdate, onContentSaved, live, readOnly]);
 
   // The server renders PDF/DOCX from the SAVED row, so anything that asks the
   // backend to render (Preview & Send, Export, Send for Signature) has to let
@@ -2041,6 +2121,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const restoreVersion = (v) => {
     setRestoringId(v.id);
     getVersion(docId, v.id).then(full => {
+      // Live: saved outside the session on purpose - the server drops the
+      // shared state, so everyone's session (this one too) rebuilds from it.
+      if (live) return apiUpdate(docId, { content: full.content, note: `Restored from v${v.versionNo}` }).then((d) => { live.restart(); return d; });
       applyContent(full.content);
       return apiUpdate(docId, { content: full.content, note: `Restored from v${v.versionNo}` });
     }).then(d => { setDoc(d); toastOk?.(`Restored version ${v.versionNo}`); setHistoryOpen(false); })
@@ -2411,6 +2494,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           {saveStatus === 'error' && <AlertCircle size={12} />}
           {SAVE_LABEL[saveStatus]}
         </span>
+        {live && <LivePeople peers={live.peers} status={live.status} />}
+        {kind === 'document' && doc?.access && (
+          <button type="button" className="secondary-btn" onClick={() => setShareOpen(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '6px 10px' }}>
+            <Users size={14} /> Share
+          </button>
+        )}
+        {shareOpen && (
+          <ShareDocumentDialog doc={doc} canManage={doc.access === 'owner'} onClose={() => setShareOpen(false)}
+            onChanged={(out) => { if (out) setDoc((d) => ({ ...d, sharedWith: out.sharedWith || [] })); toastOk?.('Sharing updated'); }} />
+        )}
         {/* One Publish (Neil, 10/31/2026): Active and Published merged - new documents and HR packets read what is published. */}
         {kind === 'template' && doc.status !== 'archived' && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
@@ -3678,7 +3772,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </div>
         ) : null;
         return (
-          <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked && !viewingOnly} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
+          <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked && !viewingOnly && !readOnly} live={live} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
             firstSheetPx={isFirst ? firstSheetPx : undefined} showMarks={showMarks}
             bandInfo={bandInfo} sheetBase={sheetStarts[i]} onSheets={onSheets} paginate={viewPrefs.paginate}
             topSlot={topSlot} headerSlot={headerSlot} footerSlot={footerSlot}
@@ -3813,4 +3907,44 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       )}
     </div>
   );
+}
+
+
+// ── Live editing (Neil, 11/05/2026, routers/documents.py "Working together") ─
+// Every draft document someone may edit opens in a live session: everyone in
+// it types together with named carets (docLive/). A viewer, a final document,
+// a template or a session that could not start opens the builder as it always
+// was. The build variable VITE_DOCS_LIVE=off turns live editing off.
+const DOCS_LIVE_OFF = import.meta.env.VITE_DOCS_LIVE === 'off';
+
+export default function DocumentBuilder(props) {
+  if ((props.kind || 'document') !== 'document' || DOCS_LIVE_OFF) return <DocumentBuilderInner {...props} />;
+  return <LiveDocumentGate {...props} />;
+}
+
+function LiveDocumentGate(props) {
+  const [row, setRow] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    api.getDocument(props.docId).then((d) => { if (alive) setRow(d || {}); })
+      .catch(() => { if (alive) setRow({}); });   // the builder's own load reports it
+    return () => { alive = false; };
+  }, [props.docId]);
+  if (!row) return <div style={{ padding: 20 }}><Spinner size={18} /></div>;
+  const eligible = (row.access === 'owner' || row.access === 'edit') && row.status === 'draft';
+  if (!eligible) return <DocumentBuilderInner {...props} readOnly={row.access === 'view'} />;
+  return <LiveDocumentSession {...props} />;
+}
+
+function LiveDocumentSession(props) {
+  const { myEmail } = useRole() || {};
+  const people = usePeople();
+  const me = (myEmail || '').toLowerCase();
+  const name = people.find((p) => p.email === me)?.name || me;
+  const live = useLiveSession({ docId: props.docId, enabled: true, me, name, seed: seedLiveDoc, validate: validateLiveDoc });
+  const user = useMemo(() => ({ name, color: caretColor(me) }), [name, me]);
+  const liveProp = useMemo(() => (live.doc ? { ...live, user } : null), [live, user]);
+  if (live.status === 'failed') return <DocumentBuilderInner {...props} />;
+  if (!liveProp) return <div style={{ padding: 20, display: 'flex', gap: 8, alignItems: 'center', color: 'var(--muted)', fontSize: 13 }}><Spinner size={16} /> Opening...</div>;
+  return <DocumentBuilderInner key={liveProp.doc.guid} {...props} live={liveProp} />;
 }

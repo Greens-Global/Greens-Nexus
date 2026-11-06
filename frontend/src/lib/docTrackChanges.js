@@ -252,7 +252,8 @@ export const TrackChanges = Extension.create({
       },
       appendTransaction(trs, oldState, newState) {
         if (!stateOf(newState).on) return null;
-        if (!trs.every((t) => t.docChanged && t.getMeta(trackKey) !== 'tracked' && !t.getMeta('history$'))) return null;
+        // A live session's remote typing, Undo / Redo and first render arrive with y-sync's meta: never tracked as mine.
+        if (!trs.every((t) => t.docChanged && t.getMeta(trackKey) !== 'tracked' && !t.getMeta('history$') && !t.getMeta('y-sync$')?.isChangeOrigin)) return null;
         return trackTransaction(trs.flatMap((t) => t.mapping.maps), oldState, newState, stateOf(newState).user || ext.options.user);
       },
       props: {

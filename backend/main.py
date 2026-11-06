@@ -1583,6 +1583,12 @@ def _run_migrations():
             "ALTER TABLE workers_comp_rates ADD COLUMN description VARCHAR DEFAULT ''",
             # Workflow texts (11/05/2026) - see the Postgres list.
             "ALTER TABLE nexus_person_prefs ADD COLUMN workflow_sms INTEGER DEFAULT 1",
+            # Sheets and live editing (11/05/2026) - see the Postgres list.
+            "ALTER TABLE documents ADD COLUMN kind VARCHAR DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN shared_with TEXT DEFAULT '[]'",
+            "ALTER TABLE documents ADD COLUMN ydoc TEXT DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN yepoch VARCHAR DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN collab_key VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3769,6 +3775,15 @@ def _run_migrations():
         # summary (11/05/2026, workflows/outbox.py) - a new table: explicit RLS.
         # models.WorkflowMessage.
         "ALTER TABLE workflow_messages ENABLE ROW LEVEL SECURITY",
+        # Sheets and live editing (Neil, 11/05/2026, routers/documents.py
+        # "Working together"): a sheet is a document of kind 'sheet'; shares
+        # and the live session's Yjs state, epoch and channel key.
+        # models.Document.
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS shared_with TEXT DEFAULT '[]'",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS ydoc TEXT DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS yepoch VARCHAR DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS collab_key VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

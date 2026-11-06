@@ -2332,6 +2332,17 @@ class Document(Base):
     # belongs to, and the candidate it is about (a hire has no employee yet).
     life_event_id    = Column(String, default="", index=True)
     candidate_id     = Column(String, default="")
+    # Sheets and live editing (Neil, 11/05/2026, routers/documents.py
+    # "Working together"): kind '' = a document, 'sheet' = a spreadsheet
+    # (content = its snapshot, type 'nexus-sheet'); shared_with = JSON list of
+    # {email, can: edit|view}; ydoc / yepoch / collab_key = the live session's
+    # Yjs state (base64), its epoch and the AES key of its encrypted channel -
+    # the same three Notes keep (models.NexusNote).
+    kind             = Column(String, default="")
+    shared_with      = Column(Text, default="[]")
+    ydoc             = Column(Text, default="")
+    yepoch           = Column(String, default="")
+    collab_key       = Column(String, default="")
 
 
 class DocumentVersion(Base):

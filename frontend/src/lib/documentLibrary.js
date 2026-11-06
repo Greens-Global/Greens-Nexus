@@ -65,6 +65,7 @@ export const VIEWS = [
   { key: 'needs', label: 'Needs Me', empty: 'Nothing is waiting on you.', match: (r) => !!r.myTurn },
   { key: 'all', label: 'All Documents', empty: 'No documents yet.', match: (r) => r.status !== 'archived' },
   { key: 'drafts', label: 'My Drafts', empty: 'No drafts. Documents you are still writing appear here.', match: (r) => r.status === 'draft' && !!r.mine },
+  { key: 'shared', label: 'Shared With Me', empty: 'Nothing has been shared with you yet.', match: (r) => r.status !== 'archived' && !!r.shareCan },
   { key: 'out', label: 'Out For Signature', empty: 'Nothing is out for signature.', match: (r) => r.status !== 'archived' && isOut(r) },
   { key: 'signed', label: 'Signed', empty: 'No signed documents yet.', match: (r) => r.status !== 'archived' && isSigned(r) },
   { key: 'hr', label: 'HR Records', hrOnly: true, empty: 'No HR packet documents yet.', match: (r) => r.kind === 'hr' },

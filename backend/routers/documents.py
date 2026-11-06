@@ -17,13 +17,47 @@ Design notes:
   authenticated Documents-module user (same org-wide visibility as e-sign
   templates); a Personal-folder document is only visible to its owner. Only the
   owner or an administrator (level >= 4) may edit/archive/delete a document.
+
+Working together (Neil, 11/05/2026):
+  Sheets      - a spreadsheet is a Document of kind 'sheet'; its content is the
+                workbook snapshot ({type: 'nexus-sheet', tabs: [...]},
+                SHEET_MAX characters) the browser's engine (frontend/src/sheets)
+                writes. Folders, tags, the library, archive, Trash and version
+                history are a document's; templates, merge fields, letterheads,
+                exports to PDF / Word and signing are not (a sheet downloads as
+                .xlsx / .csv in the browser).
+  Sharing     - the owner (or an administrator) shares with people in Nexus
+                People: Can Edit or Can View (shared_with). A share opens the
+                document wherever it sits - a Personal folder or another
+                company's - and nothing else: an editor changes the title and
+                the content, never the folder, status, tags, sharing or Trash.
+                One bell per new share.
+  Live        - editors type together live: Yjs updates over a Supabase
+                Realtime broadcast channel ENCRYPTED in the browser with the
+                document's AES-GCM key from GET /{did}/collab (never to a
+                viewer; rotated when an editor is removed or made a viewer) -
+                the same wire Notes uses (frontend/src/notes/collabTransport.js).
+                The Yjs state is kept here (ydoc) with an epoch; the first
+                editor seeds it (/collab/seed, first wins). A live save carries
+                the state, the epoch and the rev (current_version) it was read
+                with: an older rev is 409 with the stored state, which the
+                browser merges and sends again; a stale epoch is 409 and the
+                session reloads. A content save made outside the live session
+                drops the state, so the next opener rebuilds it. Live saves keep
+                a version only when the newest one is ten minutes old or by
+                someone else, so autosave does not flood the history. Viewers
+                follow along by polling GET /{did}/head.
+  Final       - a final document is never live (Unlock first, as before).
 """
 import base64
 import copy
+import hashlib
+import json
+import secrets
 import math
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
@@ -44,6 +78,10 @@ from routers.hr import require_hr_read, _hr_notify
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 _ADMIN_LEVEL = 4  # auth._LEVELS["administrator"]
+SHEET_MAX = 4_000_000                 # characters of a sheet's snapshot JSON
+YDOC_MAX = 6_000_000                  # base64; bigger and the state is rebuilt from the content instead
+SHARES_MAX = 50
+LIVE_VERSION_GAP = timedelta(minutes=10)
 
 _SYSTEM_FOLDERS = [
     ("HR", "hr"), ("Finance", "finance"), ("Legal", "legal"), ("Sales", "sales"),
@@ -137,7 +175,8 @@ def _ser_document(d: Document, sign_status: str = "") -> dict:
             "ownerEmail": d.owner_email, "tags": d.tags or [], "currentVersion": d.current_version,
             "signRequestId": d.sign_request_id, "signStatus": sign_status,
             "createdBy": d.created_by, "createdAt": d.created_at,
-            "updatedBy": d.updated_by, "updatedAt": d.updated_at, "archivedAt": d.archived_at}
+            "updatedBy": d.updated_by, "updatedAt": d.updated_at, "archivedAt": d.archived_at,
+            "kind": d.kind or ""}
 
 
 def _executed_entries(db: Session, email: str) -> list:
@@ -316,6 +355,7 @@ class DocumentIn(BaseModel):
     # out of My Documents instead of filling it with one "Final" row per send
     # attempt (Sagar, Sep 22 2026).
     forSignature: Optional[bool] = False
+    kind: Optional[str] = ""            # '' = a document, 'sheet' = a spreadsheet
 
 
 class DocumentUpdate(BaseModel):
@@ -330,6 +370,11 @@ class DocumentUpdate(BaseModel):
     status: Optional[str] = None
     signRequestId: Optional[str] = None
     note: Optional[str] = ""
+    # A live session's save (Working together): its Yjs state and epoch, and
+    # the rev (currentVersion) the content was read with.
+    ydoc: Optional[str] = None
+    yepoch: Optional[str] = None
+    rev: Optional[int] = None
 
 
 @router.get("/folders")
@@ -439,6 +484,10 @@ def document_library(user: dict = Depends(get_current_user), db: Session = Depen
     company_of = auth.company_of_email_map(db)
     if scope is not None:
         docs = [d for d in docs if auth.company_ok(company_of.get((d.owner_email or "").lower(), ""), scope)]
+    # Shared with me (Working together): listed wherever they sit.
+    have = {d.id for d in docs}
+    docs += [d for d in query.filter(Document.shared_with.like(f'%"{me}"%')).all()
+             if d.id not in have and _share_of(d, me)]
 
     try:
         require_hr_read(user=user, db=db)
@@ -501,6 +550,8 @@ def document_library(user: dict = Depends(get_current_user), db: Session = Depen
                "version": d.current_version or 1, "ownerEmail": d.owner_email or "",
                "mine": (d.owner_email or "") == me,
                "canManage": user["level"] >= _ADMIN_LEVEL or (d.owner_email or "") == me,
+               "docKind": d.kind or "", "shareCan": _share_of(d, me),
+               "shared": bool(_shares(d)),
                "forName": people.get(d.employee_id, ""),
                "company": company(d.entity_id, d.owner_email),
                "updatedAt": d.updated_at or "", "signRequestId": "", "signStatus": ""}
@@ -530,8 +581,15 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
     if not body.title.strip():
         raise HTTPException(400, "title is required")
     _assert_folder_ok(db, body.folderId or "", user)
+    kind = body.kind or ""
+    if kind not in ("", "sheet"):
+        raise HTTPException(400, "kind must be '' or 'sheet'")
+    if kind == "sheet" and (body.templateId or body.forSignature):
+        raise HTTPException(400, "A sheet starts blank or from an imported file")
     now = _now_iso()
     content = as_pages(body.content) if body.content is not None else {}
+    if kind == "sheet":
+        content = _clean_sheet(body.content)
     letterhead_id = ""
     merge_overrides = {}
     tpl = None
@@ -606,7 +664,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
                     content=content, letterhead_id=letterhead_id,
                     merge_overrides=merge_overrides,
                     status=status, owner_email=user["email"].lower(), tags=_clean_tags(body.tags or []), current_version=1,
-                    source="esign-send" if body.forSignature else "",
+                    source="esign-send" if body.forSignature else "", kind=kind,
                     created_by=user["email"], created_at=now, updated_by=user["email"], updated_at=now)
     db.add(row); db.flush()
     db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=1, content=content,
@@ -1905,6 +1963,9 @@ def _get_readable(db: Session, did: str, user: dict) -> Document:
     # owner/department/company rules here - administrators included.
     if not row or (row.source or "") == "hr-packet":
         raise HTTPException(404, "Document not found")
+    # Shared with the caller (Working together): open wherever it sits.
+    if _share_of(row, user["email"]):
+        return row
     import auth
     auth.assert_company(auth.company_of(row.owner_email or "", db), user, db)
     if user["level"] >= _ADMIN_LEVEL or (row.owner_email or "") == user["email"].lower():
@@ -1939,11 +2000,194 @@ def _get_owned_or_admin(db: Session, did: str, user: dict) -> Document:
     return row
 
 
+# ── working together (module docstring) ────────────────────────────────────
+def _shares(row: Document) -> list:
+    try:
+        raw = json.loads(row.shared_with or "[]")
+    except (TypeError, ValueError):
+        raw = []
+    return [{"email": str(x["email"]).lower(), "can": "edit" if x.get("can") == "edit" else "view"}
+            for x in raw if isinstance(x, dict) and x.get("email")] if isinstance(raw, list) else []
+
+
+def _share_of(row: Document, email: str) -> str:
+    me = (email or "").lower()
+    return next((x["can"] for x in _shares(row) if x["email"] == me), "")
+
+
+def _access(row: Document, user: dict) -> str:
+    """'owner' (the owner or an administrator), 'edit' or 'view' - for a row
+    _get_readable already let through."""
+    if user["level"] >= _ADMIN_LEVEL or (row.owner_email or "").lower() == user["email"].lower():
+        return "owner"
+    return "edit" if _share_of(row, user["email"]) == "edit" else "view"
+
+
+def _drop_live_state(row: Document) -> None:
+    """The content changed outside the live session: the next opener rebuilds from it."""
+    row.ydoc = ""
+    row.yepoch = ""
+
+
+def _rotate_key(row: Document) -> None:
+    row.collab_key = base64.b64encode(secrets.token_bytes(32)).decode()
+
+
+def _key_tag(row: Document) -> str:
+    return hashlib.sha256(f"tag:{row.collab_key}".encode()).hexdigest()[:12]
+
+
+def _live_state(row: Document) -> dict:
+    return {"ydoc": row.ydoc or "", "yepoch": row.yepoch or "", "rev": row.current_version or 1}
+
+
+def _clean_sheet(content) -> dict:
+    """A sheet's snapshot as the browser wrote it - shape and size only; the
+    engine validates the cells before it shows them."""
+    if not isinstance(content, dict) or content.get("type") != "nexus-sheet" or not isinstance(content.get("tabs"), list):
+        raise HTTPException(400, "Not a sheet")
+    if len(json.dumps(content)) > SHEET_MAX:
+        raise HTTPException(413, "This sheet is too big to save - split it into two sheets")
+    return content
+
+
+def _full_document(db: Session, row: Document, user: dict) -> dict:
+    statuses = _sign_statuses(db, [row])
+    out = _ser_document(row, statuses.get(row.sign_request_id, ""))
+    can = _access(row, user)
+    out["access"] = can
+    # Who else is on it: editors and the owner see the list; a viewer does not.
+    out["sharedWith"] = _shares(row) if can != "view" else []
+    return out
+
+
 @router.get("/{did}")
 def get_document(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = _get_readable(db, did, user)
-    statuses = _sign_statuses(db, [row])
-    return _ser_document(row, statuses.get(row.sign_request_id, ""))
+    return _full_document(db, row, user)
+
+
+class ShareIn(BaseModel):
+    email: str
+    can: Optional[str] = "view"
+
+
+@router.put("/{did}/share")
+def share_document(did: str, body: ShareIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Share with one person from Nexus People, or change what they may do."""
+    row = _get_owned_or_admin(db, did, user)
+    from routers.notes import _directory_person
+    email = (body.email or "").strip().lower()
+    if not email or email == (row.owner_email or "").lower():
+        raise HTTPException(400, "Pick someone other than the owner")
+    if _directory_person(db, user, email) is None:
+        raise HTTPException(400, "Documents are shared only with people in Nexus People")
+    level = "edit" if body.can == "edit" else "view"
+    shares = _shares(row)
+    was = next((x["can"] for x in shares if x["email"] == email), "")
+    if not was and len(shares) >= SHARES_MAX:
+        raise HTTPException(400, f"A document is shared with {SHARES_MAX} people at most")
+    row.shared_with = json.dumps([x for x in shares if x["email"] != email] + [{"email": email, "can": level}])
+    if was == "edit" and level == "view":
+        _rotate_key(row)
+    if not was:
+        import notify_rollup
+        from auth import company_of
+        what = "Sheet" if row.kind == "sheet" else "Document"
+        notify_rollup.upsert_rollup(
+            db, recipient=email, key=f"doc-share:{row.id}", title=f"{what} Shared With You",
+            line=f"{user.get('name') or user['email']} shared \"{(row.title or '')[:80]}\" with you "
+                 f"({'can edit' if level == 'edit' else 'can view'}).",
+            action={"view": "documents", "sub": "documents-browse"},
+            company=company_of(email, db) or "", requested_by=user["email"].lower(), replace=True)
+    db.commit()
+    return _full_document(db, row, user)
+
+
+@router.delete("/{did}/share/{email}")
+def unshare_document(did: str, email: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The owner takes someone off; anyone may take themselves off."""
+    email = (email or "").strip().lower()
+    row = _get_readable(db, did, user)
+    if _access(row, user) != "owner" and email != user["email"].lower():
+        raise HTTPException(403, "Only the document's owner changes who it is shared with")
+    shares = _shares(row)
+    if any(x["email"] == email for x in shares):
+        row.shared_with = json.dumps([x for x in shares if x["email"] != email])
+        if any(x["email"] == email and x["can"] == "edit" for x in shares):
+            _rotate_key(row)
+        db.commit()
+    return {"ok": True}
+
+
+@router.get("/{did}/head")
+def document_head(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The cheap poll an open document makes: has it moved since I read it?"""
+    row = _get_readable(db, did, user)
+    out = {"rev": row.current_version or 1, "updatedBy": row.updated_by or "", "updatedAt": row.updated_at or "",
+           "yepoch": row.yepoch or "", "status": row.status or "draft"}
+    if _access(row, user) != "view" and row.collab_key:
+        out["keyTag"] = _key_tag(row)
+    return out
+
+
+def _live_editor(db: Session, did: str, user: dict, lock: bool = False) -> Document:
+    row = _get_readable(db, did, user)
+    if lock:
+        row = db.query(Document).filter(Document.id == row.id).with_for_update().populate_existing().first()
+    if _access(row, user) == "view":
+        raise HTTPException(403, "This document was shared with you to view only")
+    if row.status == "final":
+        raise HTTPException(409, "This document is final. Unlock it before editing.")
+    return row
+
+
+@router.get("/{did}/collab")
+def document_collab(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """What an editor needs to type together live: the channel key and name,
+    and the stored Yjs state with its epoch. Never to a viewer."""
+    row = _live_editor(db, did, user)
+    if not row.collab_key:
+        row = _live_editor(db, did, user, lock=True)     # two editors never mint two keys
+        if not row.collab_key:
+            _rotate_key(row)
+            db.commit()
+    return {"key": row.collab_key, "keyTag": _key_tag(row),
+            "channel": "nx-doc-" + hashlib.sha256(f"{row.id}:{row.collab_key}".encode()).hexdigest()[:32],
+            "content": row.content or {}, "kind": row.kind or "", **_live_state(row)}
+
+
+class SeedIn(BaseModel):
+    rev: int
+    ydoc: str
+    yepoch: str
+
+
+@router.post("/{did}/collab/seed")
+def seed_document_collab(did: str, body: SeedIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Start the live state from the saved content. The first editor wins; a
+    second gets 409 with the winner's state and joins it."""
+    row = _live_editor(db, did, user, lock=True)
+    epoch = (body.yepoch or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", epoch) or not body.ydoc or len(body.ydoc) > YDOC_MAX:
+        raise HTTPException(400, "Not a live state")
+    if row.yepoch or body.rev != (row.current_version or 1):
+        raise HTTPException(409, {"message": "Someone else started the live session first.",
+                                  "collab": _live_state(row)})
+    row.ydoc, row.yepoch = body.ydoc, epoch
+    db.commit()
+    return _live_state(row)
+
+
+@router.post("/{did}/collab/reset")
+def reset_document_collab(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Drop the live state (a browser could not read it); the content stays
+    as saved and the next opener rebuilds the state from it."""
+    row = _live_editor(db, did, user, lock=True)
+    if row.yepoch or row.ydoc:
+        _drop_live_state(row)
+        db.commit()
+    return {"ok": True}
 
 
 def _clean_form_audience(audience, department: str, work_site_id, *, form: bool) -> tuple:
@@ -2219,7 +2463,25 @@ def unlock_document(did: str, user: dict = Depends(get_current_user), db: Sessio
 
 @router.patch("/{did}")
 def update_document(did: str, body: DocumentUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    row = _get_owned_or_admin(db, did, user)
+    row = _get_readable(db, did, user)
+    can = _access(row, user)
+    if can == "view":
+        raise HTTPException(403, "This document was shared with you to view only")
+    if can == "edit" and any(v is not None for v in (body.folderId, body.tags, body.letterheadId, body.employeeId,
+                                                       body.entityId, body.mergeOverrides, body.status,
+                                                       body.signRequestId)):
+        raise HTTPException(403, "Only the document's owner changes that")
+    live_save = body.ydoc is not None
+    if live_save or body.rev is not None:
+        row = db.query(Document).filter(Document.id == row.id).with_for_update().populate_existing().first()
+        if live_save and (not row.yepoch or body.yepoch != row.yepoch):
+            raise HTTPException(409, {"message": "This document was changed outside the live session - reloading it.",
+                                      "collab": _live_state(row), "epoch": True})
+        if body.rev is not None and body.rev != (row.current_version or 1):
+            raise HTTPException(409, {"message": "This document changed somewhere else since you opened it.",
+                                      "collab": _live_state(row)})
+    if body.content is not None and row.kind == "sheet":
+        body.content = _clean_sheet(body.content)
     # A generated document is FINAL: the whole point of the module is that the
     # output carries the approved template language with the supplied values,
     # so it cannot be quietly reworded afterwards. Enforced here rather than
@@ -2254,15 +2516,39 @@ def update_document(did: str, body: DocumentUpdate, user: dict = Depends(get_cur
     if body.signRequestId is not None:
         row.sign_request_id = body.signRequestId
     if body.content is not None:
+        changed = row.content != as_pages(body.content)
         row.content = as_pages(body.content)
-        row.current_version += 1
-        db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=row.current_version,
-                                content=body.content, edited_by=user["email"], edited_at=_now_iso(),
-                                note=(body.note or "").strip()))
+        row.current_version = (row.current_version or 1) + 1
+        if not live_save or _live_version_due(db, row, user["email"]):
+            db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=row.current_version,
+                                    content=body.content, edited_by=user["email"], edited_at=_now_iso(),
+                                    note=(body.note or "").strip()))
+        if not live_save and changed:
+            _drop_live_state(row)
+    if live_save:
+        if len(body.ydoc or "") > YDOC_MAX:
+            _drop_live_state(row)       # too big to keep: the next session rebuilds it from the content
+        else:
+            row.ydoc = body.ydoc or ""
     row.updated_by = user["email"]
     row.updated_at = _now_iso()
     db.commit(); db.refresh(row)
-    return _ser_document(row)
+    return _full_document(db, row, user)
+
+
+def _live_version_due(db: Session, row: Document, email: str) -> bool:
+    """A live save keeps a version when the newest is ten minutes old or someone else's."""
+    last = (db.query(DocumentVersion).filter(DocumentVersion.document_id == row.id)
+            .order_by(DocumentVersion.version_no.desc()).first())
+    if last is None or (last.edited_by or "").lower() != email.lower():
+        return True
+    try:
+        at = datetime.fromisoformat((last.edited_at or "").replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - at >= LIVE_VERSION_GAP
 
 
 @router.delete("/{did}")
@@ -2314,7 +2600,7 @@ def duplicate_document(did: str, user: dict = Depends(get_current_user), db: Ses
                     employee_id=src.employee_id, entity_id=src.entity_id, merge_overrides=src.merge_overrides or {},
                     status="draft", owner_email=user["email"].lower(), tags=src.tags or [],
                     current_version=1, created_by=user["email"], created_at=now,
-                    updated_by=user["email"], updated_at=now)
+                    updated_by=user["email"], updated_at=now, kind=src.kind or "")
     db.add(row); db.flush()
     db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=1, content=src.content,
                             edited_by=user["email"], edited_at=now, note=f"Duplicated from {src.id}"))
@@ -2425,6 +2711,8 @@ def _export_prep(db: Session, did: str, user: dict):
     the document may export it), resolve its merge data, walk header/body/footer
     to blocks, and fetch its letterhead (if any) serialized for the renderers."""
     row = _get_readable(db, did, user)
+    if row.kind == "sheet":
+        raise HTTPException(400, "A sheet downloads as .xlsx or .csv from the sheet itself")
     # The template the document came from, so `template.*` resolves to what the
     # template actually says rather than whatever someone typed months ago.
     source_tpl = (db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
