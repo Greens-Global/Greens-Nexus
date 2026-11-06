@@ -22,7 +22,7 @@ import { api } from '../api';
 // Collection key -> fetcher. `tasks` returns { tasks, serverTime }: the delta
 // cursor the provider polls with, kept alongside the rows it belongs to.
 const SOURCES = {
-  tasks:            () => api.getTasksDelta(''),
+  tasks:            () => api.getTasksDelta('', 'recent'),   // the long-done rest: loadOlderTasks
   projects:         () => api.getTaskProjects(),
   customStatuses:   () => api.getTaskCustomStatuses(),
   portfolios:       () => api.getTaskPortfolios(),
@@ -73,6 +73,30 @@ export function loadTaskData(onPart) {
   return Promise.all(COLLECTION_KEYS.map((k) => fetchOne(k).then((v) => { onPart?.(k, v); })))
     .then(() => { complete = true; });
 }
+
+/** Tasks completed over 60 days ago (11/05/2026) - left out of the first load
+ *  so a screen paints on the 2-3 thousand that matter; the provider fetches
+ *  them right behind it. Resolves to [] on failure. */
+export const loadOlderTasks = () => api.getTasksDelta('', 'older').then((r) => r?.tasks || []).catch(() => []);
+
+// The first load comes in two parts (11/05/2026, routers/tasks.py
+// RECENT_COMPLETED_DAYS): everything but the tasks completed over 60 days
+// ago, then those. A long-done task already held survives the first part's
+// replace, so a remount never blinks them away while the second is in flight.
+// 61, not 60: the server cuts at a date (UTC midnight 60 days back), so a task
+// this side calls long-done is always in its `older` part and never dropped.
+const LONG_DONE_MS = 61 * 864e5;
+const longDone = (t) => !!(t.completed && t.completedAt && Date.parse(t.completedAt) < Date.now() - LONG_DONE_MS);
+export const withRecent = (prev, recent) => {
+  const ids = new Set(recent.map((t) => t.id));
+  return [...recent, ...prev.filter((t) => longDone(t) && !ids.has(t.id))];
+};
+export const withOlder = (prev, older) => {
+  const olderIds = new Set(older.map((t) => t.id));
+  const base = prev.filter((t) => !longDone(t) || olderIds.has(t.id));   // one dropped from `older` is gone
+  const have = new Set(base.map((t) => t.id));
+  return [...base, ...older.filter((t) => !have.has(t.id))];            // a held copy is as new or newer
+};
 
 /** Warm the cache with nothing mounted - called at idle after boot. A no-op
  *  once the data is there; the provider refreshes it on mount either way. */

@@ -33,6 +33,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 import approvals_inbox
+import cache
 import models
 from auth import get_current_user
 from database import get_db
@@ -154,9 +155,22 @@ def _announcements(db: Session, user: dict) -> int:
     return sum(1 for a in list_announcements(user=user, db=db) if a["requires_ack"] and not a["acknowledged_at"])
 
 
+# Per caller, 30 s (11/05/2026): the counts run every Approvals source - 4-8 s
+# on prod - and every tab asks each minute. The app asks with fresh=1 right
+# after its own writes, so a decision still clears its badge at once.
+_counts_cache = cache.TTLCache("action_counts", ttl=30)
+
+
 @router.get("/action-counts")
-def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def action_counts(fresh: bool = False, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """{"counts": {view: {tab: n}}} - zero counts are left out."""
+    key = repr(sorted(user.items()))   # the whole identity: Act As, externals, level
+    if fresh:
+        _counts_cache.invalidate(key)
+    return _counts_cache.get_or_load(key, lambda: _action_counts(db, user))
+
+
+def _action_counts(db: Session, user: dict) -> dict:
     me = (user.get("email") or "").lower()
     s = lambda fn: _safe(db, fn)   # noqa: E731
     # The approval counts: one pass over the Approvals registry (a source that

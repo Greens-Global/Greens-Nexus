@@ -405,6 +405,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
     const active = activeView === item.view;
     return {
       ref: setRowEl(item.view),
+      'data-view': item.view,   // App's TaskPrefetch warms Tasks data on hover
       onPointerEnter: onRowEnter(item.view),
       role: 'link',
       tabIndex: 0,

@@ -290,6 +290,9 @@ function RoleGate({ children }) {
 // competes with the screen the user actually landed on, and only for people who
 // can open it at all: the module is grant-driven, so warming it for anyone else
 // would just be a handful of 403s.
+// The DATA waits for intent (11/05/2026): pointing at or focusing Tasks /
+// Tickets in the sidebar. Fetched at idle on every page it was 16 requests
+// and a 16 MB task list landing on top of whatever screen was loading.
 function TaskPrefetch() {
   const { can, myGrantedModules } = useRole();
   const mayOpenTasks = can('administrator')
@@ -300,12 +303,21 @@ function TaskPrefetch() {
     const warm = () => {
       if (cancelled) return;
       import('./views/Tasks').catch(() => {});
+    };
+    const intent = (e) => {
+      if (!e.target?.closest?.('[data-view="tasks"], [data-view="tickets"]')) return;
+      document.removeEventListener('pointerover', intent);
+      document.removeEventListener('focusin', intent);
       import('./tasks/taskStore').then(m => m.prefetchTaskData()).catch(() => {});
     };
+    document.addEventListener('pointerover', intent);
+    document.addEventListener('focusin', intent);
     const idle = typeof window.requestIdleCallback === 'function';
     const id = idle ? window.requestIdleCallback(warm, { timeout: 4000 }) : setTimeout(warm, 2500);
     return () => {
       cancelled = true;
+      document.removeEventListener('pointerover', intent);
+      document.removeEventListener('focusin', intent);
       if (idle) window.cancelIdleCallback?.(id); else clearTimeout(id);
     };
   }, [mayOpenTasks]);
