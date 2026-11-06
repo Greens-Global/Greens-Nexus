@@ -390,7 +390,11 @@ keep the diff minimal.
   preventive schedule filed, its count the overdue ones in red when any),
   then the person's saved views, then Raised by Me, then "+ View")
   are filter presets over the tickets TasksContext holds, counted over the
-  WHOLE workspace (no count pill on Done, All Open or Raised by Me). The
+  WHOLE workspace (no count pill on Done, All Open or Raised by Me).
+  Only Needs Reply, Unassigned, Mine and All Open stand as tabs (Neil,
+  11/06/2026: the bar was "too cluttered"); the rest, in the order above,
+  sit in ONE "Other Queues" dropdown, and Save View is in the ... menu (no
+  "+ View" tab). Create is the last control in the toolbar. The
   server's `needsReply` flag on every `GET /task-tickets` row (`_needs_reply`
   in routers/tickets.py) decides Needs Reply; the client copy in queues.js
   is only a fallback for a row that arrived without the flag and must stay

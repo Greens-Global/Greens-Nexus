@@ -90,8 +90,9 @@ describe('Accounting view', () => {
   it('carries only the header, bar and dashboard helpers - every screen loads on first open', async () => {
     const src = (await import('./Accounting.jsx?raw')).default;
     const upFront = [...src.matchAll(/^import .* from '\.\.\/components\/accounting\/([^']+)';\r?$/gm)].map((m) => m[1]).sort();
-    // ModuleSearch (the header search, chat 10/26 item 13) brings reportControls' `control` with it, as before.
-    expect(upFront).toEqual(['ModuleSearch', 'assumptions', 'dashboard/DashContext', 'dashboard/registry', 'drill', 'prefs', 'reportModel']);
+    // ModuleSearch (the header search, chat 10/26 item 13) brings reportControls' `control` with it, as before;
+    // the search's toolbar slot (BarSearchSlotContext, 11/06/2026) comes from the same module - nothing new loads.
+    expect(upFront).toEqual(['ModuleSearch', 'assumptions', 'dashboard/DashContext', 'dashboard/registry', 'drill', 'prefs', 'reportControls', 'reportModel']);
     expect(src).toMatch(/const OverviewTab = lazy\(/);
   });
 });
