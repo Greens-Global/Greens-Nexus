@@ -226,8 +226,8 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
     expect(screen.getByText('Week · 7:15 Hrs')).toBeTruthy();
     const header = screen.getAllByRole('columnheader')[0];
     expect(header.textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2}[A-Z][a-z]{2}/);   // "Mon 28" with the month said once, on the first day
-    expect(screen.getAllByRole('columnheader')[1].textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2}\d/);   // the next day has no month
-    expect(header.textContent).toContain('1 · 7:15 Hrs');
+    expect(screen.getAllByRole('columnheader')[1].textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2}\s*$/);   // the next day has no month (and no shifts: no count)
+    expect(header.textContent).toContain('1 Shift · 7:15 Hrs');
     // One calm line: the short time and the type's code; the break is the hover title, not the block.
     expect(blockOf('s1').textContent).toBe('9:00a - 5:00p');
     expect(blockOf('s1').getAttribute('title')).toContain('Break 45m');
