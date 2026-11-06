@@ -4137,17 +4137,17 @@ export default function HR({ activeSub, onSubChange }) {
                 {/* Worker-type filter (Neil, Aug 24): the directory is the master
                     list, this narrows it to a category. */}
                 <select className="form-input" value={typeF} onChange={e => { setTypeF(e.target.value); setSelectedId(null); }} style={{ ...(isMobile ? PHONE_FILTER : { width: 140 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
-                  <option value="All">All people</option>
+                  <option value="All">All People</option>
                   <option value="employee">Employees</option>
                   <option value="contractor">Contractors</option>
                   <option value="external">External &amp; guests</option>
                 </select>
                 <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ ...(isMobile ? PHONE_FILTER : { width: 150 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
-                  <option value="All">All companies</option>
+                  <option value="All">All Companies</option>
                   {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
                 </select>
                 <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ ...(isMobile ? PHONE_FILTER : { width: 155 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
-                  <option value="All">All departments</option>
+                  <option value="All">All Departments</option>
                   {deptChoices.map(d => <option key={d}>{d}</option>)}
                 </select>
                 {/* Choosing Deleted fetches that list here rather than in an

@@ -43,7 +43,7 @@ export function AudiencePicker({ value, onChange, people, tier, nameOf = (e) => 
       <div className="cv-pick-group">
         <span className="cv-pick-label">Companies</span>
         <div className="cv-pick-row">
-          <Chip on={everyCompany} onClick={() => toggle({ kind: "company", value: "", label: "Everyone, every company" })}>All companies</Chip>
+          <Chip on={everyCompany} onClick={() => toggle({ kind: "company", value: "", label: "Everyone, every company" })}>All Companies</Chip>
           {opts.companies.map((c) => <Chip key={c.id} on={pickedCompanies.includes(c.id)} onClick={() => toggle({ kind: "company", value: c.id, label: `Everyone at ${c.name}` })}>{c.name}</Chip>)}
         </div>
       </div>

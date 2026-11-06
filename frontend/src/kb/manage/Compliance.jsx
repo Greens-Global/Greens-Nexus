@@ -52,8 +52,8 @@ export default function Compliance({ me }) {
           <button type="button" className={scope === 'team' ? 'on' : ''} onClick={() => setScope('team')}>My Whole Team</button>
           {(me?.can_manage || data?.filters?.can_company) && <button type="button" className={scope === 'company' ? 'on' : ''} onClick={() => setScope('company')}>Company</button>}
         </div>
-        {data?.filters?.companies?.length > 1 && <select className="kb-select" style={{ width: 'auto' }} value={company} onChange={(e) => setCompany(e.target.value)}><option value="">All companies</option>{data.filters.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>}
-        {data?.filters?.departments?.length > 1 && <select className="kb-select" style={{ width: 'auto' }} value={department} onChange={(e) => setDepartment(e.target.value)}><option value="">All departments</option>{data.filters.departments.map((d) => <option key={d} value={d}>{d}</option>)}</select>}
+        {data?.filters?.companies?.length > 1 && <select className="kb-select" style={{ width: 'auto' }} value={company} onChange={(e) => setCompany(e.target.value)}><option value="">All Companies</option>{data.filters.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>}
+        {data?.filters?.departments?.length > 1 && <select className="kb-select" style={{ width: 'auto' }} value={department} onChange={(e) => setDepartment(e.target.value)}><option value="">All Departments</option>{data.filters.departments.map((d) => <option key={d} value={d}>{d}</option>)}</select>}
       </div>
       <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
         {data && (

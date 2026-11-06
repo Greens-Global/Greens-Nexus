@@ -140,13 +140,17 @@ class Hourly(unittest.TestCase):
         self.assertNotIn("Approval log", self.text)
 
     def test_header(self):
-        for s in ("Time Sheet", "Employee: Nimi Patel", "Company: Oversite Management, Inc",
-                  "Employee Code: GG-014", "Department: Operations - SCMC", "Pay Rate: $22.00/hr"):
+        # Neil, 11/06/2026 (option B): title left, pay period right, then one
+        # boxed row of labeled fields - and no Employee Code.
+        for s in ("Time Sheet", "PAY PERIOD", "10/04/2026 - 10/17/2026", "EMPLOYEE", "Nimi Patel",
+                  "COMPANY", "Oversite Management, Inc", "DEPARTMENT", "Operations - SCMC",
+                  "PAY TYPE", "Hourly (bi-weekly)", "PAY RATE", "$22.00/hr"):
             self.assertIn(s, self.text)
+        self.assertLess(self.text.index("PAY PERIOD"), self.text.index("Nimi Patel"))
         # Charmi, Oct 20: not "... for Greens Global", no email, no OT rule or
         # version, no approvals up top.
-        for s in ("Time Sheet Report", "nimi@x.com", "OT rule", "Version", "Dept:", "Code: GG"):
-            self.assertNotIn(s, self.text.replace("Employee Code: GG", ""))
+        for s in ("Time Sheet Report", "nimi@x.com", "OT rule", "Version", "Dept:", "Code", "GG-014"):
+            self.assertNotIn(s, self.text)
         self.assertLess(self.text.index("Wage"), self.text.index("Approved by manager"))
 
     def test_a_busy_card_still_ends_on_page_one(self):

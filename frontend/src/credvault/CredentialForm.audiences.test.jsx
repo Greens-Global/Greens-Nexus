@@ -56,16 +56,16 @@ describe('Who Can Open It', () => {
     ]);
   });
 
-  it('All companies is one row, a second click removes a row, and Critical warns about broad rows', async () => {
+  it('All Companies is one row, a second click removes a row, and Critical warns about broad rows', async () => {
     const cred = { id: 'c1', name: 'AWS', dept: 'IT', type: 'Password', tier: 'Critical', username: 'root', owner: 'me@x.com', backupOwner: '', rotationMax: 90, companyId: 'co-a',
       audiences: [{ kind: 'person', value: 'ben@x.com', level: 'open', label: 'ben@x.com' }] };
     render(<CredentialForm cred={cred} depts={['IT']} people={PEOPLE} myEmail="me@x.com" nameOf={(e) => (e === 'ben@x.com' ? 'Ben Builder' : e)} companies={COMPANIES} deptRows={DEPTS} onClose={() => {}} onSave={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('All companies')).toBeTruthy());
-    fireEvent.click(screen.getByText('All companies'));
+    await waitFor(() => expect(screen.getByText('All Companies')).toBeTruthy());
+    fireEvent.click(screen.getByText('All Companies'));
     expect(screen.getByText('Everyone, every company')).toBeTruthy();
     expect(screen.getAllByText('Ignored for Critical')).toHaveLength(1);
     expect(screen.getByText('Ben Builder')).toBeTruthy();
-    fireEvent.click(screen.getByText('All companies'));
+    fireEvent.click(screen.getByText('All Companies'));
     expect(screen.queryByText('Everyone, every company')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Remove ben@x.com' }));
     expect(screen.queryByText('Ben Builder')).toBeNull();
