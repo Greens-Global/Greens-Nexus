@@ -8967,8 +8967,20 @@ body:has(.apv-phone) { overflow-x: clip; }
    list is long; the bubble sits over the first line of the selected text.
    The same .viewport fix as the library above, only while the builder shows. */
 @media (min-width: 901px) {
-  .viewport:has(.nx-docb) { overflow: visible; }
+  /* The editor is laid out like Word Online (Pranshu, 11/06/2026): the title
+     row, the ribbon and the status bar stay where they are and only the
+     page canvas scrolls, in its own column, with the Pages rail and the
+     Variables rail pinned at its top. The viewport stops scrolling and the
+     builder takes its full height. */
+  .main-content:has(.nx-docb:not(.is-preview)) { height: 100vh; overflow: hidden; }   /* the header, the notice bar, then the viewport takes what is left */
+  .viewport:has(.nx-docb) { overflow: hidden; display: flex; flex-direction: column; flex: 1; min-height: 0; }
   body:has(.nx-docb) { overflow-x: clip; }
+  /* The view boundary's two wrapper divs sit between the viewport and the builder. */
+  .viewport > div:has(.nx-docb:not(.is-preview)), .viewport > div > div:has(.nx-docb:not(.is-preview)) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .nx-docb:not(.is-preview) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .nx-docb:not(.is-preview) .nx-docb-canvas { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 12px; }
+  .nx-docb:not(.is-preview) .nx-docb-rail { position: sticky; top: 0; }
+  .nx-docb:not(.is-preview) .nx-docb-vars { top: 0; max-height: 100%; }
 }
 .nx-docb-vars { flex: 0 0 216px; position: sticky; top: calc(var(--nx-announce-h, 0px) + 64px + 12px); max-height: calc(100vh - var(--nx-announce-h, 0px) - 64px - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 6px; background: var(--mist); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .nx-docb-vars-head { display: flex; align-items: center; gap: 6px; font: 650 12px Inter, sans-serif; color: var(--ink); margin-bottom: 2px; }
