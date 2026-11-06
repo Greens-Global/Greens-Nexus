@@ -14,8 +14,9 @@ import {
   ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
   Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, Link as LinkIcon, Palette,
   RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, PenTool, Image as ImageIcon, FileCode2, Copy, FileJson,
-  Paperclip, ExternalLink,
+  Paperclip, ExternalLink, ArrowLeft, Presentation, ListTree, LayoutTemplate, Pencil, FolderOpen,
 } from 'lucide-react';
+import { dialog } from '../ui/dialog';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -40,10 +41,11 @@ import TemplatePicker from './board/TemplatePicker';
 import { templateScene } from './board/templates';
 import { exportPng, exportSvg, copyPng, downloadScene } from './board/exportBoard';
 import { storeTaskFile } from '../tasks/lib';
-import { BOARD_THUMB_FOLDER, NEW_BOARD_SUB } from './newBoard';
+import { BOARD_THUMB_FOLDER, NEW_BOARD_SUB, boardCameFrom } from './newBoard';
 import {
   NOTE_COLORS, colorCss, localDay, monthOf, shiftMonth, monthLabel, dayHeading, groupByDay, noteTitle, isBoard, htmlToText,
   countWords, editedLabel, htmlToMarkdown, markdownToHtml, exportFileName, downloadText, printNote, rememberLastNote, quickNoteKeys,
+  noteHeadings,
 } from './notesModel';
 import './notes.css';
 
@@ -56,9 +58,41 @@ const VIEWS = [
   { key: 'pinned', label: 'Pinned' },
   { key: 'today', label: 'Today' },
   { key: 'shared', label: 'Shared' },
+  { key: 'boards', label: 'Boards' },
   { key: 'trash', label: 'Trash' },
 ];
+
+// The right-click menu on a list row (Neil, 11/06/2026): at the pointer (or
+// the row, from the keyboard's menu key), Esc / a click away closes it, the
+// arrows walk it.
+function RowMenu({ at, onClose, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    ref.current?.querySelector('button')?.focus();
+    const down = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const key = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('keydown', key, true);
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key, true); };
+  }, [onClose]);
+  const walk = (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const items = [...ref.current.querySelectorAll('button')];
+    const i = items.indexOf(document.activeElement);
+    items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+  };
+  const x = Math.min(at.x, window.innerWidth - 230), y = Math.min(at.y, window.innerHeight - 240);
+  return createPortal(
+    <div ref={ref} className="nt-pop is-at" role="menu" aria-label="Note actions" style={{ left: Math.max(8, x), top: Math.max(8, y) }}
+      onKeyDown={walk} onClick={(e) => { if (e.target.closest('button')) onClose(); }}>
+      {children}
+    </div>,
+    document.body,
+  );
+}
 const LIST_W_KEY = 'nx-notes-list-width';
+const LIST_OPEN_KEY = 'nx-notes-list-open';
 const readNum = (k, d) => { try { const v = Number(window.localStorage.getItem(k)); return v > 0 ? v : d; } catch { return d; } };
 const store = (k, v) => { try { window.localStorage.setItem(k, String(v)); } catch { /* storage unavailable */ } };
 
@@ -395,7 +429,7 @@ function ShortcutsPop({ open, onClose }) {
     ['Quick Note from anywhere', quickNoteKeys()],
     ['Save now', `${mod}+S`], ['Search notes', '/'], ['Block menu', '/ in a note'], ['Mention someone', '@'],
     ['Checklist', `${mod}+Shift+9`], ['Link', `${mod}+K`], ['Bold / Italic / Underline', `${mod}+B / I / U`],
-    ['Heading 1 / 2 / 3', '# / ## / ###'], ['Exit full screen', 'Esc'],
+    ['Heading 1 / 2 / 3', '# / ## / ###'], ['Hide or show the list', `${mod}+\\`], ['Exit full screen', 'Esc'],
   ];
   return (
     <Popover open={open} onClose={onClose} label="Keyboard shortcuts">
@@ -459,7 +493,7 @@ class LiveBoundary extends Component {
 }
 
 // The open note.
-function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail }) {
+function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail, onDuplicate, backTo, onOpen }) {
   const collabRef = useRef(null);
   const sync = useNoteSync(id, { onSaved, collabRef });
   const { note, status, conflict, restored } = sync;
@@ -488,6 +522,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   const thumbBusy = useRef(false);
   const lastThumb = useRef('');       // the hash of the last thumbnail PNG sent
   const [attaching, setAttaching] = useState(false);
+  const [presentTick, setPresentTick] = useState(0);   // Present: each press is a new number Board reacts to
   // A board's scene, parsed once per change of it (it can be 2 MB).
   const scene = useMemo(() => (isBoard(note) ? parseScene(note?.scene) : null), [note?.scene, note?.kind]);   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -634,6 +669,19 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     const url = `${window.location.origin}/dashboard/notes:${note.id}`;
     try { await navigator.clipboard.writeText(url); toast('Link copied - it opens for you and the people the note is shared with'); } catch { toast(url); }
   };
+  const duplicate = async () => { setMenu(''); await sync.flush(); onDuplicate?.(note.id); };
+  const toggleTemplate = () => {
+    setMenu('');
+    sync.setMeta({ template: !note.template });
+    toast(note.template ? 'No longer a template' : 'Saved as a template - New Board lists it under Your Templates');
+  };
+  // The outline: the note's headings; a click scrolls the editor to it.
+  const headings = board ? [] : noteHeadings(note.body);
+  const goToHeading = (k) => {
+    setMenu('');
+    const all = titleRef.current?.closest('.nt-doc')?.querySelectorAll('.ProseMirror h1, .ProseMirror h2, .ProseMirror h3');
+    all?.[k]?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  };
   const makeTask = async (line) => {
     if (!line) { toast('Put the cursor on a line (or select text) to make it a task'); return; }
     try {
@@ -678,10 +726,23 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
               {mine && !trashed && (
                 <button type="button" className="nt-icon-btn" aria-label="Share" title="Share" onClick={() => setDialog('share')}><Users size={17} /></button>
               )}
-              {!isPhone && (
-                <button type="button" className="nt-icon-btn" aria-label={full ? 'Exit Full Screen' : 'Full Screen'} title={full ? 'Exit Full Screen (Esc)' : 'Full Screen'}
-                  onClick={onToggleFull}>{full ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button>
+              {headings.length >= 2 && (
+                <span style={{ position: 'relative' }}>
+                  <button type="button" className="nt-icon-btn" aria-label="Outline" title="Outline" aria-haspopup="menu" aria-expanded={menu === 'outline'}
+                    onClick={() => setMenu(menu === 'outline' ? '' : 'outline')}><ListTree size={17} /></button>
+                  <Popover open={menu === 'outline'} onClose={() => setMenu('')} label="Outline">
+                    {headings.map((h, k) => (
+                      <button key={k} type="button" role="menuitem" className={`nt-outline-row is-l${h.level}`} title={h.text} onClick={() => goToHeading(k)}>{h.text}</button>
+                    ))}
+                  </Popover>
+                </span>
               )}
+              {board && !isPhone && !trashed && (
+                <button type="button" className="nt-icon-btn" aria-label="Present" title="Present - one slide per frame" onClick={() => setPresentTick((t) => t + 1)}><Presentation size={17} /></button>
+              )}
+              {!isPhone && (full
+                ? <button type="button" className="nt-text-btn nt-exit-full" title="Exit Full Screen (Esc)" onClick={onToggleFull}><Minimize2 size={15} aria-hidden="true" /> Exit Full Screen</button>
+                : <button type="button" className="nt-icon-btn" aria-label="Full Screen" title="Full Screen" onClick={onToggleFull}><Maximize2 size={17} /></button>)}
               <span style={{ position: 'relative' }}>
                 <button type="button" className="nt-icon-btn" aria-label="More actions" title="More" aria-haspopup="menu" aria-expanded={menu === 'more'}
                   onClick={() => setMenu(menu === 'more' ? '' : 'more')}><MoreHorizontal size={18} /></button>
@@ -695,6 +756,12 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                     <button type="button" role="menuitem" className="nt-pop-row" onClick={exportMd}><Download size={15} /> Export as Markdown</button>
                     <button type="button" role="menuitem" className="nt-pop-row" onClick={print}><Printer size={15} /> Print or Save as PDF</button>
                   </>)}
+                  {board && mine && !trashed && (
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={toggleTemplate}><LayoutTemplate size={15} /> {note.template ? 'Stop Using as Template' : 'Use as Template'}</button>
+                  )}
+                  {!trashed && note.kind !== 'daily' && onDuplicate && (
+                    <button type="button" role="menuitem" className="nt-pop-row" onClick={duplicate}><Copy size={15} /> Duplicate</button>
+                  )}
                   <button type="button" role="menuitem" className="nt-pop-row" onClick={() => { setMenu(''); setDialog('history'); }}><History size={15} /> Version History</button>
                   <button type="button" role="menuitem" className="nt-pop-row" onClick={copyLink}><LinkIcon size={15} /> Copy Link</button>
                   {mine && !trashed && (<><div className="nt-pop-sep" /><button type="button" role="menuitem" className="nt-pop-row is-danger" onClick={trash}><Trash2 size={15} /> Move to Trash</button></>)}
@@ -704,11 +771,23 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             </div>
   );
 
+  // A board keeps its tags on the meta line, so the canvas gets that row (Neil, 11/06/2026).
+  const tagEditor = <TagEditor tags={note.tags || []} disabled={!mine || trashed} onChange={(tags) => sync.setMeta({ tags })} />;
   const doc = (
         <div className={`nt-doc${board ? ' is-board' : ''}`}>
           {/* The sheet already says Daily Scratchpad - as in Quick Note, no empty title box under it. */}
           {!(isPhone && note.kind === 'daily' && !note.title) && (
             <div className="nt-head">
+              {/* Full screen hides the list and the bar: Back is the way out (Neil, 11/06/2026). */}
+              {full && !isPhone && (
+                <button type="button" className="nt-text-btn nt-back" onClick={onToggleFull} title="Back to Notes (Esc)"><ArrowLeft size={15} aria-hidden="true" /> Back to Notes</button>
+              )}
+              {/* Opened from a note's embed: the way back to that note (Neil, 11/06/2026). */}
+              {board && backTo && !full && (
+                <button type="button" className="nt-text-btn nt-back" onClick={() => onOpen?.(backTo.id)} title={`Back to ${backTo.title}`}>
+                  <ArrowLeft size={15} aria-hidden="true" /> <span className="nt-source-label">Back to {backTo.title}</span>
+                </button>
+              )}
               <span className="nt-head-rule" style={{ background: colorCss(note.color) }} aria-hidden="true" />
               <input ref={titleRef} className="nt-title" value={note.title || ''} readOnly={readOnly} maxLength={200}
                 placeholder={note.kind === 'daily' ? 'Daily Scratchpad' : board ? 'Untitled Board' : 'Untitled Note'} aria-label={board ? 'Board title' : 'Note title'}
@@ -736,9 +815,10 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             )}
             <PresenceLine people={sync.people} peers={board ? boardCollab.peers : collab.peers} live={board ? boardCollab.live : collab.live} nameOf={nameOf} />
             {!readOnly && !isPhone && <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} problem={sync.problem} />}
+            {board && tagEditor}
           </div>
 
-          <TagEditor tags={note.tags || []} disabled={!mine || trashed} onChange={(tags) => sync.setMeta({ tags })} />
+          {!board && tagEditor}
 
           {trashed && (
             <div className="nt-banner is-bad" role="status">
@@ -765,7 +845,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                   onLook={(l) => setLookPick(l)}
                   onScene={readOnly ? undefined : (sceneStr) => sync.edit({ scene: sceneStr })}
                   onThumb={readOnly ? undefined : onThumb}
-                  collab={boardCollab.enabled ? boardCollab : null} onApi={setBoardApi} />
+                  collab={boardCollab.enabled ? boardCollab : null} onApi={setBoardApi} presentSignal={presentTick} />
               </Suspense>
             </div>
           ) : eligible && collab.phase !== 'ready' && collab.phase !== 'failed'
@@ -817,7 +897,8 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const [tag, setTag] = useState('');
   const [data, setData] = useState(null);     // { notes, counts, tags }
   const [error, setError] = useState('');
-  const [listOpen, setListOpen] = useState(true);
+  const [listOpen, setListOpen] = useState(() => { try { return window.localStorage.getItem(LIST_OPEN_KEY) !== '0'; } catch { return true; } });
+  const toggleList = useCallback(() => setListOpen((o) => { store(LIST_OPEN_KEY, o ? '0' : '1'); return !o; }), []);
   const [listW, setListW] = useState(() => readNum(LIST_W_KEY, 320));
   const [drag, setDrag] = useState(false);
   const [full, setFull] = useState(false);
@@ -825,6 +906,24 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const [toast, toastNode] = useToast();
   const searchRef = useRef(null);
   const fileRef = useRef(null);
+  const pageRef = useRef(null);
+  // The page fits the window on a computer (Neil, 11/06/2026): the list and
+  // the note scroll on their own and a board gets every pixel under the bar.
+  // Measured again when anything above it moves (a banner closing).
+  const fit = !isPhone && !full;
+  useEffect(() => {
+    const el = pageRef.current;
+    if (!el || !fit) return undefined;
+    const measure = () => {
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      el.style.setProperty('--nt-fit', `${Math.max(480, Math.round(window.innerHeight - top - 16))}px`);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(document.body);
+    return () => { window.removeEventListener('resize', measure); ro?.disconnect(); };
+  }, [fit]);
 
   const askNewBoard = activeSub === NEW_BOARD_SUB;
   const selectedId = (activeSub || '').startsWith('notes:') && !askNewBoard ? activeSub.slice(6) : '';
@@ -858,7 +957,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
     try {
       const day = byMonth && month !== monthOf(today) ? `${month}-01` : today;
       const n = await api.noteCreate({ title: '', body: '', day, ...extra });
-      if (view === 'trash' || view === 'shared') setView('all');
+      if (view === 'trash' || view === 'shared' || (view === 'boards' && extra.kind !== 'board')) setView('all');
       await load();
       select(n.id);
       return n;
@@ -878,6 +977,60 @@ export default function NotesPage({ activeSub, onSubChange }) {
     if (askNewBoard) onSubChange?.('notes');
     await newNote({ kind: 'board', scene: templateScene(templateKey), templateKey });
   };
+  // Duplicate (Neil, 11/06/2026): the note or board as a new one of the
+  // caller's, "<title> (Copy)". A board keeps its pictures: a file stays
+  // while any note still points at it (note_media.purge_later).
+  const copyNote = async (id, titleOf) => {
+    try {
+      const n = await api.noteGet(id);
+      const board = isBoard(n);
+      const copy = await newNote({
+        kind: board ? 'board' : 'note', title: titleOf(n).slice(0, 200), tags: n.tags || [], color: n.color || '',
+        ...(board ? { scene: n.scene || '' } : { body: n.body || '' }),
+      });
+      return copy;
+    } catch (e) { toast(e.message || 'Could not copy it'); return null; }
+  };
+  const duplicateNote = async (id) => {
+    const copy = await copyNote(id, (n) => `${n.title || noteTitle(n)} (Copy)`);
+    if (copy) toast(`Made a copy: ${noteTitle(copy)}`);
+  };
+  // Your Templates: a new board from one of the person's own template boards.
+  const startFromBoard = async (row) => {
+    setPickingTemplate(false);
+    if (askNewBoard) onSubChange?.('notes');
+    await copyNote(row.id, (n) => n.title || '');
+  };
+
+  // The list row's right-click menu.
+  const [rowMenu, setRowMenu] = useState(null);   // { n, x, y }
+  const closeRowMenu = useCallback(() => setRowMenu(null), []);
+  const openRowMenu = (e, n) => {
+    if (isPhone) return;
+    e.preventDefault();
+    // The keyboard's menu key fires at 0,0: the menu opens under the row instead.
+    const r = e.clientX || e.clientY ? null : e.currentTarget.getBoundingClientRect();
+    setRowMenu({ n, x: r ? r.left + 16 : e.clientX, y: r ? r.bottom - 6 : e.clientY });
+  };
+  const renameNote = async (n) => {
+    const title = await dialog.prompt(isBoard(n) ? 'Name this board' : 'Name this note', { title: 'Rename', defaultValue: n.title || '', confirmText: 'Rename' });
+    if (title == null || title.trim() === (n.title || '')) return;
+    try { await api.noteUpdate(n.id, { rev: n.rev, title: title.trim() }); await load(); } catch (e) { toast(e.message || 'Could not rename it'); }
+  };
+  const pinNote = async (n) => {
+    try { await api.noteUpdate(n.id, { rev: n.rev, pinned: !n.pinned }); await load(); } catch (e) { toast(e.message || 'Could not change the pin'); }
+  };
+  const trashNote = async (n) => {
+    try {
+      await api.noteTrash(n.id);
+      if (n.id === selectedId) select('');
+      await load();
+      toast('Moved to the Trash', { label: 'Undo', run: async () => { await api.noteRestore(n.id); load(); } });
+    } catch (e) { toast(e.message || 'Could not move it to the Trash'); }
+  };
+  // "Back to <note>": the note this board was opened from (a board embed).
+  const cameFrom = selectedId ? boardCameFrom(selectedId) : '';
+  const backTo = cameFrom ? { id: cameFrom, title: noteTitle((data?.notes || []).find((x) => x.id === cameFrom) || { title: '', kind: 'note' }) } : null;
 
   const importFile = async (file) => {
     if (!file) return;
@@ -898,10 +1051,12 @@ export default function NotesPage({ activeSub, onSubChange }) {
       const inDialog = !!e.target?.closest?.('[role="dialog"]') || (isPhone && !!selectedId);
       if (e.key === '/' && !typing && !inDialog && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); searchRef.current?.focus(); }
       if (e.key === 'Escape' && full && !typing) setFull(false);
+      // Ctrl+\ (Cmd+\): hide or show the list - a modifier, so it works while writing too.
+      if ((e.ctrlKey || e.metaKey) && e.key === '\\' && !isPhone && !full && !inDialog) { e.preventDefault(); toggleList(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [full, isPhone, selectedId]);
+  }, [full, isPhone, selectedId, toggleList]);
 
   // Drag the list's edge to size it (kept per browser).
   const startDrag = (e) => {
@@ -923,13 +1078,9 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const counts = data?.counts || {};
 
   return (
-    <div className={`nt-page${full ? ' is-full' : ''}`}>
+    <div ref={pageRef} className={`nt-page${full ? ' is-full' : ''}${fit ? ' is-fit' : ''}`}>
       {!full && (
         <div className="nt-bar">
-          {!isPhone && (
-            <button type="button" className="nt-icon-btn" aria-label={listOpen ? 'Hide the list' : 'Show the list'} title={listOpen ? 'Hide the List' : 'Show the List'}
-              onClick={() => setListOpen((o) => !o)}>{listOpen ? <ChevronsLeft size={18} /> : <ChevronsRight size={18} />}</button>
-          )}
           <div className="nt-month" aria-label="Month">
             <button type="button" className="nt-icon-btn" aria-label="Previous month" disabled={!byMonth} onClick={() => setMonth((m) => shiftMonth(m, -1))}><ChevronLeft size={17} /></button>
             <span className="nt-month-label" aria-live="polite">{byMonth ? monthLabel(month) : 'Every Month'}</span>
@@ -961,7 +1112,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
               onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ''; }} />
             {isPhone
               ? <button type="button" className="nt-icon-btn" aria-label="New Board" title="New Board" onClick={newBoard}><PenTool size={17} /></button>
-              : <button type="button" className="nt-text-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
+              : <button type="button" className="nt-text-btn is-board-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
             <button type="button" className="nt-text-btn is-primary" onClick={() => newNote()}><Plus size={15} /> New Note</button>
           </div>
         </div>
@@ -982,8 +1133,8 @@ export default function NotesPage({ activeSub, onSubChange }) {
               {!data && !error && <div style={{ padding: 12 }}><SkeletonBlocks count={5} height={58} borderRadius={8} /></div>}
               {data && groups.length === 0 && (
                 <div className="nt-empty">
-                  <strong>{q ? 'No notes match' : view === 'trash' ? 'The Trash is empty' : view === 'shared' ? 'Nothing shared with you yet' : view === 'pinned' ? 'No pinned notes' : view === 'today' ? 'Nothing for today yet' : `No notes in ${monthLabel(month)}`}</strong>
-                  {q ? 'Try fewer words.' : view === 'all' || view === 'today' ? 'Start one with New Note or New Board, or jot something in Quick Note from the + menu in the top bar.' : ''}
+                  <strong>{q ? 'No notes match' : view === 'trash' ? 'The Trash is empty' : view === 'shared' ? 'Nothing shared with you yet' : view === 'pinned' ? 'No pinned notes' : view === 'today' ? 'Nothing for today yet' : view === 'boards' ? 'No boards yet' : `No notes in ${monthLabel(month)}`}</strong>
+                  {q ? 'Try fewer words.' : view === 'boards' ? 'Start one with New Board.' : view === 'all' || view === 'today' ? 'Start one with New Note or New Board, or jot something in Quick Note from the + menu in the top bar.' : ''}
                 </div>
               )}
               {groups.map((g) => (
@@ -991,7 +1142,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
                   <div className="nt-day">{dayHeading(g.day, today)}</div>
                   {g.notes.map((n) => (
                     <button key={n.id} type="button" className={`nt-row${n.id === selectedId ? ' is-on' : ''}`} onClick={() => select(n.id)}
-                      aria-current={n.id === selectedId ? 'true' : undefined}>
+                      onContextMenu={(e) => openRowMenu(e, n)} aria-current={n.id === selectedId ? 'true' : undefined}>
                       {n.color && <span className="nt-row-rule" style={{ background: colorCss(n.color) }} aria-hidden="true" />}
                       <span className="nt-row-top">
                         <span className="nt-row-title">{noteTitle(n)}</span>
@@ -1017,15 +1168,64 @@ export default function NotesPage({ activeSub, onSubChange }) {
               {data?.more && <div className="nt-empty">Showing the newest 500 - search to find older notes.</div>}
             </div>
           </div>
-          {!isPhone && <div className={`nt-resize${drag ? ' is-drag' : ''}`} role="separator" aria-orientation="vertical" aria-label="Resize the list" onPointerDown={startDrag} />}
+          {!isPhone && (
+            <div className={`nt-resize${drag ? ' is-drag' : ''}`} role="separator" aria-orientation="vertical" aria-label="Resize the list" onPointerDown={startDrag}>
+              <button type="button" className="nt-collapse" aria-label="Collapse the list" aria-expanded="true" title="Collapse the List"
+                onPointerDown={(e) => e.stopPropagation()} onClick={toggleList}><ChevronsLeft size={15} /></button>
+            </div>
+          )}
         </>)}
-        {showPane && (
-          <NotePane key={selectedId || 'none'} id={selectedId} people={people} onBack={() => select('')} onSaved={onSaved}
-            onTrashChanged={onTrashChanged} full={full} onToggleFull={() => setFull((f) => !f)} isPhone={isPhone} toast={toast} myEmail={myEmail} />
+        {/* Collapsed: a slim rail with the way back, never a lost list (Neil, 11/06/2026). */}
+        {!isPhone && !full && !listOpen && (
+          <button type="button" className="nt-rail" aria-label="Show the list" aria-expanded="false" title="Show the List" onClick={toggleList}>
+            <ChevronsRight size={16} aria-hidden="true" /><span>Notes</span>
+          </button>
         )}
+        {showPane && (view === 'boards' && !selectedId && !isPhone && groups.length > 0
+          // The Boards view with nothing open: every board as a picture (Neil, 11/06/2026).
+          ? (
+            <div className="nt-pane">
+              <div className="nt-boards" role="list" aria-label="Boards">
+                {(data?.notes || []).map((n) => (
+                  <button key={n.id} type="button" role="listitem" className="nt-board-card" onClick={() => select(n.id)} onContextMenu={(e) => openRowMenu(e, n)}>
+                    {n.thumbUrl
+                      ? <img className="nt-board-card-pic" src={n.thumbUrl} alt="" loading="lazy" />
+                      : <span className="nt-board-card-pic is-empty" aria-hidden="true"><PenTool size={20} /></span>}
+                    <span className="nt-board-card-title">{noteTitle(n)}</span>
+                    <span className="nt-board-card-meta">{editedLabel(n.updatedAt)}{!n.mine ? ` · from ${n.owner}` : ''}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )
+          : (
+            <NotePane key={selectedId || 'none'} id={selectedId} people={people} onBack={() => select('')} onSaved={onSaved}
+              onTrashChanged={onTrashChanged} full={full} onToggleFull={() => setFull((f) => !f)} isPhone={isPhone} toast={toast} myEmail={myEmail}
+              onDuplicate={duplicateNote} backTo={backTo} onOpen={select} />
+          ))}
       </div>
       {toastNode}
-      {showPicker && <TemplatePicker onPick={startBoard} onClose={closePicker} />}
+      {showPicker && <TemplatePicker onPick={startBoard} onPickBoard={startFromBoard} onClose={closePicker} />}
+      {rowMenu && (
+        <RowMenu at={rowMenu} onClose={closeRowMenu}>
+          <button type="button" role="menuitem" className="nt-pop-row" onClick={() => select(rowMenu.n.id)}><FolderOpen size={15} /> Open</button>
+          {view !== 'trash' && rowMenu.n.mine && (
+            <button type="button" role="menuitem" className="nt-pop-row" onClick={() => renameNote(rowMenu.n)}><Pencil size={15} /> Rename</button>
+          )}
+          {view !== 'trash' && (
+            <button type="button" role="menuitem" className="nt-pop-row" onClick={() => duplicateNote(rowMenu.n.id)}><Copy size={15} /> Duplicate</button>
+          )}
+          {view !== 'trash' && rowMenu.n.mine && (
+            <button type="button" role="menuitem" className="nt-pop-row" onClick={() => pinNote(rowMenu.n)}>
+              {rowMenu.n.pinned ? <PinOff size={15} /> : <Pin size={15} />} {rowMenu.n.pinned ? 'Unpin' : 'Pin'}
+            </button>
+          )}
+          {view !== 'trash' && rowMenu.n.mine && (<>
+            <div className="nt-pop-sep" />
+            <button type="button" role="menuitem" className="nt-pop-row is-danger" onClick={() => trashNote(rowMenu.n)}><Trash2 size={15} /> Move to Trash</button>
+          </>)}
+        </RowMenu>
+      )}
     </div>
   );
 }

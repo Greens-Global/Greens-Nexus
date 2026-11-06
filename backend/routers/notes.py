@@ -344,6 +344,7 @@ def _summary(n: models.NexusNote, me: str) -> dict:
         "id": n.id, "kind": n.kind or "note", "title": n.title or "", "preview": text[:220],
         "day": n.day or "", "tags": _loads(n.tags, []), "color": n.color or "",
         "pinned": bool(n.pinned) if can == "owner" else False,
+        "template": bool(getattr(n, "is_template", False)) if can == "owner" else False,
         "owner": n.owner_email, "mine": can == "owner", "can": can,
         "shared": bool(_shares(n)), "trashedAt": n.trashed_at or "",
         "rev": n.rev or 1, "words": len(text.split()), "updatedAt": n.updated_at or "",
@@ -573,7 +574,8 @@ def _directory_person(db: Session, user: dict, email: str) -> Optional[dict]:
 def list_notes(view: str = "all", q: str = "", tag: str = "", month: str = "", day: str = "",
                today: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The caller's notes and the ones shared with them, newest first.
-    view: all | pinned | today | shared | trash. month (YYYY-MM) or day
+    view: all | pinned | today | shared | trash | boards | templates (the
+    caller's own boards marked Use as Template - New Board lists them). month (YYYY-MM) or day
     narrows by the note's day; q searches title and words; tag one tag.
     `today` is the caller's own local date, for the Today count."""
     me = _me(user)
@@ -592,6 +594,7 @@ def list_notes(view: str = "all", q: str = "", tag: str = "", month: str = "", d
         "today": sum(1 for n in live + shared if today and n.day == today),
         "shared": len(shared),
         "trash": sum(1 for n in own if n.trashed_at),
+        "boards": sum(1 for n in live + shared if (n.kind or "note") == "board"),
     }
     tags = sorted({t for n in live + shared for t in _loads(n.tags, [])}, key=str.lower)
     if view == "trash":
@@ -602,6 +605,10 @@ def list_notes(view: str = "all", q: str = "", tag: str = "", month: str = "", d
         rows = [n for n in live if n.pinned]
     elif view == "today":
         rows = [n for n in live + shared if today and n.day == today]
+    elif view == "boards":
+        rows = [n for n in live + shared if (n.kind or "note") == "board"]
+    elif view == "templates":
+        rows = [n for n in live if (n.kind or "note") == "board" and n.is_template]
     else:
         rows = live + shared
     if month:
@@ -687,6 +694,7 @@ class NotePatch(BaseModel):
     tags: Optional[List[str]] = None
     color: Optional[str] = None
     pinned: Optional[bool] = None
+    template: Optional[bool] = None     # a board's Use as Template (owner only)
     # Co-typing saves (see the header): the Yjs state and the epoch it belongs to.
     ydoc: Optional[str] = None
     yepoch: Optional[str] = None
@@ -758,10 +766,12 @@ def update_note(note_id: str, body: NotePatch, user: dict = Depends(get_current_
         if collab_save:
             detail["collab"] = _collab_state(n)
         raise HTTPException(409, detail)
-    owner_only = (body.day, body.tags, body.color, body.pinned)
+    owner_only = (body.day, body.tags, body.color, body.pinned, body.template)
     if can != "owner" and any(v is not None for v in owner_only):
         raise HTTPException(403, "Only the note's owner changes its pin, color, tags or day")
     is_board = (n.kind or "note") == "board"
+    if body.template is not None and not is_board:
+        raise HTTPException(400, "Only a board can be a template")
     if body.scene is not None and not is_board:
         raise HTTPException(400, "Only a board has a drawing")
     if is_board and body.body is not None:
@@ -807,6 +817,8 @@ def update_note(note_id: str, body: NotePatch, user: dict = Depends(get_current_
         n.color = body.color
     if body.pinned is not None:
         n.pinned = bool(body.pinned)
+    if body.template is not None:
+        n.is_template = bool(body.template)     # a mark, like the pin: no rev move, no version
     if collab_save:
         if len(body.ydoc or "") > YDOC_MAX:
             _drop_collab_state(n)     # too big to keep: the next session rebuilds it from the body

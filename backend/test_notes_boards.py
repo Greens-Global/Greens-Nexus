@@ -189,6 +189,27 @@ class BoardsTest(unittest.TestCase):
         self.as_("stranger@greensglobal.com")
         self.assertEqual(self.patch(n, scene=scene("X")).status_code, 404)
 
+    def test_boards_view_and_templates_neil_11_06_2026(self):
+        b = self.board(scene=scene("Gate A"))
+        self.client.post("/notes", json={"title": "Plain", "day": TODAY})
+        r = self.client.get("/notes?view=boards").json()
+        self.assertEqual([x["id"] for x in r["notes"]], [b["id"]])
+        self.assertEqual(r["counts"]["boards"], 1)
+        self.assertEqual(self.client.get("/notes?view=templates").json()["notes"], [])
+        # Use as Template is the owner's mark: no rev move, a board's alone.
+        t = self.patch(b, template=True)
+        self.assertEqual(t.status_code, 200, t.text)
+        self.assertTrue(t.json()["template"])
+        self.assertEqual(t.json()["rev"], b["rev"])
+        self.assertEqual([x["id"] for x in self.client.get("/notes?view=templates").json()["notes"]], [b["id"]])
+        plain = [x for x in self.client.get("/notes").json()["notes"] if x["kind"] == "note"][0]
+        self.assertEqual(self.patch(plain, template=True).status_code, 400)
+        self.client.put(f"/notes/{b['id']}/share", json={"email": BOB, "can": "edit"})
+        self.as_(BOB)
+        self.assertEqual(self.patch(self.client.get(f"/notes/{b['id']}").json(), template=False).status_code, 403)
+        self.assertEqual(self.client.get("/notes?view=templates").json()["notes"], [])
+        self.assertEqual(self.client.get("/notes?view=boards").json()["counts"]["boards"], 1)
+
     def test_too_large_or_not_a_board_is_refused(self):
         n = self.board(scene=scene("One"))
         big = scene(*(["x" * 1000] * 2100))

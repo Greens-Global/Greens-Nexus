@@ -28,11 +28,11 @@
 // Lazy: NotesPage imports this file with React.lazy; the engine's chunk is
 // fetched only when a board opens.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, X } from 'lucide-react';
+import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, X, Presentation, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react';
 import './board.css';
 import { loadEngine, CAPTURE } from './engine';
 import BoardFallback, { EngineBoundary, BoardLoading } from './engine/fallback';
-import { parseScene, applyLook, lookDefaults, emptyScene, compact, sameScene, LOOKS, SCENE_MAX } from './scene';
+import { parseScene, applyLook, lookDefaults, emptyScene, compact, sameScene, presentSlides, LOOKS, SCENE_MAX } from './scene';
 import { uploadBoardFile, loadBoardFiles } from './files';
 import { remoteWins } from './boardSync';
 import { exportPng, exportSvg, exportThumb, copyPng, downloadBlob, downloadScene } from './exportBoard';
@@ -87,6 +87,11 @@ function writeMarkupPref(m) {
 const NO_INK = new Set(['select', 'hand', 'eraser', 'image', 'frame', 'laser']);
 const anySelected = (ids) => !!ids && Object.keys(ids).some((k) => ids[k]);
 
+// Hide Tools (Neil, 11/06/2026): a computer's bar and zoom can fold away, per browser.
+const TOOLS_HIDDEN = 'nx-board-tools-hidden';
+const readToolsHidden = () => { try { return localStorage.getItem(TOOLS_HIDDEN) === '1'; } catch { return false; } };
+
+
 function readTheme() {
   if (typeof document === 'undefined') return 'light';
   return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
@@ -120,7 +125,7 @@ function useEngine() {
   return { engine, error, attempt, retry };
 }
 
-export default function Board({ note, isPhone = false, look: lookProp, onLook, onScene, onThumb, collab = null, onApi }) {
+export default function Board({ note, isPhone = false, look: lookProp, onLook, onScene, onThumb, collab = null, onApi, presentSignal = 0 }) {
   const canEdit = !!note?.canEdit;
   const theme = useAppTheme();
   const kbInset = useKeyboardInset(isPhone);
@@ -426,6 +431,76 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   }, [api, onLook, scheduleSave]);
 
   const fit = useCallback(() => { api?.scrollToContent(undefined, { fitToContent: true, animate: true }); }, [api]);
+
+  // ---- Present ------------------------------------------------------------
+  // The board full screen with the tools away and a pill to step the slides;
+  // the canvas under it takes no pointer, so nothing is drawn by accident.
+  const rootRef = useRef(null);
+  const [present, setPresent] = useState(null);     // { slides, i, fs }
+  const presentRef = useRef(null);     // the same, read by the key and full screen listeners
+  const showSlide = useCallback((slide) => { api?.scrollToContent(slide || undefined, { fitToContent: true, animate: true }); }, [api]);
+  const startPresent = useCallback(() => {
+    if (!api || presentRef.current) return;
+    const slides = presentSlides(api.getSceneElementsIncludingDeleted());
+    let fs = false;
+    const el = rootRef.current;
+    if (el?.requestFullscreen && !document.fullscreenElement) {
+      fs = true;
+      try { el.requestFullscreen().catch(() => {}); } catch { /* refused: present in the page */ }
+    }
+    const p = { slides, i: 0, fs };
+    presentRef.current = p;
+    setPresent(p);
+    showSlide(slides[0]);
+  }, [api, showSlide]);
+  const stepSlide = useCallback((d) => {
+    const p = presentRef.current;
+    if (!p) return;
+    const i = Math.max(0, Math.min(p.slides.length - 1, p.i + d));
+    if (i === p.i) return;
+    presentRef.current = { ...p, i };
+    setPresent(presentRef.current);
+    showSlide(p.slides[i]);
+  }, [showSlide]);
+  const stopPresent = useCallback(() => {
+    const p = presentRef.current;
+    if (!p) return;
+    presentRef.current = null;
+    setPresent(null);
+    if (p.fs && document.fullscreenElement) { try { document.exitFullscreen().catch(() => {}); } catch { /* already out */ } }
+    fit();
+  }, [fit]);
+  // The caller's Present button bumps the signal; it is taken once the engine is up.
+  const seenSignal = useRef(presentSignal);
+  useEffect(() => {
+    if (!api || !presentSignal || presentSignal === seenSignal.current) return;
+    seenSignal.current = presentSignal;
+    startPresent();
+  }, [presentSignal, api, startPresent]);
+  useEffect(() => {
+    if (!present) return undefined;
+    const key = (e) => {
+      const k = e.key;
+      if (k === 'ArrowRight' || k === ' ' || k === 'PageDown') stepSlide(1);
+      else if (k === 'ArrowLeft' || k === 'PageUp') stepSlide(-1);
+      else if (k === 'Escape') stopPresent();
+      else return;
+      e.preventDefault(); e.stopPropagation();
+    };
+    // Esc in browser full screen leaves it with no keydown: that ends the show too.
+    const fsChange = () => { if (presentRef.current?.fs && !document.fullscreenElement) stopPresent(); };
+    window.addEventListener('keydown', key, true);
+    document.addEventListener('fullscreenchange', fsChange);
+    return () => { window.removeEventListener('keydown', key, true); document.removeEventListener('fullscreenchange', fsChange); };
+  }, [present, stepSlide, stopPresent]);
+
+  // ---- Hide Tools (a computer) ---------------------------------------------
+  const [toolsHiddenPref, setToolsHiddenPref] = useState(readToolsHidden);
+  const toolsHiddenHere = toolsHiddenPref && !isPhone;
+  const hideTools = useCallback((v) => {
+    setToolsHiddenPref(v);
+    try { localStorage.setItem(TOOLS_HIDDEN, v ? '1' : '0'); } catch { /* private window */ }
+  }, []);
   const toast = useCallback((message) => { try { api?.setToast({ message, duration: 2000 }); } catch { /* engine not ready */ } }, [api]);
   const doExportPng = useCallback(async () => { if (!api) return; downloadBlob(await exportPng(api), exportFileName(note, 'png')); }, [api, note]);
   const doExportSvg = useCallback(async () => { if (!api) return; downloadBlob(new Blob([await exportSvg(api)], { type: 'image/svg+xml' }), exportFileName(note, 'svg')); }, [api, note]);
@@ -528,6 +603,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
       {canEdit && <Menu.Custom>{lookToggle}</Menu.Custom>}
       {canEdit && <Menu.Separator />}
       <Menu.Item icon={<Maximize2 size={14} />} onSelect={fit}>Fit to Screen</Menu.Item>
+      {!isPhone && <Menu.Item icon={<Presentation size={14} />} onSelect={startPresent}>Present</Menu.Item>}
       <Menu.Separator />
       <Menu.Item icon={<ImageIcon size={14} />} onSelect={doExportPng}>Export as PNG</Menu.Item>
       <Menu.Item icon={<Download size={14} />} onSelect={doExportSvg}>Export as SVG</Menu.Item>
@@ -551,11 +627,12 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
 
   const showBar = !!(markupApi && api);
   const barOnly = showBar && isPhone;
+  const toolsHidden = toolsHiddenHere && showBar;   // only an editor's bar folds away
   const sheetRow = (Icon, label, onClick) => (
     <button type="button" className="nx-mk-sheet-row" onClick={() => { setPhoneMore(false); onClick(); }}><Icon size={18} /> {label}</button>
   );
   return (
-    <div className={`nx-board${isPhone ? ' is-phone' : ''}${canEdit ? '' : ' is-view'}${showBar ? ' has-markup' : ''}${barOnly ? ' is-markup-only' : ''}`} data-look={look}
+    <div ref={rootRef} className={`nx-board${isPhone ? ' is-phone' : ''}${canEdit ? '' : ' is-view'}${showBar ? ' has-markup' : ''}${barOnly ? ' is-markup-only' : ''}${toolsHidden ? ' is-tools-hidden' : ''}${present ? ' is-presenting' : ''}`} data-look={look}
       style={kbInset ? { '--nx-kb-inset': `${kbInset}px` } : undefined} data-testid="nx-board">
       {draftOffer && canEdit && (
         <div className="nx-board-draft" role="status" aria-label="Unsaved drawing">
@@ -593,12 +670,27 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
             <span className="nx-mk-place-hint">Tap where the comment goes</span>
           </div>
         )}
-        {showBar && (
+        {showBar && !toolsHidden && !present && (
           <MarkupBar phone={isPhone} tool={mk.tool} colorKey={inkFor(mk)} sizeKey={mk.size} hasSelection={hasSelection}
             onTool={chooseTool} onColor={chooseColor} onSize={chooseSize} onUndo={undo} onRedo={redo} onDelete={deleteSelected}
             styleOpen={styleOpen} onStyle={isPhone ? toggleStyle : undefined}
-            onMore={isPhone ? () => setPhoneMore(true) : undefined} />
+            onMore={isPhone ? () => setPhoneMore(true) : undefined} onHide={isPhone ? undefined : () => hideTools(true)} />
         )}
+        {toolsHidden && !present && (
+          <button type="button" className="nx-board-show-tools" onClick={() => hideTools(false)}>
+            <ChevronUp size={15} aria-hidden="true" /> Show Tools
+          </button>
+        )}
+        {present && (<>
+          <div className="nx-present-shield" aria-hidden="true" />
+          <div className="nx-present-pill" role="toolbar" aria-label="Presenting">
+            <button type="button" className="nx-mk-btn" onClick={() => stepSlide(-1)} disabled={present.i === 0} aria-label="Previous Slide" title="Previous (Left Arrow)"><ChevronLeft size={18} /></button>
+            <span className="nx-present-count" aria-live="polite">{present.i + 1} of {present.slides.length}</span>
+            <button type="button" className="nx-mk-btn" onClick={() => stepSlide(1)} disabled={present.i >= present.slides.length - 1} aria-label="Next Slide" title="Next (Right Arrow)"><ChevronRight size={18} /></button>
+            <span className="nx-mk-sep" aria-hidden />
+            <button type="button" className="nx-present-exit" onClick={stopPresent} title="Exit (Esc)"><X size={15} aria-hidden="true" /> Exit</button>
+          </div>
+        </>)}
         {notice && <div className={`nx-board-note${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</div>}
         {showBar && isPhone && phoneMore && (
           <div className="nx-mk-sheet-wrap" onPointerDown={(e) => { if (e.target === e.currentTarget) setPhoneMore(false); }}>

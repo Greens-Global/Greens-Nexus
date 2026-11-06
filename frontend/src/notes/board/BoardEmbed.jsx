@@ -10,7 +10,7 @@ import { Node, mergeAttributes } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { PenTool, X } from 'lucide-react';
 import { isOwnImageUrl } from '../../lib/storageView';
-import { openBoard } from '../newBoard';
+import { openBoard, noteInAddress } from '../newBoard';
 import { EDITED } from '../noteMedia';
 
 const NOTE_REF = /^note_[A-Za-z0-9]{1,64}$/;
@@ -29,7 +29,7 @@ function EmbedView({ node, editor, getPos }) {
   };
   return (
     <NodeViewWrapper className="nt-board-embed" contentEditable={false} data-drag-handle="">
-      <button type="button" className="nt-board-embed-open" onClick={() => noteId && openBoard(noteId)} disabled={!noteId}
+      <button type="button" className="nt-board-embed-open" onClick={() => noteId && openBoard(noteId, noteInAddress())} disabled={!noteId}
         title={`Open the board "${title}"`} aria-label={`Open the board ${title}`}>
         {thumb
           ? <img className="nt-board-embed-thumb" src={thumb} alt="" loading="lazy" />
