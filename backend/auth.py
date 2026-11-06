@@ -356,7 +356,10 @@ _EXTERNAL_BASE_PREFIXES = (
 # grants = app shell only). A module with no API surface maps to ().
 MODULE_API_PREFIXES = {
     "dashboard":          ("/dashboards", "/dashboard"),
-    "timeclock":          ("/timeclock",),
+    # The Time Sheet's review and signing (/timesheet-review) rides Time Clock:
+    # a guest employee's Sign was refused (Sophia Martinez, 11/06/2026). Every
+    # route there checks the caller itself (the employee signs only their own).
+    "timeclock":          ("/timeclock", "/timesheet-review"),
     "employee-tracking":  ("/timeclock",),   # its endpoints self-gate on the tracking grant
     "myhr":               ("/myhr",),
     "manager-dashboard":  ("/dashboard",),
