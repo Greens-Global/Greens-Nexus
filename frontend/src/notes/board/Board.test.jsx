@@ -129,6 +129,46 @@ describe('Board', () => {
     expect(screen.queryByRole('button', { name: /^Attach to/ })).toBeNull();
   });
 
+  it('Present steps the frames in reading order with the tools away, and Esc ends it (Neil, 11/06/2026)', async () => {
+    fakeApi.scene = [
+      el({ id: 'f2', type: 'frame', x: 500, y: 10, height: 300 }), el({ id: 'f1', type: 'frame', x: 0, y: 0, height: 300 }),
+      el({ id: 'f3', type: 'frame', x: 0, y: 600, height: 300 }), el({ id: 'gone', type: 'frame', isDeleted: true }),
+    ];
+    const { rerender } = await act(async () => render(<Board note={note()} />));
+    rerender(<Board note={note()} presentSignal={1} />);
+    expect(screen.getByTestId('nx-board').className).toContain('is-presenting');
+    expect(screen.getByText('1 of 3')).toBeTruthy();
+    expect(screen.queryByTestId('nx-markup')).toBeNull();
+    expect(fakeApi.scrollToContent).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'f1' }), expect.objectContaining({ fitToContent: true }));
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(fakeApi.scrollToContent).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'f2' }), expect.anything());
+    fireEvent.click(screen.getByRole('button', { name: 'Next Slide' }));
+    expect(screen.getByText('3 of 3')).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByTestId('nx-board').className).not.toContain('is-presenting');
+  });
+
+  it('a board with no frames presents as one slide; the menu offers Present', async () => {
+    await act(async () => { render(<Board note={note()} />); });
+    fireEvent.click(screen.getByRole('button', { name: 'Present' }));
+    expect(screen.getByText('1 of 1')).toBeTruthy();
+    expect(fakeApi.scrollToContent).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ fitToContent: true }));
+    fireEvent.click(screen.getByRole('button', { name: /Exit/ }));
+    expect(screen.queryByText('1 of 1')).toBeNull();
+  });
+
+  it('Hide Tools folds the bar away for this browser; Show Tools brings it back', async () => {
+    localStorage.removeItem('nx-board-tools-hidden');
+    await act(async () => { render(<Board note={note()} />); });
+    fireEvent.click(screen.getByRole('button', { name: 'Hide Tools' }));
+    expect(screen.queryByTestId('nx-markup')).toBeNull();
+    expect(screen.getByTestId('nx-board').className).toContain('is-tools-hidden');
+    expect(localStorage.getItem('nx-board-tools-hidden')).toBe('1');
+    fireEvent.click(screen.getByRole('button', { name: /Show Tools/ }));
+    expect(screen.getByTestId('nx-markup')).toBeTruthy();
+    expect(localStorage.getItem('nx-board-tools-hidden')).toBe('0');
+  });
+
   it('Export as PNG names the file the way the Notes menu does', async () => {
     await act(async () => { render(<Board note={note({ title: 'Yard: North / South' })} />); });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Export as PNG' })); });

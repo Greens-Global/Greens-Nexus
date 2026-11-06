@@ -79,6 +79,18 @@ export function htmlToText(html) {
   return (doc.body.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// A note's outline (Neil, 11/06/2026): its h1-h3 in order, as plain words.
+export function noteHeadings(html) {
+  const out = [];
+  const re = /<h([1-3])\b[^>]*>([\s\S]*?)<\/h\1>/gi;
+  let m;
+  while ((m = re.exec(html || ''))) {
+    const text = htmlToText(m[2]).trim();
+    if (text) out.push({ level: Number(m[1]), text });
+  }
+  return out;
+}
+
 export const countWords = (text) => (String(text || '').trim().match(/\S+/g) || []).length;
 
 // "edited 3 min ago" / "edited 10/27/2026"

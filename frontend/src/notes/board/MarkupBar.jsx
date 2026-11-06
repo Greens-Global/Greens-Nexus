@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   MousePointer2, Hand, PenLine, Highlighter, MoveUpRight, Square, Type, MessageSquarePlus, Eraser,
-  Undo2, Redo2, Trash2, MoreHorizontal, Check, Circle, Diamond, Minus, ImagePlus, Frame, Pointer, Shapes, SlidersHorizontal,
+  Undo2, Redo2, Trash2, MoreHorizontal, Check, Circle, Diamond, Minus, ImagePlus, Frame, Pointer, Shapes, SlidersHorizontal, ChevronDown,
 } from 'lucide-react';
 import { MARKUP_TOOLS, MORE_TOOLS, MARKUP_COLORS, MARKUP_SIZES, colorByKey, isMoreTool } from './markupTools';
 
@@ -25,7 +25,7 @@ const ICONS = {
 
 export default function MarkupBar({
   phone = false, tool, colorKey, sizeKey, hasSelection = false, styleOpen = false,
-  onTool, onColor, onSize, onUndo, onRedo, onDelete, onMore, onStyle,
+  onTool, onColor, onSize, onUndo, onRedo, onDelete, onMore, onStyle, onHide,
 }) {
   // One pop-up at a time: the inks ('ink') or More Tools ('more').
   const [pop, setPop] = useState('');
@@ -137,6 +137,10 @@ export default function MarkupBar({
         {phone && onMore && (
           <button type="button" className="nx-mk-btn" onClick={onMore} aria-label="More" title="More"><MoreHorizontal size={20} /></button>
         )}
+        {!phone && onHide && (<>
+          <span className="nx-mk-sep" aria-hidden />
+          <button type="button" className="nx-mk-btn" onClick={onHide} aria-label="Hide Tools" title="Hide Tools"><ChevronDown size={18} /></button>
+        </>)}
       </div>
     </div>
   );

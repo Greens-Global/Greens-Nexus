@@ -246,3 +246,31 @@
 .nx-mk.is-phone .nx-mk-more-row { flex-direction: column; justify-content: center; gap: 4px; min-height: 64px; padding: 6px; font-size: 12.5px; text-align: center; background: var(--wk-hover, #f1f4f1); }
 .nx-mk.is-phone .nx-mk-more-row > span { flex: 0 0 auto; }
 .nx-mk.is-phone .nx-mk-more-row.is-on { background: var(--wk-brand-tint, #e3f3e8); }
+
+/* ---- Hide Tools and Present (Neil, 11/06/2026) --------------------------
+   Hide Tools: a computer's markup bar and the engine's zoom / undo fold away,
+   leaving one small pill to bring them back. Present: the board full screen,
+   the engine's UI gone, a shield so nothing is drawn by accident, and a pill
+   to step the frames. */
+.nx-board.is-tools-hidden .excalidraw .layer-ui__wrapper__footer-left { display: none !important; }
+.nx-board-show-tools, .nx-present-pill {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 8;
+  display: inline-flex; align-items: center; gap: 6px; border-radius: 999px;
+  background: var(--card, #fff); color: var(--ink, #1c2420); box-shadow: 0 10px 28px rgba(15, 23, 42, .12), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+}
+[data-theme="dark"] .nx-board-show-tools, [data-theme="dark"] .nx-present-pill { box-shadow: 0 10px 28px rgba(0, 0, 0, .45), 0 0 0 1px var(--line, rgba(255, 255, 255, .09)); }
+.nx-board-show-tools { border: 0; padding: 7px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.nx-board-show-tools:hover { background: var(--wk-hover, #f1f4f1); }
+.nx-board-show-tools:focus-visible, .nx-present-exit:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
+.nx-board.is-presenting .excalidraw .layer-ui__wrapper,
+.nx-board.is-presenting .nx-board-draft,
+.nx-board.is-presenting .nx-board-note { display: none !important; }
+.nx-board:fullscreen { background: var(--card, #fff); }
+.nx-present-shield { position: absolute; inset: 0; z-index: 7; }
+.nx-present-pill { padding: 4px 6px; }
+.nx-present-pill .nx-mk-btn:disabled { opacity: .35; cursor: default; }
+.nx-present-count { min-width: 54px; text-align: center; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.nx-present-exit {
+  display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 999px; padding: 7px 12px; cursor: pointer;
+  background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); font: inherit; font-size: 12.5px; font-weight: 700;
+}
