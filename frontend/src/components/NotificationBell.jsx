@@ -10,6 +10,7 @@ import { setPendingOpen }    from '../lib/pendingOpen';
 import { Spinner } from './AsyncState';
 import { openNotificationTarget } from '../lib/openTarget';
 import { RaiseNotice } from './PriorityBar';
+import { bellLists } from '../lib/notificationCounts';
 
 // The Items handover sheet (photo, then the handover) - lazy, so the bell
 // never pulls the Items module into the first paint (Items redesign, Neil
@@ -175,7 +176,7 @@ export function destinationFor(n) {
 }
 
 export default function NotificationBell({ onNavigate }) {
-  const { notifications: allNotifications, unreadCount, markRead, markAllRead, dismiss, restore, markActioned, pendingApprovalId, clearPendingApproval, openPanelSignal } = useNotifications();
+  const { notifications: allNotifications, markRead, markAllRead, dismiss, restore, markActioned, pendingApprovalId, clearPendingApproval, openPanelSignal } = useNotifications();
   const { approveRequest, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
@@ -571,22 +572,9 @@ export default function NotificationBell({ onNavigate }) {
     }
   }
 
-  // Needs Action: only visible to managers+
-  // checkout_pending = new Items module; inv_request/req_pending = older systems
-  const ACTIONABLE_TYPES = new Set(['inv_request', 'req_pending', 'checkout_pending', 'extension_pending']);
-  // Broadcast (no recipient) or addressed to me - checkout requests are now
-  // targeted at the manager the employee picked at checkout.
-  const actionableRaw = can('manager') ? notifications.filter(n =>
-    ACTIONABLE_TYPES.has(n.type) && (!n.recipient || n.recipient === myEmail) && !n.actioned
-  ) : [];
-  // Deduplicate by refId - parallel cart submissions can create N notifications for one order
-  const seenRefs = new Set();
-  const actionable = actionableRaw.filter(n => {
-    const key = n.refId || n.id;
-    if (seenRefs.has(key)) return false;
-    seenRefs.add(key);
-    return true;
-  });
+  // Needs Action (managers+) and Updates, and the unread count: ONE rule
+  // shared with the dashboard's card and tile (lib/notificationCounts.js).
+  const { actionable, updates, unread: myUnread } = bellLists(allNotifications, { isManager: can('manager'), myEmail, myName });
 
   // A toast click set this to a notification id - open the panel on that card
   // with the full set of choices (Review / Approve All / Reject All) visible.
@@ -609,18 +597,6 @@ export default function NotificationBell({ onNavigate }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openPanelSignal]);
 
-  // Updates: everything that isn't an actionable type, scoped to me or broadcast.
-  // item_returned with no recipient is manager-only - skip for employees to avoid
-  // broadcasting someone else's return into every user's bell.
-  const updates = notifications.filter(n =>
-    !ACTIONABLE_TYPES.has(n.type) &&
-    (!n.recipient || n.recipient === myEmail || n.recipient === myName) &&
-    !(n.type === 'item_returned' && !n.recipient && !can('manager')) &&
-    !(n.type === 'perm_return' && !n.recipient && !can('manager'))
-  );
-
-  // Unread count scoped to what I can see
-  const myUnread = [...actionable, ...updates].filter(n => !n.read).length;
   const isEmpty  = actionable.length === 0 && updates.length === 0;
 
   return (
@@ -641,13 +617,14 @@ export default function NotificationBell({ onNavigate }) {
         {myUnread > 0 && (
           <span style={{
             position: 'absolute', top: 4, right: 4,
-            width: myUnread > 9 ? 16 : 14, height: 14,
+            minWidth: 14, height: 14, padding: myUnread > 9 ? '0 3px' : 0, boxSizing: 'border-box',
             background: 'hsl(var(--color-red))', color: '#fff',
             borderRadius: 999, fontSize: 9, fontWeight: 700,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             lineHeight: 1, fontFamily: 'Inter, sans-serif',
           }}>
-            {myUnread > 9 ? '9+' : myUnread}
+            {/* The real number up to 99, so it matches the dashboard's count. */}
+            {myUnread > 99 ? '99+' : myUnread}
           </span>
         )}
       </button>

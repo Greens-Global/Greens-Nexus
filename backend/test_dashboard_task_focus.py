@@ -152,6 +152,11 @@ class EndpointTests(unittest.TestCase):
         MW.local_today.return_value = "2026-10-24"       # midnight passes inside the 20 s cache
         self.assertEqual(D.kpis(user=USER, db=self.db)["kpis"]["my_open_tasks"], 1)
 
+    def test_no_server_unread_notifications(self):
+        """The tile reads the bell's own count (frontend lib/notificationCounts.js);
+        the server's counted every row ever addressed to you, read or not."""
+        self.assertNotIn("unread_notifications", self.kpis())
+
     def test_the_team_figure_is_unchanged(self):
         self.add(due_on="")
         self.add(due_on="2027-06-01", assignee_email=OTHER, assignee_emails=[OTHER])
