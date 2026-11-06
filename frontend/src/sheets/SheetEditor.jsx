@@ -614,7 +614,9 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       target = spot.tab.id; r = spot.rect.r1; c = spot.rect.c1;
       if (target === got.tab.id && r <= got.rect.r2 && r >= got.rect.r1 && c <= got.rect.c2 && c >= got.rect.c1) { toastErr?.('Start the pivot outside its data range.'); return; }
     } else {
-      target = addTab(doc, { ...newTabSnapshot('Pivot Table', 1000, 26) });
+      // Wider columns than a plain tab, so headers like "SUM of Amount" are not clipped.
+      const snap = newTabSnapshot('Pivot Table', 1000, 26);
+      target = addTab(doc, { ...snap, sizes: Object.fromEntries(snap.cols.map((id) => [id, 140])) });
       if (!target) { toastErr?.(`A sheet holds ${MAX_TABS} tabs at most.`); return; }
     }
     if (extraOf(doc, 'pivots', target).size >= LIMITS.pivots) { toastErr?.(`A tab holds ${LIMITS.pivots} pivot tables at most.`); return; }
