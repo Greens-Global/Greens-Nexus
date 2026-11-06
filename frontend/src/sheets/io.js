@@ -128,10 +128,8 @@ function download(blob, name) {
 function cellsShown(ctx, eng, tab) {
   const out = [];
   const seen = new Set();
-  tab.cells.forEach((cell, k) => {
-    const [rid, cid] = k.split('.');
-    const r = ctx.rowIndex(tab, rid), c = ctx.colIndex(tab, cid);
-    if (r < 0 || c < 0 || (!cell.f && (cell.v == null || cell.v === '') && !cell.s && !cell.l)) return;
+  ctx.eachCell(tab, (r, c, cell) => {
+    if (!cell.f && (cell.v == null || cell.v === '') && !cell.s && !cell.l) return;
     out.push({ r, c, cell, v: eng.cellValue(tab, r, c) });
     seen.add(`${r}|${c}`);
     const sp = cell.f ? eng.spillOf(tab, r, c) : null;

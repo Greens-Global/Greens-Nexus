@@ -50,7 +50,7 @@ function pivotOf(doc, data, piv, opts) {
 }
 const grid = (doc, cfg) => {
   const ctx = buildCtx(doc);
-  const out = computePivot(createEngine(ctx), ctx, cfg);
+  const out = computePivot(createEngine(ctx), ctx, { ...cfg });   // a fresh object: the test changes cfg in place
   return out.error || out.cells.map((row) => row.map((x) => (x ? x.v : null)));
 };
 const at = (doc, tab, ref) => { const { r, c } = pos(ref); const v = createEngine(buildCtx(doc)).value(tab, r, c); return isErr(v) ? v.code : v; };

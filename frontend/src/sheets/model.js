@@ -103,9 +103,12 @@ export function snapshotOf(doc) {
   const meta = metaOf(doc);
   // Everything is cut to the sheet's limits here, so what is saved always opens again.
   let budget = MAX_CELLS;
+  const usable = usableTabs(doc);
+  // Never save a workbook with no tab (it would not open): a blank one stands in.
+  if (!usable.length) return newSheetContent();
   return {
     type: 'nexus-sheet', v: 1,
-    tabs: usableTabs(doc).map(({ id, rows, cols }) => {
+    tabs: usable.map(({ id, rows, cols }) => {
       const m = tabMeta(meta.get(id));
       const rs = new Set(rows), cs = new Set(cols);
       const cells = {};
@@ -150,7 +153,8 @@ export function safeLink(u) {
   if (!/^(https?:\/\/|mailto:)/i.test(t)) return '';
   try {
     const p = new URL(t);
-    return ['http:', 'https:', 'mailto:'].includes(p.protocol) ? p.href : '';
+    // Encoding can lengthen it (spaces become %20): past 2,000 characters it is not saved at all.
+    return ['http:', 'https:', 'mailto:'].includes(p.protocol) && p.href.length <= 2000 ? p.href : '';
   } catch { return ''; }
 }
 
@@ -202,6 +206,16 @@ export function validateSheetDoc(doc) {
     } catch { fail(`tab ${id} structure`); }
   }
   if (!usableTabs(doc).length) fail('no usable tab');
+}
+
+/** Is there a tab to show? (Two people deleting the last tabs at once can leave none.) */
+export function hasUsableTab(doc) {
+  const meta = metaOf(doc);
+  for (const id of tabsOf(doc).toArray()) {
+    if (!isId(id) || !meta.has(id)) continue;
+    if (rowsOf(doc, id).toArray().some(isId) && colsOf(doc, id).toArray().some(isId)) return true;
+  }
+  return false;
 }
 
 /** The tabs a read can use: listed, named in tabmeta, with id rows and columns (bad ids left out). */
@@ -441,6 +455,26 @@ export function makeCtx(tabs, grow, names = new Map()) {
       const x = rid && cid ? get(tab.cells, rid + '.' + cid) : undefined;
       return okCell(x) || undefined;
     },
+    /**
+     * Every stored cell of the tab that is usable, cleaned: fn(r, c, cell, key).
+     * The ONE way to walk a tab's cells - a raw loop would meet whatever a
+     * colleague's browser wrote (null, a list, a bad style).
+     */
+    eachCell: (tab, fn) => {
+      const visit = (raw, key) => {
+        if (typeof key !== 'string') return;
+        const cell = okCell(raw);
+        if (!cell) return;
+        const dot = key.indexOf('.');
+        if (dot < 0) return;
+        const r = indexOf(tab, 'rows', key.slice(0, dot)), c = indexOf(tab, 'cols', key.slice(dot + 1));
+        if (r >= 0 && c >= 0) fn(r, c, cell, key);
+      };
+      const cells = tab.cells;
+      if (!cells) return;
+      if (typeof cells.forEach === 'function') cells.forEach(visit);
+      else for (const [k, v] of Object.entries(cells)) visit(v, k);
+    },
     size: (tab, id, dflt) => { const v = get(tab.sizes, id); return typeof v === 'number' && v >= 4 && v <= 2000 ? v : dflt; },
     /** {r1, c1, r2, c2} as indexes for a range stored by ids, or null when a row or column is gone. */
     rect: (tab, g) => {
@@ -524,7 +558,7 @@ export function writeCells(doc, tabId, list) {
     const room = roomIn(doc);
     for (const it of list) {
       const key = ctx.rowId(tab, it.r) + '.' + ctx.colId(tab, it.c);
-      const cur = map.get(key) || {};
+      const cur = cleanCell(map.get(key)) || {};
       let f = null;
       if (it.f) { try { f = encodeFormula(it.f, ctx, tabId); } catch { f = it.f; } }
       putCell(map, key, { v: f ? null : it.v, f, s: it.s !== undefined ? it.s : cur.s, l: it.l !== undefined ? it.l : cur.l }, room);
@@ -565,7 +599,7 @@ export function styleRange(doc, tabId, rect, patch, { skipRows } = {}) {
     const tab = ctx.tabById(tabId);
     const map = cellsOf(doc, tabId);
     const room = roomIn(doc);
-    eachInRange(tab, map, ctx, rect, skipRows, (r, c, key) => { const cur = map.get(key) || {}; putCell(map, key, { ...cur, s: patched(cur, patch) }, room); });
+    eachInRange(tab, map, ctx, rect, skipRows, (r, c, key) => { const cur = cleanCell(map.get(key)) || {}; putCell(map, key, { ...cur, s: patched(cur, patch) }, room); });
     skipped = room.skipped;
   });
   return skipped;
@@ -581,7 +615,7 @@ export function styleCells(doc, tabId, list) {
     const room = roomIn(doc);
     for (const { r, c, patch } of list) {
       const key = ctx.rowId(tab, r) + '.' + ctx.colId(tab, c);
-      const cur = map.get(key) || {};
+      const cur = cleanCell(map.get(key)) || {};
       putCell(map, key, { ...cur, s: patched(cur, patch) }, room);
     }
     skipped = room.skipped;
@@ -597,7 +631,7 @@ export function clearRange(doc, tabId, rect, { formats = false, skipRows } = {})
     const map = cellsOf(doc, tabId);
     const r2 = Math.min(rect.r2, tab.rows.length - 1), c2 = Math.min(rect.c2, tab.cols.length - 1);
     eachInRange(tab, map, ctx, { ...rect, r2, c2 }, skipRows, (r, c, key) => {
-      const cur = map.get(key);
+      const cur = map.has(key) ? cleanCell(map.get(key)) || {} : null;
       if (cur) putCell(map, key, formats ? {} : { s: cur.s });
     }, { existingOnly: true });
   });

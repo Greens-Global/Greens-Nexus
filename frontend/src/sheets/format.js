@@ -42,8 +42,12 @@ export function usTime(serial, seconds = false) {
   return `${h % 12 || 12}:${pad(mi)}${seconds ? ':' + pad(s) : ''} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
+/** Decimal places Excel allows: 0 to 15 (toFixed throws past 100, and a stored style may say anything). */
+const places = (d) => (Number.isInteger(d) ? Math.max(0, Math.min(15, d)) : 2);
+
 /** 1234567.891 -> "1,234,567.89" (d decimals). */
-export function withCommas(n, d) {
+export function withCommas(n, d0) {
+  const d = places(d0);
   const neg = n < 0;
   const [int, frac] = Math.abs(n).toFixed(d).split('.');
   const body = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -72,8 +76,9 @@ export function formatValue(v, s) {
   if (typeof v === 'object' && v.code) return v.code;     // an error
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
   if (typeof v === 'string') return v;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return typeof v === 'number' ? '#NUM!' : '';
   const nf = s?.nf || '';
-  const d = Number.isInteger(s?.d) ? s.d : DEFAULT_DECIMALS[nf];
+  const d = places(Number.isInteger(s?.d) ? s.d : DEFAULT_DECIMALS[nf]);
   switch (nf) {
     case 'number': return withCommas(v, d);
     case 'currency': return (v < 0 && Number(Math.abs(v).toFixed(d)) !== 0 ? '-$' : '$') + withCommas(Math.abs(v), d);
@@ -82,7 +87,7 @@ export function formatValue(v, s) {
     case 'time': return usTime(v);
     case 'datetime': return `${usDate(v)} ${usTime(v)}`;
     default:
-      if (Number.isInteger(s?.d)) return v.toFixed(s.d);
+      if (Number.isInteger(s?.d)) return v.toFixed(places(s.d));
       return formatGeneral(v);
   }
 }

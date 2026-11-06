@@ -40,7 +40,7 @@ function pivot(doc, data, out, opts, at = 'A1') {
   setExtra(doc, 'pivots', out, opts.id || 'p1', cfg);
   return cfg;
 }
-const grid = (doc, cfg) => { const ctx = buildCtx(doc); const o = computePivot(createEngine(ctx), ctx, cfg); return o.error || o.cells.map((r) => r.map((x) => (x ? x.v : null))); };
+const grid = (doc, cfg) => { const ctx = buildCtx(doc); const o = computePivot(createEngine(ctx), ctx, { ...cfg }); return o.error || o.cells.map((r) => r.map((x) => (x ? x.v : null))); };
 const at = (doc, tab, ref) => { const { r, c } = pos(ref); const v = createEngine(buildCtx(doc)).value(tab, r, c); return isErr(v) ? v.code : v; };
 
 describe('one bad item never refuses the sheet', () => {
