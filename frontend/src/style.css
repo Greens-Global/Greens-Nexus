@@ -8079,6 +8079,8 @@ label.nx-set-row-main { cursor: pointer; }
 .nx-switch:checked, [data-theme="dark"] .nx-switch:checked { background: var(--wk-brand); box-shadow: none; }
 .nx-switch::before { content: ""; position: absolute; inset: -4px -4px; }
 @media (min-width: 901px) { .nx-set-pagehead { display: none; } }
+/* The loading frame (components/settings/SettingsSkeleton.jsx): phones have no rail. */
+@media (max-width: 900px) { .nx-set-shell.is-skel { grid-template-columns: minmax(0, 1fr); } .nx-set-shell.is-skel .nx-set-rail { display: none; } }
 /* Sticky rail and subject header: .viewport is overflow-y: auto but never
    scrolls itself (the page does), and body's overflow-x: hidden makes it a
    non-scrolling scroll container - either stops position: sticky. Same fix

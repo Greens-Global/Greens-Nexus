@@ -29,6 +29,8 @@ import BuildMode from "./devnotes/BuildMode";   // Build Mode shell (Oct 24 2026
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import WidgetBoundary, { NavFallback } from "./components/WidgetBoundary";
 import { Spinner, ViewLoading } from "./components/AsyncState";
+import SettingsSkeleton from "./components/settings/SettingsSkeleton";   // Settings and Tasks draw their own frame while their chunk loads (11/05/2026)
+import TasksLoading from "./tasks/TasksLoading";
 import { onBackendHealth, isBackendDown } from "./api";
 import { applyBrandAccent } from "./lib/brandAccent";
 import { BFF_MODE } from "./bffAuth";
@@ -375,7 +377,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
 
   switch (activeView) {
     case "dashboard":          return <Dashboard onNavigate={onNavigate} activeSub={activeSub} onSubChange={onSubChange} />;
-    case "tasks":              return <TasksProvider><Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} /></TasksProvider>;
+    case "tasks":              return <Suspense fallback={<TasksLoading sub={activeSub || 'home'} />}><TasksProvider><Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} /></TasksProvider></Suspense>;
     case "tickets":            return <TasksProvider><Tickets activeSub={activeSub} onSubChange={onSubChange} /></TasksProvider>;
     case "sop":                return <SOP activeSub={activeSub} onSubChange={onSubChange} />;
     case "it":                 return <IT activeSub={activeSub} onSubChange={onSubChange} />;
@@ -393,7 +395,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     // top-level route working: land on Documents' PDF Editor tab.
     case "pdf-editor":         return <Documents activeSub="documents-pdf" onSubChange={onSubChange} />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
-    case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
+    case "admin-console":      return <Suspense fallback={<SettingsSkeleton />}><AdminConsole activeSub={activeSub} onSubChange={onSubChange} /></Suspense>;
     case "support":            return <Support activeSub={activeSub} onSubChange={onSubChange} />;
     case "whats-new":          return <WhatsNew activeSub={activeSub} onSubChange={onSubChange} />;
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
