@@ -914,6 +914,10 @@ export const api = {
   // Find Folder on an asset's Egnyte Folder (11/03/2026): the folders whose name could be
   // the asset's (or `q`'s) - { configured, site, roots, pinned, pinnedFound, match, why, candidates, message }.
   findAssetEgnyteFolders: (id, q = "") => req(`/property-assets/${encodeURIComponent(id)}/egnyte-folders${q ? `?q=${encodeURIComponent(q)}` : ""}`, { timeoutMs: 45_000 }),
+  // Plans & Docs from the asset's connected Egnyte folder (11/05/2026) - read only, viewers
+  // included: { connected, configured, folder, mayChange, missing?, error?, path, folders, files, webUrl }.
+  assetEgnyteFolder: (id, path = "") => req(`/property-assets/${encodeURIComponent(id)}/egnyte/folder${path ? `?path=${encodeURIComponent(path)}` : ""}`, { timeoutMs: 60_000 }),
+  assetEgnyteFile: (id, path, inline = false) => reqBlob(`/property-assets/${encodeURIComponent(id)}/egnyte/file?path=${encodeURIComponent(path)}${inline ? "&inline=true" : ""}`, { timeoutMs: 60_000 }),
 
   // External Links
   getExternalLinks: () => req("/external-links"),
@@ -2572,6 +2576,8 @@ export const api = {
   // Print And Send (11/04/2026): signed in person - print it, then upload the signed copy.
   printInPerson:       (eid)      => reqBlob(`/hr/life-events/${eid}/print`),
   uploadSignedInPerson: (eid, file) => { const fd = new FormData(); fd.append('file', file); return req(`/hr/life-events/${eid}/signed-in-person`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
+  // A hiring packet filled in and signed on paper before it was sent - the scan completes it (11/05/2026).
+  uploadSignedOnPaper:  (eid, file) => { const fd = new FormData(); fd.append('file', file); return req(`/hr/life-events/${eid}/signed-on-paper`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
   offerJdFilePdf:      (eid)      => reqBlob(`/hr/life-events/${eid}/jd-file`),
   verifyAndSendPacket: (eid, data) => req(`/hr/life-events/${eid}/verify-and-send`, { method: 'POST', body: JSON.stringify(data) }),
   // Ask the candidate for their details again - a fresh link, the old one dead.
@@ -3624,6 +3630,7 @@ api.addPunchItem = (jobId, data) => req(`/construction/projects/${encodeURICompo
 api.setPunchDone = (taskId, done) => req(`/construction/punch/${encodeURIComponent(taskId)}/done`, { method: 'POST', body: JSON.stringify({ done: !!done }) });
 api.setPunchVerified = (taskId, verified) => req(`/construction/punch/${encodeURIComponent(taskId)}/verify`, { method: 'POST', body: JSON.stringify({ verified: !!verified }) });
 api.getJobConnected = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/connected`);
+api.newJobMeeting = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/meetings`, { method: 'POST' });
 api.getJobLabor = (jobId, from = '', to = '') => req(`/construction/projects/${encodeURIComponent(jobId)}/labor?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(to)}`);
 api.getJobForms = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/forms`);
 api.getJobPhotos = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/photos`);
@@ -3693,6 +3700,16 @@ api.addJobSub = (jobId, data) => _post(`${_jp(jobId)}/subs`, data);
 api.endJobSub = (linkId) => _post(`/construction/sub-links/${encodeURIComponent(linkId)}/end`, {});
 api.getVendorCompliance = (vendorId) => req(`/construction/vendors/${encodeURIComponent(vendorId)}/compliance`);
 api.saveVendorCompliance = (vendorId, data) => req(`/construction/vendors/${encodeURIComponent(vendorId)}/compliance`, { method: 'PUT', body: JSON.stringify(data) });
+// Drawings, the current set (Round Two item 9, 11/06/2026; routers/construction_drawings.py).
+api.getJobDrawings = (jobId) => req(`${_jp(jobId)}/drawings`);
+api.addJobDrawing = (jobId, data) => _post(`${_jp(jobId)}/drawings`, data);
+api.removeJobDrawing = (drawingId) => req(`/construction/drawings/${encodeURIComponent(drawingId)}`, { method: 'DELETE' });
+// Commitments and lien waivers (Round Two item 8, 11/06/2026; routers/construction_money.py):
+// read with the job's Money (getJobMoney), kept by its managers with Accounting access.
+api.addCommitment = (jobId, data) => _post(`${_jp(jobId)}/commitments`, data);
+api.updateCommitment = (id, data) => req(`/construction/commitments/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
+api.addCommitmentWaiver = (id, data) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers`, data);
+api.removeCommitmentWaiver = (id, waiverId) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers/${encodeURIComponent(waiverId)}/remove`, {});
 
 // Mark Up "Attach to" a job photo (lib/markup.js source kind construction_media).
 async function _attachConstructionMarkup(source, { name, blob }) {

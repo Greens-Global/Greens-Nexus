@@ -1181,6 +1181,21 @@ def signed_in_person(eid: str, request: Request, file: UploadFile = File(...), u
     return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
 
 
+@router.post("/life-events/{eid}/signed-on-paper")
+def signed_on_paper(eid: str, file: UploadFile = File(...), user: dict = Depends(require_hr_write),
+                    db: Session = Depends(get_db)):
+    """A hiring packet filled in and signed on paper before it was ever sent
+    (11/05/2026): the scan completes it - hr_life_events.complete_on_paper."""
+    ev = _locked_event(db, eid, user)
+    try:
+        hle.complete_on_paper(db, ev, file.file.read(), file.filename or "", user["email"].lower())
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    db.refresh(ev)
+    return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
+
+
 # ── Documents > HR Records (Oct 14) ──────────────────────────────────────────
 # "Any document that's in this company going forward is going to be in the
 # document module" (Neil). Every document an HR packet generated, listed in

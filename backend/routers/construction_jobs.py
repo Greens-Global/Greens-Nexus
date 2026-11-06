@@ -757,7 +757,10 @@ def job_connected(job_id: str, user: dict = Depends(get_current_user), db: Sessi
                    + ([last.author_email] if last else []))
     for c in crew["people"]:
         c["name"] = names.get(c["email"], "")
+    import construction_safety
     return {
+        "meetings": _meetings(db, p, me),
+        "safety": construction_safety.facts(db, p, _jobsite_today(db, p)),
         "taskProjectId": (view.get("taskProject") or {}).get("id", ""),
         "nextMilestones": next_ms,
         "needsYou": needs,
@@ -772,6 +775,62 @@ def job_connected(job_id: str, user: dict = Depends(get_current_user), db: Sessi
         "inspections": inspections,
         "names": names,
     }
+
+
+# ── Meetings (Round Two item 10, 11/05/2026): Notes whose source is the job ──
+
+MEETING_HEADINGS = ("Attendees", "Safety", "Schedule", "RFIs And Submittals", "Open Items", "Action Items")
+MEETINGS_ON_CARD = 5
+
+
+def _meeting_source(p) -> dict:
+    return {"kind": "construction_job", "id": p.id, "label": p.name or "Job",
+            "url": f"/construction/project:{p.id}:overview"}
+
+
+def _meetings(db: Session, p, me: str) -> list:
+    """The job's meeting notes the caller may read (the Notes rule: owner and
+    shares only), newest first."""
+    import json
+    from routers import notes
+    N = models.NexusNote
+    key = '"kind": "construction_job", "id": ' + json.dumps(p.id)
+    rows = [n for n in db.query(N).filter(N.trashed_at == "", N.source.like(f"%{key}%"))
+            .order_by(N.created_at.desc()).limit(200).all()
+            if (notes._source_out(n) or {}).get("id") == p.id and notes._access(n, me)][:MEETINGS_ON_CARD]
+    return [{"id": n.id, "title": n.title or "Meeting", "day": n.day or "", "createdAt": n.created_at or ""}
+            for n in rows]
+
+
+@router.post("/projects/{job_id}/meetings", status_code=201)
+def new_meeting(job_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """New Meeting: a note titled "<Job> Meeting MM/DD/YYYY" with the Meeting
+    Minutes headings, its source the job, shared with the job's managers (Can
+    Edit) and crew (Can Read) who are in the caller's Nexus People - no bell,
+    the job's Meetings card lists it. Everything after is Notes as it is."""
+    import json
+    from html import escape
+    from routers import notes
+    from routers.myhr import people_directory
+    p = _readable(db, job_id, user)
+    me = _me(user)
+    today = _jobsite_today(db, p)
+    n = notes._new_note(me, kind="note", title=f"{p.name or 'Job'} Meeting {today:%m/%d/%Y}"[:notes.TITLE_MAX],
+                        day=today.isoformat(), color="", pinned=False)
+    notes._set_body(n, "".join(f"<h2>{escape(h)}</h2><p></p>" for h in MEETING_HEADINGS))
+    n.source = notes._clean_source(_meeting_source(p))
+    people = {(x.get("email") or "").lower() for x in people_directory(False, user, db)}
+    shares = {}
+    for e in _emails(p.worker_emails):
+        shares[e] = "read"
+    for e in _emails(p.manager_emails):
+        shares[e] = "edit"
+    n.shared_with = json.dumps([{"email": e, "can": c} for e, c in shares.items()
+                                if e != me and e in people][:notes.SHARES_MAX])
+    notes._content_changed(n, me)
+    db.add(n)
+    db.commit()
+    return notes._full(n, me)
 
 
 # ── Lookups other modules call ───────────────────────────────────────────────

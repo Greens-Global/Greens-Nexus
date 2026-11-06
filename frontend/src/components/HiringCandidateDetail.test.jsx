@@ -196,6 +196,16 @@ describe('offerSteps', () => {
     expect(st.steps.every(s => s.done)).toBe(true);
   });
 
+  it('a hiring packet signed on paper turns every step green and says so', async () => {
+    const { offerSteps } = await import('./HiringCandidateDetail');
+    const st = offerSteps([
+      { kind: 'offer', status: 'completed', createdAt: 'x', verifiedAt: 'y', flags: [], parties: [{ isSubject: true, signedAt: 'b', name: 'Jane' }] },
+      { kind: 'hire', status: 'completed', createdAt: 'z', completedAt: 'w', parties: [], inputs: { paper_path: 'paper/e1/scan.pdf' } },
+    ], 'Jane');
+    expect(st.steps.every(s => s.done)).toBe(true);
+    expect(st.steps.find(s => s.key === 'packetSigned').label).toBe('Hiring packet signed on paper by Jane');
+  });
+
   it('a packet that could not start is shown as a problem, with why', async () => {
     const { offerSteps } = await import('./HiringCandidateDetail');
     const st = offerSteps([{ kind: 'offer', status: 'completed', verifiedAt: 'y', parties: [],
