@@ -22,6 +22,7 @@ import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import { ToastHost, pushToast } from './components/shared/ToastHost.jsx';
 import { SyncStatus } from './components/shared/SyncStatus.jsx';
 import { CollectionTable } from './components/shared/CollectionTable.jsx';
+import { EmptyState } from './components/shared/EmptyState.jsx';
 import { RecordModal } from './components/shared/RecordModal.jsx';
 
 import { Portfolio } from './components/portfolio/Portfolio.jsx';
@@ -33,7 +34,7 @@ import { AssemblageParcels } from './components/asset/AssemblageParcels.jsx';
 import { AddAssetModal } from './components/asset/AddAssetModal.jsx';
 import { TimelineTracker } from './components/asset/TimelineTracker.jsx';
 import { SimpleRecordTable } from './components/shared/SimpleRecordTable.jsx';
-import { AssetEgnyteDocs } from './components/asset/AssetEgnyteDocs.jsx';
+import { AssetEgnyteDocs, ConnectEgnyteEmpty } from './components/asset/AssetEgnyteDocs.jsx';
 import { SimpleRowModal } from './components/shared/SimpleRowModal.jsx';
 import { TimelineStatusModal } from './components/asset/TimelineStatusModal.jsx';
 
@@ -1008,7 +1009,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       )}
 
       {view === 'documents' && active && (
-        <AssetEgnyteDocs asset={active} canConnect={canEditAssets}
+        <AssetEgnyteDocs asset={active} canConnect={canEditAssets} hideUnconnected={!recordsFor('documents').length}
           onConnect={(path) => saveDetail({ 'Egnyte Folder': path })} />
       )}
       {['warranties', 'inspections', 'documents', 'vdocs', 'utilities', 'ahj', 'vendors', 'odometer'].map((coll) => (
@@ -1023,6 +1024,9 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
             highlightItem={highlight?.tab === coll || highlight?.section === RECORD_TYPES[coll].plural ? highlight.item : ''}
             onAdd={() => setModal({ type: 'row', coll, id: null })}
             onEdit={(id) => setModal({ type: 'row', coll, id })}
+            emptyNode={coll !== 'documents' ? null : egnyteFolderOf(active)
+              ? <EmptyState>The asset&apos;s plans and documents are listed above, from its Egnyte folder.</EmptyState>
+              : <ConnectEgnyteEmpty asset={active} canConnect={canEditAssets} onConnect={(path) => saveDetail({ 'Egnyte Folder': path })} />}
           />
         )
       ))}

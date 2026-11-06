@@ -6,12 +6,11 @@ import EgnytePreview from '../../../egnyte/EgnytePreview.jsx';
 import { OpenInEgnyte } from '../../../egnyte/ui.jsx';
 import { SkeletonBlocks } from '../../../components/AsyncState.jsx';
 import { Card } from '../shared/Card.jsx';
-import { Modal } from '../shared/Modal.jsx';
-import { EgnyteFolderInput } from './EgnyteFolderField.jsx';
-import { egnyteFolderOf, egnyteFolderProblem, normalizeEgnyteFolder } from '../../lib/egnyteFolder.js';
+import { EmptyState } from '../shared/EmptyState.jsx';
+import FolderPickModal from '../../../egnyte/EgnyteFolderPick';
+import { egnyteFolderOf, normalizeEgnyteFolder } from '../../lib/egnyteFolder.js';
 
 const note = { fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 };
-const mono = { fontFamily: 'ui-monospace, monospace', fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 };
 const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', fontSize: '0.8rem' };
 // The row save reaches the server a moment after Connect; ask again this many times.
 const SAVE_WAIT_TRIES = 4;
@@ -38,7 +37,7 @@ function saveBlob(blob, name) {
  * folder; once connected only an Asset Management Owner changes it (the
  * server says so in `mayChange` and refuses anyone else on the row save).
  */
-export function AssetEgnyteDocs({ asset, canConnect, onConnect }) {
+export function AssetEgnyteDocs({ asset, canConnect, onConnect, hideUnconnected = false }) {
   const pinned = egnyteFolderOf(asset);
   const [state, setState] = useState({ loading: true });
   const [path, setPath] = useState('');
@@ -118,6 +117,10 @@ export function AssetEgnyteDocs({ asset, canConnect, onConnect }) {
     );
   }
 
+  // Not connected and nothing indexed: the Connect button sits in the Plans &
+  // Documents table instead (ConnectEgnyteEmpty), never twice on the page.
+  if (hideUnconnected && !pinned) return null;
+
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -178,34 +181,44 @@ export function AssetEgnyteDocs({ asset, canConnect, onConnect }) {
   );
 }
 
-/** Connect (or, for an Owner, change) the asset's Egnyte folder: Find Folder
- *  by the asset's name or paste the folder's path / Egnyte link. Saves through
- *  the asset's ordinary row save, so the Activity Log records it. */
-function ConnectFolder({ asset, current, onClose, onConnect }) {
-  const [value, setValue] = useState(current);
-  const next = normalizeEgnyteFolder(value);
-  const problem = egnyteFolderProblem(value);
-  const ready = !!next && /[/\\]/.test(value) && !problem && next !== current;
+/** Connect (or, for an Owner, change) the asset's Egnyte folder by BROWSING
+ *  Egnyte - the Files module's own picker, folder tree and paste box included
+ *  (Pranshu, 11/07/2026: "browse the folder as we have in Files"). It browses
+ *  as the person's own Egnyte account, so they see only what Egnyte lets them.
+ *  Saves through the asset's ordinary row save, so the Activity Log records it
+ *  and the server checks the folder is inside the property roots. */
+export function ConnectFolder({ asset, current, onClose, onConnect }) {
+  const pick = (path) => {
+    const next = normalizeEgnyteFolder(path);
+    if (!next) return;              // "All Files" itself is not a folder to connect
+    if (next === current) onClose();
+    else onConnect(next);
+  };
   return (
-    <Modal title={current ? 'Change Egnyte Folder' : 'Connect Egnyte Folder'} onClose={onClose}
-      footer={(
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button type="button" className="primary-btn" disabled={!ready} onClick={() => onConnect(next)}>
-            {current ? 'Change Folder' : 'Connect Folder'}
-          </button>
-        </div>
-      )}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={note}>
-          Pick the Egnyte folder that holds <strong>{asset.name}</strong>&apos;s plans and documents. Press Find Folder to search Egnyte by this asset&apos;s name, or paste the folder&apos;s path or its Egnyte link.
-        </div>
-        {current && <div style={mono} title={current}>Connected now: {current}</div>}
-        <EgnyteFolderInput assetId={asset.id} value={value} onChange={setValue} />
-        <div style={{ ...note, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Lock size={13} aria-hidden="true" /> Once connected, only an Asset Management Owner can change this folder.
-        </div>
-      </div>
-    </Modal>
+    <FolderPickModal showTree startPath={current || ''}
+      title={current ? 'Change Egnyte Folder' : 'Connect Egnyte Folder'}
+      hint={`Browse to the folder that holds ${asset.name}'s plans and documents (or paste its path or Egnyte link), then press "Use This Folder". Once connected, only an Asset Management Owner can change it.`}
+      onPick={pick} onClose={onClose} />
+  );
+}
+
+/** The Plans & Documents table's empty state on an asset with no Egnyte
+ *  folder: Connect Egnyte Folder in place of "No documents indexed". */
+export function ConnectEgnyteEmpty({ asset, canConnect, onConnect }) {
+  const [connecting, setConnecting] = useState(false);
+  return (
+    <>
+      <EmptyState
+        action={canConnect ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Link2 size={14} aria-hidden="true" /> Connect Egnyte Folder</span> : undefined}
+        onAction={() => setConnecting(true)}>
+        {canConnect
+          ? 'Connect this asset to its Egnyte folder and everyone who can open the asset sees its plans and documents here. You connect it once; after that only an Asset Management Owner can change it.'
+          : 'This asset is not connected to an Egnyte folder yet. Someone who edits this asset can connect it.'}
+      </EmptyState>
+      {connecting && (
+        <ConnectFolder asset={asset} current="" onClose={() => setConnecting(false)}
+          onConnect={(p) => { setConnecting(false); onConnect(p); }} />
+      )}
+    </>
   );
 }

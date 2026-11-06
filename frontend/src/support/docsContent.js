@@ -1491,7 +1491,7 @@ export const DOCS = [
         title: 'See an Asset\'s Documents From Egnyte',
         steps: [
           'Open the asset and go to Records > Plans & Docs. Documents in Egnyte sits at the top.',
-          'Not connected yet? If you edit the asset, click Connect Egnyte Folder, press Find Folder (or paste the folder\'s path or Egnyte link), pick the folder and click Connect Folder. You only do this once.',
+          'Not connected yet? If you edit the asset, click Connect Egnyte Folder in the Plans & Documents table. Egnyte opens the way it does in Files - browse the folder tree (Shared, then your entities) or paste the folder\'s path or Egnyte link - open the folder and click Use This Folder. You only do this once.',
           'From then on everyone who can open the asset - viewers too - sees that folder\'s files right here: open a subfolder, search the folder, click a file to preview it, or download it. You do not need an Egnyte account of your own.',
           'Once connected, only an Asset Management Owner can change the folder (Change Folder, or Egnyte Folder on Details). Everyone else sees it locked.',
         ],

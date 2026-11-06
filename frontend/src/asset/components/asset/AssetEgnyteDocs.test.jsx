@@ -17,7 +17,18 @@ vi.mock('../../../api.js', () => ({ api: {
   findAssetEgnyteFolders: vi.fn(),
 } }));
 
-const { AssetEgnyteDocs } = await import('./AssetEgnyteDocs.jsx');
+// The Files module's picker (its own tests cover browsing): stand-in that shows
+// what it was opened with and picks a path on a click.
+const picker = vi.fn();
+vi.mock('../../../egnyte/EgnyteFolderPick', () => ({ default: (p) => {
+  picker(p);
+  return (<div role="dialog" aria-label={p.title}>{p.hint}
+    <button type="button" onClick={() => p.onPick('')}>Pick All Files</button>
+    <button type="button" onClick={() => p.onPick('/Shared/#Entities/GS Fairfield/')}>Pick Fairfield</button>
+  </div>);
+} }));
+
+const { AssetEgnyteDocs, ConnectEgnyteEmpty } = await import('./AssetEgnyteDocs.jsx');
 const { AssetDetailForm } = await import('./AssetDetailForm.jsx');
 const { editGuard } = await import('../../lib/editGuard.js');
 
@@ -29,7 +40,7 @@ const LISTING = {
   files: [{ name: 'CO.pdf', path: `${PIN}/CO.pdf`, size: 10 }],
 };
 
-afterEach(() => { cleanup(); folder.mockReset(); file.mockReset(); });
+afterEach(() => { cleanup(); folder.mockReset(); file.mockReset(); picker.mockReset(); });
 
 describe('AssetEgnyteDocs', () => {
   it('lists the connected folder, opens a subfolder and previews through the asset route', async () => {
@@ -57,7 +68,8 @@ describe('AssetEgnyteDocs', () => {
     const bare = { ...ASSET, egnyteFolder: '' };
     const { unmount } = render(<AssetEgnyteDocs asset={bare} canConnect onConnect={vi.fn()} />);
     fireEvent.click(await screen.findByRole('button', { name: /Connect Egnyte Folder/ }));
-    expect(screen.getByText(/Once connected, only an Asset Management Owner can change this folder/)).toBeTruthy();
+    expect(screen.getByText(/Once connected, only an Asset Management Owner can change it/)).toBeTruthy();
+    expect(picker).toHaveBeenLastCalledWith(expect.objectContaining({ showTree: true, startPath: '', title: 'Connect Egnyte Folder' }));
     unmount();
     render(<AssetEgnyteDocs asset={bare} canConnect={false} onConnect={vi.fn()} />);
     expect(await screen.findByText(/Someone who edits this asset can connect it/)).toBeTruthy();
@@ -78,5 +90,28 @@ describe('AssetDetailForm - a connected Egnyte folder is locked below an Owner',
     act(() => { editGuard.startEdit(); });
     expect(screen.queryByRole('textbox', { name: 'Egnyte Folder' })).toBeNull();
     expect(screen.getByText(/Connected - only an Asset Management Owner can change it/)).toBeTruthy();
+  });
+});
+
+describe('Connect from the Plans & Documents table', () => {
+  it('connects from the Plans & Documents empty state by browsing Egnyte, and only a real folder', async () => {
+    const onConnect = vi.fn();
+    render(<ConnectEgnyteEmpty asset={{ ...ASSET, egnyteFolder: '' }} canConnect onConnect={onConnect} />);
+    fireEvent.click(screen.getByRole('button', { name: /Connect Egnyte Folder/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pick All Files' }));
+    expect(onConnect).not.toHaveBeenCalled();       // the top of Egnyte is not a folder to connect
+    fireEvent.click(screen.getByRole('button', { name: 'Pick Fairfield' }));
+    expect(onConnect).toHaveBeenCalledWith('/Shared/#Entities/GS Fairfield');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('a viewer gets no Connect button in the empty state, and the unconnected card can step aside', () => {
+    render(<ConnectEgnyteEmpty asset={ASSET} canConnect={false} onConnect={vi.fn()} />);
+    expect(screen.getByText(/Someone who edits this asset can connect it/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Connect Egnyte Folder/ })).toBeNull();
+    cleanup();
+    folder.mockResolvedValue({ connected: false, configured: true, folder: '' });
+    const { container } = render(<AssetEgnyteDocs asset={{ ...ASSET, egnyteFolder: '' }} canConnect hideUnconnected onConnect={vi.fn()} />);
+    expect(container.textContent).toBe('');
   });
 });
