@@ -371,11 +371,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         </div>
       </div>
 
-      {/* The module bar - the module's name (or a record's trail), its tabs,
-          its actions - rides here, right after Back, on a computer (Neil,
-          11/06/2026: one row, more of the page to work with). Phones draw
-          it under the header instead (ModuleBar in ModuleTabs.jsx). */}
-      <div className="header-center"><ModuleBar where="header" /></div>
+      {/* The module bar - the module's name (or a record's trail) and its
+          tabs, never its buttons - rides here, right after Back, on a computer
+          (Neil, 11/06/2026: one row, more of the page to work with). Phones
+          keep the in-page strip (ModuleBar in ModuleTabs.jsx). */}
+      <div className="header-center"><ModuleBar /></div>
 
       <div className="header-right">
         {searchBar}

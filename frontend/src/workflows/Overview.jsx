@@ -40,18 +40,19 @@ export default function Overview({ overview, loading, error, reload, go }) {
 
   return (
     <div style={{ fontFamily: FONT, display: 'grid', gap: 18 }}>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        <button type="button" className="primary-btn" onClick={newWorkflow} disabled={creating}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={14} /> {creating ? 'Creating...' : 'New Workflow'}
+      {/* The buttons sit on the right, the primary one last, as in every
+          other module (Neil, 11/06/2026). */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end' }}>
+        <button type="button" className="secondary-btn" onClick={reload} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <RefreshCw size={13} /> Refresh
         </button>
         <button type="button" className="secondary-btn" onClick={() => go('templates')}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <LayoutTemplate size={14} /> Start From A Template
         </button>
-        <span style={{ flex: 1 }} />
-        <button type="button" className="secondary-btn" onClick={reload} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <RefreshCw size={13} /> Refresh
+        <button type="button" className="primary-btn" onClick={newWorkflow} disabled={creating}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Plus size={14} /> {creating ? 'Creating...' : 'New Workflow'}
         </button>
       </div>
       {notice && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{notice}</div>}

@@ -41,17 +41,18 @@ keep the swipeable tabs exactly where they were.
 
 ONE page header (11/05/2026): every module reads the same way - the module's
 name on the left, its tabs, its actions on the right, flat, one hairline under
-it. The bar is ModuleBar; a module's page-level buttons go in it through
-<ModuleActions> (a portal into the bar's right end; rendered in place when no
-shell is around, as in a unit test). Tasks and Tickets draw the same anatomy
-in their own full-bleed bar (`.nx-primary-bar`).
+it. The bar is ModuleBar, in the top header since 11/06/2026, and it carries
+navigation only. A module's page-level buttons go through <ModuleActions> (a
+portal into ModuleActionsSlot, the right end of the page's first row;
+rendered in place when no shell is around, as in a unit test). Tasks keeps
+its own buttons bar (`.nx-primary-bar`); Tickets keeps Create in its toolbar.
 */
 
 const HeaderTabsContext = createContext(null);
 
 export function HeaderTabsProvider({ children }) {
   const [entry, setEntry] = useState(null); // { tabs, active, onChange }
-  const [actionsEl, setActionsEl] = useState(null); // the bar's right end, for <ModuleActions>
+  const [actionsEl, setActionsEl] = useState(null); // ModuleActionsSlot, for <ModuleActions>
   return (
     <HeaderTabsContext.Provider value={{ entry, setEntry, actionsEl, setActionsEl }}>
       {children}
@@ -60,7 +61,7 @@ export function HeaderTabsProvider({ children }) {
 }
 
 // A module's page-level actions (Add Person, Add Asset, a search box), drawn
-// at the right end of the module bar. Outside the shell (no provider) they
+// at the right end of the page's first row (ModuleActionsSlot). Outside the shell (no provider) they
 // render where they stand, so a module rendered alone still shows them.
 export function ModuleActions({ children }) {
   const ctx = useContext(HeaderTabsContext);
@@ -68,7 +69,7 @@ export function ModuleActions({ children }) {
   return ctx.actionsEl ? createPortal(children, ctx.actionsEl) : null;
 }
 
-// Phones (<= 900px) keep the bar under the header; computers carry it IN it.
+// Phones (<= 900px) have no bar in the header; they keep the in-page strip.
 function useNarrow() {
   const q = () => !!window.matchMedia?.(PHONE_QUERY).matches;
   const [narrow, setNarrow] = useState(q);
@@ -82,27 +83,32 @@ function useNarrow() {
   return narrow;
 }
 
-// The module bar (11/05/2026): module name (the page trail, with the pages
-// above a record when there are any), the published tabs, the actions slot.
-// In the top header itself on a computer (Neil, 11/06/2026: "on the top
-// navigation bar instead of on the page") - TopHeader draws it with
-// where="header", after its Back arrow; on a phone the shell draws it under
-// the header (where="below") for the module's actions only. Exactly one is
-// drawn at a time, so the actions slot has one home. A module with a single
-// tab shows no strip: the tab would only repeat the module's name.
-export function ModuleBar({ where }) {
-  const { entry, setActionsEl } = useContext(HeaderTabsContext) || {};
+// The module bar (11/05/2026), in the top header on a computer (Neil,
+// 11/06/2026: "on the top navigation bar instead of on the page"): the
+// module's name (the page trail, with the pages above a record when there are
+// any) and its published tabs - NAVIGATION ONLY. A module's buttons never ride
+// the top bar (Neil, 11/06/2026: "I do not like any action buttons being on
+// the top navigation bar"); they go in ModuleActionsSlot, inside the page. A
+// module with a single tab shows no strip: the tab would only repeat its name.
+export function ModuleBar() {
+  const { entry } = useContext(HeaderTabsContext) || {};
   const narrow = useNarrow();
-  if (!entry || (where === 'header' && narrow) || (where === 'below' && !narrow)) return null;
+  if (!entry || narrow) return null;
   return (
-    <div className={`module-bar${where === 'header' ? ' module-bar--header' : ''}`} data-tour="module-bar">
+    <div className="module-bar module-bar--header" data-tour="module-bar">
       <PageTrail className="page-trail--bar" standalone />
       <div className="module-bar-tabs">
-        {entry.tabs.length > 1 && <HeaderStrip entry={entry} measured={where === 'header'} />}
+        {entry.tabs.length > 1 && <HeaderStrip entry={entry} measured />}
       </div>
-      <div className="module-bar-actions" ref={setActionsEl} />
     </div>
   );
+}
+
+// Where <ModuleActions> land: the right end of a row at the top of the page,
+// at every width, drawn by the shell inside the viewport. Hidden when empty.
+export function ModuleActionsSlot() {
+  const { setActionsEl } = useContext(HeaderTabsContext) || {};
+  return <div className="module-actions-row" ref={setActionsEl} />;
 }
 
 // The published tab strip itself: a plain strip, or the measured one with a

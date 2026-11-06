@@ -666,21 +666,16 @@ export default function TicketsView() {
           sat above the list are gone; their counts live on the tabs. To Route
           and To Approve appear only with something in them, a saved view is a
           tab too, and "+ View" saves the current filters as one. Phones get
-          the same strip (swipeable), with Create in the floating bar. */}
-      <div className="nx-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '0 8px' : '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, flexShrink: 0 }}>
+          the same strip (swipeable), with Create in the floating bar.
+          On a computer the queues ride the top header (Neil, 11/06/2026) and
+          this bar is not drawn (style.css .tk-primary-bar); Create sits at the
+          right end of the toolbar, after the ... menu. */}
+      <div className="nx-primary-bar tk-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '0 8px' : '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, flexShrink: 0 }}>
         {/* The page trail rides the bar, as on Tasks (Neil, 11/04/2026). */}
         <PageTrail className="page-trail--bar" />
         <div data-tour="ticket-scope" style={{ flex: 1, minWidth: 0 }}>
-          <ModuleTabs inline tabs={queueTabs} active={activeTab} onChange={onTab} />
+          <ModuleTabs tabs={queueTabs} active={activeTab} onChange={onTab} />
         </div>
-        {!isMobile && (
-          <span data-tour="ticket-create" style={{ flexShrink: 0, padding: '6px 0' }}>
-            {/* "Create", not "New Ticket" - the same word the Task module's bar
-                button uses, and the page it sits on already says Tickets
-                (Sagar, Sept 2 2026). */}
-            <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
-          </span>
-        )}
       </div>
 
       {/* Phone search - the same `search` state as the desktop toolbar's box,
@@ -741,6 +736,12 @@ export default function TicketsView() {
               columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={fullTable.cols} showColumns={view === 'list' && !pane}
               layout={view === 'list' ? layout : undefined} setLayout={setLayout}
               suggestLinks={privileged ? (style) => <SuggestPropertyLinksButton style={style} /> : null} />
+            {/* "Create", not "New Ticket" - the same word the Task module's bar
+                button uses, and the page it sits on already says Tickets
+                (Sagar, Sept 2 2026). Last in the row, after ... (Neil, 11/06/2026). */}
+            <span data-tour="ticket-create" style={{ flexShrink: 0 }}>
+              <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
+            </span>
           </div>
         </div>
       )}
