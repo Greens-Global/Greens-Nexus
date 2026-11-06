@@ -1580,8 +1580,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       const so = w.week <= todayDs && todayDs <= wkEnd;
       return (
         <div className="pr-days-week ts-pwk">
-          <span>Total hours clocked for week of {formatMonthDayNumeric(w.week, true)} to {formatMonthDayNumeric(wkEnd, true)}{so ? ' (so far)' : ''}: {hhmm(weekTotals[w.week]?.min || 0)}</span>
-          <small>Overtime {weekStats[w.week]?.ot ? hhmm(weekStats[w.week].ot) : '-'}{showPay ? ` · Est. Pay ${fmtM(weekStats[w.week]?.pay || 0)}` : ''}</small>
+          <span>Week of {formatMonthDayNumeric(w.week, true)} - {formatMonthDayNumeric(wkEnd, true)}{so ? ' (so far)' : ''} <span className="ts-wx">Total Hours: <b>{hhmm(weekTotals[w.week]?.min || 0)}</b></span></span>
+          <small>Overtime: <b>{weekStats[w.week]?.ot ? hhmm(weekStats[w.week].ot) : 'None'}</b>{showPay && <> <span className="ts-wx">Wages: <b>{fmtM(weekStats[w.week]?.pay || 0)}</b></span></>}</small>
         </div>
       );
     };
@@ -2008,9 +2008,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       return (
         <tr key={i} className="ts-wk">
           <td colSpan={cols}>
-            Total hours clocked for week of {formatMonthDayNumeric(r.week, true)} to {formatMonthDayNumeric(wkEndOf(r.week), true)}{so ? ' (so far)' : ''}{custom && (r.week < start || wkEndOf(r.week) > end) ? ' (in range)' : ''}: <b>{hhmm(weekTotals[r.week]?.min || 0)}</b>
-            {!isFixed && <span className="ts-wx">Overtime <b>{weekStats[r.week]?.ot ? hhmm(weekStats[r.week].ot) : '-'}</b></span>}
-            {showPay && !isFixed && <span className="ts-wx">Wage <b>{fmtM(weekStats[r.week]?.pay || 0)}</b></span>}
+            {/* Week of 10/18 - 10/24  Total Hours: 35:20  Overtime: None  Wages: $706.67
+                - labels regular, values bold (Neil, 11/06/2026). */}
+            Week of {formatMonthDayNumeric(r.week, true)} - {formatMonthDayNumeric(wkEndOf(r.week), true)}{so ? ' (so far)' : ''}{custom && (r.week < start || wkEndOf(r.week) > end) ? ' (in range)' : ''}
+            <span className="ts-wx">Total Hours: <b>{hhmm(weekTotals[r.week]?.min || 0)}</b></span>
+            {!isFixed && <span className="ts-wx">Overtime: <b>{weekStats[r.week]?.ot ? hhmm(weekStats[r.week].ot) : 'None'}</b></span>}
+            {showPay && !isFixed && <span className="ts-wx">Wages: <b>{fmtM(weekStats[r.week]?.pay || 0)}</b></span>}
           </td>
         </tr>
       );
@@ -2379,20 +2382,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th className="ts-date">Date</th>
                 <th>In</th>
                 <th>Out</th>
-                <th className="r" title="Lunch taken out of a long shift that recorded no break">Deducted Time</th>
+                <th title="Lunch taken out of a long shift that recorded no break">Deducted Time</th>
                 <th>Category</th>
-                <th className="r" title="Hours of this punch pair - its In to its Out; a shift's rows add up to its paid time">Punch</th>
-                <th className="r" title="The day's total">Day Total</th>
+                <th title="Hours of this punch pair - its In to its Out; a shift's rows add up to its paid time">Punch</th>
+                <th title="The day's total">Day Total</th>
                 {isFixed ? <>
                   <th title="Present, Half Day, Absent, Weekend, Holiday or the time off that covers the day">Day</th>
                   {icp && <th title="The day's credit: Full at 8 hours worked, Half at 4, None below - or paid leave from the balance">Credit</th>}
-                  {icp && <th className="r" title="Hours this day adds to the month-end pool: past 9 on a full day, past 4 on a half day, every hour of a day with no credit, weekend and holiday hours not paid as Extra Time">Pool</th>}
+                  {icp && <th title="Hours this day adds to the month-end pool: past 9 on a full day, past 4 on a half day, every hour of a day with no credit, weekend and holiday hours not paid as Extra Time">Pool</th>}
                   {icp && <th title="Hours claimed with a note to be paid at 1.35x - only hours past 9 on a workday, every hour on a weekend or holiday">Extra Time</th>}
-                </> : <th className="r" title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×">OT</th>}
+                </> : <th title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×">OT</th>}
                 <th>Location</th>
-                {showPay && isFixed && <th className="r" title="What the day does to the salary: a deduction, weekend pay or Extra Time">Effect on Pay</th>}
-                {showPay && !isFixed && <th className="r" title="The rate in effect that day">{data.contractor ? 'Rate' : 'Pay Rate'}</th>}
-                {showPay && !isFixed && <th className="r">{data.contractor ? 'Amount' : 'Wage'}</th>}
+                {showPay && isFixed && <th title="What the day does to the salary: a deduction, weekend pay or Extra Time">Effect on Pay</th>}
+                {showPay && !isFixed && <th title="The rate in effect that day">{data.contractor ? 'Rate' : 'Pay Rate'}</th>}
+                {showPay && !isFixed && <th>{data.contractor ? 'Amount' : 'Wage'}</th>}
                 <th><span className="dk-sr-only">Actions</span></th>
               </tr>
             </thead>

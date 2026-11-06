@@ -9507,9 +9507,10 @@ body:has(.apv-phone) { overflow-x: clip; }
 .ts-grid tr.ts-leave .ts-cat { color: #7c3aed; font-weight: 700; }
 .ts-grid tr.ts-fix > td.ts-date { box-shadow: inset 3px 0 0 #b91c1c, inset -1px 0 0 var(--wk-line2); }
 .ts-grid tr.ts-livew > td.ts-date { box-shadow: inset 3px 0 0 var(--wk-live), inset -1px 0 0 var(--wk-line2); }
-.ts-grid tr.ts-wk > td { text-align: center; padding: 10px; font-weight: 700; color: var(--wk-brand); background: color-mix(in srgb, var(--wk-brand) 12%, var(--card)); border-top: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent); }
-.ts-grid tr.ts-wk .ts-wx { margin-left: 18px; font-weight: 600; opacity: .85; }
-.ts-grid tr.ts-wk .ts-wx b { font-weight: 800; }
+.ts-grid tr.ts-wk > td { text-align: center; padding: 10px; font-weight: 500; color: var(--wk-brand); background: color-mix(in srgb, var(--wk-brand) 12%, var(--card)); border-top: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent); }
+.ts-grid tr.ts-wk .ts-wx { margin-left: 18px; }
+.ts-grid tr.ts-wk b, .pr-days-week.ts-pwk b { font-weight: 800; }
+.pr-days-week.ts-pwk .ts-wx { margin-left: 10px; }
 .ts-grid tfoot td { background: linear-gradient(var(--wk-hover), var(--wk-hover)), var(--card); font-weight: 700; border-top: 1px solid var(--wk-line2); }
 .ts-grid tfoot tr.ts-off td { color: #7c3aed; }
 .ts-num-warn { color: #b45309; font-weight: 700; }
@@ -9615,8 +9616,8 @@ body:has(.apv-phone) { overflow-x: clip; }
 .ts-wsw { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border: 1px solid var(--wk-line2); border-radius: 12px; background: var(--card); margin-bottom: 8px; }
 .ts-wsw button { min-height: 36px; border: none; border-radius: 9px; background: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; }
 .ts-wsw button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
-.pr-days-week.ts-pwk { flex-direction: column; align-items: center; text-align: center; gap: 2px; background: color-mix(in srgb, var(--wk-brand) 12%, var(--card)); color: var(--wk-brand); font-weight: 700; }
-.pr-days-week.ts-pwk small { font-weight: 600; font-size: 11.5px; opacity: .85; }
+.pr-days-week.ts-pwk { flex-direction: column; align-items: center; text-align: center; gap: 2px; background: color-mix(in srgb, var(--wk-brand) 12%, var(--card)); color: var(--wk-brand); font-weight: 500; }
+.pr-days-week.ts-pwk small { font-weight: 500; font-size: 11.5px; }
 .ts-pr { display: grid; grid-template-columns: auto 22px auto minmax(0, 1fr); align-items: baseline; min-height: 30px; font-size: 14px; font-variant-numeric: tabular-nums; }
 .ts-pr > .ts-arrow { text-align: center; color: var(--muted); }
 .ts-pr > .ts-pr-end { justify-self: end; display: inline-flex; align-items: baseline; gap: 8px; color: var(--muted); font-size: 12.5px; }
