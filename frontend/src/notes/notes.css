@@ -445,3 +445,39 @@
 .nt-board-pick-shared { display: block; font-size: 11.5px; font-weight: 500; color: var(--wk-faint, #9699a6); }
 @keyframes nt-sheet-up { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .nt-board-pick.is-sheet { animation: none; } }
+
+/* ── More room (Neil, 11/06/2026) ──────────────────────────────────────── */
+/* On a computer the page fits the window (NotesPage measures --nt-fit): the
+   list and the note scroll on their own, a board fills everything left. */
+.nt-page.is-fit { height: var(--nt-fit, auto); min-height: 0; }
+/* The list folds away from its edge and comes back from a slim rail. */
+.nt-collapse {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 3;
+  display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--wk-line2); background: var(--card); color: var(--muted); box-shadow: 0 2px 6px rgba(0, 0, 0, .08);
+  transition: color 140ms var(--ease-out, ease-out), border-color 140ms var(--ease-out, ease-out);
+}
+.nt-collapse:hover { color: var(--wk-green); border-color: var(--wk-green); }
+.nt-collapse:focus-visible, .nt-rail:focus-visible { outline: 2px solid var(--wk-green); outline-offset: 1px; }
+.nt-rail {
+  flex: 0 0 36px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; cursor: pointer;
+  border: none; border-right: 1px solid var(--wk-line2); background: var(--card); color: var(--muted); font: inherit;
+}
+.nt-rail:hover { background: var(--wk-hover); color: var(--ink); }
+.nt-rail > span { writing-mode: vertical-rl; font-size: 12px; font-weight: 650; letter-spacing: .04em; }
+/* New Board: its own strong color beside the green New Note. */
+.nt-text-btn.is-board-btn { background: var(--ink); border-color: var(--ink); color: var(--card); }
+.nt-text-btn.is-board-btn:hover { background: var(--ink); filter: brightness(1.25); }
+/* Full screen: Back on the left, a labeled Exit on the right - never lost. */
+.nt-text-btn.nt-back { flex-shrink: 0; }
+.nt-text-btn.nt-exit-full { background: var(--wk-brand-tint, #e3f3e8); border-color: var(--wk-green); color: var(--wk-green); margin-left: 4px; }
+.nt-text-btn.nt-exit-full:hover { background: var(--wk-brand-tint, #e3f3e8); filter: brightness(0.96); }
+@media (min-width: 769px) {
+  /* A board's head is one tight block: smaller title, tags on the meta line. */
+  .nt-doc.is-board { padding: 12px 20px 0; }
+  .nt-doc.is-board .nt-head { align-items: center; }
+  .nt-doc.is-board .nt-title { font-size: 19px; }
+  .nt-doc.is-board .nt-meta { margin-top: 2px; }
+  .nt-doc.is-board .nt-meta .nt-taglist { margin: 0; }
+  .nt-board { margin: 10px -20px 0; min-height: 360px; }
+}

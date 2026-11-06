@@ -159,6 +159,34 @@ describe('An open board', () => {
     expect(document.querySelector('.nt-doc.is-board .nt-board')).toBeTruthy();
   });
 
+  it('the list collapses to a rail and comes back, remembered in this browser (Neil, 11/06/2026)', async () => {
+    const { unmount } = render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse the list' }));
+    expect(document.querySelector('.nt-list')).toBeNull();
+    expect(localStorage.getItem('nx-notes-list-open')).toBe('0');
+    unmount();
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    expect(document.querySelector('.nt-list')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show the list' }));
+    expect(document.querySelector('.nt-list')).toBeTruthy();
+    expect(localStorage.getItem('nx-notes-list-open')).toBe('1');
+  });
+
+  it('full screen shows Back to Notes and a labeled Exit Full Screen, and either one leaves it', async () => {
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    expect(screen.queryByRole('button', { name: /Back to Notes/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Full Screen' }));
+    expect(document.querySelector('.nt-page.is-full')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Back to Notes/ }));
+    expect(document.querySelector('.nt-page.is-full')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Full Screen' }));
+    fireEvent.click(screen.getByRole('button', { name: /Exit Full Screen/ }));
+    expect(document.querySelector('.nt-page.is-full')).toBeNull();
+  });
+
   it('a board shared to read opens the whiteboard in view mode', async () => {
     apiMock.noteGet.mockResolvedValue(board({ mine: false, can: 'read', owner: 'bob@greensglobal.com' }));
     render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);

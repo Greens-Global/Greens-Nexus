@@ -14,7 +14,7 @@ import {
   ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
   Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, Link as LinkIcon, Palette,
   RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, PenTool, Image as ImageIcon, FileCode2, Copy, FileJson,
-  Paperclip, ExternalLink,
+  Paperclip, ExternalLink, ArrowLeft,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -59,6 +59,7 @@ const VIEWS = [
   { key: 'trash', label: 'Trash' },
 ];
 const LIST_W_KEY = 'nx-notes-list-width';
+const LIST_OPEN_KEY = 'nx-notes-list-open';
 const readNum = (k, d) => { try { const v = Number(window.localStorage.getItem(k)); return v > 0 ? v : d; } catch { return d; } };
 const store = (k, v) => { try { window.localStorage.setItem(k, String(v)); } catch { /* storage unavailable */ } };
 
@@ -678,10 +679,9 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
               {mine && !trashed && (
                 <button type="button" className="nt-icon-btn" aria-label="Share" title="Share" onClick={() => setDialog('share')}><Users size={17} /></button>
               )}
-              {!isPhone && (
-                <button type="button" className="nt-icon-btn" aria-label={full ? 'Exit Full Screen' : 'Full Screen'} title={full ? 'Exit Full Screen (Esc)' : 'Full Screen'}
-                  onClick={onToggleFull}>{full ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button>
-              )}
+              {!isPhone && (full
+                ? <button type="button" className="nt-text-btn nt-exit-full" title="Exit Full Screen (Esc)" onClick={onToggleFull}><Minimize2 size={15} aria-hidden="true" /> Exit Full Screen</button>
+                : <button type="button" className="nt-icon-btn" aria-label="Full Screen" title="Full Screen" onClick={onToggleFull}><Maximize2 size={17} /></button>)}
               <span style={{ position: 'relative' }}>
                 <button type="button" className="nt-icon-btn" aria-label="More actions" title="More" aria-haspopup="menu" aria-expanded={menu === 'more'}
                   onClick={() => setMenu(menu === 'more' ? '' : 'more')}><MoreHorizontal size={18} /></button>
@@ -704,11 +704,17 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             </div>
   );
 
+  // A board keeps its tags on the meta line, so the canvas gets that row (Neil, 11/06/2026).
+  const tagEditor = <TagEditor tags={note.tags || []} disabled={!mine || trashed} onChange={(tags) => sync.setMeta({ tags })} />;
   const doc = (
         <div className={`nt-doc${board ? ' is-board' : ''}`}>
           {/* The sheet already says Daily Scratchpad - as in Quick Note, no empty title box under it. */}
           {!(isPhone && note.kind === 'daily' && !note.title) && (
             <div className="nt-head">
+              {/* Full screen hides the list and the bar: Back is the way out (Neil, 11/06/2026). */}
+              {full && !isPhone && (
+                <button type="button" className="nt-text-btn nt-back" onClick={onToggleFull} title="Back to Notes (Esc)"><ArrowLeft size={15} aria-hidden="true" /> Back to Notes</button>
+              )}
               <span className="nt-head-rule" style={{ background: colorCss(note.color) }} aria-hidden="true" />
               <input ref={titleRef} className="nt-title" value={note.title || ''} readOnly={readOnly} maxLength={200}
                 placeholder={note.kind === 'daily' ? 'Daily Scratchpad' : board ? 'Untitled Board' : 'Untitled Note'} aria-label={board ? 'Board title' : 'Note title'}
@@ -736,9 +742,10 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             )}
             <PresenceLine people={sync.people} peers={board ? boardCollab.peers : collab.peers} live={board ? boardCollab.live : collab.live} nameOf={nameOf} />
             {!readOnly && !isPhone && <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} problem={sync.problem} />}
+            {board && tagEditor}
           </div>
 
-          <TagEditor tags={note.tags || []} disabled={!mine || trashed} onChange={(tags) => sync.setMeta({ tags })} />
+          {!board && tagEditor}
 
           {trashed && (
             <div className="nt-banner is-bad" role="status">
@@ -817,7 +824,8 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const [tag, setTag] = useState('');
   const [data, setData] = useState(null);     // { notes, counts, tags }
   const [error, setError] = useState('');
-  const [listOpen, setListOpen] = useState(true);
+  const [listOpen, setListOpen] = useState(() => { try { return window.localStorage.getItem(LIST_OPEN_KEY) !== '0'; } catch { return true; } });
+  const toggleList = () => setListOpen((o) => { store(LIST_OPEN_KEY, o ? '0' : '1'); return !o; });
   const [listW, setListW] = useState(() => readNum(LIST_W_KEY, 320));
   const [drag, setDrag] = useState(false);
   const [full, setFull] = useState(false);
@@ -825,6 +833,24 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const [toast, toastNode] = useToast();
   const searchRef = useRef(null);
   const fileRef = useRef(null);
+  const pageRef = useRef(null);
+  // The page fits the window on a computer (Neil, 11/06/2026): the list and
+  // the note scroll on their own and a board gets every pixel under the bar.
+  // Measured again when anything above it moves (a banner closing).
+  const fit = !isPhone && !full;
+  useEffect(() => {
+    const el = pageRef.current;
+    if (!el || !fit) return undefined;
+    const measure = () => {
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      el.style.setProperty('--nt-fit', `${Math.max(480, Math.round(window.innerHeight - top - 16))}px`);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(document.body);
+    return () => { window.removeEventListener('resize', measure); ro?.disconnect(); };
+  }, [fit]);
 
   const askNewBoard = activeSub === NEW_BOARD_SUB;
   const selectedId = (activeSub || '').startsWith('notes:') && !askNewBoard ? activeSub.slice(6) : '';
@@ -923,13 +949,9 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const counts = data?.counts || {};
 
   return (
-    <div className={`nt-page${full ? ' is-full' : ''}`}>
+    <div ref={pageRef} className={`nt-page${full ? ' is-full' : ''}${fit ? ' is-fit' : ''}`}>
       {!full && (
         <div className="nt-bar">
-          {!isPhone && (
-            <button type="button" className="nt-icon-btn" aria-label={listOpen ? 'Hide the list' : 'Show the list'} title={listOpen ? 'Hide the List' : 'Show the List'}
-              onClick={() => setListOpen((o) => !o)}>{listOpen ? <ChevronsLeft size={18} /> : <ChevronsRight size={18} />}</button>
-          )}
           <div className="nt-month" aria-label="Month">
             <button type="button" className="nt-icon-btn" aria-label="Previous month" disabled={!byMonth} onClick={() => setMonth((m) => shiftMonth(m, -1))}><ChevronLeft size={17} /></button>
             <span className="nt-month-label" aria-live="polite">{byMonth ? monthLabel(month) : 'Every Month'}</span>
@@ -961,7 +983,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
               onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ''; }} />
             {isPhone
               ? <button type="button" className="nt-icon-btn" aria-label="New Board" title="New Board" onClick={newBoard}><PenTool size={17} /></button>
-              : <button type="button" className="nt-text-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
+              : <button type="button" className="nt-text-btn is-board-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
             <button type="button" className="nt-text-btn is-primary" onClick={() => newNote()}><Plus size={15} /> New Note</button>
           </div>
         </div>
@@ -1017,8 +1039,19 @@ export default function NotesPage({ activeSub, onSubChange }) {
               {data?.more && <div className="nt-empty">Showing the newest 500 - search to find older notes.</div>}
             </div>
           </div>
-          {!isPhone && <div className={`nt-resize${drag ? ' is-drag' : ''}`} role="separator" aria-orientation="vertical" aria-label="Resize the list" onPointerDown={startDrag} />}
+          {!isPhone && (
+            <div className={`nt-resize${drag ? ' is-drag' : ''}`} role="separator" aria-orientation="vertical" aria-label="Resize the list" onPointerDown={startDrag}>
+              <button type="button" className="nt-collapse" aria-label="Collapse the list" aria-expanded="true" title="Collapse the List"
+                onPointerDown={(e) => e.stopPropagation()} onClick={toggleList}><ChevronsLeft size={15} /></button>
+            </div>
+          )}
         </>)}
+        {/* Collapsed: a slim rail with the way back, never a lost list (Neil, 11/06/2026). */}
+        {!isPhone && !full && !listOpen && (
+          <button type="button" className="nt-rail" aria-label="Show the list" aria-expanded="false" title="Show the List" onClick={toggleList}>
+            <ChevronsRight size={16} aria-hidden="true" /><span>Notes</span>
+          </button>
+        )}
         {showPane && (
           <NotePane key={selectedId || 'none'} id={selectedId} people={people} onBack={() => select('')} onSaved={onSaved}
             onTrashChanged={onTrashChanged} full={full} onToggleFull={() => setFull((f) => !f)} isPhone={isPhone} toast={toast} myEmail={myEmail} />
