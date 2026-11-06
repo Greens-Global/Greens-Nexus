@@ -511,6 +511,44 @@ class InPersonTests(OfferCase):
                                  files={"file": ("signed.pdf", printed.content, "application/pdf")})
         self.assertEqual(again.status_code, 409)
 
+    def test_a_hiring_packet_signed_on_paper_completes_it_and_files_the_scan(self):
+        # 11/05/2026: hired face to face - the packet never went out, HR uploads the signed paper copy.
+        offer = self._offer().json()
+        self._send_and_sign(offer["id"])
+        packet = self.db.query(models.HrLifeEvent).filter_by(candidate_id="cand-1", kind="hire").one()
+        self.assertEqual(packet.status, "intake")
+        scan = b"%PDF-1.4 signed on paper"
+        bad = self.client.post(f"/hr/life-events/{packet.id}/signed-on-paper",
+                               files={"file": ("scan.pdf", b"not a pdf", "application/pdf")})
+        self.assertEqual(bad.status_code, 400)
+        up = self.client.post(f"/hr/life-events/{packet.id}/signed-on-paper",
+                              files={"file": ("scan.pdf", scan, "application/pdf")})
+        self.assertEqual(up.status_code, 200, up.text)
+        self.db.expire_all()
+        ev = self._ev(packet.id)
+        self.assertEqual(ev.status, "completed")
+        self.assertTrue(ev.inputs["paper_path"].startswith(hle.PAPER_PREFIX))
+        self.assertIn("signed on paper", ev.apply_note)
+        cand = self.db.query(models.HrCandidate).filter_by(id="cand-1").one()
+        self.assertEqual((cand.stage, cand.employee_id), ("hired", ev.employee_id))
+        doc = self.db.query(models.HrDocument).filter_by(employee_id=ev.employee_id,
+                                                          storage_path=ev.inputs["paper_path"]).one()
+        self.assertEqual(doc.kind, "contract")
+        self.assertEqual(self.client.post(f"/hr/life-events/{packet.id}/signed-on-paper",
+                                          files={"file": ("scan.pdf", scan, "application/pdf")}).status_code, 409)
+        # the filing pass files the scan itself - there is no envelope
+        import egnyte_wiring
+        import services.egnyte as svc
+        from unittest import mock
+        uploads = []
+        with mock.patch.object(svc, "configured", lambda: True), mock.patch.object(svc, "create_folder", lambda p: None), \
+                mock.patch.object(svc, "upload_file", lambda p, b: uploads.append((p, b))), \
+                mock.patch.object(egnyte_wiring, "provision_person_folder", lambda emp, db: "/Shared/Jane"):
+            ok, where = hle.file_one(self.db, ev)
+        self.assertTrue(ok, where)
+        self.assertTrue(where.endswith("(signed on paper).pdf"), where)
+        self.assertEqual(uploads[0][1], scan)
+
     def test_an_electronic_offer_has_nothing_to_print(self):
         eid = self._offer().json()["id"]
         self.assertEqual(self._verify(eid, self._review(eid)).status_code, 200)

@@ -17,7 +17,7 @@ import { createPortal } from 'react-dom';
 import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock, AlertTriangle, Plus, Trash2, Copy, Info, Printer, Upload } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
-import HoldButton from '../ui/HoldButton';
+import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import { formatDateTime } from '../lib/datetime';
 import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
@@ -856,6 +856,28 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
     } catch (e) { toastErr?.(e?.message || 'Could not save the signed copy.'); }
     setBusy('');
   }
+  // Signed On Paper (11/05/2026): hired face to face - the person filled in and
+  // signed the hiring packet on paper, so the scan completes it before it is ever sent.
+  const paperOk = ev.kind === 'hire' && ['intake', 'review'].includes(ev.status);
+  async function signedOnPaper(file) {
+    if (!file) return;
+    await dialog.confirm(
+      `Mark ${ev.subjectName}'s hiring packet signed on paper with "${file.name}"?
+
+` +
+      'Every step is marked complete, the scan is saved to their profile and filed in Egnyte, and their details link stops working. Fill in their details on People yourself.',
+      {
+        title: 'Signed On Paper?', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Mark Complete', doneText: 'Complete',
+        onConfirm: async () => {
+          setBusy('paper');
+          try { await api.uploadSignedOnPaper(ev.id, file); }
+          catch (e) { throw new Error(e?.message || 'Could not save the signed copy.', { cause: e }); }
+          finally { setBusy(''); }
+          toastOk?.(`Hiring packet complete - ${ev.subjectName}'s signed paper copy is on their profile.`);
+          onChanged?.();
+        },
+      });
+  }
   async function startPacket() {
     setBusy('packet');
     try {
@@ -999,6 +1021,14 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
                 onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; uploadSigned(file); }} />
             </label>
           </>
+        )}
+        {paperOk && (
+          <label className="secondary-btn" title="Hired face to face: upload the signed paper packet to complete every step"
+            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+            {busy === 'paper' ? <Spinner size={12} /> : <Upload size={12} />} Signed On Paper
+            <input type="file" accept="application/pdf,image/*" disabled={!!busy} style={{ display: 'none' }}
+              onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; signedOnPaper(file); }} />
+          </label>
         )}
         {ev.senderPartyId && onSignNow && !hideSign && (
           <button className="primary-btn" onClick={() => onSignNow(ev.senderPartyId)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
