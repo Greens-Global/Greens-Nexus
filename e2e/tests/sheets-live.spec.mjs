@@ -144,3 +144,34 @@ test('a pivot table sums by region and follows its data', async ({ page }) => {
   await expect(grid).toContainText('130');      // East: 100 + 30
   await expect(grid).toContainText('200');
 });
+
+test('a sheet downloads as .xlsx and imports back with its values and formula', async ({ page }, testInfo) => {
+  await openApp(page);
+  await page.goto('/documents');
+  await skipTour(page);
+  await page.getByRole('button', { name: 'New Sheet' }).click();
+  await expect(page.locator('[role=grid]')).toBeVisible({ timeout: 20_000 });
+  await typeAt(page, [], '40');
+  await typeAt(page, ['ArrowDown'], '2');
+  await typeAt(page, ['ArrowDown', 'ArrowDown'], '=A1*A2');
+  await expect(page.locator('[role=grid]')).toContainText('80');
+  await page.getByRole('button', { name: 'File', exact: true }).first().click();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByText('Download as .xlsx', { exact: true }).click(),
+  ]);
+  const file = testInfo.outputPath('round-trip.xlsx');
+  await download.saveAs(file);
+
+  await page.goto('/documents');
+  await skipTour(page);
+  await page.getByLabel('Import a file').setInputFiles(file);
+  await expect(page.locator('[role=grid]')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('[role=grid]')).toContainText('80');
+  // The formula came back as a formula, not a frozen value.
+  await page.locator('[role=grid]').focus();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.type('50');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[role=grid]')).toContainText('100');
+});
