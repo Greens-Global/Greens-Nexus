@@ -105,6 +105,13 @@ def waiting(only: str = "", fresh: bool = False, user: dict = Depends(get_curren
     # Hand the connection back while this request may wait on another's build
     # (a GET wrote nothing); the build below takes one again.
     db.rollback()
+    return waiting_for(db, me)
+
+
+def waiting_for(db: Session, me: str) -> dict:
+    """The cached review list for `me` (lowercase) - the Daily Briefing reads
+    the same build (11/05/2026) rather than making its own."""
+    import cache
     return cache.timesheet_waiting.get_or_load(me, lambda: _waiting(db, me))
 
 
