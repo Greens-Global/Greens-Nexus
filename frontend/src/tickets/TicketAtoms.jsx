@@ -343,7 +343,7 @@ export function FirstResponseIndicator({ t }) {
 
 export function TicketStatusChip({ status, size }) {
   const m = TICKET_STATUS_META[status] || { label: status, color: '#64748b' };
-  return <StatusLabel label={m.label} color={m.color} size={size} />;
+  return <StatusLabel className="nx-label-flat" label={m.label} color={m.color} size={size} />;
 }
 
 

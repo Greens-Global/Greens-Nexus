@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { collectCriticalDates, CRITICAL_ITEM_TAB } from '../../lib/criticalItems.js';
 import { formatDate } from '../../lib/format.js';
 
-// Overdue/Due-soon pill tone by signed day-count. Distinct from HealthStrip's ok/warn/bad/info
+// Overdue/Due-soon dot tone by signed day-count. Distinct from HealthStrip's ok/warn/bad/info
 // tone vocabulary - this component uses color names directly (red/orange/gold/green) since it
 // talks to CSS custom properties (--color-red etc.) rather than through a tone-name indirection.
 function toneOf(days) {
@@ -23,32 +23,17 @@ function dueText(days) {
   return 'Due in ' + days + 'd';
 }
 
-/** Small count pill, e.g. "3 Overdue". Greys out (mut) when the count is 0. */
+// The strip's marks are flat (11/05/2026, Neil's flat sweep): a small dot in
+// the tone and the words beside it - never a tinted, rounded pill.
+const markStyle = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 0', fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' };
+const dotStyle = (color, active = true) => ({ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, backgroundColor: active ? `hsl(var(--color-${color}))` : 'var(--text-muted)' });
+
+/** A count as a dot plus words, e.g. "3 Overdue". The dot greys out when the count is 0. */
 function CountPill({ count, label, color }) {
   const active = count > 0;
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '4px 10px',
-        borderRadius: 999,
-        fontSize: '0.72rem',
-        fontWeight: 700,
-        whiteSpace: 'nowrap',
-        color: active ? `hsl(var(--color-${color}))` : 'var(--text-muted)',
-        backgroundColor: active ? `hsla(var(--color-${color}), 0.12)` : 'var(--bg-secondary)',
-      }}
-    >
-      <span
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: '50%',
-          backgroundColor: active ? `hsl(var(--color-${color}))` : 'var(--text-muted)',
-        }}
-      />
+    <span style={{ ...markStyle, color: active ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+      <span style={dotStyle(color, active)} />
       {count} {label}
     </span>
   );
@@ -159,15 +144,15 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
         <span style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>
           {title}
         </span>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', columnGap: 16, rowGap: 4, flexWrap: 'wrap' }}>
           {!chipsOnly && <CountPill count={overdueCount} label="Overdue" color="red" />}
           {!chipsOnly && <CountPill count={due30Count} label="Due in 30d" color="orange" />}
           {!chipsOnly && <CountPill count={due90Count} label="Due in 31-90d" color="gold" />}
           {extras.map((c) => (
             <button key={c.label} type="button" onClick={c.onClick} title={c.title} aria-expanded={c.expanded}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: 'none', fontFamily: 'inherit',
-                color: `hsl(var(--color-${c.color || 'orange'}))`, backgroundColor: `hsla(var(--color-${c.color || 'orange'}), 0.12)` }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: `hsl(var(--color-${c.color || 'orange'}))` }} />
+              style={{ ...markStyle, cursor: 'pointer', border: 'none', background: 'none', fontFamily: 'inherit', color: 'var(--text-primary)',
+                textDecoration: c.expanded ? 'underline' : 'none', textUnderlineOffset: 4 }}>
+              <span style={dotStyle(c.color || 'orange')} />
               {c.count} {c.label}
             </button>
           ))}
@@ -242,20 +227,8 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
                     borderTop: i ? '1px solid var(--border-color)' : 'none',
                   }}
                 >
-                  <span
-                    style={{
-                      flexShrink: 0,
-                      minWidth: 98,
-                      textAlign: 'center',
-                      padding: '4px 8px',
-                      borderRadius: 6,
-                      fontSize: '0.72rem',
-                      fontWeight: 700,
-                      whiteSpace: 'nowrap',
-                      color: `hsl(var(--color-${toneOf(item.days)}))`,
-                      backgroundColor: `hsla(var(--color-${toneOf(item.days)}), 0.12)`,
-                    }}
-                  >
+                  <span style={{ ...markStyle, flexShrink: 0, minWidth: 98, padding: 0, fontSize: '0.74rem', color: 'var(--text-primary)' }}>
+                    <span style={dotStyle(toneOf(item.days))} />
                     {dueText(item.days)}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>

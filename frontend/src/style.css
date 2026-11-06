@@ -7371,6 +7371,9 @@ body.sched-stretching, body.sched-stretching * { cursor: ew-resize !important; u
 .nx-label-sm::before { width: 6px; height: 6px; }
 .nx-label-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 [data-theme="dark"] .nx-label { background: color-mix(in srgb, var(--c) 20%, transparent); color: color-mix(in srgb, var(--c) 55%, #fff); }
+/* Flat variant (11/05/2026, Neil's flat sweep): the dot and the words, no
+   tinted pill behind them - for dense lists where a column of pills is noise. */
+.nx-label.nx-label-flat, [data-theme="dark"] .nx-label.nx-label-flat { background: none; padding: 0; border-radius: 0; }
 .nx-prio { --c: #64748b; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%;
   font-size: 12.5px; font-weight: 500; color: var(--nx-dim, var(--muted)); white-space: nowrap; }
 /* The chevron mark (Oct 28 2026) is always in the priority's own color;
