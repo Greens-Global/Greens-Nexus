@@ -175,6 +175,14 @@ class LiveDocuments(unittest.TestCase):
             self.assertEqual(self.client.post(f"/documents/{self.did}/archive").status_code, 403)
             self.assertEqual(self.client.put(f"/documents/{self.did}/share", json={"email": EDITOR, "can": "edit"}).status_code, 403)
 
+    def test_sheet_variables_resolve_from_its_own_values(self):
+        r = self.client.patch(f"/documents/{self.did}", json={"mergeOverrides": {"region": "Texas"}})
+        self.assertEqual(r.status_code, 200, r.text)
+        out = self.client.get(f"/documents/{self.did}/merge-values").json()
+        self.assertEqual(out["values"].get("region"), "Texas")
+        self.as_user(STRANGER)
+        self.assertEqual(self.client.get(f"/documents/{self.did}/merge-values").status_code, 404)
+
     def test_final_document_is_never_live_and_sheet_does_not_export(self):
         self.assertEqual(self.client.get(f"/documents/{self.did}/export/pdf").status_code, 400)
         self.assertEqual(self.client.patch(f"/documents/{self.did}", json={"status": "final"}).status_code, 200)

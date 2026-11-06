@@ -2589,6 +2589,7 @@ export const api = {
   documentCollab: (id) => req(`/documents/${encodeURIComponent(id)}/collab`),
   documentCollabSeed: (id, data) => req(`/documents/${encodeURIComponent(id)}/collab/seed`, { method: 'POST', body: JSON.stringify(data) }),
   documentCollabReset: (id) => req(`/documents/${encodeURIComponent(id)}/collab/reset`, { method: 'POST' }),
+  documentMergeValues: (id) => req(`/documents/${encodeURIComponent(id)}/merge-values`),
   docTemplatePreviewPdf: (id) => reqBlob(`/documents/templates/${id}/preview`),
   // Signs Once (Oct 14): the company signs a packet once - a one-time code,
   // then the signature goes on every packet until someone else holds the role.

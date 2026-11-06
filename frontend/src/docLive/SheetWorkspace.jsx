@@ -5,7 +5,7 @@
 // always works in the live session - alone it is just the save path; a viewer
 // sees the saved copy and follows saves (GET /head every 10 s).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Users } from 'lucide-react';
+import { ArrowLeft, Users, Braces } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { usePeople } from '../tasks/components';
@@ -14,13 +14,14 @@ import FullScreenButton, { useFullScreen } from '../components/FullScreenButton'
 import { SheetEditor, seedSheetDoc, snapshotOf, validateSheetDoc } from '../sheets';
 import { useLiveSession, useHeadPoll } from './useLiveSession';
 import ShareDocumentDialog, { LivePeople } from './ShareDocumentDialog';
+import SheetVariablesDialog, { useSheetVariables } from './SheetVariables';
 import { caretColor } from '../notes/useNoteCollab';
 import './docLive.css';
 
 const SAVE_MS = 1200;
 const SAVE_WORD = { saving: 'Saving...', saved: 'Saved', error: 'Not Saved - Retrying' };
 
-export default function SheetWorkspace({ docId, onClose, toastOk, toastErr }) {
+export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, employees = [], entities = [] }) {
   const { myEmail } = useRole();
   const people = usePeople();
   const me = (myEmail || '').toLowerCase();
@@ -30,6 +31,8 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr }) {
   const [title, setTitle] = useState('');
   const [saveState, setSaveState] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
+  const [varsOpen, setVarsOpen] = useState(false);
+  const vars = useSheetVariables(docId);
   const [full, toggleFull] = useFullScreen('documents-sheet');
 
   const load = useCallback(() => api.getDocument(docId)
@@ -105,6 +108,9 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr }) {
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setTitle(row.title); e.currentTarget.blur(); } }} />
         <span className="dl-sheet-save" aria-live="polite">{word}</span>
         {canEdit && <LivePeople peers={live.peers} status={live.status} />}
+        <button type="button" className="secondary-btn" onClick={() => setVarsOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Braces size={14} /> Variables
+        </button>
         <button type="button" className="secondary-btn" onClick={() => setShareOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Users size={14} /> Share
         </button>
@@ -119,9 +125,14 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr }) {
       <div className="dl-sheet-body">
         {doc
           ? <SheetEditor key={doc.guid} doc={doc} awareness={canEdit ? live.awareness : null} canEdit={canEdit && !!live.doc}
-              me={{ email: me, name: myName, color: caretColor(me) }} title={row.title} onChange={onChange} toastErr={toastErr} />
+              me={{ email: me, name: myName, color: caretColor(me) }} title={row.title} onChange={onChange} toastErr={toastErr}
+              variables={vars.variables} variableValues={vars.values} />
           : <div style={{ padding: 16 }}><SkeletonBlocks count={10} height={28} /></div>}
       </div>
+      {varsOpen && (
+        <SheetVariablesDialog docId={docId} canManage={row.access === 'owner'} subject={vars.subject} employees={employees} entities={entities}
+          variables={vars.variables} values={vars.values} onClose={() => setVarsOpen(false)} onChanged={vars.reload} />
+      )}
       {shareOpen && (
         <ShareDocumentDialog doc={row} canManage={row.access === 'owner'} onClose={() => setShareOpen(false)}
           onChanged={(out) => { if (out) setRow((r) => ({ ...r, sharedWith: out.sharedWith || [] })); toastOk?.('Sharing updated'); }} />

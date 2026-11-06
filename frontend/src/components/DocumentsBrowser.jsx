@@ -478,7 +478,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
 
   if (editingSheet) return (
     <Suspense fallback={<SkeletonBlocks count={8} height={36} />}>
-      <SheetWorkspace docId={editingSheet} toastOk={toastOk} toastErr={toastErr} onClose={() => { setEditingSheet(null); load(); }} />
+      <SheetWorkspace docId={editingSheet} employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr} onClose={() => { setEditingSheet(null); load(); }} />
     </Suspense>
   );
 

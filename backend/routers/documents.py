@@ -2739,6 +2739,25 @@ def _export_prep(db: Session, did: str, user: dict):
     return (row, *render_parts(db, row, merge))
 
 
+@router.get("/{did}/merge-values")
+def merge_values(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A sheet's variables, filled (Neil, 11/05/2026): {token: text} for its
+    person, company and own values - the same resolution and the same HR Only
+    rule an export uses, so a sheet shows exactly what a document would print."""
+    row = _get_readable(db, did, user)
+    subject = (db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first()
+               if row.employee_id else None)
+    audience = subject_audience(db, user, subject) if subject is not None else ""
+    if subject is not None and not audience:
+        raise HTTPException(403, "This sheet is about someone outside your team and People scope")
+    merge = resolve_merge_data(db, employee_id=row.employee_id, entity_id=row.entity_id,
+                               overrides=row.merge_overrides or {}, custom_hr_only=audience == "hr")
+    merge = display_merge(merge, [])
+    values = {str(k): ("" if v is None else str(v)) for k, v in (merge or {}).items()
+              if isinstance(k, str) and not isinstance(v, (dict, list))}
+    return {"employeeId": row.employee_id or "", "entityId": row.entity_id or "", "values": values}
+
+
 def render_parts(db: Session, row: Document, merge: dict) -> tuple:
     """(header_blocks, pages_blocks, footer_blocks, letterhead, page_setup) of a
     document with `merge` already resolved by the caller."""
