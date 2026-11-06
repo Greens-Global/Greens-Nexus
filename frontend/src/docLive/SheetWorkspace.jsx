@@ -4,7 +4,7 @@
 // the save state, and the live session (docLive/useLiveSession.js). An editor
 // always works in the live session - alone it is just the save path; a viewer
 // sees the saved copy and follows saves (GET /head every 10 s).
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Users, Braces, History } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -17,9 +17,30 @@ import ShareDocumentDialog, { LivePeople } from './ShareDocumentDialog';
 import SheetVariablesDialog, { useSheetVariables } from './SheetVariables';
 import SheetHistoryDialog from './SheetHistory';
 import { caretColor } from '../notes/useNoteCollab';
+import { reportError } from '../lib/errorReporter';
 import './docLive.css';
 
 const SAVE_MS = 1200;
+
+// The engine crashed drawing this sheet (a state no check foresaw): never a
+// blank page - offer the saved copy and Version History instead.
+class SheetBoundary extends Component {
+  constructor(props) { super(props); this.state = { crashed: false }; }
+  static getDerivedStateFromError() { return { crashed: true }; }
+  componentDidCatch(error) { reportError(`Sheets grid crashed: ${error?.message || error}`, error?.stack || ''); }
+  render() {
+    if (!this.state.crashed) return this.props.children;
+    return (
+      <div role="alert" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
+        <ErrorBanner message="This sheet could not be shown. Reload it from the last saved copy, or restore an earlier one from Version History." />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="primary-btn" onClick={async () => { await this.props.onReload?.(); this.setState({ crashed: false }); }}>Reload From the Saved Copy</button>
+          <button type="button" className="secondary-btn" onClick={this.props.onHistory}>Version History</button>
+        </div>
+      </div>
+    );
+  }
+}
 const SAVE_WORD = { saving: 'Saving...', saved: 'Saved', error: 'Not Saved - Retrying' };
 
 export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, employees = [], entities = [] }) {
@@ -88,6 +109,12 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, empl
     window.addEventListener('beforeunload', warn);
     return () => { window.removeEventListener('beforeunload', warn); clearTimeout(timer.current); };
   }, []);
+  // The live state broke the grid: drop it on the server (editors) so every
+  // session rebuilds from the saved content, then reopen.
+  const reloadFromSaved = async () => {
+    if (canEdit) { try { await api.documentCollabReset(docId); } catch { /* the reload still rereads */ } live.restart(); }
+    await load();
+  };
   const close = async () => { try { await flush(); } catch { /* the toast said so */ } onClose?.(); };
 
   const saveTitle = async () => {
@@ -129,9 +156,9 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, empl
       )}
       <div className="dl-sheet-body">
         {doc
-          ? <SheetEditor key={doc.guid} doc={doc} awareness={canEdit ? live.awareness : null} canEdit={canEdit && !!live.doc}
+          ? <SheetBoundary key={doc.guid} onHistory={() => setHistoryOpen(true)} onReload={reloadFromSaved}><SheetEditor key={doc.guid} doc={doc} awareness={canEdit ? live.awareness : null} canEdit={canEdit && !!live.doc}
               me={{ email: me, name: myName, color: caretColor(me) }} title={row.title} onChange={onChange} toastErr={toastErr}
-              variables={vars.variables} variableValues={vars.values} />
+              variables={vars.variables} variableValues={vars.values} /></SheetBoundary>
           : read.unreadable
             ? (
               <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
