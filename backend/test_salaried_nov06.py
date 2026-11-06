@@ -110,10 +110,32 @@ class SalariedNov06(unittest.TestCase):
         self.assertEqual(len(card["fixedDays"]), 14)
         self.assertAlmostEqual(card["totals"]["salaryForPeriod"], round(SALARY * 12 / 26, 2), places=2)
 
-    def test_biweekly_starts_11_01_earlier_months_stay_monthly(self):
+    def test_biweekly_before_11_01_too(self):
+        """Charmi, 11/06/2026: Valinda's 10/18 - 10/31 period is the payroll
+        being run now - a bi-weekly salary is bi-weekly in October too."""
         card = self._card(BIW, "2026-10-20")
         self.assertEqual((card["periodStart"], card["periodEnd"], card["periodKind"]),
-                         ("2026-10-01", "2026-10-31", "month"))
+                         ("2026-10-18", "2026-10-31", "biweekly"))
+        self.assertAlmostEqual(card["totals"]["salaryForPeriod"], round(SALARY * 12 / 26, 2), places=2)
+
+    def test_a_month_finalized_as_a_month_stays_monthly(self):
+        db = database.SessionLocal()
+        try:
+            db.add(models.TimeApproval(id="nov06-final-sep", employee_email=BIW, period_start="2026-09-01",
+                                       period_end="2026-09-30", kind="final", revoked=0))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            for anchor, want in (("2026-09-10", ("2026-09-01", "2026-09-30", "month")),
+                                 ("2026-10-20", ("2026-10-18", "2026-10-31", "biweekly"))):
+                card = self._card(BIW, anchor)
+                self.assertEqual((card["periodStart"], card["periodEnd"], card["periodKind"]), want, anchor)
+        finally:
+            db = database.SessionLocal()
+            db.query(models.TimeApproval).filter(models.TimeApproval.id == "nov06-final-sep").delete()
+            db.commit()
+            db.close()
 
     def test_monthly_salary_and_contractors_keep_the_month(self):
         for em in (US, CON):
