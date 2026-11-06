@@ -420,26 +420,35 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
     return _with_backup(db, _serialize(row, db=db))
 
 
-@router.patch("/employees/{eid}")
-def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
-    if not row:
-        raise HTTPException(404, "Employee not found")
-    scope = hr_scope(user, db)
+def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: dict, *, scope,
+                         source: str = "") -> dict:
+    """The People screen's profile save, shared by PATCH /hr/employees/{eid}
+    and the Workflows action Set A Person Detail (11/05/2026).
+
+    `fields` is what the caller sets (the route's `model_dump(exclude_unset)`;
+    a None value is skipped). Checks the caller's People `scope`, the company
+    re-tag, the allowed values, the offboard-only refusal and the first name;
+    normalizes and writes each key; adopts pending pay, follows probation and
+    the HR checklist; commits; and writes ONE masked field-level AuditLog row
+    (`source`, e.g. "Workflow: New Hire Setup", travels in its details).
+    Returns {field: (before, after)} for what really changed. Raises
+    HTTPException exactly as the route always has - a caller that is not a
+    route converts it."""
     _assert_scope(row, scope)
     # Block the re-tag escape: a scoped admin can neither pull someone into
     # their scope nor push someone out of it via the company field.
-    if scope is not None and body.company is not None and body.company.strip() not in scope:
+    company = fields.get("company")
+    if scope is not None and company is not None and company.strip() not in scope:
         raise HTTPException(403, "You can't move someone to a company outside your People access")
-    _validate(body.employment_type, body.status, body.identity_type)
+    _validate(fields.get("employment_type"), fields.get("status"), fields.get("identity_type"))
     # Offboarding goes through Offboard (POST /employees/{eid}/offboard), which
     # requires the termination date and runs the leaver steps (Neil, Teams
     # 11/02/2026) - the generic profile save must not slip past it.
-    if body.status == "offboarded" and (row.status or "") != "offboarded":
+    if fields.get("status") == "offboarded" and (row.status or "") != "offboarded":
         raise HTTPException(400, OFFBOARD_ONLY)
-    if body.first_name is not None and not body.first_name.strip():
+    first_name = fields.get("first_name")
+    if first_name is not None and not first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
-    fields = body.model_dump(exclude_unset=True)
     changes: dict = {}
     old_start = row.start_date or ""
     is_external = (row.identity_type or "internal") in ("guest", "external")
@@ -485,18 +494,27 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             shown = {k: ("(changed)" if any(m in k.lower() for m in _mask)
                          else [None if v[0] is None else str(v[0])[:120], None if v[1] is None else str(v[1])[:120]])
                      for k, v in changes.items()}
+            details = {"employee": row.work_email, "changes": shown}
+            if source:
+                details["source"] = str(source)[:200]
             db.add(AuditLog(timestamp=datetime.now(timezone.utc).isoformat(), user_email=user["email"],
                             user_role=str(user.get("role") or ""), action="Changed employee fields",
                             resource_type="employee", resource_id=row.id,
-                            details=_json.dumps({"employee": row.work_email, "changes": shown})[:4000]))
+                            details=_json.dumps(details)[:4000]))
             db.commit()
         except Exception as e:   # the audit row must never fail the save
             db.rollback()
             print(f"[hr] field audit skipped: {e}")
-    out = _with_backup(db, _serialize(row, db=db))
-    # Nexus is the source of truth for profile edits - mirror them onto the
-    # linked Entra account automatically (best-effort: a Graph hiccup must never
-    # fail the save; the response says whether Entra took the change).
+    return changes
+
+
+def mirror_profile_to_entra(db: Session, row: NexusEmployee, fields, changes: dict, out: dict) -> dict:
+    """Nexus is the source of truth for profile edits - mirror them onto the
+    linked Entra account automatically (best-effort: a Graph hiccup must never
+    fail the save; `out["entra"]` says whether Entra took the change). `fields`
+    are the keys the save set, `changes` what really changed. Returns `out`,
+    re-serialized when Entra was written. Synchronous Graph calls: an async
+    caller runs it in a thread."""
     if row.m365_id and (set(fields) & ENTRA_MAPPED_FIELDS):
         if not _entra_writes_enabled():
             out["entra"] = {"synced": False, "skipped": True, "error": _ENTRA_WRITES_OFF_MSG}
@@ -519,6 +537,17 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
         except Exception as e:
             out["entra"] = {"synced": False, "error": str(e)[:200]}
     return out
+
+
+@router.patch("/employees/{eid}")
+def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    fields = body.model_dump(exclude_unset=True)
+    changes = apply_profile_update(db, row, fields, user, scope=hr_scope(user, db))
+    out = _with_backup(db, _serialize(row, db=db))
+    return mirror_profile_to_entra(db, row, fields, changes, out)
 
 
 @router.post("/employees/{eid}/m365-sync")
