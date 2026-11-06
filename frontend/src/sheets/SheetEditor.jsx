@@ -1188,7 +1188,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
         spillW += colX[cc + 1] - colX[cc];
       }
     }
-    const cls = `nxs-cell${inSel && !single ? ' is-in' : ''}${inFill ? ' is-fill' : ''}${tag || spillW ? ' has-tag' : ''}${note ? ' has-note' : ''}${invalid ? ' is-invalid' : ''}${spilled ? ' is-spilled' : ''}${raw?.l ? ' is-link' : ''}`;
+    const cls = `nxs-cell${inSel && !single ? ' is-in' : ''}${inFill ? ' is-fill' : ''}${tag || spillW ? ' has-tag' : ''}${note ? ' has-note' : ''}${invalid ? ' is-invalid' : ''}${spilled ? ' is-spilled' : ''}${raw?.l ? ' is-link' : ''}${(isList && !isEdit && canEdit) || (filt && r === filt.r && c >= filt.c1 && c <= filt.c2) ? ' has-btn' : ''}`;
     const titleText = [isErr(v) && v.note ? v.note : '', note ? `${note.by ? note.by + ': ' : ''}${note.text}` : '', invalid ? `Not valid: this cell takes ${ruleWords(rule)}` : '', raw?.l ? `${raw.l} (${MOD}+click to open)` : ''].filter(Boolean).join('\n');
     return (
       <div key={`${r}:${c}`} className={cls} data-r={r} data-c={c}
@@ -1208,7 +1208,8 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
           <textarea className="nxs-cell-input" autoFocus value={edit.text} spellCheck={false} aria-label={`Edit ${a1(r, c)}`} rows={1}
             ref={(el) => { if (el) editEl.current = el; }}
             style={{ textAlign: edit.text.startsWith('=') ? 'left' : align, minWidth: w, minHeight: h }}
-            onFocus={(e) => { editEl.current = e.currentTarget; }}
+            // A textarea opens with the caret at 0: put it after the typed first key / the text (Excel's F2).
+            onFocus={(e) => { const el = e.currentTarget; editEl.current = el; el.setSelectionRange(el.value.length, el.value.length); }}
             onChange={(e) => { setEdit({ ...edit, text: e.target.value }); setPick(0); }} onKeyDown={editKey} />
         ) : isCheck ? (
           <span className="nxs-checkbox" data-check={`${r}:${c}`} role="checkbox" aria-checked={v === true} aria-label={`${a1(r, c)} checkbox`}>

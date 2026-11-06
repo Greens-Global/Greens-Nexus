@@ -157,6 +157,8 @@ textarea.nxs-cell-input { resize: none; padding-top: 3px; white-space: pre; over
   display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 4px;
   background: var(--card); color: var(--muted); cursor: pointer;
 }
+/* Room for the filter / dropdown button, so it never sits on the value (Sheets does the same). */
+.nxs-cell.has-btn { padding-right: 22px; }
 .nxs-filter-btn.is-on { color: var(--nx-primary); border-color: var(--nx-primary); }
 .nxs-head.has-hidden { box-shadow: inset 0 0 0 1px var(--nx-primary); }
 
@@ -240,3 +242,10 @@ textarea.nxs-cell-input { resize: none; padding-top: 3px; white-space: pre; over
   .nxs-formula, .nxs-namebox, .nxs-find input, .nxs-tab input { font-size: 16px; }   /* iOS zooms into smaller text */
   .nxs-cell { cursor: default; }
 }
+
+/* A colleague's name tag shows when their cursor lands, then fades so it never
+   hides the cell above; hovering their cell brings it back (Google Sheets). */
+@keyframes nxs-tag-fade { 0%, 75% { opacity: 1; } 100% { opacity: 0; } }
+.nxs-tag { animation: nxs-tag-fade 3s ease-out forwards; }
+.nxs-cell:hover .nxs-tag { animation: none; opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .nxs-tag { animation-timing-function: steps(1, end); } }

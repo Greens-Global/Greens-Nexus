@@ -52,6 +52,9 @@ describe('SheetEditor', () => {
     act(() => { grid.focus(); });
     fireEvent.keyDown(grid, { key: '4' });
     const input = screen.getByLabelText('Edit A1');
+    // The first key starts the edit with the caret AFTER it, so the next keys follow it.
+    expect(input.value).toBe('4');
+    expect(input.selectionStart).toBe(1);
     fireEvent.change(input, { target: { value: '42' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     const ctx = buildCtx(doc);
