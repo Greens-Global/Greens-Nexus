@@ -9,6 +9,7 @@
 // corner when something is in the way. It recalculates with every change.
 import { formatValue, usDate, ymdFromSerial } from './format.js';
 import { isErr, compare } from './formula/values.js';
+import { labelKey } from './model.js';
 
 export const SOURCE_BUDGET = 200000;   // source cells one pivot reads
 export const OUTPUT_BUDGET = 100000;   // cells one pivot draws
@@ -37,7 +38,8 @@ export function pivotSource(eng, ctx, cfg) {
 function labelOf(v, s, group) {
   if (v == null || v === '') return { label: BLANK, key: [2, ''] };
   if (isErr(v)) return { label: v.code, key: [1, v.code] };
-  if (group && typeof v === 'number') {
+  // Only a number that is a real date (01/01/1900 to 12/31/9999) groups; any other shows as itself.
+  if (group && typeof v === 'number' && v >= 1 && v < 2958466) {
     const { y, m } = ymdFromSerial(v);
     if (group === 'year') return { label: String(y), key: [0, y] };
     if (group === 'quarter') { const q = Math.ceil(m / 3); return { label: `Q${q} ${y}`, key: [0, y * 10 + q] }; }
@@ -88,8 +90,8 @@ export function pivotValues(eng, ctx, cfg, colId) {
   const f = src?.fields.find((x) => x.col === colId);
   if (!f) return [];
   const counts = new Map();
-  for (let r = src.rect.r1 + 1; r <= src.rect.r2 && counts.size < 1000; r += 1) {
-    const t = labelOf(eng.cellValue(src.tab, r, f.c), ctx.cell(src.tab, r, f.c)?.s, '').label;
+  for (let r = src.rect.r1 + 1; r <= src.rect.r2 && counts.size < 5000; r += 1) {
+    const t = labelKey(labelOf(eng.cellValue(src.tab, r, f.c), ctx.cell(src.tab, r, f.c)?.s, '').label);
     counts.set(t, (counts.get(t) || 0) + 1);
   }
   return [...counts.entries()].map(([text, count]) => ({ text, count })).sort((a, b) => compare(a.text, b.text));
@@ -101,32 +103,115 @@ export function pivotValues(eng, ctx, cfg, colId) {
  * combination of the Columns fields and Value; Grand Total row and column
  * when totals are on.
  */
+// Results kept between engine builds (every keystroke builds a new engine):
+// per source cells map, keyed by the pivot's settings and the versions of the
+// source tab's cells, rows and columns. A source with formulas is not kept -
+// its values can change with cells anywhere.
+const versions = new WeakMap();
+function versionOf(ytype) {
+  if (!ytype || typeof ytype.observe !== 'function') return null;
+  let v = versions.get(ytype);
+  if (!v) { v = { n: 0 }; versions.set(ytype, v); ytype.observe(() => { v.n += 1; }); }
+  return v.n;
+}
+const results = new WeakMap();
+const TOO_LARGE = 'The pivot is too large to show - add a filter or fewer fields';
+const NONE = [];
+const SEPARATORS = ['\u0001', '\u0002', '\u0003'];     // the characters keys are joined with
+
 export function computePivot(eng, ctx, cfg) {
+  const srcTab = ctx.tabById(cfg.src?.tab);
+  const vs = srcTab ? [versionOf(srcTab.cells), versionOf(srcTab.yrows), versionOf(srcTab.ycols)] : [null];
+  const cacheable = vs.every((x) => x != null);
+  const key = cacheable ? `${JSON.stringify(cfg)}|${vs.join('.')}` : '';
+  if (cacheable) {
+    const hit = results.get(srcTab.cells)?.get(key);
+    if (hit) return hit;
+  }
+  const out = computeFresh(eng, ctx, cfg);
+  if (cacheable && !out.volatile) {
+    let m = results.get(srcTab.cells);
+    if (!m) results.set(srcTab.cells, (m = new Map()));
+    if (m.size > 40) m.clear();
+    m.set(key, out);
+  }
+  return out;
+}
+
+function computeFresh(eng, ctx, cfg) {
   const src = pivotSource(eng, ctx, cfg);
   if (!src) return { error: 'The pivot source is gone or has no rows under its header' };
   const field = (col) => src.fields.find((f) => f.col === col);
   const rowF = (cfg.rows || []).map((x) => ({ ...x, f: field(x.col) })).filter((x) => x.f);
   const colF = (cfg.cols || []).map((x) => ({ ...x, f: field(x.col) })).filter((x) => x.f);
-  const valF = (cfg.values || []).map((x) => ({ ...x, f: field(x.col) })).filter((x) => x.f);
-  const filF = (cfg.filters || []).map((x) => ({ ...x, f: field(x.col), hide: new Set(x.hide || []) })).filter((x) => x.f && x.hide.size);
+  // Each value keeps its index in the settings, so a field's `by` (an index there) finds it.
+  const valF = (cfg.values || []).map((x, i0) => ({ ...x, i0, f: field(x.col) })).filter((x) => x.f);
+  const filF = (cfg.filters || []).map((x) => ({ ...x, f: field(x.col), hide: new Set((x.hide || []).map(labelKey)), show: Array.isArray(x.show) ? new Set(x.show.map(labelKey)) : null }))
+    .filter((x) => x.f && (x.hide.size || x.show));
   const totals = cfg.totals !== false;
   const { tab, rect } = src;
-  const val = (r, f) => eng.cellValue(tab, r, f.c);
-  const styleAt = (r, f) => ctx.cell(tab, r, f.c)?.s;
+  let volatile = false;
+  const used = [...rowF, ...colF, ...valF, ...filF].map((x) => x.f);
+  const nV1 = Math.max(1, valF.length);
+  /** Cells the output would take with this many row and column keys (headers and totals included). */
+  const outputSize = (nRows, nCols) => (nRows + 3) * (rowF.length + (nCols + (colF.length && totals ? 1 : 0)) * nV1);
+  const SEP = '\u0003';
+  // The separators never appear inside a key (a label holding one is matched without it).
+  const clean = (s) => {
+    let t = String(s);
+    for (const ch of SEPARATORS) if (t.includes(ch)) t = t.split(ch).join('');
+    return t;
+  };
+  const keyOf = (labels) => (labels.length === 1 ? clean(labels[0].label) : labels.map((x) => clean(x.label)).join(SEP));
 
   const rowKeys = new Map(), colKeys = new Map(), cellsBy = new Map();
   const add = (k, i, v) => { const key = `${k}\u0001${i}`; let l = cellsBy.get(key); if (!l) cellsBy.set(key, (l = [])); l.push(v); };
+  // Each field's cell is read once per row (value, style, formula or not).
+  const rowCells = new Map();
+  let curRow = -1;
+  const read = (r, f) => {
+    if (r !== curRow) { rowCells.clear(); curRow = r; }
+    let x = rowCells.get(f.c);
+    if (!x) {
+      const cell = ctx.cell(tab, r, f.c);
+      if (cell?.f) volatile = true;
+      const plainValue = cell && cell.f == null && cell.v != null && cell.v !== '';
+      x = { v: plainValue ? cell.v : eng.cellValue(tab, r, f.c), s: cell?.s };
+      rowCells.set(f.c, x);
+    }
+    return x;
+  };
+  const lab = (r, f, group) => { const x = read(r, f); return labelOf(x.v, x.s, group); };
   for (let r = rect.r1 + 1; r <= rect.r2; r += 1) {
-    if (filF.some((x) => x.hide.has(labelOf(val(r, x.f), styleAt(r, x.f), '').label))) continue;
-    const rl = rowF.map((x) => labelOf(val(r, x.f), styleAt(r, x.f), x.group));
-    const cl = colF.map((x) => labelOf(val(r, x.f), styleAt(r, x.f), x.group));
-    const rk = JSON.stringify(rl.map((x) => x.label)), ck = JSON.stringify(cl.map((x) => x.label));
-    if (!rowKeys.has(rk)) rowKeys.set(rk, rl);
-    if (!colKeys.has(ck)) colKeys.set(ck, cl);
-    valF.forEach((x, i) => {
-      const v = val(r, x.f);
-      add(`${rk}\u0002${ck}`, i, v); add(`${rk}\u0002*`, i, v); add(`*\u0002${ck}`, i, v); add('*\u0002*', i, v);
-    });
+    if (!volatile) for (const f of used) read(r, f);
+    if (filF.length && filF.some((x) => {
+      const t = labelKey(lab(r, x.f, '').label);
+      return x.hide.has(t) || (x.show && !x.show.has(t));
+    })) continue;
+    const rl = rowF.map((x) => lab(r, x.f, x.group));
+    const cl = colF.length ? colF.map((x) => lab(r, x.f, x.group)) : NONE;
+    const rk = keyOf(rl), ck = keyOf(cl);
+    if (!rowKeys.has(rk)) {
+      rowKeys.set(rk, rl);
+      // Stop as soon as the output cannot fit - a 200,000-row unique key must not be read to the end.
+      if (outputSize(rowKeys.size, Math.max(1, colKeys.size)) > OUTPUT_BUDGET) return { error: TOO_LARGE, volatile };
+    }
+    if (!colKeys.has(ck)) {
+      colKeys.set(ck, cl);
+      if (outputSize(rowKeys.size, colKeys.size) > OUTPUT_BUDGET) return { error: TOO_LARGE, volatile };
+    }
+    for (let i = 0; i < valF.length; i += 1) add(`${rk}\u0002${ck}`, i, read(r, valF[i].f).v);
+  }
+  // Row, column and grand totals from the combinations (one list write per row while scanning).
+  for (const [key, list] of [...cellsBy.entries()]) {
+    const [combo, i] = key.split('\u0001');
+    const [rk, ck] = combo.split('\u0002');
+    for (const k of [`${rk}\u0002*`, `*\u0002${ck}`, '*\u0002*']) {
+      const kk = `${k}\u0001${i}`;
+      let l = cellsBy.get(kk);
+      if (!l) cellsBy.set(kk, (l = []));
+      for (const v of list) l.push(v);
+    }
   }
   // A combination with no rows behind it is blank, not 0 (Google Sheets).
   const agg = (rk, ck, i) => { const l = cellsBy.get(`${rk}\u0002${ck}\u0001${i}`); return l ? summarize(valF[i].fn, l) : null; };
@@ -134,10 +219,11 @@ export function computePivot(eng, ctx, cfg) {
   /** Order of the keys of one axis: by label per field, or by a value's total when a field says `by`. */
   const order = (keys, fieldsOf, totalOf) => {
     const list = [...keys.entries()];
-    const byField = fieldsOf.find((x) => x.by != null && x.by < valF.length);
+    const byField = fieldsOf.find((x) => x.by != null && valF.some((v) => v.i0 === x.by));
+    const byIndex = byField ? valF.findIndex((v) => v.i0 === byField.by) : -1;
     list.sort(([ka, a], [kb, b]) => {
       if (byField) {
-        const d = compare(totalOf(ka, byField.by) ?? 0, totalOf(kb, byField.by) ?? 0);
+        const d = compare(totalOf(ka, byIndex) ?? 0, totalOf(kb, byIndex) ?? 0);
         if (d) return byField.sort === 'desc' ? -d : d;
       }
       for (let i = 0; i < fieldsOf.length; i += 1) {
@@ -149,14 +235,14 @@ export function computePivot(eng, ctx, cfg) {
     return list;
   };
   const rows = order(rowKeys, rowF, (rk, i) => agg(rk, '*', i));
-  const cols = colF.length ? order(colKeys, colF, (ck, i) => agg('*', ck, i)) : [[JSON.stringify([]), []]];
+  const cols = colF.length ? order(colKeys, colF, (ck, i) => agg('*', ck, i)) : [['', []]];
 
   const nR = rowF.length, nV = valF.length;
   const groups = cols.map(([ck, labels]) => ({ ck, label: labels.map((x) => x.label).join(' / ') }));
   if (colF.length && totals) groups.push({ ck: '*', label: 'Grand Total', total: true });
   const width = nR + groups.length * Math.max(1, nV);
   const height = (colF.length ? 2 : 1) + rows.length + (totals && nR ? 1 : 0);
-  if (width * height > OUTPUT_BUDGET) return { error: 'The pivot is too large to show - add a filter or fewer fields' };
+  if (width * height > OUTPUT_BUDGET) return { error: TOO_LARGE, volatile };
 
   const vName = (x) => `${FN_LABEL[x.fn]} of ${x.f.name}`;
   const fmt = (i) => {
@@ -195,13 +281,7 @@ export function computePivot(eng, ctx, cfg) {
       if (!nV) { line.push(null); continue; }
       for (let i = 0; i < nV; i += 1) line.push(cell(shown(rk, g.ck, i), g.total ? { ...(fmt(i) || {}), b: true } : fmt(i)));
     }
-    out.push(line);
-  }
-  if (!nR && nV) {
-    // No Rows fields: one line of summaries.
-    const line = [];
-    for (const g of groups) for (let i = 0; i < nV; i += 1) line.push(cell(shown('*', g.ck, i), fmt(i)));
-    out.push(line);
+    out.push(line);     // with no Rows fields this is the one line of summaries (its key is '[]')
   }
   if (totals && nR) {
     const line = [cell('Grand Total', HEAD), ...Array(nR - 1).fill(null)];
@@ -211,7 +291,7 @@ export function computePivot(eng, ctx, cfg) {
     }
     out.push(line);
   }
-  return { cells: out, truncated: src.truncated };
+  return { cells: out, truncated: src.truncated, volatile };
 }
 
 /** A new pivot's settings for a source range (ids) on tab `srcTab`, drawn at (atRowId, atColId). */

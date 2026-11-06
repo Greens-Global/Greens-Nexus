@@ -20,7 +20,7 @@ import { dialog } from '../ui/dialog';
 import {
   ROW_H, COL_W, buildCtx, writeCells, styleRange, styleCells, clearRange, insertLines, deleteLines, setSize, setTabMeta,
   addTab, duplicateTab, deleteTab, moveTab, loadSnapshot, blockAt, undoManagerFor, formulaText,
-  setExtra, setExtras, setName, rangeIds, newId, safeLink, okName, FONTS, change, cellsOf, extraOf, LIMITS, AREA_MAX, MAX_TABS, newTabSnapshot,
+  setExtra, setExtras, setName, rangeIds, newId, safeLink, okName, FONTS, change, cellsOf, extraOf, LIMITS, AREA_MAX, MAX_TABS, newTabSnapshot, labelKey,
 } from './model.js';
 import { maxOf } from './formula/values.js';
 import { a1, colName, colIndex, tokenize, encodeFormula, decodeFormula, refA1, shiftFormula } from './formula/parse.js';
@@ -242,10 +242,31 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     }
   }, [rowY, colX, fr, fc, frozenH, frozenW, z, RH, CH]);
 
-  const select = (next, scroll = true) => {
+  // Excel's data entry: after Tab, Tab..., Enter goes to the next row in the
+  // column where the Tabs started. Any other selection change forgets it.
+  const tabRun = useRef(null);       // { r, c } where the run of Tabs began
+  const select = (next, scroll = true, keepRun = false) => {
+    if (!keepRun) tabRun.current = null;
     setSel(next);
     setChartSel('');
     if (scroll) requestAnimationFrame(() => ensureVisible(next.r2, next.c2));
+  };
+  /** Where Tab or Enter from (r, c) lands, keeping the Tab run's column for Enter. */
+  const entryMove = (r, c, how, back) => {
+    if (how === 'tab') {
+      if (!tabRun.current || tabRun.current.r !== r) tabRun.current = { r, c };
+      return step(r, c, 0, back ? -1 : 1);
+    }
+    const run = tabRun.current;
+    tabRun.current = null;
+    if (run && run.r === r) return { r: step(r, run.c, back ? -1 : 1, 0).r, c: run.c };
+    return step(r, c, back ? -1 : 1, 0);
+  };
+  const goEntry = (r, c, how, back) => {
+    const p = entryMove(r, c, how, back);
+    const run = tabRun.current;
+    select({ r: p.r, c: p.c, r2: p.r, c2: p.c }, true, true);
+    tabRun.current = run;
   };
   /** Where a cell is on screen (for a popover next to it). */
   const cellScreen = (r, c) => {
@@ -336,7 +357,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     }
     return { r, c, v: p.v ?? null, f: p.f || null, s };
   };
-  const commit = (dr = 0, dc = 0, all = false) => {
+  const commit = (dr = 0, dc = 0, all = false, how = '') => {
     if (!edit) return true;
     const { r, c, text } = edit;
     if (all) {
@@ -358,7 +379,8 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       writeCells(doc, tab.id, [e]);
     }
     setEdit(null);
-    if (dr || dc) { const p = step(r, c, dr, dc); select({ r: p.r, c: p.c, r2: p.r, c2: p.c }); }
+    if (how) goEntry(r, c, how, dr < 0 || dc < 0);
+    else if (dr || dc) { const p = step(r, c, dr, dc); select({ r: p.r, c: p.c, r2: p.r, c2: p.c }); }
     focusGrid();
     return true;
   };
@@ -395,8 +417,8 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     if (suggestions.length && e.key === 'Tab') { e.preventDefault(); accept(suggestions[pick] || suggestions[0]); return; }
     if (e.key === 'Enter' && e.altKey) { e.preventDefault(); insertAtCaret('\n'); return; }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(0, 0, true); return; }
-    if (e.key === 'Enter') { e.preventDefault(); commit(e.shiftKey ? -1 : 1, 0); return; }
-    if (e.key === 'Tab') { e.preventDefault(); commit(0, e.shiftKey ? -1 : 1); return; }
+    if (e.key === 'Enter') { e.preventDefault(); commit(e.shiftKey ? -1 : 1, 0, false, 'enter'); return; }
+    if (e.key === 'Tab') { e.preventDefault(); commit(0, e.shiftKey ? -1 : 1, false, 'tab'); return; }
     if (e.key === 'Escape') { e.preventDefault(); cancel(); return; }
     if (e.key === 'F4') {
       e.preventDefault();
@@ -584,10 +606,13 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       setExtra(doc, 'groups', tab.id, newId(), { axis, a: ids[s], b: ids[e] });
       return;
     }
+    // Excel takes away one level: the innermost group that holds the selection, else the innermost inside it.
+    const holding = list.filter((g) => g.s <= s && g.e >= e);
     const inside = list.filter((g) => g.s >= s && g.e <= e);
-    const target = inside.length ? inside : list.filter((g) => g.s <= s && g.e >= e).sort((x, y) => y.level - x.level).slice(0, 1);
-    if (!target.length) { toastErr?.(`No group of ${word} here.`); return; }
-    setExtras(doc, tab.id, target.map((g) => ['groups', g.id, null]));
+    const pool = holding.length ? holding : inside;
+    const target = pool.sort((x, y) => y.level - x.level || (x.e - x.s) - (y.e - y.s))[0];
+    if (!target) { toastErr?.(`No group of ${word} here.`); return; }
+    setExtra(doc, 'groups', tab.id, target.id, null);
   };
   const toggleGroup = (id) => {
     if (!canEdit) return;
@@ -676,7 +701,7 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   const openFilter = (c, at) => {
     if (!filt) return;
     const counts = new Map();
-    for (let r = filt.r + 1; r <= filt.last; r += 1) { const t = shownText(eng, ctx, tab, r, c); counts.set(t, (counts.get(t) || 0) + 1); }
+    for (let r = filt.r + 1; r <= filt.last; r += 1) { const t = labelKey(shownText(eng, ctx, tab, r, c)); counts.set(t, (counts.get(t) || 0) + 1); }
     const values = [...counts.entries()].map(([text, count]) => ({ text, count })).sort((x, y) => compare(x.text, y.text));
     setPop({ kind: 'filter', at, c, values, crit: filt.crit[tab.cols[c]] || {}, title: shown(filt.r, c) || `Column ${colName(c)}` });
   };
@@ -1068,8 +1093,8 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     if (mod) return;     // Ctrl+C / X / V fall through to the copy, cut and paste events
     const page = Math.max(1, Math.floor((vH - CH - frozenH) / ROW_H) - 1);
     switch (k) {
-      case 'Enter': { e.preventDefault(); const p = step(sel.r, sel.c, e.shiftKey ? -1 : 1, 0); select({ r: p.r, c: p.c, r2: p.r, c2: p.c }); return; }
-      case 'Tab': { e.preventDefault(); const p = step(sel.r, sel.c, 0, e.shiftKey ? -1 : 1); select({ r: p.r, c: p.c, r2: p.r, c2: p.c }); return; }
+      case 'Enter': e.preventDefault(); goEntry(sel.r, sel.c, 'enter', e.shiftKey); return;
+      case 'Tab': e.preventDefault(); goEntry(sel.r, sel.c, 'tab', e.shiftKey); return;
       case 'F2': e.preventDefault(); if (e.shiftKey) openNote(); else startEdit(undefined, 'edit'); return;
       case 'Escape': setFind(null); setChartSel(''); return;
       case 'Delete': case 'Backspace': e.preventDefault(); if (canEdit) clearRange(doc, tab.id, b, { skipRows: filtHid }); return;
@@ -1408,10 +1433,11 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
     return out;
   };
   /** The outline gutter for row groups: a bracket per group and a - / + button on the row after it. */
-  const outlineRows = (groups, yOf) => groups.map((g) => {
-    const btn = g.e + 1 < R ? g.e + 1 : g.s;
-    if (btn < rA - 1 && g.e < rA) return null;
-    if (g.s > rB + 1) return null;
+  const rowBtn = (g) => (g.e + 1 < R ? g.e + 1 : g.s);
+  const colBtn = (g) => (g.e + 1 < C ? g.e + 1 : g.s);
+  const outlineRows = (groups, yOf, frozen = false) => groups.map((g) => {
+    const btn = rowBtn(g);
+    if (!frozen && ((btn < rA - 1 && g.e < rA) || g.s > rB + 1)) return null;
     const x = (g.level - 1) * GUTTER + 4;
     const top = yOf(g.s), bot = yOf(g.e + 1 <= R ? g.e + 1 : R);
     const by = yOf(btn) + Math.max(0, (rowY[btn + 1] - rowY[btn] - 12) / 2);
@@ -1423,10 +1449,12 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
       </div>
     );
   });
-  const groupsBody = rowGroups.filter((g) => g.s >= fr);
-  const outlineCols = (xOf) => colGroups.filter((g) => g.s >= fc).map((g) => {
-    const btn = g.e + 1 < C ? g.e + 1 : g.s;
-    if (g.e + 1 < cA - 1 || g.s > cB + 1) return null;
+  // A group is drawn where its button is: in the frozen corner when the button's row (column) is frozen.
+  const groupsBody = rowGroups.filter((g) => rowBtn(g) >= fr);
+  const groupsFrozenRows = rowGroups.filter((g) => rowBtn(g) < fr);
+  const outlineCols = (groups, xOf, frozen = false) => groups.map((g) => {
+    const btn = colBtn(g);
+    if (!frozen && (g.e + 1 < cA - 1 || g.s > cB + 1)) return null;
     const y = (g.level - 1) * GUTTER + 4;
     const left = xOf(g.s), right = xOf(g.e + 1 <= C ? g.e + 1 : C);
     const bx = xOf(btn) + Math.max(0, (colX[btn + 1] - colX[btn] - 12) / 2);
@@ -1516,8 +1544,11 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
   if (activeNote) info.push({ k: 'note', text: `${activeNote.by ? activeNote.by + ': ' : ''}${activeNote.text}` });
   if (active?.l) info.push({ k: 'link', text: active.l });
   if (isErr(activeV) && activeV.note) info.push({ k: 'err', text: `${activeV.code} ${activeV.note}` });
-  const activePivot = !filledCell(active) && tab.pivots?.size ? eng.pivotAt(tab, sel.r, sel.c) : null;
-  if (activePivot) info.push({ k: 'pivot', text: 'Pivot Table', id: activePivot.pivot });
+  // A pivot's corner says what is wrong even when something was typed or pasted over it.
+  const activePivot = tab.pivots?.size ? eng.pivotAt(tab, sel.r, sel.c) : null;
+  if (activePivot && (!filledCell(active) || isErr(activePivot.v))) {
+    info.push({ k: 'pivot', text: isErr(activePivot.v) ? `Pivot Table: ${activePivot.v.note || activePivot.v.code}` : 'Pivot Table', id: activePivot.pivot });
+  }
   if (activeRule && activeRule.kind !== 'checkbox' && !validValue(activeRule, activeV, eng, ctx, tab)) info.push({ k: 'err', text: `Not valid: this cell takes ${ruleWords(activeRule)}.` });
 
   return (
@@ -1742,12 +1773,15 @@ export default function SheetEditor({ doc, awareness = null, canEdit = true, me 
           <div className="nxs-band-top" style={{ height: CH + frozenH }}>
             <div className="nxs-corner" style={{ width: RH + frozenW, height: CH + frozenH }}>
               {(gutW > 0 || gutH > 0) && <div className="nxs-gutter-corner" style={{ left: 0, top: 0, width: RH, height: CH }} />}
-              <div className="nxs-head nxs-all" data-all="1" title="Select All" style={{ left: gutW, top: gutH, width: RH0, height: CH0 }} />              {frozenColList.map((c) => colHead(c, RH + colX[c]))}
+              <div className="nxs-head nxs-all" data-all="1" title="Select All" style={{ left: gutW, top: gutH, width: RH0, height: CH0 }} />
+              {outlineRows(groupsFrozenRows, (r) => CH + rowY[r], true)}
+              {outlineCols(colGroups.filter((g) => colBtn(g) < fc), (c) => RH + colX[c], true)}
+              {frozenColList.map((c) => colHead(c, RH + colX[c]))}
               {frozenRowList.map((r) => rowHead(r, CH + rowY[r]))}
               {region(frozenRowList, frozenColList, (c) => RH + colX[c], (r) => CH + rowY[r])}
             </div>
             {bodyCols.map((c) => colHead(c, RH + colX[c]))}
-            {outlineCols((c) => RH + colX[c])}
+            {outlineCols(colGroups.filter((g) => colBtn(g) >= fc), (c) => RH + colX[c])}
             {region(frozenRowList, bodyCols, (c) => RH + colX[c], (r) => CH + rowY[r])}
           </div>
           <div className="nxs-band-left" style={{ width: RH + frozenW }}>

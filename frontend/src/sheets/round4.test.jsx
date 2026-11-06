@@ -147,10 +147,20 @@ describe('pivot tables', () => {
     const snap = snapshotOf(doc);
     expect(Object.keys(snap.tabs[1].pivots)).toHaveLength(LIMITS.pivots);
     expect(() => validateSheetDoc(seedSheetDoc(snap))).not.toThrow();
-    const bad = (fn) => { const d = new Y.Doc(); Y.applyUpdate(d, Y.encodeStateAsUpdate(doc)); fn(d); return () => validateSheetDoc(d); };
-    expect(bad((d) => extraOf(d, 'pivots', piv).set('b', { ...cfg, values: [{ col: cfg.values[0].col, fn: 'EVAL' }] }))).toThrow();
-    expect(bad((d) => extraOf(d, 'pivots', piv).set('b', { ...cfg, rows: Array(6).fill(cfg.rows[0]) }))).toThrow();
-    expect(bad((d) => extraOf(d, 'pivots', piv).set('b', { ...cfg, src: { ...cfg.src, tab: 'bad id!' } }))).toThrow();
+    // A bad pivot is left out (or cut), never a reason to refuse the sheet.
+    const fresh = source();
+    const one = pivotOf(fresh.doc, fresh.data, fresh.piv, { rows: [{ col: 'A' }], values: [{ col: 'C', fn: 'SUM' }] });
+    const bad = (value) => {
+      const d = new Y.Doc(); Y.applyUpdate(d, Y.encodeStateAsUpdate(fresh.doc));
+      extraOf(d, 'pivots', fresh.piv).set('b', value);
+      expect(() => validateSheetDoc(d)).not.toThrow();
+      const got = snapshotOf(d).tabs[1].pivots;
+      expect(got.p1).toBeTruthy();
+      return got.b;
+    };
+    expect(bad({ ...one, values: [{ col: one.values[0].col, fn: 'EVAL' }] })).toBeUndefined();
+    expect(bad({ ...one, rows: Array(6).fill(one.rows[0]) }).rows).toHaveLength(5);
+    expect(bad({ ...one, src: { ...one.src, tab: 'bad id!' } })).toBeUndefined();
   });
   it('the editor opens from Insert and builds a pivot on a new tab', () => {
     const snap = { type: 'nexus-sheet', v: 1, tabs: [newTabSnapshot('Data', 50, 10)] };

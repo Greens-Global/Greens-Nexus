@@ -434,13 +434,15 @@ describe('stored state checks', () => {
     expect(() => validateSheetDoc(doc)).not.toThrow();
     const snap = snapshotOf(doc);
     expect(snapshotOf(seedSheetDoc(snap))).toEqual(snap);
-    const bad = (fn) => { const d = new Y.Doc(); Y.applyUpdate(d, Y.encodeStateAsUpdate(doc)); fn(d); return () => validateSheetDoc(d); };
-    expect(bad((d) => cellsOf(d, tab).set(`${t.rows[3]}.${t.cols[3]}`, { v: 'x', l: 'javascript:alert(1)' }))).toThrow();
-    expect(bad((d) => extraOf(d, 'cf', tab).set('x', { range: g, type: 'gt', style: { bg: 'url(http://evil)' } }))).toThrow();
-    expect(bad((d) => extraOf(d, 'charts', tab).set('x', { type: 'pie', range: g, x: 0, y: 0, w: 99999, h: 300 }))).toThrow();
-    expect(bad((d) => extraOf(d, 'notes', tab).set('bad', { text: 'x' }))).toThrow();
-    expect(bad((d) => d.getMap('names').set('a1', { name: 'A1', tab, range: g }))).toThrow();
-    expect(bad((d) => extraOf(d, 'dv', tab).set('x', { range: g, kind: 'list', items: ['a'.repeat(201)] }))).toThrow();
+    // A bad item never refuses the sheet: it is cleaned or left out, and everything else stays.
+    const bad = (fn) => { const d = new Y.Doc(); Y.applyUpdate(d, Y.encodeStateAsUpdate(doc)); fn(d); expect(() => validateSheetDoc(d)).not.toThrow(); return snapshotOf(d); };
+    expect(bad((d) => cellsOf(d, tab).set(`${t.rows[3]}.${t.cols[3]}`, { v: 'x', l: 'javascript:alert(1)' })).tabs[0].cells[`${t.rows[3]}.${t.cols[3]}`]).toEqual({ v: 'x' });
+    expect(bad((d) => extraOf(d, 'cf', tab).set('x', { range: g, type: 'gt', style: { bg: 'url(http://evil)' } })).tabs[0].cf.x).toBeUndefined();
+    expect(bad((d) => extraOf(d, 'charts', tab).set('x', { type: 'pie', range: g, x: 0, y: 0, w: 99999, h: 300 })).tabs[0].charts.x.w).toBe(2000);
+    expect(bad((d) => extraOf(d, 'notes', tab).set('bad', { text: 'x' })).tabs[0].notes.bad).toBeUndefined();
+    expect(bad((d) => d.getMap('names').set('a1', { name: 'A1', tab, range: g })).names.a1).toBeUndefined();
+    expect(bad((d) => extraOf(d, 'dv', tab).set('x', { range: g, kind: 'list', items: ['a'.repeat(201)] })).tabs[0].dv.x.items[0]).toHaveLength(200);
+    expect(Object.keys(bad(() => {}).tabs[0].cf)).toEqual(['cf1']);
     // A bad live edit is dropped on read rather than shown.
     extraOf(doc, 'cf', tab).set('evil', { range: g, type: 'gt', style: { bg: 'url(x)' } });
     expect(readExtra(doc, 'cf', tab).has('evil')).toBe(false);

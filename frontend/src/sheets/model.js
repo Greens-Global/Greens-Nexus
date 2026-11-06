@@ -105,15 +105,19 @@ export function snapshotOf(doc) {
   let budget = MAX_CELLS;
   return {
     type: 'nexus-sheet', v: 1,
-    tabs: tabsOf(doc).toArray().filter((id) => meta.has(id)).slice(0, MAX_TABS).map((id) => {
-      const m = meta.get(id) || {};
-      const rows = rowsOf(doc, id).toArray().slice(0, MAX_ROWS), cols = colsOf(doc, id).toArray().slice(0, MAX_COLS);
+    tabs: usableTabs(doc).map(({ id, rows, cols }) => {
+      const m = tabMeta(meta.get(id));
       const rs = new Set(rows), cs = new Set(cols);
       const cells = {};
-      cellsOf(doc, id).forEach((v, k) => { const [r, c] = k.split('.'); if (budget > 0 && rs.has(r) && cs.has(c)) { cells[k] = v; budget -= 1; } });
+      cellsOf(doc, id).forEach((v, k) => {
+        const [r, c] = k.split('.');
+        if (budget <= 0 || !rs.has(r) || !cs.has(c)) return;
+        const clean = cleanCell(v);
+        if (clean) { cells[k] = clean; budget -= 1; }
+      });
       const sizes = {};
-      sizesOf(doc, id).forEach((v, k) => { if (rs.has(k) || cs.has(k)) sizes[k] = v; });
-      const out = { id, name: m.name || 'Sheet', color: m.color || '', frozenRows: m.frozenRows | 0, frozenCols: m.frozenCols | 0, rows, cols, cells, sizes };
+      sizesOf(doc, id).forEach((v, k) => { if ((rs.has(k) || cs.has(k)) && typeof v === 'number' && v >= 4 && v <= 2000) sizes[k] = v; });
+      const out = { id, name: m.name, color: m.color, frozenRows: m.frozenRows, frozenCols: m.frozenCols, rows, cols, cells, sizes };
       if (m.grid === false) out.grid = false;
       for (const kind of EXTRAS) {
         const got = readExtra(doc, kind, id);
@@ -179,30 +183,73 @@ export function validCell(c) {
 }
 
 /**
- * Throws when the shared document is not a well-formed workbook. Too MANY of
- * something (cells, tabs, rows, rules) is not malformed: reads and saves cut
- * them to the limits, so a sheet that grew past one still opens.
+ * Throws ONLY when the workbook's skeleton cannot be used: a shared type of
+ * the wrong kind (a map where a list belongs), or no tab left with rows,
+ * columns and a name. A throw resets everyone's live session, so anything
+ * smaller - one bad cell, an unknown style key from a newer version, a rule,
+ * pivot or note that does not check out, a string past its cap, too many of
+ * something - is dropped or cut on read and in snapshotOf instead.
  */
 export function validateSheetDoc(doc) {
   const fail = (why) => { throw new Error(`Not a sheet: ${why}`); };
-  const tabs = tabsOf(doc).toArray();
-  if (!tabs.length) fail('tabs');
-  const meta = metaOf(doc);
+  let tabs;
+  try { tabs = tabsOf(doc).toArray(); metaOf(doc); namesOf(doc); } catch { fail('structure'); }
   for (const id of tabs.slice(0, MAX_TABS)) {
-    if (typeof id !== 'string' || !ID_RE.test(id)) fail('tab id');
-    const m = meta.get(id);
-    if (!plain(m) || typeof m.name !== 'string' || !m.name || m.name.length > 100) fail('tab name');
-    if (m.color && (typeof m.color !== 'string' || !COLOR_RE.test(m.color))) fail('tab color');
-    for (const k of ['frozenRows', 'frozenCols']) if (m[k] != null && (!Number.isInteger(m[k]) || m[k] < 0 || m[k] > 100)) fail('freeze');
-    const rows = rowsOf(doc, id).toArray(), cols = colsOf(doc, id).toArray();
-    if (!rows.length || !cols.length) fail('size');
-    if (!rows.every((x) => typeof x === 'string' && ID_RE.test(x)) || !cols.every((x) => typeof x === 'string' && ID_RE.test(x))) fail('row or column id');
-    cellsOf(doc, id).forEach((v, k) => { if (k.length > 81 || !validCell(v)) fail('cell'); });
-    sizesOf(doc, id).forEach((v) => { if (typeof v !== 'number' || !(v >= 4 && v <= 2000)) fail('size value'); });
-    if (m.grid != null && typeof m.grid !== 'boolean') fail('grid');
-    for (const kind of EXTRAS) extraOf(doc, kind, id).forEach((v, k) => { if (!VALID[kind](v, k)) fail(kind); });
+    if (!isId(id)) continue;
+    try {
+      rowsOf(doc, id); colsOf(doc, id); cellsOf(doc, id); sizesOf(doc, id);
+      for (const kind of EXTRAS) extraOf(doc, kind, id);
+    } catch { fail(`tab ${id} structure`); }
   }
-  namesOf(doc).forEach((v, k) => { if (!validName(v, k)) fail('name'); });
+  if (!usableTabs(doc).length) fail('no usable tab');
+}
+
+/** The tabs a read can use: listed, named in tabmeta, with id rows and columns (bad ids left out). */
+function usableTabs(doc) {
+  const meta = metaOf(doc);
+  const out = [];
+  const seen = new Set();
+  for (const id of tabsOf(doc).toArray()) {
+    if (out.length >= MAX_TABS) break;
+    if (!isId(id) || seen.has(id) || !meta.has(id)) continue;
+    seen.add(id);
+    const rows = rowsOf(doc, id).toArray().filter(isId).slice(0, MAX_ROWS);
+    const cols = colsOf(doc, id).toArray().filter(isId).slice(0, MAX_COLS);
+    if (rows.length && cols.length) out.push({ id, rows, cols });
+  }
+  return out;
+}
+/** A tab's settings, every field checked (a bad one falls back to its default). */
+function tabMeta(m0) {
+  const m = plain(m0) ? m0 : {};
+  const frozen = (v) => (Number.isInteger(v) ? Math.max(0, Math.min(100, v)) : 0);
+  return {
+    name: typeof m.name === 'string' && m.name ? m.name.slice(0, 100) : 'Sheet',
+    color: typeof m.color === 'string' && COLOR_RE.test(m.color) ? m.color : '',
+    frozenRows: frozen(m.frozenRows), frozenCols: frozen(m.frozenCols), grid: m.grid !== false,
+  };
+}
+/**
+ * A stored cell made safe to show: a bad value, formula or link is left out,
+ * an unknown or bad style key dropped, an over-long text cut. null when
+ * nothing usable is left. A cell that already checks out is returned as is.
+ */
+export function cleanCell(c) {
+  if (!plain(c)) return null;
+  if (validCell(c)) return c;
+  const out = {};
+  const v = c.v;
+  if (typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))) out.v = v;
+  else if (typeof v === 'string') out.v = v.slice(0, MAX_STR);
+  if (typeof c.f === 'string' && c.f[0] === '=' && c.f.length <= MAX_STR) out.f = c.f;
+  const l = c.l != null ? safeLink(c.l) : '';
+  if (l) out.l = l;
+  if (plain(c.s)) {
+    const s = {};
+    for (const [k, val] of Object.entries(c.s)) if (validStyle({ [k]: val })) s[k] = val;
+    if (Object.keys(s).length) out.s = s;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 /** How many of each a tab (or, for names, the workbook) keeps; reads and saves stop here. */
@@ -255,7 +302,9 @@ const fields = (list, max, ok) => list == null || (Array.isArray(list) && list.l
 const axisField = (f) => plain(f) && isId(f.col) && (f.sort == null || f.sort === 'asc' || f.sort === 'desc')
   && (f.by == null || (Number.isInteger(f.by) && f.by >= 0 && f.by < 10)) && (f.group == null || PIVOT_GROUPS.includes(f.group));
 const valueField = (f) => plain(f) && isId(f.col) && PIVOT_FNS.includes(f.fn) && (f.show == null || PIVOT_SHOW.includes(f.show));
-const filterField = (f) => plain(f) && isId(f.col) && (f.hide == null || (Array.isArray(f.hide) && f.hide.length <= 5000 && f.hide.every((x) => isStr(x, 500))));
+// hide: labels left out; show (when set): only these labels kept - Clear with any number of distinct values.
+const labelList = (x) => x == null || (Array.isArray(x) && x.length <= 5000 && x.every((s) => isStr(s, 500)));
+const filterField = (f) => plain(f) && isId(f.col) && labelList(f.hide) && labelList(f.show);
 export const NAME_RE = /^[A-Za-z_][A-Za-z0-9_.]{0,63}$/;
 /** A name may not read as a cell (B2), a boolean or an R1C1 address. */
 export const okName = (n) => typeof n === 'string' && NAME_RE.test(n) && !/^[A-Za-z]{1,3}\d+$/.test(n) && !/^(true|false)$/i.test(n) && !/^R\d*C\d*$/i.test(n);
@@ -265,12 +314,56 @@ const validName = (v, k) => plain(v) && okName(v.name) && v.name.toLowerCase() =
 export function readExtra(doc, kind, id) {
   const out = new Map();
   const cap = LIMITS[kind];
-  for (const [k, v] of extraOf(doc, kind, id).entries()) {
+  for (const [k, v0] of extraOf(doc, kind, id).entries()) {
     if (out.size >= cap) break;
-    if (VALID[kind](v, k)) out.set(k, v);
+    const v = cleanExtra(kind, v0);
+    if (v && VALID[kind](v, k)) out.set(k, v);
   }
   return out;
 }
+
+const STRING_CAP = 500;
+const cutList = (list, n, len) => (Array.isArray(list) ? list.filter((x) => typeof x === 'string').slice(0, n).map((x) => x.slice(0, len)) : list);
+const cutStr = (x, n) => (typeof x === 'string' ? x.slice(0, n) : x);
+/**
+ * An extra entry with what can be cut, cut (long texts, long lists): a
+ * 600-character filter label or note keeps its entry rather than losing it.
+ * Remembered per stored object. Anything still wrong after this is dropped by VALID.
+ */
+const cleaned = new WeakMap();
+function cleanExtra(kind, v) {
+  if (!plain(v)) return v;
+  if (cleaned.has(v)) return cleaned.get(v);
+  let out = v;
+  switch (kind) {
+    case 'notes': out = { ...v, text: cutStr(v.text, 5000), by: cutStr(v.by, 120), at: cutStr(v.at, 40) }; break;
+    case 'charts': out = { ...v, title: cutStr(v.title, 200), w: typeof v.w === 'number' ? Math.max(160, Math.min(2000, v.w)) : v.w, h: typeof v.h === 'number' ? Math.max(120, Math.min(2000, v.h)) : v.h }; break;
+    case 'cf': out = { ...v, a: cutStr(v.a, STRING_CAP), b: cutStr(v.b, STRING_CAP) }; break;
+    case 'dv': out = { ...v, items: cutList(v.items, 500, 200), a: cutStr(v.a, STRING_CAP), b: cutStr(v.b, STRING_CAP) }; break;
+    case 'filter':
+      if (plain(v.crit)) {
+        const crit = {};
+        for (const [ck, cv] of Object.entries(v.crit)) crit[ck] = plain(cv) ? { ...cv, hide: cutList(cv.hide, 5000, STRING_CAP), a: cutStr(cv.a, STRING_CAP), b: cutStr(cv.b, STRING_CAP) } : cv;
+        out = { ...v, crit };
+      }
+      break;
+    case 'pivots': {
+      const f = (list, n) => (Array.isArray(list) ? list.slice(0, n) : list);
+      out = {
+        ...v, rows: f(v.rows, 5), cols: f(v.cols, 5), values: f(v.values, 10),
+        filters: Array.isArray(v.filters) ? v.filters.slice(0, 10).map((x) => (plain(x) ? { ...x, hide: cutList(x.hide, 5000, STRING_CAP), show: cutList(x.show, 5000, STRING_CAP) } : x)) : v.filters,
+      };
+      for (const part of ['rows', 'cols', 'values', 'filters']) if (out[part] === undefined) delete out[part];
+      break;
+    }
+    default: break;
+  }
+  for (const key of Object.keys(out)) if (out[key] === undefined) delete out[key];
+  cleaned.set(v, out);
+  return out;
+}
+/** Filter labels are compared at the length they are stored at. */
+export const labelKey = (s) => String(s ?? '').slice(0, STRING_CAP);
 export function readNames(doc) {
   const out = new Map();
   for (const [k, v] of namesOf(doc).entries()) {
@@ -289,16 +382,12 @@ export function readNames(doc) {
  */
 export function buildCtx(doc, { grow = false } = {}) {
   const meta = metaOf(doc);
-  const tabs = tabsOf(doc).toArray().filter((id) => meta.has(id)).slice(0, MAX_TABS).map((id) => {
-    // A live edit arrives after the mount check: read every field defensively.
-    const m = plain(meta.get(id)) ? meta.get(id) : {};
-    const frozen = (v) => (Number.isInteger(v) ? Math.max(0, Math.min(100, v)) : 0);
-    return { id, name: typeof m.name === 'string' && m.name ? m.name.slice(0, 100) : 'Sheet',
-      color: typeof m.color === 'string' && COLOR_RE.test(m.color) ? m.color : '',
-      frozenRows: frozen(m.frozenRows), frozenCols: frozen(m.frozenCols),
-      rows: rowsOf(doc, id).toArray().slice(0, MAX_ROWS).map(String), cols: colsOf(doc, id).toArray().slice(0, MAX_COLS).map(String), cells: cellsOf(doc, id), sizes: sizesOf(doc, id),
-      grid: m.grid !== false, ...Object.fromEntries(EXTRAS.map((kind) => [kind, readExtra(doc, kind, id)])) };
-  });
+  // A live edit arrives after the mount check: every field is read defensively.
+  const tabs = usableTabs(doc).map(({ id, rows, cols }) => ({
+    id, ...tabMeta(meta.get(id)), rows, cols,
+    cells: cellsOf(doc, id), sizes: sizesOf(doc, id), yrows: rowsOf(doc, id), ycols: colsOf(doc, id),
+    ...Object.fromEntries(EXTRAS.map((kind) => [kind, readExtra(doc, kind, id)])),
+  }));
   return makeCtx(tabs, grow ? (tab, axis, n) => {
     const fresh = ids(n);
     (axis === 'rows' ? rowsOf(doc, tab.id) : colsOf(doc, tab.id)).push(fresh);
@@ -308,12 +397,11 @@ export function buildCtx(doc, { grow = false } = {}) {
 
 /** The same view over plain tabs (cells/sizes as Map-like or plain objects). */
 const checked = new WeakMap();
-/** validCell, remembered per stored object (a Y.Map hands back the same object until it changes). */
+/** cleanCell, remembered per stored object (a Y.Map hands back the same object until it changes). */
 function okCell(x) {
-  if (typeof x !== 'object') return false;
-  let ok = checked.get(x);
-  if (ok === undefined) { ok = validCell(x); checked.set(x, ok); }
-  return ok;
+  if (!x || typeof x !== 'object') return null;
+  if (!checked.has(x)) checked.set(x, cleanCell(x));
+  return checked.get(x);
 }
 
 export function makeCtx(tabs, grow, names = new Map()) {
@@ -351,7 +439,7 @@ export function makeCtx(tabs, grow, names = new Map()) {
     cell: (tab, r, c) => {
       const rid = tab.rows[r], cid = tab.cols[c];
       const x = rid && cid ? get(tab.cells, rid + '.' + cid) : undefined;
-      return x && okCell(x) ? x : undefined;
+      return okCell(x) || undefined;
     },
     size: (tab, id, dflt) => { const v = get(tab.sizes, id); return typeof v === 'number' && v >= 4 && v <= 2000 ? v : dflt; },
     /** {r1, c1, r2, c2} as indexes for a range stored by ids, or null when a row or column is gone. */
@@ -542,6 +630,38 @@ export function deleteLines(doc, tabId, axis, at, n = 1) {
         const [r, c] = key.split('.');
         if (gone.has(axis === 'rows' ? r : c) || (kind === 'merges' && gone.has(axis === 'rows' ? v?.r2 : v?.c2))) m.delete(key);
       }
+    }
+    // Pivots and groups hold on to the nearest survivor: a first row (column)
+    // that went moves to the one after the cut, a last one to the one before;
+    // with nothing left between them, the entry goes.
+    const ids2 = arr.toArray();
+    const pos = new Map(ids2.map((x, i) => [x, i]));
+    const after = ids2.length ? ids2[Math.min(at, ids2.length - 1)] : null;
+    const before = at > 0 ? ids2[at - 1] : null;
+    const [k1, k2] = axis === 'rows' ? ['r1', 'r2'] : ['c1', 'c2'];
+    const corner = axis === 'rows' ? 'r' : 'c';
+    const piv = extraOf(doc, 'pivots', tabId);
+    for (const [key, v] of Array.from(piv.entries())) {
+      if (plain(v) && plain(v.at) && gone.has(v.at[corner])) {
+        if (after) piv.set(key, { ...v, at: { ...v.at, [corner]: after } }); else piv.delete(key);
+      }
+    }
+    for (const t of tabsOf(doc).toArray()) {
+      if (!isId(t)) continue;
+      const m = extraOf(doc, 'pivots', t);
+      for (const [key, v] of Array.from(m.entries())) {
+        if (!plain(v) || !plain(v.src) || v.src.tab !== tabId || (!gone.has(v.src[k1]) && !gone.has(v.src[k2]))) continue;
+        const a = gone.has(v.src[k1]) ? after : v.src[k1], b = gone.has(v.src[k2]) ? before : v.src[k2];
+        if (!a || !b || pos.get(a) > pos.get(b)) m.delete(key);
+        else m.set(key, { ...v, src: { ...v.src, [k1]: a, [k2]: b } });
+      }
+    }
+    const groups = extraOf(doc, 'groups', tabId);
+    for (const [key, g] of Array.from(groups.entries())) {
+      if (!plain(g) || g.axis !== axis || (!gone.has(g.a) && !gone.has(g.b))) continue;
+      const a = gone.has(g.a) ? after : g.a, b = gone.has(g.b) ? before : g.b;
+      if (!a || !b || pos.get(a) > pos.get(b)) groups.delete(key);
+      else groups.set(key, { ...g, a, b });
     }
   });
 }

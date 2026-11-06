@@ -18,17 +18,33 @@ describe('snapshot', () => {
     expect(again).toEqual(out);
     expect(Object.values(out.tabs[0].cells)).toEqual(expect.arrayContaining([{ v: 5, s: { b: true } }]));
   });
-  it('accepts a good state and refuses bad ones', () => {
+  it('cleans bad cells instead of refusing the sheet; refuses only a broken skeleton', () => {
     const doc = seedSheetDoc(newSheetContent());
     expect(() => validateSheetDoc(doc)).not.toThrow();
     const tab = snapshotOf(doc).tabs[0].id;
-    const bad = (fn) => { const d = new Y.Doc(); Y.applyUpdate(d, Y.encodeStateAsUpdate(doc)); fn(d); return () => validateSheetDoc(d); };
-    expect(bad((d) => cellsOf(d, tab).set('x.y', { v: 1, s: { bg: 'url(http://evil)' } }))).toThrow();
-    expect(bad((d) => cellsOf(d, tab).set('x.y', { v: 1, onclick: 'x' }))).toThrow();
-    expect(bad((d) => cellsOf(d, tab).set('x.y', { v: 'a'.repeat(50001) }))).toThrow();
-    expect(bad((d) => cellsOf(d, tab).set('x.y', { f: 'SUM(1)' }))).toThrow();
-    expect(bad((d) => rowsOf(d, tab).push([{ evil: 1 }]))).toThrow();
-    expect(bad((d) => d.getArray('tabs').delete(0, 1))).toThrow();
+    const copy = (fn) => { const d = new Y.Doc(); Y.applyUpdate(d, Y.encodeStateAsUpdate(doc)); fn(d); return d; };
+    const r0 = snapshotOf(doc).tabs[0].rows[0], c0 = snapshotOf(doc).tabs[0].cols[0];
+    const key = `${r0}.${c0}`;
+    const stored = (d) => snapshotOf(d).tabs[0].cells[key];
+    const cases = [
+      [{ v: 1, s: { bg: 'url(http://evil)', b: true } }, { v: 1, s: { b: true } }],
+      [{ v: 1, onclick: 'x' }, { v: 1 }],
+      [{ v: 'a'.repeat(50001) }, { v: 'a'.repeat(50000) }],
+      [{ f: 'SUM(1)' }, undefined],
+    ];
+    for (const [bad, want] of cases) {
+      const d = copy((x) => cellsOf(x, tab).set(key, bad));
+      expect(() => validateSheetDoc(d)).not.toThrow();
+      expect(stored(d)).toEqual(want);
+    }
+    const withBadRow = copy((d) => rowsOf(d, tab).push([{ evil: 1 }]));
+    expect(() => validateSheetDoc(withBadRow)).not.toThrow();
+    expect(snapshotOf(withBadRow).tabs[0].rows).toHaveLength(1000);
+    expect(() => validateSheetDoc(copy((d) => d.getArray('tabs').delete(0, 1)))).toThrow();
+    const wrongType = new Y.Doc();
+    wrongType.getArray(`cells:${tab}`).push([1]);                 // a list where a map belongs
+    Y.applyUpdate(wrongType, Y.encodeStateAsUpdate(doc));
+    expect(() => validateSheetDoc(wrongType)).toThrow();
     expect(() => validateSheetDoc(new Y.Doc())).toThrow();
   });
 });

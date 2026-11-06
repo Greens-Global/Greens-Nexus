@@ -58,6 +58,15 @@ export function createEngine(ctx, opts = {}) {
     if (pivotBuilding.has(tab.id)) return null;
     pivotBuilding.add(tab.id);
     const map = new Map();
+    // Cells array formulas on this tab spill into count as taken (worked out once here).
+    const spillTaken = new Set();
+    for (const o of candidatesOf(tab)) {
+      if (busy.has(keyOf(tab, o.r, o.c))) continue;
+      cellValue(tab, o.r, o.c);
+      const sp = spills.get(keyOf(tab, o.r, o.c));
+      if (!sp || sp.blocked) continue;
+      for (let i = 0; i < sp.h && spillTaken.size < SPILL_MAX * 4; i += 1) for (let j = 0; j < sp.w; j += 1) if (i || j) spillTaken.add(`${o.r + i}|${o.c + j}`);
+    }
     try {
       tab.pivots.forEach((cfg, id) => {
         const r0 = ctx.rowIndex(tab, cfg.at.r), c0 = ctx.colIndex(tab, cfg.at.c);
@@ -70,7 +79,10 @@ export function createEngine(ctx, opts = {}) {
         for (const row of out.cells) if (row.length > w) w = row.length;
         let blocked = r0 + h > tab.rows.length || c0 + w > tab.cols.length;
         for (let i = 0; i < h && !blocked; i += 1) {
-          for (let j = 0; j < w && !blocked; j += 1) if (filled(ctx.cell(tab, r0 + i, c0 + j)) || map.has(`${r0 + i}|${c0 + j}`)) blocked = true;
+          for (let j = 0; j < w && !blocked; j += 1) {
+            const k = `${r0 + i}|${c0 + j}`;
+            if (filled(ctx.cell(tab, r0 + i, c0 + j)) || map.has(k) || spillTaken.has(k)) blocked = true;
+          }
         }
         if (blocked) { map.set(corner, { v: err('#REF!', 'This pivot would overwrite cells - clear them or move the pivot'), pivot: id, corner: true }); return; }
         out.cells.forEach((row, i) => row.forEach((x, j) => {
@@ -115,6 +127,7 @@ export function createEngine(ctx, opts = {}) {
     for (let i = 0; i < v.h; i += 1) {
       for (let j = 0; j < v.w; j += 1) {
         if ((i || j) && filled(ctx.cell(tab, r + i, c + j))) return 'Cells in the way - clear them to let this formula spill';
+        if (tab.pivots?.size && pivotAt(tab, r + i, c + j)) return 'A pivot table is in the way - move it or this formula';
       }
     }
     return '';

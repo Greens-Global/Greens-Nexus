@@ -1,6 +1,6 @@
 // Sheets: the Pivot Editor (a side sheet, like Format Cells) and the panel
 // that creates a pivot. Every change saves at once, Google Sheets style.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowUp, ArrowDown, X, Trash2, Search } from 'lucide-react';
 import { SidePanel } from './panels.jsx';
 import { PIVOT_FNS, PIVOT_SHOW, PIVOT_GROUPS } from './model.js';
@@ -35,6 +35,10 @@ export function PivotCreatePanel({ srcA1, onCreate, onClose }) {
 /** The Pivot Editor. cfg is the stored pivot; fields = [{col, name}] from its source. */
 export function PivotPanel({ cfg, fields, srcA1, canEdit, valuesOf, onChange, onSource, onDelete, onClose }) {
   const [src, setSrc] = useState(srcA1);
+  // A colleague (or an inserted row) changed the range: show it, unless this person is typing in the box.
+  const typing = useRef(false);
+  const [seen, setSeen] = useState(srcA1);
+  if (seen !== srcA1) { setSeen(srcA1); if (!typing.current) setSrc(srcA1); }
   const [openFilter, setOpenFilter] = useState('');
   const [q, setQ] = useState('');
   const nameOf = (col) => fields.find((f) => f.col === col)?.name || 'Missing Column';
@@ -106,24 +110,32 @@ export function PivotPanel({ cfg, fields, srcA1, canEdit, valuesOf, onChange, on
           {part === 'filters' && (
             <>
               <button type="button" className="secondary-btn nxs-small" onClick={() => { setOpenFilter(openFilter === `${i}` ? '' : `${i}`); setQ(''); }}>
-                {(x.hide || []).length ? `Showing all but ${(x.hide || []).length}` : 'Showing All Items'}
+                {Array.isArray(x.show) ? `Showing ${x.show.length} Selected` : (x.hide || []).length ? `Showing all but ${(x.hide || []).length}` : 'Showing All Items'}
               </button>
               {openFilter === `${i}` && (() => {
                 const values = valuesOf(x.col);
+                // Two ways to store a choice: `hide` (all but these) or, after Clear, `show` (only these) -
+                // so Clear works however many different values the column has.
+                const only = Array.isArray(x.show) ? new Set(x.show) : null;
                 const hide = new Set(x.hide || []);
+                const isOn = (t) => (only ? only.has(t) : !hide.has(t));
                 const shown = values.filter((v) => !q || v.text.toLowerCase().includes(q.toLowerCase()));
-                const setHide = (h) => patch(part, i, { hide: [...h].slice(0, 5000) });
+                const toggle = (t, on) => {
+                  if (only) { const s = new Set(only); if (on) s.add(t); else s.delete(t); patch(part, i, { show: [...s].slice(0, 5000), hide: undefined }); return; }
+                  const h = new Set(hide); if (on) h.delete(t); else h.add(t);
+                  patch(part, i, { hide: [...h].slice(0, 5000), show: undefined });
+                };
                 return (
                   <div className="nxs-pv-filter">
                     <div className="nxs-btnrow">
-                      <button type="button" className="nxs-link" disabled={!canEdit} onClick={() => setHide(new Set())}>Select All</button>
-                      <button type="button" className="nxs-link" disabled={!canEdit} onClick={() => setHide(new Set(values.map((v) => v.text)))}>Clear</button>
+                      <button type="button" className="nxs-link" disabled={!canEdit} onClick={() => patch(part, i, { hide: [], show: undefined })}>Select All</button>
+                      <button type="button" className="nxs-link" disabled={!canEdit} onClick={() => patch(part, i, { show: [], hide: undefined })}>Clear</button>
                     </div>
                     <div className="nxs-search"><Search size={13} /><input aria-label="Search values" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" /></div>
                     <div className="nxs-values">
                       {shown.slice(0, 500).map((v) => (
-                        <label key={v.text} className="nxs-check"><input type="checkbox" disabled={!canEdit} checked={!hide.has(v.text)}
-                          onChange={(e) => { const h = new Set(hide); if (e.target.checked) h.delete(v.text); else h.add(v.text); setHide(h); }} />
+                        <label key={v.text} className="nxs-check"><input type="checkbox" disabled={!canEdit} checked={isOn(v.text)}
+                          onChange={(e) => toggle(v.text, e.target.checked)} />
                           <span>{v.text}</span><span className="nxs-count">{v.count}</span></label>
                       ))}
                     </div>
@@ -143,7 +155,9 @@ export function PivotPanel({ cfg, fields, srcA1, canEdit, valuesOf, onChange, on
       foot={canEdit && <button type="button" className="secondary-btn" onClick={onDelete}><Trash2 size={14} /> Delete Pivot Table</button>}>
       <label className="nxs-field"><span>Data Range</span>
         <input className="form-input" value={src} spellCheck={false} disabled={!canEdit} onChange={(e) => setSrc(e.target.value)}
-          onBlur={() => { if (src.trim() !== srcA1) onSource(src.trim()); }} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
+          onFocus={() => { typing.current = true; }}
+          onBlur={() => { typing.current = false; if (src.trim() !== srcA1) onSource(src.trim()); else setSrc(srcA1); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setSrc(srcA1); } }} /></label>
       <label className="nxs-check"><input type="checkbox" checked={cfg.totals !== false} disabled={!canEdit} onChange={(e) => onChange({ ...cfg, totals: e.target.checked })} /> Show Totals</label>
       {!fields.length && <p className="nxs-hint-text">The data range is gone or has no rows under its header. Pick a new one.</p>}
       {['rows', 'cols', 'values', 'filters'].map(section)}

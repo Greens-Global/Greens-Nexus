@@ -4,6 +4,7 @@
 import { formatValue, parseNumber, parseDateText } from './format.js';
 import { isErr, compare } from './formula/eval.js';
 import { tokenize, decodeFormula, shiftFormula, refA1, a1 } from './formula/parse.js';
+import { labelKey } from './model.js';
 
 // ── merges ───────────────────────────────────────────────────────────────
 const mergeCache = new WeakMap();
@@ -114,9 +115,18 @@ export function groupsOf(ctx, tab, axis) {
     if (a < 0 || b < 0) return;
     list.push({ id, s: Math.min(a, b), e: Math.max(a, b), collapsed: !!g.collapsed });
   });
-  list.sort((x, y) => x.s - y.s || y.e - x.e);
-  for (const g of list) g.level = 1 + list.filter((o) => o !== g && o.s <= g.s && o.e >= g.e && (o.s < g.s || o.e > g.e || o.id < g.id)).length;
-  return list;
+  // Live data may hold what the UI refuses (two people grouping at once, an
+  // old version): outer groups win, and a group that crosses one already kept,
+  // repeats it, or would sit deeper than GROUP_DEPTH is left out.
+  list.sort((x, y) => x.s - y.s || y.e - x.e || (x.id < y.id ? -1 : 1));
+  const kept = [];
+  for (const g of list) {
+    if (kept.some((o) => (o.s === g.s && o.e === g.e) || (g.s > o.s && g.s <= o.e && g.e > o.e) || (g.s < o.s && g.e >= o.s && g.e < o.e))) continue;
+    const level = 1 + kept.filter((o) => o.s <= g.s && o.e >= g.e).length;
+    if (level > GROUP_DEPTH) continue;
+    kept.push({ ...g, level });
+  }
+  return kept;
 }
 /** Why a new group s..e on this axis cannot be made, or ''. Groups nest; they never cross. */
 export function groupProblem(list, s, e) {
@@ -142,10 +152,10 @@ export function filteredOut(ctx, eng, tab) {
   for (const [colId, cv] of Object.entries(f.crit)) {
     const c = ctx.colIndex(tab, colId);
     if (c < f.c1 || c > f.c2) continue;
-    const hide = cv.hide?.length ? new Set(cv.hide) : null;
+    const hide = cv.hide?.length ? new Set(cv.hide.map(labelKey)) : null;
     tests.push((r) => {
       const text = shownText(eng, ctx, tab, r, c);
-      if (hide && hide.has(text)) return false;
+      if (hide && hide.has(labelKey(text))) return false;
       return cv.op ? passes(cv.op, eng.cellValue(tab, r, c), cv.a, cv.b) : true;
     });
   }
