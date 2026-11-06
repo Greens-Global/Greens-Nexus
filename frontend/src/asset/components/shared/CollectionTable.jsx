@@ -103,7 +103,7 @@ function rowIdentity(coll, row) {
 // that row (sorting and search move families together); `_readOnly` rows say View, not Edit.
 // `summaryOverride` replaces the record type's summary strip (e.g. totals kept per currency).
 // `leadColumn` ({ label, render(row) }) adds a first column; nested rows indent there.
-export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, highlightItem, collapsible, onQuickAdd, summaryOverride = null, leadColumn = null }) {
+export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, highlightItem, collapsible, onQuickAdd, summaryOverride = null, leadColumn = null, emptyNode = null }) {
   const recordType = RECORD_TYPES[coll];
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef(null);   // the Export button its menu is pinned to
@@ -390,9 +390,9 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                 </tbody>
               </table>
             </div>
-          ) : (
+          ) : (emptyNode || (
             <EmptyState action={onAdd ? `Add ${recordType.title}` : undefined} onAction={onAdd}>{recordType.empty}</EmptyState>
-          )}
+          ))}
         </>
       )}
     </Card>
