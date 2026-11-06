@@ -14,7 +14,8 @@ import { navigate }         from './widgets.jsx';
 import { formatDateTime, formatDate, formatMonthDay } from '../lib/datetime';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useIsMobile }      from '../lib/useIsMobile';
-import { Spinner, LoadingState } from '../components/AsyncState';
+import { Spinner } from '../components/AsyncState';
+import { WidgetSkeleton, MoreRow } from './listParts.jsx';
 import { AvatarName } from '../tasks/components';
 
 // The Items handover sheet (the handover photo, then the handover; lazy so the
@@ -470,6 +471,8 @@ const monthDay = (m, d) => `${String(m).padStart(2, '0')}-${String(d).padStart(2
 // they'd need to request.
 const HOLIDAY_TYPE_LABEL = { mandatory: 'Mandatory', optional: 'Optional', half_day: 'Half-day' };
 
+const AGENDA_SHOWN = 6;
+
 export function CalendarPanel({ phone = false }) {
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selected, setSelected] = useState(agendaDay(new Date()));
@@ -490,6 +493,9 @@ export function CalendarPanel({ phone = false }) {
   const isMobile = useIsMobile();
   const stackedLayout = phone || isMobile;
   const [box, setBox] = useState({ w: 0, h: 0 });
+  // The day whose whole agenda is showing (Show All); any other day shows
+  // its first AGENDA_SHOWN items - the tile sizes to its content now.
+  const [allFor, setAllFor] = useState('');
   // A callback ref, not a mount-time effect: the measured box only exists
   // while the calendar is connected, so it can appear after mount (someone
   // connects Outlook) and must be observed then too.
@@ -584,6 +590,7 @@ export function CalendarPanel({ phone = false }) {
     ...selBirthdays.map(name => ({ isBirthday: true, isAllDay: true, subject: `${name}'s Birthday` })),
     ...(byDay[selected] || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || '')),
   ];
+  const shownEvents = allFor === selected ? dayEvents : dayEvents.slice(0, AGENDA_SHOWN);
   // ‹ Today › steps the SELECTED day, not the visible month (Pranshu, Sep 4:
   // "when i click it... it should change the date in that current month") -
   // stepping past a month boundary follows the grid to the new month so the
@@ -706,11 +713,11 @@ export function CalendarPanel({ phone = false }) {
             </div>
             <div className="dash-scroll" style={{ flex: 1, minHeight: 0 }} tabIndex={0} aria-label="My Agenda">
               {state.loading ? (
-                <LoadingState compact />
+                <WidgetSkeleton />
               ) : dayEvents.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
-              ) : (
-                dayEvents.map((ev, i) => {
+              ) : (<>
+                {shownEvents.map((ev, i) => {
                   const when = ev.isHoliday ? <><PartyPopper size={12} /> All day</> : ev.isBirthday ? <><CakeSlice size={12} /> All day</> : ev.isAllDay ? 'All day' : agendaTime(ev.start);
                   const until = !ev.isAllDay && ev.end ? `until ${agendaTime(ev.end)}` : '';
                   const whenColor = ev.isHoliday ? 'hsl(var(--color-red))' : ev.isBirthday ? 'hsl(var(--color-gold))' : 'var(--muted)';
@@ -742,8 +749,9 @@ export function CalendarPanel({ phone = false }) {
                       )}
                     </div>
                   );
-                })
-              )}
+                })}
+                <MoreRow count={dayEvents.length - shownEvents.length} label={`Show All (${dayEvents.length})`} onClick={() => setAllFor(selected)} />
+              </>)}
             </div>
           </div>
         </div>

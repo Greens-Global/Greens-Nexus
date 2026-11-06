@@ -5619,6 +5619,10 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   border: 2px solid transparent; background-clip: padding-box;
 }
 .dash-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--wk-faint, var(--muted)); background-clip: padding-box; }
+/* Content-fit tiles (11/05/2026, DashboardGrid's fitTops): the tile is as
+   tall as its content, so nothing scrolls inside it - no scrollbar, no edge
+   shadows, no row cut in half by a rounding pixel. */
+.dash-fit .dash-scroll { overflow: visible; background: none; }
 
 /* Fixed-height tiles that size their content to the cell (Oct 14). Each is a
    size container, so a two-row tile (130px on desktop) or a half-width phone

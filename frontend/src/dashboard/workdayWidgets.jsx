@@ -9,14 +9,13 @@
 // bundle does not grow; DashCard / navigate come from widgets.jsx so these
 // read exactly like every other tile.
 import { useState, useEffect } from 'react';
-import { LoadingState } from '../components/AsyncState';
 import { ArrowRight, ArrowUpRight, Cake, CalendarDays, Clock, Package, HandCoins } from 'lucide-react';
 import { api } from '../api';
 import { useTimeStatus } from '../lib/useTimeStatus';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate, formatTime, formatMonthDay } from '../lib/datetime';
 import { DashCard, navigate } from './widgets.jsx';
-import { MoreRow, WidgetError } from './listParts.jsx';
+import { MoreRow, WidgetError, WidgetSkeleton } from './listParts.jsx';
 import { openSession } from './essentials/punchMath.js';
 
 export const noteStyle = { fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
@@ -226,7 +225,7 @@ export function MyRequestsWidget() {
   return (
     <DashCard title="My Requests" sub={state.loading || state.error ? undefined : pending ? `${pending} waiting on a decision` : 'Nothing waiting'}>
       {state.loading ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : state.error ? (
         <WidgetError message="Couldn't load your requests." onRetry={retry} />
       ) : state.rows.length === 0 ? (
@@ -295,7 +294,7 @@ export function DueBackWidget() {
   return (
     <DashCard title="Due Back Soon" sub={state.loading || state.error ? undefined : overdue ? `${overdue} overdue` : state.rows.length ? `${state.rows.length} with you` : undefined}>
       {state.loading ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : state.error ? (
         <WidgetError message="Couldn't load your checkouts." onRetry={retry} />
       ) : state.rows.length === 0 ? (
@@ -364,7 +363,7 @@ export function ComingUpWidget() {
   return (
     <DashCard title="Coming Up" sub="Next 30 days" action={<Cake size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : state.error ? (
         <WidgetError message="Couldn't load birthdays and holidays." onRetry={retry} />
       ) : state.rows.length === 0 ? (

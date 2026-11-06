@@ -7,6 +7,7 @@
 // ("Everyone is in"), which is a false statement, not an empty one;
 // `WidgetError` says the list did not load and offers a retry instead.
 import { AlertCircle, ArrowRight } from 'lucide-react';
+import { SkeletonBlocks } from '../components/AsyncState';
 
 export function MoreRow({ count, noun = 'more', onClick, label }) {
   if (!count || count <= 0) return null;
@@ -47,6 +48,17 @@ export function WidgetCrashCard({ title }) {
       </span>
       <button type="button" className="secondary-btn" onClick={() => window.location.reload()}
         style={{ minHeight: 36, padding: '6px 14px', fontSize: 12.5 }}>Reload</button>
+    </div>
+  );
+}
+
+// What a widget shows while its data loads (11/05/2026): a few placeholder
+// rows the shape of the list that is coming, never a spinner - a ring and
+// "Loading..." in every tile made the board read as broken.
+export function WidgetSkeleton({ rows = 3, rowHeight = 30, label = 'Loading' }) {
+  return (
+    <div role="status" aria-busy="true" aria-label={label} data-widget-skeleton style={{ padding: '2px 0' }}>
+      <SkeletonBlocks count={rows} height={rowHeight} borderRadius={8} />
     </div>
   );
 }
