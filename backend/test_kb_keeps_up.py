@@ -102,11 +102,11 @@ class KeepsUpCase(unittest.TestCase):
             c = db.get(models.KbCourse, cid)
             flag = json.loads(c.review_flag)
             self.assertEqual([x["module"] for x in flag["changes"]], ["Workday"])   # Tickets is not taught here
-            bells = db.query(models.NexusNotification).filter(models.NexusNotification.type == "kb_course_review", models.NexusNotification.recipient == MGR).all()
+            bells = db.query(models.NexusNotification).filter(models.NexusNotification.type == "kb_review_request", models.NexusNotification.recipient == MGR).all()
             self.assertEqual(len(bells), 1)
             self.assertIn("11/05/2026", bells[0].body)
             self.assertEqual(kb_currency.run(db), 1)   # the same set again: flagged, no second bell
-            self.assertEqual(db.query(models.NexusNotification).filter(models.NexusNotification.type == "kb_course_review").count(), 1)
+            self.assertEqual(db.query(models.NexusNotification).filter(models.NexusNotification.type == "kb_review_request").count(), 1)
         finally:
             db.close()
         self._as(MGR)

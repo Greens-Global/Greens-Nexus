@@ -96,7 +96,7 @@ def run(db) -> int:
             c.review_flag = json.dumps(flag)
             c.updated_at = kb_core.now()
             newest = changes[-1]
-            kb_core.notify(db, recipient=(c.owner_email or "").lower(), ntype="kb_course_review", title="Course May Need a Review",
+            kb_core.notify(db, recipient=(c.owner_email or "").lower(), ntype="kb_review_request", title="Course May Need a Review",
                            body=f"What's New released \"{newest['title']}\" in {newest['module']} on {us_date(newest['at'])}; {c.title} teaches {newest['module']}.",
                            ref_id=c.id, item_name=c.title, sub=f"builder:{c.id}", dedupe_today=True)
         flagged += 1
