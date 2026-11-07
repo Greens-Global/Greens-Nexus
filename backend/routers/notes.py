@@ -155,13 +155,17 @@ _NOTE_ATTRS = {
     # Callouts and toggles (Neil, 11/07/2026, notes/noteBlocks.jsx): the only
     # <div>s a note keeps - <div data-type="callout" data-tone="info|tip|warning">
     # and <div data-type="toggle" data-summary="..." data-open="true|false">.
-    "div": ("data-type", "data-tone", "data-summary", "data-open"),
+    "div": ("data-type", "data-tone", "data-summary", "data-open", "data-source", "data-show"),
     "p": ("style",), "h1": ("style",), "h2": ("style",), "h3": ("style",), "h4": ("style",),
     "td": ("colspan", "rowspan"), "th": ("colspan", "rowspan"),
 }
 _ALIGN = re.compile(r"^text-align:\s*(left|center|right|justify);?$", re.I)
-_DATA_TYPES = {"taskList", "taskItem", "mention", "boardEmbed", "recordLink", "callout", "toggle"}
-_DIV_TYPES = ("callout", "toggle")
+_DATA_TYPES = {"taskList", "taskItem", "mention", "boardEmbed", "recordLink", "callout", "toggle", "liveList"}
+# A live task list (11/07/2026, notes/liveList.jsx): <div data-type="liveList"
+# data-source="mine|project:<id>" data-show="open|all">words</div> - the rows
+# are read for each reader, never stored.
+_DIV_TYPES = ("callout", "toggle", "liveList")
+_LIST_SOURCE = re.compile(r"^(mine|project:[A-Za-z0-9_\-.]{1,100})$")
 _TONES = ("info", "tip", "warning")
 _NOTE_REF = re.compile(r"^note_[A-Za-z0-9]{1,64}$")
 # A record link's target: what it is and its id - nothing that could be a URL.
@@ -232,6 +236,10 @@ class _NoteSanitizer(_RichSanitizer):
             elif k == "data-tone" and v not in _TONES:
                 continue
             elif k == "data-open" and v not in ("true", "false"):
+                continue
+            elif k == "data-source" and not _LIST_SOURCE.match(v):
+                continue
+            elif k == "data-show" and v not in ("open", "all"):
                 continue
             kept.append(f' {k}="{escape(v[:200], quote=True)}"')
         return "".join(kept)

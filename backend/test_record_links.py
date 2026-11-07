@@ -131,6 +131,30 @@ class RecordLinkTests(unittest.TestCase):
         self.assertEqual(list(out), [open_t.id])
         self.assertTrue(out[open_t.id]["done"])
 
+    def test_a_live_list_reads_only_what_the_reader_may_open(self):
+        from fastapi import HTTPException
+        from routers import tasks as TK
+        for m in (models.Task, models.TaskProject):
+            self.db.query(m).delete()
+        self.db.add_all([
+            models.TaskProject(id="p_org", name="Gate Repairs", access_level="org", owner_email=AGENT["email"]),
+            models.TaskProject(id="p_priv", name="Secret", access_level="restricted", owner_email=AGENT["email"]),
+            models.Task(id="t1", title="Order the motor", project_id="p_org", assignee_emails=[STRANGER["email"]],
+                        due_on="2026-11-10", created_at=now_iso(), modified_at=now_iso()),
+            models.Task(id="t2", title="Done already", project_id="p_org", completed=True, created_at=now_iso(), modified_at=now_iso()),
+            models.Task(id="t3", title="Hidden plan", project_id="p_priv", created_at=now_iso(), modified_at=now_iso()),
+        ])
+        self.db.commit()
+        ids = lambda r: [t["id"] for t in r["tasks"]]  # noqa: E731
+        out = TK.task_list_embed(source="project:p_org", show="open", user=STRANGER, db=self.db)
+        self.assertEqual((ids(out), out["projectName"]), (["t1"], "Gate Repairs"))
+        self.assertEqual(ids(TK.task_list_embed(source="project:p_org", show="all", user=STRANGER, db=self.db)), ["t1", "t2"])
+        hidden = TK.task_list_embed(source="project:p_priv", show="all", user=STRANGER, db=self.db)
+        self.assertEqual((hidden["tasks"], hidden["projectName"], hidden["visible"]), ([], "", False))
+        self.assertEqual(ids(TK.task_list_embed(source="mine", show="open", user=STRANGER, db=self.db)), ["t1"])
+        with self.assertRaises(HTTPException):
+            TK.task_list_embed(source="payroll", show="open", user=STRANGER, db=self.db)
+
     def test_the_backfill_writes_old_notes_once(self):
         n = models.NexusNote(id="note_old1", owner_email=AGENT["email"], title="Old", body=f"<p>{link(TARGET)}</p>")
         self.db.add(n)

@@ -29,6 +29,7 @@ import {
   AlignRight, Link2, Table as TableIcon, Minus, CalendarDays, Pilcrow, ListPlus, Rows3, Columns3, Trash2, Check, X,
   Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, PenTool, FileSymlink,
   Info, Lightbulb, TriangleAlert, ListCollapse,
+  ListTodo,
 } from 'lucide-react';
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
@@ -57,6 +58,7 @@ const SLASH = [
   { key: 'code', label: 'Code Block', hint: 'Monospaced text', icon: SquareCode, keys: 'pre snippet', run: (c) => c.toggleCodeBlock() },
   { key: 'table', label: 'Table', hint: '3 x 3 with a header row', icon: TableIcon, keys: 'grid', run: (c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }) },
   { key: 'divider', label: 'Divider', hint: 'A horizontal rule', icon: Minus, keys: 'hr line rule', run: (c) => c.setHorizontalRule() },
+  { key: 'livelist', label: 'Live Task List', hint: 'My tasks or a project, always up to date', icon: ListTodo, keys: 'tasks project embed view live list todo', run: (c) => c.insertLiveList() },
   { key: 'callout', label: 'Callout', hint: 'A note set apart in a box', icon: Info, keys: 'note box info aside', run: (c) => c.setCallout('info') },
   { key: 'tip', label: 'Tip Callout', hint: 'A helpful tip in a box', icon: Lightbulb, keys: 'callout hint idea', run: (c) => c.setCallout('tip') },
   { key: 'warning', label: 'Warning Callout', hint: 'Something to watch out for', icon: TriangleAlert, keys: 'callout caution danger alert', run: (c) => c.setCallout('warning') },
@@ -519,6 +521,7 @@ export default function NoteEditor({
             active={voice.recording} danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
           <TBtn icon={Clapperboard} text="Video" label="Add a Video" disabled={live} onClick={pickVideo} />
           <TBtn icon={PenTool} text="Board" label="Insert Board - one of your boards, as a picture that opens it" active={boardPick} onClick={openBoardPick} />
+          <Btn icon={ListTodo} label="Live Task List - my tasks or a project, always up to date" onClick={run((c) => c.insertLiveList())} />
           {onMakeTask && <TBtn icon={ListPlus} text="Make a Task" label="Make a Task - from the selection or the current line" onClick={makeTask} />}
           </div>
         </div>
@@ -570,6 +573,7 @@ export default function NoteEditor({
               <PBtn icon={TableIcon} label="Insert Table" onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
               <PBtn icon={Minus} label="Divider" onClick={run((c) => c.setHorizontalRule())} />
               <PBtn icon={PenTool} label="Insert Board" active={boardPick} onClick={() => { setMore(false); openBoardPick(); }} />
+              <PBtn icon={ListTodo} label="Live Task List" onClick={run((c) => c.insertLiveList())} />
               {onMakeTask && <PBtn icon={ListPlus} label="Make a Task" onClick={makeTask} />}
               <PBtn icon={Undo2} label="Undo" disabled={!e.can().undo()} onClick={run((c) => c.undo())} />
               <PBtn icon={Redo2} label="Redo" disabled={!e.can().redo()} onClick={run((c) => c.redo())} />

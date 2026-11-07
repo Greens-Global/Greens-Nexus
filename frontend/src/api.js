@@ -630,6 +630,8 @@ export const api = {
   deleteTaskCustomStatus: (id) => req(`/tasks/meta/custom-statuses/${id}`, { method: "DELETE" }),
   // Projects / portfolios / departments / member requests
   getTaskProjects: () => req("/task-projects"),
+  // A live task list in a note (11/07/2026): source mine | project:<id>, show open | all.
+  taskListEmbed: (source, show = "open") => req(`/tasks/embed?source=${encodeURIComponent(source)}&show=${encodeURIComponent(show)}`),
   createTaskProject: (data) => req("/task-projects", { method: "POST", body: JSON.stringify(data) }),
   updateTaskProject: (id, data) => req(`/task-projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   // One shared dashboard chart at a time: upsert / remove by id (Oct 2026).
