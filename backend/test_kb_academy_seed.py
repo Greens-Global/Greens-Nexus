@@ -197,27 +197,36 @@ def test_question_lesson_id_survives_import(_package, tmp_path, monkeypatch):
     assert draft["quiz"]["questions"][0]["lessonId"] == draft["lessons"][0]["_id"] == "l_nexus-fundamentals_01"
 
 
-def test_figures_pass_fills_untouched_lessons_and_leaves_edited_ones(_package, tmp_path):
+def test_content_pass_refreshes_untouched_courses_and_figures_in_touched_ones(_package, tmp_path):
     db = _package
-    res = kb_academy_seed.apply_once(db)   # the package as imported, no figures in it
-    # now the package gains a figure in the one lesson
+    kb_academy_seed.apply_once(db)   # the package as imported: no figures, one text lesson per course
     import kb_academy
-    lesson = next(kb_academy.ROOT.glob("courses/01-*/lessons/01.md"))
+    # the package grows: a figure in every first lesson, and a brand-new lesson in the first course
     for f in kb_academy.ROOT.glob("courses/*/lessons/01.md"):
         f.write_text(f.read_text() + '\n```figure\n{"kind": "steps", "title": "Flow", "items": [{"label": "One"}]}\n```\n', encoding="utf-8")
+    first = sorted(kb_academy.ROOT.glob("courses/*"))[0]
+    (first / "lessons" / "01a.md").write_text("---\ntitle: The Facility\nsummary: What a site is made of.\n---\n\nA fence, a gate, an office.\n", encoding="utf-8")
+    cfg = json.loads((first / "course.json").read_text())
+    cfg["lessons"].insert(1, {"file": "01a.md"})
+    (first / "course.json").write_text(json.dumps(cfg), encoding="utf-8")
     courses = {c.title: c for c in db.query(models.KbCourse).all()}
-    # one course's lesson was edited by hand since the import
+    # one course's lesson was saved by hand since the import (updated_at moves, like every save route)
     edited = db.get(models.KbCourse, courses["Hands On Check"].id)
     d = json.loads(edited.draft)
     d["lessons"][0]["blocks"]["content"].append({"type": "paragraph", "content": [{"type": "text", "text": "Edited by hand."}]})
-    edited.draft = json.dumps(d)
+    edited.draft, edited.updated_at = json.dumps(d), "2026-11-07T10:00:00"
+    # another course was saved by hand without changing the seeded lesson: it keeps its lessons but still gets the figure
+    saved = db.get(models.KbCourse, courses["Cubby Fundamentals"].id)
+    saved.updated_at = "2026-11-07T10:00:00"
     db.commit()
-    out = kb_academy_seed.apply_figures_once(db)
-    assert out == {"courses": 5, "lessons": 5}
+    out = kb_academy_seed.apply_content_once(db)
+    assert out == {"courses": 5, "lessons": 6}   # four untouched courses whole (one of them now two lessons), one figure into the saved course
     db.expire_all()
     for title, c in courses.items():
         d = json.loads(db.get(models.KbCourse, c.id).draft)
         has = any(b.get("type") == "figure" for b in d["lessons"][0]["blocks"]["content"])
         assert has == (title != "Hands On Check"), title
-    assert kb_academy_seed.apply_figures_once(db) is None
-    assert lesson.exists()
+    d = json.loads(db.get(models.KbCourse, courses["Nexus Fundamentals"].id).draft)
+    assert [L["title"] for L in d["lessons"]][:2] == [d["lessons"][0]["title"], "The Facility"]   # the new lesson landed, in place
+    assert d["lessons"][1]["_id"] == "l_nexus-fundamentals_02"
+    assert kb_academy_seed.apply_content_once(db) is None

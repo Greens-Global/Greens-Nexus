@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 MARK = "kb.storage_academy_seeded_2026_11"
 PATHS_MARK = "kb.learning_paths_seeded_2026_11"
-FIGURES_MARK = "kb.academy_figures_2026_11"
+CONTENT_MARK = "kb.academy_content_2026_11_07"
 # The Academy plan as the onboarding path (Neil, 11/07/2026): four stages, the
 # six courses in order. Index = the course's position in kb_academy.ORDER.
 ACADEMY_STAGES = ["Week 1: Nexus and the Business", "Week 2: Storage and Cubby", "Weeks 3 and 4: Serving and Selling", "Sign-Off"]
@@ -193,48 +193,95 @@ def _without_figures(blocks: dict) -> dict:
     return {"type": "doc", "content": [b for b in (blocks or {}).get("content") or [] if b.get("type") != "figure"]}
 
 
-def apply_figures_once(db: Session) -> dict | None:
-    """Figures (Neil, 11/07/2026), once: an Academy lesson a first run
-    imported and NOBODY edited since (its blocks equal the package's blocks
-    with the figures taken out) is replaced by the package's lesson, figures
-    in. The change lands in the course's DRAFT - a never-published course
-    edits its draft, a published one gets a draft it did not have (the
-    author sees "unpublished edits" and publishes) - never in a live
-    version. A lesson that was edited is left exactly as it is. Returns
-    {courses, lessons} touched, or None once marked."""
-    from models import KbCourse, NexusSetting
+def _no_qids(lessons: list) -> list:
+    return [{**L, "questions": [{k: v for k, v in q.items() if k != "_id"} for q in L.get("questions") or []]} if L.get("type") == "checkpoint" else L
+            for L in lessons]
+
+
+def _untouched(c) -> bool:
+    """A course nobody has saved since a first run imported it: every save,
+    publish and import stamps updated_at; the first run stamps it in the
+    same transaction as created_at (two now() calls, microseconds apart),
+    so a gap under a minute means nobody has touched it since."""
+    from datetime import datetime, timezone
+    if c.major or not c.created_at or not c.updated_at:
+        return False
+
+    def _t(v: str):
+        d = datetime.fromisoformat(v)
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    try:
+        gap = _t(c.updated_at) - _t(c.created_at)
+    except (TypeError, ValueError):
+        return False
+    return abs(gap.total_seconds()) < 60
+
+
+def apply_content_once(db: Session) -> dict | None:
+    """The package's lessons (Neil, 11/07/2026: figures, drawings, the
+    facility lesson, the deeper lock and space sections), once. A course a
+    first run imported and NOBODY saved since (`_untouched`) takes the
+    package's lessons and quiz whole - new lessons included - the way a
+    first run would import them today. In a course somebody did save, a
+    lesson is replaced only when its blocks equal the package's blocks with
+    the figures taken out (figures into an untouched lesson); an edited
+    lesson is left exactly as it is. Everything lands in the course's DRAFT
+    - a never-published course edits its draft, a published one gets a
+    draft it did not have (the author sees "unpublished edits" and
+    publishes) - never in a live version. Returns {courses, lessons}
+    touched, or None once marked."""
+    from models import KbCollection, KbCourse, KbDocument, NexusSetting
     import kb_academy
     import kb_core
-    from routers.kb_training import _draft_of
+    from routers.kb_training import _draft_of, _norm_lessons, _norm_quiz
 
-    if db.get(NexusSetting, FIGURES_MARK):
+    if db.get(NexusSetting, CONTENT_MARK):
         return None
     a = kb_academy.load(kb_academy.ROOT)
     if kb_academy.problems(a):
         return None
     courses_touched, lessons_touched = 0, 0
+    col = db.query(KbCollection).filter(KbCollection.name == COLLECTION).first()
+    page_ids = {}
+    if col is not None:
+        for p in a.pages.values():
+            d = db.query(KbDocument).filter(KbDocument.collection_id == col.id, KbDocument.title == p.title[:300]).first()
+            if d is not None:
+                page_ids[p.slug] = d.id
     for spec in a.courses:
         c = db.query(KbCourse).filter(KbCourse.title == spec.title[:200]).first()
         if c is None:
             continue
-        pkg = {L["title"]: L["blocks"] for L in spec.lessons if L["type"] == "text"}
         draft = _draft_of(c)
         changed = False
-        for L in draft.get("lessons") or []:
-            if L.get("type") != "text" or L.get("title") not in pkg:
-                continue
-            new = pkg[L["title"]]
-            if not any(b.get("type") == "figure" for b in new.get("content") or []):
-                continue
-            if _without_figures(L.get("blocks") or {}) == _without_figures(new):
-                L["blocks"] = new
-                lessons_touched += 1
+        if _untouched(c) and all(L["type"] != "page" or L["page"] in page_ids for L in spec.lessons):
+            lessons = [{**L, "docId": page_ids[L["page"]]} if L["type"] == "page" else L for L in spec.lessons]
+            new_lessons = _norm_lessons(db, lessons)
+            if _no_qids(new_lessons) != _no_qids(draft.get("lessons") or []):   # question ids are minted per normalize
+                draft["lessons"] = new_lessons
+                draft["quiz"] = _norm_quiz(spec.quiz)
+                draft["description"], draft["overview"] = (spec.description or "")[:400], spec.overview or []
+                draft["est_minutes"] = int(spec.est_minutes or draft.get("est_minutes") or 15)
+                lessons_touched += sum(1 for L in new_lessons if L["type"] == "text")
                 changed = True
+        else:
+            pkg = {L["title"]: L["blocks"] for L in spec.lessons if L["type"] == "text"}
+            for L in draft.get("lessons") or []:
+                if L.get("type") != "text" or L.get("title") not in pkg:
+                    continue
+                new = pkg[L["title"]]
+                if not any(b.get("type") == "figure" for b in new.get("content") or []):
+                    continue
+                if _without_figures(L.get("blocks") or {}) == _without_figures(new):
+                    L["blocks"] = new
+                    lessons_touched += 1
+                    changed = True
         if changed:
             c.draft = json.dumps(draft)
+            c.est_minutes = int(draft.get("est_minutes") or c.est_minutes or 15)
             c.updated_at = kb_core.now()
             courses_touched += 1
     now = kb_core.now()
-    db.add(NexusSetting(key=FIGURES_MARK, value=now, updated_by="startup", updated_at=now))
+    db.add(NexusSetting(key=CONTENT_MARK, value=now, updated_by="startup", updated_at=now))
     db.commit()
     return {"courses": courses_touched, "lessons": lessons_touched}

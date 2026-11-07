@@ -959,9 +959,11 @@ keep the diff minimal.
   `kb_blocks._clean_figure` keeps only known keys, short strings and finite
   numbers. A figure goes where it says something faster than prose (a
   sequence, a ladder of days, things to scale, numbers side by side) and
-  its words pass the same content checks. `kb_academy_seed.apply_figures_once`
-  puts the package's figures into an imported lesson nobody edited, in the
-  course's DRAFT only. Pull nothing from the web into a course: an outside
+  its words pass the same content checks. `kb_academy_seed.apply_content_once`
+  (11/07/2026) puts the package's lessons, new ones included, into every
+  imported course nobody has saved since the first run (`_untouched`:
+  `updated_at` still equals `created_at`), and only the figures into an
+  unedited lesson of a course somebody saved, in the course's DRAFT only. Pull nothing from the web into a course: an outside
   image has a license and teaches nothing about our sites. DRAWINGS (Neil,
   11/07/2026: "a drawing of what they look like") are the one illustration
   library: `kb/components/drawings.jsx`, line drawings by name on a 200 x
@@ -969,7 +971,10 @@ keep the diff minimal.
   accent), shown by the `drawing` and `drawings` figure kinds;
   `kb_blocks.DRAWING_NAMES` is the same list (its test keeps them equal) and
   the content test fails a name that does not exist. A new drawing goes in
-  both lists; never a second illustration path or an image file.
+  both lists; never a second illustration path or an image file. The
+  library also holds the site itself (the fence, the gate, the buildings,
+  inside a unit, the roll-up door, the hasp, the cylinder core) and the
+  three shapes of space from above (drive-in, pull-through, angled).
 
 ## Asana — removed (Sep 2026)
 

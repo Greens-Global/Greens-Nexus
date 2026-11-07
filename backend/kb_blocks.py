@@ -51,6 +51,9 @@ DRAWING_NAMES = (
     "measure-length", "measure-height",
     "lock-disc", "lock-cylinder", "lock-padlock",
     "unit-drive-up", "unit-interior", "unit-climate",
+    "door-roll-up", "hasp", "hasp-overlock", "lock-cylinder-core",
+    "plan-drive-in", "plan-pull-through", "plan-angled",
+    "facility-gate", "building-drive-up", "building-multi-story", "unit-mesh-ceiling", "facility-fence",
 )
 
 

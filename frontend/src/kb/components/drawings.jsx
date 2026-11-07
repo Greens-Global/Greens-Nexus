@@ -375,6 +375,198 @@ const DRAW = {
       <Ground />
     </g>
   ),
+  // ── the building and its parts (11/07/2026) ───────────────────────────
+  // a roll-up door, front on: the hood over the drum, the guides, the
+  // corrugated curtain, the bottom bar with its handle and the latch (accent)
+  'door-roll-up': () => (
+    <g>
+      <path d="M 30 22 L 30 14 Q 30 8 36 8 L 164 8 Q 170 8 170 14 L 170 22 Z" {...S} />
+      <rect x="30" y="22" width="6" height="74" fill={INK} /><rect x="164" y="22" width="6" height="74" fill={INK} />
+      <rect x="36" y="22" width="128" height="64" fill={GLASS} stroke={INK} strokeWidth="2" />
+      {[30, 38, 46, 54, 62, 70, 78].map((y) => <line key={y} x1="38" y1={y} x2="162" y2={y} stroke={INK} strokeWidth="1.25" />)}
+      <rect x="36" y="86" width="128" height="7" fill={INK} />
+      <rect x="92" y="80" width="16" height="4" rx="1" fill={CARD} stroke={INK} strokeWidth="1.5" />
+      <rect x="138" y="62" width="30" height="12" rx="2" fill={ACCENT} stroke={INK} strokeWidth="1.75" />
+      <rect x="146" y="66" width="12" height="4" rx="1" fill={CARD} />
+      <Ground />
+    </g>
+  ),
+  // a hasp, close up: the hinged plate swung over the staple (accent), a shackle through the staple
+  'hasp': () => (
+    <g>
+      <rect x="14" y="24" width="78" height="62" rx="3" {...S} />
+      <rect x="108" y="24" width="78" height="62" rx="3" fill={CARD} stroke={INK} strokeWidth="2.25" strokeLinejoin="round" />
+      <path d="M 132 92 L 132 64 Q 132 50 144 50 Q 156 50 156 64 L 156 92" fill="none" stroke={INK} strokeWidth="5" strokeLinecap="round" />
+      <rect x="44" y="46" width="104" height="18" rx="3" {...S} />
+      <circle cx="52" cy="55" r="5.5" fill={INK} /><circle cx="52" cy="55" r="2" fill={CARD} />
+      <circle cx="30" cy="34" r="2" fill={INK} /><circle cx="30" cy="76" r="2" fill={INK} /><circle cx="76" cy="34" r="2" fill={INK} /><circle cx="76" cy="76" r="2" fill={INK} />
+      <rect x="126" y="49" width="12" height="12" rx="2" fill={CARD} stroke={INK} strokeWidth="1.25" />
+      <ellipse cx="132" cy="55" rx="6" ry="9" fill="none" stroke={ACCENT} strokeWidth="3.5" />
+      <rect x="120" y="86" width="48" height="20" rx="4" {...S} />
+      <circle cx="144" cy="94" r="3" fill={INK} /><rect x="142.5" y="94" width="3" height="7" fill={INK} />
+    </g>
+  ),
+  // a door latch with two holes: the tenant's disc lock in one, the facility's overlock (accent) in the other
+  'hasp-overlock': () => (
+    <g>
+      <rect x="14" y="28" width="172" height="28" rx="3" {...S} />
+      <rect x="20" y="36" width="78" height="12" rx="2" fill={CARD} stroke={INK} strokeWidth="1.5" />
+      <line x1="104" y1="22" x2="104" y2="62" stroke={DIM} strokeWidth="1.5" strokeDasharray="3 3" />
+      <path d="M 62 72 L 62 60 Q 62 48 72 48 Q 82 48 82 60 L 82 72" fill="none" stroke={INK} strokeWidth="5" strokeLinecap="round" />
+      <ellipse cx="62" cy="52" rx="5" ry="8" fill="none" stroke={INK} strokeWidth="3" />
+      <circle cx="72" cy="86" r="20" {...S} /><circle cx="72" cy="86" r="14" fill="none" stroke={DIM} strokeWidth="1.25" />
+      <circle cx="72" cy="94" r="3" fill={INK} /><rect x="70.5" y="94" width="3" height="7" fill={INK} />
+      <path d="M 126 74 L 126 60 Q 126 48 134 48 Q 142 48 142 60 L 142 74" fill="none" stroke={INK} strokeWidth="5" strokeLinecap="round" />
+      <ellipse cx="126" cy="52" rx="5" ry="8" fill="none" stroke={INK} strokeWidth="3" />
+      <rect x="112" y="72" width="44" height="32" rx="5" fill={ACCENT} stroke={INK} strokeWidth="2.25" />
+      <circle cx="134" cy="86" r="3.5" fill={CARD} /><rect x="132.5" y="86" width="3" height="8" fill={CARD} />
+    </g>
+  ),
+  // a cylinder lock apart: the housing with its round hole, the core pulled out (accent), the key
+  'lock-cylinder-core': () => (
+    <g>
+      <rect x="10" y="40" width="92" height="42" rx="4" {...S} />
+      <line x1="20" y1="30" x2="20" y2="40" {...L} /><line x1="92" y1="30" x2="92" y2="40" {...L} />
+      <line x1="4" y1="30" x2="108" y2="30" stroke={DIM} strokeWidth="1.5" />
+      <circle cx="44" cy="61" r="14" fill={CARD} stroke={INK} strokeWidth="2.25" />
+      <circle cx="44" cy="61" r="9" fill="none" stroke={DIM} strokeWidth="1.25" strokeDasharray="3 2" />
+      <line x1="64" y1="61" x2="96" y2="61" stroke={ACCENT} strokeWidth="2" />
+      <path d="M 96 61 L 88 56 L 88 66 Z" fill={ACCENT} />
+      <rect x="118" y="50" width="26" height="22" rx="3" {...S} />
+      <circle cx="118" cy="61" r="11" fill={ACCENT} stroke={INK} strokeWidth="2.25" />
+      <rect x="116.5" y="53" width="3" height="16" rx="1" fill={CARD} />
+      <circle cx="184" cy="61" r="7" fill="none" stroke={INK} strokeWidth="2.5" />
+      <rect x="152" y="58" width="26" height="6" rx="1" fill={INK} />
+      <rect x="156" y="64" width="3" height="4" fill={INK} /><rect x="163" y="64" width="3" height="6" fill={INK} /><rect x="170" y="64" width="3" height="4" fill={INK} />
+    </g>
+  ),
+
+  // ── the lot from above ────────────────────────────────────────────────
+  // a drive-in (back-in) space: open at one end only; in and out the same way
+  'plan-drive-in': () => (
+    <g>
+      <line x1="12" y1="14" x2="188" y2="14" stroke={INK} strokeWidth="2.5" />
+      {[20, 36, 52, 68, 84, 100, 116, 132, 148, 164, 180].map((x) => <line key={x} x1={x} y1="10" x2={x + 6} y2="18" stroke={INK} strokeWidth="1.25" />)}
+      {[60, 100, 140].map((x) => <line key={x} x1={x} y1="18" x2={x} y2="78" stroke={DIM} strokeWidth="1.5" />)}
+      <line x1="12" y1="78" x2="188" y2="78" stroke={DIM} strokeWidth="1.5" strokeDasharray="8 6" />
+      <line x1="12" y1="104" x2="188" y2="104" stroke={DIM} strokeWidth="1.5" strokeDasharray="8 6" />
+      <rect x="70" y="22" width="20" height="50" rx="4" {...S} />
+      <line x1="80" y1="72" x2="80" y2="84" {...L} /><rect x="77" y="82" width="6" height="5" rx="1" fill={INK} />
+      <line x1="120" y1="26" x2="120" y2="98" stroke={ACCENT} strokeWidth="2" />
+      <path d="M 120 24 L 115 32 L 125 32 Z" fill={ACCENT} /><path d="M 120 100 L 115 92 L 125 92 Z" fill={ACCENT} />
+    </g>
+  ),
+  // a pull-through space: an aisle at each end; in one end, out the other
+  'plan-pull-through': () => (
+    <g>
+      <line x1="12" y1="8" x2="188" y2="8" stroke={DIM} strokeWidth="1.5" strokeDasharray="8 6" />
+      <line x1="12" y1="30" x2="188" y2="30" stroke={DIM} strokeWidth="1.5" strokeDasharray="8 6" />
+      <line x1="12" y1="80" x2="188" y2="80" stroke={DIM} strokeWidth="1.5" strokeDasharray="8 6" />
+      <line x1="12" y1="102" x2="188" y2="102" stroke={DIM} strokeWidth="1.5" strokeDasharray="8 6" />
+      {[60, 100, 140].map((x) => <line key={x} x1={x} y1="30" x2={x} y2="80" stroke={DIM} strokeWidth="1.5" />)}
+      <rect x="70" y="32" width="20" height="46" rx="4" {...S} />
+      <line x1="80" y1="78" x2="80" y2="88" {...L} /><rect x="77" y="86" width="6" height="5" rx="1" fill={INK} />
+      <line x1="120" y1="100" x2="120" y2="14" stroke={ACCENT} strokeWidth="2" />
+      <path d="M 120 10 L 115 20 L 125 20 Z" fill={ACCENT} />
+      <path d="M 24 19 L 36 19 M 33 16 L 36 19 L 33 22" fill="none" stroke={DIM} strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M 176 91 L 164 91 M 167 88 L 164 91 L 167 94" fill="none" stroke={DIM} strokeWidth="1.5" strokeLinecap="round" />
+    </g>
+  ),
+  // angled spaces on a one-way aisle: come in from the right direction and the turn is easy
+  'plan-angled': () => (
+    <g>
+      {[22, 62, 102, 142].map((x) => <line key={x} x1={x} y1="78" x2={x + 34} y2="16" stroke={DIM} strokeWidth="1.5" />)}
+      <line x1="12" y1="78" x2="188" y2="78" stroke={DIM} strokeWidth="1.5" strokeDasharray="8 6" />
+      <line x1="12" y1="104" x2="188" y2="104" stroke={DIM} strokeWidth="1.5" strokeDasharray="8 6" />
+      <path d="M 70 74 L 92 34 Q 94 29 99 32 L 109 37 Q 114 40 111 45 L 89 85 Z" {...S} />
+      <path d="M 20 91 L 120 91 Q 134 91 141 79 L 150 63" fill="none" stroke={ACCENT} strokeWidth="2" />
+      <path d="M 152 58 L 150 68 L 143 62 Z" fill={ACCENT} />
+      <path d="M 166 91 L 184 91 M 180 88 L 184 91 L 180 94" fill="none" stroke={DIM} strokeWidth="1.5" strokeLinecap="round" />
+    </g>
+  ),
+
+  // ── the site ──────────────────────────────────────────────────────────
+  // the gate: a sliding gate between two runs of fence, the keypad pedestal (accent), the loop in the pavement
+  'facility-gate': () => (
+    <g>
+      {[8, 58, 142, 192].map((x) => <rect key={x} x={x - 2} y="28" width="4" height="68" fill={INK} />)}
+      <rect x="10" y="32" width="46" height="62" fill="none" stroke={INK} strokeWidth="1.5" />
+      <rect x="144" y="32" width="46" height="62" fill="none" stroke={INK} strokeWidth="1.5" />
+      {[16, 28, 40, 52].map((x) => <line key={x} x1={x} y1="32" x2={x - 6} y2="94" stroke={DIM} strokeWidth="1" />)}
+      {[150, 162, 174, 186].map((x) => <line key={x} x1={x} y1="32" x2={x - 6} y2="94" stroke={DIM} strokeWidth="1" />)}
+      <rect x="64" y="38" width="72" height="56" rx="2" {...S} />
+      {[76, 88, 100, 112, 124].map((x) => <line key={x} x1={x} y1="42" x2={x} y2="90" stroke={INK} strokeWidth="1.5" />)}
+      <rect x="64" y="90" width="72" height="4" fill={INK} />
+      <rect x="40" y="62" width="4" height="34" fill={INK} />
+      <rect x="32" y="50" width="20" height="14" rx="2" fill={ACCENT} stroke={INK} strokeWidth="1.75" />
+      {[37, 42, 47].map((x) => [54, 59].map((y) => <circle key={`${x}${y}`} cx={x} cy={y} r="1.1" fill={CARD} />))}
+      <rect x="70" y="100" width="60" height="7" rx="3" fill="none" stroke={DIM} strokeWidth="1.5" strokeDasharray="4 3" />
+      <Ground />
+    </g>
+  ),
+  // a row of drive-up units: roll-up doors along a drive aisle, a bollard (accent) guarding the corner
+  'building-drive-up': () => (
+    <g>
+      <path d="M 24 30 L 196 24 L 196 96 L 24 96 Z" {...S} />
+      {[32, 72, 112, 152].map((x, i) => (
+        <g key={x}>
+          <rect x={x} y={40 - i} width="32" height={56 + i} fill={GLASS} stroke={INK} strokeWidth="1.75" />
+          {[48, 56, 64, 72, 80, 88].map((y) => <line key={y} x1={x + 2} y1={y - i} x2={x + 30} y2={y - i} stroke={INK} strokeWidth="1" />)}
+          <rect x={x + 12} y="33" width="8" height="4" rx="1" fill={INK} />
+        </g>
+      ))}
+      <rect x="10" y="66" width="8" height="30" rx="3" fill={ACCENT} stroke={INK} strokeWidth="1.75" />
+      <Ground />
+      <line x1="4" y1="104" x2="196" y2="104" stroke={DIM} strokeWidth="1.5" strokeDasharray="8 6" />
+    </g>
+  ),
+  // a multi-story building: climate-controlled floors, the loading door under a canopy, a cart
+  'building-multi-story': () => (
+    <g>
+      <rect x="30" y="10" width="124" height="86" {...S} />
+      <line x1="30" y1="38" x2="154" y2="38" stroke={DIM} strokeWidth="1.25" /><line x1="30" y1="66" x2="154" y2="66" stroke={DIM} strokeWidth="1.25" />
+      {[42, 68, 94, 120].map((x) => <g key={x}><Win x={x} y="18" w="18" h="12" r="1" /><Win x={x} y="46" w="18" h="12" r="1" /></g>)}
+      <rect x="40" y="70" width="34" height="26" fill={GLASS} stroke={INK} strokeWidth="1.75" />
+      {[76, 82, 88].map((y) => <line key={y} x1="42" y1={y} x2="72" y2={y} stroke={INK} strokeWidth="1" />)}
+      <rect x="120" y="74" width="16" height="22" rx="1" fill={CARD} stroke={INK} strokeWidth="1.75" /><circle cx="132" cy="86" r="1.3" fill={INK} />
+      <rect x="18" y="62" width="60" height="5" rx="1" fill={ACCENT} stroke={INK} strokeWidth="1.5" />
+      <line x1="22" y1="67" x2="22" y2="96" {...L} />
+      <rect x="166" y="76" width="22" height="14" rx="2" fill="none" stroke={INK} strokeWidth="2" />
+      <line x1="188" y1="76" x2="194" y2="62" {...L} />
+      <circle cx="170" cy="92" r="3.5" fill={INK} /><circle cx="184" cy="92" r="3.5" fill={INK} />
+      <Ground />
+    </g>
+  ),
+  // inside a unit: steel partitions, the mesh above them, the building's own roof, a sprinkler and a light (accent)
+  'unit-mesh-ceiling': () => (
+    <g>
+      <line x1="4" y1="8" x2="196" y2="8" stroke={INK} strokeWidth="2.5" />
+      <path d="M 40 44 L 150 44 L 150 96 L 40 96 Z" fill={BODY} stroke={INK} strokeWidth="2" strokeLinejoin="round" />
+      {[52, 64, 76, 88, 100, 112, 124, 136].map((x) => <line key={x} x1={x} y1="46" x2={x} y2="94" stroke={DIM} strokeWidth="1" />)}
+      <path d="M 8 24 L 40 44 L 40 96 L 8 106 Z" fill={CARD} stroke={INK} strokeWidth="2" strokeLinejoin="round" />
+      {[14, 20, 26, 32].map((x) => <line key={x} x1={x} y1={24 + (x - 8) * 0.62} x2={x} y2={106 - (x - 8) * 0.31} stroke={DIM} strokeWidth="1" />)}
+      <path d="M 40 44 L 150 44 L 150 18 L 40 18 Z" fill={GLASS} fillOpacity=".5" stroke={INK} strokeWidth="1.5" />
+      {[52, 64, 76, 88, 100, 112, 124, 136].map((x) => <line key={x} x1={x} y1="18" x2={x} y2="44" stroke={INK} strokeWidth=".8" />)}
+      {[24, 30, 36].map((y) => <line key={y} x1="40" y1={y} x2="150" y2={y} stroke={INK} strokeWidth=".8" />)}
+      <line x1="170" y1="8" x2="170" y2="20" {...L} /><path d="M 163 20 L 177 20 L 170 27 Z" fill={INK} />
+      <line x1="95" y1="8" x2="95" y2="13" {...L} /><rect x="78" y="13" width="34" height="5" rx="1" fill={ACCENT} stroke={INK} strokeWidth="1.5" />
+    </g>
+  ),
+  // the perimeter: chain-link with privacy slats on the left, a block wall on the right, a camera on the post
+  'facility-fence': () => (
+    <g>
+      <rect x="6" y="30" width="90" height="66" fill="none" stroke={INK} strokeWidth="1.5" />
+      {[14, 22, 30, 38, 46, 54, 62, 70, 78, 86].map((x) => <line key={x} x1={x} y1="32" x2={x} y2="94" stroke={DIM} strokeWidth="3" />)}
+      {[10, 34, 58, 82].map((x) => <line key={x} x1={x} y1="30" x2={x + 14} y2="96" stroke={INK} strokeWidth=".8" />)}
+      <rect x="4" y="26" width="4" height="70" fill={INK} /><rect x="96" y="22" width="5" height="74" fill={INK} />
+      <rect x="104" y="30" width="92" height="66" {...S} />
+      {[44, 58, 72, 86].map((y) => <line key={y} x1="104" y1={y} x2="196" y2={y} stroke={DIM} strokeWidth="1.25" />)}
+      {[0, 1, 2, 3, 4].map((r) => [0, 1, 2].map((c) => <line key={`${r}${c}`} x1={104 + (r % 2 ? 14 : 28) + c * 28} y1={30 + r * 14} x2={104 + (r % 2 ? 14 : 28) + c * 28} y2={44 + r * 14} stroke={DIM} strokeWidth="1.25" />))}
+      <rect x="104" y="26" width="92" height="5" fill={INK} />
+      <rect x="92" y="10" width="16" height="9" rx="2" fill={ACCENT} stroke={INK} strokeWidth="1.5" /><line x1="98" y1="19" x2="98" y2="22" {...L} />
+      <Ground />
+    </g>
+  ),
 };
 
 export const DRAWING_NAMES = Object.keys(DRAW);
