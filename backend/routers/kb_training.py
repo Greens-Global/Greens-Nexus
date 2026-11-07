@@ -478,6 +478,8 @@ def my_training_summary(db: Session, email: str) -> dict:
     due, completed = [], []
     seen = set()
     for a in db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.user_email == email).all():
+        if a.course_id in seen:   # two assignment rows for one course (an old double insert) show once
+            continue
         c = db.query(models.KbCourse).filter(models.KbCourse.id == a.course_id, models.KbCourse.status == "published").first()
         if not c:
             continue

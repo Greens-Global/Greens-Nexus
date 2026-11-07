@@ -168,8 +168,7 @@ export default function Plans() {
               <SectionHead title="Suggested" sub="roles and departments in People with no path yet" />
               {suggestions.slice(0, 12).map((s) => (
                 <div key={`${s.kind}:${s.value}`} className="kb-row">
-                  <KindChip kind={s.kind} />
-                  <div className="kb-grow" style={{ minWidth: 0 }}><div className="kb-title">{s.value}</div></div>
+                  <div className="kb-grow" style={{ minWidth: 0 }}><div className="kb-title">{s.value}</div><div className="kb-meta">{s.kind === 'role' ? 'Job title, no role path yet' : 'Department, no training path yet'}</div></div>
                   <button type="button" className="kb-btn sm" onClick={() => setEdit({ seed: s })}><Sparkles />Create</button>
                 </div>
               ))}

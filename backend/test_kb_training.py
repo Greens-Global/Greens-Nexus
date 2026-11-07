@@ -288,6 +288,23 @@ class KbTrainingCase(unittest.TestCase):
         self.assertEqual((mine["kind"], mine["stages"], mine["total"], mine["enrolled"]), ("department", ["Week 1"], 2, True))
         self.assertEqual({i["stage"] for i in mine["items"]}, {0})
 
+    def test_two_paths_with_the_same_course_assign_it_once(self):
+        cid = self._course(title="Shared course")
+        self._as(MGR)
+        a = self.client.post("/kb/plans", json={"name": "Path A", "items": [{"kind": "course", "id": cid}], "audience": {"job_titles": ["Site Manager"]}}).json()
+        b = self.client.post("/kb/plans", json={"name": "Path B", "items": [{"kind": "course", "id": cid}], "audience": {"job_titles": ["Site Manager"]}}).json()
+        import kb_daily
+        db = database.SessionLocal()
+        try:
+            kb_daily.run_rules(db)   # both plans cover LRN in ONE pass (autoflush is off)
+            rows = db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.course_id == cid, models.KbCourseAssignment.user_email == LRN).all()
+            self.assertEqual(len(rows), 1, [r.plan_id for r in rows])
+            self.assertIn(rows[0].plan_id, (a["id"], b["id"]))
+        finally:
+            db.close()
+        self._as(LRN)
+        self.assertEqual(len([c for c in self.client.get("/kb/training/me").json()["due"] if c["id"] == cid]), 1)
+
     def test_catalog_lists_courses_and_paths_and_marks_the_ones_for_my_role(self):
         cid = self._course(title="Catalog course")
         self._as(MGR)

@@ -46,10 +46,10 @@ describe('Training > Catalog', () => {
   it('narrows to a level and finds nothing with a stray word', async () => {
     render(<ToastProvider><Catalog me={{ can_author: false }} /></ToastProvider>);
     await screen.findByText('For You');
-    fireEvent.click(screen.getByRole('radio', { name: 'Advanced' }));
+    fireEvent.change(screen.getByLabelText('Level'), { target: { value: 'advanced' } });
     expect(screen.getByText('Month-End Close')).toBeTruthy();
     expect(screen.queryByText('Cubby Fundamentals')).toBeNull();
     fireEvent.change(screen.getByLabelText('Search the catalog'), { target: { value: 'zebra' } });
-    expect(await screen.findByText('Nothing matches. Try another word, or clear the filters.')).toBeTruthy();
+    expect(await screen.findByText('Nothing Matches')).toBeTruthy();
   });
 });

@@ -96,7 +96,7 @@ describe('Knowledge Base module', () => {
   it('shows My Training with the assigned course, picked up where you left off', async () => {
     render(<KnowledgeBase activeSub="training" onSubChange={() => {}} />);
     expect(await screen.findByText('To Do')).toBeTruthy();
-    expect(await screen.findByText('Pick Up Where You Left Off')).toBeTruthy();
+    expect(await screen.findByText('Continue Where You Left Off')).toBeTruthy();
     expect((await screen.findAllByText('Site Safety Basics', { exact: false })).length).toBeGreaterThan(0);
     expect(screen.getByText('My Paths')).toBeTruthy();
   });
@@ -111,8 +111,8 @@ describe('Knowledge Base module', () => {
   it('shows a path with its stages and the next thing to open', async () => {
     render(<KnowledgeBase activeSub="path:plan_1" onSubChange={() => {}} />);
     expect(await screen.findByRole('heading', { level: 1, name: 'New Hire: Facility Team' })).toBeTruthy();
-    expect(screen.getByText('Stage 1')).toBeTruthy();
-    expect(screen.getByText('Week 1')).toBeTruthy();
+    expect(screen.getAllByText('Week 1').length).toBeGreaterThan(0);   // the ladder names it and the stage heads it
+    expect(screen.getAllByText('0 of 2', { exact: false }).length).toBeGreaterThan(0);
     expect(screen.getByText('Start: Site Safety Basics', { exact: false })).toBeTruthy();
     expect(screen.getByText('Hands-On Check')).toBeTruthy();
   });

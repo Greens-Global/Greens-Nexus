@@ -3,14 +3,14 @@
 // version, or its own content), checkpoints, the final quiz (graded on the
 // server), the result with what to reread, the certificate.
 import { useEffect, useState } from 'react';
-import { Check, Lock, Award, Download, BookOpen, RotateCcw, AlertTriangle, ChevronRight, ChevronLeft, MapPin, UserCheck, Home, Clock, HelpCircle, RefreshCw, Compass, Play } from 'lucide-react';
+import { Check, Lock, Award, Download, BookOpen, RotateCcw, AlertTriangle, ChevronRight, ChevronLeft, MapPin, UserCheck, Home, Clock, Compass, Play } from 'lucide-react';
 import { api, saveBlob } from '../../api';
 import AsyncSection from '../../components/AsyncState';
 import Blocks from '../components/Blocks';
 import { Chip, Banner } from '../components/Chips';
 import { useToast, errText } from '../components/Toast';
 import { useTrailCrumbs } from '../../components/PageTrail';
-import { goKb, fmtDate, plural, minutesText, colorFor, initials } from '../lib';
+import { goKb, fmtDate, plural, minutesText } from '../lib';
 import { OrderAnswer, ShortAnswer, PhotoAnswer, hasAnswer } from './QuestionInputs';
 import { RateCourse } from './CourseFeedback';
 import { courseTrackState } from './MyTraining';
@@ -148,83 +148,78 @@ function Checkpoint({ course, lesson, onDone }) {
   );
 }
 
-function Meta({ icon: Icon, children }) {
-  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon size={13} />{children}</span>;
-}
-
-// The course home: what the course is, what you will learn, the outline,
-// and one button that starts or continues it.
+// The course home: a title page. What the course is, the facts in one
+// line, what you will learn, and the outline as a table of contents with
+// each lesson's minutes in a column - then one button.
 function CourseHome({ course, onGo, onDownload }) {
   const shelf = shelfOf(course);
-  const color = colorFor(shelf);
   const done = course.my_status === 'Completed';
   const next = course.lessons.find((L) => !L.done);
   const started = course.lessons.some((L) => L.done) || course.my_status === 'In Progress';
   const quiz = course.quiz || {};
-  const total = course.lessons.length + (quiz.question_count ? 1 : 0) + (course.delivery === 'in_person' ? 1 : 0);
+  const reading = course.lessons.filter((L) => L.type !== 'checkpoint');
+  const checks = course.lessons.filter((L) => L.type === 'checkpoint');
+  const facts = [
+    `${plural(reading.length, 'lesson')}${checks.length ? ` and ${plural(checks.length, 'checkpoint')}` : ''}`,
+    `about ${minutesText(course.est_minutes) || plural(course.est_minutes, 'minute')}`,
+    quiz.question_count > 0 ? `a final quiz of ${quiz.draw ? `${quiz.draw} of ${quiz.question_count}` : quiz.question_count} questions, ${quiz.pass_pct}% to pass` : course.delivery === 'in_person' ? 'signed off in person' : 'no quiz',
+    course.recert_months > 0 ? `renews every ${course.recert_months} months` : '',
+    'a certificate on completion',
+  ].filter(Boolean).join(' · ');
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <section className="kb-hero" style={{ '--tile': color }}>
-        <div className="kb-hero-body">
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span className="kb-ico" style={{ background: color }} aria-hidden="true">{initials(shelf).slice(0, 1)}</span>
-            {shelf !== 'General' && <Chip color={color} plain>{shelf}</Chip>}
-            <LevelChip level={course.level} />
-            {course.delivery === 'in_person' && <Chip color="#0f766e"><MapPin size={11} style={{ marginLeft: -2 }} />In Person</Chip>}
-            {done && <Chip color="#1e7b4e"><Check size={11} style={{ marginLeft: -2 }} />Completed</Chip>}
-            {course.days_overdue > 0 && <Chip color="#dc2626">{plural(course.days_overdue, 'day')} overdue</Chip>}
-          </div>
-          <h1 className="kb-h1" style={{ margin: '10px 0 4px' }}>{course.title}</h1>
-          {course.description && <p className="kb-sub" style={{ fontSize: 15, margin: 0, maxWidth: 720 }}>{course.description}</p>}
-          <div className="kb-meta kb-tile-meta" style={{ marginTop: 12 }}>
-            <Meta icon={BookOpen}>{plural(course.lessons.filter((L) => L.type !== 'checkpoint').length, 'lesson')}{course.lessons.some((L) => L.type === 'checkpoint') ? `, ${plural(course.lessons.filter((L) => L.type === 'checkpoint').length, 'checkpoint')}` : ''}</Meta>
-            <Meta icon={Clock}>about {minutesText(course.est_minutes) || plural(course.est_minutes, 'minute')}</Meta>
-            {quiz.question_count > 0 && <Meta icon={HelpCircle}>{quiz.draw ? `${quiz.draw} of ${quiz.question_count}` : quiz.question_count} quiz questions, {quiz.pass_pct}% to pass</Meta>}
-            {course.recert_months > 0 && <Meta icon={RefreshCw}>renews every {course.recert_months} months</Meta>}
-            {course.due_date && !done && <span>Due {fmtDate(course.due_date)}</span>}
-            <Meta icon={Award}>certificate on completion</Meta>
-            <span>{course.code} · v{course.major}</span>
-          </div>
-          {started && !done && <ProgressTrack value={(course.my_pct || 0) / 100} state={courseTrackState(course)} label="Course progress" valueText={`${course.my_pct || 0}% done`} style={{ marginTop: 14, maxWidth: 520 }} note={<><b>{course.my_pct || 0}%</b> done</>} />}
+    <div className="kb-read">
+      <header className="kb-lead">
+        <div className="kb-lead-text">
+          <div className="kb-kicker">{[shelf !== 'General' ? shelf : '', course.code ? `${course.code} v${course.major}` : ''].filter(Boolean).join(' · ')}{course.level ? <> · <LevelChip level={course.level} /></> : null}</div>
+          <h1 className="kb-h1 kb-lead-title">{course.title}</h1>
+          {course.description && <p className="kb-lead-sub">{course.description}</p>}
+          <div className="kb-meta">{facts}</div>
+          {started && !done && <ProgressTrack value={(course.my_pct || 0) / 100} state={courseTrackState(course)} label="Course progress" valueText={`${course.my_pct || 0}% done`} style={{ marginTop: 14, maxWidth: 480 }} note={<><b>{course.my_pct || 0}%</b> done · {course.lessons.filter((L) => L.done).length} of {course.lessons.length} lessons</>} />}
+          {course.days_overdue > 0 && <div className="kb-meta" style={{ marginTop: 8 }}><b style={{ color: '#dc2626' }}>{plural(course.days_overdue, 'day')} overdue</b> · was due {fmtDate(course.due_date)}</div>}
+          {course.due_date && !course.days_overdue && !done && <div className="kb-meta" style={{ marginTop: 8 }}>Due {fmtDate(course.due_date)}</div>}
         </div>
-        <div className="kb-hero-side">
+        <div className="kb-lead-side">
           {done && <>
-            <div className="kb-meta">Completed {fmtDate(course.completed_at)}{course.quiz?.score != null && quiz.question_count ? ` with ${course.quiz.score}%` : ''}{course.expires ? ` · valid through ${fmtDate(course.expires)}` : ''}</div>
+            <span className="kb-mark done" style={{ alignSelf: 'flex-start' }}><Check size={12} />Completed {fmtDate(course.completed_at)}</span>
+            <div className="kb-meta">{course.quiz?.score != null && quiz.question_count ? `Scored ${course.quiz.score}%. ` : ''}{course.expires ? `Valid through ${fmtDate(course.expires)}.` : ''}</div>
             {course.certificate && <button type="button" className="kb-btn pri" onClick={onDownload}><Download />Download Certificate</button>}
             <button type="button" className="kb-btn" onClick={() => onGo(course.lessons[0]?._id)}>Read It Again</button>
           </>}
           {!done && <button type="button" className="kb-btn pri lg" disabled={course.status !== 'published' && !course.can_edit} onClick={() => onGo(next ? next._id : course.delivery === 'in_person' ? 'inperson' : 'quiz')}><Play />{started ? 'Continue' : 'Start Course'}{next ? `: ${next.title}` : ''}</button>}
-          {!done && started && <div className="kb-meta">{course.lessons.filter((L) => L.done).length} of {total} steps done</div>}
         </div>
-      </section>
+      </header>
       <div className="kb-cols">
-        <section className="kb-card kb-main" style={{ gap: 0 }}>
-          <h3 className="kb-h2" style={{ fontSize: 17, marginBottom: 10 }}>Outline</h3>
+        <section className="kb-main kb-toc">
+          <h2 className="kb-shelf-title">Outline</h2>
           <ol className="kb-outline">
             {course.lessons.map((L, i) => (
               <li key={L._id} className={L.done ? 'done' : ''}>
                 <button type="button" onClick={() => onGo(L._id)}>
-                  <span className="kb-step-num" aria-hidden="true">{L.done ? <Check size={14} /> : i + 1}</span>
-                  <span className="kb-grow" style={{ minWidth: 0 }}>
-                    <span className="kb-title" style={{ display: 'block' }}>{L.title}</span>
-                    <span className="kb-meta">{L.type === 'checkpoint' ? `Checkpoint · ${plural(L.question_count, 'question')}` : L.type === 'page' ? `Library page${L.page?.code ? ` ${L.page.code}` : ''} · ${plural(L.reading_minutes, 'minute')}` : plural(L.reading_minutes, 'minute')}{L.summary ? ` · ${L.summary}` : ''}</span>
+                  <span className="kb-item-n" aria-hidden="true">{L.done ? <Check size={14} /> : i + 1}</span>
+                  <span className="kb-outline-text">
+                    <span className="kb-outline-title">{L.title}{L.type === 'checkpoint' && <span className="kb-item-kind">Checkpoint</span>}{L.type === 'page' && <span className="kb-item-kind">Library page</span>}</span>
+                    {L.summary && <span className="kb-meta kb-clamp2">{L.summary}</span>}
                   </span>
-                  <ChevronRight size={15} style={{ color: 'var(--kb-dim)', flex: '0 0 auto' }} />
+                  <span className="kb-outline-min">{L.type === 'checkpoint' ? plural(L.question_count, 'question') : `${L.reading_minutes} min`}</span>
                 </button>
               </li>
             ))}
-            {course.delivery === 'in_person' && <li className={done ? 'done' : ''}><button type="button" onClick={() => onGo('inperson')}><span className="kb-step-num" aria-hidden="true">{done ? <Check size={14} /> : <UserCheck size={14} />}</span><span className="kb-grow"><span className="kb-title" style={{ display: 'block' }}>In-Person Sign-Off</span><span className="kb-meta">with a trainer or your manager</span></span><ChevronRight size={15} style={{ color: 'var(--kb-dim)' }} /></button></li>}
-            {course.delivery !== 'in_person' && quiz.question_count > 0 && <li className={quiz.passed ? 'done' : ''}><button type="button" onClick={() => onGo('quiz')}><span className="kb-step-num" aria-hidden="true">{quiz.passed ? <Check size={14} /> : '?'}</span><span className="kb-grow"><span className="kb-title" style={{ display: 'block' }}>Final Quiz</span><span className="kb-meta">{quiz.draw ? `${quiz.draw} of ${quiz.question_count}` : quiz.question_count} questions · {quiz.pass_pct}% to pass · {quiz.tries_allowed} tries</span></span><ChevronRight size={15} style={{ color: 'var(--kb-dim)' }} /></button></li>}
+            {course.delivery === 'in_person' && <li className={done ? 'done' : ''}><button type="button" onClick={() => onGo('inperson')}><span className="kb-item-n" aria-hidden="true">{done ? <Check size={14} /> : <UserCheck size={14} />}</span><span className="kb-outline-text"><span className="kb-outline-title">In-Person Sign-Off</span><span className="kb-meta">With a trainer or your manager.</span></span><span className="kb-outline-min" /></button></li>}
+            {course.delivery !== 'in_person' && quiz.question_count > 0 && <li className={quiz.passed ? 'done' : ''}><button type="button" onClick={() => onGo('quiz')}><span className="kb-item-n" aria-hidden="true">{quiz.passed ? <Check size={14} /> : '?'}</span><span className="kb-outline-text"><span className="kb-outline-title">Final Quiz</span><span className="kb-meta">{quiz.pass_pct}% to pass, {quiz.tries_allowed} tries; a miss shows where to reread, never the answer.</span></span><span className="kb-outline-min">{plural(quiz.draw || quiz.question_count, 'question')}</span></button></li>}
           </ol>
         </section>
-        <aside className="kb-rail">
-          {course.overview?.length > 0 && <section className="kb-card"><h3 className="kb-h3" style={{ marginBottom: 8 }}>What You'll Learn</h3><ul className="kb-learn">{course.overview.map((o, i) => <li key={i}><Check size={14} />{o}</li>)}</ul></section>}
-          {course.tags?.length > 0 && <section className="kb-card soft"><div className="kb-label" style={{ marginBottom: 6 }}>Topics</div><div className="kb-pills">{course.tags.map((t) => <span key={t} className="kb-tag">{t}</span>)}</div></section>}
-          <section className="kb-card soft"><div className="kb-meta">Lessons are marked complete one at a time, so you can stop and come back. {quiz.question_count ? 'The quiz opens once the last lesson is done; a miss shows where to reread, never the answer.' : 'The course is complete when the last lesson is marked done.'}</div></section>
+        <aside className="kb-rail kb-read-rail">
+          {course.overview?.length > 0 && <section><h2 className="kb-shelf-title">What You'll Learn</h2><ul className="kb-learn">{course.overview.map((o, i) => <li key={i}><Check size={14} />{o}</li>)}</ul></section>}
+          {course.tags?.length > 0 && <section><h2 className="kb-shelf-title">Topics</h2><div className="kb-meta">{course.tags.join(' · ')}</div></section>}
+          <section><div className="kb-meta">Lessons are marked complete one at a time, so you can stop and come back on any device.</div></section>
         </aside>
       </div>
     </div>
   );
+}
+
+function Meta({ icon: Icon, children }) {
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon size={13} />{children}</span>;
 }
 
 export default function CoursePlayer({ id, me }) {
@@ -256,8 +251,6 @@ export default function CoursePlayer({ id, me }) {
     try { const c = await api.kbMarkLessonDone(course.id, L._id); setCourse(c); const i = course.lessons.findIndex((x) => x._id === L._id); const nxt = course.lessons[i + 1]; setCur(nxt ? nxt._id : c.my_status === 'Completed' ? 'done' : afterLessons(course)); } catch (e) { toast(errText(e), 'err'); }
   };
   const download = async () => { try { saveBlob(await api.kbCertificatePdf(course.certificate.id), `${course.certificate.serial}.pdf`); } catch (e) { toast(errText(e), 'err'); } };
-  const shelf = course ? shelfOf(course) : '';
-  const color = colorFor(shelf);
 
   return (
     <AsyncSection loading={!course && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
@@ -270,7 +263,6 @@ export default function CoursePlayer({ id, me }) {
             <aside className="kb-rail kb-course-rail" style={{ flex: '0 1 300px', maxWidth: 320 }}>
               <section className="kb-card" style={{ padding: 14 }}>
                 <div style={{ padding: '4px 10px 10px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  <span className="kb-ico" style={{ background: color, width: 30, height: 30, fontSize: 12 }} aria-hidden="true">{initials(shelf).slice(0, 1)}</span>
                   <div className="kb-grow" style={{ minWidth: 0 }}>
                     <div className="kb-title" style={{ fontSize: 15 }}>{course.title}</div>
                     <div className="kb-meta">{course.code} · v{course.major} · about {minutesText(course.est_minutes) || plural(course.est_minutes, 'minute')}{course.due_date ? ` · due ${fmtDate(course.due_date)}` : ''}</div>
@@ -343,7 +335,7 @@ export default function CoursePlayer({ id, me }) {
               )}
               {(cur === 'done' || (course.my_status === 'Completed' && cur !== 'quiz' && !course.lessons.some((L) => L._id === cur))) && (
                 <section className="kb-card kb-finish">
-                  <span className="kb-finish-badge"><Award size={34} /></span>
+                  <Award size={30} style={{ color: 'var(--kb-green)' }} />
                   <div style={{ fontFamily: "'Figtree','Inter',sans-serif", fontSize: 24, fontWeight: 700 }}>Course completed</div>
                   <div className="kb-meta">{fmtDate(course.completed_at)}{course.quiz.score != null && course.quiz.question_count ? ` · ${course.quiz.score}%` : ''}{course.expires ? ` · valid through ${fmtDate(course.expires)}` : ''}</div>
                   {course.certificate && <><div className="kb-meta">Certificate {course.certificate.serial}</div><button type="button" className="kb-btn pri" onClick={download}><Download />Download Certificate</button></>}

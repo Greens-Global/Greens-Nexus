@@ -940,7 +940,14 @@ keep the diff minimal.
   (outline, what you learn) before the lessons. Manage > Learning Paths
   (`manage/Plans.jsx`) suggests a path for every job title and department
   in People that has none. The Academy plan is the onboarding path
-  (`kb_academy_seed.apply_paths_once`, four stages).
+  (`kb_academy_seed.apply_paths_once`, four stages). The look (Neil,
+  11/07/2026: no "styling rectangles"): no tile grid, no stat boxes, no
+  colored side bars, no uppercase eyebrows - a shelf is a titled list, a
+  path carries its LADDER (`training/cards.jsx` `PathLadder`: one segment
+  per stage, filled as the stage is done, the live accent on the stage in
+  hand), a course or path opens on a title page (`kb-lead`), levels and
+  kinds are words. `kb_daily._assign_course` flushes after its insert so
+  two paths covering one course in a pass assign it once.
 
 ## Asana — removed (Sep 2026)
 
