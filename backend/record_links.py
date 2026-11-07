@@ -98,13 +98,13 @@ def _rewrite(session, obj, deleted=False) -> None:
     if fields is None:
         return
     is_new = obj in session.new
+    state = inspect(obj).attrs
     if not deleted and not is_new:
-        state = inspect(obj).attrs
         if not any(state[f].history.has_changes() for f in fields):
             return
     refs = _refs_of(obj, deleted)
-    if is_new and not refs:
-        return                       # nothing to write and nothing written before
+    if not refs and (is_new or not _may_have_had_links(state, fields, deleted)):
+        return                       # nothing to write and nothing written before (bulk imports stay one INSERT each)
     src = _source(session, obj)
     if src is None:
         return
@@ -117,6 +117,22 @@ def _rewrite(session, obj, deleted=False) -> None:
         if ref == parent_ref:
             continue                 # a record never lists itself
         session.add(L(src_ref=src_ref, parent_ref=parent_ref, dst_ref=ref, internal=internal, created_at=now))
+
+
+def _may_have_had_links(state, fields, deleted) -> bool:
+    """Could the row have held a link before this change? Only a value we
+    cannot see (not loaded) or one that carried a ref says yes - so the
+    thousands of rows a bulk change touches cost no extra DELETE."""
+    for f in fields:
+        h = state[f].history
+        before = h.deleted if (deleted or h.has_changes()) else h.unchanged
+        if deleted and not before:
+            before = h.unchanged
+        if not before:
+            return True
+        if any(("data-ref=" in v or '"nexusRecord"' in v) for v in before if isinstance(v, str)):
+            return True
+    return False
 
 
 def _source_kind(obj):
