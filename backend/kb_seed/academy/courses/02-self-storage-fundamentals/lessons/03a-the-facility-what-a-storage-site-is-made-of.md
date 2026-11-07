@@ -25,7 +25,7 @@ Every storage site is built the same way for the same reasons: keep people who d
   "regions": [
     { "label": "Street", "x": 1, "y": 1, "w": 12, "h": 1 },
     { "label": "Office", "note": "beside the gate, with a view of it", "x": 1, "y": 2, "w": 3, "h": 2, "tone": "ok" },
-    { "label": "Gate", "note": "keypad in, keypad or loop out", "x": 4, "y": 2, "w": 2, "h": 1, "tone": "live" },
+    { "label": "Gate", "note": "keypad in, keypad or loop out", "x": 4, "y": 2, "w": 2, "h": 2, "tone": "live" },
     { "label": "Drive-up rows", "note": "roll-up doors on both sides of each aisle", "x": 6, "y": 2, "w": 7, "h": 3 },
     { "label": "Climate building", "note": "hallways, carts, an elevator", "x": 1, "y": 4, "w": 5, "h": 2 },
     { "label": "Vehicle lot", "note": "open, covered or enclosed spaces", "x": 1, "y": 6, "w": 12, "h": 2 }
