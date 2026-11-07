@@ -569,3 +569,15 @@
 .kb .kb-scr-callouts li { display: flex; gap: 8px; align-items: flex-start; line-height: 1.4; } .kb .kb-scr-callouts .kb-scr-n { position: static; box-shadow: none; flex: 0 0 auto; margin-top: 2px; }
 .kb .kb-scr-note { display: inline-flex; align-items: center; gap: 5px; color: var(--kb-dim); font-size: 11.5px; }
 @media (max-width: 640px) { .kb .kb-scr-rail { display: none; } .kb .kb-scr-tabs { display: none; } .kb .kb-scr-dialog.sheet { width: 88%; } }
+
+/* Refresher (Neil, 11/07/2026): three questions a day from the courses you passed. */
+.kb .kb-refresher { display: flex; flex-direction: column; gap: 10px; margin: 0 0 14px; }
+.kb .kb-refresher-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--kb-ink); }
+.kb .kb-refresher-head b { font-weight: 700; }
+.kb .kb-refresher-streak { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--wk-live-ink, #b4410e); }
+.kb .kb-refresher-q { display: flex; flex-direction: column; gap: 6px; }
+.kb .kb-refresher-text { font-weight: 600; font-size: 15px; line-height: 1.35; }
+.kb .kb-refresher-result { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 10px; background: var(--kb-paper); font-size: 13.5px; line-height: 1.4; }
+.kb .kb-refresher-result b { display: inline-flex; align-items: center; gap: 6px; }
+.kb .kb-refresher-result.ok b { color: var(--kb-green); } .kb .kb-refresher-result.miss b { color: #b91c1c; }
+.kb .kb-refresher.compact .kb-refresher-text { font-size: 14px; }

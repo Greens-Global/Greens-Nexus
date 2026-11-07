@@ -1597,6 +1597,10 @@ def _run_migrations():
             "ALTER TABLE kb_training_plans ADD COLUMN kind VARCHAR DEFAULT 'custom'",
             "ALTER TABLE kb_training_plans ADD COLUMN stages TEXT DEFAULT ''",
             "ALTER TABLE kb_training_plans ADD COLUMN open_enrollment BOOLEAN DEFAULT 1",
+            # Keeps Up (Neil 11/07/2026) - see the Postgres list.
+            "ALTER TABLE kb_courses ADD COLUMN teaches VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN reviewed_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN review_flag TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3806,6 +3810,15 @@ def _run_migrations():
         "ALTER TABLE kb_training_plans ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'custom'",
         "ALTER TABLE kb_training_plans ADD COLUMN IF NOT EXISTS stages TEXT DEFAULT ''",
         "ALTER TABLE kb_training_plans ADD COLUMN IF NOT EXISTS open_enrollment BOOLEAN DEFAULT TRUE",
+        # Keeps Up (Neil 11/07/2026): the modules a course teaches, when it was
+        # last reviewed, and the What's New entries that make it worth a look.
+        # models.KbCourse; kb_currency.py fills the flag.
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS teaches VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS reviewed_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS review_flag TEXT DEFAULT ''",
+        # Refresher (Neil 11/07/2026): spaced repetition - a new table, explicit
+        # RLS. models.KbRefresherItem.
+        "ALTER TABLE kb_refresher_items ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

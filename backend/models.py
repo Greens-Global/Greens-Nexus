@@ -1414,6 +1414,16 @@ class KbCourse(Base):
     # lines in main.py.
     level        = Column(String, default="")
     tags         = Column(String, default="")
+    # Keeps Up (Neil, 11/07/2026: the course "automatically stays current as
+    # the modules evolve"): the Nexus modules this course teaches ("Workday,
+    # Time Clock"), matched against What's New entries' `module`; when a
+    # Released entry about one of them is newer than `reviewed_at`, the
+    # daily currency pass (kb_currency) fills `review_flag` (JSON: since +
+    # the entries) and bells the owner once; Publish or Mark Reviewed stamps
+    # reviewed_at and clears the flag. ALTER lines in main.py.
+    teaches      = Column(String, default="")
+    reviewed_at  = Column(String, default="")
+    review_flag  = Column(Text, default="")
 
 
 class KbCourseProgress(Base):
@@ -10175,3 +10185,23 @@ class DocComment(Base):
     resolved_by  = Column(String, default="")
     created_at   = Column(String, default="")
     updated_at   = Column(String, default="")
+
+
+class KbRefresherItem(Base):
+    """Refresher (Neil, 11/07/2026): spaced repetition after a course is
+    passed. One row per person and quiz question; the question is asked
+    again when `due_on` arrives, and the interval doubles on a right answer
+    (1, 2, 4 ... 60 days) or drops back to one day on a wrong one. Seeded
+    lazily by kb_refresher when the person opens the card. New table -
+    create_all builds it; the Postgres migration list enables RLS."""
+    __tablename__ = "kb_refresher_items"
+    id               = Column(String, primary_key=True)   # rf_ + hex
+    user_email       = Column(String, nullable=False, index=True)
+    course_id        = Column(String, nullable=False, index=True)
+    question_id      = Column(String, nullable=False)
+    due_on           = Column(String, default="", index=True)   # YYYY-MM-DD, the person's day
+    interval_days    = Column(Integer, default=1)
+    right_count      = Column(Integer, default=0)
+    wrong_count      = Column(Integer, default=0)
+    last_answered_at = Column(String, default="")
+    created_at       = Column(String, default="")

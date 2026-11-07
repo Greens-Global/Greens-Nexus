@@ -22,6 +22,7 @@ import Catalog from './Catalog';
 import ProgressTrack from '../../ui/ProgressTrack';
 import { PathRow, LevelChip } from './cards';
 import { shelfOf, courseAction } from './catalogModel';
+import Refresher from './Refresher';
 
 // The track's state for one course card: red while it is overdue (or an
 // expired completion), green once completed, else the live accent.
@@ -199,6 +200,7 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
             return (
             <>
               {next ? <Continue c={next} /> : <CaughtUp hasPaths={plans.length > 0} />}
+              <Refresher />
               <div className="kb-cols">
                 <div className="kb-main">
                   <section className="kb-shelf">
@@ -279,7 +281,7 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
             <table className="kb-table"><thead><tr><th>Course</th><th>Status</th><th>Department</th><th>Level</th><th>Lessons</th><th>Questions</th><th>Learners</th><th>Done</th><th /></tr></thead><tbody>
               {(courses || []).map((c) => (
                 <tr key={c.id}>
-                  <td><a href="#b" onClick={(e) => { e.preventDefault(); goKb('builder', c.id); }}><b>{c.title}</b></a><div className="kb-meta">{c.code}{c.recert_months ? ` · renews every ${c.recert_months} months` : ''}{c.has_draft && c.status === 'published' ? ' · unpublished edits' : ''}{c.delivery === 'in_person' ? ' · in person' : ''}</div></td>
+                  <td><a href="#b" onClick={(e) => { e.preventDefault(); goKb('builder', c.id); }}><b>{c.title}</b></a><div className="kb-meta">{c.code}{c.recert_months ? ` · renews every ${c.recert_months} months` : ''}{c.has_draft && c.status === 'published' ? ' · unpublished edits' : ''}{c.delivery === 'in_person' ? ' · in person' : ''}{c.review_flag?.changes?.length ? <> · <b style={{ color: '#b45309' }}>Nexus changed, review</b></> : ''}</div></td>
                   <td><Chip color={c.status === 'published' ? '#1e7b4e' : '#64748b'}>{c.status === 'published' ? `Published v${c.major}` : 'Draft'}</Chip></td>
                   <td>{(c.department_list || []).join(', ') || <span className="kb-meta">None</span>}</td>
                   <td><LevelChip level={c.level} /></td>

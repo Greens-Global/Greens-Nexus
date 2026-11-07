@@ -16,7 +16,8 @@ import kb_md
 ROOT = Path(__file__).parent / "kb_seed" / "academy"
 ORDER = ["nexus-fundamentals", "self-storage-fundamentals", "rv-boat-storage-fundamentals",
          "cubby-fundamentals", "customer-service-sales-fundamentals", "hands-on-check",
-         "property-vendor-management"]   # the seventh course (Neil, 11/07/2026) is for managers, not on the new-hire plan
+         "property-vendor-management",   # the seventh course (Neil, 11/07/2026) is for managers, not on the new-hire plan
+         "fundamentals-of-accounting", "intacct-fundamentals", "leading-with-nexus"]   # 11/07/2026: accounting, Intacct, leaders
 
 
 @dataclass
@@ -42,6 +43,8 @@ class CourseSpec:
     quiz: dict
     level: str = ""
     tags: str = ""
+    teaches: str = ""        # Nexus modules the course teaches ("Workday, Time Clock"), for Keeps Up (11/07/2026)
+    departments: str = ""    # the department it shelves under ('' = the Academy's)
 
 
 @dataclass
@@ -95,7 +98,8 @@ def load(root: Path = ROOT) -> Academy:
                     if not meta.get("title"):
                         a.errors.append(f"{slug}/{L['file']}: front matter has no title")
                     lessons.append({"type": "text", "file": L["file"], "title": meta.get("title", ""), "summary": meta.get("summary", ""),
-                                    "blocks": kb_md.to_blocks(body)})
+                                    "blocks": kb_md.to_blocks(body),
+                                    "teaches": [t.strip() for t in str(meta.get("teaches", "")).split(",") if t.strip()]})
                 elif "page" in L:
                     lessons.append({"type": "page", "page": L["page"], "title": L.get("title", ""), "summary": L.get("summary", "")})
                 else:
@@ -106,7 +110,7 @@ def load(root: Path = ROOT) -> Academy:
             _link_questions(lessons, [q for L in lessons for q in L.get("questions") or []] + list(quiz.get("questions") or []))
             a.courses.append(CourseSpec(slug, c["title"], c.get("description", ""), c.get("overview", []), c.get("est_minutes", 0),
                                         c.get("delivery", ""), c.get("min_reading_minutes", 0), lessons, quiz,
-                                        c.get("level", ""), c.get("tags", "")))
+                                        c.get("level", ""), c.get("tags", ""), c.get("teaches", ""), c.get("departments", "")))
         except (OSError, ValueError, KeyError, TypeError) as e:
             a.errors.append(f"{d.parent.name}: cannot load ({type(e).__name__}: {e})")
     return a
@@ -164,10 +168,10 @@ _BANNED = re.compile(r"[\u2014\u2013]|\b\d{4}-\d{2}-\d{2}\b|(?i:time ?card|times
 # Global Constraints, pinned in code so a course.json cannot lower them.
 MIN_READING = {"nexus-fundamentals": 70, "self-storage-fundamentals": 120, "rv-boat-storage-fundamentals": 100,
                "cubby-fundamentals": 95, "customer-service-sales-fundamentals": 120, "hands-on-check": 5,
-               "property-vendor-management": 80}
+               "property-vendor-management": 80, "fundamentals-of-accounting": 60, "intacct-fundamentals": 45, "leading-with-nexus": 70}
 EST_MINUTES = {"nexus-fundamentals": 120, "self-storage-fundamentals": 210, "rv-boat-storage-fundamentals": 180,
                "cubby-fundamentals": 180, "customer-service-sales-fundamentals": 210, "hands-on-check": 90,
-               "property-vendor-management": 150}
+               "property-vendor-management": 150, "fundamentals-of-accounting": 150, "intacct-fundamentals": 120, "leading-with-nexus": 150}
 
 
 def _title_case(t: str) -> bool:

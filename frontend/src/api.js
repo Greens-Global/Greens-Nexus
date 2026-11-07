@@ -3017,6 +3017,11 @@ export const api = {
   kbCatalog: () => req("/kb/catalog"),
   kbPlan: (id) => req(`/kb/plans/${id}`),
   kbEnrollPlan: (id) => req(`/kb/plans/${id}/enroll`, { method: "POST" }),
+  // Keeps Up and the Refresher (Neil, 11/07/2026)
+  kbMarkReviewed: (id) => req(`/kb/courses/${id}/reviewed`, { method: "POST" }),
+  kbLearn: (module) => req(`/kb/learn?module=${encodeURIComponent(module || "")}`),
+  kbRefresherToday: () => req("/kb/refresher/today"),
+  kbRefresherAnswer: (item_id, answer) => req("/kb/refresher/answer", { method: "POST", body: JSON.stringify({ item_id, answer }) }),
   // the help widget's corpus, in the shape docsSearch.buildKbSections reads
   kbCorpusDocs: () => req("/kb/pages?status=approved").then((rows) => (rows || []).map((d) => ({
     id: d.id, title: d.title, status: d.status, doc_code: d.code, doc_type: d.type_label, departments: (d.collection || []).map((c) => c.name).join(", "),

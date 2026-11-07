@@ -123,6 +123,10 @@ ROUTES = {
     ("POST", "/kb/plans/{pid}/assign"): "wall",
     ("POST", "/kb/plans/{pid}/enroll"): "wall",
     ("GET", "/kb/catalog"): "list",                   # published courses and active paths the caller may see
+    ("GET", "/kb/learn"): "list",                     # Keeps Up (11/07/2026): the published courses that teach a module, walled like the list
+    ("POST", "/kb/courses/{cid}/reviewed"): "wall",   # the author stamps a course reviewed
+    ("GET", "/kb/refresher/today"): "own",            # Refresher: the caller's own due questions
+    ("POST", "/kb/refresher/answer"): "own",          # the caller's own answer; another person's item is 404
     ("GET", "/kb/print/{doc_id}"): "wall",
     ("POST", "/kb/quiz/{aid}/submit"): "wall",
     ("POST", "/kb/requests"): "create",
