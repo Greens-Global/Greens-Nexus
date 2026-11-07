@@ -1408,6 +1408,12 @@ class KbCourse(Base):
     # 'in_person' (completed only when a trainer or the person's manager signs
     # them off - a session's attendance or a hands-on check). ALTER lines in main.py.
     delivery     = Column(String, default="online")
+    # Learning paths redesign (Neil, 11/07/2026): where a course sits in the
+    # catalog - a level (foundations | core | advanced, '' = unset) and free
+    # tags ("storage, cubby"), both part of the draft until Publish. ALTER
+    # lines in main.py.
+    level        = Column(String, default="")
+    tags         = Column(String, default="")
 
 
 class KbCourseProgress(Base):
@@ -8463,6 +8469,16 @@ class KbTrainingPlan(Base):
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+    # Learning paths (Neil, 11/07/2026): a plan is a PATH with a kind -
+    # onboarding (a new-hire track), role (a job title's path), department
+    # (a department's training) or custom - ordered STAGES ("Week 1", "Before
+    # the first shift"; JSON list of names, each item carries its `stage`
+    # index), and whether anyone may start it from the catalog on their own
+    # (open_enrollment; a rule or a hand assignment still sets the due date).
+    # ALTER lines in main.py.
+    kind            = Column(String, default="custom")
+    stages          = Column(Text, default="")
+    open_enrollment = Column(Boolean, default=True)
 
 
 class KbPlanAssignment(Base):

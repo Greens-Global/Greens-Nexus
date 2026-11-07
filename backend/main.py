@@ -1591,6 +1591,12 @@ def _run_migrations():
             "ALTER TABLE documents ADD COLUMN collab_key VARCHAR DEFAULT ''",
             # Board templates (Neil 11/06/2026) - see the Postgres list.
             "ALTER TABLE nexus_notes ADD COLUMN is_template BOOLEAN DEFAULT 0",
+            # Learning paths (Neil 11/07/2026) - see the Postgres list.
+            "ALTER TABLE kb_courses ADD COLUMN level VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN tags VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_training_plans ADD COLUMN kind VARCHAR DEFAULT 'custom'",
+            "ALTER TABLE kb_training_plans ADD COLUMN stages TEXT DEFAULT ''",
+            "ALTER TABLE kb_training_plans ADD COLUMN open_enrollment BOOLEAN DEFAULT 1",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3792,6 +3798,14 @@ def _run_migrations():
         "ALTER TABLE construction_commitments ENABLE ROW LEVEL SECURITY",
         # Board templates (Neil, 11/06/2026): a board its owner starts new boards from. models.NexusNote.
         "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE",
+        # Learning paths (Neil, 11/07/2026): a course's level and tags in the
+        # catalog; a training plan is a path with a kind, stages and open
+        # enrollment. Existing tables, no new RLS. models.KbCourse / KbTrainingPlan.
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS level VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS tags VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_training_plans ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'custom'",
+        "ALTER TABLE kb_training_plans ADD COLUMN IF NOT EXISTS stages TEXT DEFAULT ''",
+        "ALTER TABLE kb_training_plans ADD COLUMN IF NOT EXISTS open_enrollment BOOLEAN DEFAULT TRUE",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4242,6 +4256,9 @@ def _tier_seeds():
             if res:
                 print(f"[startup] storage academy imported - pages: {res['pages']}, courses: {res['courses']}, "
                       f"plan: {res['plan']}, owner: {res['owner']}")
+            res = kb_academy_seed.apply_paths_once(db)   # the Academy plan as the onboarding path, course levels and tags (11/07/2026)
+            if res:
+                print(f"[startup] learning paths seeded - plan: {res['plan'] or 'none'}, courses stamped: {res['courses']}")
         except Exception as e:
             db.rollback()
             print(f"[startup] storage academy import skipped: {e}")

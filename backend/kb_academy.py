@@ -39,6 +39,8 @@ class CourseSpec:
     min_reading_minutes: int
     lessons: list
     quiz: dict
+    level: str = ""
+    tags: str = ""
 
 
 @dataclass
@@ -87,7 +89,8 @@ def load(root: Path = ROOT) -> Academy:
             quiz = c.get("quiz") or {}
             _link_questions(lessons, [q for L in lessons for q in L.get("questions") or []] + list(quiz.get("questions") or []))
             a.courses.append(CourseSpec(slug, c["title"], c.get("description", ""), c.get("overview", []), c.get("est_minutes", 0),
-                                        c.get("delivery", ""), c.get("min_reading_minutes", 0), lessons, quiz))
+                                        c.get("delivery", ""), c.get("min_reading_minutes", 0), lessons, quiz,
+                                        c.get("level", ""), c.get("tags", "")))
         except (OSError, ValueError, KeyError, TypeError) as e:
             a.errors.append(f"{d.parent.name}: cannot load ({type(e).__name__}: {e})")
     return a
@@ -257,4 +260,6 @@ def problems(a: Academy) -> list[str]:
         for s in [c.title, c.description] + list(c.overview):
             if _BANNED.search(str(s)):
                 out.append(f"{c.slug}: banned copy {_BANNED.search(str(s)).group(0)!r}")
+        if c.level not in ("foundations", "core", "advanced"):
+            out.append(f"{c.slug}: level {c.level!r} must be foundations, core or advanced")
     return out

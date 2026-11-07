@@ -13,6 +13,8 @@
   ],
   "est_minutes": 120,
   "delivery": "online",
+  "level": "foundations",
+  "tags": "nexus, new hire, time clock",
   "min_reading_minutes": 70,
   "lessons": [
     {

@@ -14,6 +14,8 @@
  ],
  "est_minutes": 180,
  "delivery": "online",
+ "level": "core",
+ "tags": "rv, boat, vehicle storage",
  "min_reading_minutes": 100,
  "lessons": [
   {

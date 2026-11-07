@@ -69,6 +69,48 @@ def test_first_run_creates_drafts(_package):
     ids = {c.id: t for t, c in courses.items()}
     assert [(i["kind"], ids[i["id"]]) for i in json.loads(plan.items)] == [("course", s.title) for s in a.courses]
     assert db.get(models.NexusSetting, kb_academy_seed.MARK)
+    # Learning paths (11/07/2026): the plan is the onboarding path with its
+    # stages, each course in one; courses carry the package's level and tags.
+    assert plan.kind == "onboarding" and json.loads(plan.stages) == kb_academy_seed.ACADEMY_STAGES
+    assert [i["stage"] for i in json.loads(plan.items)] == kb_academy_seed.ACADEMY_STAGE_OF
+    assert all(c.level == "foundations" and c.tags == "storage, new hire" for c in courses.values())
+
+
+def test_paths_pass_upgrades_a_plan_a_first_run_made_before_paths(_package):
+    db = _package
+    res = kb_academy_seed.apply_once(db)
+    plan = db.get(models.KbTrainingPlan, res["plan"])
+    # as the plan and the courses stood before 11/07/2026
+    plan.kind, plan.stages = "custom", ""
+    plan.items = json.dumps([{"kind": i["kind"], "id": i["id"]} for i in json.loads(plan.items)])
+    for c in db.query(models.KbCourse).all():
+        c.level, c.tags = "", ""
+    db.commit()
+    out = kb_academy_seed.apply_paths_once(db)
+    assert out == {"plan": plan.id, "courses": 6}
+    db.expire_all()
+    plan = db.get(models.KbTrainingPlan, plan.id)
+    assert plan.kind == "onboarding" and json.loads(plan.stages) == kb_academy_seed.ACADEMY_STAGES
+    assert [i["stage"] for i in json.loads(plan.items)] == kb_academy_seed.ACADEMY_STAGE_OF
+    assert all(c.level == "foundations" for c in db.query(models.KbCourse).all())
+    assert kb_academy_seed.apply_paths_once(db) is None   # marked: never again
+
+
+def test_paths_pass_leaves_hand_set_values_alone(_package):
+    db = _package
+    res = kb_academy_seed.apply_once(db)
+    plan = db.get(models.KbTrainingPlan, res["plan"])
+    plan.kind, plan.stages = "role", json.dumps(["Mine"])
+    for c in db.query(models.KbCourse).all():
+        c.level, c.tags = "", ""
+    c = db.query(models.KbCourse).first()
+    c.level, c.tags = "advanced", "mine"
+    db.commit()
+    out = kb_academy_seed.apply_paths_once(db)
+    assert out["plan"] == "" and out["courses"] == 5
+    db.expire_all()
+    assert db.get(models.KbTrainingPlan, plan.id).kind == "role"
+    assert db.get(models.KbCourse, c.id).level == "advanced"
 
 
 def test_page_lesson_points_at_the_created_page(_package):

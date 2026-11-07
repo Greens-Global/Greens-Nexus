@@ -39,15 +39,22 @@ const HOME = {
   collections: [{ id: 'col_ops', name: 'Operations', parent_id: '', department: 'Operations', owner_email: 'sagar@example.com', owner_name: 'Sagar Patel', description: 'Sites', pages: 24, stale: 2, review_every_months: 12 }],
   pinned: [PAGE], recent: [PAGE], my_drafts: [], counts: { published: 24, collections: 1 },
 };
+const TRAINING_COURSE = { id: 'crs_1', code: 'LRN-001', title: 'Site Safety Basics', my_status: 'In Progress', my_pct: 60, due_date: '2026-10-24', days_overdue: 0, est_minutes: 20, source: 'rule', assigned: true };
 const TRAINING = {
-  due: [{ id: 'crs_1', code: 'LRN-001', title: 'Site Safety Basics', my_status: 'In Progress', my_pct: 60, due_date: '2026-10-24', days_overdue: 0, est_minutes: 20, source: 'rule' }],
+  due: [TRAINING_COURSE],
   completed: [], plans: [], certificates: [], policies: [], stats: { due: 1, overdue: 0, completed: 0, certificates: 0, to_sign: 0 }, can_author: true,
 };
 const HEALTH = { stats: { published: 24, stale: 1, flags: 1, drafts: 0, in_review: 0, requests: 0, unmigrated: 3, signatures_outstanding: 5 }, review_queue: [], stale: [{ ...PAGE, days_overdue: 40, next_review: '2026-09-01' }],
   flags: [{ id: 'flg_1', doc_id: 'kb_1', title: 'Move-In Walkthrough', code: 'OPS-014', text: 'Step 2 is out of date', user_name: 'Visesh', created_at: '2026-10-20T00:00:00Z', version: '2.0' }], requests: [], misses: [], drafts: [], in_review: [], activity: [] };
 
+const PATH = { id: 'plan_1', name: 'New Hire: Facility Team', description: 'The six courses every new facility hire completes, in order.', kind: 'onboarding', stages: ['Week 1', 'Sign-Off'],
+  items: [{ kind: 'course', id: 'crs_1', title: 'Site Safety Basics', done: false, status: 'In Progress', pct: 60, est_minutes: 20, level: 'foundations', stage: 0, published: true },
+          { kind: 'course', id: 'crs_2', title: 'Hands-On Check', done: false, status: 'Not Started', pct: 0, est_minutes: 90, level: 'core', delivery: 'in_person', stage: 1, published: true }],
+  done: 0, total: 2, est_minutes: 110, open_enrollment: true, active: true, audience_text: 'Operations', enrolled: true, source: 'rule', due_date: '2026-12-01', completed_at: '', days_overdue: 0, for_me: true, can_edit: false };
+const CATALOG = { me: { department: 'Operations', job_title: 'Site Manager' }, departments: ['Operations'], can_author: false, courses: [{ ...TRAINING_COURSE, department_list: ['Operations'], level: 'foundations', tags: [], lesson_count: 3, description: '' }], paths: [PATH] };
 const named = {
   kbMe: () => Promise.resolve(HOME.me), kbHome: () => Promise.resolve(HOME), kbPage: () => Promise.resolve(PAGE), kbTrainingMe: () => Promise.resolve(TRAINING),
+  kbCatalog: () => Promise.resolve(CATALOG), kbPlan: () => Promise.resolve(PATH),
   kbHealth: () => Promise.resolve(HEALTH), kbCollections: () => Promise.resolve(HOME.collections), kbPeople: () => Promise.resolve([]), getTaskProjects: () => Promise.resolve([]),
   kbSearch: () => Promise.resolve({ results: [{ ...PAGE, snippet: 'the walk' }], also_matched: ['keys'], did_you_mean: '', total: 1 }),
   kbCompliance: () => Promise.resolve({ scope: 'direct', people: [], columns: [], stats: { people: 0, compliant_pct: 100, overdue: 0, due_soon: 0, compliant_people: 0 }, filters: { companies: [], departments: [], can_company: true } }),
@@ -86,10 +93,28 @@ describe('Knowledge Base module', () => {
     expect(await screen.findByText('Move-In Walkthrough')).toBeTruthy();
   });
 
-  it('shows My Training with the assigned course', async () => {
+  it('shows My Training with the assigned course, picked up where you left off', async () => {
     render(<KnowledgeBase activeSub="training" onSubChange={() => {}} />);
     expect(await screen.findByText('To Do')).toBeTruthy();
-    expect(await screen.findByText('Site Safety Basics', { exact: false })).toBeTruthy();
+    expect(await screen.findByText('Pick Up Where You Left Off')).toBeTruthy();
+    expect((await screen.findAllByText('Site Safety Basics', { exact: false })).length).toBeGreaterThan(0);
+    expect(screen.getByText('My Paths')).toBeTruthy();
+  });
+
+  it('shows the Catalog with the path for your role and the courses by department (11/07/2026)', async () => {
+    render(<KnowledgeBase activeSub="catalog" onSubChange={() => {}} />);
+    expect(await screen.findByText('For You')).toBeTruthy();
+    expect(screen.getByText('New Hire: Facility Team')).toBeTruthy();
+    expect((await screen.findAllByText('Operations')).length).toBeGreaterThan(0);
+  });
+
+  it('shows a path with its stages and the next thing to open', async () => {
+    render(<KnowledgeBase activeSub="path:plan_1" onSubChange={() => {}} />);
+    expect(await screen.findByRole('heading', { level: 1, name: 'New Hire: Facility Team' })).toBeTruthy();
+    expect(screen.getByText('Stage 1')).toBeTruthy();
+    expect(screen.getByText('Week 1')).toBeTruthy();
+    expect(screen.getByText('Start: Site Safety Basics', { exact: false })).toBeTruthy();
+    expect(screen.getByText('Hands-On Check')).toBeTruthy();
   });
 
   it('shows Manage > Health with stale pages, flags and the migration banner', async () => {

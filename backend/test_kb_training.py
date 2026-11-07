@@ -267,6 +267,80 @@ class KbTrainingCase(unittest.TestCase):
         self.assertEqual(me["plans"][0]["done"], 2)
         self.assertTrue(me["plans"][0]["completed_at"] or True)
 
+    # ── learning paths and the catalog (Neil, 11/07/2026) ───────────────────
+    def test_path_keeps_kind_stages_and_each_items_stage(self):
+        c1, c2 = self._course(title="Path course one"), self._course(title="Path course two")
+        self._as(MGR)
+        plan = self.client.post("/kb/plans", json={"name": "Role Path: Site Manager", "kind": "role", "stages": ["Week 1", "Week 2"],
+                                                    "items": [{"kind": "course", "id": c1, "stage": 0}, {"kind": "course", "id": c2, "stage": 1}],
+                                                    "audience": {"job_titles": ["Site Manager"]}, "open_enrollment": False}).json()
+        self.assertEqual((plan["kind"], plan["stages"], plan["open_enrollment"]), ("role", ["Week 1", "Week 2"], False))
+        self.assertEqual([i["stage"] for i in plan["items"]], [0, 1])
+        self.assertEqual(self.client.post("/kb/plans", json={"name": "Odd", "kind": "nonsense", "items": [{"kind": "course", "id": c1, "stage": "x"}]}).json()["kind"], "custom")
+        up = self.client.patch(f"/kb/plans/{plan['id']}", json={"kind": "department", "stages": ["Only"], "items": [{"kind": "course", "id": c1}]}).json()
+        self.assertEqual((up["kind"], up["stages"], [i["stage"] for i in up["items"]]), ("department", ["Only"], [-1]))
+        # the rule-made assignment shows it in My Training with its kind and stages
+        self.client.patch(f"/kb/plans/{plan['id']}", json={"stages": ["Week 1"], "items": [{"kind": "course", "id": c1, "stage": 0}, {"kind": "course", "id": c2, "stage": 0}]})
+        self.client.post(f"/kb/plans/{plan['id']}/assign", json={"emails": [LRN]})
+        self._as(LRN)
+        me = self.client.get("/kb/training/me").json()
+        mine = next(p for p in me["plans"] if p["id"] == plan["id"])
+        self.assertEqual((mine["kind"], mine["stages"], mine["total"], mine["enrolled"]), ("department", ["Week 1"], 2, True))
+        self.assertEqual({i["stage"] for i in mine["items"]}, {0})
+
+    def test_catalog_lists_courses_and_paths_and_marks_the_ones_for_my_role(self):
+        cid = self._course(title="Catalog course")
+        self._as(MGR)
+        self.client.patch(f"/kb/courses/{cid}", json={"departments": "Operations", "level": "core", "tags": "storage, Cubby, storage"})
+        self.client.post(f"/kb/courses/{cid}/publish", json={})
+        mine = self.client.post("/kb/plans", json={"name": "Role Path: Site Manager", "kind": "role", "items": [{"kind": "course", "id": cid}],
+                                                    "audience": {"job_titles": ["Site Manager"]}}).json()
+        other = self.client.post("/kb/plans", json={"name": "Clerks", "kind": "department", "items": [{"kind": "course", "id": cid}],
+                                                     "audience": {"departments": ["Accounting"]}}).json()
+        off = self.client.post("/kb/plans", json={"name": "Switched off", "items": [{"kind": "course", "id": cid}]}).json()
+        self.client.patch(f"/kb/plans/{off['id']}", json={"active": False})
+        self._as(LRN)
+        cat = self.client.get("/kb/catalog").json()
+        self.assertEqual(cat["me"]["job_title"], "Site Manager")
+        course = next(c for c in cat["courses"] if c["id"] == cid)
+        self.assertEqual((course["level"], course["tags"], course["department_list"]), ("core", ["storage", "Cubby"], ["Operations"]))
+        self.assertIn("Operations", cat["departments"])
+        by_id = {p["id"]: p for p in cat["paths"]}
+        self.assertNotIn(off["id"], by_id)
+        self.assertTrue(by_id[mine["id"]]["for_me"])
+        self.assertFalse(by_id[other["id"]]["for_me"])
+        order = [p["id"] for p in cat["paths"]]
+        self.assertLess(order.index(mine["id"]), order.index(other["id"]))   # the path for your role leads the rest
+        self.assertFalse(cat["can_author"])
+
+    def test_anyone_may_start_an_open_path_once(self):
+        cid = self._course(title="Open path course")
+        self._as(MGR)
+        plan = self.client.post("/kb/plans", json={"name": "Open to all", "kind": "custom", "items": [{"kind": "course", "id": cid}]}).json()
+        closed = self.client.post("/kb/plans", json={"name": "Closed", "items": [{"kind": "course", "id": cid}], "open_enrollment": False}).json()
+        self._as(LRN)
+        view = self.client.get(f"/kb/plans/{plan['id']}").json()
+        self.assertEqual((view["enrolled"], view["open_enrollment"], view["can_edit"]), (False, True, False))
+        r = self.client.post(f"/kb/plans/{plan['id']}/enroll")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual((r.json()["enrolled"], r.json()["source"], r.json()["due_date"]), (True, "self", ""))
+        self.client.post(f"/kb/plans/{plan['id']}/enroll")   # again: nothing new
+        me = self.client.get("/kb/training/me").json()
+        self.assertEqual(len([p for p in me["plans"] if p["id"] == plan["id"]]), 1)
+        self.assertEqual(len([a for a in me["due"] if a["id"] == cid]), 1)
+        self.assertEqual(self.client.post(f"/kb/plans/{closed['id']}/enroll").status_code, 409)
+
+    def test_course_level_and_tags_are_part_of_the_draft_until_publish(self):
+        cid = self._course(title="Leveled course")
+        self._as(MGR)
+        self.client.patch(f"/kb/courses/{cid}", json={"level": "advanced", "tags": "a, b"})
+        self.assertEqual(self.client.get(f"/kb/courses/{cid}/builder").json()["draft"]["level"], "advanced")
+        self.assertEqual(self.client.get(f"/kb/courses/{cid}").json()["level"], "")   # v1 is live until Publish
+        self.client.post(f"/kb/courses/{cid}/publish", json={})
+        card = self.client.get(f"/kb/courses/{cid}").json()
+        self.assertEqual((card["level"], card["tags"]), ("advanced", ["a", "b"]))
+        self.assertEqual(self.client.patch(f"/kb/courses/{cid}", json={"level": "wrong"}).json()["draft"]["level"], "")
+
     def test_renewal_reassigns_before_a_certificate_expires(self):
         cid = self._course(title="Renew course", recert_months=12)
         out = self._pass(cid)

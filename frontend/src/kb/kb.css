@@ -251,3 +251,71 @@
 
 /* bare inputs inside a styled box: no ring on click, the app's ring on keyboard focus */
 .kb .kb-bare:not(:focus-visible) { outline: none; }
+
+/* ── Training redesign (Neil, 11/07/2026): tiles, heroes, stages, outline ── */
+.kb .kb-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 14px; }
+.kb .kb-tile { --tile: var(--kb-green); position: relative; display: flex; flex-direction: column; gap: 8px; padding: 16px 16px 14px; border-radius: 14px; background: var(--kb-card);
+  border: 1px solid var(--kb-line); box-shadow: 0 1px 2px rgba(29,33,57,.04); cursor: pointer; min-width: 0; overflow: hidden; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.kb .kb-tile::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--tile); opacity: .9; }
+.kb .kb-tile:hover { border-color: color-mix(in srgb, var(--tile) 45%, var(--kb-line)); box-shadow: 0 6px 16px rgba(29,33,57,.08); transform: translateY(-1px); }
+.kb .kb-tile:focus-visible { outline: 2px solid var(--tile); outline-offset: 2px; }
+.kb .kb-tile.done { background: color-mix(in srgb, var(--kb-green) 4%, var(--kb-card)); }
+.kb .kb-tile-top { display: flex; align-items: flex-start; gap: 10px; }
+.kb .kb-tile-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; justify-content: flex-end; }
+.kb .kb-tile-title { font-family: 'Figtree', 'Inter', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: -.01em; line-height: 1.25; }
+.kb .kb-tile-desc { font-size: 13px; color: var(--kb-dim); }
+.kb .kb-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.kb .kb-tile-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.kb .kb-tile-meta > span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.kb .kb-tile-foot { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 6px; }
+.kb .kb-stage-dots { list-style: none; margin: 2px 0 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; }
+.kb .kb-stage-dots li { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--kb-dim); max-width: 46%; min-width: 0; }
+.kb .kb-stage-dots li > span:first-child { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--kb-line); flex: 0 0 auto; background: transparent; }
+.kb .kb-stage-dots li.done > span:first-child { background: var(--kb-green); border-color: var(--kb-green); }
+.kb .kb-stage-dots li.live > span:first-child { border-color: var(--wk-live, #ed631a); background: color-mix(in srgb, var(--wk-live, #ed631a) 40%, transparent); }
+/* a hero: the course or path at the top of its page, one button on the right */
+.kb .kb-hero { --tile: var(--kb-green); display: flex; gap: 24px; align-items: stretch; flex-wrap: wrap; padding: 24px 28px; border-radius: 18px; background: var(--kb-card);
+  box-shadow: 0 2px 8px rgba(0,0,0,.06), 0 4px 20px rgba(0,0,0,.05); position: relative; overflow: hidden; min-width: 0; }
+.kb .kb-hero::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--tile); }
+.kb .kb-hero-body { flex: 999 1 420px; min-width: 0; }
+.kb .kb-hero-side { flex: 1 1 220px; max-width: 320px; display: flex; flex-direction: column; gap: 8px; justify-content: center; align-items: stretch; }
+.kb .kb-hero-side .kb-btn { justify-content: center; }
+.kb .kb-hero-side .kb-btn.lg { text-align: left; white-space: normal; }
+.kb .kb-continue { background: linear-gradient(135deg, color-mix(in srgb, var(--tile) 9%, var(--kb-card)), var(--kb-card) 60%); }
+.kb .kb-filters { display: flex; flex-direction: column; gap: 8px; }
+/* a path page's stage header */
+.kb .kb-stage-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.kb .kb-stage-tag { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--kb-green); background: var(--kb-green-soft); padding: 2px 8px; border-radius: 999px; }
+.kb .kb-path-item { align-items: flex-start; }
+.kb .kb-path-item .kb-step-num { width: 30px; height: 30px; font-size: 13px; }
+.kb .kb-step-num.done { background: var(--kb-green); color: #fff; }
+/* the course home's outline */
+.kb .kb-outline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.kb .kb-outline li { border-top: 1px solid var(--kb-line); }
+.kb .kb-outline li:first-child { border-top: 0; }
+.kb .kb-outline li > button { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 6px; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 10px; min-width: 0; }
+.kb .kb-outline li > button:hover { background: var(--kb-hover); }
+.kb .kb-outline li > button:focus-visible { outline: 2px solid var(--kb-green); outline-offset: -2px; }
+.kb .kb-outline li.done .kb-step-num { background: var(--kb-green); color: #fff; }
+.kb .kb-outline .kb-step-num { width: 30px; height: 30px; font-size: 13px; flex: 0 0 auto; }
+.kb .kb-learn { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.kb .kb-learn li { display: flex; gap: 8px; align-items: flex-start; }
+.kb .kb-learn svg { color: var(--kb-green); flex: 0 0 auto; margin-top: 3px; }
+.kb .kb-lesson-nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.kb .kb-quiz-head { padding: 14px 18px; }
+.kb .kb-finish { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 36px; }
+.kb .kb-finish-badge { width: 72px; height: 72px; border-radius: 50%; background: var(--kb-green-soft); color: var(--kb-green); display: inline-flex; align-items: center; justify-content: center; }
+/* the paths manager */
+.kb .kb-stage-list { display: flex; flex-direction: column; gap: 6px; }
+.kb .kb-stage-list > div { display: flex; align-items: center; gap: 8px; }
+/* a list row that wraps on a phone: the kind chip and title on the first line, the state and button under them */
+@media (max-width: 640px) {
+  .kb .kb-row.kb-wrap { flex-wrap: wrap; row-gap: 8px; }
+  .kb .kb-row.kb-wrap > .kb-grow { flex: 1 1 calc(100% - 90px); }
+  .kb .kb-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .kb .kb-hero { padding: 18px 16px; }
+  .kb .kb-hero-side { max-width: none; }
+  .kb .kb-tiles { grid-template-columns: 1fr; }
+}

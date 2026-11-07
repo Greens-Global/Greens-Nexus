@@ -10,6 +10,8 @@
  ],
  "est_minutes": 90,
  "delivery": "in_person",
+ "level": "core",
+ "tags": "hands-on, sign-off, in person",
  "min_reading_minutes": 5,
  "lessons": [
   {

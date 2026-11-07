@@ -17,6 +17,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 MARK = "kb.storage_academy_seeded_2026_11"
+PATHS_MARK = "kb.learning_paths_seeded_2026_11"
+# The Academy plan as the onboarding path (Neil, 11/07/2026): four stages, the
+# six courses in order. Index = the course's position in kb_academy.ORDER.
+ACADEMY_STAGES = ["Week 1: Nexus and the Business", "Week 2: Storage and Cubby", "Weeks 3 and 4: Serving and Selling", "Sign-Off"]
+ACADEMY_STAGE_OF = [0, 0, 1, 1, 2, 3]
 COLLECTION = "Greens Storage Academy"
 DEPT = "Operations"
 FALLBACK_OWNER = "neil@greensglobal.com"
@@ -115,6 +120,7 @@ def apply_once(db: Session) -> dict | None:
             kb_core.assign_course_code(db, c)
             if s.delivery in ("online", "in_person"):
                 c.delivery = s.delivery
+            c.level, c.tags = s.level or "", s.tags or ""
             draft = _draft_of(c)
             lessons = [{**L, "docId": page_ids[L["page"]]} if L["type"] == "page" else L for L in s.lessons]
             draft["lessons"] = _norm_lessons(db, lessons)
@@ -128,10 +134,55 @@ def apply_once(db: Session) -> dict | None:
     plan = db.query(KbTrainingPlan).filter(KbTrainingPlan.name == a.plan["name"][:200]).first()
     if plan is None:
         plan = KbTrainingPlan(id=kb_core.new_id("plan"), name=a.plan["name"][:200], description=(a.plan.get("description") or "")[:500],
-                              items=json.dumps([{"kind": "course", "id": i} for i in course_ids]), due_days=30, due_date="",
-                              audience="", active=False, created_by=owner, created_at=kb_core.now(), updated_at=kb_core.now())
+                              items=json.dumps([{"kind": "course", "id": i, "stage": ACADEMY_STAGE_OF[n] if n < len(ACADEMY_STAGE_OF) else -1} for n, i in enumerate(course_ids)]),
+                              due_days=30, due_date="", audience="", active=False, created_by=owner, created_at=kb_core.now(), updated_at=kb_core.now(),
+                              kind="onboarding", stages=json.dumps(ACADEMY_STAGES), open_enrollment=True)
         db.add(plan)
     now = kb_core.now()
     db.add(NexusSetting(key=MARK, value=now, updated_by="startup", updated_at=now))
     db.commit()
     return {"collection": col.id, "pages": pages_made, "courses": courses_made, "plan": plan.id, "owner": owner}
+
+
+def apply_paths_once(db: Session) -> dict | None:
+    """Learning paths (Neil, 11/07/2026), once: the Academy plan a first run
+    already made becomes the onboarding path (kind, four stages, each course
+    in its stage) and each Academy course gets its level and tags from the
+    package - only where nothing was set by hand. Returns {plan, courses}
+    (the plan id touched or '', courses stamped), or None once marked."""
+    from models import KbCourse, KbTrainingPlan, NexusSetting
+    import kb_academy
+    import kb_core
+
+    if db.get(NexusSetting, PATHS_MARK):
+        return None
+    a = kb_academy.load(kb_academy.ROOT)
+    stamped, plan_id = 0, ""
+    by_title = {}
+    for s in a.courses:
+        c = db.query(KbCourse).filter(KbCourse.title == s.title[:200]).first()
+        if c is None:
+            continue
+        by_title[s.slug] = c
+        if not (c.level or "") and not (c.tags or ""):
+            c.level, c.tags = s.level or "", s.tags or ""
+            stamped += 1
+    plan = db.query(KbTrainingPlan).filter(KbTrainingPlan.name == (a.plan.get("name") or "")[:200]).first() if a.plan else None
+    if plan is not None and (plan.kind or "custom") == "custom" and not (plan.stages or ""):
+        plan.kind = "onboarding"
+        plan.stages = json.dumps(ACADEMY_STAGES)
+        ids = [by_title[slug].id for slug in kb_academy.ORDER if slug in by_title]
+        try:
+            items = json.loads(plan.items or "[]")
+        except ValueError:
+            items = []
+        for it in items:
+            if isinstance(it, dict) and it.get("id") in ids:
+                it["stage"] = ACADEMY_STAGE_OF[ids.index(it["id"])]
+        plan.items = json.dumps(items)
+        plan.updated_at = kb_core.now()
+        plan_id = plan.id
+    now = kb_core.now()
+    db.add(NexusSetting(key=PATHS_MARK, value=now, updated_by="startup", updated_at=now))
+    db.commit()
+    return {"plan": plan_id, "courses": stamped}

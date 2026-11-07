@@ -921,6 +921,26 @@ keep the diff minimal.
   pass runs under the `kb_daily` Automations switch. A course's
   `default_due_days` only fills a hand assignment with no date picked.
   `test_kb_training_due.py` pins all of it.
+- **Learning paths and the catalog (Neil, 11/07/2026: "missing role based
+  paths and departmental trainings"):** a training plan IS a learning path
+  with a `kind` (onboarding | role | department | custom), ordered `stages`
+  (names; each item carries its `stage` index) and `open_enrollment`
+  (anyone may start it from the catalog - `POST /kb/plans/{id}/enroll`,
+  source `self`, no due date; a rule or hand assignment still sets one).
+  "Role path" = kind role with `audience.job_titles`; "department
+  training" = kind department with `audience.departments` - the audience IS
+  the targeting, never a second field. A course carries `level`
+  (foundations | core | advanced) and `tags`, part of the draft until
+  Publish, and shelves in the catalog by its first `departments` entry.
+  `GET /kb/catalog` is the ONE list (published courses, active paths,
+  `for_me` = the audience names the caller); grouping lives in
+  `frontend/src/kb/training/catalogModel.js`. Training's screens are My
+  Learning (`training`), Catalog (`catalog`), Compliance and, for authors,
+  Courses; a path is `path:<id>`; a course opens on its Course Home
+  (outline, what you learn) before the lessons. Manage > Learning Paths
+  (`manage/Plans.jsx`) suggests a path for every job title and department
+  in People that has none. The Academy plan is the onboarding path
+  (`kb_academy_seed.apply_paths_once`, four stages).
 
 ## Asana — removed (Sep 2026)
 
