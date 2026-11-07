@@ -39,7 +39,10 @@ export function recordHref(ref) {
   const i = r.indexOf(':');
   const kind = r.slice(0, i);
   const id = encodeURIComponent(r.slice(i + 1));
+  // The addresses openRecord (notes/recordLink.jsx) lands on.
   if (kind === 'task') return `/tasks?task=${id}`;
   if (kind === 'ticket') return `/tickets?ticket=${id}`;
-  return `/#record=${encodeURIComponent(r)}`;
+  if (kind === 'note') return `/dashboard/notes:${id}`;
+  if (kind === 'job') return `/construction/project:${id}`;
+  return `/sop/page:${id}`;
 }

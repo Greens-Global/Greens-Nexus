@@ -64,7 +64,8 @@ export function listenForBoxTicks(editor, meta, onError) {
     if (!(input instanceof HTMLInputElement) || input.type !== 'checkbox') return;
     // The editor draws a checklist item as a bare <li> under its list.
     const li = input.closest('ul[data-type="taskList"] > li');
-    const chip = li?.querySelector(':scope > div > p .nt-reclink[data-ref^="task:"]');
+    // The item's own first line only - the same line taskBoxes reads.
+    const chip = li?.querySelector(':scope > div > p:first-child .nt-reclink[data-ref^="task:"]');
     if (!chip) return;
     const taskId = splitRef(chip.getAttribute('data-ref')).id;
     const done = input.checked;

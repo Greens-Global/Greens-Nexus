@@ -978,14 +978,17 @@ def search_tickets(q: str = "", limit: int = 6, user: dict = Depends(get_current
     limit = max(1, min(int(limit or 6), 20))
     T_ = models.TaskTicket
     scope = ListScope(db, user)
-    qy = scope.confidential(scope.apply(db.query(T_), people=False))
+    # Never a confidential (Ask HR) ticket, even for HR: a link copies the
+    # subject into a task, note or board other people read (the global hook
+    # leaves them out of this query; is_confidential below is the backstop).
+    qy = scope.apply(db.query(T_), people=False)
     if not scope.desk:
         qy = scope.apply(qy)
     like = f"%{term}%"
     qy = qy.filter(or_(func.lower(T_.subject).like(like), func.lower(func.coalesce(T_.code, "")).like(like)))
     rows = []
     for t in qy.order_by(T_.created_at.desc()).limit(200).all():
-        if scope.admits(t) and term in f"{(t.subject or '').lower()} {(t.code or '').lower()}":
+        if scope.admits(t) and not ticket_confidential.is_confidential(t) and term in f"{(t.subject or '').lower()} {(t.code or '').lower()}":
             rows.append(t)
         if len(rows) >= limit:
             break
@@ -2453,6 +2456,12 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
         internal = bool(internal) and _sees_internal(db, t, user, False)
     else:
         internal = bool(internal) and ticket_roles.can_read_internal(user, db, company=getattr(t, "company_id", "") or "")
+    if not internal:
+        # A [[ record link belongs to internal notes only (11/07/2026): a public
+        # reply is mailed to the requester, so a chip becomes its plain words
+        # whatever composer, paste or client sent it.
+        import record_links
+        text = record_links.unlink(text)
     c = models.TaskComment(id=gen_id(), task_id=t.id, author_email=user["email"], body=text,
                            internal=internal, created_at=now_iso())
     db.add(c)

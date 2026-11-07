@@ -90,20 +90,21 @@ class RecordLinkTests(unittest.TestCase):
         self.assertEqual(self.links(), [])
 
     def test_a_ticket_comment_counts_for_its_ticket_and_goes_when_deleted(self):
-        self.comment(f"<p>see {link(TARGET)}</p>")
-        self.assertEqual(self.links(), [("comment", f"ticket:{self.t.id}", TARGET, False)])
+        self.comment(f"<p>see {link(TARGET)}</p>", internal=True)
+        self.assertEqual(self.links(), [("comment", f"ticket:{self.t.id}", TARGET, True)])
         c = self.db.query(models.TaskComment).one()
         self.db.delete(c)
         self.db.commit()
         self.assertEqual(self.links(), [])
 
     def test_who_sees_a_ticket_that_links_here(self):
-        self.comment(f"<p>see {link(TARGET)}</p>")
+        self.t.description = f"<p>see {link(TARGET)}</p>"
+        self.db.commit()
         for user, n in ((AGENT, 1), (REQUESTER, 1), (STRANGER, 0)):
             out = record_links.mentions(self.db, user, TARGET)
             self.assertEqual(out["total"], n, user["email"])
         row = record_links.mentions(self.db, AGENT, TARGET)["items"][0]
-        self.assertEqual((row["kind"], row["id"], row["title"], row["via"]), ("ticket", self.t.id, "Printer is on fire", "comment"))
+        self.assertEqual((row["kind"], row["id"], row["title"], row["via"]), ("ticket", self.t.id, "Printer is on fire", ""))
 
     def test_an_internal_note_link_is_the_desks_only(self):
         self.comment(f"<p>internal {link(TARGET)}</p>", internal=True)
@@ -167,6 +168,30 @@ class RecordLinkTests(unittest.TestCase):
         b.scene = json.dumps(scene)
         self.db.commit()
         self.assertEqual(self.links(), [])
+
+    def test_a_public_reply_never_carries_a_chip(self):
+        self.comment(f"<p>see {link(TARGET)} now</p>")
+        self.comment(f"<p>note {link(TARGET)}</p>", internal=True)
+        bodies = {bool(c.internal): c.body for c in self.db.query(models.TaskComment).all()}
+        self.assertEqual(bodies[False], "<p>see Fix the gate now</p>")
+        self.assertIn('data-ref="task:target1"', bodies[True])
+        self.assertEqual(self.links(), [("comment", f"ticket:{self.t.id}", TARGET, True)])
+
+    def test_a_comment_on_a_ticket_made_in_the_same_flush_counts_for_the_ticket(self):
+        k = models.TaskTicket(id=gen_id(), code="000002", subject="New one", status="new", priority="medium",
+                              requester_email=REQUESTER["email"], watcher_emails=[], created_at=now_iso(), modified_at=now_iso())
+        self.db.add(k)
+        self.db.add(models.TaskComment(id=gen_id(), task_id=k.id, author_email=AGENT["email"], body=f"<p>{link(TARGET)}</p>",
+                                       created_at=now_iso()))
+        self.db.commit()
+        self.assertEqual(self.links(), [("comment", f"ticket:{k.id}", TARGET, False)])
+
+    def test_ticket_search_never_offers_a_confidential_ticket(self):
+        self.db.add(models.TaskTicket(id=gen_id(), code="000003", subject="Printer complaint", status="new", priority="medium",
+                                      requester_email=REQUESTER["email"], watcher_emails=[], confidential_desk="hr",
+                                      created_at=now_iso(), modified_at=now_iso()))
+        self.db.commit()
+        self.assertEqual([x["id"] for x in T.search_tickets(q="printer", user=AGENT, db=self.db)["tickets"]], [self.t.id])
 
     def test_the_backfill_writes_old_notes_once(self):
         n = models.NexusNote(id="note_old1", owner_email=AGENT["email"], title="Old", body=f"<p>{link(TARGET)}</p>")

@@ -26,6 +26,15 @@ _IN_HTML = re.compile(r'data-ref="((?:note|task|job|kb|ticket):[A-Za-z0-9_\-.]{1
 MARK = "record_links.backfill_2026_11_07"
 
 
+_CHIP = re.compile(r'<a\b[^>]*data-type="recordLink"[^>]*>(.*?)</a>', re.S)
+
+
+def unlink(html: str) -> str:
+    """`html` with every record chip turned back into its words (a public
+    ticket reply - routers/tickets._record_ticket_comment)."""
+    return _CHIP.sub(r"\1", html or "") if html and "recordLink" in html else (html or "")
+
+
 def refs_in(html: str) -> list:
     """The record refs a body links to, in order, each once."""
     if not html or "data-ref=" not in html:
@@ -82,9 +91,11 @@ def _source(session, obj):
     if isinstance(obj, models.TaskTicket):
         return f"ticket:{obj.id}", f"ticket:{obj.id}", False, "description"
     if isinstance(obj, models.TaskComment):
-        on_ticket = (session.query(models.TaskTicket.id)
-                     .execution_options(include_confidential=True)   # only "is it a ticket", never its contents
-                     .filter(models.TaskTicket.id == obj.task_id).first()) is not None
+        # A ticket made in this same flush is not in the database yet (autoflush is off).
+        on_ticket = any(isinstance(o, models.TaskTicket) and o.id == obj.task_id for o in session.new) or (
+            session.query(models.TaskTicket.id)
+            .execution_options(include_confidential=True, include_deleted=True)   # only "is it a ticket", never its contents
+            .filter(models.TaskTicket.id == obj.task_id).first()) is not None
         parent = f"ticket:{obj.task_id}" if on_ticket else f"task:{obj.task_id}"
         return f"comment:{obj.id}", parent, bool(obj.internal), "body"
     return None
