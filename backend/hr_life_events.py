@@ -1974,8 +1974,9 @@ def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
         from routers.hr import adopt_pending_role
         adopt_pending_role(db, emp, ev.created_by, ev)
     # _finalize attaches the sealed PDF to the profile's Documents tab for the
-    # envelope's employee - set here, before it does.
-    req.employee_id = emp.id
+    # envelope's employee - set here, before it does. No envelope = signed on paper.
+    if req is not None:
+        req.employee_id = emp.id
     ev.apply_note = note
     start = us_date(ev.effective_date)
     if ev.kind == "offer":
@@ -2143,6 +2144,12 @@ def on_completed(db: Session, req: HrSignRequest) -> None:
     ev = _for(db, req)
     if not ev or ev.status == "completed":
         return
+    _complete(db, ev, req)
+
+
+def _complete(db: Session, ev: HrLifeEvent, req: Optional[HrSignRequest]) -> None:
+    """The completion itself. `req` is None for a packet signed on paper
+    (complete_on_paper) - the scan is the record, there is no envelope."""
     now = _now()
     prev_status = ev.status
     apply = _APPLY.get(ev.kind)
@@ -2165,7 +2172,7 @@ def on_completed(db: Session, req: HrSignRequest) -> None:
         eid = cand.employee_id if cand else ""
     # The federal forms the packet carried (Neil, 11/02/2026): the direct
     # deposit onto Pay & Benefits, the payroll bells - after the hire exists.
-    if eid and _form_entries(req):
+    if eid and req is not None and _form_entries(req):
         emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
         if emp is not None:
             federal_completed(db, req, emp)
@@ -2197,6 +2204,49 @@ def retry_apply(db: Session, ev: HrLifeEvent) -> None:
             db.add(HrDocument(id=str(uuid.uuid4()), employee_id=ev.employee_id, kind="contract",
                               file_name=f"{req.title}.pdf", storage_path=req.final_pdf_path,
                               size_bytes=0, uploaded_by="e-sign", created_at=req.completed_at or _now()))
+    db.commit()
+
+
+PAPER_PREFIX = "paper/"     # storage paths of hiring packets signed on paper (routers/hr.py locks them to Pay & Benefits)
+
+
+def complete_on_paper(db: Session, ev: HrLifeEvent, blob: bytes, filename: str, by: str) -> None:
+    """Signed On Paper (Pranshu, 11/05/2026): a hire done face to face - the
+    person filled in and signed the hiring packet on paper and HR uploads the
+    scan. It completes the packet the way a signed envelope does (hired, in
+    People, checklist ticked, filed in Egnyte); the scan is the record. Only
+    before anything went out for signature - a packet already out has Upload
+    Signed Copy (in person) or Void. The caller holds the row lock; commits."""
+    import hashlib
+    from models import Document, HrDocument
+    from routers import esign
+    import services.sign_uploads as sign_uploads
+    if ev.kind != "hire" or ev.status not in ("intake", "review"):
+        raise PacketError(f"This packet is {ev.status.replace('_', ' ')} - only a hiring packet not yet sent "
+                          "for signature can be marked signed on paper.", 409)
+    cand = db.query(HrCandidate).filter(HrCandidate.id == ev.candidate_id).first() if ev.candidate_id else None
+    if cand is not None and cand.stage == "rejected":
+        raise PacketError("They are Rejected - reopen them first if the hire stands.", 409)
+    clean, ctype = sign_uploads.check(filename or "signed.pdf", blob)
+    path = f"{PAPER_PREFIX}{ev.id}/{uuid.uuid4()}-{clean}"
+    if not esign._storage_put(esign._DOC_BUCKET, path, blob, ctype).is_success:
+        raise PacketError("We couldn't store that file. Please try again in a moment.", 502)
+    ev.inputs = {**(ev.inputs or {}), "paper_path": path, "paper_name": clean, "paper_by": by,
+                 "paper_sha256": hashlib.sha256(blob).hexdigest()}   # reassigned, never mutated (JSON column)
+    # The unsigned drafts are not the record - the scan is (as void_open does).
+    ids = [d.get("documentId") for d in (ev.documents or []) if d.get("documentId")]
+    if ids:
+        db.query(Document).filter(Document.id.in_(ids)).update(
+            {"status": "archived", "archived_at": _now()}, synchronize_session=False)
+    _complete(db, ev, None)
+    note = f"Hiring packet signed on paper - scan uploaded by {person_name(db, by) or by}"
+    ev.apply_note = f"{ev.apply_note}; {note}" if ev.apply_note else note
+    _stage_note(db, ev, note, by=by)
+    if ev.employee_id:
+        ext = clean.rsplit(".", 1)[-1] if "." in clean else "pdf"
+        db.add(HrDocument(id=str(uuid.uuid4()), employee_id=ev.employee_id, kind="contract",
+                          file_name=f"{event_title(ev) or 'Hiring Packet'} (signed on paper).{ext}",
+                          storage_path=path, size_bytes=len(blob), uploaded_by=by, created_at=_now()))
     db.commit()
 
 
@@ -2935,7 +2985,8 @@ def file_one(db: Session, ev: HrLifeEvent, folder: str = "") -> tuple:
     import egnyte_wiring
     import services.egnyte as svc
     req = db.query(HrSignRequest).filter(HrSignRequest.id == ev.sign_request_id).first()
-    if not req or req.status != "completed" or not req.final_pdf_path:
+    paper = (ev.inputs or {}).get("paper_path") or ""      # signed on paper: the scan is what is filed
+    if not paper and (not req or req.status != "completed" or not req.final_pdf_path):
         return False, "The signed packet is not sealed yet."
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == ev.employee_id).first() if ev.employee_id else None
     if not emp:
@@ -2956,12 +3007,16 @@ def file_one(db: Session, ev: HrLifeEvent, folder: str = "") -> tuple:
     sub = _safe_name((setting.egnyte_subfolder if setting else "") or DEFAULT_SUBFOLDERS.get(ev.kind, ""), 60)
     target = svc.norm(f"{folder}/{sub}")
     svc.create_folder(target)
-    blob = esign._storage_fetch(esign._DOC_BUCKET, req.final_pdf_path)
+    blob = esign._storage_fetch(esign._DOC_BUCKET, paper or req.final_pdf_path)
     if not blob.is_success:
         return False, "Could not read the sealed packet from storage."
-    day = (req.completed_at or _now())[:10]
-    name = f"{day} - {event_title(ev) or 'Document'} - {_safe_name(ev.subject_name, 60)} (signed).pdf"
+    day = ((ev.completed_at if paper else req.completed_at) or _now())[:10]
+    ext = paper.rsplit(".", 1)[-1] if "." in paper.rsplit("/", 1)[-1] else "pdf"
+    name = (f"{day} - {event_title(ev) or 'Document'} - {_safe_name(ev.subject_name, 60)} "
+            f"({'signed on paper' if paper else 'signed'}).{ext}")
     svc.upload_file(f"{target}/{name}", blob.content)
+    if paper:
+        return True, f"{target}/{name}"
     req.egnyte_folder = target          # where it went; attachments follow it
     n_att = esign._egnyte_push_attachments(db, req)
     esign._log(db, req.id, "archived", f"filed in Egnyte {target}/{name}"

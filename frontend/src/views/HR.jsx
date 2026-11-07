@@ -30,12 +30,12 @@ import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
-import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading } from '../components/AsyncState';
+import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading, CountSkeleton } from '../components/AsyncState';
 import { useRole, MODULES, MODULE_LEVELS } from '../contexts/RoleContext';
 import { Switch } from '../components/settings/SettingsUI';
 import { setPendingOpen } from '../lib/pendingOpen';
 import TimeAdmin from '../components/TimeAdmin';
-import ModuleTabs from '../components/ModuleTabs';
+import ModuleTabs, { ModuleActions } from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
@@ -76,8 +76,7 @@ import TimeTab from '../people/TimeTab';
 import PayTab from '../people/PayTab';
 import ComplianceTab from '../people/ComplianceTab';
 import { guardRecordLeave } from '../people/useTabDraft';
-import { daysUntil } from '../people/lib';
-import PageTrail from '../components/PageTrail';
+import { daysUntil, INACTIVE_STATUSES, peopleTallies } from '../people/lib';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -116,9 +115,8 @@ const STATUS_META = {
   offboarded: { label: 'Left',       bg: 'var(--mist)',                    fg: 'var(--muted)' },
 };
 
-// The statuses the directory's Inactive tab holds (Neil, Oct 12): Left and
-// Inactive people stay in Nexus with their record, out of the working list.
-const INACTIVE_STATUSES = new Set(['inactive', 'offboarded']);
+// INACTIVE_STATUSES (the Inactive tab's statuses) and peopleTallies (every
+// people count on this screen) live in people/lib.js.
 // Guest (Microsoft 365 guest) and external (no M365 login) rows - one
 // predicate for the whole screen.
 const isExternalPerson = (e) => ['guest', 'external'].includes(e?.identityType || 'internal');
@@ -3466,7 +3464,7 @@ function KpiTile({ label, value, delta, sub, solid, onGo, goTitle, loading }) {
       <span style={{ fontSize: 13.5, fontWeight: 500, color: solid ? 'rgba(255,255,255,.8)' : 'var(--muted)' }}>{label}</span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', color: fg, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-          {loading ? '-' : value}
+          {loading ? <CountSkeleton /> : value}
         </span>
         {delta && (
           <span style={{
@@ -3492,9 +3490,11 @@ function KpiTile({ label, value, delta, sub, solid, onGo, goTitle, loading }) {
   );
 }
 
-// Rounded bar chart (the concept's Revenue card): fully-rounded monthly
-// headcount bars, latest bar solid brand with a value callout, labels under
-// every bar, native tooltips.
+// Flat monthly bar chart (11/05/2026, Neil's flat sweep - it was one fat
+// pill when a single month had joiners): thin bars with barely rounded tops
+// on a baseline rule, heights in proportion to the count, the count over
+// every month that has one, the latest month in the brand color, the rest a
+// quiet tint of it. An empty month is just the baseline. Native tooltips.
 function MonthlyBars({ employees }) {
   // NEW JOINERS per month, from recorded start dates - deliberately NOT a
   // cumulative headcount curve. Most legacy profiles were imported without a
@@ -3519,23 +3519,23 @@ function MonthlyBars({ employees }) {
   const max = Math.max(...buckets.map(b => b.n), 1);
   return (
     <div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', height: 132 }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', height: 132, borderBottom: '1px solid var(--line, var(--border-color))' }}>
         {buckets.map((b, i) => {
           const isLast = i === buckets.length - 1;
           return (
             <div key={i} title={`${b.label}: ${b.n} joined`}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 6, height: '100%' }}>
-              {isLast && (
-                <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{b.n}</span>
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4, height: '100%' }}>
+              {b.n > 0 && (
+                <span style={{ fontSize: 11.5, fontWeight: isLast ? 700 : 600, color: isLast ? 'var(--wk-brand)' : 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{b.n}</span>
               )}
-              <div style={{
-                width: '100%', maxWidth: 30,
-                height: b.n === 0 ? 4 : Math.max(12, Math.round((b.n / max) * 100)),
-                borderRadius: 99,
-                background: isLast
-                  ? 'linear-gradient(180deg, #5f74ec 0%, var(--wk-brand) 100%)'
-                  : 'linear-gradient(180deg, var(--wk-brand-tint) 0%, #ccd5f8 100%)',
-              }} />
+              {b.n > 0 && (
+                <div style={{
+                  width: '100%', maxWidth: 14,
+                  height: Math.max(3, Math.round((b.n / max) * 100)),
+                  borderRadius: '2px 2px 0 0',
+                  background: isLast ? 'var(--wk-brand)' : 'color-mix(in srgb, var(--wk-brand) 32%, transparent)',
+                }} />
+              )}
             </div>
           );
         })}
@@ -3560,11 +3560,8 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
   // 58) - the tiles now add up to the Active tab: Total = Active + Onboarding,
   // and Total + external = the Active tab's count.
   const isExt = isExternalPerson;
-  const nExternal = externals.filter(e => isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active')).length;
   const current = employees.filter(e => !isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active'));
-  const total = current.length;
-  const nActive = current.filter(e => e.status === 'active').length;
-  const nOnboarding = current.filter(e => e.status === 'onboarding').length;
+  const { people: total, active: nActive, onboarding: nOnboarding, external: nExternal } = peopleTallies(employees, externals);
   const joined = current.filter(e => (e.startDate || '').slice(0, 4) === String(new Date().getFullYear())).length;
   const types = EMP_TYPES
     .map(([k, label], i) => ({ key: k, label, color: WK_TYPE_COLORS[i % WK_TYPE_COLORS.length], n: current.filter(e => e.employmentType === k).length }));
@@ -3590,8 +3587,8 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
         <KpiTile label="Departments" value={depts.length} loading={loading} sub="across the company" />
       </div>
 
-      {/* Rounded-bar headcount chart (the concept's Revenue card) */}
-      <StatCardShell Icon={Users} title="New joiners" meta="last 8 months">
+      {/* New joiners per month - a flat bar chart (MonthlyBars) */}
+      <StatCardShell Icon={Users} title="New Joiners" meta="last 8 months">
         <MonthlyBars employees={employees} />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 14px', fontSize: 12.5, color: 'var(--muted)' }}>
           {types.filter(t => t.n > 0).map(t => (
@@ -3882,24 +3879,16 @@ export default function HR({ activeSub, onSubChange }) {
   }, [employees, extEmployees, deletedEmployees, showingDeleted, typeF, companyF, deptF, statusF, search, listTab, cfField, cfF]);
   // Tab counts over the whole directory (not the other filters), so the
   // Inactive count reads the same whichever company or department is open.
-  const tabCounts = useMemo(() => {
-    const c = { active: 0, inactive: 0 };
-    for (const e of [...employees, ...extEmployees]) c[INACTIVE_STATUSES.has(e.status || 'active') ? 'inactive' : 'active'] += 1;
-    return c;
-  }, [employees, extEmployees]);
-  // What each tab count is made of, on hover: the Active tab holds active +
+  const tally = useMemo(() => peopleTallies(employees, extEmployees), [employees, extEmployees]);
+  const tabCounts = { active: tally.current, inactive: tally.inactive };
+  // What each tab count is made of, on hover: the Current tab holds active +
   // onboarding people AND external users, which is why it reads more than
-  // the Active tile above (Charmi, Oct 20 2026: "Active 47" vs "Active 58").
-  const tabTitles = useMemo(() => {
-    const inside = es => es.filter(e => !INACTIVE_STATUSES.has(e.status || 'active'));
-    const nPeople = inside(employees).length;
-    const nExt = inside(extEmployees).length;
-    const nOnb = employees.filter(e => e.status === 'onboarding').length;
-    return {
-      active: `${nPeople} people${nOnb ? ` (${nOnb} onboarding)` : ''} + ${nExt} external`,
-      inactive: 'People who have Left or are Inactive - their record stays in Nexus',
-    };
-  }, [employees, extEmployees]);
+  // the Active tile above (Charmi, Oct 20 2026: "Active 47" vs "Active 58") -
+  // and why it is called Current, not Active (Neil, 11/05/2026).
+  const tabTitles = {
+    active: `${tally.people} people${tally.onboarding ? ` (${tally.onboarding} onboarding)` : ''} + ${tally.external} external`,
+    inactive: 'People who have Left or are Inactive - their record stays in Nexus',
+  };
 
   // Pagination over the FILTERED list, so search/filters always reach the whole
   // directory - a match "on page 10" simply becomes page 1 of the results.
@@ -3913,12 +3902,6 @@ export default function HR({ activeSub, onSubChange }) {
 
   const selected = (showingDeleted ? deletedEmployees : [...employees, ...extEmployees])
     .find(e => e.id === selectedId) || null;
-  const counts = useMemo(() => ({
-    total: employees.length,
-    active: employees.filter(e => e.status === 'active').length,
-    onboarding: employees.filter(e => e.status === 'onboarding').length,
-    depts: new Set(employees.filter(e => e.department).map(e => e.department)).size,
-  }), [employees]);
 
   const onRemovedFromNexus = (id) => {   // Nexus-only removal: drop from the live list and close the profile
     setEmployees(prev => prev.filter(e => e.id !== id));
@@ -3999,40 +3982,14 @@ export default function HR({ activeSub, onSubChange }) {
     ? [{ key: 'hr-people-menu', label: 'People', Icon: Users, landing: 'hr-people', items: PEOPLE_ITEMS },
       ...FLAT_TABS.filter(t => !IN_PEOPLE.has(t.key))]
     : FLAT_TABS;
-  // The heading names the open tab (Neil, Oct 29 2026: "when we click on
-  // Hiring it doesn't change the heading at the top to Hiring, it still says
-  // People") - the page title, its icon and line, and the header breadcrumb.
-  const TAB_LINES = {
-    'hr-people': 'Every person\'s profile, role and status',
-    'hr-hiring': 'Openings, candidates, offers and onboarding',
-    'hr-org': 'Who reports to whom, across every company',
-    'hr-time': 'Time sheets, time off and punch fixes to review',
-    'hr-checklists': 'Onboarding and offboarding steps for each person',
-    'hr-analytics': 'Headcount, attrition, tenure, absence and leave',
-    'hr-reports': 'Filterable people lists - directory, employees, contractors',
-    'hr-exits': 'People leaving and their final settlement',
-    'hr-performance': 'Review cycles and goals',
-  };
-  const headTab = FLAT_TABS.find(t => t.key === sub) || FLAT_TABS[0] || { label: 'People', Icon: Users };
-  const HeadIcon = headTab.Icon || Users;
-
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* Full-bleed (owner call, Jul 28): use the whole viewport width - the
-          .viewport padding provides the slight edge margin */}
-      <div className="view-header" style={{ marginBottom: 18 }}>
-        {/* Icon-chip page title (Work OS grammar - the module's meaning color) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <HeadIcon size={19} />
-          </span>
-          <div className="view-title-group">
-            <PageTrail title={headTab.label} />
-            <h2 style={{ fontFamily: 'var(--wk-font)' }}>{headTab.label}</h2>
-            <p>{TAB_LINES[headTab.key] || 'People, hiring, org structure and leave - one source of truth'}</p>
-          </div>
-        </div>
+          .viewport padding provides the slight edge margin. No page title: the
+          module bar names the module and the lit tab (Neil, 11/06/2026). */}
+        {/* The page's actions ride the module bar's right end (one page header, 11/05/2026). */}
         {sub === 'hr-people' && (
+          <ModuleActions>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center', maxWidth: '100%' }}>
             {hrTeam && (
               <span title="As a manager you see the people who report to you, directly or through your managers - hours and profiles, never pay."
@@ -4064,11 +4021,11 @@ export default function HR({ activeSub, onSubChange }) {
               </button>
             )}
           </div>
+          </ModuleActions>
         )}
-      </div>
 
-      {/* Tabs - desktop renders them centered in the top header; phones keep
-          the in-page strip (ModuleTabs handles both) */}
+      {/* Tabs - desktop renders them in the module bar; phones keep the
+          in-page strip (ModuleTabs handles both) */}
       <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} overflow syncTitle />
 
       {codesOpen && (
@@ -4180,17 +4137,17 @@ export default function HR({ activeSub, onSubChange }) {
                 {/* Worker-type filter (Neil, Aug 24): the directory is the master
                     list, this narrows it to a category. */}
                 <select className="form-input" value={typeF} onChange={e => { setTypeF(e.target.value); setSelectedId(null); }} style={{ ...(isMobile ? PHONE_FILTER : { width: 140 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
-                  <option value="All">All people</option>
+                  <option value="All">All People</option>
                   <option value="employee">Employees</option>
                   <option value="contractor">Contractors</option>
                   <option value="external">External &amp; guests</option>
                 </select>
                 <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ ...(isMobile ? PHONE_FILTER : { width: 150 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
-                  <option value="All">All companies</option>
+                  <option value="All">All Companies</option>
                   {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
                 </select>
                 <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ ...(isMobile ? PHONE_FILTER : { width: 155 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
-                  <option value="All">All departments</option>
+                  <option value="All">All Departments</option>
                   {deptChoices.map(d => <option key={d}>{d}</option>)}
                 </select>
                 {/* Choosing Deleted fetches that list here rather than in an
@@ -4236,12 +4193,12 @@ export default function HR({ activeSub, onSubChange }) {
             </div>
             {!showingDeleted && statusF === 'All' && (
               <div className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: '0 14px', borderBottom: '1px solid var(--line)' }}>
-                {[['active', 'Active'], ['inactive', 'Inactive']].map(([id, label]) => (
+                {[['active', 'Current'], ['inactive', 'Inactive']].map(([id, label]) => (
                   <button key={id} onClick={() => { setListTab(id); setSelectedId(null); setPage(1); }}
                     title={tabTitles[id]}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 12px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${listTab === id ? 'var(--pine)' : 'transparent'}`, color: listTab === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
                     {label}
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: listTab === id ? 'var(--wk-brand-tint)' : 'var(--mist)', color: listTab === id ? 'var(--pine)' : 'var(--muted)' }}>{tabCounts[id]}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: listTab === id ? 'var(--wk-brand-tint)' : 'var(--mist)', color: listTab === id ? 'var(--pine)' : 'var(--muted)' }}>{loading ? <CountSkeleton width="1.2em" /> : tabCounts[id]}</span>
                   </button>
                 ))}
               </div>

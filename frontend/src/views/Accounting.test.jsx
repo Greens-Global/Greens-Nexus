@@ -64,9 +64,9 @@ describe('Accounting view', () => {
   it('shows a skeleton, never nothing, while access is being asked', () => {
     apiMock.getMyAccountingAccess.mockReturnValue(new Promise(() => {}));
     const { container } = render(<Accounting activeSub="overview" onSubChange={() => {}} />);
-    // The heading is the bar tab the page belongs to (Neil, 10/30) - on
-    // overview that is Dashboard, not Accounting.
-    expect(container.querySelector('.skeleton-block, [class*="skeleton"]') || container.textContent.includes('Dashboard')).toBeTruthy();
+    // No page title any more (Neil, 11/06/2026): the module bar names the tab.
+    expect(container.querySelector('.nx-skel')).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Overview' })).toBeNull();
   });
 
@@ -90,8 +90,9 @@ describe('Accounting view', () => {
   it('carries only the header, bar and dashboard helpers - every screen loads on first open', async () => {
     const src = (await import('./Accounting.jsx?raw')).default;
     const upFront = [...src.matchAll(/^import .* from '\.\.\/components\/accounting\/([^']+)';\r?$/gm)].map((m) => m[1]).sort();
-    // ModuleSearch (the header search, chat 10/26 item 13) brings reportControls' `control` with it, as before.
-    expect(upFront).toEqual(['ModuleSearch', 'assumptions', 'dashboard/DashContext', 'dashboard/registry', 'drill', 'prefs', 'reportModel']);
+    // ModuleSearch (the header search, chat 10/26 item 13) brings reportControls' `control` with it, as before;
+    // the search's toolbar slot (BarSearchSlotContext, 11/06/2026) comes from the same module - nothing new loads.
+    expect(upFront).toEqual(['ModuleSearch', 'assumptions', 'dashboard/DashContext', 'dashboard/registry', 'drill', 'prefs', 'reportControls', 'reportModel']);
     expect(src).toMatch(/const OverviewTab = lazy\(/);
   });
 });

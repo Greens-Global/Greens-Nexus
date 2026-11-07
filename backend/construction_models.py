@@ -730,3 +730,67 @@ class VendorCompliance(Base):
     notes              = Column(Text, default="")
     updated_by         = Column(String, default="")
     updated_at         = Column(String, default="")
+
+
+class ConstructionDrawing(Base):
+    """One sheet of a Project's drawing set (Round Two item 9, Neil,
+    11/06/2026): a register, no pins. A new revision of a sheet number makes
+    the one before it `superseded` (kept, `superseded_by` the new row) and
+    bells the crew and the managers. The file is a construction_media row of
+    kind `drawing` (`media_id`) - the same upload and the same Egnyte sweep
+    as every job file, filed to `<job folder>/Drawings`. Never hard-deleted:
+    Remove stamps `deleted_at`."""
+    __tablename__ = "construction_drawings"
+    id            = Column(String, primary_key=True)
+    project_id    = Column(String, nullable=False, index=True)
+    sheet_number  = Column(String, nullable=False, index=True)   # A-201
+    title         = Column(String, default="")
+    discipline    = Column(String, default="")                   # architectural | structural | ...
+    revision      = Column(String, default="")                   # 3, B, IFC
+    revision_on   = Column(String, default="")                   # YYYY-MM-DD
+    media_id      = Column(String, default="")
+    file_url      = Column(String, default="")                   # construction-media, this job's folder
+    file_name     = Column(String, default="")
+    status        = Column(String, default="current", index=True)   # current | superseded
+    superseded_by = Column(String, default="")
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    modified_at   = Column(String, default="")
+    deleted_at    = Column(String, default="")
+
+
+class ConstructionCommitment(Base):
+    """A subcontract or purchase order on a job (Round Two item 8, Neil,
+    11/06/2026) - what the job has promised to pay a vendor, so Committed is
+    real. The vendor is Intacct's (its VENDORID, picked like a sub); what was
+    billed against it is READ from the books (the job's Project-Job lines for
+    that vendor), never typed here. `amount` is the current value; a change
+    to it needs a reason, kept as a `commitment_changed` activity row with
+    before / after. `original_amount` is what was first signed.
+
+    Lien waivers received for it are `waivers` (JSON list, newest last):
+    {id, kind conditional_progress | unconditional_progress |
+    conditional_final | unconditional_final, throughOn, amount, receivedOn,
+    fileUrl, fileName, by, at, removedAt}. A removed waiver keeps its row.
+
+    kind: subcontract | purchase_order. status: active | closed | void -
+    never deleted."""
+    __tablename__ = "construction_commitments"
+    id              = Column(String, primary_key=True)
+    project_id      = Column(String, nullable=False, index=True)
+    number          = Column(String, default="")          # SC-001 / PO-001, per job and kind
+    kind            = Column(String, default="subcontract")
+    vendor_id       = Column(String, default="", index=True)
+    vendor_name     = Column(String, default="")          # Intacct's name, copied
+    title           = Column(String, default="")          # the scope
+    original_amount = Column(Float, default=0.0)
+    amount          = Column(Float, default=0.0)
+    retainage_pct   = Column(Float, default=0.0)          # 0-20, held from each payment
+    status          = Column(String, default="active", index=True)
+    contract_url    = Column(String, default="")          # construction-media, this job's folder
+    contract_name   = Column(String, default="")
+    waivers         = Column(JSON, default=list)
+    notes           = Column(Text, default="")
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+    modified_at     = Column(String, default="")

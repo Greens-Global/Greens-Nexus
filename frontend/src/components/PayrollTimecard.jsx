@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, Info, SlidersHorizontal, Lock, Printer, ClipboardList, FileText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, Info, SlidersHorizontal, Lock, Printer, ClipboardList, ClipboardCheck, FileText } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { useDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
@@ -13,7 +13,7 @@ import WorkLogDrawer, { WorkLogButton } from './WorkLogDrawer';
 import { useIsMobile } from '../lib/useIsMobile';
 import { PHONE_QUERY } from '../lib/keys';
 // Narrower than the team list + the whole grid: the list folds into the picker (11/04/2026).
-const NARROW_QUERY = '(max-width: 1439px)';
+const NARROW_QUERY = '(max-width: 1479px)';   // 40px over the old cut: the list grew 240 -> 280
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
@@ -954,6 +954,23 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       return { key: k, label: `${formatDate(k)} - ${formatDate(isoDate(s + 13 * DAY))}`, current: i === 1, open: !custom && k === start, pick: () => { setCustom(null); setPStart(new Date(s)); } };
     });
   };
+  // Current / Previous / Future beside the period (Neil, 11/06/2026), on the
+  // same series the finder marks "(current)" on.
+  const periodWhen = (() => {
+    if (custom) return '';
+    const today = new Date();
+    if (isMonthly) {
+      const base = data?.periodStart ? new Date(data.periodStart + 'T00:00') : pStart;
+      const d = (base.getFullYear() - today.getFullYear()) * 12 + base.getMonth() - today.getMonth();
+      return d === 0 ? 'Current' : d < 0 ? 'Previous' : 'Future';
+    }
+    const cur = isoDate(periodStartFor(today).getTime());
+    return start === cur ? 'Current' : start < cur ? 'Previous' : 'Future';
+  })();
+  const periodWhenMark = periodWhen && (
+    <span data-testid="period-when" title={periodWhen === 'Current' ? 'This is the current pay period' : `Not the current pay period - this one is ${periodWhen === 'Previous' ? 'in the past' : 'ahead'}`}
+      style={{ fontSize: 11.5, fontWeight: 700, whiteSpace: 'nowrap', padding: '0 6px', color: periodWhen === 'Current' ? 'var(--wk-brand)' : 'var(--ink)' }}>{periodWhen}</span>
+  );
   const goToDate = (iso) => { setCustom(null); setPStart(anchorForStart(iso, isMonthly ? 'fixed' : 'hourly')); };
   // Computers only: the phone's day cards switch between two weeks.
   const onCustom = (!self && !isFixed && !phone) ? setCustom : null;
@@ -973,6 +990,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {custom
         ? <button className="icon-btn" aria-label="Back to the pay period" title="Back to the pay period" onClick={() => setCustom(null)} style={inSidebar ? sideArrow : { padding: 6 }}><X size={inSidebar ? 14 : 16} /></button>
         : <button className="icon-btn" aria-label="Next pay period" onClick={() => (isMonthly ? shiftMonth(1) : shift(1))} style={inSidebar ? sideArrow : { padding: 6 }}><ChevronRight size={inSidebar ? 14 : 16} /></button>}
+      {periodWhenMark}
     </div>
   );
   const T = data?.totals;
@@ -1562,8 +1580,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       const so = w.week <= todayDs && todayDs <= wkEnd;
       return (
         <div className="pr-days-week ts-pwk">
-          <span>Total hours clocked for week of {formatMonthDayNumeric(w.week, true)} to {formatMonthDayNumeric(wkEnd, true)}{so ? ' (so far)' : ''}: {hhmm(weekTotals[w.week]?.min || 0)}</span>
-          <small>Overtime {weekStats[w.week]?.ot ? hhmm(weekStats[w.week].ot) : '-'}{showPay ? ` · Est. Pay ${fmtM(weekStats[w.week]?.pay || 0)}` : ''}</small>
+          <span>Week of {formatMonthDayNumeric(w.week, true)} - {formatMonthDayNumeric(wkEnd, true)}{so ? ' (so far)' : ''} <span className="ts-wx">Total Hours: <b>{hhmm(weekTotals[w.week]?.min || 0)}</b></span></span>
+          <small>Overtime: <b>{weekStats[w.week]?.ot ? hhmm(weekStats[w.week].ot) : 'None'}</b>{showPay && <> <span className="ts-wx">Wages: <b>{fmtM(weekStats[w.week]?.pay || 0)}</b></span></>}</small>
         </div>
       );
     };
@@ -1776,17 +1794,24 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // folds into the picker, which then carries its filter and review words.
   const narrow = useIsMobile(NARROW_QUERY);
   const showRail = !self && !phone && !narrow;
+  // The list's own search, in its header (Neil, 11/06/2026). The team rows
+  // carry no employee code, so it matches the name and the work email.
+  const [railQ, setRailQ] = useState('');
+  const railMatch = (p) => {
+    const q = railQ.trim().toLowerCase();
+    return !q || (p.name || '').toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q);
+  };
   const pickable = people.filter(p => inFilter(p.email) && (showRail || !onlyMissing || (exByEmail[p.email]?.missing || 0) > 0));
   // Everyone on the period's team list (salaried people too - the exception
   // counts only cover hourly ones), with their counts; most to fix first
   // (Neil, Oct 22: pick the period, then all its people are listed).
   const sidebar = people.map(p => ({ ...p, missing: exByEmail[p.email]?.missing || 0, exceptions: exByEmail[p.email]?.exceptions || 0 }))
     .sort((a, b) => (b.missing + b.exceptions) - (a.missing + a.exceptions) || a.name.localeCompare(b.name))
-    .filter(p => inFilter(p.email) && (!onlyMissing || p.missing > 0));
+    .filter(p => inFilter(p.email) && (!onlyMissing || p.missing > 0) && railMatch(p));
   const filterSel = (value, onChange, label, options) => options.length > 1 && (
     <select className="form-input" value={value} onChange={e => onChange(e.target.value)} aria-label={label}
       style={{ fontSize: 12, padding: '4px 6px', width: desk ? 'auto' : '100%' }}>
-      <option value="">All {label === 'Company' ? 'companies' : 'departments'}</option>
+      <option value="">All {label === 'Company' ? 'Companies' : 'Departments'}</option>
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
   );
@@ -1826,9 +1851,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const payrollToolbar = (desk && !self && !phone) ? (
     <div style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       {periodNav(true)}
-      <EmployeeCombobox search people={pickable} value={email} onChange={setEmail} placeholder="Search by name"
+      {/* With the list on screen its header carries the search (Neil, 11/06/2026). */}
+      {!showRail && <EmployeeCombobox search people={pickable} value={email} onChange={setEmail} placeholder="Search by name"
         labelFor={pickLabel}
-        style={{ flex: '0 1 240px', minWidth: 180 }} />
+        style={{ flex: '0 1 240px', minWidth: 180 }} />}
       {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
       {filterSel(dept, setDept, 'Department', depts)}
       {missingOnly}
@@ -1838,31 +1864,40 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     </div>
   ) : null;
   const employeeSidebar = showRail ? (
-    <div data-tour="pr-sidebar" style={{ width: 240, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
+    // As tall as the Time Sheet beside it (Neil, 11/06/2026): the rail stretches
+    // with the row and its list scrolls inside, so the list never sets the height.
+    <div data-tour="pr-sidebar" style={{ width: 280, flexShrink: 0, alignSelf: 'stretch', minHeight: 420, display: 'flex', flexDirection: 'column', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
         {!desk && (
         <div style={{ padding: '8px 10px 6px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 5, borderBottom: '1px solid var(--line)' }}>
           {periodNav(true)}
-          {/* The person picker lives here, with the period and the list (Neil, Oct 29 2026). */}
-          <EmployeeCombobox people={pickable} value={email} onChange={setEmail} placeholder="Find someone..."
-            labelFor={pickLabel}
-            style={{ minWidth: 0, border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '6px 9px', background: 'var(--card)' }} />
           {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
           {filterSel(dept, setDept, 'Department', depts)}
           {iifButton}
         </div>
         )}
-      <div style={{ maxHeight: 560, overflowY: 'auto', borderRadius: '0 0 14px 14px' }}>
       {exceptions.length > 0 && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', fontSize: 11.5, fontWeight: 500, color: 'var(--ink)', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
           <input type="checkbox" checked={onlyMissing} onChange={e => setOnlyMissing(e.target.checked)} /> Only People With Missing Punches
         </label>
       )}
-      <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ flex: 1 }}>Employee</span>
-        <span className="ts-rmark" title="Where the time sheet is in review" aria-label="Review" />
-        <span style={{ width: 16, textAlign: 'center' }} title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
+      <div style={{ padding: '6px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
+        {/* The search IS the column's header (Neil, 11/06/2026). */}
+        <input type="search" value={railQ} placeholder="Search" aria-label="Search people"
+          onChange={e => setRailQ(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape' && railQ) { e.preventDefault(); e.stopPropagation(); setRailQ(''); } }}
+          style={{ flex: 1, minWidth: 0, fontSize: 12, fontFamily: 'var(--wk-font)', padding: '4px 8px', border: '1px solid var(--wk-line2)', borderRadius: 6, background: 'var(--card)', color: 'var(--ink)' }} />
+        <span className="ts-rmark" role="img" aria-label="Review Status"
+          title={'Review Status\nSigned: filled check\nApproved, Waiting for Signature: outline check\nWaiting for Review: dot\nSent Back: back arrow\nHR Correcting: lock\nBlank: not reviewed yet'}>
+          <ClipboardCheck size={14} aria-hidden="true" />
+        </span>
+        <span style={{ width: 16, textAlign: 'center' }} role="img" aria-label="Missing Punches"
+          title="Missing Punches: clock-outs or break ends not recorded">M</span>
+        <span style={{ width: 22, textAlign: 'right' }} role="img" aria-label="Exceptions"
+          title="Exceptions: punches outside the work site, edited punches and long breaks">E</span>
       </div>
-      {!sidebar.length && <div style={{ padding: '12px', fontSize: 12, color: 'var(--muted)' }}>Nobody matches this filter.</div>}
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+      <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', borderRadius: '0 0 14px 14px' }}>
+      {!sidebar.length && <div style={{ padding: '12px', fontSize: 12, color: 'var(--muted)' }}>{railQ.trim() ? `Nobody matches "${railQ.trim()}".` : 'Nobody matches this filter.'}</div>}
       {sidebar.map(p => {
         const sel = p.email === email;
         return (
@@ -1871,11 +1906,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             <SideAvatar name={p.name} email={p.email} photos={photos} />
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
             <ReviewMark status={p.review} />
-            <span style={{ width: 16, textAlign: 'center', color: '#b91c1c', fontWeight: 800 }}>{p.missing || ''}</span>
-            <span style={{ width: 22, textAlign: 'right', color: '#b45309', fontWeight: 800 }}>{p.exceptions || ''}</span>
+            <span style={{ width: 16, textAlign: 'center', color: '#b91c1c', fontWeight: 800 }} title={p.missing ? `${p.missing} missing punch${p.missing === 1 ? '' : 'es'}` : undefined}>{p.missing || ''}</span>
+            <span style={{ width: 22, textAlign: 'right', color: '#b45309', fontWeight: 800 }} title={p.exceptions ? `${p.exceptions} exception${p.exceptions === 1 ? '' : 's'}` : undefined}>{p.exceptions || ''}</span>
           </button>
         );
       })}
+    </div>
     </div>
     </div>
   ) : null;
@@ -1972,9 +2008,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       return (
         <tr key={i} className="ts-wk">
           <td colSpan={cols}>
-            Total hours clocked for week of {formatMonthDayNumeric(r.week, true)} to {formatMonthDayNumeric(wkEndOf(r.week), true)}{so ? ' (so far)' : ''}{custom && (r.week < start || wkEndOf(r.week) > end) ? ' (in range)' : ''}: <b>{hhmm(weekTotals[r.week]?.min || 0)}</b>
-            {!isFixed && <span className="ts-wx">Overtime <b>{weekStats[r.week]?.ot ? hhmm(weekStats[r.week].ot) : '-'}</b></span>}
-            {showPay && !isFixed && <span className="ts-wx">Wage <b>{fmtM(weekStats[r.week]?.pay || 0)}</b></span>}
+            {/* Week of 10/18 - 10/24  Total Hours: 35:20  Overtime: None  Wages: $706.67
+                - labels regular, values bold (Neil, 11/06/2026). */}
+            Week of {formatMonthDayNumeric(r.week, true)} - {formatMonthDayNumeric(wkEndOf(r.week), true)}{so ? ' (so far)' : ''}{custom && (r.week < start || wkEndOf(r.week) > end) ? ' (in range)' : ''}
+            <span className="ts-wx">Total Hours: <b>{hhmm(weekTotals[r.week]?.min || 0)}</b></span>
+            {!isFixed && <span className="ts-wx">Overtime: <b>{weekStats[r.week]?.ot ? hhmm(weekStats[r.week].ot) : 'None'}</b></span>}
+            {showPay && !isFixed && <span className="ts-wx">Wages: <b>{fmtM(weekStats[r.week]?.pay || 0)}</b></span>}
           </td>
         </tr>
       );
@@ -2343,20 +2382,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th className="ts-date">Date</th>
                 <th>In</th>
                 <th>Out</th>
-                <th className="r" title="Lunch taken out of a long shift that recorded no break">Deducted Time</th>
+                <th title="Lunch taken out of a long shift that recorded no break">Deducted Time</th>
                 <th>Category</th>
-                <th className="r" title="Hours of this punch pair - its In to its Out; a shift's rows add up to its paid time">Punch</th>
-                <th className="r" title="The day's total">Day Total</th>
+                <th title="Hours of this punch pair - its In to its Out; a shift's rows add up to its paid time">Punch</th>
+                <th title="The day's total">Day Total</th>
                 {isFixed ? <>
                   <th title="Present, Half Day, Absent, Weekend, Holiday or the time off that covers the day">Day</th>
                   {icp && <th title="The day's credit: Full at 8 hours worked, Half at 4, None below - or paid leave from the balance">Credit</th>}
-                  {icp && <th className="r" title="Hours this day adds to the month-end pool: past 9 on a full day, past 4 on a half day, every hour of a day with no credit, weekend and holiday hours not paid as Extra Time">Pool</th>}
+                  {icp && <th title="Hours this day adds to the month-end pool: past 9 on a full day, past 4 on a half day, every hour of a day with no credit, weekend and holiday hours not paid as Extra Time">Pool</th>}
                   {icp && <th title="Hours claimed with a note to be paid at 1.35x - only hours past 9 on a workday, every hour on a weekend or holiday">Extra Time</th>}
-                </> : <th className="r" title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×">OT</th>}
+                </> : <th title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×">OT</th>}
                 <th>Location</th>
-                {showPay && isFixed && <th className="r" title="What the day does to the salary: a deduction, weekend pay or Extra Time">Effect on Pay</th>}
-                {showPay && !isFixed && <th className="r" title="The rate in effect that day">{data.contractor ? 'Rate' : 'Pay Rate'}</th>}
-                {showPay && !isFixed && <th className="r">{data.contractor ? 'Amount' : 'Wage'}</th>}
+                {showPay && isFixed && <th title="What the day does to the salary: a deduction, weekend pay or Extra Time">Effect on Pay</th>}
+                {showPay && !isFixed && <th title="The rate in effect that day">{data.contractor ? 'Rate' : 'Pay Rate'}</th>}
+                {showPay && !isFixed && <th>{data.contractor ? 'Amount' : 'Wage'}</th>}
                 <th><span className="dk-sr-only">Actions</span></th>
               </tr>
             </thead>

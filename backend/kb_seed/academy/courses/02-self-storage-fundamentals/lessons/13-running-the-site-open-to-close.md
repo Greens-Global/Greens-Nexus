@@ -21,6 +21,42 @@ A storage site runs on small habits done every day. A gate left open, a unit mar
 
 ## The Opening Routine
 
+```figure
+{
+  "kind": "steps",
+  "title": "Before the First Customer",
+  "items": [
+    {
+      "label": "Disarm and check overnight",
+      "note": "alarm and gate events, the cameras"
+    },
+    {
+      "label": "Walk the gate and fence",
+      "note": "the gate opens and closes; the keypad works"
+    },
+    {
+      "label": "Open the office",
+      "note": "lights, computer, the management system, phones"
+    },
+    {
+      "label": "Callbacks first",
+      "note": "voicemail, web leads, reservations"
+    },
+    {
+      "label": "Count the drawer",
+      "note": "against the opening bank"
+    },
+    {
+      "label": "Today's list",
+      "note": "move-ins, move-outs, payments, collections"
+    },
+    {
+      "label": "Punch in on Nexus"
+    }
+  ]
+}
+```
+
 Before the first customer arrives:
 
 - [ ] Disarm the alarm and note any overnight alarm or gate events.

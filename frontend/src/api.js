@@ -506,6 +506,8 @@ export const api = {
   getPersonProfile: (email) => req(`/tasks/people/${encodeURIComponent(email)}`),
   createTask: (data) => req("/tasks", { method: "POST", body: JSON.stringify(data) }),
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // Title and done-ness of tasks a record link shows (11/07/2026): { tasks: { id: {...} } }, unseen ones left out.
+  taskStates: (ids) => req(`/tasks/states?ids=${encodeURIComponent((ids || []).join(","))}`),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
   bulkUpdateTasks: (ids, patch) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }),
   // The batch bar's Dates action (Oct 22 2026): { op: shift|set_due|set_start|clear_due,
@@ -628,6 +630,8 @@ export const api = {
   deleteTaskCustomStatus: (id) => req(`/tasks/meta/custom-statuses/${id}`, { method: "DELETE" }),
   // Projects / portfolios / departments / member requests
   getTaskProjects: () => req("/task-projects"),
+  // A live task list in a note (11/07/2026): source mine | project:<id>, show open | all.
+  taskListEmbed: (source, show = "open") => req(`/tasks/embed?source=${encodeURIComponent(source)}&show=${encodeURIComponent(show)}`),
   createTaskProject: (data) => req("/task-projects", { method: "POST", body: JSON.stringify(data) }),
   updateTaskProject: (id, data) => req(`/task-projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   // One shared dashboard chart at a time: upsert / remove by id (Oct 2026).
@@ -736,6 +740,8 @@ export const api = {
   // The unscoped call above is the agent queue and carries every ticket in the
   // company, so filtering in the browser would still ship them all.
   getMyTickets: () => req("/task-tickets?mine=true"),
+  // [[ record link picker (11/07/2026): tickets the caller may open, by subject or code.
+  searchTickets: (q, limit = 6) => req(`/task-tickets/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   createTaskTicket: (data) => req("/task-tickets", { method: "POST", body: JSON.stringify(data) }),
   // Create Task from Ticket (Oct 14 2026): one call, both sides linked -> { task, ticket }.
   createTaskFromTicket: (id) => req(`/task-tickets/${id}/tasks`, { method: "POST" }),
@@ -914,6 +920,10 @@ export const api = {
   // Find Folder on an asset's Egnyte Folder (11/03/2026): the folders whose name could be
   // the asset's (or `q`'s) - { configured, site, roots, pinned, pinnedFound, match, why, candidates, message }.
   findAssetEgnyteFolders: (id, q = "") => req(`/property-assets/${encodeURIComponent(id)}/egnyte-folders${q ? `?q=${encodeURIComponent(q)}` : ""}`, { timeoutMs: 45_000 }),
+  // Plans & Docs from the asset's connected Egnyte folder (11/05/2026) - read only, viewers
+  // included: { connected, configured, folder, mayChange, missing?, error?, path, folders, files, webUrl }.
+  assetEgnyteFolder: (id, path = "") => req(`/property-assets/${encodeURIComponent(id)}/egnyte/folder${path ? `?path=${encodeURIComponent(path)}` : ""}`, { timeoutMs: 60_000 }),
+  assetEgnyteFile: (id, path, inline = false) => reqBlob(`/property-assets/${encodeURIComponent(id)}/egnyte/file?path=${encodeURIComponent(path)}${inline ? "&inline=true" : ""}`, { timeoutMs: 60_000 }),
 
   // External Links
   getExternalLinks: () => req("/external-links"),
@@ -2572,6 +2582,8 @@ export const api = {
   // Print And Send (11/04/2026): signed in person - print it, then upload the signed copy.
   printInPerson:       (eid)      => reqBlob(`/hr/life-events/${eid}/print`),
   uploadSignedInPerson: (eid, file) => { const fd = new FormData(); fd.append('file', file); return req(`/hr/life-events/${eid}/signed-in-person`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
+  // A hiring packet filled in and signed on paper before it was sent - the scan completes it (11/05/2026).
+  uploadSignedOnPaper:  (eid, file) => { const fd = new FormData(); fd.append('file', file); return req(`/hr/life-events/${eid}/signed-on-paper`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
   offerJdFilePdf:      (eid)      => reqBlob(`/hr/life-events/${eid}/jd-file`),
   verifyAndSendPacket: (eid, data) => req(`/hr/life-events/${eid}/verify-and-send`, { method: 'POST', body: JSON.stringify(data) }),
   // Ask the candidate for their details again - a fresh link, the old one dead.
@@ -2582,6 +2594,14 @@ export const api = {
   listPacketDocuments: ({ q = '', status = '' } = {}) => req(`/hr/packet-documents?${new URLSearchParams({ q, status })}`),
   // Documents > Documents (Neil, 10/31/2026): the one list, and a template's page.
   getDocumentLibrary: () => req('/documents/library'),
+  // Sheets and live editing (Neil, 11/05/2026, routers/documents.py "Working together").
+  shareDocument: (id, email, can) => req(`/documents/${encodeURIComponent(id)}/share`, { method: 'PUT', body: JSON.stringify({ email, can }) }),
+  unshareDocument: (id, email) => req(`/documents/${encodeURIComponent(id)}/share/${encodeURIComponent(email)}`, { method: 'DELETE' }),
+  documentHead: (id) => req(`/documents/${encodeURIComponent(id)}/head`),
+  documentCollab: (id) => req(`/documents/${encodeURIComponent(id)}/collab`),
+  documentCollabSeed: (id, data) => req(`/documents/${encodeURIComponent(id)}/collab/seed`, { method: 'POST', body: JSON.stringify(data) }),
+  documentCollabReset: (id) => req(`/documents/${encodeURIComponent(id)}/collab/reset`, { method: 'POST' }),
+  documentMergeValues: (id) => req(`/documents/${encodeURIComponent(id)}/merge-values`),
   docTemplatePreviewPdf: (id) => reqBlob(`/documents/templates/${id}/preview`),
   // Signs Once (Oct 14): the company signs a packet once - a one-time code,
   // then the signature goes on every packet until someone else holds the role.
@@ -2999,6 +3019,10 @@ export const api = {
   kbCertificatePdf: (id) => reqBlob(`/kb/certificates/${id}/pdf`),
   kbCompliance: (params = {}) => req(`/kb/compliance?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
   kbComplianceNudge: (emails) => req("/kb/compliance/nudge", { method: "POST", body: JSON.stringify({ emails }) }),
+  // Learning paths and the catalog (Neil, 11/07/2026)
+  kbCatalog: () => req("/kb/catalog"),
+  kbPlan: (id) => req(`/kb/plans/${id}`),
+  kbEnrollPlan: (id) => req(`/kb/plans/${id}/enroll`, { method: "POST" }),
   // the help widget's corpus, in the shape docsSearch.buildKbSections reads
   kbCorpusDocs: () => req("/kb/pages?status=approved").then((rows) => (rows || []).map((d) => ({
     id: d.id, title: d.title, status: d.status, doc_code: d.code, doc_type: d.type_label, departments: (d.collection || []).map((c) => c.name).join(", "),
@@ -3331,6 +3355,9 @@ export const api = {
   noteUnshare: (id, email) => req(`/notes/${encodeURIComponent(id)}/share/${encodeURIComponent(email)}`, { method: "DELETE" }),
   noteVersions: (id) => req(`/notes/${encodeURIComponent(id)}/versions`),
   noteRestoreVersion: (id, versionId) => req(`/notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`, { method: "POST" }),
+  // Record Links (11/06/2026): the notes the caller may read that link to a
+  // record - ref is "<kind>:<id>" (note | task | job | kb), as a [[ link stores it.
+  noteMentions: (ref) => req(`/notes/mentions?ref=${encodeURIComponent(ref)}`),
   // Working together (Oct 30 2026): the open note's heartbeat (who else is
   // here, and its rev), and for a shared note's editors the live co-typing
   // key, channel and shared state, seeded once (409 = someone else did).
@@ -3616,6 +3643,7 @@ api.addPunchItem = (jobId, data) => req(`/construction/projects/${encodeURICompo
 api.setPunchDone = (taskId, done) => req(`/construction/punch/${encodeURIComponent(taskId)}/done`, { method: 'POST', body: JSON.stringify({ done: !!done }) });
 api.setPunchVerified = (taskId, verified) => req(`/construction/punch/${encodeURIComponent(taskId)}/verify`, { method: 'POST', body: JSON.stringify({ verified: !!verified }) });
 api.getJobConnected = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/connected`);
+api.newJobMeeting = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/meetings`, { method: 'POST' });
 api.getJobLabor = (jobId, from = '', to = '') => req(`/construction/projects/${encodeURIComponent(jobId)}/labor?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(to)}`);
 api.getJobForms = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/forms`);
 api.getJobPhotos = (jobId) => req(`/construction/projects/${encodeURIComponent(jobId)}/photos`);
@@ -3685,6 +3713,16 @@ api.addJobSub = (jobId, data) => _post(`${_jp(jobId)}/subs`, data);
 api.endJobSub = (linkId) => _post(`/construction/sub-links/${encodeURIComponent(linkId)}/end`, {});
 api.getVendorCompliance = (vendorId) => req(`/construction/vendors/${encodeURIComponent(vendorId)}/compliance`);
 api.saveVendorCompliance = (vendorId, data) => req(`/construction/vendors/${encodeURIComponent(vendorId)}/compliance`, { method: 'PUT', body: JSON.stringify(data) });
+// Drawings, the current set (Round Two item 9, 11/06/2026; routers/construction_drawings.py).
+api.getJobDrawings = (jobId) => req(`${_jp(jobId)}/drawings`);
+api.addJobDrawing = (jobId, data) => _post(`${_jp(jobId)}/drawings`, data);
+api.removeJobDrawing = (drawingId) => req(`/construction/drawings/${encodeURIComponent(drawingId)}`, { method: 'DELETE' });
+// Commitments and lien waivers (Round Two item 8, 11/06/2026; routers/construction_money.py):
+// read with the job's Money (getJobMoney), kept by its managers with Accounting access.
+api.addCommitment = (jobId, data) => _post(`${_jp(jobId)}/commitments`, data);
+api.updateCommitment = (id, data) => req(`/construction/commitments/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
+api.addCommitmentWaiver = (id, data) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers`, data);
+api.removeCommitmentWaiver = (id, waiverId) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers/${encodeURIComponent(waiverId)}/remove`, {});
 
 // Mark Up "Attach to" a job photo (lib/markup.js source kind construction_media).
 async function _attachConstructionMarkup(source, { name, blob }) {

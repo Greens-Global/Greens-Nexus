@@ -785,23 +785,27 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
     opening People > Time's Time Sheets to Review list (Oct 22). Send Back
     needs a note and Agree may be refused for a still-open period, so these are
     "Open in Nexus" rather than one-click actions."""
-    import timesheet_review as tsr
+    # People > Time's own list, from its cache (11/05/2026): building it is the
+    # costly part of the briefing, and the two used to build it twice.
+    from routers.timesheet_reviews import waiting_for
+    reviews = waiting_for(db, (email or "").lower())["reviews"]
     rows = []
-    for r in tsr.waiting_on(db, email):
-        q = tsr.queue_row(db, r)
+    for q in reviews:
+        if q.get("notSubmitted"):
+            continue
         hours = f"{q['workedMin'] // 60}h {q['workedMin'] % 60:02d}m"
         rows.append({
             "title": f"Review {q['name']}'s Time Sheet",
-            "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - {hours}"
+            "detail": f"{_fmt_date(q['periodStart'])} - {_fmt_date(q['periodEnd'])} - {hours}"
                       + (" - resubmitted" if q["resubmitted"] else ""),
             # That person's card on that period - the same place the bell opens.
-            "url": _timecard_url(r.employee_email, r.period_start, r.pay_type),
+            "url": _timecard_url(q["employeeEmail"], q["periodStart"], q["payType"]),
             "module": "timecard",
             **_since(q.get("submittedAt")),
         })
     # Oct 17: the manager reviews first, so a closed period nobody submitted
     # is theirs to act on too...
-    for q in tsr.not_reviewed(db, email):
+    for q in (q for q in reviews if q.get("notSubmitted")):
         hours = f"{q['workedMin'] // 60}h {q['workedMin'] % 60:02d}m"
         rows.append({
             "title": f"Review {q['name']}'s Time Sheet",

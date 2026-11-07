@@ -14,6 +14,11 @@
 // On the web they sit, named, at the right of the toolbar, which never
 // scrolls them out of sight - the formatting wraps instead - and the "/" menu
 // offers them too (Neil, Oct 31 2026: "i can't seem to find them").
+//
+// Record Links (Neil, 11/06/2026, recordLink.jsx): [[ opens a picker of
+// notes, tasks, jobs and Knowledge Base pages and puts a chip that opens the
+// record; Link to a Record sits in the toolbar, the phone bar's Aa row and
+// the "/" menu.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -22,13 +27,18 @@ import {
   Undo2, Redo2, Bold, Italic, Underline, Strikethrough, Highlighter, Code, Heading1, Heading2, Heading3,
   List, ListOrdered, ListChecks, IndentIncrease, IndentDecrease, Quote, SquareCode, AlignLeft, AlignCenter,
   AlignRight, Link2, Table as TableIcon, Minus, CalendarDays, Pilcrow, ListPlus, Rows3, Columns3, Trash2, Check, X,
-  Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, PenTool,
+  Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, PenTool, FileSymlink,
+  Info, Lightbulb, TriangleAlert, ListCollapse,
+  ListTodo,
 } from 'lucide-react';
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { useKeyboardInset, keyboardUp } from '../lib/useVisualViewport';
 import BoardPicker from './board/BoardPicker';
+import { useRecordSearch, recordContent, RECORD_META } from './recordLink';
+import { boxesKey, syncBoxesFromTasks, listenForBoxTicks } from './checklistTasks';
+import { TextSelection } from '@tiptap/pm/state';
 import {
   EDITED, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
   canRecord, canDictate, clock,
@@ -49,6 +59,12 @@ const SLASH = [
   { key: 'code', label: 'Code Block', hint: 'Monospaced text', icon: SquareCode, keys: 'pre snippet', run: (c) => c.toggleCodeBlock() },
   { key: 'table', label: 'Table', hint: '3 x 3 with a header row', icon: TableIcon, keys: 'grid', run: (c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }) },
   { key: 'divider', label: 'Divider', hint: 'A horizontal rule', icon: Minus, keys: 'hr line rule', run: (c) => c.setHorizontalRule() },
+  { key: 'livelist', label: 'Live Task List', hint: 'My tasks or a project, always up to date', icon: ListTodo, keys: 'tasks project embed view live list todo', run: (c) => c.insertLiveList() },
+  { key: 'callout', label: 'Callout', hint: 'A note set apart in a box', icon: Info, keys: 'note box info aside', run: (c) => c.setCallout('info') },
+  { key: 'tip', label: 'Tip Callout', hint: 'A helpful tip in a box', icon: Lightbulb, keys: 'callout hint idea', run: (c) => c.setCallout('tip') },
+  { key: 'warning', label: 'Warning Callout', hint: 'Something to watch out for', icon: TriangleAlert, keys: 'callout caution danger alert', run: (c) => c.setCallout('warning') },
+  { key: 'toggle', label: 'Toggle', hint: 'A section that folds away', icon: ListCollapse, keys: 'collapse fold expand details accordion', run: (c) => c.setToggle() },
+  { key: 'record', label: 'Link to a Record', hint: 'A note, task, job or page - or type [[', icon: FileSymlink, keys: 'page note task job board kb knowledge mention backlink [[', run: (c) => c.insertContent('[[') },
   { key: 'date', label: "Today's Date", hint: 'Insert the date', icon: CalendarDays, keys: 'today now', run: (c) => c.insertContent(`${formatDate(new Date())} `) },
 ];
 
@@ -133,10 +149,10 @@ function MediaStatus({ voice, dictation, busy, error, onDismiss }) {
 }
 
 export default function NoteEditor({
-  value, onChange, readOnly = false, people, placeholder = "Write anything. Type / for blocks, @ to mention someone.",
-  onMakeTask, autoFocus = false, toolbar = true, compact = false, onBusy, collab = null, onRemoteChange,
+  value, onChange, readOnly = false, people, placeholder = "Write anything. Type / for blocks, @ to mention someone, [[ to link a record.",
+  onMakeTask, autoFocus = false, toolbar = true, compact = false, onBusy, collab = null, onRemoteChange, noteId = '',
 }) {
-  const [menu, setMenu] = useState(null);   // { kind: 'slash'|'mention', query, from, index }
+  const [menu, setMenu] = useState(null);   // { kind: 'slash'|'mention'|'record', query, from, index }
   const [link, setLink] = useState(null);   // { href } while the link bar is open
   const [boardPick, setBoardPick] = useState(false);   // Insert Board picker (board/BoardPicker.jsx)
   const changeRef = useRef(onChange);
@@ -159,6 +175,10 @@ export default function NoteEditor({
   const videoInput = useRef(null);
   const mediaRef = useRef(() => {});
   const actRef = useRef({});
+  // Checklist lines that are tasks (checklistTasks.js): when the set of task
+  // boxes changes (the note loads, a line becomes a task), their ticks are
+  // brought up to date with the tasks - editors only.
+  const boxesRef = useRef(() => {});
 
   const editor = useEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,7 +198,9 @@ export default function NoteEditor({
       if (touched.current && !theirs) changeRef.current?.(ed.getHTML());
       else if (theirs) remoteRef.current?.(ed.getHTML());
       scanRef.current(ed);
+      boxesRef.current(ed);
     },
+    onCreate: ({ editor: ed }) => boxesRef.current(ed),
     onSelectionUpdate: ({ editor: ed }) => scanRef.current(ed),
     editorProps: {
       attributes: { class: 'nt-prose', 'aria-label': 'Note text', role: 'textbox', 'aria-multiline': 'true' },
@@ -305,8 +327,10 @@ export default function NoteEditor({
   // The live session reads the words to save from this editor.
   useEffect(() => { if (editor && collab) collab.bindEditor(editor); }, [editor, collab]);
 
+  const records = useRecordSearch(menu?.kind === 'record' ? menu.query : null, noteId);
   const items = useMemo(() => {
     if (!menu) return [];
+    if (menu.kind === 'record') return records.rows;
     if (menu.kind === 'mention') return matchPeople(people || [], menu.query, { limit: 6 });
     const q = menu.query.toLowerCase();
     // Dictate, Voice Note and Video from the "/" menu too, where the browser can.
@@ -316,8 +340,8 @@ export default function NoteEditor({
       { key: 'video', label: 'Video', hint: 'Add a clip from this computer', icon: Clapperboard, keys: 'movie clip film', act: 'video' },
       { key: 'board', label: 'Board', hint: 'Insert one of your boards', icon: PenTool, keys: 'whiteboard drawing sketch markup', act: 'board' },
     ].filter(Boolean);
-    return [...SLASH, ...(live ? [] : capture)].filter((s) => !q || s.label.toLowerCase().includes(q) || (s.keys || '').includes(q)).slice(0, 12);
-  }, [menu, people, dictateOk, recordOk, live]);
+    return [...SLASH, ...(live ? [] : capture)].filter((s) => !q || s.label.toLowerCase().includes(q) || (s.keys || '').includes(q)).slice(0, 24);
+  }, [menu, people, dictateOk, recordOk, live, records.rows]);
 
   useEffect(() => {
     scanRef.current = (ed) => {
@@ -325,7 +349,13 @@ export default function NoteEditor({
       const { from, empty } = ed.state.selection;
       if (!empty) { setMenu(null); return; }
       const before = ed.state.doc.textBetween(Math.max(0, from - 60), from, '\n', '￼');
-      let m = /(^|\s)\/([\w ]{0,20})$/.exec(before);
+      // [[ - a link to a record; what follows is the search (recordLink.jsx).
+      let m = /\[\[([^[\]\n￼]{0,40})$/.exec(before);
+      if (m) {
+        setMenu((p) => ({ kind: 'record', query: m[1], from: from - m[1].length - 2, index: p?.kind === 'record' ? p.index : 0 }));
+        return;
+      }
+      m = /(^|\s)\/([\w ]{0,20})$/.exec(before);
       if (m && !/ {2}/.test(m[2])) {
         setMenu((p) => ({ kind: 'slash', query: m[2], from: from - m[2].length - 1, index: p?.kind === 'slash' ? p.index : 0 }));
         return;
@@ -343,7 +373,9 @@ export default function NoteEditor({
     if (!editor || !menu || !item) return;
     touched.current = true;
     const range = { from: menu.from, to: editor.state.selection.from };
-    if (menu.kind === 'mention') {
+    if (menu.kind === 'record') {
+      editor.chain().focus().deleteRange(range).insertContent(recordContent(item)).run();
+    } else if (menu.kind === 'mention') {
       editor.chain().focus().deleteRange(range).insertContent([
         { type: 'text', marks: [{ type: 'link', attrs: { href: `mailto:${item.email}` } }], text: `@${item.name}` },
         { type: 'text', text: ' ' },
@@ -384,19 +416,58 @@ export default function NoteEditor({
     setLink(null);
   };
 
-  const makeTask = () => {
+  // Link to a Record from a button: types the [[ that opens the picker.
+  const startRecordLink = () => {
+    if (!editor || readOnly) return;
+    touch();
+    editor.chain().focus().insertContent('[[').run();
+  };
+
+  // The line (or selection) becomes a link to the task it made, on a
+  // checklist line, so ticking it finishes the task (checklistTasks.js). If
+  // the note changed while the task was being made, the words stay as they
+  // are - the notice still opens the task.
+  const makeTask = async () => {
     if (!editor || !onMakeTask) return;
     const { from, to, empty, $from } = editor.state.selection;
-    const text = empty ? $from.parent.textContent : editor.state.doc.textBetween(from, to, ' ');
-    onMakeTask(text.replace(/\s+/g, ' ').trim());
+    const text = (empty ? $from.parent.textContent : editor.state.doc.textBetween(from, to, ' ')).replace(/\s+/g, ' ').trim();
+    const range = empty ? { from: $from.start(), to: $from.end() } : { from, to };
+    const before = editor.state.doc;
+    const task = await onMakeTask(text);
+    if (!task?.id || !text || editor.isDestroyed || editor.state.doc !== before) return;
+    touched.current = true;
+    const chain = editor.chain().setMeta(EDITED, true)
+      .insertContentAt(range, recordContent({ kind: 'task', id: task.id, title: task.title || text }));
+    const inList = ['taskItem', 'listItem'].includes($from.node(Math.max(0, $from.depth - 1))?.type?.name);
+    (inList || !empty ? chain : chain.setTextSelection(range.from).toggleTaskList())
+      // The cursor after the link, so the next Enter starts a new line, never an empty one above it.
+      .command(({ tr }) => { tr.setSelection(TextSelection.create(tr.doc, tr.selection.$from.end())); return true; })
+      .run();
   };
+
+  useEffect(() => {
+    if (!editor || readOnly) { boxesRef.current = () => {}; return undefined; }
+    let key = null;
+    let timer = 0;
+    boxesRef.current = (ed) => {
+      const k = boxesKey(ed.state.doc);
+      if (k === key) return;
+      key = k;
+      clearTimeout(timer);
+      if (k) timer = setTimeout(() => { syncBoxesFromTasks(ed, EDITED).then((n) => { if (n) touched.current = true; }); }, 600);
+    };
+    boxesRef.current(editor);
+    const off = listenForBoxTicks(editor, EDITED, setMediaErr);
+    return () => { clearTimeout(timer); off(); boxesRef.current = () => {}; };
+  }, [editor, readOnly]);
 
   // The menu floats under the caret, kept on screen.
   let menuPos = null;
-  if (menu && items.length && editor && !editor.isDestroyed) {
+  // The record picker shows even with no rows yet: it says it is looking, or found nothing.
+  if (menu && (items.length || menu.kind === 'record') && editor && !editor.isDestroyed) {
     try {
       const c = editor.view.coordsAtPos(Math.min(menu.from, editor.state.doc.content.size));
-      const w = 260, h = Math.min(items.length * 44 + 12, 340);
+      const w = menu.kind === 'record' ? 320 : 260, h = Math.min(Math.max(1, items.length) * 44 + 12, 340);
       const vw = window.innerWidth, vh = window.innerHeight;
       menuPos = { left: Math.max(8, Math.min(c.left, vw - w - 8)), top: c.bottom + h + 8 > vh ? Math.max(8, c.top - h - 6) : c.bottom + 6, width: w };
     } catch { menuPos = null; }
@@ -435,9 +506,12 @@ export default function NoteEditor({
             onClick={run((c) => (e.can().liftListItem('taskItem') ? c.liftListItem('taskItem') : c.liftListItem('listItem')))} />
           <Sep />
           <Btn icon={Quote} label="Quote" active={on('blockquote')} onClick={run((c) => c.toggleBlockquote())} />
+          <Btn icon={Info} label="Callout - a note in a box" active={on('callout')} onClick={run((c) => c.setCallout('info'))} />
+          <Btn icon={ListCollapse} label="Toggle - a section that folds away" active={on('toggle')} onClick={run((c) => c.setToggle())} />
           <Btn icon={SquareCode} label="Code Block" active={on('codeBlock')} onClick={run((c) => c.toggleCodeBlock())} />
           <Btn icon={Minus} label="Divider" onClick={run((c) => c.setHorizontalRule())} />
           <Btn icon={Link2} label="Link (Ctrl+K)" active={on('link')} onClick={openLink} />
+          <Btn icon={FileSymlink} label="Link to a Record - a note, task, job or page ([[)" onClick={startRecordLink} />
           <Btn icon={TableIcon} label="Insert Table" onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
           <Sep />
           <Btn icon={AlignLeft} label="Align Left" active={on({ textAlign: 'left' })} onClick={run((c) => c.setTextAlign('left'))} />
@@ -451,6 +525,7 @@ export default function NoteEditor({
             active={voice.recording} danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
           <TBtn icon={Clapperboard} text="Video" label="Add a Video" disabled={live} onClick={pickVideo} />
           <TBtn icon={PenTool} text="Board" label="Insert Board - one of your boards, as a picture that opens it" active={boardPick} onClick={openBoardPick} />
+          <Btn icon={ListTodo} label="Live Task List - my tasks or a project, always up to date" onClick={run((c) => c.insertLiveList())} />
           {onMakeTask && <TBtn icon={ListPlus} text="Make a Task" label="Make a Task - from the selection or the current line" onClick={makeTask} />}
           </div>
         </div>
@@ -495,10 +570,14 @@ export default function NoteEditor({
               <PBtn icon={Strikethrough} label="Strikethrough" active={on('strike')} onClick={run((c) => c.toggleStrike())} />
               <PBtn icon={Highlighter} label="Highlight" active={on('highlight')} onClick={run((c) => c.toggleHighlight())} />
               <PBtn icon={Quote} label="Quote" active={on('blockquote')} onClick={run((c) => c.toggleBlockquote())} />
+              <PBtn icon={Info} label="Callout" active={on('callout')} onClick={run((c) => c.setCallout('info'))} />
+              <PBtn icon={ListCollapse} label="Toggle" active={on('toggle')} onClick={run((c) => c.setToggle())} />
               <PBtn icon={Link2} label="Link" active={on('link')} onClick={openLink} />
+              <PBtn icon={FileSymlink} label="Link to a Record" onClick={() => { setMore(false); startRecordLink(); }} />
               <PBtn icon={TableIcon} label="Insert Table" onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
               <PBtn icon={Minus} label="Divider" onClick={run((c) => c.setHorizontalRule())} />
               <PBtn icon={PenTool} label="Insert Board" active={boardPick} onClick={() => { setMore(false); openBoardPick(); }} />
+              <PBtn icon={ListTodo} label="Live Task List" onClick={run((c) => c.insertLiveList())} />
               {onMakeTask && <PBtn icon={ListPlus} label="Make a Task" onClick={makeTask} />}
               <PBtn icon={Undo2} label="Undo" disabled={!e.can().undo()} onClick={run((c) => c.undo())} />
               <PBtn icon={Redo2} label="Redo" disabled={!e.can().redo()} onClick={run((c) => c.redo())} />
@@ -528,9 +607,30 @@ export default function NoteEditor({
         document.body,
       )}
       {menuPos && createPortal(
-        <div className="nt-menu" role="listbox" aria-label={menu.kind === 'mention' ? 'Mention someone' : 'Insert a block'}
+        <div className="nt-menu" role="listbox" aria-label={menu.kind === 'mention' ? 'Mention someone' : menu.kind === 'record' ? 'Link to a record' : 'Insert a block'}
           style={{ left: menuPos.left, top: menuPos.top, width: menuPos.width }}>
-          {items.map((it, i) => {
+          {menu.kind === 'record' && !items.length && (
+            <div className="nt-menu-empty" role="status">
+              {records.loading ? 'Looking…' : menu.query.trim() ? `Nothing matches "${menu.query.trim()}"` : 'Type to find a note, task, job or page'}
+            </div>
+          )}
+          {menu.kind === 'record' && items.map((it, i) => {
+            const meta = RECORD_META[it.kind] || RECORD_META.note;
+            const Icon = meta.icon;
+            return (
+              <button key={it.key} type="button" role="option" aria-selected={i === menu.index}
+                className={`nt-menu-row${i === menu.index ? ' is-on' : ''}`}
+                onMouseDown={(ev) => { ev.preventDefault(); choose(it); }}
+                onMouseEnter={() => setMenu((m) => (m ? { ...m, index: i } : m))}>
+                <Icon size={16} strokeWidth={1.8} aria-hidden="true" />
+                <span className="nt-menu-main">
+                  <span className="nt-menu-label">{it.title}</span>
+                  <span className="nt-menu-hint">{[meta.label, it.detail].filter(Boolean).join(' · ')}</span>
+                </span>
+              </button>
+            );
+          })}
+          {menu.kind !== 'record' && items.map((it, i) => {
             const Icon = it.icon;
             return (
               <button key={it.key || it.email} type="button" role="option" aria-selected={i === menu.index}

@@ -117,6 +117,13 @@ export function SkeletonBlocks({ count = 3, height = 120, borderRadius = 14, gri
   );
 }
 
+// A count that has not loaded yet: a short sheen bar where the number goes,
+// never a 0 (a zero is a believable answer). Sized in em so it fits any tile.
+export function CountSkeleton({ width = '1.6em' }) {
+  return <span className="nx-skel" role="status" aria-label="Loading" data-count-skeleton
+    style={{ display: 'inline-block', width, height: '0.8em', verticalAlign: 'middle', borderRadius: 6 }} />;
+}
+
 // Wraps the load → error → empty → content lifecycle for a section so every
 // view handles it the same friendly way instead of rolling its own.
 export default function AsyncSection({

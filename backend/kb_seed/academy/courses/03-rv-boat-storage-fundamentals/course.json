@@ -14,6 +14,8 @@
  ],
  "est_minutes": 180,
  "delivery": "online",
+ "level": "core",
+ "tags": "rv, boat, vehicle storage",
  "min_reading_minutes": 100,
  "lessons": [
   {
@@ -300,6 +302,36 @@
      ],
      "explanation": "Measure from the ground to the highest point with everything lowered: air conditioner shroud, antenna, tower, bimini, T-top or mast step.",
      "lesson": "06-measuring-for-the-right-fit.md"
+    },
+    {
+     "type": "single",
+     "q": "A tenant is backing a travel trailer into a drive-in space. Which way should it face when it is parked?",
+     "options": [
+      "Tongue toward the dead end, so the back of the trailer is easy to reach",
+      "Tongue toward the aisle, so the tow vehicle backs to the coupler and pulls straight out next time",
+      "It makes no difference",
+      "Sideways, to save room"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "A backed-in trailer leaves its coupler at the open end. Next time the truck backs a few feet to it and pulls straight out; nosed in, the owner hooks up in the corner and backs the whole rig out blind.",
+     "lesson": "05-our-spaces-open-covered-and-enclosed.md"
+    },
+    {
+     "type": "single",
+     "q": "What makes a pull-through space different from a drive-in space?",
+     "options": [
+      "It is always covered",
+      "It is open at both ends, with an aisle at each, so the rig drives in one end and out the other",
+      "It is wider",
+      "It is only for motorhomes"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "A drive-in is open at one end only; a pull-through has an aisle at each end and nobody backs more than a truck length. It uses two aisle frontages, which is why it is the premium space.",
+     "lesson": "05-our-spaces-open-covered-and-enclosed.md"
     }
    ]
   },
@@ -332,7 +364,7 @@
  ],
  "quiz": {
   "passPct": 80,
-  "drawCount": 30,
+  "drawCount": 32,
   "maxTries": 3,
   "shuffle": true,
   "questions": [
@@ -1236,6 +1268,66 @@
     ],
     "explanation": "An operator who parks or moves vehicles takes on care, custody and control of them and needs matching insurance. The tenant moves it, or your manager decides.",
     "lesson": "14-words-to-know.md"
+   },
+   {
+    "type": "single",
+    "q": "Cubby names a pricing group \"12' x 32' Parking - Gravel, Drive-In.\" What does Drive-In tell you about the space?",
+    "options": [
+     "It is a pull-through",
+     "It is open at one end only; a vehicle goes in and comes out the same way",
+     "It is enclosed",
+     "It is reserved for cars"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Drive-in is the ordinary one-end space, the same shape the Site Profile pages call back-in (drive-in).",
+    "lesson": "05-our-spaces-open-covered-and-enclosed.md"
+   },
+   {
+    "type": "single",
+    "q": "A Class A motorhome is backed into a drive-in space until its rear tires touch the wheel stop. A chain-link fence stands 3 ft behind the stop. What is the risk?",
+    "options": [
+     "None; the wheel stop is the end of the space",
+     "The rear overhang behind the wheels can be 8 to 12 ft and may hit the fence",
+     "The front will stick into the aisle",
+     "The tires will go flat"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A wheel stop marks where the tires stop, not where the vehicle ends. The body behind the rear wheels hangs past it.",
+    "lesson": "05-our-spaces-open-covered-and-enclosed.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant enters an angled row against its arrow. What happens?",
+    "options": [
+     "Nothing; angled spaces work from either direction",
+     "Every space becomes a jackknife turn instead of a gentle curve",
+     "The gate will not let him out",
+     "The spaces are too narrow from that side"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Angled spaces are built for one direction of travel. From the wrong one the turn is a sharp reverse. Faded arrows on an angled row are a same-day report.",
+    "lesson": "05-our-spaces-open-covered-and-enclosed.md"
+   },
+   {
+    "type": "single",
+    "q": "Why are pull-through spaces scarce and priced above other spaces?",
+    "options": [
+     "They need a canopy",
+     "Each one uses two aisle frontages, so a lot gives up spaces to make one, and the no-backing convenience is what big-rig owners pay for",
+     "They are longer than every other space",
+     "Cubby limits how many a site can have"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A pull-through needs an aisle at each end. Murrieta's run $249 to $279 against its typical $184 (From Greens' Cubby, 11/2026).",
+    "lesson": "05-our-spaces-open-covered-and-enclosed.md"
    }
   ]
  }

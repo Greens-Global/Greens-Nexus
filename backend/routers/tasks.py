@@ -46,6 +46,7 @@ import task_schedule
 import task_history
 import code_sequence
 import task_card_preview
+from json_response import rendered_in_thread
 from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
 from routers.task_config import coerce_custom_field_values, missing_required_fields
@@ -2275,7 +2276,6 @@ def _series_groups(rows: list, by_id: Optional[dict] = None) -> list[list[models
     return list(groups.values())
 
 
-@router.get("")
 def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = wall_tasks(db, user, db.query(models.Task).all())   # company wall first
     if is_manager(user):
@@ -2287,6 +2287,11 @@ def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get
     # (task_util.ParentSight): the parents come from these same rows.
     parents = ParentSight(db, rows, user=user)
     return _with_previews(db, [t for t in rows if task_is_visible(t, user, visible_projects, parents)], user)
+
+
+# Several MB of JSON: rendered in the route's thread, never on the event loop
+# (json_response.py). The plain function stays callable from Python.
+router.get("")(rendered_in_thread(list_tasks))
 
 
 def _csv_set(value: str) -> set:
@@ -2521,6 +2526,68 @@ def _is_external(e) -> bool:
     """A guest / external identity (their org is external_company, not one of
     our companies) - see models.NexusEmployee.identity_type."""
     return (getattr(e, "identity_type", "") or "") in ("guest", "external")
+
+
+@router.get("/states")
+def task_states(ids: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Title and done-ness of up to 50 tasks by id, for record links that show
+    a task's state where they sit (a ticked checklist line in a note, a task
+    card on a board - Neil, 11/07/2026). A task the caller may not open is
+    left out, exactly as GET /tasks/{id}/comments would 404 it."""
+    out = {}
+    for tid in [i.strip() for i in (ids or "").split(",") if i.strip()][:50]:
+        try:
+            t = _wall_task(db, user, tid)
+        except HTTPException:
+            continue
+        out[t.id] = {"title": t.title or "", "code": t.code or "", "done": bool(t.completed),
+                     "status": t.status or "", "dueOn": t.due_on or ""}
+    return {"tasks": out}
+
+
+@router.get("/embed")
+def task_list_embed(source: str = "mine", show: str = "open", limit: int = 25,
+                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A live task list inside a note (Neil, 11/07/2026, notes/liveList.jsx):
+    `source` = `mine` (tasks assigned to the reader) or `project:<id>`;
+    `show` = `open` or `all`. Read fresh for each reader with the task lists'
+    own rule - the company wall, then task_is_visible - so a note shared with
+    someone shows them only what they could already open, and a project they
+    cannot see is an empty list, never its name."""
+    me = (user.get("email") or "").lower()
+    limit = max(1, min(int(limit or 25), 50))
+    T = models.Task
+    q = db.query(T)
+    project_name = ""
+    if source == "mine":
+        q = q.filter(cast(T.assignee_emails, String).like(f'%"{me}"%'))
+    elif source.startswith("project:") and 0 < len(source) - 8 <= 100:
+        pid = source[8:]
+        manager = is_manager(user)
+        if not manager and pid not in visible_project_ids(db, user):
+            return {"tasks": [], "total": 0, "projectName": "", "visible": False}
+        proj = next(iter(wall_rows(db, user, db.query(models.TaskProject).filter(models.TaskProject.id == pid).all())), None)
+        if proj is None:
+            return {"tasks": [], "total": 0, "projectName": "", "visible": False}
+        project_name = proj.name or ""
+        q = q.filter(or_(T.project_id == pid, cast(T.project_ids, String).like(f'%"{pid}"%')))
+    else:
+        raise HTTPException(400, "Unknown list")
+    if show != "all":
+        q = q.filter(or_(T.completed.is_(False), T.completed.is_(None)))
+    manager = is_manager(user)
+    visible = None if manager else visible_project_ids(db, user)
+    rows = wall_tasks(db, user, q.all())
+    parents = None if manager else ParentSight(db, rows, user=user)
+    if source == "mine":
+        rows = [t for t in rows if me in [(e or "").lower() for e in (t.assignee_emails or [])]]
+    else:
+        rows = [t for t in rows if t.project_id == source[8:] or source[8:] in (t.project_ids or [])]
+    rows = [t for t in rows if manager or task_is_visible(t, user, visible, parents)]
+    rows.sort(key=lambda t: (bool(t.completed), t.due_on or "9999", (t.title or "").lower()))
+    return {"tasks": [{"id": t.id, "title": t.title or "", "code": t.code or "", "done": bool(t.completed),
+                       "dueOn": t.due_on or "", "assignees": list(t.assignee_emails or [])} for t in rows[:limit]],
+            "total": len(rows), "projectName": project_name, "visible": True}
 
 
 @router.get("/search")
@@ -2778,7 +2845,6 @@ def _not_long_done(cutoff: str):
                T.completed_at >= cutoff)
 
 
-@router.get("/delta")
 def list_tasks_delta(since: str = "", part: str = "", user: dict = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     """Incremental fetch for TasksContext's mount load + repeated refresh
@@ -2849,6 +2915,10 @@ def list_tasks_delta(since: str = "", part: str = "", user: dict = Depends(get_c
     return {"tasks": _with_previews(db, rows, user),
             "deletedIds": deleted_ids,
             "serverTime": server_time}
+
+
+# ~11 MB on dev for the mount load: rendered off the event loop (json_response.py).
+router.get("/delta")(rendered_in_thread(list_tasks_delta))
 
 
 def _inherited_below(db: Session, tops: list, skip: set) -> list:

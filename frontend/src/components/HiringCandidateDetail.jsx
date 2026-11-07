@@ -101,10 +101,11 @@ function packetSteps(hire, who) {
   const signed = finished || !!cand?.signedAt;
   const countersigned = finished || (company.length > 0 && company.every(p => p.signedAt));
   const when = (iso) => (iso ? formatDateTime(iso) : '');
+  const paper = !!hire?.inputs?.paper_path;    // Signed On Paper: HR uploaded the scan (11/05/2026)
   return [
-    { key: 'details', label: filled ? `Details filled in by ${who}` : `Waiting for ${who} to fill in their details`, done: filled },
-    { key: 'packetSigned', label: signed ? `Hiring packet signed by ${who}` : `Waiting for ${who} to sign the hiring packet`,
-      done: signed, at: when(cand?.signedAt) },
+    { key: 'details', label: paper ? `Details filled in on paper by ${who}` : filled ? `Details filled in by ${who}` : `Waiting for ${who} to fill in their details`, done: filled },
+    { key: 'packetSigned', label: paper ? `Hiring packet signed on paper by ${who}` : signed ? `Hiring packet signed by ${who}` : `Waiting for ${who} to sign the hiring packet`,
+      done: signed, at: when(paper ? hire.completedAt : cand?.signedAt) },
     company.length > 0 && { key: 'countersigned', label: countersigned ? 'Countersigned by the company' : 'Waiting for the company to countersign',
       done: countersigned, at: when(company.map(p => p.signedAt).filter(Boolean).sort().pop()) },
     { key: 'complete', label: finished ? 'Hiring complete' : 'Hiring complete - once every document is signed', done: finished, at: when(hire?.completedAt) },

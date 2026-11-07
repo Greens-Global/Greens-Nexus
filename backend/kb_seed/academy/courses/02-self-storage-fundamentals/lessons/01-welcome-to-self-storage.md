@@ -45,6 +45,35 @@ Reality TV made storage auctions famous. As you will learn in the Delinquency an
 
 ## How Big the Industry Is
 
+```figure
+{
+  "kind": "stats",
+  "title": "The Industry in Four Numbers",
+  "items": [
+    {
+      "value": "1 in 8",
+      "label": "U.S. households rent storage",
+      "note": "SSA Demand Study, 2025"
+    },
+    {
+      "value": "50,000+",
+      "label": "storage facilities in the U.S.",
+      "note": "California Senate Judiciary Committee, 07/2025"
+    },
+    {
+      "value": "3,500",
+      "label": "of them in California",
+      "note": "same analysis"
+    },
+    {
+      "value": "85.5%",
+      "label": "national occupancy",
+      "note": "TractIQ, 08/2026"
+    }
+  ]
+}
+```
+
 Numbers about self-storage disagree from source to source, so this course gives one dated source for each and asks you to use the rounded version.
 
 | Measure | Figure | Source and date |

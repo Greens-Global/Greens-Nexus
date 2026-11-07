@@ -445,3 +445,111 @@
 .nt-board-pick-shared { display: block; font-size: 11.5px; font-weight: 500; color: var(--wk-faint, #9699a6); }
 @keyframes nt-sheet-up { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .nt-board-pick.is-sheet { animation: none; } }
+
+/* ── More room (Neil, 11/06/2026) ──────────────────────────────────────── */
+/* On a computer the page fits the window (NotesPage measures --nt-fit): the
+   list and the note scroll on their own, a board fills everything left. */
+.nt-page.is-fit { height: var(--nt-fit, auto); min-height: 0; }
+/* The list folds away from its edge and comes back from a slim rail. */
+.nt-collapse {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 3;
+  display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--wk-line2); background: var(--card); color: var(--muted); box-shadow: 0 2px 6px rgba(0, 0, 0, .08);
+  transition: color 140ms var(--ease-out, ease-out), border-color 140ms var(--ease-out, ease-out);
+}
+.nt-collapse:hover { color: var(--wk-green); border-color: var(--wk-green); }
+.nt-collapse:focus-visible, .nt-rail:focus-visible { outline: 2px solid var(--wk-green); outline-offset: 1px; }
+.nt-rail {
+  flex: 0 0 36px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; cursor: pointer;
+  border: none; border-right: 1px solid var(--wk-line2); background: var(--card); color: var(--muted); font: inherit;
+}
+.nt-rail:hover { background: var(--wk-hover); color: var(--ink); }
+.nt-rail > span { writing-mode: vertical-rl; font-size: 12px; font-weight: 650; letter-spacing: .04em; }
+/* New Board: its own strong color beside the green New Note. */
+.nt-text-btn.is-board-btn { background: var(--ink); border-color: var(--ink); color: var(--card); }
+.nt-text-btn.is-board-btn:hover { background: var(--ink); filter: brightness(1.25); }
+/* Full screen: Back on the left, a labeled Exit on the right - never lost. */
+.nt-text-btn.nt-back { flex-shrink: 0; }
+.nt-text-btn.nt-exit-full { background: var(--wk-brand-tint, #e3f3e8); border-color: var(--wk-green); color: var(--wk-green); margin-left: 4px; }
+.nt-text-btn.nt-exit-full:hover { background: var(--wk-brand-tint, #e3f3e8); filter: brightness(0.96); }
+@media (min-width: 769px) {
+  /* A board's head is one tight block: smaller title, tags on the meta line. */
+  .nt-doc.is-board { padding: 12px 20px 0; }
+  .nt-doc.is-board .nt-head { align-items: center; }
+  .nt-doc.is-board .nt-title { font-size: 19px; }
+  .nt-doc.is-board .nt-meta { margin-top: 2px; }
+  .nt-doc.is-board .nt-meta .nt-taglist { margin: 0; }
+  .nt-board { margin: 10px -20px 0; min-height: 360px; }
+}
+
+/* ── Your Templates, the Boards grid, the row menu, the outline (Neil, 11/06/2026) ── */
+.nt-tpl-kicker { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--wk-faint, #9699a6); }
+.nt-tpl-thumb { width: 100%; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid var(--wk-line2); background: var(--card); }
+.nt-boards { padding: 18px 20px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; align-content: start; }
+.nt-board-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--wk-line2); border-radius: 12px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.nt-board-card:hover { border-color: var(--wk-green); background: var(--wk-hover); }
+.nt-board-card:focus-visible { outline: 2px solid var(--wk-green); outline-offset: 1px; }
+.nt-board-card-pic { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 8px; border: 1px solid var(--wk-line2); background: var(--card); }
+.nt-board-card-pic.is-empty { display: grid; place-items: center; color: var(--wk-faint, #9699a6); background: var(--wk-hover); }
+.nt-board-card-title { padding: 0 4px; font-size: 14px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nt-board-card-meta { padding: 0 4px 2px; font-size: 12px; color: var(--wk-faint, #9699a6); }
+.nt-pop.is-at { position: fixed; top: auto; right: auto; z-index: 4000; }
+.nt-outline-row { display: block; width: 100%; text-align: left; border: none; background: none; cursor: pointer; padding: 6px 9px; border-radius: 6px; font: inherit; font-size: 13px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nt-outline-row:hover, .nt-outline-row:focus-visible { background: var(--wk-hover); outline: none; }
+.nt-outline-row.is-l1 { font-weight: 650; }
+.nt-outline-row.is-l2 { padding-left: 21px; }
+.nt-outline-row.is-l3 { padding-left: 33px; color: var(--muted); }
+
+/* ── Record links (Neil, 11/06/2026, recordLink.jsx): a [[ chip in the words ── */
+.nt-menu-empty { padding: 9px 10px; font-size: 12.5px; color: var(--muted); }
+
+/* "Mentioned In" under a note (components/MentionedIn.jsx). */
+.nt-mentions { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--wk-line2); }
+
+/* ── Callouts and toggles (Neil, 11/07/2026, noteBlocks.jsx) ── */
+.nt-callout { display: flex; gap: 10px; margin: .6em 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--wk-line2); background: var(--wk-hover); }
+.nt-callout-icon { flex-shrink: 0; display: grid; place-items: center; height: 1.55em; color: var(--muted); }
+.nt-callout-body { flex: 1 1 auto; min-width: 0; }
+.nt-callout-body > :first-child { margin-top: 0; }
+.nt-callout-body > :last-child { margin-bottom: 0; }
+.nt-callout[data-tone="tip"] { border-color: color-mix(in srgb, var(--wk-green) 35%, transparent); background: color-mix(in srgb, var(--wk-green) 8%, transparent); }
+.nt-callout[data-tone="tip"] .nt-callout-icon { color: var(--wk-green); }
+/* Warnings stay yellow with an icon (house rule), never orange. */
+.nt-callout[data-tone="warning"] { border-color: rgba(202, 138, 4, .45); background: rgba(250, 204, 21, .12); }
+.nt-callout[data-tone="warning"] .nt-callout-icon { color: #a16207; }
+.nt-toggle { margin: .5em 0; }
+.nt-toggle-head { display: flex; align-items: center; gap: 4px; }
+.nt-toggle-chev { display: grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0; padding: 0; border: none; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; transition: transform .15s ease-out; }
+.nt-toggle-chev:hover { background: var(--wk-hover); color: var(--ink); }
+.nt-toggle.is-open > .nt-toggle-head .nt-toggle-chev { transform: rotate(90deg); }
+.nt-toggle-title { flex: 1 1 auto; min-width: 0; border: none; background: transparent; font: inherit; font-weight: 600; color: var(--ink); padding: 2px 4px; outline: none; text-align: left; }
+.nt-toggle-title.is-read { cursor: pointer; }
+.nt-toggle-title::placeholder { color: var(--wk-faint, #9699a6); font-weight: 500; }
+.nt-toggle-body { padding-left: 28px; }
+.nt-toggle-body[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .nt-toggle-chev { transition: none; } }
+
+/* ── Live task lists (Neil, 11/07/2026, liveList.jsx) ── */
+.nt-live { margin: .7em 0; border: 1px solid var(--wk-line2); border-radius: 10px; background: var(--card); overflow: hidden; }
+.nt-live.ProseMirror-selectednode { box-shadow: 0 0 0 2px var(--wk-green); }
+.nt-live-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--wk-line2); color: var(--muted); }
+.nt-live-title { font-weight: 700; color: var(--ink, inherit); font-size: 13.5px; }
+.nt-live-pick { min-width: 0; max-width: 60%; font: inherit; font-size: 13.5px; font-weight: 700; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 2px 4px; cursor: pointer; }
+.nt-live-pick:hover, .nt-live-pick:focus-visible { border-color: var(--wk-line2); outline: none; }
+.nt-live-seg { display: inline-flex; margin-left: auto; border: 1px solid var(--wk-line2); border-radius: 7px; overflow: hidden; }
+.nt-live-seg button { font: inherit; font-size: 12px; font-weight: 600; padding: 3px 9px; border: none; background: transparent; color: var(--muted); cursor: pointer; }
+.nt-live-seg button.is-on { background: var(--wk-hover); color: var(--wk-green); }
+.nt-live-note { margin-left: auto; font-size: 12px; }
+.nt-live-refresh { display: grid; place-items: center; width: 26px; height: 26px; border: none; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.nt-live-refresh:hover, .nt-live-refresh:focus-visible { background: var(--wk-hover); outline: none; }
+.nt-live-rows { list-style: none; margin: 0; padding: 4px; }
+.nt-live-rows li { margin: 0; }
+.nt-live-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: none; border-radius: 7px; background: transparent; font: inherit; font-size: 13.5px; color: inherit; text-align: left; cursor: pointer; }
+.nt-live-row:hover, .nt-live-row:focus-visible { background: var(--wk-hover); outline: none; }
+.nt-live-row > svg { flex-shrink: 0; color: var(--muted); }
+.nt-live-row.is-done > svg { color: var(--wk-green); }
+.nt-live-row.is-done .nt-live-name { text-decoration: line-through; color: var(--muted); }
+.nt-live-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-live-due { margin-left: auto; flex-shrink: 0; font-size: 12px; color: var(--muted); }
+.nt-live-more, .nt-live-empty { padding: 8px 12px; font-size: 12.5px; color: var(--muted); }
+@media (max-width: 640px) { .nt-live-pick { max-width: 50%; } .nt-live-refresh { width: 32px; height: 32px; } }

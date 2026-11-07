@@ -22,6 +22,7 @@ import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import { ToastHost, pushToast } from './components/shared/ToastHost.jsx';
 import { SyncStatus } from './components/shared/SyncStatus.jsx';
 import { CollectionTable } from './components/shared/CollectionTable.jsx';
+import { EmptyState } from './components/shared/EmptyState.jsx';
 import { RecordModal } from './components/shared/RecordModal.jsx';
 
 import { Portfolio } from './components/portfolio/Portfolio.jsx';
@@ -33,6 +34,7 @@ import { AssemblageParcels } from './components/asset/AssemblageParcels.jsx';
 import { AddAssetModal } from './components/asset/AddAssetModal.jsx';
 import { TimelineTracker } from './components/asset/TimelineTracker.jsx';
 import { SimpleRecordTable } from './components/shared/SimpleRecordTable.jsx';
+import { AssetEgnyteDocs, ConnectEgnyteEmpty } from './components/asset/AssetEgnyteDocs.jsx';
 import { SimpleRowModal } from './components/shared/SimpleRowModal.jsx';
 import { TimelineStatusModal } from './components/asset/TimelineStatusModal.jsx';
 
@@ -54,12 +56,18 @@ import PropertyLoans from '../components/PropertyLoans.jsx';
 // A property's construction Jobs, read only (Neil, 11/03/2026, construction plan phase 2).
 import PropertyJobs from '../components/PropertyJobs.jsx';
 import PageTrail, { useTrailCrumbs } from '../components/PageTrail';
+import ModuleTabs, { ModuleActions } from '../components/ModuleTabs';
 
 const cityRegion = (p) => (p.city || '') + (p.state ? ', ' + p.state : '');
 
 export default function App({ activeSub = null, onSubChange = null } = {}) {
   const session = useSession();
   const canManage = session?.can ? session.can('manager') : false;
+  // The Egnyte folder (Neil, 11/05/2026): editors connect it once; only an
+  // Asset Management Owner (or a Super Administrator) changes it - the server
+  // enforces both (routers/property_assets.may_repin_egnyte).
+  const canEditAssets = session.level >= 4 || ['editor', 'full', 'owner'].includes(session.moduleLevel);
+  const mayRepinEgnyte = session.level >= 5 || session.moduleLevel === 'owner';
 
   // `store` is the whole app's data: { properties, warranties, inspections, documents, ahj,
   // utilities, vendors, logs, vservice, odometer, vdocs, maintenance, _ts }. useNexusStore
@@ -818,14 +826,12 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       <ToastHost />
       <SyncStatus />
 
+      {/* One page header (11/05/2026): the module bar names Asset Management;
+          the portfolio's count and actions ride its right end. */}
       {!active && pulse && (
-        <div className="view-header" style={{ alignItems: 'center', marginBottom: 16 }}>
-          <div className="view-title-group" style={{ minWidth: 0 }}>
-            <PageTrail title="Asset Management" />
-            <h2 style={{ fontFamily: 'var(--wk-font)' }}>Asset Management</h2>
-            <p>{loading && !visibleProperties.length ? 'Loading the portfolio…' : `${pulse.assets} ${pulse.assets === 1 ? 'asset' : 'assets'} in the portfolio`}</p>
-          </div>
+        <ModuleActions>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span className="module-bar-meta">{loading && !visibleProperties.length ? 'Loading the portfolio…' : `${pulse.assets} ${pulse.assets === 1 ? 'asset' : 'assets'} in the portfolio`}</span>
             <button className="primary-btn" onClick={() => setModal({ type: 'property', id: null })}>
               <Plus size={14} /> Add Asset
             </button>
@@ -840,7 +846,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
               <MenuRow icon={Upload} onClick={() => { setPortfolioMoreOpen(false); setModal({ type: 'property', id: null, mode: 'import' }); }}>Import From a Spreadsheet</MenuRow>
             </AnchoredMenu>
           </div>
-        </div>
+        </ModuleActions>
       )}
 
       {/* One title band, the shape every Nexus module has (Shifts, Support):
@@ -915,38 +921,19 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         />
       )}
 
-      {/* Underline tabs with a count each - the Shifts strip. Not sticky: Nexus
-          took sticky tab strips out app-wide (style.css, Sep 5). */}
-      {active && (
-        <div className="gt-tabs" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, borderBottom: '1px solid var(--wk-line)', flexWrap: 'wrap' }}>
-          <div className="scroll-tabs asset-fade-x" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
-            {stripTabs.map(([key, label]) => {
-              const on = key === 'records' ? onRecords : view === key;
-              const n = tabCount(key);
-              return (
-                <button key={key} type="button" role="tab" aria-selected={on} onClick={() => (key === 'records' ? openRecords() : navigate(key))}
-                  aria-label={n ? `${label}, ${n}` : undefined}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 14px', border: 'none', background: 'none',
-                    cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: on ? 700 : 600,
-                    color: on ? 'var(--wk-brand)' : 'var(--muted)', whiteSpace: 'nowrap', marginBottom: -1,
-                    borderBottom: on ? '2.5px solid var(--wk-brand)' : '2.5px solid transparent' }}>
-                  {label}
-                  {n > 0 && (
-                    <span style={{ fontSize: 11, fontWeight: 700, lineHeight: '16px', padding: '0 6px', borderRadius: 8, background: on ? 'var(--wk-brand-tint)' : 'var(--bg-secondary)', color: on ? 'var(--wk-brand)' : 'var(--muted)' }}>{n}</span>
-                  )}
-                </button>
-              );
-            })}
+      {/* An open asset's tabs ride the module bar (11/05/2026), its search at
+          the bar's right end; a phone keeps the strip here, under the title band. */}
+      <ModuleTabs tabs={active ? stripTabs.map(([key, label]) => ({ key, label, badge: tabCount(key) })) : []}
+        active={active ? (onRecords ? 'records' : view) : ''}
+        onChange={(key) => (key === 'records' ? openRecords() : navigate(key))} />
+      {active && showTabSearch && (
+        <ModuleActions>
+          <div style={{ position: 'relative', width: 220 }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+            <input className="form-input" placeholder="Search…" aria-label="Search this asset" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} style={{ width: '100%', fontSize: '0.82rem', padding: '7px 10px 7px 32px' }} />
           </div>
-          {showTabSearch && (
-            <div style={{ position: 'relative', width: 220, marginLeft: 'auto', padding: '4px 0' }}>
-              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-              <input className="form-input" placeholder="Search…" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} style={{ width: '100%', fontSize: '0.82rem', padding: '7px 10px 7px 32px' }} />
-            </div>
-          )}
-        </div>
+        </ModuleActions>
       )}
-
       {/* Records: one segment per collection, counts beside the names, the open
           one lifted on the track - the same control the Maintenance tab uses for
           its units. Scrolls sideways on a phone: the outer div is the scroller
@@ -1014,12 +1001,17 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         <PropertyJobs property={active} />
       )}
       {view === 'property' && active && (
-        <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} companies={companyList.companies} canClearCompany={companyList.canClear} />
+        <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} companies={companyList.companies} canClearCompany={companyList.canClear}
+          egnyteLocked={!!egnyteFolderOf(active) && !mayRepinEgnyte} />
       )}
       {view === 'property' && active && inferAssetKind(active) === 'property' && (
         <PropertyLoans property={active} onSaveEntityCode={(code) => setEntityCode(active.id, code)} />
       )}
 
+      {view === 'documents' && active && (
+        <AssetEgnyteDocs asset={active} canConnect={canEditAssets} hideUnconnected={!recordsFor('documents').length}
+          onConnect={(path) => saveDetail({ 'Egnyte Folder': path })} />
+      )}
       {['warranties', 'inspections', 'documents', 'vdocs', 'utilities', 'ahj', 'vendors', 'odometer'].map((coll) => (
         view === coll && active && (
           <CollectionTable
@@ -1032,6 +1024,9 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
             highlightItem={highlight?.tab === coll || highlight?.section === RECORD_TYPES[coll].plural ? highlight.item : ''}
             onAdd={() => setModal({ type: 'row', coll, id: null })}
             onEdit={(id) => setModal({ type: 'row', coll, id })}
+            emptyNode={coll !== 'documents' ? null : egnyteFolderOf(active)
+              ? <EmptyState>The asset&apos;s plans and documents are listed above, from its Egnyte folder.</EmptyState>
+              : <ConnectEgnyteEmpty asset={active} canConnect={canEditAssets} onConnect={(path) => saveDetail({ 'Egnyte Folder': path })} />}
           />
         )
       ))}

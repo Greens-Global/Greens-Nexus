@@ -29,6 +29,113 @@ Workday has four tabs:
 
 ## The Overview, Top to Bottom
 
+```figure
+{
+  "kind": "screen",
+  "title": "The Workday Overview",
+  "device": "computer",
+  "module": "Workday",
+  "tabs": [
+    "Overview",
+    "Time Sheet",
+    "Time Off",
+    "Performance"
+  ],
+  "tab": "Overview",
+  "badge": 2,
+  "parts": [
+    {
+      "kind": "card",
+      "title": "Documents to Sign",
+      "rows": [
+        {
+          "label": "Employee Handbook Acknowledgment",
+          "value": "Review & Sign",
+          "tone": "ok",
+          "n": 1
+        }
+      ]
+    },
+    {
+      "kind": "tiles",
+      "items": [
+        {
+          "label": "Hours This Week",
+          "value": "31h 40m"
+        },
+        {
+          "label": "Time Off This Year",
+          "value": "4 days"
+        },
+        {
+          "label": "Time With Us",
+          "value": "2 months"
+        },
+        {
+          "label": "Ask HR · Reimbursements · Purchase Request",
+          "value": "•",
+          "n": 2
+        }
+      ]
+    },
+    {
+      "kind": "clock",
+      "state": "in",
+      "value": "3h 12m",
+      "label": "Punched in at 8:02 AM",
+      "tabs": [
+        "Today",
+        "This Week",
+        "Pay Period"
+      ],
+      "tab": "Today",
+      "buttons": [
+        "Start Break",
+        {
+          "label": "Punch Out",
+          "primary": true
+        }
+      ],
+      "n": 3
+    },
+    {
+      "kind": "card",
+      "title": "My Schedule",
+      "note": "4 shifts · 32 paid hours · next: Tomorrow 9:00 AM",
+      "rows": [
+        {
+          "label": "Mon 11/09",
+          "value": "9:00 AM to 5:30 PM"
+        },
+        {
+          "label": "Tue 11/10",
+          "value": "9:00 AM to 5:30 PM"
+        }
+      ],
+      "n": 4
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "HR documents wait at the very top. You always sign first."
+    },
+    {
+      "n": 2,
+      "text": "The compact rows at the right end open the three Workday panels and Fill a Form."
+    },
+    {
+      "n": 3,
+      "text": "The Time Clock, with only the buttons that make sense right now."
+    },
+    {
+      "n": 4,
+      "text": "My Schedule: the week summed up, then your days."
+    }
+  ]
+}
+```
+
 ### Documents to Sign
 
 Whenever a Nexus Sign document is waiting on your signature, a **Documents to Sign** card sits at the very top of the Overview. This is where offer letters, hiring packet forms, policy acknowledgments and HR letters arrive. Click **Review & Sign**, read the document, and sign it right there. The bell and the email about it open the same place.
@@ -68,6 +175,69 @@ Below the tiles is the **Time Clock** card, with **Punch In**, **Start Break**, 
 **My Schedule** shows your week of shifts: a line that sums up the week (shifts, paid hours, time off and your next shift), then your days one by one. When a manager shares a new schedule, a banner here asks you to **Confirm** it. The **My Week | Team** switch shows your group's whole week. The Schedules and Time Off lesson covers schedules.
 
 ### Contact & Emergency
+
+```figure
+{
+  "kind": "screen",
+  "title": "Contact & Emergency, Editing",
+  "device": "computer",
+  "module": "Workday",
+  "tabs": [
+    "Overview",
+    "Time Sheet",
+    "Time Off",
+    "Performance"
+  ],
+  "tab": "Overview",
+  "parts": [
+    {
+      "kind": "form",
+      "title": "Contact & Emergency",
+      "fields": [
+        {
+          "label": "Personal Email",
+          "value": "keisha.m@example.com"
+        },
+        {
+          "label": "Phone",
+          "value": "(951) 555-0142"
+        },
+        {
+          "label": "Emergency Contact",
+          "value": "Dana Moore"
+        },
+        {
+          "label": "Relationship",
+          "value": "Sister"
+        },
+        {
+          "label": "Emergency Phone",
+          "value": "(951) 555-0187",
+          "n": 1
+        }
+      ],
+      "buttons": [
+        "Cancel",
+        {
+          "label": "Save",
+          "primary": true,
+          "n": 2
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "These five you change yourself."
+    },
+    {
+      "n": 2,
+      "text": "Your name, job title, department and bank details go through Ask HR, Profile Change."
+    }
+  ]
+}
+```
 
 Your profile card shows your details and a **Contact & Emergency** section: your personal email, phone, and your emergency contact's name, relationship and phone. Click **Edit**, change what you need, and click **Save**.
 

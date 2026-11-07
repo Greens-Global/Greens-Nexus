@@ -82,6 +82,8 @@ const LAYOUTS = ['modal', 'pane'];
 const PANE_COLS = ['checkbox', 'type', 'title', 'state', 'clock'];
 // Tabs whose count is a tally, not work waiting on you - no pill.
 const UNCOUNTED = new Set(['done', 'open', 'raised']);
+// The queues that stand as tabs on their own; the rest sit under Other Queues (Neil, 11/06/2026).
+const PRIMARY_QUEUES = new Set(['needs_reply', 'unassigned', 'mine', 'open']);
 
 // What an empty queue says - not "no tickets match your filters", which is
 // for a filter someone set. Title Case titles, sentence-case hints.
@@ -618,13 +620,14 @@ export default function TicketsView() {
   const moveOnBoard = useCallback((id, status) => guardedUpdate(id, { status })
     .catch((e) => appDialog.alert(`Could not move the ticket: ${e?.message || e}`)), [guardedUpdate]);
 
-  // The bar's tabs: the queues this person has (To Route only on the desk,
-  // and the two approval queues only with something in them), then their
-  // saved views, then "+ View" (desktop - saving is a desktop job).
-  // Order (Neil, 10/31/2026): the built-in queues through Done, To Route and
-  // To Approve when they have something, the person's saved views, Raised by
-  // Me, then "+ View". A count pill means something waiting on you, so Done,
-  // All Open and Raised by Me carry none.
+  // The bar's tabs (Neil, 11/06/2026: "too cluttered ... simpler and more
+  // efficient"): the four queues a desk works from - Needs Reply, Unassigned,
+  // Mine, All Open - and ONE "Other Queues" dropdown holding the rest in the
+  // old order: Due Soon, Waiting, Done, To Route / To Approve / Preventive
+  // when they have something, the person's saved views, Raised by Me. Saving
+  // a view is the ... menu's Save View (no "+ View" tab). A count pill means
+  // something waiting on you, so Done, All Open and Raised by Me carry none;
+  // the dropdown adds up the counts inside it.
   const queueTabs = useMemo(() => {
     const shown = QUEUES.filter((q) => !(q.onlyDesk && !itAdmin) && !(q.hideWhenEmpty && !counts[q.key]));
     // Preventive counts what is overdue when anything is, in the alarm tone
@@ -633,16 +636,19 @@ export default function TicketsView() {
     const tab = (q) => (q.key === 'preventive'
       ? { key: q.key, label: q.label, badge: late || counts[q.key], tone: late ? 'alarm' : q.tone }
       : { key: q.key, label: q.label, badge: UNCOUNTED.has(q.key) ? 0 : counts[q.key], tone: q.tone });
-    return [
-      ...shown.filter((q) => q.key !== 'raised').map(tab),
+    const more = [
+      ...shown.filter((q) => !PRIMARY_QUEUES.has(q.key) && q.key !== 'raised').map(tab),
       ...ticketViews.map((v) => ({ key: `view:${v.id}`, label: v.name })),
       ...shown.filter((q) => q.key === 'raised').map(tab),
-      ...(isMobile ? [] : [{ key: '__save', label: '+ View' }]),
     ];
-  }, [counts, itAdmin, ticketViews, isMobile]);
+    return [
+      ...shown.filter((q) => PRIMARY_QUEUES.has(q.key)).map(tab),
+      ...(more.length ? [{ key: '__more_queues', label: 'Other Queues', items: more,
+        badge: more.reduce((n, t) => n + (Number(t.badge) || 0), 0) }] : []),
+    ];
+  }, [counts, itAdmin, ticketViews]);
   const activeTab = activeSaved && ticketViews.some((v) => v.id === activeSaved) ? `view:${activeSaved}` : queue;
   const onTab = (key) => {
-    if (key === '__save') { setNamingView(true); return; }
     if (key.startsWith('view:')) {
       const v = ticketViews.find((x) => `view:${x.id}` === key);
       if (v) applyTicketView(v);
@@ -666,21 +672,16 @@ export default function TicketsView() {
           sat above the list are gone; their counts live on the tabs. To Route
           and To Approve appear only with something in them, a saved view is a
           tab too, and "+ View" saves the current filters as one. Phones get
-          the same strip (swipeable), with Create in the floating bar. */}
-      <div className="nx-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '0 8px' : '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, flexShrink: 0 }}>
+          the same strip (swipeable), with Create in the floating bar.
+          On a computer the queues ride the top header (Neil, 11/06/2026) and
+          this bar is not drawn (style.css .tk-primary-bar); Create sits at the
+          right end of the toolbar, after the ... menu. */}
+      <div className="nx-primary-bar tk-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '0 8px' : '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, flexShrink: 0 }}>
         {/* The page trail rides the bar, as on Tasks (Neil, 11/04/2026). */}
         <PageTrail className="page-trail--bar" />
         <div data-tour="ticket-scope" style={{ flex: 1, minWidth: 0 }}>
-          <ModuleTabs inline tabs={queueTabs} active={activeTab} onChange={onTab} />
+          <ModuleTabs tabs={queueTabs} active={activeTab} onChange={onTab} />
         </div>
-        {!isMobile && (
-          <span data-tour="ticket-create" style={{ flexShrink: 0, padding: '6px 0' }}>
-            {/* "Create", not "New Ticket" - the same word the Task module's bar
-                button uses, and the page it sits on already says Tickets
-                (Sagar, Sept 2 2026). */}
-            <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
-          </span>
-        )}
       </div>
 
       {/* Phone search - the same `search` state as the desktop toolbar's box,
@@ -741,6 +742,12 @@ export default function TicketsView() {
               columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={fullTable.cols} showColumns={view === 'list' && !pane}
               layout={view === 'list' ? layout : undefined} setLayout={setLayout}
               suggestLinks={privileged ? (style) => <SuggestPropertyLinksButton style={style} /> : null} />
+            {/* "Create", not "New Ticket" - the same word the Task module's bar
+                button uses, and the page it sits on already says Tickets
+                (Sagar, Sept 2 2026). Last in the row, after ... (Neil, 11/06/2026). */}
+            <span data-tour="ticket-create" style={{ flexShrink: 0 }}>
+              <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
+            </span>
           </div>
         </div>
       )}

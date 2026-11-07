@@ -15,7 +15,8 @@ import kb_md
 
 ROOT = Path(__file__).parent / "kb_seed" / "academy"
 ORDER = ["nexus-fundamentals", "self-storage-fundamentals", "rv-boat-storage-fundamentals",
-         "cubby-fundamentals", "customer-service-sales-fundamentals", "hands-on-check"]
+         "cubby-fundamentals", "customer-service-sales-fundamentals", "hands-on-check",
+         "property-vendor-management"]   # the seventh course (Neil, 11/07/2026) is for managers, not on the new-hire plan
 
 
 @dataclass
@@ -39,6 +40,8 @@ class CourseSpec:
     min_reading_minutes: int
     lessons: list
     quiz: dict
+    level: str = ""
+    tags: str = ""
 
 
 @dataclass
@@ -47,6 +50,21 @@ class Academy:
     courses: list = field(default_factory=list)
     plan: dict = field(default_factory=dict)
     errors: list = field(default_factory=list)  # load-time findings, reported by problems()
+
+
+def digest(root: Path = ROOT) -> str:
+    """A fingerprint of the whole package: every file's path and bytes. The
+    content pass (kb_academy_seed.apply_content_once) runs again whenever
+    it changes, so a new lesson or course in the repository reaches the
+    courses nobody edited."""
+    import hashlib
+    h = hashlib.sha256()
+    for f in sorted(p for p in root.rglob("*") if p.is_file()):
+        h.update(str(f.relative_to(root)).encode())
+        h.update(b"\0")
+        h.update(f.read_bytes())
+        h.update(b"\0")
+    return h.hexdigest()
 
 
 def load(root: Path = ROOT) -> Academy:
@@ -87,7 +105,8 @@ def load(root: Path = ROOT) -> Academy:
             quiz = c.get("quiz") or {}
             _link_questions(lessons, [q for L in lessons for q in L.get("questions") or []] + list(quiz.get("questions") or []))
             a.courses.append(CourseSpec(slug, c["title"], c.get("description", ""), c.get("overview", []), c.get("est_minutes", 0),
-                                        c.get("delivery", ""), c.get("min_reading_minutes", 0), lessons, quiz))
+                                        c.get("delivery", ""), c.get("min_reading_minutes", 0), lessons, quiz,
+                                        c.get("level", ""), c.get("tags", "")))
         except (OSError, ValueError, KeyError, TypeError) as e:
             a.errors.append(f"{d.parent.name}: cannot load ({type(e).__name__}: {e})")
     return a
@@ -122,6 +141,8 @@ def _texts(node) -> list[str]:
 
 def _all_text(node) -> list[str]:
     if isinstance(node, dict):
+        if node.get("type") == "figure":
+            return kb_blocks.figure_text(node).split("\n")
         out = [node["text"]] if isinstance(node.get("text"), str) else []
         for v in node.values():
             out += _all_text(v)
@@ -142,9 +163,11 @@ def _lesson_num(where: str, texts) -> list[str]:
 _BANNED = re.compile(r"[\u2014\u2013]|\b\d{4}-\d{2}-\d{2}\b|(?i:time ?card|timesheet)|\bGlobal Admin\b|\bIT Admin\b")
 # Global Constraints, pinned in code so a course.json cannot lower them.
 MIN_READING = {"nexus-fundamentals": 70, "self-storage-fundamentals": 120, "rv-boat-storage-fundamentals": 100,
-               "cubby-fundamentals": 95, "customer-service-sales-fundamentals": 120, "hands-on-check": 5}
+               "cubby-fundamentals": 95, "customer-service-sales-fundamentals": 120, "hands-on-check": 5,
+               "property-vendor-management": 80}
 EST_MINUTES = {"nexus-fundamentals": 120, "self-storage-fundamentals": 210, "rv-boat-storage-fundamentals": 180,
-               "cubby-fundamentals": 180, "customer-service-sales-fundamentals": 210, "hands-on-check": 90}
+               "cubby-fundamentals": 180, "customer-service-sales-fundamentals": 210, "hands-on-check": 90,
+               "property-vendor-management": 150}
 
 
 def _title_case(t: str) -> bool:
@@ -195,8 +218,9 @@ def problems(a: Academy) -> list[str]:
     def changed(blocks) -> bool:   # the importer stores what sanitize keeps; nothing may be dropped silently
         return kb_blocks.sanitize(blocks, image_ok=kb_media.is_storage_url) != blocks
     slugs = [c.slug for c in a.courses]
-    if a.plan.get("courses") != ORDER or slugs != ORDER:
-        out.append(f"plan/course slugs are not the six courses in order: plan={a.plan.get('courses')} courses={slugs}")
+    plan_courses = a.plan.get("courses") or []
+    if slugs != ORDER or [s for s in ORDER if s in plan_courses] != plan_courses or not plan_courses:
+        out.append(f"plan/course slugs are not the courses in order: plan={plan_courses} courses={slugs}")
     for p in a.pages.values():
         if not _title_case(p.title):
             out.append(f"page {p.slug}: title not in Title Case")
@@ -257,4 +281,13 @@ def problems(a: Academy) -> list[str]:
         for s in [c.title, c.description] + list(c.overview):
             if _BANNED.search(str(s)):
                 out.append(f"{c.slug}: banned copy {_BANNED.search(str(s)).group(0)!r}")
+        if c.level not in ("foundations", "core", "advanced"):
+            out.append(f"{c.slug}: level {c.level!r} must be foundations, core or advanced")
+        for L in c.lessons:
+            if L["type"] == "text":
+                for b in L["blocks"].get("content") or []:
+                    if b.get("type") == "figure":
+                        for name in kb_blocks.figure_drawings(b):
+                            if name not in kb_blocks.DRAWING_NAMES:
+                                out.append(f"{c.slug} {L['title']!r}: no drawing named {name!r}")
     return out

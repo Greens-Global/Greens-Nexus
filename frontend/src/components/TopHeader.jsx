@@ -3,8 +3,7 @@ import { Menu, Search, LogOut, User, ArrowLeft, ChevronDown, Sparkles, X, UserCo
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
 import QuickNoteButton from "../notes/QuickNoteButton";
-import { HeaderOverflowTabs, TabGroupButton, useHeaderTabs } from "./ModuleTabs";
-import TabInk from "./TabInk";
+import { useHeaderTabs, ModuleBar } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
 import QuickCreate from "./QuickCreate";   // the "+" Create menu (Oct 29 2026)
 import { readStopEmail, setPendingEmailStop } from "../lib/emailStop";
@@ -57,12 +56,12 @@ import { useActionCounts } from '../lib/useActionCounts';
 import { clearOfflineReadCache } from '../lib/offline/read';
 
 
-export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel }) {
+export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, pageNameRef, prevView }) {
   const { instance, accounts } = useMsal();
   const { actingAs, stopActAs, isExternal, myTier, myTitle } = useRole();
-  // Module tab strip published by the active module (<ModuleTabs>). When
-  // present it takes the header center (Work OS shell). The search bar is
-  // NOT part of that bargain any more: it sits in the right cluster on
+  // Module tab strip published by the active module (<ModuleTabs>) - drawn
+  // in the module bar under this header (11/05/2026); read here only for the
+  // screen-reader page name. The search bar sits in the right cluster on
   // every module, the same size in the same place (Neil, Oct 14 2026).
   const headerTabs = useHeaderTabs();
   const actionCounts = useActionCounts();
@@ -209,6 +208,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   }
   function pickSearch(row) {
     closeSearch(true);
+    search.remember(row);   // Recent (11/07/2026)
     row.run?.();
   }
 
@@ -321,9 +321,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
       </div>
       {searchOpen && (
         <div className="hdr-search-panel">
-          {searchQuery.trim()
+          {/* Nothing typed: Favorites and Recent when there are any, else the hint. */}
+          {searchQuery.trim() || search.rows.length
             ? <SearchResults query={searchQuery} groups={search.groups} rows={search.rows} searching={search.searching}
-                activeIdx={activeIdx} onActive={setSearchIdx} onPick={pickSearch} listRef={searchListRef} />
+                activeIdx={activeIdx} onActive={setSearchIdx} onPick={pickSearch} listRef={searchListRef}
+                onToggleFavorite={search.toggleFavorite} isFavorite={search.isFavorite} />
             : <div className="gs-hint">{SEARCH_HINT}</div>}
         </div>
       )}
@@ -359,62 +361,20 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         {/* Phone-only centered wordmark (desktop hides it) - tap = home */}
         <button className="header-brand" onClick={() => onNavigate('dashboard')} aria-label="Go to Dashboard">NEXUS</button>
         <div className="breadcrumb">
-          {canGoBack && (
-            <button className="breadcrumb-back" onClick={onBack} title={`Back to ${prevLabel}`}>
-              <ArrowLeft style={{ width: 15, height: 15 }} />
-            </button>
-          )}
           {/* The page trail (Neil, 11/04/2026) names the module and the pages
               above a record, in the page above its title (PageTrail.jsx), so
-              the bar keeps only Back - the trail goes UP, this goes BACK. The
+              Back is the small line over the module's name (ModuleBar) on a
+              computer - the trail goes UP, Back goes BACK. The
               name stays for screen readers and Build Mode's capture. */}
           <span className="breadcrumb-current sr-only">{displayTitle}</span>
         </div>
       </div>
 
-      <div className={`header-center${headerTabs ? ' has-tabs' : ''}`}>
-        {/* A module that opts into overflow (People, Oct 27 2026) folds the
-            tabs that do not fit into More instead of scrolling them away. */}
-        {headerTabs?.overflow && (
-          <HeaderOverflowTabs entry={headerTabs}
-            ink={<TabInk key={headerTabs.tabs.map((t) => t.key).join('|')} active={headerTabs.active} />}
-            onPick={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }}
-            renderTab={({ key, label, Icon, badge, items, landing }, probe) => (items && !probe ? (
-              // A dropdown tab (People, 11/03/2026) keeps only its own label in
-              // the bar, so the width measured for it is the width it takes.
-              <TabGroupButton key={key} tab={{ key, label, Icon, items, landing, badge }} active={headerTabs.active} className="hdr-tab" compact
-                onSelect={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }} />
-            ) : (
-              <button key={key} type="button" tabIndex={probe ? -1 : undefined}
-                className={`hdr-tab${!probe && headerTabs.active === key ? ' active' : ''}`}
-                aria-current={!probe && headerTabs.active === key ? 'page' : undefined}
-                onClick={probe ? undefined : () => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(key); }}>
-                {Icon && <Icon size={16} strokeWidth={2} />}
-                <span>{label}</span>
-                {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
-                {items && <ChevronDown size={14} className="tab-group-caret" />}
-              </button>
-            ))} />
-        )}
-        {headerTabs && !headerTabs.overflow && (
-          <nav className={`hdr-tabs${headerTabs.compactGroups ? ' hdr-tabs--compact' : ''}`} aria-label="Module sections" data-tour="module-tabs">
-            <TabInk key={headerTabs.tabs.map((t) => t.key).join('|')} active={headerTabs.active} />
-            {headerTabs.tabs.map(({ key, label, Icon, badge, items, landing }) => (items ? (
-              <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={headerTabs.active} className="hdr-tab" compact={!!headerTabs.compactGroups}
-                onSelect={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }} />
-            ) : (
-              <button key={key}
-                className={`hdr-tab${headerTabs.active === key ? ' active' : ''}`}
-                aria-current={headerTabs.active === key ? 'page' : undefined}
-                onClick={() => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(key); }}>
-                {Icon && <Icon size={16} strokeWidth={2} />}
-                <span>{label}</span>
-                {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
-              </button>
-            )))}
-          </nav>
-        )}
-      </div>
+      {/* The module bar - the module's name (or a record's trail) and its
+          tabs, never its buttons - rides here, right after Back, on a computer
+          (Neil, 11/06/2026: one row, more of the page to work with). Phones
+          keep the in-page strip (ModuleBar in ModuleTabs.jsx). */}
+      <div className="header-center"><ModuleBar back={canGoBack ? { label: prevLabel, view: prevView, onBack } : null} nameRef={pageNameRef} /></div>
 
       <div className="header-right">
         {searchBar}

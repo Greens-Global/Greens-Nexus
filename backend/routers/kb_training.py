@@ -49,6 +49,8 @@ class CourseIn(BaseModel):
     quiz: Optional[dict] = None
     rev: Optional[str] = None
     delivery: Optional[str] = None      # online | in_person (WP 5.1)
+    level: Optional[str] = None         # foundations | core | advanced | '' (learning paths, 11/07/2026)
+    tags: Optional[str] = None          # "storage, cubby"
 
 
 class PublishIn(BaseModel):
@@ -93,6 +95,9 @@ class PlanIn(BaseModel):
     due_date: Optional[str] = None         # one date for everyone; '' = within due_days (11/03/2026)
     audience: Optional[dict] = None
     active: Optional[bool] = None
+    kind: Optional[str] = None             # onboarding | role | department | custom (learning paths, 11/07/2026)
+    stages: Optional[list] = None          # ordered stage names; an item's `stage` is an index into it
+    open_enrollment: Optional[bool] = None # anyone may start it from the catalog
 
 
 class PlanAssignIn(BaseModel):
@@ -107,6 +112,41 @@ class GenerateIn(BaseModel):
 
 class NudgeIn(BaseModel):
     emails: list
+
+
+# Learning paths (Neil, 11/07/2026: "missing role based paths and departmental
+# trainings"). A training plan IS a path; its kind says what it is for.
+PLAN_KINDS = ("onboarding", "role", "department", "custom")
+COURSE_LEVELS = ("", "foundations", "core", "advanced")
+
+
+def _tags(raw) -> list[str]:
+    seen: list[str] = []
+    for t in str(raw or "").split(","):
+        t = t.strip()
+        if t and t.lower() not in {x.lower() for x in seen}:
+            seen.append(t[:40])
+    return seen[:12]
+
+
+def _stages(raw) -> list[str]:
+    if isinstance(raw, str):
+        raw = _j(raw, [])
+    return [str(x).strip()[:80] for x in (raw or []) if str(x or "").strip()][:12]
+
+
+def _plan_items_in(items) -> list[dict]:
+    """The stored shape of a plan's items: kind, id and the stage index (-1 = none)."""
+    out = []
+    for i in items or []:
+        if not isinstance(i, dict) or i.get("kind") not in ("course", "policy") or not i.get("id"):
+            continue
+        try:
+            stage = int(i.get("stage", -1))
+        except (TypeError, ValueError):
+            stage = -1
+        out.append({"kind": i["kind"], "id": i["id"], "stage": stage if stage >= 0 else -1})
+    return out
 
 
 # ----------------------------------------------------------------- helpers
@@ -149,10 +189,13 @@ def _draft_of(c: models.KbCourse) -> dict:
     d = _j(c.draft, {})
     if d:
         d.setdefault("delivery", c.delivery or "online")
+        d.setdefault("level", c.level or "")
+        d.setdefault("tags", c.tags or "")
         return d
     return {"title": c.title, "description": c.description or "", "overview": _j(c.overview, []), "est_minutes": c.est_minutes or 15,
             "lessons": kb_core.lessons_of(c), "quiz": _j(c.quiz, {}) or {"passPct": 80, "drawCount": 0, "maxTries": 3, "shuffle": True, "questions": []},
-            "recert_months": c.recert_months or 0, "default_due_days": int(c.default_due_days or 0), "departments": c.departments or "", "delivery": c.delivery or "online"}
+            "recert_months": c.recert_months or 0, "default_due_days": int(c.default_due_days or 0), "departments": c.departments or "", "delivery": c.delivery or "online",
+            "level": c.level or "", "tags": c.tags or ""}
 
 
 QUESTION_TYPES = ("single", "multi", "tf", "order", "short", "photo")   # WP 5.5 added order, short and photo
@@ -293,7 +336,9 @@ def _course_card(db: Session, c: models.KbCourse, email: str) -> dict:
             "delivery": c.delivery or "online", "sessions": _my_sessions(db, c, email),
             "my_feedback": _my_feedback(db, c, email),
             "owner_email": (c.owner_email or "").lower(), "owner_name": c.owner_name or _name(db, c.owner_email),
-            "departments": c.departments or "", "published_at": c.published_at or "", "updated_at": c.updated_at or "",
+            "departments": c.departments or "", "department_list": kb_core.departments_of(c),
+            "level": (c.level or "") if (c.level or "") in COURSE_LEVELS else "", "tags": _tags(c.tags),
+            "published_at": c.published_at or "", "updated_at": c.updated_at or "",
             "assigned": bool(asn), "due_date": asn.due_date if asn else "", "source": asn.source if asn else "",
             "plan_id": asn.plan_id if asn else "", "my_status": st["status"], "my_pct": st["pct"], "expires": st["expires"],
             "days_overdue": st["days_overdue"], "completed_at": (prog.completed_at if prog else ""),
@@ -385,22 +430,39 @@ def _finish(db: Session, c: models.KbCourse, prog: models.KbCourseProgress, emai
 
 def _plan_items(db: Session, plan: models.KbTrainingPlan, email: str) -> list[dict]:
     out = []
-    for it in _j(plan.items, []):
-        if not isinstance(it, dict):
-            continue
+    for it in _plan_items_in(_j(plan.items, [])):
         if it.get("kind") == "course":
             c = db.query(models.KbCourse).filter(models.KbCourse.id == it.get("id")).first()
             if not c:
                 continue
             st = kb_core.training_status(db, c, kb_core.progress_of(db, c, email), "", email)
-            out.append({"kind": "course", "id": c.id, "title": c.title, "code": c.course_code or "", "done": st["status"] == "Completed", "status": st["status"], "est_minutes": c.est_minutes or 15})
+            out.append({"kind": "course", "id": c.id, "title": c.title, "code": c.course_code or "", "done": st["status"] == "Completed", "status": st["status"],
+                        "pct": st["pct"], "est_minutes": c.est_minutes or 15, "level": c.level or "", "delivery": c.delivery or "online",
+                        "description": c.description or "", "published": c.status == "published", "stage": it["stage"]})
         elif it.get("kind") == "policy":
             d = db.query(models.KbDocument).filter(models.KbDocument.id == it.get("id")).first()
             if not d:
                 continue
             signed = bool(kb_core.signature_for(db, d, email)) if d.status == "approved" else False
-            out.append({"kind": "policy", "id": d.id, "title": d.title, "code": d.doc_code or "", "done": signed, "status": "Signed" if signed else "To Sign"})
+            out.append({"kind": "policy", "id": d.id, "title": d.title, "code": d.doc_code or "", "done": signed, "status": "Signed" if signed else "To Sign",
+                        "summary": d.summary or "", "stage": it["stage"]})
     return out
+
+
+def _plan_progress(db: Session, plan: models.KbTrainingPlan, email: str, pa: Optional[models.KbPlanAssignment] = None) -> dict:
+    """One path as the learner sees it: its stages, items with their state,
+    the count done, the person's enrollment (a plan assignment) if any."""
+    items = _plan_items(db, plan, email)
+    stages = _stages(plan.stages)
+    day = kb_core.today_for(db, email)
+    return {"id": plan.id, "name": plan.name, "description": plan.description or "", "kind": plan.kind if plan.kind in PLAN_KINDS else "custom",
+            "stages": stages, "items": items, "done": sum(1 for i in items if i["done"]), "total": len(items),
+            "est_minutes": sum(int(i.get("est_minutes") or 0) for i in items if i["kind"] == "course"),
+            "open_enrollment": plan.open_enrollment is not False, "active": bool(plan.active),
+            "audience_text": kb_audience.describe(kb_audience.loads(plan.audience), db) if plan.audience else "",
+            "enrolled": bool(pa), "source": pa.source if pa else "", "due_date": pa.due_date if pa else "",
+            "completed_at": pa.completed_at if pa else "",
+            "days_overdue": max(0, kb_core.days_between(pa.due_date, day)) if pa and pa.due_date and not pa.completed_at else 0}
 
 
 def _plan_done(db: Session, pa: models.KbPlanAssignment, email: str) -> bool:
@@ -416,6 +478,8 @@ def my_training_summary(db: Session, email: str) -> dict:
     due, completed = [], []
     seen = set()
     for a in db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.user_email == email).all():
+        if a.course_id in seen:   # two assignment rows for one course (an old double insert) show once
+            continue
         c = db.query(models.KbCourse).filter(models.KbCourse.id == a.course_id, models.KbCourse.status == "published").first()
         if not c:
             continue
@@ -438,10 +502,9 @@ def my_training_summary(db: Session, email: str) -> dict:
         plan = db.query(models.KbTrainingPlan).filter(models.KbTrainingPlan.id == pa.plan_id).first()
         if not plan:
             continue
-        items = _plan_items(db, plan, email)
-        plans.append({"id": plan.id, "name": plan.name, "description": plan.description or "", "due_date": pa.due_date, "items": items,
-                      "done": sum(1 for i in items if i["done"]), "total": len(items), "completed_at": pa.completed_at,
-                      "days_overdue": max(0, kb_core.days_between(pa.due_date, kb_core.today_for(db, email))) if pa.due_date and not pa.completed_at else 0})
+        plans.append(_plan_progress(db, plan, email, pa))
+    # the plan with the most still to do first, a finished one last
+    plans.sort(key=lambda p: (bool(p["completed_at"]), -p["days_overdue"], p["due_date"] or "9999", p["name"]))
     certs = [{"id": x.id, "serial": x.serial, "course_title": x.course_title, "course_code": x.course_code, "score": x.score, "issued_at": x.issued_at,
               "expires_at": x.expires_at, "course_major": x.course_major, "expired": bool(x.expires_at and x.expires_at < kb_core.today_for(db, email))}
              for x in db.query(models.KbCertificate).filter(models.KbCertificate.user_email == email, models.KbCertificate.revoked_at == "").order_by(models.KbCertificate.issued_at.desc()).all()]
@@ -564,6 +627,10 @@ def update_course(cid: str, body: CourseIn, user: dict = Depends(require_author)
         draft["departments"] = body.departments[:200]
     if body.delivery in ("online", "in_person"):
         draft["delivery"] = body.delivery
+    if body.level is not None:
+        draft["level"] = body.level if body.level in COURSE_LEVELS else ""
+    if body.tags is not None:
+        draft["tags"] = ", ".join(_tags(body.tags))
     if body.lessons is not None:
         draft["lessons"] = _norm_lessons(db, body.lessons, user)
     if body.quiz is not None:
@@ -573,6 +640,7 @@ def update_course(cid: str, body: CourseIn, user: dict = Depends(require_author)
         c.title, c.description, c.est_minutes, c.recert_months, c.departments = draft["title"], draft["description"], draft["est_minutes"], draft["recert_months"], draft["departments"]
         c.overview = json.dumps(draft["overview"])
         c.delivery = draft.get("delivery") or c.delivery or "online"
+        c.level, c.tags = draft.get("level") or "", draft.get("tags") or ""
     c.updated_at = kb_core.now()
     db.commit()
     return builder(c.id, user, db)
@@ -601,6 +669,8 @@ def publish_course(cid: str, body: PublishIn, user: dict = Depends(require_autho
     c.recert_months, c.departments = int(draft.get("recert_months") or 0), draft.get("departments") or ""
     c.overview = json.dumps(draft.get("overview") or [])
     c.delivery = draft.get("delivery") or c.delivery or "online"
+    c.level = draft.get("level") if draft.get("level") in COURSE_LEVELS else ""
+    c.tags = ", ".join(_tags(draft.get("tags")))
     c.lessons, c.quiz = json.dumps(lessons), json.dumps(quiz)
     c.major = (c.major or 0) + 1
     c.status = "published"
@@ -1058,22 +1128,23 @@ def delete_rule(rid: str, user: dict = Depends(require_author), db: Session = De
 
 def _plan_out(db: Session, p: models.KbTrainingPlan, email: str = "") -> dict:
     items = []
-    for it in _j(p.items, []):
-        if not isinstance(it, dict):
-            continue
+    for it in _plan_items_in(_j(p.items, [])):
         if it.get("kind") == "course":
             c = db.query(models.KbCourse).filter(models.KbCourse.id == it.get("id")).first()
             if c:
-                items.append({"kind": "course", "id": c.id, "title": c.title, "code": c.course_code or "", "status": c.status, "est_minutes": c.est_minutes or 15})
+                items.append({"kind": "course", "id": c.id, "title": c.title, "code": c.course_code or "", "status": c.status, "est_minutes": c.est_minutes or 15,
+                              "level": c.level or "", "stage": it["stage"]})
         elif it.get("kind") == "policy":
             d = db.query(models.KbDocument).filter(models.KbDocument.id == it.get("id")).first()
             if d:
-                items.append({"kind": "policy", "id": d.id, "title": d.title, "code": d.doc_code or "", "status": d.status})
+                items.append({"kind": "policy", "id": d.id, "title": d.title, "code": d.doc_code or "", "status": d.status, "stage": it["stage"]})
     a = kb_audience.loads(p.audience) if p.audience else {}
     assigned = db.query(models.KbPlanAssignment).filter(models.KbPlanAssignment.plan_id == p.id).all()
     return {"id": p.id, "name": p.name, "description": p.description or "", "items": items, "due_days": p.due_days, "due_date": p.due_date or "", "audience": a,
             "audience_text": kb_audience.describe(a, db) if p.audience else "Assigned by name", "active": bool(p.active),
-            "assigned": len(assigned), "completed": sum(1 for x in assigned if x.completed_at), "created_by": p.created_by}
+            "assigned": len(assigned), "completed": sum(1 for x in assigned if x.completed_at), "created_by": p.created_by,
+            "kind": p.kind if p.kind in PLAN_KINDS else "custom", "stages": _stages(p.stages), "open_enrollment": p.open_enrollment is not False,
+            "est_minutes": sum(int(i.get("est_minutes") or 0) for i in items if i["kind"] == "course")}
 
 
 def _get_plan(db: Session, pid: str, user: dict) -> models.KbTrainingPlan:
@@ -1096,9 +1167,11 @@ def create_plan(body: PlanIn, user: dict = Depends(require_author), db: Session 
     if not (body.name or "").strip():
         raise HTTPException(422, "A plan needs a name")
     p = models.KbTrainingPlan(id=kb_core.new_id("plan"), name=body.name.strip()[:200], description=(body.description or "")[:500],
-                              items=json.dumps([{"kind": i.get("kind"), "id": i.get("id")} for i in (body.items or []) if isinstance(i, dict) and i.get("kind") in ("course", "policy") and i.get("id")]),
+                              items=json.dumps(_plan_items_in(body.items)),
                               due_days=int(body.due_days or 30), due_date=_day_or_422(body.due_date), audience=kb_audience.dumps(body.audience) if body.audience else "", active=True,
-                              created_by=user["email"].lower(), created_at=kb_core.now(), updated_at=kb_core.now())
+                              created_by=user["email"].lower(), created_at=kb_core.now(), updated_at=kb_core.now(),
+                              kind=body.kind if body.kind in PLAN_KINDS else "custom", stages=json.dumps(_stages(body.stages)),
+                              open_enrollment=body.open_enrollment is not False)
     db.add(p)
     db.commit()
     return _plan_out(db, p)
@@ -1112,7 +1185,13 @@ def update_plan(pid: str, body: PlanIn, user: dict = Depends(require_author), db
     if body.description is not None:
         p.description = body.description[:500]
     if body.items is not None:
-        p.items = json.dumps([{"kind": i.get("kind"), "id": i.get("id")} for i in body.items if isinstance(i, dict) and i.get("kind") in ("course", "policy") and i.get("id")])
+        p.items = json.dumps(_plan_items_in(body.items))
+    if body.kind is not None:
+        p.kind = body.kind if body.kind in PLAN_KINDS else "custom"
+    if body.stages is not None:
+        p.stages = json.dumps(_stages(body.stages))
+    if body.open_enrollment is not None:
+        p.open_enrollment = bool(body.open_enrollment)
     if body.due_days is not None:
         p.due_days = int(body.due_days)
     if body.due_date is not None:
@@ -1140,6 +1219,86 @@ def assign_plan(pid: str, body: PlanAssignIn, user: dict = Depends(require_autho
             made += 1
     db.commit()
     return {"assigned": made, "plan": _plan_out(db, p)}
+
+
+# ----------------------------------------------------------------- catalog and paths (Neil, 11/07/2026)
+
+def _visible_plans(db: Session, user: dict) -> list[models.KbTrainingPlan]:
+    rows = db.query(models.KbTrainingPlan).filter(models.KbTrainingPlan.active.is_(True)).order_by(models.KbTrainingPlan.name).all()
+    return kb_access.wall_rows(rows, user, db, owner_attr="created_by")
+
+
+def _my_plan_assignment(db: Session, pid: str, email: str):
+    return db.query(models.KbPlanAssignment).filter(models.KbPlanAssignment.plan_id == pid, models.KbPlanAssignment.user_email == email).first()
+
+
+def _for_me(db: Session, plan: models.KbTrainingPlan, emp) -> bool:
+    """A path is "for you" when its audience names your role, department,
+    site or you (named people count); a plan with no audience is for nobody
+    in particular."""
+    if not plan.audience or emp is None:
+        return False
+    a = kb_audience.loads(plan.audience)
+    if kb_audience.is_everyone(a):
+        return False
+    return kb_audience.matches(emp, a)
+
+
+@router.get("/catalog")
+def catalog(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Everything a person may learn, for the Training > Catalog screen: the
+    published courses they may see, every active path, and which of those
+    are for their role or department (`for_me`) or already theirs
+    (`enrolled`). Grouping by department, role and level happens on the
+    screen; this is the one list."""
+    email = user["email"].lower()
+    emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == email).first()
+    rows = kb_access.wall_rows(db.query(models.KbCourse).filter(models.KbCourse.status == "published").all(), user, db)
+    courses = [_course_card(db, c, email) for c in rows]
+    courses.sort(key=lambda x: (x["my_status"] == "Completed", x["title"].lower()))
+    paths = []
+    for p in _visible_plans(db, user):
+        out = _plan_progress(db, p, email, _my_plan_assignment(db, p.id, email))
+        out["for_me"] = _for_me(db, p, emp)
+        paths.append(out)
+    paths.sort(key=lambda x: (not x["enrolled"], not x["for_me"], {"onboarding": 0, "role": 1, "department": 2, "custom": 3}[x["kind"]], x["name"].lower()))
+    depts = sorted({d for c in courses for d in c["department_list"]} | {d for p in paths for d in kb_audience.loads(db.get(models.KbTrainingPlan, p["id"]).audience)["departments"]}, key=str.lower)
+    return {"me": {"department": (emp.department or "") if emp else "", "job_title": (emp.job_title or "") if emp else "",
+                   "location": (emp.location or "") if emp else ""},
+            "courses": courses, "paths": paths, "departments": depts, "can_author": kb_access.is_author(user, db)}
+
+
+@router.get("/plans/{pid}")
+def get_plan(pid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """One path as the caller sees it (anyone signed in; the manager's full
+    shape rides along for authors)."""
+    p = _get_plan(db, pid, user)
+    email = user["email"].lower()
+    emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == email).first()
+    out = _plan_progress(db, p, email, _my_plan_assignment(db, p.id, email))
+    out["for_me"] = _for_me(db, p, emp)
+    out["can_edit"] = kb_access.is_author(user, db)
+    if not p.active and not out["can_edit"]:
+        raise HTTPException(404, "Not found")
+    return out
+
+
+@router.post("/plans/{pid}/enroll")
+def enroll_plan(pid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Start a path from the catalog on your own: the plan is assigned to you
+    with no due date (a rule or a manager's assignment keeps setting one),
+    and its published courses with it. Already on it = nothing changes."""
+    p = _get_plan(db, pid, user)
+    if not p.active or p.open_enrollment is False:
+        raise HTTPException(409, "This path is not open to start on your own")
+    email = user["email"].lower()
+    emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == email).first()
+    if not emp:
+        raise HTTPException(409, "Only people in Nexus People can start a path")
+    import kb_daily
+    kb_daily.assign_plan(db, p, emp, due_days=0, source="self", by=email, due_date="")
+    db.commit()
+    return get_plan(pid, user, db)
 
 
 # ----------------------------------------------------------------- generate

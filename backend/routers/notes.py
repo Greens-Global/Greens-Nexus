@@ -103,7 +103,7 @@ TITLE_MAX = 200
 BODY_MAX = 300_000
 SCENE_MAX = 2_000_000                 # characters of board JSON
 SCENE_TYPE = "nexus-board"
-SOURCE_KINDS = ("task", "ticket", "note", "walkthrough", "file", "construction_media")
+SOURCE_KINDS = ("task", "ticket", "note", "walkthrough", "file", "construction_media", "construction_job")
 SOURCE_ID_MAX, SOURCE_LABEL_MAX = 100, 200
 # A Mark Up source link is a Nexus page: one leading slash and never two
 # (`//evil.com` is another site to a browser), no backslash, no
@@ -143,18 +143,35 @@ _EMAIL = re.compile(r"^[^@\s<>\"]+@[^@\s<>\"]+$")
 _NOTE_ATTRS = {
     # a: a link, or a board embedded in the note (Mark Up / Insert Board,
     # 11/02/2026 - notes/board/BoardEmbed.jsx): <a data-type="boardEmbed"
-    # data-note="note_..." data-thumb="<our storage>" title="...">Title</a>.
-    "a": ("href", "title", "data-type", "data-note", "data-thumb"),
+    # data-note="note_..." data-thumb="<our storage>" title="...">Title</a>;
+    # or a link to a Nexus record (Record Links, Neil 11/06/2026 -
+    # notes/recordLink.jsx): <a data-type="recordLink" data-ref="task:<id>"
+    # title="...">Title</a>, never with an href.
+    "a": ("href", "title", "data-type", "data-note", "data-thumb", "data-ref"),
     "img": ("src", "alt", "title"),
     "ul": ("data-type",),
     "li": ("data-type", "data-checked"),
     "span": ("data-type", "data-id", "data-label"),
+    # Callouts and toggles (Neil, 11/07/2026, notes/noteBlocks.jsx): the only
+    # <div>s a note keeps - <div data-type="callout" data-tone="info|tip|warning">
+    # and <div data-type="toggle" data-summary="..." data-open="true|false">.
+    "div": ("data-type", "data-tone", "data-summary", "data-open", "data-source", "data-show"),
     "p": ("style",), "h1": ("style",), "h2": ("style",), "h3": ("style",), "h4": ("style",),
     "td": ("colspan", "rowspan"), "th": ("colspan", "rowspan"),
 }
 _ALIGN = re.compile(r"^text-align:\s*(left|center|right|justify);?$", re.I)
-_DATA_TYPES = {"taskList", "taskItem", "mention", "boardEmbed"}
+_DATA_TYPES = {"taskList", "taskItem", "mention", "boardEmbed", "recordLink", "callout", "toggle", "liveList"}
+# A live task list (11/07/2026, notes/liveList.jsx): <div data-type="liveList"
+# data-source="mine|project:<id>" data-show="open|all">words</div> - the rows
+# are read for each reader, never stored.
+_DIV_TYPES = ("callout", "toggle", "liveList")
+_LIST_SOURCE = re.compile(r"^(mine|project:[A-Za-z0-9_\-.]{1,100})$")
+_TONES = ("info", "tip", "warning")
 _NOTE_REF = re.compile(r"^note_[A-Za-z0-9]{1,64}$")
+# A record link's target: what it is and its id - nothing that could be a URL.
+# The kinds are the ones the [[ picker offers (notes/recordLink.jsx); the
+# same pattern as record_links.RECORD_REF - change them together.
+_RECORD_REF = re.compile(r"^(note|task|job|kb|ticket):[A-Za-z0-9_\-.]{1,100}$")
 
 
 _MEDIA = {"audio": ' controls preload="metadata"', "video": ' controls playsinline preload="metadata"'}
@@ -164,10 +181,31 @@ class _NoteSanitizer(_RichSanitizer):
     def __init__(self):
         super().__init__()
         self._in_media = 0
+        self._divs = []         # per open <div>: True = kept (a callout / toggle), False = unwrapped
+
+    def _div_start(self, attrs):
+        if self.drop_depth:
+            return                      # inside a dropped tree: neither counted nor kept
+        self._in_media = 0              # an unclosed player never swallows the rest of the note
+        kind = next(((v or "").strip() for k, v in attrs if (k or "").lower() == "data-type"), "")
+        keep = kind in _DIV_TYPES
+        self._divs.append(keep)
+        if keep:
+            self.out.append(f"<div{self._attrs('div', attrs)}>")
+            self.open.append("div")
+
+    def _div_end(self):
+        if self._divs and self._divs.pop() and "div" in self.open:
+            while self.open:
+                t = self.open.pop()
+                self.out.append(f"</{t}>")
+                if t == "div":
+                    break
 
     def _attrs(self, tag, attrs):
         allowed = _NOTE_ATTRS.get(tag, ())
-        embed = tag == "a" and any((k or "").lower() == "data-type" and (v or "").strip() == "boardEmbed"
+        # A board card or a record chip is never a link (a planted href would look like one).
+        embed = tag == "a" and any((k or "").lower() == "data-type" and (v or "").strip() in ("boardEmbed", "recordLink")
                                    for k, v in attrs)
         kept = []
         for k, v in attrs:
@@ -193,11 +231,24 @@ class _NoteSanitizer(_RichSanitizer):
                 continue
             elif k == "data-thumb" and not _own_image(v):
                 continue
+            elif k == "data-ref" and not _RECORD_REF.match(v):
+                continue
+            elif k == "data-tone" and v not in _TONES:
+                continue
+            elif k == "data-open" and v not in ("true", "false"):
+                continue
+            elif k == "data-source" and not _LIST_SOURCE.match(v):
+                continue
+            elif k == "data-show" and v not in ("open", "all"):
+                continue
             kept.append(f' {k}="{escape(v[:200], quote=True)}"')
         return "".join(kept)
 
     def handle_starttag(self, tag, attrs):
         if tag in ("label", "input"):
+            return
+        if tag == "div":
+            self._div_start(attrs)      # a plain <div> is unwrapped; its end never closes a kept one
             return
         if tag in _MEDIA:
             if self.drop_depth:
@@ -221,6 +272,10 @@ class _NoteSanitizer(_RichSanitizer):
         super().handle_startendtag(tag, attrs)
 
     def handle_endtag(self, tag):
+        if tag == "div":
+            if not self.drop_depth:
+                self._div_end()
+            return
         if tag in _MEDIA:
             self._in_media = max(0, self._in_media - 1)
             return
@@ -344,6 +399,7 @@ def _summary(n: models.NexusNote, me: str) -> dict:
         "id": n.id, "kind": n.kind or "note", "title": n.title or "", "preview": text[:220],
         "day": n.day or "", "tags": _loads(n.tags, []), "color": n.color or "",
         "pinned": bool(n.pinned) if can == "owner" else False,
+        "template": bool(getattr(n, "is_template", False)) if can == "owner" else False,
         "owner": n.owner_email, "mine": can == "owner", "can": can,
         "shared": bool(_shares(n)), "trashedAt": n.trashed_at or "",
         "rev": n.rev or 1, "words": len(text.split()), "updatedAt": n.updated_at or "",
@@ -360,6 +416,16 @@ def _full(n: models.NexusNote, me: str) -> dict:
     out["body"] = n.body or ""
     out["scene"] = n.scene or ""
     out["sharedWith"] = _shares(n) if out["mine"] else [s for s in _shares(n) if s["email"] == me]
+    # Seen By (Neil, 11/07/2026): who else has opened it, from `seen` - the
+    # owner's alone (a sharer never learns who else the note went to), and only
+    # people it is still shared with. `latest` = they have the words as they are now.
+    if out["mine"]:
+        s = _seen(n)
+        shared = {x["email"] for x in _shares(n)}
+        rev_now = int(s["content"].get("rev") or n.rev or 1)
+        out["seenBy"] = sorted(
+            ({"email": e, "latest": int(r or 0) >= rev_now} for e, r in s["by"].items() if e != me and e in shared),
+            key=lambda x: x["email"])
     return out
 
 
@@ -573,7 +639,9 @@ def _directory_person(db: Session, user: dict, email: str) -> Optional[dict]:
 def list_notes(view: str = "all", q: str = "", tag: str = "", month: str = "", day: str = "",
                today: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The caller's notes and the ones shared with them, newest first.
-    view: all | pinned | today | shared | trash. month (YYYY-MM) or day
+    view: all | pinned | today | shared | trash | boards | templates (the
+    caller's own boards and notes marked Use as Template - New Board and
+    New From Template each list their own kind). month (YYYY-MM) or day
     narrows by the note's day; q searches title and words; tag one tag.
     `today` is the caller's own local date, for the Today count."""
     me = _me(user)
@@ -592,6 +660,7 @@ def list_notes(view: str = "all", q: str = "", tag: str = "", month: str = "", d
         "today": sum(1 for n in live + shared if today and n.day == today),
         "shared": len(shared),
         "trash": sum(1 for n in own if n.trashed_at),
+        "boards": sum(1 for n in live + shared if (n.kind or "note") == "board"),
     }
     tags = sorted({t for n in live + shared for t in _loads(n.tags, [])}, key=str.lower)
     if view == "trash":
@@ -602,6 +671,10 @@ def list_notes(view: str = "all", q: str = "", tag: str = "", month: str = "", d
         rows = [n for n in live if n.pinned]
     elif view == "today":
         rows = [n for n in live + shared if today and n.day == today]
+    elif view == "boards":
+        rows = [n for n in live + shared if (n.kind or "note") == "board"]
+    elif view == "templates":
+        rows = [n for n in live if (n.kind or "note") in ("board", "note") and n.is_template]
     else:
         rows = live + shared
     if month:
@@ -687,6 +760,7 @@ class NotePatch(BaseModel):
     tags: Optional[List[str]] = None
     color: Optional[str] = None
     pinned: Optional[bool] = None
+    template: Optional[bool] = None     # a board's Use as Template (owner only)
     # Co-typing saves (see the header): the Yjs state and the epoch it belongs to.
     ydoc: Optional[str] = None
     yepoch: Optional[str] = None
@@ -720,6 +794,24 @@ def create_note(body: NoteIn, user: dict = Depends(get_current_user), db: Sessio
     db.add(n)
     db.commit()
     return _full(n, me)
+
+
+# ── record links: "Mentioned In" ───────────────────────────────────────────
+@router.get("/mentions")
+def note_mentions(ref: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """What links to a record with [[ (Record Links, Neil 11/06/2026; every
+    place, 11/07/2026): `ref` is `<kind>:<id>` as a link stores it. `items` is
+    every note, board, task and ticket the caller may open that links to it
+    (record_links.mentions - a place they cannot open is never counted or
+    named, and a record never lists itself); `notes` is the notes and boards
+    among them, the shape this route had before."""
+    ref = (ref or "").strip()
+    if not _RECORD_REF.match(ref):
+        raise HTTPException(400, "Unknown record")
+    import record_links
+    out = record_links.mentions(db, user, ref)
+    out["notes"] = [i for i in out["items"] if i["kind"] in ("note", "board")]
+    return out
 
 
 @router.get("/{note_id}")
@@ -758,10 +850,12 @@ def update_note(note_id: str, body: NotePatch, user: dict = Depends(get_current_
         if collab_save:
             detail["collab"] = _collab_state(n)
         raise HTTPException(409, detail)
-    owner_only = (body.day, body.tags, body.color, body.pinned)
+    owner_only = (body.day, body.tags, body.color, body.pinned, body.template)
     if can != "owner" and any(v is not None for v in owner_only):
         raise HTTPException(403, "Only the note's owner changes its pin, color, tags or day")
     is_board = (n.kind or "note") == "board"
+    if body.template is not None and (n.kind or "note") == "daily":
+        raise HTTPException(400, "A daily scratchpad cannot be a template")
     if body.scene is not None and not is_board:
         raise HTTPException(400, "Only a board has a drawing")
     if is_board and body.body is not None:
@@ -807,6 +901,8 @@ def update_note(note_id: str, body: NotePatch, user: dict = Depends(get_current_
         n.color = body.color
     if body.pinned is not None:
         n.pinned = bool(body.pinned)
+    if body.template is not None:
+        n.is_template = bool(body.template)     # a mark, like the pin: no rev move, no version
     if collab_save:
         if len(body.ydoc or "") > YDOC_MAX:
             _drop_collab_state(n)     # too big to keep: the next session rebuilds it from the body

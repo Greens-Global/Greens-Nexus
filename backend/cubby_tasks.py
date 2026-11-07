@@ -282,12 +282,31 @@ def _warehouse() -> tuple[dict, dict, str]:
     since = datetime.now(timezone.utc) - timedelta(days=WAREHOUSE_LOOKBACK_DAYS)
     try:
         tasks = {str(r.get("task_id") or ""): r for r in cubby_warehouse.task_rows(since)}
-        staff = _staff_map(cubby_warehouse.manager_rows())
+        people = cubby_warehouse.manager_rows()
     except cubby_warehouse.WarehouseError as e:
         return {}, {}, str(e)[:300]
     except Exception as e:  # noqa: BLE001
         return {}, {}, f"warehouse: {type(e).__name__}"
     tasks.pop("", None)
+    staff = _staff_map(people)
+    # Cubby's BigQuery assigns by manager ID (tasks.assignee, 11/06/2026): an
+    # ID matches its manager's work email directly - never by name, so two
+    # staff with one name cannot swap - and is shown by the manager's name.
+    id_name = {}
+    for r in people:
+        mid = str(r.get("manager_id") or "").strip()
+        email = str(r.get("manager_email") or "").strip().lower()
+        if mid:
+            id_name[mid] = str(r.get("manager_name") or "").strip() or mid
+            if email and "@" in email:
+                staff[mid.lower()] = email
+    for t in tasks.values():
+        if "assignee_ids" in t:
+            ids = [i for i in t["assignee_ids"] if i]
+            t["assignee_keys"] = ids
+            t["assigned_managers"] = [id_name.get(i, i) for i in ids]
+            t["assigned_manager_groups"] = []
+            t["created_by"] = id_name.get(t.get("created_by_id") or "", "")
     return tasks, staff, ""
 
 
@@ -416,7 +435,10 @@ def _sync(db, cfg: dict, facility_ids) -> dict:
         wh = wh_tasks.get(tid)
         names = list(wh["assigned_managers"]) if wh else []
         groups = list(wh["assigned_manager_groups"]) if wh else []
-        emails, missing = resolve_assignees(db, names, staff, people_cache)
+        # Matched by manager ID where the warehouse gives one (shown by name).
+        keys = list(wh.get("assignee_keys") or names) if wh else []
+        emails, missing = resolve_assignees(db, keys, staff, people_cache)
+        missing = [dict(zip(keys, names)).get(m, m) for m in missing]
         for m in missing:
             s["unmatchedPeople"][m] = s["unmatchedPeople"].get(m, 0) + 1
         fields = {

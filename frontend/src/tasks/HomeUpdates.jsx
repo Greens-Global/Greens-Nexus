@@ -19,7 +19,10 @@
 // happen on the row: Reply in the thread, a thumbs up, Resolve a comment
 // handed to me, Approve / Decline an extension, Accept / Keep a proposed date.
 // Days older than yesterday read as their date; Load More reads further back.
-import { useMemo, useState } from 'react';
+// Keys (Neil, 11/07/2026): with focus in the card, J / K (or the arrows) step
+// the rows, Enter opens one, E resolves a comment handed to me (the row's own
+// Resolve) and steps on.
+import { useMemo, useRef, useState } from 'react';
 import { Activity, Check, CornerDownRight, ThumbsUp } from 'lucide-react';
 import { Avatar } from './components';
 import { NX, FONT, btn, card, input } from './theme';
@@ -130,6 +133,8 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
   projectOf = () => '', onChanged, onLoadMore }) {
   const [filter, setFilter] = useState('all');
   const [expanded, setExpanded] = useState(false);
+  const [keyError, setKeyError] = useState('');
+  const cardRef = useRef(null);
   const rows = useMemo(() => updates || [], [updates]);
   const folded = useMemo(() => foldByTask(rows, dayLabel), [rows]);
   const waiting = rows.filter(needsMe);
@@ -149,6 +154,24 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
 
   // At the comment the update is about, when there is one.
   const open = (u) => { if (u.taskId && taskById.has(u.taskId)) onOpen(u.taskId, u.comment ? { ...u.comment, taskId: u.taskId } : null); };
+  const onCardKey = (e) => {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = e.target?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+    const els = [...(cardRef.current?.querySelectorAll('[data-update-row][tabindex]') || [])];
+    const at = els.indexOf(document.activeElement);
+    const go = (i) => { const r = els[Math.max(0, Math.min(els.length - 1, i))]; if (r) { e.preventDefault(); r.focus(); r.scrollIntoView?.({ block: 'nearest' }); } };
+    const key = (e.key || '').toLowerCase();
+    if (key === 'j' || e.key === 'ArrowDown') go(at + 1);
+    else if (key === 'k' || e.key === 'ArrowUp') go(at < 0 ? 0 : at - 1);
+    else if (key === 'e' && at >= 0) {
+      const u = shown.find((x) => String(x.id) === els[at].dataset.updateId);
+      if (!u?.comment?.canResolve || isAnswered(u)) return;
+      go(at + 1);
+      setKeyError('');
+      api.editTaskComment(u.comment.id, { resolved: true }).then(() => onChanged?.(), () => setKeyError('That did not save. Try again, or open the task.'));
+    }
+  };
   const note = (text) => <p style={{ padding: '18px 0', margin: 0, textAlign: 'center', fontSize: 13, color: NX.faint }}>{text}</p>;
 
   let body;
@@ -190,7 +213,7 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
                   // Still waiting on me: a thin rule down the left edge of the whole row, buttons included.
                   boxShadow: needsMe(u) ? `inset 3px 0 0 ${NX.blue}` : 'none',
                 }}>
-                <div data-update-row data-for-you={u.forYou ? '' : undefined}
+                <div data-update-row data-update-id={u.id} data-for-you={u.forYou ? '' : undefined}
                   data-answered={done ? '' : undefined} data-new={fresh ? '' : undefined}
                   role={t ? 'button' : undefined} tabIndex={t ? 0 : undefined} className={t ? 'nx-row-hover' : undefined}
                   onClick={() => open(u)}
@@ -249,7 +272,7 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
   }
 
   return (
-    <div style={{
+    <div ref={cardRef} onKeyDown={onCardKey} style={{
       ...card, borderRadius: 16, padding: isMobile ? '14px 14px 12px' : 20,
       ...(fill ? { height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' } : {}),
     }}>
@@ -272,6 +295,7 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
           </button>
         </div>
       )}
+      {keyError && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 6 }}>{keyError}</div>}
       {body}
     </div>
   );

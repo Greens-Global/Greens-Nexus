@@ -35,6 +35,81 @@ Ask HR is the confidential HR desk. A request you send is seen only by you, the 
 
 ### Sending a Request
 
+```figure
+{
+  "kind": "screen",
+  "title": "Ask HR, New Request",
+  "device": "computer",
+  "module": "Workday",
+  "tabs": [
+    "Overview",
+    "Time Sheet",
+    "Time Off",
+    "Performance"
+  ],
+  "tab": "Overview",
+  "parts": [
+    {
+      "kind": "tiles",
+      "items": [
+        {
+          "label": "Hours This Week",
+          "value": "31h 40m"
+        },
+        {
+          "label": "Time Off This Year",
+          "value": "4 days"
+        },
+        {
+          "label": "Ask HR",
+          "value": "•"
+        }
+      ]
+    },
+    {
+      "kind": "sheet",
+      "title": "Ask HR",
+      "text": "Confidential: seen only by you, the people you add, and HR.",
+      "fields": [
+        {
+          "label": "What Do You Need?",
+          "kind": "select",
+          "value": "Profile Change",
+          "n": 1
+        },
+        {
+          "label": "Describe It",
+          "kind": "textarea",
+          "value": "My last name is spelled with two Ns: Mannix, not Manix. It shows on my Time Sheet and my directory card."
+        },
+        {
+          "label": "Attachments",
+          "hint": "Attach anything that helps, or press Ctrl+V"
+        }
+      ],
+      "buttons": [
+        "Cancel",
+        {
+          "label": "Send to HR",
+          "primary": true,
+          "n": 2
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Request a Letter, Update a Document, Profile Change, Question for HR, Something Else."
+    },
+    {
+      "n": 2,
+      "text": "A click outside the panel nudges it; Close, Cancel or Escape closes it."
+    }
+  ]
+}
+```
+
 1. Open **Workday** and click **Ask HR**.
 2. Click **New Request**.
 3. Pick what you need (the choices are in the table below).
@@ -69,6 +144,77 @@ When you pay for something on the company's behalf (supplies for the office, a m
 No receipt yet? You can send it now and add the receipt later with **Add Receipt**. HR approves it once the receipt is attached.
 
 ### What Happens Next
+
+```figure
+{
+  "kind": "screen",
+  "title": "Reimbursements, My Requests",
+  "device": "computer",
+  "module": "Workday",
+  "tabs": [
+    "Overview",
+    "Time Sheet",
+    "Time Off",
+    "Performance"
+  ],
+  "tab": "Overview",
+  "parts": [
+    {
+      "kind": "sheet",
+      "title": "Reimbursements",
+      "items": [
+        {
+          "label": "Padlocks for overlocking · $64.18",
+          "note": "Supplies · 11/03/2026 · approver: My Manager",
+          "badge": "Waiting for Approval",
+          "tone": "warn"
+        },
+        {
+          "label": "Lunch, Temecula training day · $18.40",
+          "note": "Meals · 10/28/2026",
+          "badge": "Waiting for Receipt",
+          "tone": "warn",
+          "n": 1
+        },
+        {
+          "label": "Printer toner · $89.99",
+          "note": "Supplies · 10/14/2026",
+          "badge": "Paid",
+          "tone": "ok",
+          "n": 2
+        },
+        {
+          "label": "Mileage, bank run · $12.60",
+          "note": "Travel · 10/09/2026",
+          "badge": "Sent Back",
+          "tone": "bad",
+          "n": 3
+        }
+      ],
+      "buttons": [
+        {
+          "label": "New",
+          "primary": true
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Approved, but HR needs the receipt: Add Receipt."
+    },
+    {
+      "n": 2,
+      "text": "Paid, with the date, method and a reference."
+    },
+    {
+      "n": 3,
+      "text": "Open it, read What to fix, then Fix and Resubmit."
+    }
+  ]
+}
+```
 
 | Status | Meaning |
 |---|---|

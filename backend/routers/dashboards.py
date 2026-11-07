@@ -258,8 +258,9 @@ def kpis(scope: str = "self", tz_offset_min: int = 0, user: dict = Depends(get_c
             out["my_open_tasks_recurring"] = c["recurring"]
             return c["focus"]
         safe("my_open_tasks", my_tasks)
-        safe("unread_notifications", lambda: db.query(M.NexusNotification).filter(
-            M.NexusNotification.recipient == email).count())
+        # No unread_notifications here (11/05/2026): it counted every row ever
+        # addressed to the caller, read or not (92 against the bell's 60). The
+        # tile reads the bell's own count - frontend lib/notificationCounts.js.
         # Company-wide, same as pending_requisitions/open_purchases above (not
         # a "my" metric) - feeds the BI board's cross-module view of Support.
         safe("open_tickets", lambda: db.query(M.TaskTicket).filter(

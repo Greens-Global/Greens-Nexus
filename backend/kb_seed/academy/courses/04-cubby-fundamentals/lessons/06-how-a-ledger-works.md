@@ -68,6 +68,35 @@ At Greens, waives are common: 185 fee waives totaling $12,904.41 and 42 rent wai
 
 ### Credits
 
+```figure
+{
+  "kind": "compare",
+  "title": "A Waive Is Not a Credit",
+  "columns": [
+    {
+      "name": "Waive",
+      "note": "cancels all or part of one charge, now",
+      "facts": [
+        "The balance drops now",
+        "Tied to one specific charge",
+        "Can cancel a hand-added fee",
+        "In use at Greens"
+      ]
+    },
+    {
+      "name": "Credit",
+      "note": "money set aside for the next recurring bill",
+      "facts": [
+        "The balance drops when the next charge posts",
+        "Waits on the lease, tied to nothing",
+        "Never used on a hand-added fee",
+        "Not in use at Greens"
+      ]
+    }
+  ]
+}
+```
+
 A **credit** is goodwill money held on the lease. It does **not** reduce today's balance. Instead Cubby uses it on the next recurring charges, in this order: rent, then coverage, then automatic fees such as late fees. It is never used on charges added by hand. Credits must be switched on per site.
 
 Greens does not use credits today (From Greens' Cubby, 11/2026). You still need to know the difference, because a tenant who is "owed something" usually needs a waive of a specific charge, not a credit.
@@ -112,6 +141,35 @@ A **write-off** clears a balance Greens will not collect, such as a small amount
 A **transfer** moves a balance from one lease to another. You will see it when a tenant moves from one unit to another (the old lease's balance moves to the new lease), and on older leases as "imported" or "old system" balances that came over when Greens moved to Cubby. Those opening lines are normal.
 
 ## Oldest Charge First
+
+```figure
+{
+  "kind": "steps",
+  "title": "When Charges Post on the Same Day, a Payment Pays Them in This Order",
+  "items": [
+    {
+      "label": "Prepaid"
+    },
+    {
+      "label": "Deposit"
+    },
+    {
+      "label": "Rent"
+    },
+    {
+      "label": "State tax"
+    },
+    {
+      "label": "Local tax"
+    },
+    {
+      "label": "Insurance",
+      "note": "coverage"
+    }
+  ],
+  "caption": "So a $100 payment against $129 rent and $9 coverage goes to rent, leaving $29 of rent and all $9 of coverage open."
+}
+```
 
 When a payment comes in and several charges are open, Cubby decides which charge it pays. The rule is **oldest charge first**. A payment pays off October's rent before November's, and last month's late fee before this month's rent.
 

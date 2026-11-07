@@ -17,16 +17,16 @@ const DEFAULT_PERSONAL = [
   { i: 'd6', type: 'kpi',           x: 9, y: 0, w: 3, h: 2, config: { metric: 'unread_notifications' } },
   // w8: takes the space At a Glance had (retired - Neil, Oct 13 2026).
   { i: 'd7', type: 'notifications', x: 0, y: 2, w: 8, h: 5 },
-  // A bare icon dock (Oct 13): 4x2 for the five default actions, one row on
-  // a phone. It used to be a 3x6 list that sat mostly empty.
-  { i: 'd2', type: 'quick-actions', x: 8, y: 2, w: 4, h: 2, config: { style: 'icons' } },
+  // Quick Actions is not on the default board any more (Neil, 11/05/2026:
+  // it repeats the green + button). Boards that already carry one keep it,
+  // and it stays in the gallery.
   // Calendar + My Agenda, merged (Outlook/Teams). Shows a quiet explainer for
   // non-M365 accounts. w8 so the month grid and the agenda list sit side by
   // side by default instead of wrapping to stacked.
   { i: 'd10', type: 'calendar',     x: 0, y: 7, w: 8, h: 5 },
   // h5: six link rows + header need ~260px - at h4 the last row clipped.
-  // y4: straight under the dock, so the right column has no hole.
-  { i: 'd8', type: 'links',         x: 8, y: 4, w: 4, h: 5 },
+  // y2: top of the right column, beside Notifications.
+  { i: 'd8', type: 'links',         x: 8, y: 2, w: 4, h: 5 },
 ];
 
 // Role-tiered starting extras (Sep 4, Pranshu: "give a few default widgets" so
@@ -49,7 +49,7 @@ const ROLE_EXTRAS = {
   ],
 };
 
-const defaultLayoutFor = (widgetTier) => [...DEFAULT_PERSONAL, ...(ROLE_EXTRAS[widgetTier] || [])];
+export const defaultLayoutFor = (widgetTier) => [...DEFAULT_PERSONAL, ...(ROLE_EXTRAS[widgetTier] || [])];
 
 const rid = () => `w${Math.random().toString(36).slice(2, 8)}`;
 

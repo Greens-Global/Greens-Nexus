@@ -30,6 +30,9 @@ $25,000 waits for Neil" is a rule an administrator sets, never code:
   change_order.declined  construction_changes.on_declined (Nexus Sign)
   job.closed_out         construction_handover.close_out, the first time
   report.published       publish_report (subject: the weekly report)
+  drawing.revised        construction_drawings.add_drawing - a new revision
+                         superseded a sheet (subject: the job; extra
+                         sheet_number / revision / previous_revision / title)
 
 `visible_to` is the module's own reach (routers.construction._may_read: the
 job's people, or a manager inside the job's company); a job's company is its
@@ -383,4 +386,7 @@ event("job.closed_out", entity="job", label="Job Is Closed Out", module=MODULE, 
                                     actor="marcus.ruiz@greensglobal.com"))
 event("report.published", entity="weekly_report", label="Weekly Report Is Published", module=MODULE, group="Construction",
       may_use=may_use, sample=_full(SAMPLE_REPORT, extra={"job_id": "temecula-c", "week_start": "2026-11-02", "version": 1},
+                                    actor="marcus.ruiz@greensglobal.com"))
+event("drawing.revised", entity="job", label="Drawing Is Revised", module=MODULE, group="Construction",
+      may_use=may_use, sample=_full(dict(SAMPLE_JOB, job_type="project"), extra={"drawing_id": "d-a201-3", "sheet_number": "A-201", "revision": "3", "previous_revision": "2", "title": "First Floor Plan"},
                                     actor="marcus.ruiz@greensglobal.com"))

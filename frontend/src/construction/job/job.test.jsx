@@ -16,6 +16,8 @@ vi.mock('../../api', () => ({ api: {
   // Field and Closeout (phase 3): the punch writes the outbox sends, the reads it saves.
   setPunchDoneWithPhoto: vi.fn(), setPunchVerifiedQueued: vi.fn(), addPunchItemQueued: vi.fn(),
   getJobTimeline: vi.fn(), getLogPrefill: vi.fn(), getJobChanges: vi.fn(), getConstructionLogs: vi.fn(),
+  // Meetings and Safety (Round Two item 10).
+  newJobMeeting: vi.fn(),
 } }));
 vi.mock('../lib/upload', () => ({
   uploadConstructionMedia: vi.fn(async () => ({ payload: { kind: 'photo', url: 'https://x/construction-media/construction/j1/done.jpg', mime_type: 'image/jpeg', size_bytes: 9 }, error: null })),
@@ -90,7 +92,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe('Job tabs and the URL', () => {
   it('a work order shows Overview, Tasks, Field and Closeout; a project every tab', () => {
     expect(jobTabs('work_order').map((t) => t.label)).toEqual(['Overview', 'Tasks', 'Field', 'Photos', 'Changes', 'Closeout']);
-    expect(jobTabs('project').map((t) => t.key)).toEqual(['overview', 'schedule', 'punch', 'field', 'photos', 'rfis', 'permits', 'subs', 'changes', 'closeout']);
+    expect(jobTabs('project').map((t) => t.key)).toEqual(['overview', 'schedule', 'punch', 'field', 'photos', 'rfis', 'drawings', 'permits', 'subs', 'changes', 'closeout']);
     expect(tabFor('work_order', 'permits')).toBe('overview');
     expect(tabFor('work_order', 'schedule')).toBe('overview');
     expect(tabFor('project', 'rfis')).toBe('rfis');
@@ -128,6 +130,40 @@ describe('Job tabs and the URL', () => {
     expect(container.querySelector('[data-job-card="milestones"]')).toBeNull();
     fireEvent.click(screen.getByText(/2 RFIs to answer/));
     expect(onTab).toHaveBeenCalledWith('rfis');
+  });
+
+  it('the Meetings card lists the job meeting notes and New Meeting opens a new one; the Safety card says the three facts', async () => {
+    api.getJobConnected.mockResolvedValue({
+      needsYou: {}, punch: {}, crew: { people: [] }, tickets: [], names: {},
+      meetings: [{ id: 'note_1', title: 'Gate Motor Repair Meeting 11/03/2026', day: '2026-11-03' }],
+      safety: { lastToolboxTalk: '2026-11-02', daysSinceIncident: 12, openSafetyTags: 2,
+        toolboxFormId: 'form-toolbox-talk', incidentFormId: 'form-near-miss-incident' },
+    });
+    api.newJobMeeting.mockResolvedValue({ id: 'note_2' });
+    const nav = vi.fn();
+    window.addEventListener('nexus:navigate', nav);
+    const { container } = render(<JobPage project={base} tab="overview" onTab={() => {}} onBack={() => {}} />);
+    await screen.findByText('Gate Motor Repair Meeting 11/03/2026');
+    const safety = container.querySelector('[data-job-card="safety"]').textContent;
+    expect(safety).toContain('11/02/2026');
+    expect(safety).toContain('12');
+    expect(safety).toContain('Open Safety Tags on Logs2');
+    fireEvent.click(screen.getByText('Gate Motor Repair Meeting 11/03/2026'));
+    expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'dashboard', sub: 'notes:note_1' });
+    fireEvent.click(screen.getByText('New Meeting'));
+    await waitFor(() => expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'dashboard', sub: 'notes:note_2' }));
+    expect(api.newJobMeeting).toHaveBeenCalledWith('j1');
+    window.removeEventListener('nexus:navigate', nav);
+  });
+
+  it('with nothing recorded the Safety card says so', async () => {
+    api.getJobConnected.mockResolvedValue({
+      needsYou: {}, punch: {}, crew: { people: [] }, tickets: [], names: {}, meetings: [],
+      safety: { lastToolboxTalk: '', daysSinceIncident: null, openSafetyTags: 0, toolboxFormId: 'a', incidentFormId: 'b' },
+    });
+    const { container } = render(<JobPage project={base} tab="overview" onTab={() => {}} onBack={() => {}} />);
+    await screen.findByText(/No meeting notes yet/);
+    expect(container.querySelector('[data-job-card="safety"]').textContent.match(/None recorded/g)).toHaveLength(2);
   });
 });
 

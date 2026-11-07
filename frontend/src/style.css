@@ -3406,6 +3406,20 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .gs-row-title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 60%; }
 .gs-row-detail { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
 .gs-empty, .gs-hint { padding: 22px 16px; font-size: 13px; color: var(--muted); text-align: center; }
+/* Favorites (11/07/2026, components/search/SearchResults.jsx): the star beside a row - shown on
+   hover, focus and the keyboard's row, always once starred, always on touch. */
+.gs-row-wrap { position: relative; display: flex; align-items: center; }
+.gs-row-wrap > .gs-row { padding-right: 38px; }
+.gs-star {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: none; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; opacity: 0;
+}
+.gs-row-wrap:hover .gs-star, .gs-star:focus-visible, .gs-row-wrap[data-fav="true"] .gs-star,
+.gs-row-wrap:has(.gs-row[data-active="true"]) .gs-star { opacity: 1; }
+.gs-row-wrap[data-fav="true"] .gs-star { color: var(--wk-green, #16a34a); }
+.gs-star:hover { background: var(--mist); color: var(--ink); }
+@media (hover: none) { .gs-star { opacity: 1; } }
 @media (max-width: 640px) {
   .gs-overlay { padding: 0; align-items: stretch; }
   .gs-panel { width: 100%; max-height: none; border-radius: 0; border: none; }
@@ -5619,6 +5633,10 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   border: 2px solid transparent; background-clip: padding-box;
 }
 .dash-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--wk-faint, var(--muted)); background-clip: padding-box; }
+/* Content-fit tiles (11/05/2026, DashboardGrid's fitTops): the tile is as
+   tall as its content, so nothing scrolls inside it - no scrollbar, no edge
+   shadows, no row cut in half by a rounding pixel. */
+.dash-fit .dash-scroll { overflow: visible; background: none; }
 
 /* Fixed-height tiles that size their content to the cell (Oct 14). Each is a
    size container, so a two-row tile (130px on desktop) or a half-width phone
@@ -6942,6 +6960,11 @@ body.sched-stretching, body.sched-stretching * { cursor: ew-resize !important; u
 .acct-header-search { min-width: 0; display: flex; justify-content: flex-end; }
 .acct-header-search form[role="search"] { width: clamp(260px, 30vw, 400px); }
 .acct-header-actions { display: flex; justify-content: flex-end; min-width: 0; }
+/* Docked in a screen's toolbar (11/06/2026): last on the row, the open box a
+   little narrower so the toolbar keeps its controls. */
+.acct-bar-search { display: inline-flex; align-items: center; flex-shrink: 0; }
+.acct-bar-search:empty { display: none; }
+.acct-bar-search .acct-header-search form[role="search"] { width: clamp(200px, 22vw, 320px); }
 @media (max-width: 900px) {
   /* The icon stays beside the title; the open box takes its own line. */
   .acct-header-search:has(form[role="search"]) { grid-column: 1 / -1; grid-row: 2; }
@@ -7367,6 +7390,9 @@ body.sched-stretching, body.sched-stretching * { cursor: ew-resize !important; u
 .nx-label-sm::before { width: 6px; height: 6px; }
 .nx-label-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 [data-theme="dark"] .nx-label { background: color-mix(in srgb, var(--c) 20%, transparent); color: color-mix(in srgb, var(--c) 55%, #fff); }
+/* Flat variant (11/05/2026, Neil's flat sweep): the dot and the words, no
+   tinted pill behind them - for dense lists where a column of pills is noise. */
+.nx-label.nx-label-flat, [data-theme="dark"] .nx-label.nx-label-flat { background: none; padding: 0; border-radius: 0; }
 .nx-prio { --c: #64748b; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%;
   font-size: 12.5px; font-weight: 500; color: var(--nx-dim, var(--muted)); white-space: nowrap; }
 /* The chevron mark (Oct 28 2026) is always in the priority's own color;
@@ -8020,7 +8046,7 @@ label.nx-set-row-main { cursor: pointer; }
 .nx-set-group-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
 .nx-set-group-head-text { flex: 1 1 260px; min-width: 0; }
 .nx-set-group-head h4 { margin: 0; font-size: 14.5px; font-weight: 650; color: var(--ink); }
-.nx-set-group-head p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; max-width: 78ch; }
+.nx-set-group-head p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 .nx-set-group-body { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 18px; transition: box-shadow var(--transition-fast), border-color var(--transition-fast); }
 .nx-set-group-body.is-flush { padding: 0; overflow: hidden; }
 .nx-set-group.is-highlight .nx-set-group-body { border-color: var(--wk-brand); box-shadow: 0 0 0 3px var(--wk-brand-tint); }
@@ -8079,6 +8105,8 @@ label.nx-set-row-main { cursor: pointer; }
 .nx-switch:checked, [data-theme="dark"] .nx-switch:checked { background: var(--wk-brand); box-shadow: none; }
 .nx-switch::before { content: ""; position: absolute; inset: -4px -4px; }
 @media (min-width: 901px) { .nx-set-pagehead { display: none; } }
+/* The loading frame (components/settings/SettingsSkeleton.jsx): phones have no rail. */
+@media (max-width: 900px) { .nx-set-shell.is-skel { grid-template-columns: minmax(0, 1fr); } .nx-set-shell.is-skel .nx-set-rail { display: none; } }
 /* Sticky rail and subject header: .viewport is overflow-y: auto but never
    scrolls itself (the page does), and body's overflow-x: hidden makes it a
    non-scrolling scroll container - either stops position: sticky. Same fix
@@ -8958,8 +8986,20 @@ body:has(.apv-phone) { overflow-x: clip; }
    list is long; the bubble sits over the first line of the selected text.
    The same .viewport fix as the library above, only while the builder shows. */
 @media (min-width: 901px) {
-  .viewport:has(.nx-docb) { overflow: visible; }
+  /* The editor is laid out like Word Online (Pranshu, 11/06/2026): the title
+     row, the ribbon and the status bar stay where they are and only the
+     page canvas scrolls, in its own column, with the Pages rail and the
+     Variables rail pinned at its top. The viewport stops scrolling and the
+     builder takes its full height. */
+  .main-content:has(.nx-docb:not(.is-preview)) { height: 100vh; overflow: hidden; }   /* the header, the notice bar, then the viewport takes what is left */
+  .viewport:has(.nx-docb) { overflow: hidden; display: flex; flex-direction: column; flex: 1; min-height: 0; }
   body:has(.nx-docb) { overflow-x: clip; }
+  /* The view boundary's two wrapper divs sit between the viewport and the builder. */
+  .viewport > div:has(.nx-docb:not(.is-preview)), .viewport > div > div:has(.nx-docb:not(.is-preview)) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .nx-docb:not(.is-preview) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .nx-docb:not(.is-preview) .nx-docb-canvas { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 12px; }
+  .nx-docb:not(.is-preview) .nx-docb-rail { position: sticky; top: 0; }
+  .nx-docb:not(.is-preview) .nx-docb-vars { top: 0; max-height: 100%; }
 }
 .nx-docb-vars { flex: 0 0 216px; position: sticky; top: calc(var(--nx-announce-h, 0px) + 64px + 12px); max-height: calc(100vh - var(--nx-announce-h, 0px) - 64px - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 6px; background: var(--mist); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .nx-docb-vars-head { display: flex; align-items: center; gap: 6px; font: 650 12px Inter, sans-serif; color: var(--ink); margin-bottom: 2px; }
@@ -9245,12 +9285,12 @@ body:has(.apv-phone) { overflow-x: clip; }
 .it-tl-photo img { width: 120px; height: 90px; object-fit: cover; border-radius: 8px; border: 1px solid var(--wk-line2, var(--line)); }
 .it-tl-photo span { font-size: 12px; color: var(--muted); }
 
-.it-tabs { margin-top: -4px; border-bottom: 1px solid var(--wk-line2, var(--line)); }
-.it-tabs .module-tabs-inline { margin: 0; border-bottom: none; }
+/* The tab's name is in the top header on a computer (11/06/2026); a phone,
+   whose bottom bar carries no names, keeps it. */
+@media (min-width: 901px) { .it-title { display: none; } .it-sub { margin-top: 0; } }
 @media (max-width: 900px) {
   .it-cartbar { bottom: calc(74px + env(safe-area-inset-bottom)); }
   .it-borrow.has-cart { padding-bottom: 140px; }
-  .it-tabs { display: none; }   /* the bottom bar is the tabs on a phone */
 }
 @media (max-width: 640px) {
   .it-page { gap: 12px; }
@@ -9481,9 +9521,10 @@ body:has(.apv-phone) { overflow-x: clip; }
 .ts-grid tr.ts-leave .ts-cat { color: #7c3aed; font-weight: 700; }
 .ts-grid tr.ts-fix > td.ts-date { box-shadow: inset 3px 0 0 #b91c1c, inset -1px 0 0 var(--wk-line2); }
 .ts-grid tr.ts-livew > td.ts-date { box-shadow: inset 3px 0 0 var(--wk-live), inset -1px 0 0 var(--wk-line2); }
-.ts-grid tr.ts-wk > td { text-align: center; padding: 10px; font-weight: 700; color: var(--wk-brand); background: color-mix(in srgb, var(--wk-brand) 12%, var(--card)); border-top: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent); }
-.ts-grid tr.ts-wk .ts-wx { margin-left: 18px; font-weight: 600; opacity: .85; }
-.ts-grid tr.ts-wk .ts-wx b { font-weight: 800; }
+.ts-grid tr.ts-wk > td { text-align: center; padding: 10px; font-weight: 500; color: var(--wk-brand); background: color-mix(in srgb, var(--wk-brand) 12%, var(--card)); border-top: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent); }
+.ts-grid tr.ts-wk .ts-wx { margin-left: 18px; }
+.ts-grid tr.ts-wk b, .pr-days-week.ts-pwk b { font-weight: 800; }
+.pr-days-week.ts-pwk .ts-wx { margin-left: 10px; }
 .ts-grid tfoot td { background: linear-gradient(var(--wk-hover), var(--wk-hover)), var(--card); font-weight: 700; border-top: 1px solid var(--wk-line2); }
 .ts-grid tfoot tr.ts-off td { color: #7c3aed; }
 .ts-num-warn { color: #b45309; font-weight: 700; }
@@ -9589,8 +9630,8 @@ body:has(.apv-phone) { overflow-x: clip; }
 .ts-wsw { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border: 1px solid var(--wk-line2); border-radius: 12px; background: var(--card); margin-bottom: 8px; }
 .ts-wsw button { min-height: 36px; border: none; border-radius: 9px; background: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; }
 .ts-wsw button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
-.pr-days-week.ts-pwk { flex-direction: column; align-items: center; text-align: center; gap: 2px; background: color-mix(in srgb, var(--wk-brand) 12%, var(--card)); color: var(--wk-brand); font-weight: 700; }
-.pr-days-week.ts-pwk small { font-weight: 600; font-size: 11.5px; opacity: .85; }
+.pr-days-week.ts-pwk { flex-direction: column; align-items: center; text-align: center; gap: 2px; background: color-mix(in srgb, var(--wk-brand) 12%, var(--card)); color: var(--wk-brand); font-weight: 500; }
+.pr-days-week.ts-pwk small { font-weight: 500; font-size: 11.5px; }
 .ts-pr { display: grid; grid-template-columns: auto 22px auto minmax(0, 1fr); align-items: baseline; min-height: 30px; font-size: 14px; font-variant-numeric: tabular-nums; }
 .ts-pr > .ts-arrow { text-align: center; color: var(--muted); }
 .ts-pr > .ts-pr-end { justify-self: end; display: inline-flex; align-items: baseline; gap: 8px; color: var(--muted); font-size: 12.5px; }
@@ -9642,3 +9683,134 @@ body:has(.apv-phone) { overflow-x: clip; }
 .doc-ctx-hint { font-size: 11px; color: var(--muted); }
 /* Format Painter armed: a brush for a cursor over the pages. */
 .doc-painting .doc-page .ProseMirror { cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='%23111827' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z'/><path d='M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7'/><path d='M14.5 17.5 4.5 15'/></svg>") 2 20, text; }
+
+/* ── One page header: the module bar (11/05/2026) ─────────────────────────
+   Every module reads the same way: its name on the left, its tabs, its
+   actions on the right - flat, one hairline under it. The shell draws it
+   under the top header (ModuleBar in components/ModuleTabs.jsx) and pins it
+   there, so the tabs stay one click away on a long page, as they did in the
+   header. Tasks and Tickets keep the same anatomy in their own full-bleed
+   bar (.nx-primary-bar). The tabs are the underline kind on the hairline,
+   the same as the Task bar's; the module name is a name, not an eyebrow. */
+.module-bar {
+  position: sticky;
+  top: calc(var(--nx-announce-h, 0px) + 64px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 46px;
+  padding: 0 28px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
+  font-family: var(--wk-font);
+}
+.module-bar-tabs { position: relative; flex: 1; min-width: 0; display: flex; align-self: stretch; }
+.module-bar .hdr-tabs { gap: 2px; align-self: stretch; }
+.module-bar .hdr-tab {
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+  align-self: stretch;
+}
+.module-bar .hdr-tab:hover { background: none; color: var(--ink); }
+.module-bar .hdr-tab.active { background: none; box-shadow: none; color: var(--ink); }
+.module-bar .hdr-tab:active { transform: none; }
+.module-bar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 6px 0; }
+.module-bar-actions:empty { display: none; }
+/* A module's buttons (<ModuleActions>, 11/06/2026): never in the top header -
+   the right end of the page's first row, at every width; nothing when empty. */
+.module-actions-row {
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap;
+  gap: 8px; margin-bottom: 16px;
+}
+.module-actions-row:empty { display: none; }
+.module-bar-meta { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+/* The module's name: the trail riding the bar, in Title Case as written -
+   never the uppercase eyebrow. A record's parent pages follow it, quieter. */
+.page-trail--bar { letter-spacing: normal; text-transform: none; }
+@media (min-width: 641px) { .page-trail--bar { font-size: 15px; font-weight: 700; color: var(--ink); } }
+.page-trail--bar li + li button { font-weight: 500; color: var(--muted); }
+.page-trail--bar li + li::before { margin: 0 8px; }
+/* With the bar up, the module's name is said once: the eyebrow trails a page
+   placed above its own title stand down (computers only - a phone has no bar
+   tabs and keeps them). */
+@media (min-width: 901px) {
+  .main-content:has(.module-bar--header) .viewport .page-trail { display: none; }
+}
+/* The bar IN the top header (Neil, 11/06/2026: "on the top navigation bar
+   instead of on the page"): Back's line over the module's name or a record's
+   trail, then its tabs (a measured strip that folds into More), then the
+   search and the account cluster - never a module's buttons. One row; the page starts under it.
+   Below 1440px the account pill keeps just the photo and the search gets
+   shorter so the tabs keep their room; Ctrl+F still opens the search. */
+@media (min-width: 901px) {
+  .header-center:has(> .module-bar--header) { display: flex; align-self: stretch; }
+  .module-bar--header {
+    position: static; z-index: auto; flex: 1; min-width: 0; min-height: 0;
+    align-self: stretch; padding: 0; background: none; border-bottom: 0;
+  }
+  /* The name block: Back's small line over the module's name or a record's
+     trail, one hairline after it (Neil, 11/06/2026, option C). */
+  .module-bar-name {
+    display: flex; flex-direction: column; justify-content: center; flex-shrink: 0;
+    min-width: 0; max-width: 45%; padding-right: 12px; border-right: 1px solid var(--wk-line);
+  }
+  .module-bar-name .page-trail--bar { padding-right: 0; border-right: 0; }
+  /* No tabs (Help Center, Asset Management): the name stands alone, no divider. */
+  .module-bar--header:not(:has(.hdr-tabs)) .module-bar-name { border-right: 0; }
+  /* Where Back goes, said in a quiet line - the whole line is the button. */
+  .module-bar-back {
+    display: inline-flex; align-items: center; gap: 3px; align-self: flex-start; max-width: 100%;
+    margin: -3px 0 0; padding: 3px 0 1px; border: 0; background: none; cursor: pointer;
+    font: 600 11px/1.3 var(--wk-font); color: var(--muted); white-space: nowrap;
+    transition: color .12s ease-out;
+  }
+  .module-bar-back span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .module-bar-back svg { flex-shrink: 0; }
+  .module-bar-back:hover { color: var(--wk-brand); }
+  .module-bar-back:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; border-radius: 3px; }
+}
+@media (min-width: 901px) and (max-width: 1439px) {
+  .top-header:has(.module-bar--header .hdr-tabs) .header-user-info { display: none; }
+}
+@media (min-width: 1181px) and (max-width: 1439px) {
+  .top-header:has(.module-bar--header .hdr-tabs) .hdr-search { width: 200px; }
+}
+@media (max-width: 640px) { .module-actions-row { margin-bottom: 12px; } }
+/* Tasks and Tickets: their tabs ride the top header on a computer too. The
+   Tickets bar then holds nothing and is not drawn (Create is in its toolbar);
+   the Tasks bar keeps its buttons, at a tab row's height. Below 901px the
+   strip is back in the bar, flat inside it. */
+@media (min-width: 901px) {
+  .tk-primary-bar { display: none !important; }
+  .nx-primary-bar { min-height: 46px; }
+}
+@media (max-width: 900px) {
+  .nx-primary-bar .module-tabs-inline {
+    position: static; margin: 0; padding-bottom: 0; border-bottom: 0; background: none; overflow-x: auto;
+  }
+}
+
+/* ── Record link chips (Notes 11/06/2026; tasks and tickets 11/07/2026) ──
+   The editor's chip (notes/recordLink.jsx) and the same link shown from
+   sanitized HTML in a comment or note (tasks/lib.js sanitizeRichHtml). */
+.nt-reclink { display: inline; white-space: nowrap; }
+.nt-reclink-btn {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; vertical-align: baseline;
+  padding: 0 6px 0 5px; margin: 0 1px; border: 1px solid var(--wk-line2); border-radius: 6px;
+  background: var(--card); color: var(--wk-green); font: inherit; font-weight: 600; line-height: 1.5; cursor: pointer;
+}
+.nt-reclink-btn:hover, .nt-reclink-btn:focus-visible { background: var(--wk-hover); outline: none; }
+.nt-reclink-btn:disabled { cursor: default; opacity: .6; }
+.nt-reclink-btn > svg { flex-shrink: 0; color: var(--muted); }
+.nt-reclink-title { overflow: hidden; text-overflow: ellipsis; max-width: 32ch; }
+.ProseMirror-selectednode > .nt-reclink-btn, .nt-reclink.ProseMirror-selectednode .nt-reclink-btn { box-shadow: 0 0 0 2px var(--wk-green); }
+a[data-type="recordLink"][data-ref] {
+  display: inline-block; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+  padding: 0 6px; margin: 0 1px; border: 1px solid var(--wk-line2); border-radius: 6px;
+  background: var(--card); color: var(--wk-green); font-weight: 600; text-decoration: none; cursor: pointer;
+}
+a[data-type="recordLink"][data-ref]:hover { background: var(--wk-hover); }

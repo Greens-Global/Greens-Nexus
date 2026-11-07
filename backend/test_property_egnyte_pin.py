@@ -363,7 +363,13 @@ class SaveTests(_Base):
         self._asset(egnyteFolder=PINNED)
         out = self._save(EDITOR, {"id": "vc", "name": "Renamed", "_rev": "r0"})
         self.assertEqual(self._pin("vc"), PINNED)
-        out = self._save(EDITOR, {"id": "vc", "name": "Renamed", "_rev": out["revs"]["vc"], "egnyteFolder": ""})
+        # Connecting is one time (Neil, 11/05/2026): an editor may not unpin,
+        # a Super Administrator (or an Asset Management Owner) may.
+        rev = out["revs"]["vc"]
+        out = self._save(EDITOR, {"id": "vc", "name": "Renamed", "_rev": rev, "egnyteFolder": ""})
+        self.assertEqual([(r["id"], r["status"]) for r in out["refused"]], [("vc", 403)])
+        self.assertEqual(self._pin("vc"), PINNED)
+        out = self._save(OFFICER, {"id": "vc", "name": "Renamed", "_rev": rev, "egnyteFolder": ""})
         self.assertEqual(out["refused"], [])
         self.assertEqual(self._pin("vc"), "")
 

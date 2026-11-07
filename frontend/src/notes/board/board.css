@@ -96,3 +96,266 @@
 }
 .nx-board .nx-board-draft button.is-primary { background: var(--wk-brand, #15803d); color: #fff; border-color: transparent; }
 .nx-board .nx-board-draft button:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
+
+/* ---- The markup bar (MarkupBar.jsx, Neil 11/06/2026) ---------------------
+   A computer: a floating pill at the foot of the stage, beside the engine's
+   full strip. A phone: a dock along the bottom edge, thumb reach, 44px
+   targets, the tools scrolling sideways, clear of the home indicator and the
+   keyboard's strip; the engine's own strips are hidden (is-markup-only)
+   until More > All Tools. Transform and opacity only for motion. */
+.nx-board > .nx-board-stage { container-type: inline-size; }
+/* ONE tool bar (the best of both, Neil 11/06/2026): wherever the markup bar
+   shows, the engine's own tool strip does not - its other tools are under
+   More Tools. A computer keeps the engine's hint line under where the strip
+   was, and its properties panel on the left (fill, opacity, font, layers). */
+.nx-board.has-markup .excalidraw .shapes-section .App-toolbar { background: transparent !important; box-shadow: none !important; pointer-events: none; }
+.nx-board.has-markup .excalidraw .shapes-section .App-toolbar > .Stack { display: none !important; }
+.nx-board.has-markup .excalidraw .shapes-section .HintViewer { left: 50%; width: max-content; max-width: min(560px, 80cqi); transform: translateX(-50%); margin-top: 6px; padding: 0; }
+/* A phone: the engine's top strip goes; its bottom bar stays only for its
+   properties panel (Style), lifted above the dock - never its own footer. */
+.nx-board.is-markup-only .excalidraw .App-top-bar { display: none !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px) + var(--nx-kb-inset, 0px)) !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar footer.App-toolbar { display: none !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar .Island:not(:has(.App-mobile-menu)) { display: none !important; }
+.nx-board.is-markup-only .excalidraw .App-bottom-bar .App-mobile-menu { max-height: 46vh; }
+.nx-board.is-markup-only .nx-board-note { top: 64px; }
+
+.nx-mk { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; max-width: calc(100% - 24px); }
+.nx-mk > * { pointer-events: auto; }
+@container (max-width: 860px) { .nx-mk:not(.is-phone) { bottom: 66px; } }
+.nx-mk-bar {
+  display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 14px; max-width: 100%;
+  background: var(--card, #fff); box-shadow: 0 10px 28px rgba(15, 23, 42, .12), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+}
+[data-theme="dark"] .nx-mk-bar { box-shadow: 0 10px 28px rgba(0, 0, 0, .45), 0 0 0 1px var(--line, rgba(255, 255, 255, .09)); }
+.nx-mk-tools { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.nx-mk-btn {
+  position: relative; flex: 0 0 auto; display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0;
+  border: 0; border-radius: 10px; background: transparent; color: var(--ink, #1c2420); cursor: pointer;
+  transition: background-color 140ms var(--ease-out, ease-out), color 140ms var(--ease-out, ease-out), transform 140ms var(--ease-out, ease-out);
+}
+.nx-mk-btn:hover { background: var(--wk-hover, #f1f4f1); }
+.nx-mk-btn:active { transform: scale(.94); }
+.nx-mk-btn.is-on { background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); }
+.nx-mk-btn.is-danger { color: var(--wk-red, #b91c1c); }
+.nx-mk-btn:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 1px; }
+/* The pen's and highlighter's ink, a dot under the glyph while it is on. */
+.nx-mk-tip { position: absolute; bottom: 4px; left: 50%; width: 10px; height: 3px; margin-left: -5px; border-radius: 2px; }
+.nx-mk-sep { flex: 0 0 auto; width: 1px; height: 22px; margin: 0 4px; background: var(--line, rgba(0, 0, 0, .1)); }
+.nx-mk-dot > span { width: 20px; height: 20px; border-radius: 50%; box-shadow: 0 0 0 2px var(--card, #fff), 0 0 0 3px var(--line, rgba(0, 0, 0, .18)); }
+
+.nx-mk-tray {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 14px;
+  background: var(--card, #fff); box-shadow: 0 10px 28px rgba(15, 23, 42, .14), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+  animation: nx-mk-rise 180ms var(--ease-out, ease-out) both;
+}
+[data-theme="dark"] .nx-mk-tray { box-shadow: 0 10px 28px rgba(0, 0, 0, .5), 0 0 0 1px var(--line, rgba(255, 255, 255, .09)); }
+.nx-mk-tray-kicker { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8b958f); }
+.nx-mk-inks, .nx-mk-sizes { display: flex; align-items: center; gap: 8px; }
+.nx-mk-ink {
+  display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+  background: var(--ink); color: #fff; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12);
+  transition: transform 140ms var(--ease-out, ease-out);
+}
+.nx-mk-ink:hover { transform: scale(1.08); }
+.nx-mk-ink[aria-checked="true"] { box-shadow: 0 0 0 2px var(--card, #fff), 0 0 0 4px var(--ink); }
+.nx-mk-ink:focus-visible, .nx-mk-size:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 3px; }
+.nx-mk-size {
+  flex: 1 1 0; display: grid; place-items: center; height: 32px; min-width: 44px; padding: 0 8px; cursor: pointer;
+  border: 1px solid var(--line, rgba(0, 0, 0, .1)); border-radius: 9px; background: transparent;
+}
+.nx-mk-size > span { display: block; width: 100%; border-radius: 4px; }
+.nx-mk-size[aria-checked="true"] { border-color: var(--wk-brand, #15803d); background: var(--wk-brand-tint, #e3f3e8); }
+
+/* Comment: the next tap on the stage places a pin. */
+.nx-mk-place { position: absolute; inset: 0; z-index: 5; cursor: crosshair; touch-action: none; }
+.nx-mk-place:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -2px; }
+.nx-mk-place-hint {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); pointer-events: none; white-space: nowrap;
+  padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: var(--ink, #1c2420); color: var(--card, #fff); box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+  animation: nx-mk-rise 180ms var(--ease-out, ease-out) both;
+}
+
+/* ---- Phone ---- */
+.nx-mk.is-phone { position: absolute; inset: 0; left: 0; bottom: 0; transform: none; max-width: none; display: block; pointer-events: none; }
+.nx-mk.is-phone .nx-mk-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; border-radius: 18px 18px 0 0; gap: 0;
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px) + var(--nx-kb-inset, 0px));
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, .08), 0 -1px 0 var(--line, rgba(0, 0, 0, .08));
+}
+.nx-mk.is-phone .nx-mk-tools {
+  flex: 1 1 auto; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
+  touch-action: pan-x; -webkit-overflow-scrolling: touch;
+  /* The tools fade out at the edge they scroll under. */
+  mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent);
+}
+.nx-mk.is-phone .nx-mk-tools::-webkit-scrollbar { display: none; }
+.nx-mk.is-phone .nx-mk-btn { width: 44px; height: 44px; border-radius: 12px; scroll-snap-align: start; }
+.nx-mk.is-phone .nx-mk-tip { bottom: 6px; }
+.nx-mk.is-phone .nx-mk-dot > span { width: 24px; height: 24px; }
+.nx-mk.is-phone .nx-mk-float {
+  position: absolute; left: 10px; top: 10px; display: flex; gap: 2px; padding: 3px; border-radius: 14px;
+  background: var(--card, #fff); box-shadow: 0 6px 18px rgba(15, 23, 42, .1), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+}
+.nx-mk.is-phone .nx-mk-float .nx-mk-btn { width: 40px; height: 40px; }
+.nx-mk.is-phone .nx-mk-tray {
+  position: absolute; right: 8px; left: 8px; bottom: calc(68px + env(safe-area-inset-bottom, 0px) + var(--nx-kb-inset, 0px));
+}
+.nx-mk.is-phone .nx-mk-inks { justify-content: space-between; }
+.nx-mk.is-phone .nx-mk-ink { width: 40px; height: 40px; }
+.nx-mk.is-phone .nx-mk-size { height: 40px; }
+.nx-board.is-phone.has-markup .nx-mk-place-hint { top: 62px; }
+
+/* The phone's Board options (More): a sheet up from the dock. */
+.nx-mk-sheet-wrap { position: absolute; inset: 0; z-index: 8; background: rgba(15, 23, 42, .32); display: flex; align-items: flex-end; animation: nx-mk-fade 200ms var(--ease-out, ease-out) both; }
+.nx-mk-sheet {
+  width: 100%; max-height: 82%; overflow-y: auto; overscroll-behavior: contain; background: var(--card, #fff); border-radius: 18px 18px 0 0;
+  padding: 6px 8px calc(12px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -12px 32px rgba(0, 0, 0, .18);
+  animation: nx-mk-up 260ms var(--ease-out, ease-out) both;
+}
+.nx-mk-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 2px 10px; font-weight: 700; font-size: 15px; color: var(--ink, #1c2420); }
+.nx-mk-sheet .nx-board-look { padding: 4px 6px 8px; }
+.nx-mk-sheet .nx-board-look button { padding: 10px 8px; font-size: 14px; }
+.nx-mk-sheet .nx-board-swatch { width: 36px; height: 36px; border-radius: 10px; }
+.nx-mk-sheet .nx-board-swatches { gap: 10px; padding: 4px 10px 10px; }
+.nx-mk-sheet-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 12px; border: 0; border-radius: 12px;
+  background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 15px; text-align: left; cursor: pointer;
+}
+.nx-mk-sheet-row:active { background: var(--wk-hover, #f1f4f1); }
+.nx-mk-sheet-row:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -2px; }
+
+@keyframes nx-mk-rise { from { opacity: 0; transform: translate(var(--nx-mk-x, 0), 6px); } to { opacity: 1; transform: translate(var(--nx-mk-x, 0), 0); } }
+.nx-mk-place-hint { --nx-mk-x: -50%; }
+@keyframes nx-mk-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes nx-mk-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+/* More Tools: the rest of the whiteboard, one tap away. */
+.nx-mk-more { gap: 2px; padding: 6px; min-width: 210px; }
+.nx-mk-more-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+}
+.nx-mk-more-row > span { flex: 1; }
+.nx-mk-more-row kbd { font: inherit; font-size: 11px; color: var(--muted, #8b958f); border: 1px solid var(--line, rgba(0, 0, 0, .1)); border-radius: 5px; padding: 0 5px; }
+.nx-mk-more-row:hover { background: var(--wk-hover, #f1f4f1); }
+.nx-mk-more-row.is-on { background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); }
+.nx-mk-more-row:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -2px; }
+.nx-mk.is-phone .nx-mk-more { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.nx-mk.is-phone .nx-mk-more-row { flex-direction: column; justify-content: center; gap: 4px; min-height: 64px; padding: 6px; font-size: 12.5px; text-align: center; background: var(--wk-hover, #f1f4f1); }
+.nx-mk.is-phone .nx-mk-more-row > span { flex: 0 0 auto; }
+.nx-mk.is-phone .nx-mk-more-row.is-on { background: var(--wk-brand-tint, #e3f3e8); }
+
+/* ---- Hide Tools and Present (Neil, 11/06/2026) --------------------------
+   Hide Tools: a computer's markup bar and the engine's zoom / undo fold away,
+   leaving one small pill to bring them back. Present: the board full screen,
+   the engine's UI gone, a shield so nothing is drawn by accident, and a pill
+   to step the frames. */
+.nx-board.is-tools-hidden .excalidraw .layer-ui__wrapper__footer-left { display: none !important; }
+.nx-board-show-tools, .nx-present-pill {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 8;
+  display: inline-flex; align-items: center; gap: 6px; border-radius: 999px;
+  background: var(--card, #fff); color: var(--ink, #1c2420); box-shadow: 0 10px 28px rgba(15, 23, 42, .12), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+}
+[data-theme="dark"] .nx-board-show-tools, [data-theme="dark"] .nx-present-pill { box-shadow: 0 10px 28px rgba(0, 0, 0, .45), 0 0 0 1px var(--line, rgba(255, 255, 255, .09)); }
+.nx-board-show-tools { border: 0; padding: 7px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.nx-board-show-tools:hover { background: var(--wk-hover, #f1f4f1); }
+.nx-board-show-tools:focus-visible, .nx-present-exit:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
+.nx-board.is-presenting .excalidraw .layer-ui__wrapper,
+.nx-board.is-presenting .nx-board-draft,
+.nx-board.is-presenting .nx-board-note { display: none !important; }
+.nx-board:fullscreen { background: var(--card, #fff); }
+.nx-present-shield { position: absolute; inset: 0; z-index: 7; }
+.nx-present-pill { padding: 4px 6px; }
+.nx-present-pill .nx-mk-btn:disabled { opacity: .35; cursor: default; }
+.nx-present-count { min-width: 54px; text-align: center; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.nx-present-exit {
+  display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 999px; padding: 7px 12px; cursor: pointer;
+  background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); font: inherit; font-size: 12.5px; font-weight: 700;
+}
+
+/* ---- Diagrams (Neil, 11/06/2026, board/diagram/) ------------------------ */
+.nx-mk-diagram { max-height: min(70vh, 520px); overflow-y: auto; }
+.nx-mk-diagram .nx-mk-tray-kicker { padding: 8px 10px 2px; }
+.nx-mk-diagram .nx-mk-tray-kicker:first-child { padding-top: 4px; }
+
+/* The + buttons around a selected box: grow the flow that way. */
+.nx-dg-grip { position: absolute; z-index: 4; pointer-events: none; }
+.nx-dg-plus {
+  position: absolute; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  pointer-events: auto; cursor: pointer; padding: 0;
+  background: var(--wk-surface, #fff); color: var(--wk-brand, #15803d); border: 1.5px solid var(--wk-brand, #15803d);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, .16); opacity: .9;
+  transition: transform 160ms var(--ease-out, ease-out), opacity 160ms var(--ease-out, ease-out), background 160ms var(--ease-out, ease-out);
+}
+.nx-dg-plus:hover, .nx-dg-plus:focus-visible { opacity: 1; background: var(--wk-brand, #15803d); color: #fff; transform: scale(1.12); outline: none; }
+.nx-dg-plus.is-up { left: 50%; top: -34px; margin-left: -11px; }
+.nx-dg-plus.is-down { left: 50%; bottom: -34px; margin-left: -11px; }
+.nx-dg-plus.is-left { top: 50%; left: -34px; margin-top: -11px; }
+.nx-dg-plus.is-right { top: 50%; right: -34px; margin-top: -11px; }
+.nx-board.is-phone .nx-dg-plus { width: 32px; height: 32px; }
+.nx-board.is-phone .nx-dg-plus.is-up { top: -44px; margin-left: -16px; }
+.nx-board.is-phone .nx-dg-plus.is-down { bottom: -44px; margin-left: -16px; }
+.nx-board.is-phone .nx-dg-plus.is-left { left: -44px; margin-top: -16px; }
+.nx-board.is-phone .nx-dg-plus.is-right { right: -44px; margin-top: -16px; }
+@media (prefers-reduced-motion: reduce) { .nx-dg-plus { transition: none; } .nx-dg-plus:hover { transform: none; } }
+
+/* The diagram sheet: what you give it on the left, the preview on the right. */
+.nx-dg { display: flex; gap: 16px; flex: 1; min-height: 0; }
+.nx-dg-side { width: 340px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.nx-dg-starters { display: flex; flex-wrap: wrap; gap: 6px; }
+.nx-dg-chip {
+  font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line, rgba(0, 0, 0, .12)); background: var(--wk-surface, #fff); color: inherit;
+}
+.nx-dg-chip:hover { border-color: var(--wk-brand, #15803d); color: var(--wk-brand, #15803d); }
+.nx-dg-text {
+  flex: 1; min-height: 220px; resize: none; width: 100%; box-sizing: border-box; padding: 10px 12px;
+  font: 13.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: inherit;
+  border: 1px solid var(--line, rgba(0, 0, 0, .14)); border-radius: 10px; background: var(--wk-surface, #fff);
+}
+.nx-dg-text:focus { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -1px; }
+.nx-dg-hint { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted, #6b7570); white-space: pre-line; }
+.nx-dg-label { font-size: 12px; font-weight: 600; color: var(--muted, #6b7570); }
+.nx-dg-select {
+  font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 8px; color: inherit;
+  border: 1px solid var(--line, rgba(0, 0, 0, .14)); background: var(--wk-surface, #fff);
+}
+.nx-dg-error { margin: 0; font-size: 13px; color: var(--wk-red, #b91c1c); }
+.nx-dg-seg { display: inline-flex; border: 1px solid var(--line, rgba(0, 0, 0, .12)); border-radius: 8px; overflow: hidden; align-self: flex-start; }
+.nx-dg-seg button { font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.nx-dg-seg button + button { border-left: 1px solid var(--line, rgba(0, 0, 0, .12)); }
+.nx-dg-seg button[aria-checked="true"] { background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); font-weight: 600; }
+.nx-dg-preview {
+  flex: 1; min-width: 0; min-height: 320px; display: flex; align-items: center; justify-content: center; padding: 12px;
+  border: 1px solid var(--line, rgba(0, 0, 0, .08)); border-radius: 12px; background: var(--wk-bg-subtle, #f8faf8); color: #1c2420;
+}
+.nx-dg-svg { width: 100%; height: 100%; max-height: 70vh; }
+.nx-dg-nlabel { font: 600 15px Inter, system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; fill: #1c2420; }
+.nx-dg-elabel { font: 500 13px Inter, system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; fill: #475569; paint-order: stroke; stroke: #f8faf8; stroke-width: 4px; }
+.nx-dg-empty { font-size: 13.5px; color: var(--muted, #6b7570); }
+.nx-dg-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
+.nx-dg-count { flex: 1; font-size: 13px; color: var(--muted, #6b7570); }
+@media (max-width: 640px) {
+  .nx-dg { flex-direction: column; }
+  .nx-dg-side { width: auto; }
+  .nx-dg-text { min-height: 160px; font-size: 16px; }
+  .nx-dg-select { font-size: 16px; }
+  .nx-dg-preview { min-height: 260px; }
+}
+.nx-mk.is-phone .nx-mk-diagram .nx-mk-tray-kicker { grid-column: 1 / -1; padding: 6px 4px 0; }
+
+/* ── Record Card picker (11/07/2026, diagram/RecordCardSheet.jsx) ── */
+.nx-rc { display: flex; flex-direction: column; gap: 10px; min-height: 0; flex: 1 1 auto; }
+.nx-rc-q { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--wk-line2); border-radius: 9px; font: inherit; font-size: 14px; background: var(--card); color: inherit; }
+.nx-rc-q:focus-visible { outline: 2px solid var(--wk-green); outline-offset: 1px; }
+.nx-rc-hint { font-size: 12.5px; color: var(--muted); }
+.nx-rc-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 120px; }
+.nx-rc-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: none; border-radius: 8px; background: transparent; font: inherit; font-size: 14px; color: inherit; text-align: left; cursor: pointer; }
+.nx-rc-row:hover, .nx-rc-row:focus-visible { background: var(--wk-hover); outline: none; }
+.nx-rc-row > svg { flex-shrink: 0; color: var(--muted); }
+.nx-rc-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.nx-rc-detail { margin-left: auto; flex-shrink: 0; font-size: 12px; color: var(--muted); }
+.nx-rc-empty { padding: 12px 10px; font-size: 13px; color: var(--muted); }
+@media (max-width: 640px) { .nx-rc-q { font-size: 16px; } .nx-rc-row { min-height: 44px; } }

@@ -145,6 +145,10 @@ def gather(db, project, week_start: str) -> dict:
     # move of the target finish with its reason.
     subs_on_site = construction_field.sub_summary(logs)
     target_moves = construction_health.target_moves(db, project)
+    # Round Two item 10 (11/05/2026): the Safety card's three facts, as of today.
+    import construction_company
+    import construction_safety
+    safety = construction_safety.facts(db, project, construction_company.local_today(db, project))
 
     photos = [m for m in media if m.kind == "photo"]
     videos = [m for m in media if m.kind == "video"]
@@ -153,7 +157,7 @@ def gather(db, project, week_start: str) -> dict:
         "milestones": milestones, "rfis": rfis, "submittals": subs,
         "pairs": pairs, "health": health, "punch": punch, "changeOrders": cos, "delays": delays,
         "labor": worked, "today": health.get("today") or end,
-        "subsOnSite": subs_on_site, "targetMoves": target_moves,
+        "subsOnSite": subs_on_site, "targetMoves": target_moves, "safety": safety,
         "stats": {
             "logs": len(logs),
             "photos": len(photos),
@@ -521,6 +525,12 @@ def assemble(db, project, data: dict, ai: dict) -> dict:
                          + (f": {by}" if by else ""))
         for mv in data.get("targetMoves") or []:
             lines.append(f"Target finish moved {_us(mv['at'])}: {_us(mv['from'])} to {_us(mv['to'])} - {mv['reason']}")
+        sf = data.get("safety")
+        if sf:
+            lines.append(f"Last toolbox talk: {_us(sf['lastToolboxTalk']) if sf['lastToolboxTalk'] else 'none recorded'}")
+            lines.append("Days since the last near miss or incident: "
+                         + (str(sf["daysSinceIncident"]) if sf["daysSinceIncident"] is not None else "none recorded"))
+            lines.append(f"Open Safety tags on daily logs: {sf['openSafetyTags']}")
         s["job_health"] = _section("\n".join(lines), [{"type": "milestone", "id": m.id} for m in data["milestones"]])
     else:
         s["job_health"] = _section("None currently.", [])

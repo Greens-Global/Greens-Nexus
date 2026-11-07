@@ -66,7 +66,8 @@ describe('TopHeader search', () => {
     const withTabs = bar();
     expect(withTabs.placeholder).toBe('Search Nexus');
     expect(inRight(withTabs)).toBe(true);
-    expect(document.querySelector('.header-center .hdr-tabs')?.textContent).toContain('Alpha');   // tabs still in the center
+    // The module bar rides in the header's center on a computer (Neil, 11/06/2026).
+    expect(document.querySelector('.header-center .module-bar--header nav.hdr-tabs')?.textContent).toContain('Alpha');
     expect(document.querySelector('.hdr-search-pop')).toBeNull();           // no icon-and-popover any more
     expect(document.querySelector('.header-right button[aria-label="Search Nexus"]')).toBeNull();   // no icon trigger on the right
   });
@@ -219,12 +220,12 @@ describe('TopHeader search', () => {
         <TopHeader title="Accounting" activeView="accounting" theme="light" onThemeToggle={() => {}} onNavigate={() => {}} />
       </HeaderTabsProvider>,
     );
-    const nav = document.querySelector('.header-center .hdr-tabs');
+    const nav = document.querySelector('.module-bar nav.hdr-tabs');
     expect(nav.classList.contains('hdr-tabs--compact')).toBe(true);
     expect(nav.querySelectorAll('.hdr-tab .tab-group-caret')).toHaveLength(2);
     cleanup();
     header({}, true);
-    expect(document.querySelector('.header-center .hdr-tabs').classList.contains('hdr-tabs--compact')).toBe(false);
+    expect(document.querySelector('.module-bar nav.hdr-tabs').classList.contains('hdr-tabs--compact')).toBe(false);
     const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
     const rules = css.split('\n').filter((l) => l.includes('hdr-tabs--compact'));
     expect(rules.length).toBeGreaterThan(0);

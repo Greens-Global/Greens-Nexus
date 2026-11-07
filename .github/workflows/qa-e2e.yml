@@ -48,6 +48,9 @@ jobs:
           NEXUS_DEV_EMAIL: ci@greensglobal.com
           NEXUS_OWNER_EMAIL: ci@greensglobal.com
           NEXUS_QA_MODULE: 'true'
+          # Several browsers booting the whole app from one IP, unsigned (skip-auth),
+          # trip the per-IP flood budgets. Test stack only - production keeps them.
+          NEXUS_RATE_LIMIT: 'off'
           DATABASE_URL: sqlite:///./e2e.db
         run: |
           nohup uvicorn main:app --port 8000 > uvicorn1.log 2>&1 &

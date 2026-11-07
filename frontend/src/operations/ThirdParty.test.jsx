@@ -20,6 +20,7 @@ vi.mock('../components/ModuleTabs', () => ({
   default: ({ tabs, active, onChange }) => (
     <div role="tablist">{tabs.map((t) => <button key={t.key} role="tab" aria-selected={t.key === active} onClick={() => onChange(t.key)}>{t.label}</button>)}</div>
   ),
+  ModuleActions: ({ children }) => children,
 }));
 
 const ThirdPartyUpload = (await import('./ThirdPartyUpload')).default;

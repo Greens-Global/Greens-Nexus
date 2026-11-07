@@ -55,7 +55,8 @@ describe('the Time Sheet on a phone', () => {
     expect(container.querySelector(`[data-ts-day="${TODAY}"]`)).toBeTruthy();
     expect(screen.getByText(/OT 0:30/)).toBeTruthy();
     expect(screen.getByText('Front Desk')).toBeTruthy();
-    expect(screen.getAllByText(/^Total hours clocked for week of /)).toHaveLength(1);
+    expect(container.querySelectorAll('.ts-pwk')).toHaveLength(1);
+    expect(container.querySelector('.ts-pwk').textContent).toMatch(/^Week of \d{2}\/\d{2} - \d{2}\/\d{2}.*Total Hours: \d+:\d{2}.*Overtime: (None|\d+:\d{2})/);
     // The summary card on top, hours:minutes only.
     expect(container.querySelector('.ts-psum').textContent).toContain('8:30');
     // Add Punch: on a past day with no punches, and in the bar at the bottom.

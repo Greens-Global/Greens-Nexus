@@ -498,7 +498,10 @@ export function nextClock(t, now = Date.now()) {
       title: known ? `Paused since ${fmtMoment(t.slaPausedAt)}` : 'SLA clock paused',
     };
   }
-  const selfServed = !!t.requesterId && t.requesterId.toLowerCase() === (t.assigneeId || '').toLowerCase();
+  // No reply clock on your own ticket, nor on one assigned and In Progress
+  // (Neil, 11/05/2026) - mirrors ticket_sla.first_response_applies.
+  const selfServed = (!!t.requesterId && t.requesterId.toLowerCase() === (t.assigneeId || '').toLowerCase())
+    || (t.status === 'in_progress' && !!t.assigneeId);
   let kind; let at; let title; let riskMs;
   if (!t.firstResponseAt && t.firstResponseDueAt && !selfServed) {
     kind = 'reply'; at = msOf(t.firstResponseDueAt);

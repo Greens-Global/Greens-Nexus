@@ -115,7 +115,8 @@ export default function QuickNotePanel({ onClose }) {
     try {
       const t = await createTaskFrom(line, note, myEmail);
       say(`Task created: ${line.slice(0, 60)}`, t?.id);
-    } catch (e) { say(e.message || 'Could not create the task'); }
+      return t;   // the editor turns the line into a link to it (NoteEditor makeTask)
+    } catch (e) { say(e.message || 'Could not create the task'); return null; }
   };
   useDialogFocus(panelRef);
 

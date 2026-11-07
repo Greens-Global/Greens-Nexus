@@ -1072,6 +1072,8 @@ def register_media(log_id: str, body: MediaBody, user: dict = Depends(get_curren
         raise HTTPException(403, "You can only attach media to your own daily log.")
     if l.status not in ("draft", "needs_info"):
         raise HTTPException(409, "This log has been submitted; media can no longer be added.")
+    if body.kind == "drawing":
+        raise HTTPException(422, "Drawings go on the job's Drawings tab.")
 
     err = storage.validate(body.kind, body.size_bytes or 0, body.mime_type or "")
     if err:

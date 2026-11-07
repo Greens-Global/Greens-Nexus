@@ -32,6 +32,53 @@ For vehicles, the questions are different: overall length including the tongue o
 
 ## The Size Guide
 
+```figure
+{
+  "kind": "sizes",
+  "title": "Picture the Space",
+  "unit": "ft",
+  "items": [
+    {
+      "name": "5x5",
+      "w": 5,
+      "h": 5,
+      "note": "a hall closet: boxes, seasonal items, a small dresser"
+    },
+    {
+      "name": "5x10",
+      "w": 5,
+      "h": 10,
+      "note": "a walk-in closet: a studio's furniture"
+    },
+    {
+      "name": "10x10",
+      "w": 10,
+      "h": 10,
+      "note": "half a one-car garage: a one-bedroom apartment"
+    },
+    {
+      "name": "10x15",
+      "w": 10,
+      "h": 15,
+      "note": "a small one-car garage: a two-bedroom"
+    },
+    {
+      "name": "10x20",
+      "w": 10,
+      "h": 20,
+      "note": "a one-car garage: a three-bedroom house, or a car"
+    },
+    {
+      "name": "10x30",
+      "w": 10,
+      "h": 30,
+      "note": "a large garage: a four- to five-bedroom house"
+    }
+  ],
+  "caption": "Say the comparison out loud. \"About half a one-car garage\" sells better than \"100 square feet.\""
+}
+```
+
 Self-Storage Fundamentals, The Product: Units and Sizes covered unit sizes in detail. Here is the sales version: what to compare it to, and what usually fits. Room counts vary by brand and by how much stuff people have, so use this as a starting point and then listen.
 
 | Size | Square feet | Compare it to | What usually fits |
@@ -71,6 +118,16 @@ Going up a size is not upselling if you explain why:
 **On a tour**, show the smaller size first and then the one you recommend. People understand size by comparison.
 
 ## Climate-Sensitive Items
+
+```figure
+{
+  "kind": "drawing",
+  "title": "When Heat Is the Reason",
+  "draw": "unit-climate",
+  "label": "A climate-controlled unit",
+  "note": "Say what the building does: the temperature is regulated. Never promise humidity control or a number you have not confirmed."
+}
+```
 
 At Greens, climate-controlled units are at Escondido: 549 of its 717 enclosed units (From Greens' Cubby, 11/2026). At the other sites, drive-up units are the main enclosed product (Valley Center has 207 drive-up units, From Greens' Cubby, 11/2026).
 

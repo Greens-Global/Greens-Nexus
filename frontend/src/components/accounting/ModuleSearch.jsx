@@ -17,8 +17,11 @@ import { control } from './reportControls';
 
 const isFindKey = (e) => (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && String(e.key).toLowerCase() === 'f';
 
-export default function ModuleSearch({ value, onChange, onSubmit, waiting = false }) {
-  const [open, setOpen] = useState(false);
+// startOpen: the box was in use when the search moved to another toolbar
+// (typing on the Dashboard opens Reports) - it comes back open, the cursor at
+// the end of what was typed.
+export default function ModuleSearch({ value, onChange, onSubmit, waiting = false, startOpen = false }) {
+  const [open, setOpen] = useState(startOpen);
   const input = useRef(null);
   const icon = useRef(null);
   const openBox = () => {
@@ -27,6 +30,12 @@ export default function ModuleSearch({ value, onChange, onSubmit, waiting = fals
   };
   const openRef = useRef(openBox);
   useEffect(() => { openRef.current = openBox; });
+  useEffect(() => {
+    if (!startOpen) return;
+    const box = input.current;
+    box?.focus();
+    box?.setSelectionRange?.(box.value.length, box.value.length);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Cleared from outside (leaving Reports) while nobody is in it: back to the icon.
   useEffect(() => {
     if (!value && open && document.activeElement !== input.current) setOpen(false);

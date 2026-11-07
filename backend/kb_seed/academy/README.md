@@ -3,6 +3,16 @@
 Courses are authored here as Markdown + JSON and imported as DRAFTS.
 `python -m pytest test_kb_academy_content.py` (in `backend/`) must pass.
 
+Seven courses: the six new-hire courses the plan lists in order, then
+`07-property-and-vendor-management` for managers (not on the plan; `plan.json`
+may list any subsequence of `kb_academy.ORDER`). A new course goes in
+`kb_academy.ORDER`, `MIN_READING` and `EST_MINUTES` too. After an environment's
+first import, a change here reaches it through `kb_academy_seed.apply_content_once`
+(it runs whenever the package digest changes): new pages and courses are
+created as drafts, and courses nobody has saved since the first run take the
+package's lessons whole; a course somebody saved only takes figures into its
+unedited lessons. Edits made in Nexus are never overwritten.
+
 ## Add or edit a lesson
 1. Put `courses/<NN>-<slug>/lessons/<NN>-<name>.md` in place. Front matter:
    `title:` (Title Case) and `summary:`. The body starts at `##` (never `#`).
@@ -10,6 +20,25 @@ Courses are authored here as Markdown + JSON and imported as DRAFTS.
 3. Supported Markdown: `##`/`###`, bold, italic, bullets, `1.` lists, `- [ ]`
    checklists, tables, `---`, and callouts on their own lines:
    `> [!TIP|NOTE|WARNING|SAFETY]` then `> text` lines.
+
+## Add a figure (11/07/2026)
+A diagram drawn from data, never an image. A fenced block in a lesson or page:
+
+    ```figure
+    {"kind": "steps", "title": "How It Goes", "items": [{"label": "First", "note": "what happens"}, {"label": "Then"}]}
+    ```
+
+Kinds and their keys (`kb_blocks.FIGURE_KINDS`, drawn by
+`frontend/src/kb/components/Figure.jsx`): `steps` (items: label, note),
+`timeline` (items: at, label, note, tone), `compare` (columns: name, note,
+facts), `sizes` (unit, items: name, w, h, note - rectangles to scale), `bars`
+(unit, max, items: label, value, low, text, tone), `stats` (items: value,
+label, note), `layout` (cols, rows, regions: label, note, x, y, w, h, tone),
+`cycle` (items: label, note), `drawing` (draw, label, note - one line drawing, large), `drawings` (items: draw, label, note - a gallery) and `screen` (a REALISTIC Nexus screen drawn from data, never a real screenshot: `device` computer | phone, `module`, `sub` (the back line), `tabs` + `tab`, `actions` (header buttons), `badge` (the bell count), `parts` in order - each `{kind, ...}` with kind tiles (items: label, value) | card (title, note, rows: label, value, tone; buttons) | clock (state in | out | break, label, value, tabs, buttons) | table (columns, rows of cells) | form (title, fields: label, value, hint, kind text | select | textarea | check; buttons) | list (items: label, note, badge, tone) | banner (tone, text, buttons) | dialog or sheet (title, text, fields, buttons) | bell (text, items, buttons) | toast (text, buttons) | text (text) - a button is a string or `{label, primary}`; any part, row, item or button may carry `n` to show a numbered badge, explained in `callouts` (n, text)). A `draw` names one of `kb_blocks.DRAWING_NAMES` (RVs, boats, spaces, measuring, locks, unit types, the site's parts - fence, gate, buildings, inside a unit, the roll-up door, the hasp, the cylinder core - and the shapes of space from above; drawn by `components/drawings.jsx`). `tone` is ok | live | warn | bad. Every
+figure may carry a `title` and a `caption`. Put the figure right under the
+heading it illustrates, and only where it says something the prose cannot
+say as fast: a sequence, a ladder of days, things to scale, numbers side by
+side. The content test checks a figure's words like any other copy.
 
 ## Add a shared page
 `pages/<slug>.md` with front matter `title`, `summary`, `page_type`

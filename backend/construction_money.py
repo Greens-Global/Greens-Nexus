@@ -351,3 +351,98 @@ def job_names(db: Session, ids) -> dict:
         return {}
     P = models.ConstructionProject
     return {r.id: r.name for r in db.query(P.id, P.name).filter(P.id.in_(ids), P.deleted_at == "").all()}
+
+
+# ── Commitments and lien waivers (Round Two item 8, Neil, 11/06/2026) ───────
+# A commitment is a subcontract or purchase order with one of Intacct's
+# vendors (construction_models.ConstructionCommitment). What was billed
+# against it is READ from the books: the job's Project-Job lines for that
+# vendor (/reports/buckets?by=vendor), cost accounts only - never typed.
+# OPEN = what is committed and not billed yet, per vendor: the live
+# commitments' amounts less what the vendor has billed on the job (never
+# below zero; a vendor whose commitments are all closed owes nothing more).
+# The forecast reads actual + open commitments + requested-not-billed, so a
+# commitment billed in full is never counted twice.
+COMMIT_PREFIX = {"subcontract": "SC", "purchase_order": "PO"}
+COMMIT_KIND_LABEL = {"subcontract": "Subcontract", "purchase_order": "Purchase Order"}
+COMMIT_STATUSES = ("active", "closed", "void")
+WAIVER_KINDS = {"conditional_progress": "Conditional Progress", "unconditional_progress": "Unconditional Progress",
+                "conditional_final": "Conditional Final", "unconditional_final": "Unconditional Final"}
+MAX_RETAINAGE = 20.0
+
+
+def job_commitments(db: Session, project_id: str) -> list:
+    """The job's commitments that are not void, in number order."""
+    C = models.ConstructionCommitment
+    return (db.query(C).filter(C.project_id == project_id, C.status != "void")
+            .order_by(C.number, C.created_at).all())
+
+
+def billed_by_vendor(rows: list, chart: dict | None = None) -> dict:
+    """{vendor id: {amount, accounts: [{account_no, title, amount}]}} from a
+    `/reports/buckets?by=vendor` answer on the job's Project-Job - cost
+    accounts only (the same rule as Actual), so the AP side never counts."""
+    out: dict[str, dict] = {}
+    for r in rows or []:
+        vid = str(r.get("bucket") or "").strip()
+        if not vid or not is_cost_account(r, chart):
+            continue
+        v = out.setdefault(vid, {"amount": 0.0, "accounts": {}})
+        acct = str(r.get("account_no") or "")
+        a = v["accounts"].setdefault(acct, {"account_no": acct, "title": r.get("title") or "", "amount": 0.0})
+        a["amount"] = round(a["amount"] + _net(r), 2)
+        v["amount"] = round(v["amount"] + _net(r), 2)
+    return {k: {"amount": v["amount"], "accounts": sorted(v["accounts"].values(), key=lambda a: a["account_no"])}
+            for k, v in out.items()}
+
+
+def live_waivers(c) -> list:
+    return [w for w in (c.waivers or []) if isinstance(w, dict) and not w.get("removedAt")]
+
+
+def last_waiver(c) -> dict | None:
+    """The waiver that reaches furthest (latest through date), or None."""
+    ws = live_waivers(c)
+    return max(ws, key=lambda w: (str(w.get("throughOn") or ""), str(w.get("at") or ""))) if ws else None
+
+
+def commitments_view(commitments, billed: dict | None) -> dict:
+    """The Money tab's commitments: each row with Billed to Date (None when the
+    books were not read), Remaining and Retainage Held (worked out, only when
+    the vendor has one commitment on the job - two share the vendor's lines),
+    and its last waiver. `total` = the live commitments' amounts; `open` =
+    committed, not yet billed (what the forecast adds)."""
+    by_vendor: dict[str, list] = {}
+    for c in commitments:
+        by_vendor.setdefault(c.vendor_id or "", []).append(c)
+    rows, open_total = [], 0.0
+    for vid, cs in by_vendor.items():
+        got = billed.get(vid) if billed is not None else None
+        b = got["amount"] if got else (0.0 if billed is not None else None)
+        live = [c for c in cs if c.status == "active"]
+        if live:
+            amt = sum(float(c.amount or 0) for c in cs)
+            open_total += max(0.0, amt - (b or 0.0)) if b is not None else sum(float(c.amount or 0) for c in live)
+        shared = len(cs) > 1
+        for c in cs:
+            amount = round(float(c.amount or 0), 2)
+            alone = b is not None and not shared
+            remaining = 0.0 if c.status == "closed" else (round(max(0.0, amount - b), 2) if alone else None)
+            lw = last_waiver(c)
+            rows.append({
+                "id": c.id, "number": c.number or "", "kind": c.kind or "subcontract",
+                "kindLabel": COMMIT_KIND_LABEL.get(c.kind or "", "Subcontract"),
+                "vendorId": vid, "vendorName": c.vendor_name or vid, "title": c.title or "",
+                "originalAmount": round(float(c.original_amount or 0), 2), "amount": amount,
+                "retainagePct": float(c.retainage_pct or 0), "status": c.status or "active",
+                "contractUrl": c.contract_url or "", "contractName": c.contract_name or "", "notes": c.notes or "",
+                "billed": b, "billedAccounts": (got or {}).get("accounts", []), "sharedVendor": shared,
+                "remaining": remaining,
+                "retainageHeld": round(b * float(c.retainage_pct or 0) / 100, 2) if alone and c.retainage_pct else None,
+                "waivers": live_waivers(c), "lastWaiver": lw,
+                # A vendor that billed with no waiver on file is the lien risk.
+                "waiverMissing": bool(b and b > 0 and lw is None),
+            })
+    rows.sort(key=lambda r: (r["number"], r["vendorName"]))
+    return {"rows": rows, "total": round(sum(r["amount"] for r in rows), 2), "open": round(open_total, 2),
+            "billedKnown": billed is not None}

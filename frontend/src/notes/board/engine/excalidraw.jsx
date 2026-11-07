@@ -12,11 +12,12 @@
 import { useCallback, useMemo } from 'react';
 import {
   Excalidraw, MainMenu, THEME, CaptureUpdateAction, restoreElements,
-  exportToBlob, exportToSvg, exportToClipboard,
+  exportToBlob, exportToSvg, exportToClipboard, convertToExcalidrawElements,
 } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 import { CAPTURE } from './index';
-import { buildScene, lookDefaults } from '../scene';
+import { buildScene, lookDefaults, NEXUS_INK } from '../scene';
+import { SHAPE_STYLE, edgePoints } from '../diagram/graph';
 import { reconcile as mergeElements } from '../boardSync';
 
 // The engine fetches its fonts from here (copied from the package by
@@ -115,6 +116,9 @@ export const Menu = { Root: MenuRoot, Item: MenuItem, Custom: MenuCustom, Separa
 export function Canvas({
   scene, onChange, look, readOnly = false, viewportRef, onReady, theme = 'light', name,
   phone = false, autoFocus, collaborating = false, onPointerUpdate, topRight = null, menu = null, children,
+  // A Record Card's link (customData.nexusRecord, Neil 11/07/2026) opens the
+  // record inside Nexus; every other link keeps the engine's own behavior.
+  onRecordOpen,
 }) {
   const initialData = useMemo(() => fromScene(scene), [scene]);
   const uiOptions = useMemo(() => ({
@@ -130,6 +134,12 @@ export function Canvas({
     tools: { image: !readOnly },
   }), [readOnly]);
   const handleChange = useCallback((elements, appState, files) => { onChange?.({ elements, appState, files }); }, [onChange]);
+  const handleLinkOpen = useCallback((element, event) => {
+    const ref = element?.customData?.nexusRecord?.ref;
+    if (!ref || !onRecordOpen) return;
+    event?.preventDefault?.();
+    onRecordOpen(ref);
+  }, [onRecordOpen]);
   return (
     <div ref={viewportRef} className="nx-engine" data-look={look}>
       <Excalidraw
@@ -149,6 +159,7 @@ export function Canvas({
         isCollaborating={collaborating}
         onPointerUpdate={onPointerUpdate}
         renderTopRightUI={topRight ? () => topRight : undefined}
+        onLinkOpen={handleLinkOpen}
       >
         {menu}
         {children}
@@ -157,8 +168,98 @@ export function Canvas({
   );
 }
 
+/**
+ * The markup bar's hands on the engine (Board.jsx's MarkupBar, Neil
+ * 11/06/2026). `root` is the element the Canvas sits in (undo / redo are the
+ * engine's own history actions, reached through its keyboard handler on its
+ * container - 0.18 has no api call for them).
+ */
+function pressKey(root, init) {
+  const target = root?.querySelector?.('.excalidraw') || root;
+  if (!target?.dispatchEvent) return false;
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+  target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ctrlKey: !mac, metaKey: mac, ...init }));
+  return true;
+}
+export const markup = {
+  setTool(handle, { engine: type, locked = false } = {}) {
+    try { handle?.setActiveTool?.({ type, locked }); return true; } catch { return false; }
+  },
+  setStyle(handle, appState) {
+    try { handle?.updateScene?.({ appState, captureUpdate: CaptureUpdateAction.NEVER }); } catch { /* engine not ready */ }
+  },
+  /** The engine's own properties panel (fill, opacity, font, layers) - on
+   *  a phone it opens above the markup dock; again closes it. */
+  toggleStyle(handle) {
+    try {
+      const open = handle?.getAppState?.()?.openMenu === 'shape';
+      handle?.updateScene?.({ appState: { openMenu: open ? null : 'shape' }, captureUpdate: CaptureUpdateAction.NEVER });
+    } catch { /* engine not ready */ }
+  },
+  undo: (root) => pressKey(root, { key: 'z', code: 'KeyZ' }),
+  redo: (root) => pressKey(root, { key: 'z', code: 'KeyZ', shiftKey: true }),
+  /** Built elements (a comment pin, already measured) through the engine's repair. */
+  prepare: (elements) => restore(elements, { refreshDimensions: false }),
+};
+
+/**
+ * The diagram builder's hands on the engine (Neil, 11/06/2026,
+ * board/diagram/). `build` turns a placed graph (graph.js `layout`) into
+ * elements through the engine's own skeleton converter, which ties every
+ * arrow to its two boxes and measures each label; box ids are kept (Tidy Up
+ * rebuilds boxes in place). `grow` is the engine's flowchart key - Ctrl/Cmd
+ * + an arrow adds the next box, tied and spaced, and the key's release
+ * commits it - pressed for the + buttons.
+ */
+const BOX_TYPE = { step: 'rectangle', decision: 'diamond', terminal: 'ellipse', note: 'rectangle' };
+const ARROW_KEY = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' };
+export const diagram = {
+  build(placed, { look = 'clean' } = {}) {
+    const d = lookDefaults(look);
+    const at = new Map(placed.nodes.map((n) => [n.id, n]));
+    const skeleton = [];
+    for (const n of placed.nodes) {
+      const s = n.style || {};
+      const colors = SHAPE_STYLE[n.shape] || SHAPE_STYLE.step;
+      const { fontSize, fontFamily, textColor, textAlign, verticalAlign, ...box } = s;
+      skeleton.push({
+        type: BOX_TYPE[n.shape] || 'rectangle', id: n.id, x: n.x, y: n.y, width: n.w, height: n.h,
+        strokeColor: colors.stroke, backgroundColor: colors.fill, fillStyle: 'solid', strokeWidth: 2,
+        roughness: d.currentItemRoughness, roundness: n.shape === 'step' || n.shape === 'note' ? { type: 3 } : null,
+        ...box,
+        label: n.label ? {
+          text: n.label, fontSize: fontSize || 18, fontFamily: fontFamily || d.currentItemFontFamily, strokeColor: textColor || NEXUS_INK,
+          ...(textAlign ? { textAlign } : {}), ...(verticalAlign ? { verticalAlign } : {}),
+          // the label travels with its box: same frame, same groups
+          ...(box.frameId ? { frameId: box.frameId } : {}), ...(box.groupIds?.length ? { groupIds: box.groupIds } : {}),
+        } : undefined,
+      });
+    }
+    for (const e of placed.edges) {
+      const a = at.get(e.from);
+      const b = at.get(e.to);
+      if (!a || !b) continue;
+      const [x1, y1, x2, y2] = edgePoints(a, b, placed.dir, 6);
+      skeleton.push({
+        type: 'arrow', x: x1, y: y1, width: Math.abs(x2 - x1), height: Math.abs(y2 - y1), points: [[0, 0], [x2 - x1, y2 - y1]],
+        strokeColor: NEXUS_INK, strokeWidth: 2, roughness: d.currentItemRoughness, roundness: null, endArrowhead: 'arrow',
+        ...(e.style || {}),
+        start: { id: e.from }, end: { id: e.to },
+        label: e.label ? { text: e.label, fontSize: 16, fontFamily: d.currentItemFontFamily } : undefined,
+      });
+    }
+    return convertToExcalidrawElements(skeleton, { regenerateIds: false });
+  },
+  grow(root, side) {
+    const key = ARROW_KEY[side];
+    if (!key || !pressKey(root, { key, code: key })) return false;
+    document.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Control', code: 'ControlLeft' }));   // the engine hears key-ups on document
+    return true;
+  },
+};
+
 /** The contract's capture words are the engine's own strings (store.ts) - checked by excalidraw.test.jsx. */
 export const captureWords = () => ({ IMMEDIATELY: CaptureUpdateAction.IMMEDIATELY, NEVER: CaptureUpdateAction.NEVER });
 
-const engine = { Canvas, toScene, fromScene, exportPng, exportSvg, reconcile, version, restore, copyPng, Menu, CAPTURE };
+const engine = { Canvas, toScene, fromScene, exportPng, exportSvg, reconcile, version, restore, copyPng, Menu, CAPTURE, markup, diagram };
 export default engine;

@@ -8,7 +8,7 @@ import {
   FileSignature, CircleHelp, MessageSquare, UserPen,
 } from 'lucide-react';
 import { api } from '../api';
-import { SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner, LoadingState, CountSkeleton } from '../components/AsyncState';
 import { formatDate, formatDateLong } from '../lib/datetime';
 import { approvedLeaveDays, fmtDays, tenureLabel, openShiftMinutes } from '../lib/workdayStats';
 import { fmtLeave } from '../components/LeaveBalances';
@@ -481,8 +481,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
   // added calendar days incl. weekends and whole days for 2-hour requests.
   const yr = new Date().getFullYear();
   const leaveDaysThisYear = Array.isArray(leave) ? approvedLeaveDays(leave, yr) : null;
-  const leaveLabel = leave === null ? '…' : leaveDaysThisYear == null ? '-' : `${fmtDays(leaveDaysThisYear)}d`;
-  const tenure = tenureLabel(profile?.startDate) || '-';
+  const leaveLabel = leave === null ? <CountSkeleton /> : leaveDaysThisYear == null ? '-' : `${fmtDays(leaveDaysThisYear)}d`;
+  const tenure = tenureLabel(profile?.startDate);
 
   const em = profile?.personal?.emergency || {};
   const initials = profile ? `${(profile.firstName || ' ')[0]}${(profile.lastName || ' ')[0]}`.trim().toUpperCase() : '';
@@ -518,6 +518,10 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
   // remembered answer, then /time/status), so the Hours tile never shows for
   // a salaried person while /time/me is still on its way (Neil, 10/08).
   const hoursExempt = clockParts?.exempt ?? !!sheet?.timeTrackingExempt;
+  // The tile reads the clock card's own week (Monday to Sunday, the running
+  // shift included) once /time/status is in, so the two say the same total;
+  // /time/me is the fallback when Overview renders without the clock.
+  const week = clockParts?.week || (sheet ? { min: hoursTotal, days: daysWorkedLive } : null);
   const myWork = useMyMaintenanceWork();
 
   return (
@@ -538,7 +542,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
           {/* One row (Pranshu, Oct 15 2026): this week's hours, time off, time
               with us, and Ask HR at the right edge. Today's shift left the hero
               - your week is the My Schedule card below. */}
-          <div className={`wd-statgrid${hoursExempt ? ' wd-statgrid--nohours' : ''}${myWork.show ? ' wd-statgrid--tickets' : ''}`}>
+          <div className={`wd-statgrid${hoursExempt ? ' wd-statgrid--nohours' : ''}`}
+            style={{ '--wd-n': 2 + (tenure ? 1 : 0) + (myWork.show ? 1 : 0) }}>
             {!hoursExempt ? (
               /* The hours open the Time Sheet. */
               <div className="dk-stat dk-stat--hero wd-stat wd-hero" style={{ cursor: 'default' }}>
@@ -546,9 +551,9 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                   title={`Your punched hours from ${formatDate(rStart)} to ${formatDate(rEnd)}, after breaks${openMin ? ', including the shift you are on now' : ''}. Opens your Time Sheet.`}>
                   <span className="dk-chip dk-chip--blue"><Clock /></span>
                   <span className="wd-stat-text">
-                    <span className="dk-stat-num">{sheet ? hm(hoursTotal) : '…'}</span>
+                    <span className="dk-stat-num">{week ? hm(week.min) : <CountSkeleton width="2.4em" />}</span>
                     <span className="dk-stat-label">Hours · This Week</span>
-                    <span className="dk-stat-sub">{`${formatDate(rStart)} - ${formatDate(rEnd)} · ${daysWorkedLive} day${daysWorkedLive === 1 ? '' : 's'} worked`}</span>
+                    <span className="dk-stat-sub">{`${formatDate(rStart)} - ${formatDate(rEnd)}${week ? ` · ${week.days} day${week.days === 1 ? '' : 's'} worked` : ''}`}</span>
                   </span>
                 </button>
               </div>
@@ -557,10 +562,13 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
               hint={leaveHint}
               title={`Approved time off in ${yr}, counted in working days (Mon-Fri). A partial day counts as its share of an 8-hour day.${balBits.length ? ' The line under it is the paid time off you have left.' : ''} Opens Time Off.`}
               color="green" Icon={CalendarOff} onClick={onOpenTimeOff} />
-            <Stat label="Time With Us" value={tenure}
-              hint={tenure !== '-' ? `Since ${formatDate(profile.startDate)}` : 'No start date on your HR record'}
-              title="Counted from the start date on your HR record. If it is wrong, ask HR to correct it."
-              color="orange" Icon={Hourglass} />
+            {/* Only with a start date (11/05/2026): a tile reading "-" said nothing. */}
+            {tenure && (
+              <Stat label="Time With Us" value={tenure}
+                hint={`Since ${formatDate(profile.startDate)}`}
+                title="Counted from the start date on your HR record. If it is wrong, ask HR to correct it."
+                color="orange" Icon={Hourglass} />
+            )}
             {/* My Tickets (Neil, 11/04/2026): a full tile beside Time With Us, left of the compact rows. Shows only when there is work. */}
             <MyWorkTile {...myWork} />
             {/* Ask HR (Pranshu, Oct 15 2026): a button at the end of the row

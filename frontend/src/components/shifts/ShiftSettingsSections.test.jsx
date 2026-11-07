@@ -497,6 +497,8 @@ describe('Companies', () => {
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith({ earlyPunchAlertMin: 20 }, ''));
     fireEvent.change(mins, { target: { value: '999' } });
+    // The first save may still be settling on a loaded CI runner: click only once Save is live again.
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ earlyPunchAlertMin: 240 }, ''));
   });

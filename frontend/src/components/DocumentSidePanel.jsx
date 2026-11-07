@@ -12,6 +12,8 @@ import { rowFor, rowStatus } from '../lib/documentLibrary';
 import { useIsMobile } from '../lib/useIsMobile';
 import HoldButton from '../ui/HoldButton';
 
+const ShareDocumentDialog = lazy(() => import('../docLive/ShareDocumentDialog'));
+
 // A form entry's row (Neil, 11/02/2026) opens the Forms panel. Lazy: it brings
 // the entry viewer and the ticket / task composers along, and it imports this
 // file's PanelShell.
@@ -152,7 +154,10 @@ export default function DocumentSidePanel(props) {
 
 function DocumentRowPanel({ row, folders = [], onClose, onEdit, onOrganize, onChanged, toastOk, toastErr }) {
   const [busy, setBusy] = useState('');
+  const [shareDoc, setShareDoc] = useState(null);   // the full document while Share is open
   const isDoc = row.kind === 'document';
+  // A sheet (Neil, 11/05/2026) has no PDF: it downloads as .xlsx / .csv from inside the sheet.
+  const isSheet = isDoc && row.docKind === 'sheet';
   const isHr = row.kind === 'hr';
   const completed = row.signStatus === 'completed';
   const live = row.signStatus === 'pending' || completed;
@@ -177,7 +182,7 @@ function DocumentRowPanel({ row, folders = [], onClose, onEdit, onOrganize, onCh
   // they may not open, or an envelope with no document behind it yet.
   const canPreview = isHr
     ? !row.locked && !row.signed
-    : (completed ? !!row.partyId || (isDoc && !row.canManageEnvelope) : isDoc);
+    : (completed ? !!row.partyId || (isDoc && !row.canManageEnvelope) : isDoc && !isSheet);
 
   const download = () => run('download', async () => {
     if (isHr) {
@@ -207,7 +212,8 @@ function DocumentRowPanel({ row, folders = [], onClose, onEdit, onOrganize, onCh
 
   const openTemplate = () => { setPendingOpen('doc-template', row.templateId); go('documents-templates'); };
 
-  const canDownload = isHr ? !row.locked : (isDoc || (completed && (row.partyId || row.canManageEnvelope)));
+  const canDownload = isHr ? !row.locked : ((isDoc && !isSheet) || (completed && (row.partyId || row.canManageEnvelope)));
+  const openShare = () => run('share', async () => setShareDoc(await api.getDocument(row.id)));
 
   return (
     <PanelShell title={row.title} onClose={onClose}
@@ -235,12 +241,15 @@ function DocumentRowPanel({ row, folders = [], onClose, onEdit, onOrganize, onCh
             {busy === 'download' ? 'Preparing...' : (isHr && row.signed) || (completed && !row.partyId && row.canManageEnvelope) ? 'Open Signed Copy' : 'Download'}
           </button>
         )}
-        {isDoc && row.canManage && !live && row.status !== 'archived' && (
+        {isDoc && (row.canManage || row.shareCan === 'edit') && (
+          <button type="button" className="secondary-btn" disabled={busy === 'share'} onClick={openShare}>Share</button>
+        )}
+        {isDoc && !isSheet && row.canManage && !live && row.status !== 'archived' && (
           <button type="button" className="secondary-btn" disabled={busy === 'send'} onClick={send}>
             {busy === 'send' ? 'Preparing...' : 'Send For Signature'}
           </button>
         )}
-        {pdfLoadFor(row) && (
+        {!isSheet && pdfLoadFor(row) && (
           <button type="button" className="secondary-btn" onClick={() => openRowInPdfTools(row)}>Open In PDF Tools</button>
         )}
         {row.signRequestId && !isHr && (
@@ -249,6 +258,12 @@ function DocumentRowPanel({ row, folders = [], onClose, onEdit, onOrganize, onCh
         {isHr && row.templateId && <button type="button" className="secondary-btn" onClick={openTemplate}>Open Template</button>}
       </div>
 
+      {shareDoc && (
+        <Suspense fallback={null}>
+          <ShareDocumentDialog doc={shareDoc} canManage={shareDoc.access === 'owner'} onClose={() => { setShareDoc(null); onChanged?.(); }}
+            onChanged={(out) => { if (out) setShareDoc((d) => ({ ...d, sharedWith: out.sharedWith || [] })); toastOk?.('Sharing updated'); }} />
+        </Suspense>
+      )}
       <Signatures row={row} />
       <Details row={row} folders={folders} />
       {isDoc && <Versions key={row.id} docId={row.id} />}

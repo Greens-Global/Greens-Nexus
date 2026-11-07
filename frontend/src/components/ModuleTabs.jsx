@@ -1,7 +1,10 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, Check, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 import AnchoredMenu from './AnchoredMenu';
 import TabInk from './TabInk';
+import PageTrail, { tabLabelOf, useTrailInfo } from './PageTrail';
+import { PHONE_QUERY } from '../lib/keys';
 
 /*
 Module tab strip -> header center (Work OS shell, Jul 28).
@@ -31,25 +34,160 @@ tab may name a `landing` item that a click on the group opens (Dashboard ->
 Overview); and `compactGroups` keeps the picked item's name OUT of the bar,
 so choosing a page never widens it.
 
-On desktop the strip renders in the header (TopHeader reads it via
-useHeaderTabs). Below 900px the header center is hidden, so <ModuleTabs>
-renders the classic in-page `.scroll-tabs` strip itself - phones keep the
-swipeable tabs exactly where they were.
+On desktop the strip renders in the module bar (ModuleBar below, drawn by the
+shell under the top header). Below 900px the bar's tabs are hidden, so
+<ModuleTabs> renders the classic in-page `.scroll-tabs` strip itself - phones
+keep the swipeable tabs exactly where they were.
+
+ONE page header (11/05/2026): every module reads the same way - the module's
+name on the left, its tabs, its actions on the right, flat, one hairline under
+it. The bar is ModuleBar, in the top header since 11/06/2026, and it carries
+navigation only. A module's page-level buttons go through <ModuleActions> (a
+portal into ModuleActionsSlot, the right end of the page's first row;
+rendered in place when no shell is around, as in a unit test). Tasks keeps
+its own buttons bar (`.nx-primary-bar`); Tickets keeps Create in its toolbar.
 */
 
 const HeaderTabsContext = createContext(null);
 
 export function HeaderTabsProvider({ children }) {
   const [entry, setEntry] = useState(null); // { tabs, active, onChange }
+  const [actionsEl, setActionsEl] = useState(null); // ModuleActionsSlot, for <ModuleActions>
   return (
-    <HeaderTabsContext.Provider value={{ entry, setEntry }}>
+    <HeaderTabsContext.Provider value={{ entry, setEntry, actionsEl, setActionsEl }}>
       {children}
     </HeaderTabsContext.Provider>
   );
 }
 
-// TopHeader-facing: the currently published strip, or null (-> header shows
-// the plain search bar, e.g. on the dashboard).
+// A module's page-level actions (Add Person, Add Asset, a search box), drawn
+// at the right end of the page's first row (ModuleActionsSlot). Outside the shell (no provider) they
+// render where they stand, so a module rendered alone still shows them.
+export function ModuleActions({ children }) {
+  const ctx = useContext(HeaderTabsContext);
+  if (!ctx) return children;
+  return ctx.actionsEl ? createPortal(children, ctx.actionsEl) : null;
+}
+
+// Phones (<= 900px) have no bar in the header; they keep the in-page strip.
+function useNarrow() {
+  const q = () => !!window.matchMedia?.(PHONE_QUERY).matches;
+  const [narrow, setNarrow] = useState(q);
+  useEffect(() => {
+    const m = window.matchMedia?.(PHONE_QUERY);
+    if (!m?.addEventListener) return undefined;
+    const on = () => setNarrow(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, []);
+  return narrow;
+}
+
+// The module bar (11/05/2026), in the top header on a computer (Neil,
+// 11/06/2026: "on the top navigation bar instead of on the page"): the
+// module's name (the page trail, with the pages above a record when there are
+// any) and its published tabs - NAVIGATION ONLY. A module's buttons never ride
+// the top bar (Neil, 11/06/2026: "I do not like any action buttons being on
+// the top navigation bar"); they go in ModuleActionsSlot, inside the page. A
+// module with a single tab shows no strip: the tab would only repeat its name.
+//
+// Back (Neil, 11/06/2026, option C of https://claude.ai/artifact/2KSQ3Hev8bFw8G7LTZmzAf):
+// a small "<- Operations" line ABOVE the module's name says where Back goes,
+// at no width. `back` = { label, view, onBack } from the shell; `nameRef` gets this
+// page's own name (the lit tab, else the module) so the shell can stamp it on
+// the next history entry for a move inside the module.
+export function ModuleBar({ back = null, nameRef = null }) {
+  const { entry } = useContext(HeaderTabsContext) || {};
+  const narrow = useNarrow();
+  const trail = useTrailInfo();
+  const pageName = (entry?.tabs?.length > 1 && tabLabelOf(entry.tabs, entry.active)) || trail?.label || '';
+  useEffect(() => { if (nameRef) nameRef.current = pageName; });
+  if (narrow || (!entry && !back)) return null;
+  // A record opened from inside its own module names the page above it
+  // ("Portfolio", the trail's last part), never the module you are in - a
+  // module that opens records in its own state has already drawn the record
+  // when the move is stamped.
+  const crumbs = trail?.crumbs || [];
+  const inModule = back && trail && (back.view ? back.view === trail.view : back.label === trail.label);
+  const backLabel = inModule && crumbs.length ? crumbs[crumbs.length - 1].label : back?.label;
+  return (
+    <div className="module-bar module-bar--header" data-tour="module-bar">
+      <div className="module-bar-name">
+        {back && (
+          <button type="button" className="module-bar-back" onClick={back.onBack}
+            title={backLabel ? `Back to ${backLabel}` : 'Back'} aria-label={backLabel ? `Back to ${backLabel}` : 'Back'}>
+            <ArrowLeft size={12} strokeWidth={2.4} aria-hidden="true" />
+            <span>{backLabel || 'Back'}</span>
+          </button>
+        )}
+        <PageTrail className="page-trail--bar" standalone />
+      </div>
+      <div className="module-bar-tabs">
+        {entry?.tabs.length > 1 && <HeaderStrip entry={entry} measured />}
+      </div>
+    </div>
+  );
+}
+
+// Where <ModuleActions> land: the right end of a row at the top of the page,
+// at every width, drawn by the shell inside the viewport. Hidden when empty.
+export function ModuleActionsSlot() {
+  const { setActionsEl } = useContext(HeaderTabsContext) || {};
+  return <div className="module-actions-row" ref={setActionsEl} />;
+}
+
+// The published tab strip itself: a plain strip, or the measured one with a
+// More dropdown - always measured in the top header, which it shares with
+// the search and the account menu.
+function HeaderStrip({ entry, measured = false }) {
+  const pick = (k) => entry.onChange(k);
+  const ink = <TabInk key={entry.tabs.map((t) => t.key).join('|')} active={entry.active} variant="line" />;
+  if (entry.overflow || measured) {
+    // People's dropdown tabs keep only their own label in the bar (11/03/2026);
+    // the others name their picked item as they do in the plain strip.
+    const compact = !!(entry.overflow || entry.compactGroups);
+    const renderTab = ({ key, label, Icon, badge, items, landing, tone }, probe) => {
+      if (items && !probe) {
+        return <TabGroupButton key={key} tab={{ key, label, Icon, items, landing, badge }} active={entry.active} className="hdr-tab" compact={compact} onSelect={pick} />;
+      }
+      // The probe measures what the group button will show, picked item included.
+      const cur = items && !compact ? findItem(items, entry.active) : null;
+      return (
+        <button key={key} type="button" tabIndex={probe ? -1 : undefined}
+          className={`hdr-tab${!probe && entry.active === key ? ' active' : ''}`}
+          aria-current={!probe && entry.active === key ? 'page' : undefined}
+          onClick={probe ? undefined : () => pick(key)}>
+          {Icon && <Icon size={16} strokeWidth={2} />}
+          <span>{label}</span>
+          {cur && cur.label !== label && <span className="tab-group-current">{cur.label}</span>}
+          {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}</span>}
+          {items && <ChevronDown size={14} className="tab-group-caret" />}
+        </button>
+      );
+    };
+    return <HeaderOverflowTabs entry={entry} ink={ink} onPick={pick} compact={!!entry.compactGroups} renderTab={renderTab} />;
+  }
+  return (
+    <nav className={`hdr-tabs${entry.compactGroups ? ' hdr-tabs--compact' : ''}`} aria-label="Module sections" data-tour="module-tabs">
+      {ink}
+      {entry.tabs.map(({ key, label, Icon, badge, items, landing, tone }) => (items ? (
+        <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={entry.active} className="hdr-tab" compact={!!entry.compactGroups} onSelect={pick} />
+      ) : (
+        <button key={key} type="button"
+          className={`hdr-tab${entry.active === key ? ' active' : ''}`}
+          aria-current={entry.active === key ? 'page' : undefined}
+          onClick={() => pick(key)}>
+          {Icon && <Icon size={16} strokeWidth={2} />}
+          <span>{label}</span>
+          {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}</span>}
+        </button>
+      )))}
+    </nav>
+  );
+}
+
+// The currently published strip, or null (-> no module bar). The top header
+// reads it only for the screen-reader page name (syncTitle).
 export function useHeaderTabs() {
   return useContext(HeaderTabsContext)?.entry ?? null;
 }
@@ -102,7 +240,9 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   }, [setEntry]);
 
   // <=900px fallback - same markup contract as the old in-page strips.
-  if (!inline && !mobileInline) return null;
+  // No tabs (Asset Management's portfolio publishes only to get the bar), or
+  // one that would only repeat the module's name (Help Center): no strip.
+  if ((!inline && !mobileInline) || tabs.length < 2) return null;
   return (
     <div className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
       <TabInk key={signature} active={active} variant="line" />
@@ -222,11 +362,12 @@ function FlyoutRow({ item, active, onPick, open, onOpen, onClose }) {
 // sidebar or a badge changes the room. An active tab inside More lights More
 // up (TabInk follows it) and carries the check in its menu; the hidden tabs'
 // counts add up on More.
-export function HeaderOverflowTabs({ entry, onPick, renderTab, ink }) {
+export function HeaderOverflowTabs({ entry, onPick, renderTab, ink, compact = false }) {
   const { tabs, active } = entry;
   const measure = useRef(null);
   const [fit, setFit] = useState(tabs.length);
-  const sig = tabs.map((t) => `${t.key}:${t.label}:${t.badge ?? ''}`).join('|');
+  // The active key is in it: a group tab names its picked item, so its width moves.
+  const sig = `${active}|` + tabs.map((t) => `${t.key}:${t.label}:${t.badge ?? ''}`).join('|');
   useLayoutEffect(() => {
     const box = measure.current;
     const host = box?.parentElement;
@@ -262,7 +403,7 @@ export function HeaderOverflowTabs({ entry, onPick, renderTab, ink }) {
           <MoreHorizontal size={16} strokeWidth={2} /><span>More</span><ChevronDown size={14} />
         </button>
       </div>
-      <nav className="hdr-tabs" aria-label="Module sections" data-tour="module-tabs">
+      <nav className={`hdr-tabs${compact ? ' hdr-tabs--compact' : ''}`} aria-label="Module sections" data-tour="module-tabs">
         {ink}
         {shown.map((t) => renderTab(t, false))}
         {rest.length > 0 && (

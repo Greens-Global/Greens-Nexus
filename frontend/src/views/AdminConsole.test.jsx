@@ -140,9 +140,21 @@ const rail = () => screen.getByRole('navigation', { name: 'Settings subjects' })
 const find = (text) => screen.findByText(text, {}, { timeout: 5000 });
 
 describe('AdminConsole', () => {
-  it('has one Settings tab beside Tools and Logs - no Global or Company Settings tabs', () => {
+  it('holds the company list with a skeleton until the companies are in - never "No companies yet" first', async () => {
+    let answer;
+    apiOverrides.getEntities = () => new Promise((r) => { answer = r; });
+    const { container } = render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
+    expect(rail()).toBeInTheDocument();                       // the frame is there at once
+    expect(screen.queryByText('Company list')).not.toBeInTheDocument();
+    expect(container.querySelector('.nx-skel')).toBeTruthy();
+    await act(async () => { answer(COMPANIES); });
+    expect(await find('Company list')).toBeInTheDocument();
+  });
+
+  it('has one General tab beside Tools and Logs - no Global or Company Settings tabs', () => {
+    // "General", not "Settings": the bar already names the module (Neil, 11/06/2026).
     render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
-    for (const name of ['Settings', 'Tools', 'Logs']) {
+    for (const name of ['General', 'Tools', 'Logs']) {
       expect(screen.getByRole('button', { name: new RegExp(`^${name}$`) })).toBeInTheDocument();
     }
     expect(screen.queryByRole('button', { name: /Global Settings|Company Settings|Audit Logs/ })).not.toBeInTheDocument();

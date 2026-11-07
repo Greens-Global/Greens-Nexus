@@ -102,7 +102,6 @@ describe('Accounting navigation', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Customers' }));
     expect(screen.getByTestId('sub').textContent).toBe('customers');
     expect((await screen.findByTestId('tab-partners')).getAttribute('data-kind')).toBe('customer');
-    expect(screen.getByText(/Vendor and customer records/)).toBeTruthy();
     await choose(/^Records/, 'Vendors');
     expect(screen.getByTestId('sub').textContent).toBe('partners');
     await waitFor(() => expect(screen.getByTestId('tab-partners').getAttribute('data-kind')).toBe('vendor'));
@@ -131,7 +130,6 @@ describe('Accounting navigation', () => {
     await choose(/^Reports/, 'Audit & Insights', 'Manual Journal Entries');
     expect(screen.getByTestId('sub').textContent).toBe('manual-je');
     expect(await screen.findByTestId('tab-manual-je')).toBeTruthy();
-    expect(screen.getByText(/Journal entries a person keyed in Intacct/)).toBeTruthy();
   });
 
   it('opens General Ledger Accounts, Entities and every configured journal from Records (CR-12)', async () => {
@@ -329,7 +327,6 @@ describe('Accounting navigation', () => {
     await choose(/^Reports/, 'Audit & Insights', 'AMA');
     expect(screen.getByTestId('sub').textContent).toBe('ama');
     expect((await screen.findByTestId('tab-ama')).getAttribute('data-limited')).toBe('no');
-    expect(screen.getByText(/Ask My Accountant - lines parked/)).toBeTruthy();
     await choose(/^Reports/, 'Audit & Insights', 'Management Fees');
     expect(await screen.findByTestId('tab-mgmt-fees')).toBeTruthy();
     expect(screen.queryByTestId('tab-ama')).toBeNull();

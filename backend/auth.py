@@ -344,6 +344,13 @@ _EXTERNAL_BASE_PREFIXES = (
     # (Neil, Oct 12 2026). The prefix only opens task_config.view_router's
     # read routes: every write under it still needs the task family's grant.
     "/task-changelog",
+    # Signing what was sent to ME (11/06/2026: Nimi Patel and Sophia could
+    # not sign their Time Sheets - "it's saying she's an external user"). An
+    # external employee signs their own Time Sheet, offer or HR letter in
+    # Nexus, and every /esign/mine route answers only the signed-in person's
+    # own party (party.email == caller, else 404 - esign._my_party). The rest
+    # of /esign (sending, templates, every envelope) still needs Documents.
+    "/esign/mine",
 )
 
 # Module id -> the API prefixes that module's grant opens for an EXTERNAL

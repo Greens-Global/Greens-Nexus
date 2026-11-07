@@ -79,3 +79,27 @@ def test_output_survives_sanitize():
     assert kb_blocks.sanitize(d) == d
     assert any(n["type"] == "horizontalRule" for n in d["content"])
     assert kb_md.word_count(SAMPLE) > 10
+
+
+def test_figure_fence_becomes_a_figure_block():
+    d = kb_md.to_blocks('## A\n\n```figure\n{"kind": "steps", "title": "Flow", "items": [{"label": "One", "note": "first"}], "bogus": 1}\n```\n\nAfter.')
+    fig = d["content"][1]
+    assert fig["type"] == "figure" and fig["attrs"]["kind"] == "steps"
+    assert fig["attrs"]["data"] == {"title": "Flow", "items": [{"label": "One", "note": "first"}]}   # unknown keys dropped
+    assert d["content"][2]["content"][0]["text"] == "After."
+    assert kb_blocks.sanitize(d) == d
+    assert "Flow" in kb_blocks.node_text(fig) and "first" in kb_blocks.node_text(fig)
+
+
+@pytest.mark.parametrize("md", ["```figure\nnot json\n```", "```figure\n{\"kind\": \"pie\"}\n```", "```python\nx = 1\n```", "```figure\n{\"kind\": \"steps\"}"])
+def test_bad_fences_are_errors(md):
+    with pytest.raises(ValueError):
+        kb_md.to_blocks(md)
+
+
+def test_sanitize_bounds_a_figure():
+    big = {"type": "doc", "content": [{"type": "figure", "attrs": {"kind": "bars", "data": {"title": "x" * 500, "items": [{"label": "a", "value": 1, "tone": "neon", "evil": "<script>"}] * 60, "max": float("inf")}}}]}
+    out = kb_blocks.sanitize(big)["content"][0]["attrs"]["data"]
+    assert len(out["title"]) == 300 and len(out["items"]) == 40 and "max" not in out
+    assert out["items"][0] == {"label": "a", "value": 1, "tone": ""}
+    assert kb_blocks.sanitize({"type": "doc", "content": [{"type": "figure", "attrs": {"kind": "nope", "data": {}}}]})["content"][0]["type"] == "paragraph"

@@ -1408,6 +1408,12 @@ class KbCourse(Base):
     # 'in_person' (completed only when a trainer or the person's manager signs
     # them off - a session's attendance or a hands-on check). ALTER lines in main.py.
     delivery     = Column(String, default="online")
+    # Learning paths redesign (Neil, 11/07/2026): where a course sits in the
+    # catalog - a level (foundations | core | advanced, '' = unset) and free
+    # tags ("storage, cubby"), both part of the draft until Publish. ALTER
+    # lines in main.py.
+    level        = Column(String, default="")
+    tags         = Column(String, default="")
 
 
 class KbCourseProgress(Base):
@@ -2332,6 +2338,17 @@ class Document(Base):
     # belongs to, and the candidate it is about (a hire has no employee yet).
     life_event_id    = Column(String, default="", index=True)
     candidate_id     = Column(String, default="")
+    # Sheets and live editing (Neil, 11/05/2026, routers/documents.py
+    # "Working together"): kind '' = a document, 'sheet' = a spreadsheet
+    # (content = its snapshot, type 'nexus-sheet'); shared_with = JSON list of
+    # {email, can: edit|view}; ydoc / yepoch / collab_key = the live session's
+    # Yjs state (base64), its epoch and the AES key of its encrypted channel -
+    # the same three Notes keep (models.NexusNote).
+    kind             = Column(String, default="")
+    shared_with      = Column(Text, default="[]")
+    ydoc             = Column(Text, default="")
+    yepoch           = Column(String, default="")
+    collab_key       = Column(String, default="")
 
 
 class DocumentVersion(Base):
@@ -4821,6 +4838,8 @@ from construction_models import (  # noqa: E402,F401  (import for side effect: t
     ConstructionPhotoPair, ConstructionPunchMeta, ConstructionFieldTicket,
     ConstructionChangeOrder, ConstructionCloseoutRecord,
     VendorCompliance,
+    ConstructionDrawing,
+    ConstructionCommitment,
 )
 
 
@@ -8450,6 +8469,16 @@ class KbTrainingPlan(Base):
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+    # Learning paths (Neil, 11/07/2026): a plan is a PATH with a kind -
+    # onboarding (a new-hire track), role (a job title's path), department
+    # (a department's training) or custom - ordered STAGES ("Week 1", "Before
+    # the first shift"; JSON list of names, each item carries its `stage`
+    # index), and whether anyone may start it from the catalog on their own
+    # (open_enrollment; a rule or a hand assignment still sets the due date).
+    # ALTER lines in main.py.
+    kind            = Column(String, default="custom")
+    stages          = Column(Text, default="")
+    open_enrollment = Column(Boolean, default=True)
 
 
 class KbPlanAssignment(Base):
@@ -9739,6 +9768,8 @@ class NexusNote(Base):
     scene       = Column(Text, default="")
     thumb_url   = Column(String, default="")
     source      = Column(Text, default="")
+    # Board templates (Neil, 11/06/2026): the owner starts new boards from it (New Board > Your Templates).
+    is_template = Column(Boolean, default=False)
 
 
 class NexusNoteVersion(Base):
@@ -10144,3 +10175,19 @@ class DocComment(Base):
     resolved_by  = Column(String, default="")
     created_at   = Column(String, default="")
     updated_at   = Column(String, default="")
+
+
+class NexusRecordLink(Base):
+    """One [[ record link (Neil, 11/07/2026, record_links.py): the row that
+    holds it (`src_ref`: note:<id> | task:<id> | ticket:<id> | comment:<id>),
+    the place it shows as (`parent_ref`: the note, task or ticket - a comment's
+    task or ticket), and what it points at (`dst_ref`). `internal` = written in
+    an internal ticket note. Written only by record_links' before_flush hook.
+    New table - RLS (main.py sweep)."""
+    __tablename__ = "nexus_record_links"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    src_ref    = Column(String, nullable=False, index=True)
+    parent_ref = Column(String, nullable=False)
+    dst_ref    = Column(String, nullable=False, index=True)
+    internal   = Column(Boolean, default=False)
+    created_at = Column(String, default="")

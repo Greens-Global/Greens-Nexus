@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { generateJSON } from '@tiptap/core';
-import { Search, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown, Sheet as SheetIcon } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -17,6 +17,10 @@ import { takePendingOpen } from '../lib/pendingOpen';
 import { useIsMobile } from '../lib/useIsMobile';
 import { VIEWS, folderKey, mergeRows, rowFor, rowStatus, rowsInView, searchRows, sortRows, startView } from '../lib/documentLibrary';
 import { validateFieldValue, formatFieldValue, RESERVED_TYPES, isAutoToken } from '../lib/mergeFieldTypes';
+
+// Sheets (Neil, 11/05/2026): the workbook page and its engine load when a sheet is opened or made.
+const SheetWorkspace = lazy(() => import('../docLive/SheetWorkspace'));
+const SHEET_FILE = /\.(xlsx|xls|csv)$/i;
 
 // ── The library (Neil, 10/31/2026) ───────────────────────────────────────────
 // One list of every document and envelope the caller may see, with who it is
@@ -396,6 +400,8 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   const [createOpen, setCreateOpen] = useState(false);   // true, or { file } from the Import button
   const importRef = useRef(null);
   const [editingDoc, setEditingDoc] = useState(null);
+  const [editingSheet, setEditingSheet] = useState(null);
+  const [makingSheet, setMakingSheet] = useState(false);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [organizeDoc, setOrganizeDoc] = useState(null);
   // Adding a shared folder is an admin action server-side (POST
@@ -448,6 +454,34 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
     if (next) { next.focus(); if (selectedId) setSelectedId(next.dataset.row); }
   };
 
+  // A row opens in its own editor: a sheet in the workbook, anything else in the Document Builder.
+  const openRow = (id) => {
+    if (all.find((r) => r.id === id)?.docKind === 'sheet') setEditingSheet(id);
+    else setEditingDoc(id);
+  };
+  // New Sheet, or a spreadsheet file picked in Import: a sheet row, then open it.
+  const newSheet = async (file = null) => {
+    setMakingSheet(true);
+    try {
+      const engine = await import('../sheets');
+      const content = file ? await engine.importSheetFile(file) : engine.newSheetContent();
+      const title = file ? file.name.replace(/\.[^.]+$/, '') : 'Untitled Sheet';
+      const made = await api.createDocument({ title, kind: 'sheet', content });
+      toastOk?.(file ? 'Sheet imported' : 'Sheet created');
+      setEditingSheet(made.id);
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not make the sheet.');
+    } finally {
+      setMakingSheet(false);
+    }
+  };
+
+  if (editingSheet) return (
+    <Suspense fallback={<SkeletonBlocks count={8} height={36} />}>
+      <SheetWorkspace docId={editingSheet} employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr} onClose={() => { setEditingSheet(null); load(); }} />
+    </Suspense>
+  );
+
   if (editingDoc) return (
     <DocumentBuilder docId={editingDoc} employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr}
       onClose={() => { setEditingDoc(null); load(); }} />
@@ -483,9 +517,9 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
             <input className="form-input" placeholder="Search by title, person, signer or tag" aria-label="Search documents"
               value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <input ref={importRef} type="file" accept=".docx,.doc,.pdf,.txt" style={{ display: 'none' }} aria-label="Import a file"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) setCreateOpen({ file: f }); e.target.value = ''; }} />
-          <button type="button" className="secondary-btn" title="Open a Word, PDF or text file as a new document" onClick={() => importRef.current?.click()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input ref={importRef} type="file" accept=".docx,.doc,.pdf,.txt,.xlsx,.xls,.csv" style={{ display: 'none' }} aria-label="Import a file"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) { if (SHEET_FILE.test(f.name)) newSheet(f); else setCreateOpen({ file: f }); } e.target.value = ''; }} />
+          <button type="button" className="secondary-btn" title="Open a Word, PDF, text, Excel or CSV file as a new document or sheet" onClick={() => importRef.current?.click()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Upload size={14} /> Import
           </button>
           <button type="button" className="secondary-btn" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
@@ -493,6 +527,9 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
           </button>
           <button type="button" className="primary-btn" data-tour="documents-new-document" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <FilePlus2 size={14} /> New Document
+          </button>
+          <button type="button" className="secondary-btn" disabled={makingSheet} onClick={() => newSheet()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <SheetIcon size={14} /> {makingSheet ? 'Making...' : 'New Sheet'}
           </button>
         </div>
 
@@ -516,7 +553,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
             <div className="nx-dl-cards">
               {visible.slice(0, 500).map((r) => (
                 <button key={r.id} type="button" className="nx-dl-card" onClick={() => setSelectedId(r.id)}>
-                  <strong>{r.title}</strong>
+                  <strong>{r.docKind === 'sheet' && <SheetIcon size={13} aria-label="Sheet" style={{ marginRight: 5, verticalAlign: -2 }} />}{r.title}</strong>
                   {rowFor(r) && <span className="nx-dl-muted">{rowFor(r)}</span>}
                   <span className="nx-dl-card-foot"><StatusWord status={rowStatus(r)} /><span className="nx-dl-muted">{formatDate(r.updatedAt)}</span></span>
                 </button>
@@ -540,7 +577,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
                   {visible.slice(0, 500).map((r) => (
                     <tr key={r.id} data-row={r.id} tabIndex={0} className={selectedId === r.id ? 'sel' : ''} aria-selected={selectedId === r.id}
                       onClick={() => setSelectedId(r.id)} onKeyDown={(e) => onRowKey(e, r)}>
-                      <td className="nx-dl-name">{r.title}</td>
+                      <td className="nx-dl-name">{r.docKind === 'sheet' && <SheetIcon size={13} aria-label="Sheet" style={{ marginRight: 6, verticalAlign: -2 }} />}{r.title}</td>
                       <td className="nx-dl-for">{rowFor(r) || '-'}</td>
                       <td><StatusWord status={rowStatus(r)} /></td>
                       <td className="nx-dl-co">{r.company || '-'}</td>
@@ -557,7 +594,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
 
       {selected && (
         <DocumentSidePanel key={selected.id} row={selected} folders={folders} toastOk={toastOk} toastErr={toastErr}
-          onClose={() => setSelectedId('')} onEdit={setEditingDoc} onOrganize={setOrganizeDoc} onChanged={load} />
+          onClose={() => setSelectedId('')} onEdit={openRow} onOrganize={setOrganizeDoc} onChanged={load} />
       )}
 
       {createOpen && (
@@ -566,6 +603,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
           onCreated={(doc) => {
             toastOk?.(doc.status === 'final' ? 'Document made' : 'Draft created');
             if (doc.status === 'final') { setView('all'); setSelectedId(doc.id); load(); }
+            else if (doc.kind === 'sheet') setEditingSheet(doc.id);
             else setEditingDoc(doc.id);
           }} />
       )}
