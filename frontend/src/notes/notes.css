@@ -499,3 +499,20 @@
 .nt-outline-row.is-l1 { font-weight: 650; }
 .nt-outline-row.is-l2 { padding-left: 21px; }
 .nt-outline-row.is-l3 { padding-left: 33px; color: var(--muted); }
+
+/* ── Record links (Neil, 11/06/2026, recordLink.jsx): a [[ chip in the words ── */
+.nt-reclink { display: inline; white-space: nowrap; }
+.nt-reclink-btn {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; vertical-align: baseline;
+  padding: 0 6px 0 5px; margin: 0 1px; border: 1px solid var(--wk-line2); border-radius: 6px;
+  background: var(--card); color: var(--wk-green); font: inherit; font-weight: 600; line-height: 1.5; cursor: pointer;
+}
+.nt-reclink-btn:hover, .nt-reclink-btn:focus-visible { background: var(--wk-hover); outline: none; }
+.nt-reclink-btn:disabled { cursor: default; opacity: .6; }
+.nt-reclink-btn > svg { flex-shrink: 0; color: var(--muted); }
+.nt-reclink-title { overflow: hidden; text-overflow: ellipsis; max-width: 32ch; }
+.ProseMirror-selectednode > .nt-reclink-btn, .nt-reclink.ProseMirror-selectednode .nt-reclink-btn { box-shadow: 0 0 0 2px var(--wk-green); }
+.nt-menu-empty { padding: 9px 10px; font-size: 12.5px; color: var(--muted); }
+
+/* "Mentioned In" under a note (components/MentionedIn.jsx). */
+.nt-mentions { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--wk-line2); }

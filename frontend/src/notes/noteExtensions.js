@@ -22,6 +22,7 @@ import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
 import { NoteAudio, NoteVideo } from './noteMedia';
 import { BoardEmbed } from './board/BoardEmbed';
+import { RecordLink } from './recordLink';
 
 const ALIGN = ['left', 'center', 'right', 'justify'];
 const SafeTextAlign = TextAlign.extend({
@@ -111,6 +112,8 @@ export function buildExtensions(placeholder, collab = null, { strict = false } =
     NoteAudio.configure({ strictSrc }), NoteVideo.configure({ strictSrc }),
     // A board embedded in the note (Insert Board / Mark Up, 11/02/2026).
     BoardEmbed,
+    // A [[ link to a note, task, job or Knowledge Base page (Record Links, 11/06/2026).
+    RecordLink,
     ...(collab?.extensions || []),
   ];
 }

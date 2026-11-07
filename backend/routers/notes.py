@@ -143,8 +143,11 @@ _EMAIL = re.compile(r"^[^@\s<>\"]+@[^@\s<>\"]+$")
 _NOTE_ATTRS = {
     # a: a link, or a board embedded in the note (Mark Up / Insert Board,
     # 11/02/2026 - notes/board/BoardEmbed.jsx): <a data-type="boardEmbed"
-    # data-note="note_..." data-thumb="<our storage>" title="...">Title</a>.
-    "a": ("href", "title", "data-type", "data-note", "data-thumb"),
+    # data-note="note_..." data-thumb="<our storage>" title="...">Title</a>;
+    # or a link to a Nexus record (Record Links, Neil 11/06/2026 -
+    # notes/recordLink.jsx): <a data-type="recordLink" data-ref="task:<id>"
+    # title="...">Title</a>, never with an href.
+    "a": ("href", "title", "data-type", "data-note", "data-thumb", "data-ref"),
     "img": ("src", "alt", "title"),
     "ul": ("data-type",),
     "li": ("data-type", "data-checked"),
@@ -153,8 +156,11 @@ _NOTE_ATTRS = {
     "td": ("colspan", "rowspan"), "th": ("colspan", "rowspan"),
 }
 _ALIGN = re.compile(r"^text-align:\s*(left|center|right|justify);?$", re.I)
-_DATA_TYPES = {"taskList", "taskItem", "mention", "boardEmbed"}
+_DATA_TYPES = {"taskList", "taskItem", "mention", "boardEmbed", "recordLink"}
 _NOTE_REF = re.compile(r"^note_[A-Za-z0-9]{1,64}$")
+# A record link's target: what it is and its id - nothing that could be a URL.
+# The kinds are the ones the [[ picker offers (notes/recordLink.jsx).
+_RECORD_REF = re.compile(r"^(note|task|job|kb):[A-Za-z0-9_\-.]{1,100}$")
 
 
 _MEDIA = {"audio": ' controls preload="metadata"', "video": ' controls playsinline preload="metadata"'}
@@ -167,7 +173,8 @@ class _NoteSanitizer(_RichSanitizer):
 
     def _attrs(self, tag, attrs):
         allowed = _NOTE_ATTRS.get(tag, ())
-        embed = tag == "a" and any((k or "").lower() == "data-type" and (v or "").strip() == "boardEmbed"
+        # A board card or a record chip is never a link (a planted href would look like one).
+        embed = tag == "a" and any((k or "").lower() == "data-type" and (v or "").strip() in ("boardEmbed", "recordLink")
                                    for k, v in attrs)
         kept = []
         for k, v in attrs:
@@ -192,6 +199,8 @@ class _NoteSanitizer(_RichSanitizer):
             elif k == "data-note" and not _NOTE_REF.match(v):
                 continue
             elif k == "data-thumb" and not _own_image(v):
+                continue
+            elif k == "data-ref" and not _RECORD_REF.match(v):
                 continue
             kept.append(f' {k}="{escape(v[:200], quote=True)}"')
         return "".join(kept)
@@ -575,7 +584,8 @@ def list_notes(view: str = "all", q: str = "", tag: str = "", month: str = "", d
                today: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The caller's notes and the ones shared with them, newest first.
     view: all | pinned | today | shared | trash | boards | templates (the
-    caller's own boards marked Use as Template - New Board lists them). month (YYYY-MM) or day
+    caller's own boards and notes marked Use as Template - New Board and
+    New From Template each list their own kind). month (YYYY-MM) or day
     narrows by the note's day; q searches title and words; tag one tag.
     `today` is the caller's own local date, for the Today count."""
     me = _me(user)
@@ -608,7 +618,7 @@ def list_notes(view: str = "all", q: str = "", tag: str = "", month: str = "", d
     elif view == "boards":
         rows = [n for n in live + shared if (n.kind or "note") == "board"]
     elif view == "templates":
-        rows = [n for n in live if (n.kind or "note") == "board" and n.is_template]
+        rows = [n for n in live if (n.kind or "note") in ("board", "note") and n.is_template]
     else:
         rows = live + shared
     if month:
@@ -730,6 +740,31 @@ def create_note(body: NoteIn, user: dict = Depends(get_current_user), db: Sessio
     return _full(n, me)
 
 
+# ── record links: "Mentioned In" ───────────────────────────────────────────
+@router.get("/mentions")
+def note_mentions(ref: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The notes the caller may read that link to a record (Record Links, Neil
+    11/06/2026): `ref` is `<kind>:<id>` as a [[ link stores it. Only the
+    caller's own live notes and the ones shared with them - a note they
+    cannot open is never counted or named - and a note never lists itself."""
+    me = _me(user)
+    ref = (ref or "").strip()
+    if not _RECORD_REF.match(ref):
+        raise HTTPException(400, "Unknown record")
+    needle = f'data-ref="{ref}"'
+    N = models.NexusNote
+    # LIKE narrows the rows; the exact check below is what counts (`_` is a
+    # LIKE wildcard and note ids carry one).
+    rows = db.query(N).filter(N.trashed_at == "", N.body.like(f"%{needle}%")).all()
+    self_id = ref[5:] if ref.startswith("note:") else ""
+    out = [n for n in rows if needle in (n.body or "") and n.id != self_id and _access(n, me)]
+    out.sort(key=lambda n: n.updated_at or "", reverse=True)
+    return {"notes": [{"id": n.id, "kind": n.kind or "note", "title": n.title or "", "day": n.day or "",
+                       "owner": n.owner_email, "mine": _access(n, me) == "owner",
+                       "updatedAt": n.updated_at or ""} for n in out[:50]],
+            "total": len(out)}
+
+
 @router.get("/{note_id}")
 def get_note(note_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = _me(user)
@@ -770,8 +805,8 @@ def update_note(note_id: str, body: NotePatch, user: dict = Depends(get_current_
     if can != "owner" and any(v is not None for v in owner_only):
         raise HTTPException(403, "Only the note's owner changes its pin, color, tags or day")
     is_board = (n.kind or "note") == "board"
-    if body.template is not None and not is_board:
-        raise HTTPException(400, "Only a board can be a template")
+    if body.template is not None and (n.kind or "note") == "daily":
+        raise HTTPException(400, "A daily scratchpad cannot be a template")
     if body.scene is not None and not is_board:
         raise HTTPException(400, "Only a board has a drawing")
     if is_board and body.body is not None:
