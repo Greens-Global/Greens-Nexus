@@ -22,8 +22,10 @@ export function listenForRecordLinkClicks() {
     e.preventDefault();
     import('../notes/recordLink').then((m) => m.openRecord(ref));
   };
-  document.addEventListener('click', open);
-  document.addEventListener('keydown', open);
+  // Capture: a sheet's panel stops its clicks from bubbling (so they never
+  // read as a click outside it), and a chip sits inside those panels.
+  document.addEventListener('click', open, true);
+  document.addEventListener('keydown', open, true);
 }
 
 /** `html` with every record chip turned back into its plain words. */

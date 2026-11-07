@@ -122,7 +122,14 @@ export const LiveList = Node.create({
     return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'liveList' }), ['p', {}, words]];
   },
   addCommands() {
-    return { insertLiveList: (attrs = {}) => ({ commands }) => commands.insertContent({ type: this.name, attrs: { source: 'mine', show: 'open', ...attrs } }) };
+    return {
+      // Inside a list or a quote, the block goes after it, never into one of its lines.
+      insertLiveList: (attrs = {}) => ({ state, commands }) => {
+        const node = { type: this.name, attrs: { source: 'mine', show: 'open', ...attrs } };
+        const { $from } = state.selection;
+        return $from.depth > 1 ? commands.insertContentAt($from.after(1), node) : commands.insertContent(node);
+      },
+    };
   },
   addNodeView() {
     return ReactNodeViewRenderer(LiveListView, {

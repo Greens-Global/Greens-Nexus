@@ -38,6 +38,7 @@ import { useKeyboardInset, keyboardUp } from '../lib/useVisualViewport';
 import BoardPicker from './board/BoardPicker';
 import { useRecordSearch, recordContent, RECORD_META } from './recordLink';
 import { boxesKey, syncBoxesFromTasks, listenForBoxTicks } from './checklistTasks';
+import { TextSelection } from '@tiptap/pm/state';
 import {
   EDITED, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
   canRecord, canDictate, clock,
@@ -438,7 +439,10 @@ export default function NoteEditor({
     const chain = editor.chain().setMeta(EDITED, true)
       .insertContentAt(range, recordContent({ kind: 'task', id: task.id, title: task.title || text }));
     const inList = ['taskItem', 'listItem'].includes($from.node(Math.max(0, $from.depth - 1))?.type?.name);
-    (inList || !empty ? chain : chain.setTextSelection(range.from).toggleTaskList()).run();
+    (inList || !empty ? chain : chain.setTextSelection(range.from).toggleTaskList())
+      // The cursor after the link, so the next Enter starts a new line, never an empty one above it.
+      .command(({ tr }) => { tr.setSelection(TextSelection.create(tr.doc, tr.selection.$from.end())); return true; })
+      .run();
   };
 
   useEffect(() => {

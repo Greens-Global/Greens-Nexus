@@ -20,8 +20,15 @@ export function cardLabel({ kind, title, code }, state) {
   return lines.join('\n');
 }
 
-/** The one-box graph a picked row becomes (graph.js shape). */
-export const cardGraph = (row, state) => ({ nodes: [{ id: 'card', label: cardLabel(row, state), shape: 'step' }], edges: [] });
+/** The one-box graph a picked row becomes (graph.js shape), sized to its
+ *  lines so the status line is never cut (the label is the engine's 20px). */
+export function cardGraph(row, state) {
+  const label = cardLabel(row, state);
+  const lines = label.split('\n');
+  const longest = Math.max(...lines.map((l) => l.length));
+  const w = Math.min(340, Math.max(200, Math.round(longest * 11 + 48)));
+  return { nodes: [{ id: 'card', label, shape: 'step', w, h: lines.length * 26 + 34 }], edges: [] };
+}
 
 /** `built` with the box `boxId` marked as the card for `ref`. */
 export function markCard(built, boxId, ref) {

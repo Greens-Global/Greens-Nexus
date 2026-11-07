@@ -7,7 +7,8 @@ describe('record cards', () => {
     expect(cardLabel({ kind: 'ticket', title: 'Gate is stuck', code: '000042' })).toBe('Ticket #000042\nGate is stuck');
     expect(cardLabel({ kind: 'task', title: 'Order the motor' }, { done: false, dueOn: '2026-11-10' })).toBe('Task\nOrder the motor\nOpen · Due 11/10/2026');
     expect(cardLabel({ kind: 'task', title: 'Order the motor' }, { done: true, dueOn: '2026-11-10' })).toBe('Task\nOrder the motor\nDone');
-    expect(cardGraph({ kind: 'kb', title: 'Gate SOP' }).nodes).toEqual([{ id: 'card', label: 'Knowledge Base\nGate SOP', shape: 'step' }]);
+    expect(cardGraph({ kind: 'kb', title: 'Gate SOP' }).nodes).toEqual([{ id: 'card', label: 'Knowledge Base\nGate SOP', shape: 'step', w: 202, h: 86 }]);
+    expect(cardGraph({ kind: 'task', title: 'Order the gate motor' }, { done: false, dueOn: '2026-11-10' }).nodes[0]).toMatchObject({ w: 279, h: 112 });
   });
 
   it('marks only the box, with a safe ref and its address', () => {
