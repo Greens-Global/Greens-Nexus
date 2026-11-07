@@ -208,6 +208,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   }
   function pickSearch(row) {
     closeSearch(true);
+    search.remember(row);   // Recent (11/07/2026)
     row.run?.();
   }
 
@@ -320,9 +321,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
       </div>
       {searchOpen && (
         <div className="hdr-search-panel">
-          {searchQuery.trim()
+          {/* Nothing typed: Favorites and Recent when there are any, else the hint. */}
+          {searchQuery.trim() || search.rows.length
             ? <SearchResults query={searchQuery} groups={search.groups} rows={search.rows} searching={search.searching}
-                activeIdx={activeIdx} onActive={setSearchIdx} onPick={pickSearch} listRef={searchListRef} />
+                activeIdx={activeIdx} onActive={setSearchIdx} onPick={pickSearch} listRef={searchListRef}
+                onToggleFavorite={search.toggleFavorite} isFavorite={search.isFavorite} />
             : <div className="gs-hint">{SEARCH_HINT}</div>}
         </div>
       )}

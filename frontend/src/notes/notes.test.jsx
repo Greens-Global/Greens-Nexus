@@ -240,3 +240,17 @@ describe('notesModel', () => {
     expect(addDays('2026-10-31', 1)).toBe('2026-11-01');
   });
 });
+
+describe('Seen By (11/07/2026)', () => {
+  it('the owner sees who opened a shared note, and who has not seen the last change', async () => {
+    apiMock.noteGet.mockResolvedValue(note({ sharedWith: [{ email: 'bob@greensglobal.com', can: 'read' }], seenBy: [{ email: 'bob@greensglobal.com', latest: false }] }));
+    render(<NotesPage activeSub="notes:note_1" onSubChange={vi.fn()} />);
+    expect(await screen.findByText('Seen by Bob Brown · not since your last change')).toBeTruthy();
+  });
+
+  it('a shared note nobody opened says so', async () => {
+    apiMock.noteGet.mockResolvedValue(note({ sharedWith: [{ email: 'bob@greensglobal.com', can: 'read' }], seenBy: [] }));
+    render(<NotesPage activeSub="notes:note_1" onSubChange={vi.fn()} />);
+    expect(await screen.findByText('Not opened yet')).toBeTruthy();
+  });
+});

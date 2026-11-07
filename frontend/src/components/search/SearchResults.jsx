@@ -1,13 +1,15 @@
-import { CornerDownLeft } from 'lucide-react';
+import { CornerDownLeft, Star } from 'lucide-react';
 import { Spinner } from '../AsyncState';
 
 // The one results list for Nexus search - the header panel and the phone
 // sheet render exactly this. Rows are flat for keyboard travel (activeIdx
 // counts across groups); a group's "more" line is informational unless it
-// has a run.
-export default function SearchResults({ query, groups, rows, searching, activeIdx, onActive, onPick, listRef }) {
+// has a run. With nothing typed it shows the person's Favorites and Recent
+// (useNexusSearch, 11/07/2026); a row that can be saved carries a star
+// beside it (a sibling button, never one inside the row).
+export default function SearchResults({ query, groups, rows, searching, activeIdx, onActive, onPick, listRef, onToggleFavorite, isFavorite }) {
   const q = (query || '').trim();
-  if (!q) return null;
+  if (!q && !rows.length) return null;
   if (!rows.length) {
     return (
       <div className="gs-empty">
@@ -27,7 +29,7 @@ export default function SearchResults({ query, groups, rows, searching, activeId
           <div className="gs-section">{g.label}</div>
           {g.rows.map((r, j) => {
             const i = offsets[k] + j;
-            return (
+            const row = (
               <button key={r.key} className={`gs-row${r.more ? ' gs-more' : ''}`} data-active={i === activeIdx}
                 onMouseEnter={() => onActive?.(i)} onClick={() => onPick(r)}>
                 {r.Icon && <r.Icon size={15} style={{ color: r.done ? 'var(--ok, #16a34a)' : 'var(--muted)', flexShrink: 0 }} />}
@@ -36,6 +38,19 @@ export default function SearchResults({ query, groups, rows, searching, activeId
                 {r.detail && <span className="gs-row-detail">{r.detail}</span>}
                 {i === activeIdx && <CornerDownLeft size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
               </button>
+            );
+            if (!r.save || !onToggleFavorite) return row;
+            const fav = !!isFavorite?.(r);
+            return (
+              <div key={r.key} className="gs-row-wrap" data-fav={fav}>
+                {row}
+                <button type="button" className="gs-star" aria-pressed={fav}
+                  aria-label={fav ? `Remove ${r.title} from Favorites` : `Add ${r.title} to Favorites`}
+                  title={fav ? 'Remove from Favorites' : 'Add to Favorites'}
+                  onClick={() => onToggleFavorite(r)}>
+                  <Star size={14} fill={fav ? 'currentColor' : 'none'} aria-hidden="true" />
+                </button>
+              </div>
             );
           })}
           {g.note && <div className="gs-more">{g.note}</div>}

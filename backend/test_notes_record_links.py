@@ -72,6 +72,35 @@ class RecordLinkSanitizerTest(unittest.TestCase):
         self.assertIn('href="https://nexus.example/x"', out)
 
 
+class CalloutToggleSanitizerTest(unittest.TestCase):
+    """Callouts and toggles (11/07/2026): the only <div>s a note keeps."""
+
+    def test_a_callout_keeps_its_tone_and_words(self):
+        out = sanitize_note('<div data-type="callout" data-tone="warning"><p>Hard hats on</p></div>')
+        self.assertEqual(out, '<div data-type="callout" data-tone="warning"><p>Hard hats on</p></div>')
+
+    def test_a_toggle_keeps_its_summary_and_state(self):
+        out = sanitize_note('<div data-type="toggle" data-summary="Gate &quot;A&quot; notes" data-open="false"><p>x</p></div>')
+        self.assertIn('data-type="toggle"', out)
+        self.assertIn('data-summary="Gate &quot;A&quot; notes"', out)
+        self.assertIn('data-open="false"', out)
+        self.assertIn("<p>x</p></div>", out)
+
+    def test_bad_values_and_plain_divs_are_dropped(self):
+        out = sanitize_note('<div data-type="callout" data-tone="red" style="x" onclick="y"><p>a</p></div>')
+        self.assertEqual(out, '<div data-type="callout"><p>a</p></div>')
+        self.assertEqual(sanitize_note('<div class="x"><p>b</p></div>'), "<p>b</p>")
+        self.assertNotIn("data-open", sanitize_note('<div data-type="toggle" data-open="maybe"><p>c</p></div>'))
+
+    def test_a_plain_div_inside_a_callout_never_closes_it_early(self):
+        out = sanitize_note('<div data-type="callout"><div><p>in</p></div><p>still in</p></div><p>after</p>')
+        self.assertEqual(out, '<div data-type="callout"><p>in</p><p>still in</p></div><p>after</p>')
+
+    def test_a_div_inside_a_dropped_tree_is_gone(self):
+        out = sanitize_note('<script><div data-type="callout">x</div></script><p>ok</p>')
+        self.assertEqual(out, "<p>ok</p>")
+
+
 class MentionsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -161,6 +190,26 @@ class NoteTemplatesTest(MentionsTest):
         cur = self.client.get(f"/notes/{n['id']}").json()
         self.assertEqual(self.client.patch(f"/notes/{n['id']}", json={"rev": cur["rev"], "template": False}).status_code, 403)
         self.assertEqual(self.client.get("/notes?view=templates").json()["notes"], [])
+
+
+class SeenByTest(MentionsTest):
+    def test_the_owner_sees_who_opened_it_and_a_sharer_does_not(self):
+        n = self.note("Plan", "<p>v1</p>")
+        self.assertEqual(self.client.get(f"/notes/{n['id']}").json()["seenBy"], [])
+        for email in (BOB, CAT):
+            self.client.put(f"/notes/{n['id']}/share", json={"email": email, "can": "edit"})
+        self.as_(BOB)
+        got = self.client.get(f"/notes/{n['id']}").json()
+        self.assertNotIn("seenBy", got)                      # a sharer never learns who else has it
+        self.as_(AMY)
+        cur = self.client.get(f"/notes/{n['id']}").json()
+        self.assertEqual(cur["seenBy"], [{"email": BOB, "latest": True}])
+        # Amy changes the words: Bob has not seen the latest any more.
+        self.client.patch(f"/notes/{n['id']}", json={"rev": cur["rev"], "body": "<p>v2</p>"})
+        self.assertEqual(self.client.get(f"/notes/{n['id']}").json()["seenBy"], [{"email": BOB, "latest": False}])
+        # Someone no longer shared is not listed.
+        self.client.delete(f"/notes/{n['id']}/share/{BOB}")
+        self.assertEqual(self.client.get(f"/notes/{n['id']}").json()["seenBy"], [])
 
 
 if __name__ == "__main__":
