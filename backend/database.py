@@ -96,6 +96,11 @@ _feature_request_sync.wire(SessionLocal)
 import cubby_tasks as _cubby_tasks  # noqa: E402
 _cubby_tasks.wire(SessionLocal)
 
+# Record links everywhere (Neil, 11/07/2026, record_links.py): every note,
+# task, ticket and comment save rewrites the [[ links it holds - whatever path saved it.
+import record_links as _record_links  # noqa: E402
+_record_links.wire(SessionLocal)
+
 # Workflows (Oct 28 2026, workflows/observer.py): a record registered as an
 # observed entity emits `<entity>.created` / `<entity>.field_changed` into
 # the workflow outbox at flush, in the same transaction - events for free,

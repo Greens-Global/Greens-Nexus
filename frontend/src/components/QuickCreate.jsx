@@ -5,7 +5,8 @@
 // sees which row: lib/quickCreate.js. This file is the button and the menu
 // (the menu button pattern: Enter, Space or Down opens it on the first row,
 // the arrows, Home and End move, Escape closes back to the "+", Tab or a
-// click elsewhere closes).
+// click elsewhere closes). C then T from anywhere opens New Task (Neil,
+// 11/07/2026, keyboard triage) - never while typing or over an open dialog.
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus } from 'lucide-react';
@@ -44,6 +45,24 @@ export default function QuickCreate() {
     document.addEventListener('touchstart', onDown);
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('touchstart', onDown); };
   }, [open, close]);
+
+  // C then T within a second opens New Task, when this person may make one.
+  const canTask = items.some((it) => it.key === 'task');
+  useEffect(() => {
+    if (!canTask) return undefined;
+    let armedAt = 0;
+    const onKey = (e) => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable || t.closest?.('.excalidraw'))) return;
+      if (document.querySelector('[role=dialog]')) return;
+      const key = (e.key || '').toLowerCase();
+      if (key === 't' && armedAt && Date.now() - armedAt < 1000) { e.preventDefault(); armedAt = 0; close(false); setComposing('task'); return; }
+      armedAt = key === 'c' ? Date.now() : 0;
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canTask, close]);
 
   function onMenuKey(e) {
     const rows = [...(menuRef.current?.querySelectorAll('[role="menuitem"]') || [])];

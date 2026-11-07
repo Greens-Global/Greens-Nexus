@@ -114,7 +114,7 @@ export function CommentAttachments({ items }) {
   );
 }
 
-function CommentBody({ c, nameOf, editing, text, setText, onSave, onCancel, attachments }) {
+function CommentBody({ c, nameOf, editing, text, setText, onSave, onCancel, attachments, recordLinks = false }) {
   const [zoomImage, zoomViewer] = useImageZoom();
   const imported = parseImportedAuthor(c.body);
   const displayBody = imported ? imported.text : c.body;
@@ -122,7 +122,7 @@ function CommentBody({ c, nameOf, editing, text, setText, onSave, onCancel, atta
     return (
       <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <RichDescription value={text} onChange={setText} minHeight={56} />
+          <RichDescription value={text} onChange={setText} minHeight={56} recordLinks={recordLinks} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <button onClick={onSave} style={{ ...btn('primary'), padding: '5px 10px', fontSize: 12 }}>Save</button>
@@ -146,7 +146,7 @@ function CommentBody({ c, nameOf, editing, text, setText, onSave, onCancel, atta
  * only), assign / resolve (root only), pin, and edit / delete for the author.
  * The server decides who may pin, assign and resolve; the row offers them.
  */
-function CommentRow({ c, taskId = '', isReply, nameOf, myEmail, people, attachments = [], onPin, onEdit, onDelete, onReact, onReply, onResolve, onAssign }) {
+function CommentRow({ c, taskId = '', isReply, nameOf, myEmail, people, attachments = [], recordLinks = false, onPin, onEdit, onDelete, onReact, onReply, onResolve, onAssign }) {
   const imported = parseImportedAuthor(c.body);
   const displayName = imported?.name || nameOf(c.authorId);
   const displayBody = imported ? imported.text : c.body;
@@ -203,7 +203,7 @@ function CommentRow({ c, taskId = '', isReply, nameOf, myEmail, people, attachme
             {mine && act('Delete', Trash2, onDelete)}
           </div>
         </div>
-        <CommentBody c={c} nameOf={nameOf} editing={editing} text={text} setText={setText} attachments={attachments}
+        <CommentBody c={c} nameOf={nameOf} editing={editing} text={text} setText={setText} attachments={attachments} recordLinks={recordLinks}
           onSave={() => { onEdit(text); clearEdit(); setEditing(false); }} onCancel={() => { clearEdit(); setEditing(false); }} />
         <CommentReactions reactions={c.reactions} myEmail={myEmail} nameOf={nameOf} onToggle={(e) => onReact?.(c, e)} />
       </div>
@@ -211,7 +211,7 @@ function CommentRow({ c, taskId = '', isReply, nameOf, myEmail, people, attachme
   );
 }
 
-function ReplyComposer({ taskId = '', rootId, people, onPost, onCancel }) {
+function ReplyComposer({ taskId = '', rootId, people, onPost, onCancel, recordLinks = false }) {
   const [draft, setDraft, clearDraft] = useTaskDraft(draftKey(taskId, 'reply', rootId), { taskId, kind: 'reply', parentId: rootId });
   const body = draft.text || '';
   const setBody = (v) => setDraft({ text: v });
@@ -223,7 +223,7 @@ function ReplyComposer({ taskId = '', rootId, people, onPost, onCancel }) {
   };
   return (
     <div style={{ marginLeft: 28, marginTop: 4, paddingLeft: 10, borderLeft: `2px solid ${NX.border}` }} data-testid="reply-composer">
-      <RichDescription value={body} onChange={setBody} onSubmit={post} mentionPeople={people} minHeight={48} autoFocus />
+      <RichDescription value={body} onChange={setBody} onSubmit={post} mentionPeople={people} minHeight={48} autoFocus recordLinks={recordLinks} />
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
         <span style={{ fontSize: 11, color: NX.faint }}>Everyone in this thread is told. ⌘/Ctrl+Enter to post.</span>
         <button onClick={() => { clearDraft(); onCancel(); }} style={{ ...btn('ghost'), marginLeft: 'auto', padding: '5px 10px', fontSize: 12 }}>Cancel</button>
@@ -239,7 +239,7 @@ function ReplyComposer({ taskId = '', rootId, people, onPost, onCancel }) {
  * thread: { root, replies } from lib.threadComments. Handlers all receive
  * the comment they act on. A resolved thread opens folded to one line.
  */
-export default function CommentThread({ thread, taskId = '', nameOf, myEmail, people = [], attachments, onPin, onEdit, onDelete, onReply, onReact, onResolve, onAssign }) {
+export default function CommentThread({ thread, taskId = '', nameOf, myEmail, people = [], attachments, recordLinks = false, onPin, onEdit, onDelete, onReply, onReact, onResolve, onAssign }) {
   const { root, replies } = thread;
   // A reply left half-written (another tab, the drawer closed) reopens.
   const [replying, setReplying] = useState(() => hasWords(getDraft(draftKey(taskId, 'reply', root.id))));
@@ -264,15 +264,15 @@ export default function CommentThread({ thread, taskId = '', nameOf, myEmail, pe
   }
   return (
     <div style={{ opacity: resolved ? 0.75 : 1 }}>
-      <CommentRow c={root} taskId={taskId} nameOf={nameOf} myEmail={myEmail} people={people} attachments={att(root)}
+      <CommentRow c={root} taskId={taskId} nameOf={nameOf} myEmail={myEmail} people={people} attachments={att(root)} recordLinks={recordLinks}
         onPin={onPin && (() => onPin(root))} onEdit={(t) => onEdit(root, t)} onDelete={() => onDelete(root)}
         onReact={onReact} onReply={onReply && (() => setReplying(true))}
         onResolve={onResolve && ((v) => onResolve(root, v))} onAssign={onAssign && ((email) => onAssign(root, email))} />
       {replies.map((r) => (
-        <CommentRow key={r.id} c={r} taskId={taskId} isReply nameOf={nameOf} myEmail={myEmail} people={people} attachments={att(r)}
+        <CommentRow key={r.id} c={r} taskId={taskId} isReply nameOf={nameOf} myEmail={myEmail} people={people} attachments={att(r)} recordLinks={recordLinks}
           onEdit={(t) => onEdit(r, t)} onDelete={() => onDelete(r)} onReact={onReact} />
       ))}
-      {replying && onReply && <ReplyComposer taskId={taskId} rootId={root.id} people={people} onPost={(html) => onReply(root, html)} onCancel={() => setReplying(false)} />}
+      {replying && onReply && <ReplyComposer taskId={taskId} rootId={root.id} people={people} recordLinks={recordLinks} onPost={(html) => onReply(root, html)} onCancel={() => setReplying(false)} />}
       {!replying && !resolved && onReply && replies.length > 0 && (
         <button type="button" onClick={() => setReplying(true)} style={{ ...btn('ghost'), marginLeft: 36, padding: '2px 6px', fontSize: 12, color: NX.primary || NX.blue }}>
           <CornerDownRight size={12} /> Reply
