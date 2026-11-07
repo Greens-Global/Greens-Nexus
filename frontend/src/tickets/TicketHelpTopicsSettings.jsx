@@ -43,7 +43,7 @@ import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
 import { TOPIC_MAX_LEN } from './ticketMeta';
 import { refreshTicketConfig } from './ticketConfig';
-import DragList from './DragList';
+import DragList from '../ui/ReorderList';
 import { PersonSelect, usePeople } from '../tasks/components';
 import { useDeskAgents, agentOptions } from './deskAgents';
 

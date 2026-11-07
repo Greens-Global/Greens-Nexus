@@ -84,7 +84,8 @@ beforeEach(() => {
   toastOk.mockReset(); toastErr.mockReset();
 });
 
-const saveButton = () => screen.getByRole('button', { name: 'Save' });
+// Right after a save the button reads Saved for a moment (ui/LoadingButton).
+const saveButton = () => screen.getByRole('button', { name: /^Saved?$/ });
 
 describe('Shift Settings', () => {
   it('saves a switch, the team time zone and the week start', async () => {

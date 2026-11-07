@@ -22,7 +22,8 @@
 // Keys (Neil, 11/07/2026): with focus in the card, J / K (or the arrows) step
 // the rows, Enter opens one, E resolves a comment handed to me (the row's own
 // Resolve) and steps on.
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import NewItemsPill, { useHeldItems } from '../ui/NewItemsPill';
 import { Activity, Check, CornerDownRight, ThumbsUp } from 'lucide-react';
 import { Avatar } from './components';
 import { NX, FONT, btn, card, input } from './theme';
@@ -135,13 +136,19 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
   const [expanded, setExpanded] = useState(false);
   const [keyError, setKeyError] = useState('');
   const cardRef = useRef(null);
-  const rows = useMemo(() => updates || [], [updates]);
+  // While the reader is scrolled into the list, new updates wait behind a
+  // "3 New Updates" pill instead of pushing the rows they are reading down.
+  const scrollRef = useRef(null);
+  const { shown: live, held, release } = useHeldItems(updates, (u) => u.id, scrollRef);
+  const rows = useMemo(() => live || [], [live]);
   const folded = useMemo(() => foldByTask(rows, dayLabel), [rows]);
   const waiting = rows.filter(needsMe);
   const answered = rows.filter((u) => u.forYou && isAnswered(u));
   // All: by day. For You: what still waits on me, then what I have answered.
   const list = filter === 'you' ? [...waiting, ...answered] : folded;
   const shown = fill || expanded ? list : list.slice(0, UPDATES_SHOWN);
+  // Nothing left to read under this filter: nothing to hold new rows behind.
+  useEffect(() => { if (held && list.length === 0) release(); }, [held, list.length, release]);
   const sections = [];
   for (const u of shown) {
     const label = filter === 'you' ? (isAnswered(u) ? 'Answered' : 'Waiting on You') : dayLabel(u.at);
@@ -194,7 +201,8 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
   else if (list.length === 0) body = note('Nothing waiting on you. Assignments, mentions, comments and date requests for you will show here.');
   else {
     body = (
-      <div style={fill ? { flex: 1, minHeight: 0, overflowY: 'auto', margin: '0 -8px', padding: '0 8px' } : undefined}>
+      <div ref={scrollRef} style={fill ? { flex: 1, minHeight: 0, overflowY: 'auto', margin: '0 -8px', padding: '0 8px' } : undefined}>
+        <NewItemsPill count={held} noun="Update" onClick={release} />
         {sections.map((s) => (
           <section key={s.label} aria-label={s.label}>
             <div style={{ fontSize: 12, fontWeight: 600, color: NX.faint, padding: '12px 0 4px' }}>{s.label}</div>

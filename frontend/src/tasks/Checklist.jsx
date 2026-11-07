@@ -9,13 +9,14 @@
 // subtask of the task (one server call - the line goes, the subtask arrives
 // in the Subtasks list), with a toast whose Open steps into it.
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Circle, GripVertical, ListTree, MoreHorizontal, Plus, X } from 'lucide-react';
+import { CheckCircle2, Circle, ListTree, MoreHorizontal, Plus, X } from 'lucide-react';
 import { draftKey, useTaskDraft } from './taskDrafts';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { NX, FONT, btn } from './theme';
 import { Avatar, PersonDot, SelectMenu } from './components';
 import { itemsFromPaste } from './lib';
+import ReorderList from '../ui/ReorderList';
 
 /** A line's "..." menu. Only rendered for the people who may convert it. */
 function ItemMenu({ item, onConvert }) {
@@ -58,7 +59,6 @@ export default function Checklist({ task, people = [], canEdit = true, canConver
   const setDraft = (v) => (v ? setLineDraft({ text: v }) : clearLine());
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
-  const [dragId, setDragId] = useState(null);
   const [error, setError] = useState('');
   const taskId = task?.id;
 
@@ -117,17 +117,9 @@ export default function Checklist({ task, people = [], canEdit = true, canConver
     }
   };
 
-  const dropOn = async (targetId) => {
-    if (!dragId || dragId === targetId) { setDragId(null); return; }
-    const ids = items.map((i) => i.id);
-    const from = ids.indexOf(dragId);
-    const to = ids.indexOf(targetId);
-    ids.splice(from, 1);
-    ids.splice(to, 0, dragId);
-    const byId = Object.fromEntries(items.map((i) => [i.id, i]));
-    setItems(ids.map((id) => byId[id]));
-    setDragId(null);
-    try { setItems(await api.reorderTaskChecklist(taskId, ids)); } catch (e) { fail(e); }
+  const reorder = async (next) => {
+    setItems(next);
+    try { setItems(await api.reorderTaskChecklist(taskId, next.map((i) => i.id))); } catch (e) { fail(e); }
   };
 
   const commitRename = (item) => {
@@ -149,16 +141,15 @@ export default function Checklist({ task, people = [], canEdit = true, canConver
           <span style={{ fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap' }}>{done}/{items.length}</span>
         </div>
       )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {items.map((item) => {
+      <ReorderList items={items} getKey={(i) => i.id} onReorder={reorder} gap={1} label="checklist item" disabled={!canEdit}
+        renderItem={(item, handle) => {
           const mine = item.assigneeId && item.assigneeId === myEmail;
           const canTick = canEdit || mine;
           return (
-            <div key={item.id} draggable={canEdit} onDragStart={() => setDragId(item.id)} onDragOver={(e) => canEdit && e.preventDefault()} onDrop={() => dropOn(item.id)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 4px', borderRadius: 7, opacity: dragId === item.id ? 0.5 : 1, background: 'transparent' }}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 4px', borderRadius: 7, background: 'transparent' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; e.currentTarget.querySelector('[data-x]')?.style.setProperty('opacity', '1'); }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.querySelector('[data-x]')?.style.setProperty('opacity', '0'); }}>
-              {canEdit && <GripVertical size={13} style={{ color: NX.faint, cursor: 'grab', flexShrink: 0 }} />}
+              {handle}
               <button type="button" disabled={!canTick} aria-label={item.done ? 'Mark not done' : 'Mark done'} onClick={() => update(item, { done: !item.done })}
                 style={{ border: 'none', background: 'transparent', cursor: canTick ? 'pointer' : 'default', padding: 0, display: 'flex', color: item.done ? NX.green : NX.faint }}>
                 {item.done ? <CheckCircle2 size={16} /> : <Circle size={16} />}
@@ -182,8 +173,7 @@ export default function Checklist({ task, people = [], canEdit = true, canConver
               )}
             </div>
           );
-        })}
-      </div>
+        }} />
       {canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px', marginTop: items.length ? 6 : 0 }}>
           <Plus size={14} style={{ color: NX.faint, flexShrink: 0 }} />

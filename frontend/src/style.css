@@ -4640,6 +4640,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 }
 .hdr-tab svg { color: currentColor; flex-shrink: 0; }
 .hdr-tab-badge {
+  position: relative;   /* the count flash (ChangeFlash) sits over it */
   background: var(--paper);
   color: var(--ink);
   border: 1px solid var(--line);
@@ -9814,3 +9815,40 @@ a[data-type="recordLink"][data-ref] {
   background: var(--card); color: var(--wk-green); font-weight: 600; text-decoration: none; cursor: pointer;
 }
 a[data-type="recordLink"][data-ref]:hover { background: var(--wk-hover); }
+
+/* ── Effects rebuilt from interior.dev (Neil, 11/07/2026, src/ui) ─────────
+   Copy Button, Loading Button, New Items Pill, Field Check, Reorder List.
+   Transform and opacity only; nothing moves under reduced motion. */
+.nx-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.nx-copy { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-family: inherit; }
+.nx-copy-icon { display: inline-grid; flex: none; }
+.nx-copy-icon > svg { grid-area: 1 / 1; transition: opacity var(--dur-sm) var(--ease-out), transform var(--dur-sm) var(--ease-out); }
+.nx-copy-icon > svg:last-child { opacity: 0; transform: scale(.5); color: hsl(var(--color-green)); }
+.nx-copy[data-state="done"] .nx-copy-icon > svg:first-child { opacity: 0; transform: scale(.5); }
+.nx-copy[data-state="done"] .nx-copy-icon > svg:last-child { opacity: 1; transform: none; }
+/* Loading Button: the faces share one grid cell; the hidden ::before / ::after
+   carry the other faces' words so the button keeps its widest width. */
+.nx-lbtn { display: inline-grid !important; justify-items: center; align-items: center; }
+.nx-lbtn::before, .nx-lbtn::after { grid-area: 1 / 1; visibility: hidden; height: 0; overflow: hidden; padding-left: 19px; white-space: nowrap; }
+.nx-lbtn::before { content: attr(data-w-busy); }
+.nx-lbtn::after { content: attr(data-w-done); }
+.nx-lbtn-face { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.nx-lbtn[data-state="busy"] .nx-lbtn-face, .nx-lbtn[data-state="done"] .nx-lbtn-face { animation: nx-lbtn-in var(--dur-sm) var(--ease-out); }
+@keyframes nx-lbtn-in { from { opacity: 0; transform: translateY(3px); } }
+/* New Items Pill: floats at the top of its scrolling list, takes no room. */
+.nx-newpill-wrap { position: sticky; top: 6px; height: 0; z-index: 3; display: flex; justify-content: center; }
+.nx-newpill { display: inline-flex; align-items: center; gap: 5px; height: fit-content; padding: 5px 12px; border: none; border-radius: 999px; background: var(--wk-brand, #16a34a); color: #fff; font: 600 12px Inter, sans-serif; box-shadow: 0 4px 14px rgba(15,23,42,.18); cursor: pointer; animation: nx-menu-in var(--dur-sm) var(--ease-out); }
+.nx-newpill.is-closing { animation: nx-fade-out var(--dur-xs) ease-in forwards; pointer-events: none; }
+/* Field Check note under a field. */
+.nx-fieldnote { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 11.5px; font-weight: 600; color: hsl(var(--color-red)); animation: nx-lbtn-in var(--dur-sm) var(--ease-out); }
+.nx-fieldnote.is-ok { color: hsl(var(--color-green)); }
+/* Reorder List: the lifted row follows the pointer, the rest slide aside. */
+.nx-reorder-row { position: relative; }
+.nx-reorder-grip { cursor: grab; }
+.nx-reorder.is-dragging, .nx-reorder.is-dragging .nx-reorder-grip { cursor: grabbing; user-select: none; }
+.nx-reorder.is-dragging .nx-reorder-row { transition: transform var(--dur-sm) var(--ease-out); }
+.nx-reorder.is-dragging .nx-reorder-row.is-lifted { transition: none; z-index: 2; border-radius: 8px; background: var(--card); box-shadow: 0 8px 24px rgba(15,23,42,.16); }
+@media (prefers-reduced-motion: reduce) {
+  .nx-copy-icon > svg, .nx-reorder.is-dragging .nx-reorder-row { transition: none; }
+  .nx-lbtn-face, .nx-newpill, .nx-fieldnote { animation: none !important; }
+}
