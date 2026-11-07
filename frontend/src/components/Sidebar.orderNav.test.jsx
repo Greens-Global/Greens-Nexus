@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { NAV } from './Sidebar';
-import { orderNav, railSections } from './navOrder';
+import { orderNav, railSections, KICKERS } from './navOrder';
 
 describe('orderNav', () => {
   it('sorts the Modules group alphabetically and leaves the other groups alone', () => {
@@ -34,7 +34,6 @@ describe('orderNav', () => {
 // it into Operations, Finance and Company, alphabetical inside each; every
 // other group and every divider keeps its label; nothing is lost or added.
 describe('railSections', () => {
-  const KICKERS = ['My desk', 'Work', 'Modules', 'System'];
   const sections = (items) => {
     const out = [{ kicker: KICKERS[0], labels: [] }];
     for (const item of items) {
@@ -46,7 +45,7 @@ describe('railSections', () => {
   it('splits Modules into Operations, Finance and Company behind dividers', () => {
     const rail = railSections(orderNav(NAV).filter((i) => !i.menuOnly), KICKERS);
     const got = sections(rail);
-    expect(got.map((g) => g.kicker)).toEqual(['My desk', 'Work', 'Operations', 'Finance', 'Company', 'System']);
+    expect(got.map((g) => g.kicker)).toEqual(['My Desk', 'Work', 'Operations', 'Finance', 'Company', 'System']);
     const by = Object.fromEntries(got.map((g) => [g.kicker, g.labels]));
     expect(by.Operations).toEqual(['Asset Management', 'Construction', 'IT', 'Item Management', 'Operations']);
     expect(by.Finance).toEqual(['Accounting', 'Investor Relations']);
@@ -58,7 +57,7 @@ describe('railSections', () => {
   it('names the Modules divider after the first section a person can see, and adds no empty sections', () => {
     const items = orderNav(NAV).filter((i) => !i.menuOnly && (i.divider || !['ops', 'it', 'inventory', 'operations', 'property-asset', 'marketing', 'hr'].includes(i.view)));
     const got = sections(railSections(items, KICKERS));
-    expect(got.map((g) => g.kicker)).toEqual(['My desk', 'Work', 'Finance', 'System']);
+    expect(got.map((g) => g.kicker)).toEqual(['My Desk', 'Work', 'Finance', 'System']);
   });
 
   it('leaves a list with no dividers (an external guest) as it is', () => {

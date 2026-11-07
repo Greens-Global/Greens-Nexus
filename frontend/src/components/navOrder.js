@@ -17,11 +17,15 @@ export function orderNav(items) {
   return out;
 }
 
+// The group labels, one per divider slot, in Title Case like every other
+// heading (Neil, 11/07/2026). The third is only for a module in no section.
+export const KICKERS = ['My Desk', 'Work', 'Modules', 'System'];
+
 // The rail's Modules group in sections (11/05/2026): one run of nine icons
-// read as a wall. On the computer rail it splits into Operations, Finance and
-// Company, each behind a hairline divider (and its label on the open rail),
-// alphabetical inside each section as above. A module in no section goes
-// last, under the old "Modules" label. The phone menu keeps the one group.
+// read as a wall. It splits into Operations, Finance and Company, each behind
+// a hairline divider and its label, alphabetical inside each section as
+// above. A module in no section goes last, under the old "Modules" label.
+// The phone drawer shows the same groups (Neil, 11/07/2026).
 // Returns the items with each divider carrying its `kicker` (label).
 export const MODULE_SECTIONS = [
   ['Operations', ['property-asset', 'ops', 'it', 'inventory', 'operations']],

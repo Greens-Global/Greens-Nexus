@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { orderNav, railSections } from './navOrder';
+import { orderNav, railSections, KICKERS } from './navOrder';
 import { useRole } from "../contexts/RoleContext";
 import { useIsMobile } from "../lib/useIsMobile";
 import SidebarClock from "./SidebarClock";
@@ -245,10 +245,6 @@ export const NAV = [
 ];
 
 
-// Desk rail group labels - purely presentational; one per divider slot,
-// mirroring the NAV grouping (my desk / work / modules / system).
-const KICKERS = ['My desk', 'Work', 'Modules', 'System'];
-
 // How many labels the unfolded rail numbers for its cascade (`--i`): the
 // "Nexus" name (0), a kicker at the top and after each divider that has one,
 // and every module label - the same walk the list below makes.
@@ -374,9 +370,9 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   // name at 0, then every kicker and module label): the beat lasts as long
   // as the last one's delay plus its 260ms slide, capped at 1.2s.
   const shownNav = orderNav(NAV).filter(item => !item.menuOnly && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
-  // The computer rail splits Modules into Operations / Finance / Company
-  // (11/05/2026, navOrder.js railSections); the phone drawer keeps one group.
-  const visibleNav = phone ? shownNav : railSections(shownNav, KICKERS);
+  // Modules split into Operations / Finance / Company (11/05/2026,
+  // navOrder.js railSections); the phone drawer draws the same groups.
+  const visibleNav = railSections(shownNav, KICKERS);
   const cascadeRows = cascadeCount(visibleNav);
   useEffect(() => {
     if (!opening) return undefined;
@@ -479,7 +475,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
         >
           {/* One chevron, turned by CSS when the rail is folded - it rotates
               with the width instead of swapping glyphs. */}
-          <ChevronLeft style={{ width: 13, height: 13 }} />
+          <ChevronLeft style={{ width: 14, height: 14 }} />
         </button>
         </NavTip>
 

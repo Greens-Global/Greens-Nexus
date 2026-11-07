@@ -14,7 +14,7 @@ import { trackNoteText } from '../lib/shiftTrack';
 export function SessionChip({ mine, onOpen }) {
   // 'unknown' is also a first status read that failed: the chip stays away
   // rather than claim Clocked Out (the Workday widgets say Unavailable).
-  if (!mine || mine.exempt || mine.state === 'unknown') return null;
+  if (!mine || mine.exempt || mine.state === 'exempt' || mine.state === 'unknown') return null;   // the store's view-model says 'exempt' as a state
   const on = mine.state === 'in' || mine.state === 'break';
   const trackText = trackNoteText(mine.track, formatTime);
   // A button's children are presentational, so the track's progressbar text

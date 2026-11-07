@@ -6,7 +6,9 @@ import { useRole, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
 import TierMark from './TierMark';
 import { usePersonPhoto } from '../lib/peoplePhotos';
 import { NAV } from './Sidebar';
-import { orderNav } from './navOrder';
+import { orderNav, railSections, KICKERS } from './navOrder';
+import { useTimeclock, openTimeClock } from '../lib/timeclockStore';
+import { SessionChip } from '../dashboard/SessionChip';
 import { useActionCounts, moduleCount, countText, countDetail } from '../lib/useActionCounts';
 import NavCount from './NavCount';
 import NavMore from './NavMore';
@@ -149,6 +151,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   // Above the early return: hooks run on every render.
   const menuRef = useRef(null);
   const [offscreen, reveal] = useOffscreenCounts(menuRef, [counts, open]);
+  const clock = useTimeclock();   // the time clock chip under the person (nothing for an exempt person)
   if (!open) return null;
 
   // X slides the whole menu back out to the left before unmounting
@@ -173,9 +176,10 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   // external (B2B guest) accounts see ONLY their granted modules (Aug 17);
   // an item's `grants` list means any one of them opens it (Oct 10).
   const granted = item => (item.grants || [item.grant || item.view]).some(g => myGrantedModules?.has(g));
-  const visible = orderNav(NAV).filter(item => !item.menuOnly).filter(item => isExternal
+  // The rail's groups and labels, in the rail's order (Neil, 11/07/2026).
+  const visible = railSections(orderNav(NAV).filter(item => !item.menuOnly).filter(item => isExternal
     ? (!item.divider && granted(item))
-    : (item.divider || !item.minRole || can?.('administrator') || granted(item)));
+    : (item.divider || !item.minRole || can?.('administrator') || granted(item))), KICKERS);
   const go = (id, sub = null) => { onNavigate(id, sub); onClose(); };
   const openRow = item => {
     const subs = subsFor(item.view);
@@ -190,7 +194,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   return (
     <div ref={menuRef} className={`mobile-menu${closing ? ' closing' : ''}`} role="dialog" aria-modal="true" aria-label="Menu">
       <div className="mobile-menu-head">
-        <div className="mobile-menu-brand">NEXUS</div>
+        <div className="mobile-menu-brand"><span className="dk-mark" aria-hidden="true">N</span>Nexus</div>
         <button className="mobile-menu-close" onClick={requestClose} aria-label="Close menu"><X size={22} /></button>
       </div>
       <div className="mobile-menu-user">
@@ -204,9 +208,18 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
           {subtitle && <div className="mobile-menu-role">{subtitle}</div>}
         </div>
       </div>
+      <div className="mobile-menu-clock">
+        <SessionChip mine={clock} onOpen={() => { onClose(); openTimeClock(); }} />
+      </div>
       <div className="mobile-menu-rows">
+        {!isExternal && visible.length > 0 && !visible[0].divider && <div className="mm-kicker">{KICKERS[0]}</div>}
         {visible.map((item, i) => {
-          if (item.divider) return <div key={`d${i}`} className="mobile-menu-divider" />;
+          if (item.divider) {
+            return [
+              <div key={`d${i}`} className="mobile-menu-divider" />,
+              item.kicker && <div key={`k${i}`} className="mm-kicker">{item.kicker}</div>,
+            ];
+          }
           return (
             <button key={item.view} className={`mobile-menu-row${activeView === item.view ? ' active' : ''}${moduleCount(counts, item.view) ? ' has-count' : ''}`} onClick={() => openRow(item)}
               data-count={moduleCount(counts, item.view) || undefined}
@@ -216,7 +229,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
                 <span>{item.label}</span>
               </span>
               <NavCount n={moduleCount(counts, item.view)} />
-              <ChevronRight size={17} />
+              {subsFor(item.view) ? <ChevronRight size={17} /> : null}
             </button>
           );
         })}
@@ -229,11 +242,9 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         <button className="mobile-menu-row"
           onClick={() => { onClose(); setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:help-open')), 0); }}>
           <span className="mobile-menu-row-label"><CircleHelp style={{ width: 19, height: 19, flexShrink: 0 }} /><span>Help</span></span>
-          <ChevronRight size={17} />
         </button>
         <button className="mobile-menu-row" onClick={() => go('legal', 'privacy')}>
           <span className="mobile-menu-row-label"><Scale style={{ width: 19, height: 19, flexShrink: 0 }} /><span>Legal</span></span>
-          <ChevronRight size={17} />
         </button>
         <button className="mobile-menu-row signout"
           onClick={() => (BFF_MODE ? bffLogout() : clearOfflineReadCache().then(() => instance.logoutRedirect({ account, postLogoutRedirectUri: window.location.origin + window.location.pathname })))}>

@@ -386,8 +386,8 @@ h1,h2,h3,h4,h5,h6,
 .sidebar-brand { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-decoration: none; color: inherit; border-radius: 10px; }
 .sidebar-brand:hover .dk-mark { filter: brightness(1.06); }
 .sidebar-brand:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
-.sidebar-foot { padding: 0 10px 12px; }
-.sidebar.collapsed .sidebar-foot { padding: 0 0 12px; display: flex; justify-content: center; }
+.sidebar-foot { padding: 8px 10px 12px; border-top: 1px solid var(--wk-line2); }
+.sidebar.collapsed .sidebar-foot { padding: 8px 0 12px; display: flex; justify-content: center; }
 
 /* The time clock (components/ClockChip.jsx, Oct 14 2026): one object, a
    ring that fills with today's hours toward 8 and wears the color of where
@@ -476,6 +476,25 @@ h1,h2,h3,h4,h5,h6,
 .sbtr-btn--pause { background: rgba(180,83,9,.12); color: #b45309; box-shadow: none; }
 .sbtr-btn--stop { background: rgba(185,28,28,.1); color: #b91c1c; box-shadow: none; }
 .sbtr-btn:focus-visible { outline: 2px solid var(--sb-tone, var(--sb-green)); outline-offset: 2px; }
+/* Off the clock, the open rail's chip is one quiet line (Neil, 11/07/2026):
+   a gray dot, "Clocked Out", and Punch In at its end - no red card, no dial
+   and no "Not clocked in today" for someone who is simply not working. The
+   dial comes back the moment they punch in. A shift track or an alert wraps
+   to its own line under it. The phone sheet keeps the full chip. */
+.sidebar-foot .sbclock--out {
+  --sb-tint: var(--wk-hover); --sb-line: var(--wk-line2);
+  flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  padding: 6px 6px 6px 12px; border-radius: 10px;
+}
+.sidebar-foot .sbclock--out .sbclock-head { width: auto; flex: 1; order: 0; }
+.sidebar-foot .sbclock--out .sbring, .sidebar-foot .sbclock--out .sbclock-sub { display: none; }
+.sidebar-foot .sbclock--out .sbclock-state { font-size: 13px; font-weight: 600; color: var(--wk-dim); display: inline-flex; align-items: center; gap: 7px; }
+.sidebar-foot .sbclock--out .sbclock-state::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--wk-faint); }
+.sidebar-foot .sbclock--out .sbtr { margin: 0; flex: none; order: 1; }
+.sidebar-foot .sbclock--out .sbtr-slot { flex: none; width: 34px; }
+.sidebar-foot .sbclock--out .sbtr-slot.is-gone { width: 0; }
+.sidebar-foot .sbclock--out .sbtr-btn { height: 28px; border-radius: 8px; }
+.sidebar-foot .sbclock--out .sbclock-track, .sidebar-foot .sbclock--out .sbclock-alert { order: 2; flex-basis: 100%; }
 /* the punch flourishes (ClockChip Flourish): a layer pinned over the button
    they come from. Only static look lives here - the motion is sampled
    physics played by the animation engine (lib/flourishMotion.js), on
@@ -629,7 +648,7 @@ h1,h2,h3,h4,h5,h6,
 }
 [data-theme="dark"] .nav-section-title { color: var(--muted); }
 
-.sidebar-nav { flex: 1; overflow-y: auto; padding: 4px 10px 8px; }
+.sidebar-nav { flex: 1; overflow-y: auto; padding: 0 10px; }
 .sidebar-nav::-webkit-scrollbar { width: 5px; }
 .sidebar-nav::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
 
@@ -953,7 +972,7 @@ h1,h2,h3,h4,h5,h6,
 /* Profile menu Tools + the Act As finder (Oct 25 2026, components/ToolsMenu.jsx).
    The menu widens only when it has Tools or the finder in it. */
 .header-user-dropdown:has(.hud-tools, .hud-actas) { width: min(300px, calc(100vw - 24px)); }
-.hud-sec { padding: 8px 10px 2px; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.hud-sec { padding: 8px 10px 2px; font-size: 12px; font-weight: 500; color: var(--wk-dim); }   /* a group label in the canon, not an eyebrow (Neil, 11/07/2026) */
 .hud-end { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .hud-kbd { font: 600 10px/1.5 'Inter', sans-serif; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--muted); background: var(--card); white-space: nowrap; }
 .hud-switch { width: 28px; height: 16px; border-radius: 999px; background: var(--line); box-shadow: inset 0 0 0 1px var(--line); position: relative; flex-shrink: 0; transition: background var(--transition-fast); }
@@ -2545,11 +2564,22 @@ html { overflow-x: hidden; }
 @keyframes menuOut { from { transform: none; } to { transform: translateX(-100%); } }
 
 .mobile-menu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
-.mobile-menu-brand { font-weight: 800; letter-spacing: 0.22em; font-size: 16px; }
+/* The drawer wears the rail's brand (Neil, 11/07/2026): the N tile and the
+   wordmark as written, the green avatar, the rail's groups in order, the
+   time clock chip under the person, and no chevron on a row that simply
+   goes somewhere (only a row that opens a list keeps one). */
+.mobile-menu-brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; letter-spacing: 0; }
+.mobile-menu-brand .dk-mark { width: 30px; height: 30px; font-size: 15px; }
+.mm-kicker { font-family: var(--wk-font); font-size: 12px; font-weight: 500; color: var(--wk-dim); padding: 12px 20px 2px; }
+.mobile-menu-clock { padding: 10px 16px 0; }
+.mobile-menu-clock:empty { display: none; }
+.mobile-menu-clock .dk-session-chip { width: 100%; justify-content: flex-start; }
+.mobile-menu-clock .dk-session-long { display: inline; }
+.mobile-menu-clock .dk-dot--off { background: var(--wk-faint); opacity: 1; }
 .mobile-menu-close { position: absolute; right: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
 
 .mobile-menu-user { display: flex; gap: 12px; align-items: center; padding: 8px 20px 16px; border-bottom: 1px solid var(--line); }
-.mobile-menu-avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--pine); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; overflow: hidden; }
+.mobile-menu-avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--wk-brand); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; overflow: hidden; }
 .mobile-menu-name { font-weight: 700; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mobile-menu-role { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
 
@@ -2558,7 +2588,7 @@ html { overflow-x: hidden; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 15px 16px;
+  padding: 12px 16px;
   background: none;
   border: none;
   cursor: pointer;
@@ -3392,8 +3422,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 }
 .gs-results { overflow-y: auto; padding: 6px; }
 .gs-section {
-  font: 700 10px Inter, sans-serif; color: var(--muted);
-  text-transform: uppercase; letter-spacing: .07em;
+  font: 500 12px var(--wk-font); color: var(--wk-dim);   /* a group label in the canon (Neil, 11/07/2026) */
   padding: 10px 10px 4px;
 }
 .gs-row {
@@ -4508,7 +4537,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 
 /* ── Shell polish: sidebar ──────────────────────────────────────────────── */
 .sidebar { font-family: var(--wk-font); }
-.sidebar-header { gap: 8px; padding: 16px 12px 12px; }
+.sidebar-header { gap: 8px; padding: 10px 12px 6px; }
 .dk-mark {
   width: 34px; height: 34px; border-radius: 8px;
   background: var(--wk-brand); color: #fff;
@@ -4520,12 +4549,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   font-family: var(--wk-font); font-weight: 800; font-size: 17px;
   letter-spacing: -.01em; color: var(--ink); line-height: 1;
 }
+/* Rail fit (Neil, 11/07/2026): 28px rows, so all twenty modules and the
+   clock stand on a 900px-tall screen with nothing scrolled out of sight. */
 .sidebar .nav-item {
-  border-radius: 6px;
+  border-radius: 8px;
   font-family: var(--wk-font);
-  font-size: 13px; font-weight: 500;
+  font-size: 13px; font-weight: 500; line-height: 20px;
   color: var(--wk-dim);
-  padding: 7.5px 10px;
+  padding: 4px 10px; gap: 9px;
 }
 [data-theme="light"] .sidebar .nav-item, :root .sidebar .nav-item { color: var(--wk-dim); }
 .sidebar .nav-item:hover { background: var(--wk-hover); color: var(--wk-ink); }
@@ -4536,24 +4567,28 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 }
 .sidebar .nav-item.active svg { color: var(--wk-brand); }
 .nav-code { display: none; }
+/* Group labels in the canon (Neil, 11/07/2026): Title Case at 12px, no
+   uppercase tracking - a heading like every other, not an eyebrow. */
 .nav-kicker {
   font-family: var(--wk-font);
-  font-size: 10.5px; font-weight: 700;
-  letter-spacing: .06em; text-transform: uppercase;
-  color: var(--wk-faint);
-  padding: 12px 10px 4px;
+  font-size: 12px; font-weight: 500;
+  letter-spacing: 0; text-transform: none;
+  color: var(--wk-dim);
+  padding: 6px 10px 1px;
   list-style: none;
   user-select: none;
 }
 .sidebar.collapsed .nav-kicker { display: none; }
-.sidebar .nav-divider { margin: 6px 6px 0; }
+.sidebar .nav-divider { margin: 3px 6px; }
 
 /* Dark theme still works on the shell (legacy tokens drive it) - but the
-   brand accents above stay brand-colored in both. */
+   brand accents above stay brand-colored in both: the active row wears the
+   brand, lightened to read on a dark card, like the tabs and the + do
+   (Neil, 11/07/2026) - never the kit's blue. */
 [data-theme="dark"] .sidebar .nav-item { color: var(--nav-text); }
 [data-theme="dark"] .sidebar .nav-item:hover { background: var(--sidebar-hover-bg); color: var(--nav-text-hover); }
-[data-theme="dark"] .sidebar .nav-item.active { background: rgba(43,69,225,.22); color: #b9bbff; }
-[data-theme="dark"] .sidebar .nav-item.active svg { color: #b9bbff; }
+[data-theme="dark"] .sidebar .nav-item.active { background: color-mix(in srgb, var(--wk-brand) 18%, transparent); color: color-mix(in srgb, var(--wk-brand) 55%, #fff); }
+[data-theme="dark"] .sidebar .nav-item.active svg { color: color-mix(in srgb, var(--wk-brand) 55%, #fff); }
 
 /* ── Shell polish: header ───────────────────────────────────────────────── */
 .top-header { font-family: var(--wk-font); }
@@ -4583,8 +4618,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .nav-item { font-size: 13.5px; }
 .nav-item.active { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 700; }
 .nav-item.active:not(.has-submenu) svg { color: var(--wk-brand); }
-[data-theme="dark"] .nav-item.active { background: rgba(43, 69, 225, .22); color: #b9bbff; }
-[data-theme="dark"] .nav-item.active:not(.has-submenu) svg { color: #b9bbff; }
+[data-theme="dark"] .nav-item.active { background: color-mix(in srgb, var(--wk-brand) 18%, transparent); color: color-mix(in srgb, var(--wk-brand) 55%, #fff); }
+[data-theme="dark"] .nav-item.active:not(.has-submenu) svg { color: color-mix(in srgb, var(--wk-brand) 55%, #fff); }
 .top-header .search-bar { border-radius: 8px; }
 .top-header .icon-btn { border-radius: 8px; }
 .top-header .header-user-pill { border-radius: 8px; }
@@ -4655,7 +4690,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
    the bell's alone. On the active tab it takes the tab's accent. */
 .hdr-tab.active .hdr-tab-badge, .module-tab-inline-btn.active .hdr-tab-badge { background: var(--wk-brand-tint); border-color: transparent; color: var(--wk-brand); }
 [data-theme="dark"] .hdr-tab-badge { background: rgba(255,255,255,.06); color: var(--ink); }
-[data-theme="dark"] .hdr-tab.active .hdr-tab-badge { background: rgba(185,187,255,.16); color: #b9bbff; }
+[data-theme="dark"] .hdr-tab.active .hdr-tab-badge { background: color-mix(in srgb, var(--wk-brand) 18%, transparent); color: color-mix(in srgb, var(--wk-brand) 55%, #fff); }
 /* A count that is a call to act (Tickets' Unassigned queue, 10/31/2026):
    amber, the same word the Unassigned cell uses - never red (the bell's). */
 .hdr-tab-badge--alarm, .module-tab-inline-btn.active .hdr-tab-badge--alarm { background: rgba(217,119,6,.14); border-color: transparent; color: #b45309; }
@@ -4752,7 +4787,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
    screens, an icon-and-popover on others and a compact bar on Tasks; the
    phone sheet (.gs-*) searched different things again. Now the bar and the
    sheet share components/search/useNexusSearch. */
-.hdr-search { position: relative; width: 252px; flex-shrink: 0; }
+.hdr-search { position: relative; width: 252px; flex-shrink: 0; transition: width .18s ease-out; }
+/* With room for it, the box grows on focus to the width of its results panel,
+   so the panel hangs straight under it (Neil, 11/07/2026). It grows OVER the
+   header's center (the negative margin keeps its flex size), so the module
+   tabs never refit into More while someone types. */
+@media (min-width: 1440px) { .hdr-search:focus-within { width: 440px; margin-left: -188px; z-index: 2; } }
+@media (prefers-reduced-motion: reduce) { .hdr-search { transition: none; } }
 .hdr-search .search-bar { height: 38px; padding: 0 10px 0 12px; box-sizing: border-box; }
 .hdr-search-kbd {
   font: 600 10.5px Inter, sans-serif; color: var(--muted);
@@ -4791,9 +4832,9 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
    the 563px they make. Other modules' tabs are untouched. */
 .hdr-tabs--compact .hdr-tab { padding: 9px 9px; gap: 4px; }
 .hdr-tabs--compact .hdr-tab .tab-group-caret { width: 12px; height: 12px; }
-@media (max-width: 1599px) {
-  .hdr-tabs--compact .hdr-tab svg:not(.tab-group-caret) { display: none; }
-}
+/* Header tabs are words (Neil, 11/07/2026): no icons on any module's tabs,
+   at any width - some modules had them and some did not. The caret stays. */
+.hdr-tab svg:not(.tab-group-caret) { display: none; }
 
 /* In-page fallback strip: phones only - the header center is hidden ≤900px,
    so <ModuleTabs> renders the classic swipeable strip in the page body. */
@@ -4926,6 +4967,9 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 }
 .dk-session-chip:hover { border-color: var(--wk-line); box-shadow: var(--wk-shadow-hov); transform: translateY(-1px); }
 .dk-session-chip--on { color: var(--wk-green); border-color: rgba(0,162,91,.35); }
+/* On a computer the rail's clock already says this (Neil, 11/07/2026: one
+   clock on Home, not two); the chip stays for phones, which have no rail. */
+@media (min-width: 901px) { .dk-toolbar .dk-session-chip { display: none; } }
 .dk-session-chip b { font-variant-numeric: tabular-nums; font-weight: 700; }
 [data-theme="dark"] .dk-session-chip { background: var(--card); border-color: var(--line); color: var(--muted); box-shadow: none; }
 [data-theme="dark"] .dk-session-chip--on { color: #4ade80; }
@@ -9731,7 +9775,8 @@ body:has(.apv-phone) { overflow-x: clip; }
 /* The module's name: the trail riding the bar, in Title Case as written -
    never the uppercase eyebrow. A record's parent pages follow it, quieter. */
 .page-trail--bar { letter-spacing: normal; text-transform: none; }
-@media (min-width: 641px) { .page-trail--bar { font-size: 15px; font-weight: 700; color: var(--ink); } }
+/* 600, not 700: the brand mark is the one bold word in the header (Neil, 11/07/2026). */
+@media (min-width: 641px) { .page-trail--bar { font-size: 15px; font-weight: 600; color: var(--ink); } }
 .page-trail--bar li + li button { font-weight: 500; color: var(--muted); }
 .page-trail--bar li + li::before { margin: 0 8px; }
 /* With the bar up, the module's name is said once: the eyebrow trails a page
