@@ -165,6 +165,7 @@ function CourseHome({ course, onGo, onDownload }) {
     quiz.question_count > 0 ? `a final quiz of ${quiz.draw ? `${quiz.draw} of ${quiz.question_count}` : quiz.question_count} questions, ${quiz.pass_pct}% to pass` : course.delivery === 'in_person' ? 'signed off in person' : 'no quiz',
     course.recert_months > 0 ? `renews every ${course.recert_months} months` : '',
     'a certificate on completion',
+    course.reviewed_at ? `reviewed ${fmtDate(course.reviewed_at)}` : '',   // Keeps Up (11/07/2026): the author's last look against what changed in Nexus
   ].filter(Boolean).join(' · ');
   return (
     <div className="kb-read">

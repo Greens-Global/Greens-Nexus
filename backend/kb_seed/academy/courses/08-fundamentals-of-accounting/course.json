@@ -1,0 +1,1053 @@
+{
+ "slug": "fundamentals-of-accounting",
+ "title": "Fundamentals of Accounting",
+ "description": "Accounting for the people who run storage sites, in storage words: the equation and the accounts, debits and credits, cash and accrual, how rent and fees are earned, receivables and bad debt, fixed assets and depreciation, payables, cards and the bank, the close and the three statements, budgets, controls and the audit. Course 8 of the Academy, for managers and the accounting team's new hires.",
+ "overview": [
+  "Why the numbers matter and where a site's numbers come from",
+  "The accounting equation, the five kinds of account and the chart",
+  "Debits and credits, with six storage transactions worked",
+  "Cash and accrual, matching and the adjusting entries",
+  "Revenue at a storage company: rent in advance, fees, concessions, protection plans",
+  "Receivables, the aging, the allowance and the lien sale",
+  "Fixed assets, depreciation and the register",
+  "Payables, Ramp cards, the bank reconciliation and cash controls",
+  "The close and the balance sheet, income statement and cash flow statement",
+  "Budgets, variance comments, internal controls and the audit"
+ ],
+ "est_minutes": 150,
+ "delivery": "online",
+ "level": "core",
+ "tags": "accounting, finance, managers, intacct",
+ "teaches": "Accounting",
+ "departments": "Accounting",
+ "min_reading_minutes": 60,
+ "lessons": [
+  {
+   "file": "01-why-the-numbers-matter.md"
+  },
+  {
+   "file": "02-the-accounting-equation-and-the-accounts.md"
+  },
+  {
+   "file": "03-debits-and-credits.md"
+  },
+  {
+   "file": "04-cash-and-accrual-and-the-period.md"
+  },
+  {
+   "checkpoint": "Checkpoint: The Books",
+   "questions": [
+    {
+     "type": "single",
+     "q": "Which statement answers 'did we make money this month'?",
+     "options": [
+      "The balance sheet",
+      "The income statement",
+      "The cash flow statement",
+      "The aging report"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "The income statement covers a period; the balance sheet is a moment; the cash flow statement says where the cash went.",
+     "lesson": "01-why-the-numbers-matter.md"
+    },
+    {
+     "type": "single",
+     "q": "A tenant pays December's rent on 11/28. In the November books that payment is:",
+     "options": [
+      "November rental income",
+      "Prepaid rent, a liability, until 12/01",
+      "A receivable",
+      "An expense"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Nothing has been earned until December arrives. The company owes the tenant a month of storage.",
+     "lesson": "02-the-accounting-equation-and-the-accounts.md"
+    },
+    {
+     "type": "single",
+     "q": "Which side increases an asset account?",
+     "options": [
+      "Credit",
+      "Debit",
+      "Either",
+      "Neither; assets do not change"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Debit increases assets and expenses; credit increases liabilities, equity and revenue.",
+     "lesson": "03-debits-and-credits.md"
+    },
+    {
+     "type": "single",
+     "q": "A vendor services the gate for $640; the invoice will be paid in two weeks. What is recorded now?",
+     "options": [
+      "Nothing until it is paid",
+      "Repairs expense $640 and accounts payable $640",
+      "Cash down $640",
+      "Prepaid expense $640"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Accrual books record the expense when the work was done and the payable until it is paid.",
+     "lesson": "03-debits-and-credits.md"
+    },
+    {
+     "type": "single",
+     "q": "Greens' financial statements are prepared on which basis?",
+     "options": [
+      "Cash",
+      "Accrual",
+      "Whichever the site prefers",
+      "Tax"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Accrual tells the truth about a month. The cash view is read beside it.",
+     "lesson": "04-cash-and-accrual-and-the-period.md"
+    },
+    {
+     "type": "multi",
+     "q": "Which of these are month-end adjusting entries? Pick all that apply.",
+     "options": [
+      "Earning down prepaid rent",
+      "Depreciation",
+      "A tenant's card payment",
+      "Accruing an unbilled utility bill",
+      "The allowance for doubtful accounts"
+     ],
+     "answer": [
+      0,
+      1,
+      3,
+      4
+     ],
+     "explanation": "A card payment is an everyday transaction; the others move things into the right period at month end.",
+     "lesson": "04-cash-and-accrual-and-the-period.md"
+    },
+    {
+     "type": "single",
+     "q": "Utilities are double the usual in November. The drill-down shows October's bill arrived late plus November's. This variance is:",
+     "options": [
+      "Real: a leak",
+      "Timing: it reverses next month",
+      "Fraud",
+      "A coding error"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Two months' bills in one month is timing. It reverses on its own.",
+     "lesson": "04-cash-and-accrual-and-the-period.md"
+    },
+    {
+     "type": "single",
+     "q": "The accounting equation is:",
+     "options": [
+      "Assets = Revenue - Expenses",
+      "Assets = Liabilities + Equity",
+      "Cash = Profit",
+      "Debits = Revenue"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Everything the business has was paid for by someone it owes or by its owners.",
+     "lesson": "02-the-accounting-equation-and-the-accounts.md"
+    }
+   ]
+  },
+  {
+   "file": "05-revenue-at-a-storage-company.md"
+  },
+  {
+   "file": "06-receivables-delinquency-and-bad-debt.md"
+  },
+  {
+   "file": "07-fixed-assets-and-depreciation.md"
+  },
+  {
+   "file": "08-payables-cards-and-the-bank.md"
+  },
+  {
+   "checkpoint": "Checkpoint: Revenue, Assets and Cash",
+   "questions": [
+    {
+     "type": "single",
+     "q": "What does the income statement report for rent?",
+     "options": [
+      "Gross potential rent",
+      "Billed rent",
+      "Earned rent",
+      "Collected rent"
+     ],
+     "answer": [
+      2
+     ],
+     "explanation": "Earned rent: billed less concessions, for the period. The other three live on the operating reports.",
+     "lesson": "05-revenue-at-a-storage-company.md"
+    },
+    {
+     "type": "single",
+     "q": "A free first month on a new garage is recorded as:",
+     "options": [
+      "A marketing expense",
+      "A reduction of revenue, with the reason",
+      "Nothing; it is not a transaction",
+      "Bad debt"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "A concession reduces revenue and is recorded so leadership can see what was given away to rent units.",
+     "lesson": "05-revenue-at-a-storage-company.md"
+    },
+    {
+     "type": "single",
+     "q": "Why does Accounting record an allowance for doubtful accounts each month?",
+     "options": [
+      "To hide bad tenants",
+      "Because the expected loss belongs in the same period as the revenue it came with",
+      "Because the lien law requires it",
+      "To increase receivables"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Matching: the loss is recognized when the revenue is, not months later at the sale.",
+     "lesson": "06-receivables-delinquency-and-bad-debt.md"
+    },
+    {
+     "type": "single",
+     "q": "A balance is written off after a lien sale. What expense is recorded at write-off?",
+     "options": [
+      "Bad debt expense for the full balance",
+      "None; the expense was recorded when the allowance was built",
+      "Lien expense",
+      "Rental income is reversed"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "The write-off clears the receivable against the allowance. The expense already happened.",
+     "lesson": "06-receivables-delinquency-and-bad-debt.md"
+    },
+    {
+     "type": "single",
+     "q": "A $3,800 replacement gate operator is:",
+     "options": [
+      "A repairs expense this month",
+      "A fixed asset that depreciates over its life",
+      "Prepaid rent",
+      "A liability"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "It serves for years, so its cost is spread over them. A sprocket is a repair; an operator is capital.",
+     "lesson": "07-fixed-assets-and-depreciation.md"
+    },
+    {
+     "type": "single",
+     "q": "A gate operator cost $3,800 with a ten-year life. Monthly straight-line depreciation is about:",
+     "options": [
+      "$380.00",
+      "$31.67",
+      "$3.80",
+      "$316.67"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "$3,800 divided by 120 months.",
+     "lesson": "07-fixed-assets-and-depreciation.md"
+    },
+    {
+     "type": "single",
+     "q": "Why must a vendor invoice carry the ticket number?",
+     "options": [
+      "Vendors like it",
+      "So Accounting can match what was ordered, received and billed in one look; an unmatched invoice is not paid",
+      "It is a tax rule",
+      "So the site can pay it"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Three-way matching: the ticket, the inspection, the invoice.",
+     "lesson": "08-payables-cards-and-the-bank.md"
+    },
+    {
+     "type": "single",
+     "q": "The bank reconciliation finds a $185 returned card payment. What does it mean?",
+     "options": [
+      "The bank made an error",
+      "A tenant's rent that Cubby recorded as paid bounced; the balance reopens and the desk calls",
+      "Nothing; ignore it",
+      "Accounting owes the tenant $185"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Bank items the books missed are one of the three kinds of difference a reconciliation finds.",
+     "lesson": "08-payables-cards-and-the-bank.md"
+    }
+   ]
+  },
+  {
+   "file": "09-the-close-and-the-three-statements.md"
+  },
+  {
+   "file": "10-budgets-controls-and-the-audit.md"
+  },
+  {
+   "file": "11-words-to-know.md"
+  }
+ ],
+ "quiz": {
+  "passPct": 80,
+  "drawCount": 30,
+  "maxTries": 3,
+  "shuffle": true,
+  "questions": [
+   {
+    "type": "tf",
+    "q": "Nexus keeps a second set of books for the sites.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Greens keeps one set of books, in Intacct; Nexus reads it.",
+    "lesson": "01-why-the-numbers-matter.md"
+   },
+   {
+    "type": "multi",
+    "q": "Who at Greens reads the numbers? Pick all that apply.",
+    "options": [
+     "Owners and leadership",
+     "Managers",
+     "Lenders and insurers",
+     "The government",
+     "Tenants"
+    ],
+    "answer": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "explanation": "Each reader wants a different answer from the same books.",
+    "lesson": "01-why-the-numbers-matter.md"
+   },
+   {
+    "type": "single",
+    "q": "Every amount on a Nexus Accounting report:",
+    "options": [
+     "Is an estimate",
+     "Drills down to the ledger lines that make it up, and each line to its transaction",
+     "Is typed in by Accounting",
+     "Is rounded to the nearest thousand"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "That trail is how a surprising number is checked.",
+    "lesson": "01-why-the-numbers-matter.md"
+   },
+   {
+    "type": "single",
+    "q": "Which of these is a liability?",
+    "options": [
+     "Cash in the bank",
+     "A security deposit a tenant paid",
+     "Prepaid insurance Greens paid",
+     "The gate operator"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The company holds the deposit and owes it back.",
+    "lesson": "02-the-accounting-equation-and-the-accounts.md"
+   },
+   {
+    "type": "single",
+    "q": "Accounts numbered in the 4000s in a typical chart are:",
+    "options": [
+     "Assets",
+     "Liabilities",
+     "Revenue",
+     "Expenses"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "1000s assets, 2000s liabilities, 3000s equity, 4000s revenue, 5000s and up expenses.",
+    "lesson": "02-the-accounting-equation-and-the-accounts.md"
+   },
+   {
+    "type": "single",
+    "q": "Which account has a normal credit balance?",
+    "options": [
+     "Repairs and maintenance",
+     "Operating cash",
+     "Rental income",
+     "Site equipment"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "Revenue grows on the credit side.",
+    "lesson": "03-debits-and-credits.md"
+   },
+   {
+    "type": "single",
+    "q": "Paying an invoice that was recorded two weeks ago does what?",
+    "options": [
+     "Records the expense",
+     "Reduces accounts payable and reduces cash",
+     "Records revenue",
+     "Increases the payable"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The expense was recorded when the work was done; paying it clears the liability and the cash.",
+    "lesson": "03-debits-and-credits.md"
+   },
+   {
+    "type": "single",
+    "q": "Wages earned this period but paid next period are recorded as:",
+    "options": [
+     "An expense next period",
+     "Wages expense now and accrued payroll, a liability",
+     "Nothing until payday",
+     "A prepaid"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The expense belongs to the period the hours were worked.",
+    "lesson": "03-debits-and-credits.md"
+   },
+   {
+    "type": "single",
+    "q": "Under the cash basis, a repair done in October and paid in November counts in:",
+    "options": [
+     "October",
+     "November",
+     "Both",
+     "Neither"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Cash basis counts when the money moves. That is why it lies about a month.",
+    "lesson": "04-cash-and-accrual-and-the-period.md"
+   },
+   {
+    "type": "single",
+    "q": "Matching means:",
+    "options": [
+     "Debits equal credits",
+     "Revenue and the expenses that earned it fall in the same period",
+     "Every site gets the same budget",
+     "The bank matches the books"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Matching makes one month comparable to another.",
+    "lesson": "04-cash-and-accrual-and-the-period.md"
+   },
+   {
+    "type": "single",
+    "q": "A storage site's rent is billed:",
+    "options": [
+     "Daily",
+     "Weekly",
+     "Monthly in advance, on the 1st",
+     "Monthly in arrears"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "The 1st is the biggest day in a storage company's books.",
+    "lesson": "05-revenue-at-a-storage-company.md"
+   },
+   {
+    "type": "single",
+    "q": "Third-party tenant insurance collected with the rent is:",
+    "options": [
+     "Greens' revenue",
+     "A liability until it is remitted to the insurer",
+     "A fee",
+     "Bad debt"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "It is a pass-through. The protection plan, which is Greens' own program, is revenue.",
+    "lesson": "05-revenue-at-a-storage-company.md"
+   },
+   {
+    "type": "single",
+    "q": "The gap between billed rent and collected rent is:",
+    "options": [
+     "Vacancy",
+     "Concessions",
+     "Delinquency",
+     "Depreciation"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "Vacancy and rate separate potential from billed; concessions separate billed from earned; delinquency separates earned from collected.",
+    "lesson": "05-revenue-at-a-storage-company.md"
+   },
+   {
+    "type": "single",
+    "q": "Lien sale proceeds are applied first to:",
+    "options": [
+     "The site's bonus pool",
+     "The tenant's unpaid balance",
+     "Marketing",
+     "The vendor who cut the lock"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A lien sale is the end of a receivable, not a profit center; anything left over is owed to the tenant.",
+    "lesson": "05-revenue-at-a-storage-company.md"
+   },
+   {
+    "type": "single",
+    "q": "A balance over 90 days on the aging report is:",
+    "options": [
+     "Probably going to be collected",
+     "Mostly gone; sold or written off soon",
+     "A bank error",
+     "Prepaid rent"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The further right a balance sits, the less of it the company will ever see.",
+    "lesson": "06-receivables-delinquency-and-bad-debt.md"
+   },
+   {
+    "type": "single",
+    "q": "The allowance for doubtful accounts is:",
+    "options": [
+     "A revenue account",
+     "A contra asset that sits against receivables",
+     "A liability to tenants",
+     "A cash account"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Receivables less the allowance is what the company really expects to collect.",
+    "lesson": "06-receivables-delinquency-and-bad-debt.md"
+   },
+   {
+    "type": "multi",
+    "q": "Which site habits shorten the aging report? Pick all that apply.",
+    "options": [
+     "Autopay offered at every move-in",
+     "Calls on the 2nd and the 6th",
+     "Complete move-in details",
+     "Waiving every late fee",
+     "Running the lien process on schedule"
+    ],
+    "answer": [
+     0,
+     1,
+     2,
+     4
+    ],
+    "explanation": "The site's habits set its bad debt.",
+    "lesson": "06-receivables-delinquency-and-bad-debt.md"
+   },
+   {
+    "type": "single",
+    "q": "A former tenant pays $300 on a balance written off last year. It is recorded as:",
+    "options": [
+     "New rental income",
+     "A recovery",
+     "A concession",
+     "A deposit"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Never new rent.",
+    "lesson": "06-receivables-delinquency-and-bad-debt.md"
+   },
+   {
+    "type": "tf",
+    "q": "Land is depreciated over 39 years.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Land never depreciates; the building on it does.",
+    "lesson": "07-fixed-assets-and-depreciation.md"
+   },
+   {
+    "type": "single",
+    "q": "Patching a roof section is usually:",
+    "options": [
+     "Capital",
+     "A repair expense",
+     "A prepaid",
+     "Depreciation"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "It keeps the asset working as it was. Replacing the whole roof is capital.",
+    "lesson": "07-fixed-assets-and-depreciation.md"
+   },
+   {
+    "type": "single",
+    "q": "Costs of a canopy project under construction sit in:",
+    "options": [
+     "Repairs and maintenance",
+     "Construction in progress, until placed in service",
+     "Prepaid rent",
+     "Accumulated depreciation"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Depreciation begins when the asset is placed in service.",
+    "lesson": "07-fixed-assets-and-depreciation.md"
+   },
+   {
+    "type": "single",
+    "q": "Net book value is:",
+    "options": [
+     "Cost plus depreciation",
+     "Cost less accumulated depreciation",
+     "The resale price",
+     "The insurance value"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A fully depreciated asset has a net book value near zero, which is one reason its replacement is a capital case.",
+    "lesson": "07-fixed-assets-and-depreciation.md"
+   },
+   {
+    "type": "single",
+    "q": "A storm destroys a canopy row. In the books:",
+    "options": [
+     "Nothing happens",
+     "Its net book value is written off and the insurance recovery is recorded against the loss",
+     "Depreciation speeds up",
+     "The site pays for it"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The photos and the incident record are what the claim and the write-off rest on.",
+    "lesson": "07-fixed-assets-and-depreciation.md"
+   },
+   {
+    "type": "single",
+    "q": "Why is coding an invoice to the right entity important?",
+    "options": [
+     "It is not",
+     "A miscoded invoice puts a cost on the wrong site's report",
+     "It changes the amount",
+     "The vendor requires it"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Coding is the account plus the dimensions: entity, department, project.",
+    "lesson": "08-payables-cards-and-the-bank.md"
+   },
+   {
+    "type": "single",
+    "q": "A Ramp card charge with no receipt:",
+    "options": [
+     "Is fine under $50",
+     "Is an expense nobody can defend; it waits in suspense until explained",
+     "Is reimbursed",
+     "Is revenue"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The receipt is still the proof.",
+    "lesson": "08-payables-cards-and-the-bank.md"
+   },
+   {
+    "type": "single",
+    "q": "Segregation of duties means:",
+    "options": [
+     "Every site has its own accountant",
+     "No one person takes, records and reconciles the same cash",
+     "Managers do not see money",
+     "Vendors are paid by the site"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The first cash control.",
+    "lesson": "08-payables-cards-and-the-bank.md"
+   },
+   {
+    "type": "multi",
+    "q": "Which does a bank reconciliation find? Pick all that apply.",
+    "options": [
+     "A deposit the bank posted the next day",
+     "A bank fee the books missed",
+     "A duplicated deposit",
+     "A card charge nobody made",
+     "Next month's budget"
+    ],
+    "answer": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "explanation": "Timing differences, bank items and errors, including fraud.",
+    "lesson": "08-payables-cards-and-the-bank.md"
+   },
+   {
+    "type": "single",
+    "q": "The storage industry values a site on:",
+    "options": [
+     "Net income",
+     "Net operating income",
+     "Cash in the bank",
+     "Gross potential rent"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "NOI is revenue less operating expenses, before financing and depreciation: the number a manager moves.",
+    "lesson": "09-the-close-and-the-three-statements.md"
+   },
+   {
+    "type": "single",
+    "q": "Depreciation is added back on the cash flow statement because:",
+    "options": [
+     "It is a mistake",
+     "It was an expense that moved no cash",
+     "It is revenue",
+     "Banks require it"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The cash flow statement starts from net income and removes the non-cash items.",
+    "lesson": "09-the-close-and-the-three-statements.md"
+   },
+   {
+    "type": "single",
+    "q": "A new roof appears on the cash flow statement under:",
+    "options": [
+     "Operating",
+     "Investing",
+     "Financing",
+     "It does not appear"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Cash spent on assets is investing; loans and distributions are financing.",
+    "lesson": "09-the-close-and-the-three-statements.md"
+   },
+   {
+    "type": "single",
+    "q": "Which close step comes first?",
+    "options": [
+     "Lock the period",
+     "Cut off the period's transactions",
+     "Review variances",
+     "Depreciation"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Cut off, reconcile, revenue, payables and accruals, adjustments, review, lock.",
+    "lesson": "09-the-close-and-the-three-statements.md"
+   },
+   {
+    "type": "single",
+    "q": "Economic occupancy is:",
+    "options": [
+     "Rented units divided by total units",
+     "Earned rent divided by gross potential rent",
+     "Cash divided by rent",
+     "Receivables divided by billing"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Potential actually collected, after vacancy, discounting and concessions.",
+    "lesson": "09-the-close-and-the-three-statements.md"
+   },
+   {
+    "type": "single",
+    "q": "Net income flows into:",
+    "options": [
+     "Cash",
+     "Retained earnings on the balance sheet",
+     "Receivables",
+     "The budget"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "That is how the income statement and the balance sheet connect.",
+    "lesson": "09-the-close-and-the-three-statements.md"
+   },
+   {
+    "type": "single",
+    "q": "Which variance comment is useful?",
+    "options": [
+     "Utilities over.",
+     "Utilities $900 over: October's bill arrived in November, timing; November alone was on budget.",
+     "Ask Accounting.",
+     "Weather."
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "What moved, why, timing or real, what next, with the numbers from the drill-down.",
+    "lesson": "10-budgets-controls-and-the-audit.md"
+   },
+   {
+    "type": "single",
+    "q": "Splitting a $9,000 job into two tickets to stay under a $5,000 limit is:",
+    "options": [
+     "Good planning",
+     "A broken authorization control",
+     "Required by Accounting",
+     "A timing variance"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Authorization limits are a control; a limit avoided is a control broken.",
+    "lesson": "10-budgets-controls-and-the-audit.md"
+   },
+   {
+    "type": "multi",
+    "q": "Which records must exist for an audit? Pick all that apply.",
+    "options": [
+     "Every waiver with its reason",
+     "Every vendor invoice with its ticket and approval",
+     "Every card charge with its receipt",
+     "Signed Time Sheets behind payroll",
+     "Only the final statements"
+    ],
+    "answer": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "explanation": "An audit follows trails. A site with complete records has nothing to prepare.",
+    "lesson": "10-budgets-controls-and-the-audit.md"
+   },
+   {
+    "type": "single",
+    "q": "What does an auditor do?",
+    "options": [
+     "Re-adds every number",
+     "Tests: follows sample trails, confirms balances with outsiders, tests the controls and the judgments",
+     "Sets the budget",
+     "Approves vendors"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "For a site an audit is a request for records that already exist.",
+    "lesson": "10-budgets-controls-and-the-audit.md"
+   },
+   {
+    "type": "single",
+    "q": "Records retention at a storage company is:",
+    "options": [
+     "One year",
+     "Set by law and policy and long; nothing is cleaned up",
+     "Until the tenant leaves",
+     "Up to the manager"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Nexus keeps tickets, forms and Asset Management records by design; Cubby keeps the tenant side.",
+    "lesson": "10-budgets-controls-and-the-audit.md"
+   },
+   {
+    "type": "single",
+    "q": "A contra account:",
+    "options": [
+     "Is a foreign account",
+     "Sits against another account to net it",
+     "Is a mistake",
+     "Holds cash"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Accumulated depreciation against assets; the allowance against receivables.",
+    "lesson": "11-words-to-know.md"
+   },
+   {
+    "type": "single",
+    "q": "NOI margin is:",
+    "options": [
+     "NOI divided by revenue",
+     "Revenue divided by NOI",
+     "Cash divided by rent",
+     "Net income divided by assets"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "How much of each rent dollar the site keeps after operating it.",
+    "lesson": "11-words-to-know.md"
+   },
+   {
+    "type": "single",
+    "q": "Cut-off is:",
+    "options": [
+     "The end of a lease",
+     "The line between one period's transactions and the next",
+     "A late fee",
+     "A gate hour"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "An invoice dated in the wrong month is a timing variance because of cut-off.",
+    "lesson": "11-words-to-know.md"
+   },
+   {
+    "type": "single",
+    "q": "An accrued expense is:",
+    "options": [
+     "Paid ahead",
+     "Incurred but not yet billed or paid",
+     "Never recorded",
+     "A revenue"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Wages earned; the utility bill not yet in.",
+    "lesson": "11-words-to-know.md"
+   },
+   {
+    "type": "single",
+    "q": "A suspense account holds:",
+    "options": [
+     "Tenant deposits",
+     "An uncoded or unexplained item until it is explained",
+     "The budget",
+     "Depreciation"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A card charge with no receipt waits there.",
+    "lesson": "11-words-to-know.md"
+   },
+   {
+    "type": "single",
+    "q": "Which is favorable?",
+    "options": [
+     "Repairs over budget",
+     "Rental income over budget",
+     "Bad debt over budget",
+     "Utilities over budget"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Over on revenue helps; over on expense hurts.",
+    "lesson": "10-budgets-controls-and-the-audit.md"
+   },
+   {
+    "type": "single",
+    "q": "Prepaid insurance is:",
+    "options": [
+     "A liability",
+     "An asset used up a twelfth a month",
+     "Revenue",
+     "Equity"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Paid ahead, expensed as the coverage is used.",
+    "lesson": "04-cash-and-accrual-and-the-period.md"
+   },
+   {
+    "type": "single",
+    "q": "The person who takes payments at the site also reconciles the bank. This is:",
+    "options": [
+     "Efficient",
+     "A segregation-of-duties failure",
+     "Required",
+     "Normal"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "No one person takes, records and reconciles.",
+    "lesson": "08-payables-cards-and-the-bank.md"
+   },
+   {
+    "type": "single",
+    "q": "Net operating income is before:",
+    "options": [
+     "Payroll",
+     "Repairs",
+     "Depreciation and interest",
+     "Utilities"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "NOI is the operating number; financing and depreciation sit below it.",
+    "lesson": "09-the-close-and-the-three-statements.md"
+   },
+   {
+    "type": "single",
+    "q": "Prorated first-month rent is earned:",
+    "options": [
+     "On move-in day in full",
+     "Over the days it covers",
+     "Never",
+     "Next month"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Cubby prorates by its rule; the books follow it.",
+    "lesson": "05-revenue-at-a-storage-company.md"
+   }
+  ]
+ }
+}

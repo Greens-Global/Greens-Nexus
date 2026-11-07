@@ -976,7 +976,23 @@ keep the diff minimal.
   The Nexus Fundamentals course teaches with 28 of them. The seventh
   course, Property & Vendor Management for Storage Sites (managers; not on
   the new-hire plan - `plan.json` lists a subsequence of `kb_academy.ORDER`),
-  reads Asset Management, Tickets and the vendor Compliance tab the same way. Pull nothing from the web into a course: an outside
+  reads Asset Management, Tickets and the vendor Compliance tab the same way.
+  KEEPS UP and the REFRESHER (Neil, 11/07/2026: "automatically stays current
+  as the modules evolve"; a billion-dollar program): a course carries
+  `teaches` (Nexus modules, matched to What's New entries' `module` through
+  `kb_currency.same_module`); the daily `kb_currency.run` flags a published
+  course (`review_flag`, one owner bell) when a Released entry about a taught
+  module is newer than `reviewed_at`; Publish and `POST
+  /kb/courses/{id}/reviewed` clear it; `GET /kb/learn?module=` feeds the Help
+  panel's Learn This Screen card. `kb_refresher` is spaced repetition:
+  `kb_refresher_items` (RLS on dev and prod) seeded from passed courses'
+  banks, three due questions a day (`/kb/refresher/today`, `/answer`),
+  the interval doubling to 60 days on a right answer and back to one on a
+  wrong one; never a score, never chased; the card is `training/Refresher.jsx`
+  on My Learning and the `refresher` Dashboard widget. Courses 8 to 10
+  (Fundamentals of Accounting, Intacct Fundamentals at Greens, Leading With
+  Nexus) are for managers; `departments` on a course.json shelves it.
+  Pull nothing from the web into a course: an outside
   image has a license and teaches nothing about our sites. DRAWINGS (Neil,
   11/07/2026: "a drawing of what they look like") are the one illustration
   library: `kb/components/drawings.jsx`, line drawings by name on a 200 x

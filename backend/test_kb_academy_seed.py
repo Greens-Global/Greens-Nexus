@@ -87,7 +87,7 @@ def test_paths_pass_upgrades_a_plan_a_first_run_made_before_paths(_package):
         c.level, c.tags = "", ""
     db.commit()
     out = kb_academy_seed.apply_paths_once(db)
-    assert out == {"plan": plan.id, "courses": 7}
+    assert out == {"plan": plan.id, "courses": len(kb_academy.ORDER)}
     db.expire_all()
     plan = db.get(models.KbTrainingPlan, plan.id)
     assert plan.kind == "onboarding" and json.loads(plan.stages) == kb_academy_seed.ACADEMY_STAGES
@@ -107,7 +107,7 @@ def test_paths_pass_leaves_hand_set_values_alone(_package):
     c.level, c.tags = "advanced", "mine"
     db.commit()
     out = kb_academy_seed.apply_paths_once(db)
-    assert out["plan"] == "" and out["courses"] == 6
+    assert out["plan"] == "" and out["courses"] == len(kb_academy.ORDER) - 1
     db.expire_all()
     assert db.get(models.KbTrainingPlan, plan.id).kind == "role"
     assert db.get(models.KbCourse, c.id).level == "advanced"
@@ -208,6 +208,7 @@ def test_content_pass_refreshes_untouched_courses_and_figures_in_touched_ones(_p
     (first / "lessons" / "01a.md").write_text("---\ntitle: The Facility\nsummary: What a site is made of.\n---\n\nA fence, a gate, an office.\n", encoding="utf-8")
     cfg = json.loads((first / "course.json").read_text())
     cfg["lessons"].insert(1, {"file": "01a.md"})
+    cfg["teaches"] = "Workday, Time Clock"   # Keeps Up: the tag reaches the imported course too
     (first / "course.json").write_text(json.dumps(cfg), encoding="utf-8")
     courses = {c.title: c for c in db.query(models.KbCourse).all()}
     # one course's lesson was saved by hand since the import (updated_at moves, like every save route)
@@ -220,7 +221,8 @@ def test_content_pass_refreshes_untouched_courses_and_figures_in_touched_ones(_p
     saved.updated_at = "2026-11-07T10:00:00"
     db.commit()
     out = kb_academy_seed.apply_content_once(db)
-    assert out == {"pages": 0, "courses": 6, "lessons": 7}   # five untouched courses whole (one of them now two lessons), one figure into the saved course
+    n = len(kb_academy.ORDER)
+    assert out == {"pages": 0, "courses": n - 1, "lessons": n}   # every untouched course whole (one of them now two lessons), one figure into the saved course
     db.expire_all()
     for title, c in courses.items():
         d = json.loads(db.get(models.KbCourse, c.id).draft)
@@ -229,10 +231,11 @@ def test_content_pass_refreshes_untouched_courses_and_figures_in_touched_ones(_p
     d = json.loads(db.get(models.KbCourse, courses["Nexus Fundamentals"].id).draft)
     assert [L["title"] for L in d["lessons"]][:2] == [d["lessons"][0]["title"], "The Facility"]   # the new lesson landed, in place
     assert d["lessons"][1]["_id"] == "l_nexus-fundamentals_02"
+    assert db.get(models.KbCourse, courses["Nexus Fundamentals"].id).teaches == "Workday, Time Clock"
     assert kb_academy_seed.apply_content_once(db) is None   # the package did not change
     # the package grows a course (the code's ORDER grows with it): the pass imports it as a draft
     import kb_academy as ka
-    extra = kb_academy.ROOT / "courses" / "09-extra-course"
+    extra = kb_academy.ROOT / "courses" / "99-extra-course"   # sorts after every package course, so the slugs stay in ORDER
     (extra / "lessons").mkdir(parents=True)
     (extra / "lessons" / "01.md").write_text("---\ntitle: Extra Lesson\nsummary: s\n---\n\n## Hi\n\nMore words here.\n", encoding="utf-8")
     (extra / "course.json").write_text(json.dumps({"slug": "extra-course", "title": "Extra Course", "description": "d", "overview": ["o"], "est_minutes": 30,

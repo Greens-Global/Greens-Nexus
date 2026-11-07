@@ -3,9 +3,13 @@
 Courses are authored here as Markdown + JSON and imported as DRAFTS.
 `python -m pytest test_kb_academy_content.py` (in `backend/`) must pass.
 
-Seven courses: the six new-hire courses the plan lists in order, then
-`07-property-and-vendor-management` for managers (not on the plan; `plan.json`
-may list any subsequence of `kb_academy.ORDER`). A new course goes in
+Ten courses: the six new-hire courses the plan lists in order, then the manager
+courses `07-property-and-vendor-management`, `08-fundamentals-of-accounting`,
+`09-intacct-fundamentals` and `10-leading-with-nexus` (not on the plan; `plan.json`
+may list any subsequence of `kb_academy.ORDER`). A course.json may carry
+`teaches` (the Nexus modules it teaches, for Keeps Up and the Help panel) and
+`departments` (the department it shelves under; the Academy's by default); a
+lesson's front matter may carry `teaches:` too. A new course goes in
 `kb_academy.ORDER`, `MIN_READING` and `EST_MINUTES` too. After an environment's
 first import, a change here reaches it through `kb_academy_seed.apply_content_once`
 (it runs whenever the package digest changes): new pages and courses are

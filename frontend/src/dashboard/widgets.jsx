@@ -9,7 +9,7 @@ import {
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
   Bookmark, Plus, Link2, Lock,
   PenLine, Contact, ShoppingCart, Cake, UserMinus,
-  Ticket as TicketIcon, CloudSun, Search, HardHat, Building2,
+  Ticket as TicketIcon, CloudSun, Search, HardHat, Building2, GraduationCap,
 } from 'lucide-react';
 import { formatTime, formatDayLong } from '../lib/datetime';
 import { api } from '../api';
@@ -19,6 +19,7 @@ import { setPendingOpen } from '../lib/pendingOpen';
 import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { useRole } from '../contexts/RoleContext';
+import Refresher from '../kb/training/Refresher';   // Refresher (Neil, 11/07/2026): spaced repetition from the courses you passed
 import { readIds, pushRecentId } from '../links/shortcutStorage';
 import { looksLikeUrl } from '../links/personalLinkModal.jsx';
 import { ModalLoading, CountSkeleton } from '../components/AsyncState';
@@ -1060,6 +1061,12 @@ function ClockWidget() {
 // caps its own rows and links to its module for the rest, never an inner
 // scrollbar (DashboardGrid's fitTops). Stat, action and tool tiles stay boxes.
 const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
+// Three refresher questions a day from the courses this person passed; the
+// card itself renders nothing when nothing is due (compact says so instead).
+function RefresherWidget() {
+  return <div className="kb" style={{ padding: 2 }}><Refresher compact /></div>;
+}
+
 export const WIDGETS = {
   kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi', compact: true },
   // At a Glance, retired (Neil, Oct 13 2026: "nobody cares that there's 1,925
@@ -1143,6 +1150,7 @@ export const WIDGETS = {
   // rest. `timeTracked`: only for people who are time-tracked - a salaried
   // (exempt) person never sees it placed or offered (see widgetHidden).
   'my-time':       { title: 'My Time',       cat: 'Workday', icon: Hourglass,  size: { w: 3, h: 3 }, limits: { minW: 3, minH: 3, maxW: 4, maxH: 4 },  render: MyTimeWidget, timeTracked: true },
+  refresher:       { title: 'Refresher',     cat: 'Workday', icon: GraduationCap, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 6 }, render: RefresherWidget, fit: true },
   announcements:   { title: 'Announcements', cat: 'Live',    icon: Megaphone,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 8 },  render: AnnouncementsWidget, fit: true },
   'my-team':       { title: 'My Team',       cat: 'Team',    icon: Users,      size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 12, maxH: 8 }, render: MyTeamWidget, minRole: 'supervisor', fit: true },
   // Oct 1: a module-gated tile - `module` names the Access Group grant that

@@ -16,6 +16,7 @@
  "delivery": "online",
  "level": "core",
  "tags": "rv, boat, vehicle storage",
+ "teaches": "Tickets, Forms",
  "min_reading_minutes": 100,
  "lessons": [
   {

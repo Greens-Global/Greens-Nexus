@@ -51,6 +51,7 @@ class CourseIn(BaseModel):
     delivery: Optional[str] = None      # online | in_person (WP 5.1)
     level: Optional[str] = None         # foundations | core | advanced | '' (learning paths, 11/07/2026)
     tags: Optional[str] = None          # "storage, cubby"
+    teaches: Optional[str] = None       # Nexus modules the course teaches (Keeps Up, 11/07/2026): "Workday, Time Clock"
 
 
 class PublishIn(BaseModel):
@@ -191,11 +192,12 @@ def _draft_of(c: models.KbCourse) -> dict:
         d.setdefault("delivery", c.delivery or "online")
         d.setdefault("level", c.level or "")
         d.setdefault("tags", c.tags or "")
+        d.setdefault("teaches", c.teaches or "")
         return d
     return {"title": c.title, "description": c.description or "", "overview": _j(c.overview, []), "est_minutes": c.est_minutes or 15,
             "lessons": kb_core.lessons_of(c), "quiz": _j(c.quiz, {}) or {"passPct": 80, "drawCount": 0, "maxTries": 3, "shuffle": True, "questions": []},
             "recert_months": c.recert_months or 0, "default_due_days": int(c.default_due_days or 0), "departments": c.departments or "", "delivery": c.delivery or "online",
-            "level": c.level or "", "tags": c.tags or ""}
+            "level": c.level or "", "tags": c.tags or "", "teaches": c.teaches or ""}
 
 
 QUESTION_TYPES = ("single", "multi", "tf", "order", "short", "photo")   # WP 5.5 added order, short and photo
@@ -303,6 +305,9 @@ def _norm_lessons(db: Session, lessons: list, user: Optional[dict] = None) -> li
         t = L.get("type") if L.get("type") in ("text", "page", "checkpoint") else "text"
         lid = str(L.get("_id") or kb_core.new_id("l"))
         item = {"_id": lid, "type": t, "title": str(L.get("title") or "Lesson")[:200], "summary": str(L.get("summary") or "")[:600]}
+        teaches = [str(x).strip()[:60] for x in (L.get("teaches") or []) if str(x).strip()][:10] if isinstance(L.get("teaches"), list) else []
+        if teaches:
+            item["teaches"] = teaches
         if t == "page":
             did = str(L.get("docId") or "")
             d = _page_for_lesson(db, did, user)
@@ -338,6 +343,8 @@ def _course_card(db: Session, c: models.KbCourse, email: str) -> dict:
             "owner_email": (c.owner_email or "").lower(), "owner_name": c.owner_name or _name(db, c.owner_email),
             "departments": c.departments or "", "department_list": kb_core.departments_of(c),
             "level": (c.level or "") if (c.level or "") in COURSE_LEVELS else "", "tags": _tags(c.tags),
+            "teaches": _tags(c.teaches), "reviewed_at": c.reviewed_at or c.published_at or "",
+            "review_flag": (_j(c.review_flag, {}) or None) if c.review_flag else None,
             "published_at": c.published_at or "", "updated_at": c.updated_at or "",
             "assigned": bool(asn), "due_date": asn.due_date if asn else "", "source": asn.source if asn else "",
             "plan_id": asn.plan_id if asn else "", "my_status": st["status"], "my_pct": st["pct"], "expires": st["expires"],
@@ -631,6 +638,8 @@ def update_course(cid: str, body: CourseIn, user: dict = Depends(require_author)
         draft["level"] = body.level if body.level in COURSE_LEVELS else ""
     if body.tags is not None:
         draft["tags"] = ", ".join(_tags(body.tags))
+    if body.teaches is not None:
+        draft["teaches"] = ", ".join(_tags(body.teaches))
     if body.lessons is not None:
         draft["lessons"] = _norm_lessons(db, body.lessons, user)
     if body.quiz is not None:
@@ -641,6 +650,7 @@ def update_course(cid: str, body: CourseIn, user: dict = Depends(require_author)
         c.overview = json.dumps(draft["overview"])
         c.delivery = draft.get("delivery") or c.delivery or "online"
         c.level, c.tags = draft.get("level") or "", draft.get("tags") or ""
+        c.teaches = draft.get("teaches") or ""
     c.updated_at = kb_core.now()
     db.commit()
     return builder(c.id, user, db)
@@ -671,6 +681,8 @@ def publish_course(cid: str, body: PublishIn, user: dict = Depends(require_autho
     c.delivery = draft.get("delivery") or c.delivery or "online"
     c.level = draft.get("level") if draft.get("level") in COURSE_LEVELS else ""
     c.tags = ", ".join(_tags(draft.get("tags")))
+    c.teaches = ", ".join(_tags(draft.get("teaches")))
+    c.reviewed_at, c.review_flag = kb_core.now(), ""   # a publish is a review (Keeps Up, 11/07/2026)
     c.lessons, c.quiz = json.dumps(lessons), json.dumps(quiz)
     c.major = (c.major or 0) + 1
     c.status = "published"
@@ -1974,3 +1986,53 @@ def decide_photo(rid: str, body: PhotoDecideIn, user: dict = Depends(get_current
                    item_name=c.title, sub=f"course:{c.id}", requested_by=me)
     db.commit()
     return {"status": r.status, "graded": True, "score": out["score"], "passed": out["passed"]}
+
+
+# ----------------------------------------------------------------- Keeps Up (Neil, 11/07/2026)
+
+@router.post("/courses/{cid}/reviewed")
+def mark_course_reviewed(cid: str, user: dict = Depends(require_author), db: Session = Depends(get_db)):
+    """The author looked at the course against what changed in Nexus and
+    says it is still right: stamps reviewed_at and clears the flag."""
+    c = kb_access.get_course(db, cid, user)
+    kb_access.assert_edit_course(c, user, db)
+    c.reviewed_at, c.review_flag = kb_core.now(), ""
+    db.commit()
+    return {"ok": True, "reviewed_at": c.reviewed_at}
+
+
+@router.get("/learn")
+def learn_this_screen(module: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The published courses (and the lessons in them) that teach a Nexus
+    module, for the Help panel's Learn This Screen card."""
+    import kb_currency
+    email = user["email"].lower()
+    rows = [c for c in kb_access.wall_rows(db.query(models.KbCourse).filter(models.KbCourse.status == "published").all(), user, db)
+            if kb_currency.teaches(c, module)]
+    out = []
+    for c in rows:
+        lessons = [{"id": L["_id"], "title": L["title"]} for L in kb_core.lessons_of(c)
+                   if L.get("type") == "text" and any(kb_currency.same_module(t, module) for t in L.get("teaches") or [])]
+        prog = kb_core.progress_of(db, c, email)
+        out.append({"id": c.id, "title": c.title, "code": c.course_code or "", "est_minutes": c.est_minutes or 15,
+                    "done": bool(prog and prog.passed), "started": bool(prog and prog.started_at), "lessons": lessons[:4]})
+    return {"module": module, "courses": out[:4]}
+
+
+# ----------------------------------------------------------------- Refresher (Neil, 11/07/2026)
+
+class RefresherAnswerIn(BaseModel):
+    item_id: str
+    answer: Optional[object] = None
+
+
+@router.get("/refresher/today")
+def refresher_today(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import kb_refresher
+    return kb_refresher.today(db, user["email"].lower())
+
+
+@router.post("/refresher/answer")
+def refresher_answer(body: RefresherAnswerIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import kb_refresher
+    return kb_refresher.answer(db, user["email"].lower(), body.item_id, body.answer)

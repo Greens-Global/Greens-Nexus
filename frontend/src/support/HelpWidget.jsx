@@ -64,6 +64,37 @@ const moduleArticle = (d) => ({ source: 'guide', kind: 'module', docId: d.id, do
 
 
 // ── Home ────────────────────────────────────────────────────────────────────
+// Learn This Screen (Neil, 11/07/2026, Keeps Up): the published courses whose
+// `teaches` names this module, with the lessons that teach it, one click
+// from the screen itself.
+function LearnThisScreen({ module, onClose }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let live = true;
+    setData(null);
+    api.kbLearn(module).then((d) => { if (live) setData(d); }).catch(() => { if (live) setData({ courses: [] }); });
+    return () => { live = false; };
+  }, [module]);
+  if (!data || !data.courses?.length) return null;
+  const go = (sub) => { onClose?.(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'sop', sub } })); };
+  return (
+    <div className="hw-card hw-card-quiet" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6, cursor: 'default' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <GraduationCap size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+        <span className="hw-card-text"><span className="hw-card-title" style={{ fontSize: 13 }}>Learn This Screen</span><span className="hw-card-sub">{data.courses.length === 1 ? 'A course teaches it' : `${data.courses.length} courses teach it`}</span></span>
+      </div>
+      {data.courses.map((c) => (
+        <div key={c.id} style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingLeft: 26 }}>
+          <button type="button" className="hw-link" onClick={() => go(`course:${c.id}`)} style={{ textAlign: 'left', background: 'none', border: 0, padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
+            <b>{c.title}</b>{c.done ? <span className="hw-card-sub"> · completed</span> : c.started ? <span className="hw-card-sub"> · in progress</span> : <span className="hw-card-sub"> · about {c.est_minutes} min</span>}
+          </button>
+          {c.lessons.length > 0 && <span className="hw-card-sub">{c.lessons.map((L) => L.title).join(' · ')}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function HomeTab({ firstName, pageDoc, liveTour, otherTours, onSearch, onAsk, onWhatsNew, onOpenArticle, onClose }) {
   // Take the Tour is always here (Neil, Oct 14): this screen's tour when it
   // has one, else the list of every tour you can reach - one tap goes there
@@ -108,6 +139,7 @@ function HomeTab({ firstName, pageDoc, liveTour, otherTours, onSearch, onAsk, on
             <ArrowUpRight size={18} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
           </button>
         )}
+        {pageDoc && <LearnThisScreen module={pageDoc.name} onClose={onClose} />}
         {pageDoc && (
           <button type="button" className="hw-card hw-card-quiet" onClick={() => onOpenArticle(moduleArticle(pageDoc))}>
             <Compass size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />

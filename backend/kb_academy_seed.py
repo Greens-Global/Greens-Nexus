@@ -99,18 +99,19 @@ def _course(db: Session, s, owner: str, owner_name: str, page_ids: dict):
     if c is not None:
         return c, 0
     c = KbCourse(id=kb_core.new_id("crs"), course_code="", title=s.title[:200], description=(s.description or "")[:400],
-                 overview=json.dumps(s.overview or []), recert_months=0, default_due_days=0, departments=DEPT,
+                 overview=json.dumps(s.overview or []), recert_months=0, default_due_days=0, departments=(s.departments or DEPT)[:200],
                  status="draft", owner_email=owner, owner_name=owner_name, est_minutes=int(s.est_minutes or 15),
                  lessons="[]", quiz=json.dumps({"passPct": 80, "drawCount": 0, "maxTries": 3, "shuffle": True, "questions": []}),
                  created_at=kb_core.now(), updated_at=kb_core.now(), major=0, draft="", published_at="", published_by="")
     kb_core.assign_course_code(db, c)
     if s.delivery in ("online", "in_person"):
         c.delivery = s.delivery
-    c.level, c.tags = s.level or "", s.tags or ""
+    c.level, c.tags, c.teaches = s.level or "", s.tags or "", s.teaches or ""
     draft = _draft_of(c)
     lessons = [{**L, "docId": page_ids[L["page"]]} if L["type"] == "page" else L for L in s.lessons]
     draft["lessons"] = _norm_lessons(db, lessons)
     draft["quiz"] = _norm_quiz(s.quiz)
+    draft["teaches"] = s.teaches or ""
     c.draft = json.dumps(draft)
     db.add(c)
     kb_core.event(db, kind="course_created", actor=owner, course_id=c.id, actor_name=owner_name)
@@ -297,6 +298,10 @@ def apply_content_once(db: Session) -> dict | None:
             continue
         draft = _draft_of(c)
         changed = False
+        if spec.teaches and not (c.teaches or "").strip():   # metadata, not content: the module tags land even on a course somebody saved
+            c.teaches = spec.teaches
+            draft.setdefault("teaches", spec.teaches)
+            changed = True
         if _untouched(c) and all(L["type"] != "page" or L["page"] in page_ids for L in spec.lessons):
             lessons = [{**L, "docId": page_ids[L["page"]]} if L["type"] == "page" else L for L in spec.lessons]
             new_lessons = _norm_lessons(db, lessons)
@@ -305,6 +310,7 @@ def apply_content_once(db: Session) -> dict | None:
                 draft["quiz"] = _norm_quiz(spec.quiz)
                 draft["description"], draft["overview"] = (spec.description or "")[:400], spec.overview or []
                 draft["est_minutes"] = int(spec.est_minutes or draft.get("est_minutes") or 15)
+                draft["teaches"] = spec.teaches or draft.get("teaches") or ""
                 lessons_touched += sum(1 for L in new_lessons if L["type"] == "text")
                 changed = True
         else:
