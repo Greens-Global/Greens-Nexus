@@ -122,11 +122,11 @@ function Frame({ title, tabs = [], active, activeRail, headerMark, railMark, tab
 // (index 0 = marker 1).
 const SHOTS = {
   layout: {
-    legend: ['Left menu - moves you between modules', 'Module tabs - the parts of the module you are in', 'Search - or press Ctrl+K anywhere', 'Bell - every alert meant for you'],
+    legend: ['Left menu - moves you between modules', 'Module tabs - the parts of the module you are in', 'Search - or press Ctrl+F anywhere', 'Bell - every alert meant for you'],
     render: () => (
       <Frame title="Dashboard" tabs={['Dashboard', 'Links']} active="Dashboard" activeRail={0} railMark={1} tabMark={2}
         headerMark={<Row gap={22} style={{ marginRight: 8 }}>
-          <Mark n={3}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 6, padding: '3px 7px', background: 'var(--mist)', whiteSpace: 'nowrap' }}><Search size={10} /> Ctrl+K</span></Mark>
+          <Mark n={3}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 6, padding: '3px 7px', background: 'var(--mist)', whiteSpace: 'nowrap' }}><Search size={10} /> Ctrl+F</span></Mark>
           <Mark n={4}><Bell size={14} style={{ color: 'var(--ink)' }} /></Mark>
         </Row>}>
         <Col>

@@ -415,7 +415,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
               <span className="dk-chip dk-chip--red"><Ticket /></span> New Ticket
               <ChevronRight size={14} className="dk-key-arrow" />
             </button>
-            <div className="dk-hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to search everything</div>
+            <div className="dk-hint">Press <kbd>Ctrl</kbd>+<kbd>F</kbd> to search everything</div>
           </div>
 
           <FavoritesCard myEmail={myEmail} />
