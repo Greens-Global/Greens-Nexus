@@ -57,4 +57,22 @@ describe('MarkupBar', () => {
     rerender(<MarkupBar {...p} tool="laser" />);
     expect(screen.getByRole('button', { name: 'More Tools: Laser Pointer' })).toBeTruthy();
   });
+
+  it('offers the Diagram menu only when the board can draw diagrams, and hands each row back', () => {
+    const { rerender } = render(<MarkupBar tool="select" colorKey="red" sizeKey="medium" />);
+    expect(screen.queryByTestId('nx-mk-diagram')).toBeNull();
+    const onAction = vi.fn();
+    rerender(<MarkupBar tool="select" colorKey="red" sizeKey="medium" diagram={{ onAction, canTidy: true, canRefresh: false }} />);
+    fireEvent.click(screen.getByTestId('nx-mk-diagram'));
+    expect(screen.getByRole('menu', { name: 'Diagram' })).toBeTruthy();
+    expect(screen.queryByText('Refresh from Source')).toBeNull();
+    fireEvent.click(screen.getByText('Diagram from Text'));
+    expect(onAction).toHaveBeenCalledWith('text');
+    expect(screen.queryByRole('menu', { name: 'Diagram' })).toBeNull();
+    rerender(<MarkupBar tool="select" colorKey="red" sizeKey="medium" diagram={{ onAction, canTidy: true, canRefresh: true }} />);
+    fireEvent.click(screen.getByTestId('nx-mk-diagram'));
+    fireEvent.click(screen.getByText('Refresh from Source'));
+    expect(onAction).toHaveBeenLastCalledWith('refresh');
+  });
 });
+

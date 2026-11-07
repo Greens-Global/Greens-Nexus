@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   MousePointer2, Hand, PenLine, Highlighter, MoveUpRight, Square, Type, MessageSquarePlus, Eraser,
   Undo2, Redo2, Trash2, MoreHorizontal, Check, Circle, Diamond, Minus, ImagePlus, Frame, Pointer, Shapes, SlidersHorizontal, ChevronDown,
+  Workflow, RectangleHorizontal, StickyNote, FileText, Users, ListTree, RefreshCw, ArrowDownNarrowWide, ArrowRightLeft,
 } from 'lucide-react';
 import { MARKUP_TOOLS, MORE_TOOLS, MARKUP_COLORS, MARKUP_SIZES, colorByKey, isMoreTool } from './markupTools';
 
@@ -23,15 +24,38 @@ const ICONS = {
   ellipse: Circle, diamond: Diamond, line: Minus, image: ImagePlus, frame: Frame, laser: Pointer,
 };
 
+// The Diagram menu (Neil, 11/06/2026, board/diagram/): boxes that start a
+// flow (then the + on a selected box grows it), the text and data diagrams,
+// Tidy Up, and Refresh for a data diagram. What each row does is Board.jsx's.
+const DIAGRAM_ROWS = [
+  { kicker: 'Add a Box' },
+  { key: 'shape:step', label: 'Step', Icon: RectangleHorizontal },
+  { key: 'shape:decision', label: 'Decision', Icon: Diamond },
+  { key: 'shape:terminal', label: 'Start / End', Icon: Circle },
+  { key: 'shape:note', label: 'Note', Icon: StickyNote },
+  { kicker: 'Draw a Diagram' },
+  { key: 'text', label: 'Diagram from Text', Icon: FileText },
+  { key: 'org', label: 'Org Chart from People', Icon: Users },
+  { key: 'workflow', label: 'Workflow as Diagram', Icon: Workflow },
+  { key: 'tasks', label: 'Task Dependencies', Icon: ListTree },
+  { kicker: 'Arrange' },
+  { key: 'tidy:TB', label: 'Tidy Up: Top to Bottom', Icon: ArrowDownNarrowWide, needs: 'tidy' },
+  { key: 'tidy:LR', label: 'Tidy Up: Left to Right', Icon: ArrowRightLeft, needs: 'tidy' },
+  { key: 'refresh', label: 'Refresh from Source', Icon: RefreshCw, needs: 'refresh' },
+];
+
 export default function MarkupBar({
+  diagram = null,
   phone = false, tool, colorKey, sizeKey, hasSelection = false, styleOpen = false,
   onTool, onColor, onSize, onUndo, onRedo, onDelete, onMore, onStyle, onHide,
 }) {
-  // One pop-up at a time: the inks ('ink') or More Tools ('more').
+  // One pop-up at a time: the inks ('ink'), More Tools ('more') or Diagram ('diagram').
   const [pop, setPop] = useState('');
   const tray = pop === 'ink';
   const setTray = (v) => setPop((p) => ((typeof v === 'function' ? v(p === 'ink') : v) ? 'ink' : ''));
   const trayRef = useRef(null);
+  const dgRef = useRef(null);
+  const dgBtnRef = useRef(null);
   const dotRef = useRef(null);
   const moreRef = useRef(null);
   const moreBtnRef = useRef(null);
@@ -43,9 +67,9 @@ export default function MarkupBar({
   // A pop-up closes on a tap anywhere else or on Escape.
   useEffect(() => {
     if (!pop) return undefined;
-    const mine = [trayRef, dotRef, moreRef, moreBtnRef];
+    const mine = [trayRef, dotRef, moreRef, moreBtnRef, dgRef, dgBtnRef];
     const away = (e) => { if (!mine.some((r) => r.current?.contains(e.target))) setPop(''); };
-    const esc = (e) => { if (e.key === 'Escape') { const back = pop === 'ink' ? dotRef : moreBtnRef; setPop(''); back.current?.focus(); } };
+    const esc = (e) => { if (e.key === 'Escape') { const back = pop === 'ink' ? dotRef : pop === 'diagram' ? dgBtnRef : moreBtnRef; setPop(''); back.current?.focus(); } };
     document.addEventListener('pointerdown', away, true);
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc); };
@@ -110,6 +134,19 @@ export default function MarkupBar({
         </div>
       )}
 
+      {pop === 'diagram' && diagram && (
+        <div className="nx-mk-tray nx-mk-more nx-mk-diagram" ref={dgRef} role="menu" aria-label="Diagram">
+          {DIAGRAM_ROWS.filter((r) => !r.needs || (r.needs === 'tidy' ? diagram.canTidy : diagram.canRefresh)).map((r) => (r.kicker
+            ? <div key={r.kicker} className="nx-mk-tray-kicker">{r.kicker}</div>
+            : (
+              <button key={r.key} type="button" role="menuitem" className="nx-mk-more-row" data-diagram={r.key}
+                onClick={() => { setPop(''); diagram.onAction?.(r.key); }}>
+                <r.Icon size={18} /> <span>{r.label}</span>
+              </button>
+            )))}
+        </div>
+      )}
+
       <div className="nx-mk-bar" role="toolbar" aria-label="Markup Tools">
         <div className="nx-mk-tools">
           {tools.map((t) => {
@@ -129,6 +166,12 @@ export default function MarkupBar({
             <MoreIcon size={phone ? 20 : 18} />
           </button>
         </div>
+        {diagram && (
+          <button ref={dgBtnRef} type="button" className={`nx-mk-btn${pop === 'diagram' ? ' is-on' : ''}`} aria-expanded={pop === 'diagram'} aria-haspopup="menu"
+            aria-label="Diagram" title="Diagram" onClick={() => setPop((p) => (p === 'diagram' ? '' : 'diagram'))} data-testid="nx-mk-diagram">
+            <Workflow size={phone ? 20 : 18} />
+          </button>
+        )}
         <span className="nx-mk-sep" aria-hidden />
         <button ref={dotRef} type="button" className={`nx-mk-btn nx-mk-dot${tray ? ' is-on' : ''}`} aria-expanded={tray} aria-label={`Ink: ${ink.label}`} title="Ink and Width"
           onClick={() => setTray((v) => !v)}>
