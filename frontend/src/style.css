@@ -9727,8 +9727,8 @@ body:has(.apv-phone) { overflow-x: clip; }
   .main-content:has(.module-bar--header) .viewport .page-trail { display: none; }
 }
 /* The bar IN the top header (Neil, 11/06/2026: "on the top navigation bar
-   instead of on the page"): Back, then the module's name or a record's
-   trail and its tabs (a measured strip that folds into More), then the
+   instead of on the page"): Back's line over the module's name or a record's
+   trail, then its tabs (a measured strip that folds into More), then the
    search and the account cluster - never a module's buttons. One row; the page starts under it.
    Below 1440px the account pill keeps just the photo and the search gets
    shorter so the tabs keep their room; Ctrl+F still opens the search. */
@@ -9738,15 +9738,26 @@ body:has(.apv-phone) { overflow-x: clip; }
     position: static; z-index: auto; flex: 1; min-width: 0; min-height: 0;
     align-self: stretch; padding: 0; background: none; border-bottom: 0;
   }
-  /* No tabs (Help Center, Asset Management): the name stands alone, no divider. */
-  .module-bar--header:not(:has(.hdr-tabs)) .page-trail--bar { border-right: 0; }
-  /* Back is just the arrow, not a chip (Neil, 11/06/2026): it shares the row
-     with the module's name and tabs and must not crowd them. */
-  .top-header .breadcrumb-back,
-  [data-theme="dark"] .top-header .breadcrumb-back {
-    width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: var(--muted);
+  /* The name block: Back's small line over the module's name or a record's
+     trail, one hairline after it (Neil, 11/06/2026, option C). */
+  .module-bar-name {
+    display: flex; flex-direction: column; justify-content: center; flex-shrink: 0;
+    min-width: 0; max-width: 45%; padding-right: 12px; border-right: 1px solid var(--wk-line);
   }
-  .top-header .breadcrumb-back:hover { color: var(--wk-brand); background: none; }
+  .module-bar-name .page-trail--bar { padding-right: 0; border-right: 0; }
+  /* No tabs (Help Center, Asset Management): the name stands alone, no divider. */
+  .module-bar--header:not(:has(.hdr-tabs)) .module-bar-name { border-right: 0; }
+  /* Where Back goes, said in a quiet line - the whole line is the button. */
+  .module-bar-back {
+    display: inline-flex; align-items: center; gap: 3px; align-self: flex-start; max-width: 100%;
+    margin: -3px 0 0; padding: 3px 0 1px; border: 0; background: none; cursor: pointer;
+    font: 600 11px/1.3 var(--wk-font); color: var(--muted); white-space: nowrap;
+    transition: color .12s ease-out;
+  }
+  .module-bar-back span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .module-bar-back svg { flex-shrink: 0; }
+  .module-bar-back:hover { color: var(--wk-brand); }
+  .module-bar-back:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; border-radius: 3px; }
 }
 @media (min-width: 901px) and (max-width: 1439px) {
   .top-header:has(.module-bar--header .hdr-tabs) .header-user-info { display: none; }

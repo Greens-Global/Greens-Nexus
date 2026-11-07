@@ -661,7 +661,11 @@ function MainApp() {
   // browser's own back/forward.
   const [canGoBack, setCanGoBack] = useState(false);
   const [prevLabel, setPrevLabel] = useState(null);
+  const [prevView, setPrevView] = useState(null);
   const prevLocRef = useRef({ view: activeView, sub: activeSub });
+  // The page's own name (its lit tab, else the module), kept by ModuleBar: a
+  // move inside one module stamps it, so Back reads "Hiring", not "People".
+  const pageNameRef = useRef('');
   const [backendDown,      setBackendDown]      = useState(false);
   // No signal is not "Nexus is down": the offline bar speaks then, not the red one.
   const { online } = useOffline();
@@ -836,6 +840,7 @@ function MainApp() {
         setActiveSub(sub ?? getDefaultSub(view));
         setCanGoBack((e.state?.depth || 0) > 0);
         setPrevLabel(e.state?.fromLabel || null);
+        setPrevView(e.state?.fromView || null);
       });
     };
     window.addEventListener('popstate', onPop);
@@ -865,11 +870,12 @@ function MainApp() {
       rememberEntry();
     } else if (window.location.pathname !== path) {
       const depth = (window.history.state?.depth || 0) + 1;
-      const fromLabel = viewLabel(prevLocRef.current.view);
-      window.history.pushState({ depth, fromLabel }, '', addressFor(path, { first, search: window.location.search, hash: window.location.hash }));
+      const fromLabel = (prevLocRef.current.view === activeView && pageNameRef.current) || viewLabel(prevLocRef.current.view);
+      window.history.pushState({ depth, fromLabel, fromView: prevLocRef.current.view }, '', addressFor(path, { first, search: window.location.search, hash: window.location.hash }));
       rememberEntry();
       setCanGoBack(true);
       setPrevLabel(fromLabel);
+      setPrevView(prevLocRef.current.view);
     }
     prevLocRef.current = { view: activeView, sub: activeSub };
   }, [activeView, activeSub]);
@@ -968,6 +974,8 @@ function MainApp() {
               onBack={goBack}
               onNavigate={navigate}
               prevLabel={prevLabel}
+              pageNameRef={pageNameRef}
+              prevView={prevView}
             />
             </WidgetBoundary>
             )}

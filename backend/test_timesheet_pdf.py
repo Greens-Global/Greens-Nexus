@@ -25,7 +25,7 @@ HOURLY = {
                       seg("2026-10-05T20:25:00", "2026-10-05T23:45:00", 200, amount=73.33,
                           breaks=[{"start": "2026-10-05T21:00:00", "end": "2026-10-05T21:10:00", "min": 10,
                                    "startId": "b1", "endId": "b2"}])]},
-        {"date": "2026-10-12", "weekStart": "2026-10-11", "workedMin": 490, "rate": 22.0,
+        {"date": "2026-10-12", "weekStart": "2026-10-11", "workedMin": 490, "otMin": 10, "rate": 22.0,
          "segments": [seg("2026-10-12T15:50:00", "2026-10-12T19:50:00", 240, amount=88.0),
                       seg("2026-10-12T20:00:00", "2026-10-13T00:10:00", 250, ot=10, amount=93.5, in_id="edited",
                           note="Forgot to clock back in; Clock in time should be around 1 PM · payroll edit")]},
@@ -105,7 +105,7 @@ class Hourly(unittest.TestCase):
         self.assertIn("Sat 10/17", self.text)
         # Neil, 11/06/2026: labels regular, values bold, "None" with no overtime.
         self.assertIn("Week of 10/04 - 10/10 Total Hours: 7:45 Overtime: None Wages: $170.50", self.text)
-        self.assertIn("Week of 10/11 - 10/17 Total Hours: 16:10", self.text)
+        self.assertIn("Week of 10/11 - 10/17 Total Hours: 16:10 Overtime: 0:10 Wages: $357.50", self.text)   # the days' overtime
 
     def test_break_row_under_its_shift(self):
         self.assertIn("20:25 21:00", self.text); self.assertIn("21:10 23:45", self.text)   # punch pairs (Oct 20)
@@ -186,7 +186,7 @@ class Hourly(unittest.TestCase):
         self.assertIn("10 min", rows[brk][4].text)
         week = next(i for i, r in enumerate(rows) if "Week of" in getattr(r[0], "text", ""))
         self.assertIn("Total Hours: <b>", rows[week][0].text)    # the value bold, the label not
-        self.assertEqual({rows[0][c].style.alignment for c in range(len(rows[0]))}, {1})   # no header sits right
+        self.assertEqual({rows[0][c].style.alignment for c in range(len(rows[0]))}, {0})   # every header sits left (Neil, 11/06/2026)
         self.assertEqual(rows[week][0].style.alignment, 1)    # the week line is centered...
         self.assertIn(week, {c[1][1] for c in t._bkgrndcmds if c[3] == tp.WEEK})   # ...on the green tint
         self.assertEqual(tp.WEEK.hexval(), "0xe8f5ee")
@@ -235,6 +235,10 @@ class Fixed(unittest.TestCase):
             self.assertIn(s, text)
         self.assertNotIn("(9.00)", text)       # no decimal hours (Neil, 11/04/2026)
         self.assertNotIn("OT rule", text)
+
+    def test_the_summary_headers_sit_left(self):
+        rows = tp._summary_table([("TOTALS", "9:00", "$200.00")], False)._cellvalues
+        self.assertEqual([c.style.alignment for c in rows[0][1:]], [0, 0])   # Neil, 11/06/2026
 
 
 if __name__ == "__main__":

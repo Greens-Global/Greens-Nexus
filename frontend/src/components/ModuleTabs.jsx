@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 import AnchoredMenu from './AnchoredMenu';
 import TabInk from './TabInk';
-import PageTrail from './PageTrail';
+import PageTrail, { tabLabelOf, useTrailInfo } from './PageTrail';
 import { PHONE_QUERY } from '../lib/keys';
 
 /*
@@ -90,15 +90,40 @@ function useNarrow() {
 // the top bar (Neil, 11/06/2026: "I do not like any action buttons being on
 // the top navigation bar"); they go in ModuleActionsSlot, inside the page. A
 // module with a single tab shows no strip: the tab would only repeat its name.
-export function ModuleBar() {
+//
+// Back (Neil, 11/06/2026, option C of https://claude.ai/artifact/2KSQ3Hev8bFw8G7LTZmzAf):
+// a small "<- Operations" line ABOVE the module's name says where Back goes,
+// at no width. `back` = { label, view, onBack } from the shell; `nameRef` gets this
+// page's own name (the lit tab, else the module) so the shell can stamp it on
+// the next history entry for a move inside the module.
+export function ModuleBar({ back = null, nameRef = null }) {
   const { entry } = useContext(HeaderTabsContext) || {};
   const narrow = useNarrow();
-  if (!entry || narrow) return null;
+  const trail = useTrailInfo();
+  const pageName = (entry?.tabs?.length > 1 && tabLabelOf(entry.tabs, entry.active)) || trail?.label || '';
+  useEffect(() => { if (nameRef) nameRef.current = pageName; });
+  if (narrow || (!entry && !back)) return null;
+  // A record opened from inside its own module names the page above it
+  // ("Portfolio", the trail's last part), never the module you are in - a
+  // module that opens records in its own state has already drawn the record
+  // when the move is stamped.
+  const crumbs = trail?.crumbs || [];
+  const inModule = back && trail && (back.view ? back.view === trail.view : back.label === trail.label);
+  const backLabel = inModule && crumbs.length ? crumbs[crumbs.length - 1].label : back?.label;
   return (
     <div className="module-bar module-bar--header" data-tour="module-bar">
-      <PageTrail className="page-trail--bar" standalone />
+      <div className="module-bar-name">
+        {back && (
+          <button type="button" className="module-bar-back" onClick={back.onBack}
+            title={backLabel ? `Back to ${backLabel}` : 'Back'} aria-label={backLabel ? `Back to ${backLabel}` : 'Back'}>
+            <ArrowLeft size={12} strokeWidth={2.4} aria-hidden="true" />
+            <span>{backLabel || 'Back'}</span>
+          </button>
+        )}
+        <PageTrail className="page-trail--bar" standalone />
+      </div>
       <div className="module-bar-tabs">
-        {entry.tabs.length > 1 && <HeaderStrip entry={entry} measured />}
+        {entry?.tabs.length > 1 && <HeaderStrip entry={entry} measured />}
       </div>
     </div>
   );
