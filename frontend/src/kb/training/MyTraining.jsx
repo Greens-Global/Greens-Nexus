@@ -1,17 +1,27 @@
-// My Training: ONE to-do list first (Neil, 11/02/2026: "training is a mess") -
-// overdue, then due soonest, then policies to sign, then not started - with a
-// single progress strip, the way the leading training tools open; plans as
-// bundles, completed work with certificates, and a certificate check below.
-// Editors also see the course list.
+// Training (Neil, 11/02/2026: "training is a mess"; redesigned 11/07/2026:
+// "missing role based paths and departmental trainings"). Four screens under
+// one segment control:
+//   My Learning  - pick up where you left off, ONE to-do list (overdue, then
+//                  due soonest, policies to sign in the same list), your
+//                  paths with their stages, what you completed, certificates
+//   Catalog      - every path and course, by role and department (Catalog.jsx)
+//   Compliance   - your own requirements (MyCompliance.jsx)
+//   Courses      - authors: the course list
+// The module bar names the module; this page never repeats "Training" as a
+// title of its own (Neil, 11/06/2026).
 import { useEffect, useState } from 'react';
-import { Award, Download, Search, Plus, GraduationCap, PenLine } from 'lucide-react';
+import { Award, Download, Search, Plus, GraduationCap, PenLine, Compass, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { api, saveBlob } from '../../api';
 import AsyncSection from '../../components/AsyncState';
-import { Chip, SectionHead, Stat, TrainingChip } from '../components/Chips';
+import { ModuleActions } from '../../components/ModuleTabs';
+import { Chip, SectionHead } from '../components/Chips';
 import { useToast, errText } from '../components/Toast';
-import { goKb, fmtDate, trainingColor, plural } from '../lib';
+import { goKb, fmtDate, plural, minutesText } from '../lib';
 import MyCompliance from './MyCompliance';
+import Catalog from './Catalog';
 import ProgressTrack from '../../ui/ProgressTrack';
+import { PathRow, LevelChip } from './cards';
+import { shelfOf, courseAction } from './catalogModel';
 
 // The track's state for one course card: red while it is overdue (or an
 // expired completion), green once completed, else the live accent.
@@ -20,23 +30,39 @@ export function courseTrackState(c) {
   return c?.my_status === 'Completed' ? 'done' : 'live';
 }
 
+// One thing to do: a course row. Quiet - the kind and state are words, the
+// progress a thin line; the whole row opens the course.
 export function CourseRow({ c, onOpen }) {
   const open = () => (onOpen ? onOpen(c) : goKb('course', c.id));
   return (
-    <div className="kb-row link" onClick={open} role="link" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}>
-      <Chip color="#1e7b4e">Course</Chip>
-      <div className="kb-grow">
-        <div className="kb-title">{c.title} <span className="kb-meta" style={{ fontWeight: 400 }}>{c.code ? `· ${c.code}` : ''}</span></div>
-        <div className="kb-meta" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <ProgressTrack size="sm" value={(c.my_pct || 0) / 100} state={courseTrackState(c)} label={`${c.title} progress`} style={{ width: 120 }} />
-          <span>{c.my_pct}%</span>
-          {c.due_date && <span>· {c.days_overdue ? `${c.days_overdue} days overdue` : `due ${fmtDate(c.due_date)}`}</span>}
-          <span>· about {plural(c.est_minutes, 'minute')}</span>
-          {c.source === 'plan' && <span>· part of a plan</span>}
+    <div className="kb-todo" onClick={open} role="link" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}>
+      <span className="kb-todo-kind">Course</span>
+      <div className="kb-todo-text">
+        <div className="kb-prow-title">{c.title}</div>
+        <div className="kb-meta kb-crow-facts">
+          {c.my_status === 'In Progress' || c.days_overdue ? <ProgressTrack size="sm" value={(c.my_pct || 0) / 100} state={courseTrackState(c)} label={`${c.title} progress`} valueText={`${c.my_pct || 0}% done`} style={{ width: 96 }} /> : null}
+          {(c.my_status === 'In Progress' || c.days_overdue) ? <span>{c.my_pct}% done</span> : null}
+          <span>about {minutesText(c.est_minutes) || plural(c.est_minutes, 'minute')}</span>
+          {c.source === 'plan' && <span>part of a path</span>}
         </div>
       </div>
-      <TrainingChip status={c.my_status} />
+      <span className="kb-todo-due">{c.days_overdue ? <b style={{ color: '#dc2626' }}>{plural(c.days_overdue, 'day')} overdue</b> : c.due_date ? `Due ${fmtDate(c.due_date)}` : <span className="kb-meta">No due date</span>}</span>
       <button type="button" className={`kb-btn sm${c.days_overdue ? ' pri' : ''}`} onClick={(e) => { e.stopPropagation(); open(); }}>{c.my_status === 'Not Started' ? 'Start' : c.my_status === 'Completed' ? 'Open' : 'Continue'}</button>
+    </div>
+  );
+}
+
+function PolicyRow({ t }) {
+  const open = () => goKb('page', t.id);
+  return (
+    <div className="kb-todo" onClick={open} role="link" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}>
+      <span className="kb-todo-kind policy">Policy</span>
+      <div className="kb-todo-text">
+        <div className="kb-prow-title">{t.title}<span className="kb-item-kind">v{t.item.version}</span></div>
+        <div className="kb-meta">Read it and sign your name{t.item.version_signed ? ` · you signed v${t.item.version_signed}` : ''}</div>
+      </div>
+      <span className="kb-todo-due">{t.overdue ? <b style={{ color: '#dc2626' }}>{plural(t.overdue, 'day')} overdue</b> : t.due ? `Sign by ${fmtDate(t.due)}` : <span className="kb-meta">No due date</span>}</span>
+      <button type="button" className={`kb-btn sm${t.overdue ? ' pri' : ''}`} onClick={(e) => { e.stopPropagation(); open(); }}><PenLine />Read and Sign</button>
     </div>
   );
 }
@@ -58,6 +84,69 @@ export function todoList(data) {
   return rows.sort((a, b) => (b.overdue - a.overdue) || ((a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0) || (b.started - a.started) || a.title.localeCompare(b.title));
 }
 
+// What the "continue" block shows: the course furthest along that is not
+// done, else the first course on the to-do list.
+export function continueCourse(data) {
+  const open = (data?.due || []).filter((c) => c.my_status !== 'Completed');
+  const started = open.filter((c) => c.my_status === 'In Progress' || c.my_pct > 0).sort((a, b) => (b.days_overdue - a.days_overdue) || (b.my_pct - a.my_pct));
+  if (started.length) return started[0];
+  const todo = todoList(data).find((t) => t.kind === 'course');
+  return todo ? todo.item : null;
+}
+
+// One sentence on where the person stands: "1 course and 7 policies to go · nothing overdue".
+export function standingLine(data, todo) {
+  const courses = todo.filter((t) => t.kind === 'course').length;
+  const policies = todo.filter((t) => t.kind === 'policy').length;
+  const parts = [];
+  if (courses) parts.push(plural(courses, 'course'));
+  if (policies) parts.push(`${policies} ${policies === 1 ? 'policy' : 'policies'}`);
+  const togo = parts.length ? `${parts.join(' and ')} to go` : 'Nothing to do';
+  const overdue = data.stats?.overdue || 0;
+  return `${togo} · ${overdue ? `${overdue} overdue` : 'nothing overdue'}`;
+}
+
+function Continue({ c }) {
+  const started = c.my_status === 'In Progress' || c.my_pct > 0;
+  const left = Math.max(0, Math.round((c.est_minutes || 0) * (1 - (c.my_pct || 0) / 100)));
+  const shelf = shelfOf(c);
+  return (
+    <section className="kb-continue">
+      <div className="kb-continue-text">
+        <div className="kb-kicker">{started ? 'Continue Where You Left Off' : 'Up Next'}</div>
+        <h2 className="kb-continue-title">{c.title}</h2>
+        {c.description && <div className="kb-prow-desc kb-clamp2" style={{ maxWidth: 640 }}>{c.description}</div>}
+        <div className="kb-meta kb-crow-facts" style={{ marginTop: 8 }}>
+          <LevelChip level={c.level} />
+          {shelf !== 'General' && <span>{shelf}</span>}
+          <span>{plural(c.lesson_count || 0, 'lesson')}</span>
+          <span>{started && left ? `about ${minutesText(left)} left` : `about ${minutesText(c.est_minutes)}`}</span>
+          {c.due_date && <span>{c.days_overdue ? <b style={{ color: '#dc2626' }}>{plural(c.days_overdue, 'day')} overdue</b> : `due ${fmtDate(c.due_date)}`}</span>}
+        </div>
+        <ProgressTrack value={(c.my_pct || 0) / 100} state={courseTrackState(c)} label="Course progress" valueText={`${c.my_pct || 0}% done`} style={{ marginTop: 12, maxWidth: 480 }} note={<><b>{c.my_pct || 0}%</b> done</>} />
+      </div>
+      <div className="kb-continue-side">
+        <button type="button" className="kb-btn pri lg" onClick={() => goKb('course', c.id)}>{courseAction(c)} Course<ChevronRight /></button>
+      </div>
+    </section>
+  );
+}
+
+function CaughtUp({ hasPaths }) {
+  return (
+    <section className="kb-continue">
+      <div className="kb-continue-text">
+        <div className="kb-kicker" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={15} style={{ color: 'var(--kb-green)' }} />Nothing Due</div>
+        <h2 className="kb-continue-title">You are all caught up</h2>
+        <div className="kb-prow-desc">{hasPaths ? 'Keep going on a path below, or pick something new from the catalog.' : 'Pick a path for your role, or a course from the catalog.'}</div>
+      </div>
+      <div className="kb-continue-side">
+        <button type="button" className="kb-btn pri lg" onClick={() => goKb('catalog')}><Compass />Browse the Catalog</button>
+      </div>
+    </section>
+  );
+}
+
 export default function MyTraining({ me, seg: initialSeg = 'me' }) {
   const toast = useToast();
   const [data, setData] = useState(null);
@@ -68,6 +157,7 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
   const [lookup, setLookup] = useState(null);
   const load = () => { setErr(''); api.kbTrainingMe().then(setData).catch((e) => setErr(errText(e))); };
   useEffect(() => { load(); }, []);
+  useEffect(() => { setSeg(initialSeg); }, [initialSeg]);
   useEffect(() => { if (seg === 'courses' && !courses) api.kbCourses(true).then(setCourses).catch((e) => toast(errText(e), 'err')); }, [seg, courses, toast]);
   const download = async (cert) => {
     try { saveBlob(await api.kbCertificatePdf(cert.id), `${cert.serial}.pdf`); } catch (e) { toast(errText(e, 'Could not download'), 'err'); }
@@ -76,81 +166,84 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
     if (!serial.trim()) return;
     try { setLookup(await api.kbCertificateLookup(serial.trim())); } catch (e) { toast(errText(e), 'err'); }
   };
+  const go = (k) => { setSeg(k); goKb(k === 'me' ? 'training' : k === 'catalog' ? 'catalog' : k === 'compliance' ? 'training-compliance' : 'courses'); };
 
   return (
     <div className="kb-page">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h1 className="kb-h1" style={{ margin: 0, fontSize: 24 }}>Training</h1>
         {/* Everyone has their own compliance (Oct 30 2026); Courses is for authors. */}
-        <div className="kb-seg">
-          <button type="button" className={seg === 'me' ? 'on' : ''} onClick={() => setSeg('me')}>My Training</button>
-          {me?.can_author && <button type="button" className={seg === 'courses' ? 'on' : ''} onClick={() => setSeg('courses')}>Courses</button>}
-          <button type="button" className={seg === 'compliance' ? 'on' : ''} onClick={() => setSeg('compliance')}>Compliance</button>
+        <div className="kb-seg" role="tablist" aria-label="Training screens">
+          <button type="button" role="tab" aria-selected={seg === 'me'} className={seg === 'me' ? 'on' : ''} onClick={() => go('me')}>My Learning</button>
+          <button type="button" role="tab" aria-selected={seg === 'catalog'} className={seg === 'catalog' ? 'on' : ''} onClick={() => go('catalog')}>Catalog</button>
+          <button type="button" role="tab" aria-selected={seg === 'compliance'} className={seg === 'compliance' ? 'on' : ''} onClick={() => go('compliance')}>Compliance</button>
+          {me?.can_author && <button type="button" role="tab" aria-selected={seg === 'courses'} className={seg === 'courses' ? 'on' : ''} onClick={() => go('courses')}>Courses</button>}
         </div>
-        {seg === 'courses' && me?.can_author && <button type="button" className="kb-btn pri" style={{ marginLeft: 'auto' }} onClick={() => goKb('builder', 'new')}><Plus />New Course</button>}
+        {seg === 'courses' && me?.can_author && (
+          <ModuleActions>
+            <button type="button" className="kb-btn" onClick={() => goKb('plans')}>Learning Paths</button>
+            <button type="button" className="kb-btn pri" onClick={() => goKb('builder', 'new')}><Plus />New Course</button>
+          </ModuleActions>
+        )}
       </div>
 
       {seg === 'compliance' && <MyCompliance me={me} />}
+      {seg === 'catalog' && <Catalog me={me} />}
       {seg === 'me' && (
         <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
           {data && (() => {
             const todo = todoList(data);
             const total = todo.length + (data.stats?.completed || 0) + (data.policies || []).filter((p) => p.signed).length;
             const pct = total ? Math.round(100 * (total - todo.length) / total) : 100;
+            const next = continueCourse(data);
+            const plans = data.plans || [];
             return (
             <>
-              <div className="kb-stats">
-                <Stat value={data.stats.due} label="assigned, not done" />
-                <Stat value={data.stats.overdue} label="overdue" color={data.stats.overdue ? '#dc2626' : undefined} />
-                <Stat value={data.stats.to_sign} label="policies to sign" color={data.stats.to_sign ? '#b45309' : undefined} />
-                <Stat value={data.stats.completed} label="completed" color="#1e7b4e" />
-                <Stat value={data.stats.certificates} label="certificates" />
-              </div>
+              {next ? <Continue c={next} /> : <CaughtUp hasPaths={plans.length > 0} />}
               <div className="kb-cols">
                 <div className="kb-main">
-                  <section className="kb-card">
-                    <SectionHead title="To Do" count={todo.filter((t) => t.overdue).length} sub={todo.length ? `${todo.length} to go` : ''} right={<span className="kb-meta">{pct}% done</span>} />
-                    <ProgressTrack value={pct / 100} state={todo.some((t) => t.overdue) ? 'overdue' : undefined} label="Training to do" valueText={`${pct}% done`} style={{ marginBottom: 10 }} />
-                    {todo.length === 0 && <div className="kb-empty">You are all caught up. Courses, plans and policies you are given show up here, overdue first.</div>}
-                    {todo.map((t) => (t.kind === 'course'
-                      ? <CourseRow key={`c:${t.id}`} c={t.item} />
-                      : (
-                        <div key={`p:${t.id}`} className="kb-row link" onClick={() => goKb('page', t.id)} role="link" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') goKb('page', t.id); }}>
-                          <Chip color="#7c3aed">Policy</Chip>
-                          <div className="kb-grow"><div className="kb-title">{t.title} <span className="kb-meta" style={{ fontWeight: 400 }}>v{t.item.version}</span></div><div className="kb-meta">{t.overdue ? `${t.overdue} days overdue` : t.due ? `Sign by ${fmtDate(t.due)}` : 'Read and sign'}{t.item.version_signed ? ` · you signed v${t.item.version_signed}` : ''}</div></div>
-                          <TrainingChip status={t.overdue ? 'Overdue' : 'Not Started'} />
-                          <button type="button" className={`kb-btn sm${t.overdue ? ' pri' : ''}`}><PenLine />Read and Sign</button>
-                        </div>
-                      )))}
+                  <section className="kb-shelf">
+                    <div className="kb-shelf-head">
+                      <h3 className="kb-shelf-title">To Do</h3>
+                      <span className="kb-meta">{standingLine(data, todo)}</span>
+                      <span className="kb-meta kb-shelf-count">{pct}% done</span>
+                    </div>
+                    <ProgressTrack size="sm" value={pct / 100} state={todo.some((t) => t.overdue) ? 'overdue' : pct >= 100 ? 'done' : 'live'} label="Training to do" valueText={`${pct}% done`} style={{ marginBottom: 4 }} />
+                    <div className="kb-shelf-body">
+                      {todo.length === 0 && <div className="kb-empty-state"><div className="kb-empty-title">All Caught Up</div><div className="kb-meta">Courses, paths and policies you are given show up here, overdue first.</div></div>}
+                      {todo.map((t) => (t.kind === 'course' ? <CourseRow key={`c:${t.id}`} c={t.item} /> : <PolicyRow key={`p:${t.id}`} t={t} />))}
+                    </div>
                   </section>
-                  {data.plans.map((p) => (
-                    <section key={p.id} className="kb-card">
-                      <SectionHead title={p.name} sub={`${p.done} of ${p.total} done${p.due_date ? ` · due ${fmtDate(p.due_date)}` : ''}`} right={p.completed_at ? <Chip color="#1e7b4e">Completed</Chip> : p.days_overdue ? <Chip color="#dc2626">{p.days_overdue} days overdue</Chip> : null} />
-                      <ProgressTrack value={p.completed_at ? 1 : (p.total ? p.done / p.total : 0)} state={p.completed_at ? 'done' : p.days_overdue ? 'overdue' : undefined} label={`${p.name} progress`} valueText={`${p.done} of ${p.total} done`} style={{ marginBottom: 10 }} />
-                      {p.items.map((it) => (
-                        <div key={`${it.kind}:${it.id}`} className="kb-row link" onClick={() => goKb(it.kind === 'course' ? 'course' : 'page', it.id)}>
-                          <Chip color={it.kind === 'course' ? '#1e7b4e' : '#7c3aed'}>{it.kind === 'course' ? 'Course' : 'Policy'}</Chip>
-                          <div className="kb-grow"><div className="kb-title">{it.title}</div>{it.est_minutes && <div className="kb-meta">about {plural(it.est_minutes, 'minute')}</div>}</div>
-                          <Chip color={trainingColor(it.status)}>{it.status}</Chip>
-                        </div>
-                      ))}
-                    </section>
-                  ))}
-                  <section className="kb-card">
-                    <SectionHead title="Completed" />
-                    {data.completed.length === 0 && <div className="kb-empty">Completed courses and their certificates live here.</div>}
-                    {data.completed.length > 0 && (
-                      <table className="kb-table"><thead><tr><th>Course</th><th>Completed</th><th>Valid Through</th><th>Certificate</th></tr></thead><tbody>
-                        {data.completed.map((c) => (
-                          <tr key={c.id}>
-                            <td><a href="#c" onClick={(e) => { e.preventDefault(); goKb('course', c.id); }}>{c.title}</a></td>
-                            <td>{fmtDate(c.completed_at)}</td>
-                            <td>{c.expires ? fmtDate(c.expires) : 'No expiry'}</td>
-                            <td>{c.certificate ? <button type="button" className="kb-btn sm" onClick={() => download(c.certificate)}><Download />{c.certificate.serial}</button> : <span className="kb-meta">None</span>}</td>
-                          </tr>
-                        ))}
-                      </tbody></table>
-                    )}
+                  <section className="kb-shelf">
+                    <div className="kb-shelf-head">
+                      <h3 className="kb-shelf-title">My Paths</h3>
+                      {plans.length > 0 && <span className="kb-meta">onboarding, role and department training, stage by stage</span>}
+                      <button type="button" className="kb-btn sm ghost kb-shelf-count" onClick={() => goKb('catalog')}>All Paths<ChevronRight size={14} /></button>
+                    </div>
+                    <div className="kb-shelf-body">
+                      {plans.length === 0 && <div className="kb-empty-state"><GraduationCap size={22} /><div className="kb-empty-title">No Path Yet</div><div className="kb-meta">The catalog has paths for roles and departments. One for yours shows up here when you start it or it is assigned to you.</div></div>}
+                      {plans.map((p) => <PathRow key={p.id} p={{ ...p, enrolled: true }} />)}
+                    </div>
+                  </section>
+                  <section className="kb-shelf">
+                    <div className="kb-shelf-head">
+                      <h3 className="kb-shelf-title">Completed</h3>
+                      <span className="kb-meta">{data.completed.length ? `${plural(data.completed.length, 'course')} · ${plural(data.stats?.certificates || 0, 'certificate')}` : ''}</span>
+                    </div>
+                    <div className="kb-shelf-body">
+                      {data.completed.length === 0 && <div className="kb-empty-state"><div className="kb-empty-title">Nothing Completed Yet</div><div className="kb-meta">Completed courses and their certificates live here.</div></div>}
+                      {data.completed.length > 0 && (
+                        <table className="kb-table"><thead><tr><th>Course</th><th>Completed</th><th>Valid Through</th><th>Certificate</th></tr></thead><tbody>
+                          {data.completed.map((c) => (
+                            <tr key={c.id}>
+                              <td><a href="#c" onClick={(e) => { e.preventDefault(); goKb('course', c.id); }}>{c.title}</a></td>
+                              <td>{fmtDate(c.completed_at)}</td>
+                              <td>{c.expires ? fmtDate(c.expires) : 'No expiry'}</td>
+                              <td>{c.certificate ? <button type="button" className="kb-btn sm" onClick={() => download(c.certificate)}><Download />{c.certificate.serial}</button> : <span className="kb-meta">None</span>}</td>
+                            </tr>
+                          ))}
+                        </tbody></table>
+                      )}
+                    </div>
                   </section>
                 </div>
                 <aside className="kb-rail">
@@ -171,9 +264,7 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
                       </div>
                     )}
                   </section>
-                  <section className="kb-card soft" style={{ background: '#eef7f1', borderColor: '#cfe6d8' }}>
-                    <div className="kb-meta">Reminders: 7 days before a due date, on the day, then weekly. Your manager hears on Mondays about anything overdue.</div>
-                  </section>
+                  <div className="kb-meta" style={{ padding: '0 4px' }}>Reminders: 7 days before a due date, on the day, then weekly. Your manager hears on Mondays about anything overdue.</div>
                 </aside>
               </div>
             </>
@@ -185,11 +276,13 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
       {seg === 'courses' && (
         <AsyncSection loading={!courses} isEmpty={courses && courses.length === 0} emptyContent={<div className="kb-card soft kb-empty"><GraduationCap size={24} /><div style={{ marginTop: 6 }}>No courses yet. Build one from Library pages, or let Nexus draft it.</div></div>}>
           <section className="kb-card">
-            <table className="kb-table"><thead><tr><th>Course</th><th>Status</th><th>Lessons</th><th>Questions</th><th>Learners</th><th>Done</th><th /></tr></thead><tbody>
+            <table className="kb-table"><thead><tr><th>Course</th><th>Status</th><th>Department</th><th>Level</th><th>Lessons</th><th>Questions</th><th>Learners</th><th>Done</th><th /></tr></thead><tbody>
               {(courses || []).map((c) => (
                 <tr key={c.id}>
-                  <td><a href="#b" onClick={(e) => { e.preventDefault(); goKb('builder', c.id); }}><b>{c.title}</b></a><div className="kb-meta">{c.code}{c.recert_months ? ` · renews every ${c.recert_months} months` : ''}{c.has_draft && c.status === 'published' ? ' · unpublished edits' : ''}</div></td>
+                  <td><a href="#b" onClick={(e) => { e.preventDefault(); goKb('builder', c.id); }}><b>{c.title}</b></a><div className="kb-meta">{c.code}{c.recert_months ? ` · renews every ${c.recert_months} months` : ''}{c.has_draft && c.status === 'published' ? ' · unpublished edits' : ''}{c.delivery === 'in_person' ? ' · in person' : ''}</div></td>
                   <td><Chip color={c.status === 'published' ? '#1e7b4e' : '#64748b'}>{c.status === 'published' ? `Published v${c.major}` : 'Draft'}</Chip></td>
+                  <td>{(c.department_list || []).join(', ') || <span className="kb-meta">None</span>}</td>
+                  <td><LevelChip level={c.level} /></td>
                   <td>{c.lesson_count}</td><td>{c.question_count}</td><td>{c.learners}</td><td>{c.completions}</td>
                   <td style={{ whiteSpace: 'nowrap' }}><button type="button" className="kb-btn sm" onClick={() => goKb('builder', c.id)}>Edit</button> <button type="button" className="kb-btn sm ghost" onClick={() => goKb('course', c.id)}>Preview</button></td>
                 </tr>

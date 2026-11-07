@@ -49,6 +49,40 @@ Rate increases after a low move-in rate were the number one complaint in Modern 
 
 ### When the Tenant Calls
 
+```figure
+{
+  "kind": "steps",
+  "title": "A Rate-Increase Call, Start to Finish",
+  "items": [
+    {
+      "label": "Hear",
+      "note": "let them finish"
+    },
+    {
+      "label": "Own",
+      "note": "\"I understand this increase is hard to hear\""
+    },
+    {
+      "label": "Give the reasons",
+      "note": "honestly"
+    },
+    {
+      "label": "Compare to the street rate",
+      "note": "only if it is true; check Cubby first"
+    },
+    {
+      "label": "Offer the real options",
+      "note": "a smaller unit, autopay, an authorized concession"
+    },
+    {
+      "label": "Escalate with a time",
+      "note": "\"you'll hear back within 24 hours\""
+    }
+  ],
+  "caption": "Never defensive, never a promise you cannot keep. \"I'll get it reversed\" is never yours to say."
+}
+```
+
 Use Hear, Own, Solve, Thank, Fix (the Greens Service Standard lesson).
 
 1. **Hear.** Let them finish. They may have a lot to say.

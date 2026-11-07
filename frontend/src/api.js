@@ -3013,6 +3013,10 @@ export const api = {
   kbCertificatePdf: (id) => reqBlob(`/kb/certificates/${id}/pdf`),
   kbCompliance: (params = {}) => req(`/kb/compliance?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))).toString()}`),
   kbComplianceNudge: (emails) => req("/kb/compliance/nudge", { method: "POST", body: JSON.stringify({ emails }) }),
+  // Learning paths and the catalog (Neil, 11/07/2026)
+  kbCatalog: () => req("/kb/catalog"),
+  kbPlan: (id) => req(`/kb/plans/${id}`),
+  kbEnrollPlan: (id) => req(`/kb/plans/${id}/enroll`, { method: "POST" }),
   // the help widget's corpus, in the shape docsSearch.buildKbSections reads
   kbCorpusDocs: () => req("/kb/pages?status=approved").then((rows) => (rows || []).map((d) => ({
     id: d.id, title: d.title, status: d.status, doc_code: d.code, doc_type: d.type_label, departments: (d.collection || []).map((c) => c.name).join(", "),

@@ -96,6 +96,35 @@ Then the second mile (the Greens Service Standard lesson): carry the lock and bo
 
 ## After the Move-In
 
+```figure
+{
+  "kind": "timeline",
+  "title": "The Four Touches After a Move-In",
+  "items": [
+    {
+      "at": "That day",
+      "label": "A thank-you",
+      "note": "a handwritten card or a short text"
+    },
+    {
+      "at": "A few days later",
+      "label": "A call",
+      "note": "\"How did the move go? Everything working with your code?\""
+    },
+    {
+      "at": "Once settled",
+      "label": "Ask for a review",
+      "note": "the same neutral way you ask everyone"
+    },
+    {
+      "at": "Any time",
+      "label": "Mention the referral program",
+      "note": "if Greens runs one"
+    }
+  ]
+}
+```
+
 | When | What | Source |
 |---|---|---|
 | That day | A thank-you: a handwritten card or a short text | DeFazio, 2026 |

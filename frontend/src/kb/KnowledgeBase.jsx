@@ -1,5 +1,6 @@
 // Knowledge Base (Oct 2026 rebuild). One module, three tabs: Library for
-// everyone, Training for everyone, Manage for editors. The sub-route
+// everyone, Training for everyone (My Learning, the Catalog of paths and
+// courses, Compliance - 11/07/2026), Manage for editors. The sub-route
 // (lib.js parseSub) names the screen, so every page, course and review has
 // an address bells and the help widget can open.
 import { lazy, Suspense, useEffect, useState } from 'react';
@@ -18,6 +19,7 @@ import SignaturesView from './library/SignaturesView';
 import PageTasksView from './library/PageTasksView';
 import MyTraining from './training/MyTraining';
 import CoursePlayer from './training/CoursePlayer';
+import PathView from './training/PathView';
 import Health from './manage/Health';
 import Compliance from './manage/Compliance';
 import CollectionsAdmin from './manage/CollectionsAdmin';
@@ -69,6 +71,8 @@ export default function KnowledgeBase({ activeSub, onSubChange }) {
     case 'training': screen = <MyTraining me={me} />; break;
     case 'courses': screen = <MyTraining me={me} seg="courses" />; break;
     case 'training-compliance': screen = <MyTraining me={me} seg="compliance" />; break;
+    case 'catalog': screen = <MyTraining me={me} seg="catalog" />; break;         // paths by role and department (11/07/2026)
+    case 'path': screen = <PathView id={route.id} me={me} />; break;
     case 'course': screen = <CoursePlayer id={route.id} me={me} />; break;
     case 'builder': screen = <CourseBuilder key={route.id || 'new'} id={route.id || 'new'} me={me} />; break;
     case 'health': screen = <Health me={me} />; break;

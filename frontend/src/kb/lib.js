@@ -36,6 +36,34 @@ export const trainingColor = (s) => (TRAINING_STATUS[s] || { color: '#64748b' })
 
 export const CELL_COLORS = { green: KB_GREEN, amber: '#d97706', red: '#dc2626' };
 
+// Learning paths (Neil, 11/07/2026: "missing role based paths and
+// departmental trainings"). A path's kind and a course's level, one meta
+// map each, like PAGE_TYPES.
+export const PATH_KINDS = {
+  onboarding: { key: 'onboarding', label: 'Onboarding', color: KB_GREEN, blurb: 'What a new hire finishes in the first weeks.' },
+  role:       { key: 'role',       label: 'Role Path',  color: '#2b6cb0', blurb: 'Everything a job title needs, in order.' },
+  department: { key: 'department', label: 'Department', color: '#b45309', blurb: 'Training a whole department takes.' },
+  custom:     { key: 'custom',     label: 'Path',       color: '#64748b', blurb: 'A bundle for a group or a project.' },
+};
+export const pathKindMeta = (key) => PATH_KINDS[key] || PATH_KINDS.custom;
+
+export const LEVELS = {
+  foundations: { key: 'foundations', label: 'Foundations', color: KB_GREEN },
+  core:        { key: 'core',        label: 'Core',        color: '#2b6cb0' },
+  advanced:    { key: 'advanced',    label: 'Advanced',    color: '#7c3aed' },
+};
+export const levelMeta = (key) => LEVELS[key] || null;
+
+// "2 hr 10 min", "45 min" - never a bare minute count past an hour.
+export function minutesText(min) {
+  const n = Math.max(0, Math.round(Number(min) || 0));
+  if (!n) return '';
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  if (!h) return `${m} min`;
+  return m ? `${h} hr ${m} min` : `${h} hr`;
+}
+
 export const fmtDate = (v) => formatDate(v, '');
 export const fmtDateTime = (v) => formatDateTime(v, '');
 
@@ -54,8 +82,8 @@ export function colorFor(key = '') {
 
 // ── sub-routes: /sop/<sub> ──────────────────────────────────────────────
 // index | search:<q> | page:<id> | collection:<id> | editor:<id> |
-// revision:<rid> | review:<id> | training | course:<id> | builder:<id> |
-// health | compliance | collections | plans | migrate | certificates
+// revision:<rid> | review:<id> | training | catalog | path:<id> | course:<id> |
+// builder:<id> | health | compliance | collections | plans | migrate | certificates
 export function parseSub(sub) {
   const s = String(sub || 'index');
   if (s === 'index' || s === '') return { screen: 'home' };
@@ -74,6 +102,7 @@ export function subFor(screen, id) {
 export const TAB_OF = {
   home: 'library', search: 'library', page: 'library', collection: 'library', editor: 'library', revision: 'library', review: 'library', signatures: 'library', tasks: 'library',
   training: 'training', courses: 'training', 'training-compliance': 'training', course: 'training', builder: 'training', certificates: 'training',
+  catalog: 'training', path: 'training',
   health: 'manage', compliance: 'manage', collections: 'manage', plans: 'manage', migrate: 'manage',
 };
 

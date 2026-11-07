@@ -8,6 +8,7 @@ import { useRef, useState } from 'react';
 import { AlertTriangle, Camera, Lightbulb, Info, ShieldAlert, Trash2, Plus, Play, BookOpen, X, Paperclip } from 'lucide-react';
 import { api } from '../../api';
 import { readAsDataUrl } from '../lib';
+import Figure, { FIGURE_TEMPLATES, FIGURE_KINDS } from '../components/Figure';
 
 const CALLOUT_ICON = { warning: AlertTriangle, safety: ShieldAlert, tip: Lightbulb, note: Info };
 
@@ -276,4 +277,60 @@ export const FileAttachment = Node.create({
   addNodeView() { return ReactNodeViewRenderer(FileView); },
 });
 
-export const KB_NODES = [Steps, Step, Callout, Checklist, CheckItem, Video, EmbedPage, FileAttachment];
+// ── Figure (11/07/2026) ─────────────────────────────────────────────────
+// A diagram drawn from data (components/Figure.jsx). The editor draws it as
+// the reader will and lets an author change its kind or its JSON in place;
+// the shape is checked by the server's sanitizer on save.
+function FigureView({ node, updateAttributes, deleteNode }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [err, setErr] = useState('');
+  const start = () => { setText(JSON.stringify(node.attrs.data || {}, null, 2)); setErr(''); setOpen(true); };
+  const save = () => {
+    try { const data = JSON.parse(text); if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('The figure must be a JSON object'); updateAttributes({ data }); setOpen(false); }
+    catch (e) { setErr(e.message || 'Not valid JSON'); }
+  };
+  return (
+    <NodeViewWrapper className="kb-figure-node" data-figure="" contentEditable={false}>
+      <Figure kind={node.attrs.kind} data={node.attrs.data} />
+      <div className="kb-step-tools" style={{ marginTop: 6 }}>
+        <select className="kb-select" style={{ width: 'auto', padding: '4px 8px', fontSize: 12.5 }} value={node.attrs.kind} aria-label="Figure kind" onChange={(e) => updateAttributes({ kind: e.target.value, data: FIGURE_TEMPLATES[e.target.value] })}>
+          {FIGURE_KINDS.map((k) => <option key={k} value={k}>{k[0].toUpperCase() + k.slice(1)}</option>)}
+        </select>
+        <button type="button" className="kb-btn sm" onClick={start}>Edit Figure</button>
+        <button type="button" className="kb-btn sm ghost danger" aria-label="Delete figure" style={{ marginLeft: 'auto' }} onClick={deleteNode}><Trash2 /></button>
+      </div>
+      {open && (
+        <div className="kb-card soft" style={{ marginTop: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="kb-meta">The figure's data. Keys: title, caption, items (label, note, at, tone, value, low, text, name, w, h), columns (name, note, facts), regions (label, note, x, y, w, h, tone), unit, max, cols, rows.</div>
+          <textarea className="kb-textarea" style={{ minHeight: 220, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5 }} value={text} onChange={(e) => setText(e.target.value)} aria-label="Figure JSON" />
+          {err && <div className="kb-meta" style={{ color: '#b91c1c' }}>{err}</div>}
+          <div style={{ display: 'flex', gap: 8 }}><button type="button" className="kb-btn sm pri" onClick={save}>Apply</button><button type="button" className="kb-btn sm" onClick={() => setOpen(false)}>Cancel</button></div>
+        </div>
+      )}
+    </NodeViewWrapper>
+  );
+}
+
+export const FigureNode = Node.create({
+  name: 'figure',
+  group: 'block',
+  atom: true,
+  draggable: true,
+  addAttributes() {
+    return {
+      kind: { default: 'steps' },
+      data: { default: {}, parseHTML: (el) => { try { return JSON.parse(el.getAttribute('data-json') || '{}'); } catch { return {}; } }, renderHTML: (attrs) => ({ 'data-json': JSON.stringify(attrs.data || {}) }) },
+    };
+  },
+  parseHTML() { return [{ tag: 'div[data-figure]', getAttrs: (el) => ({ kind: el.getAttribute('data-kind') || 'steps' }) }]; },
+  renderHTML({ node, HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes, { 'data-figure': '', 'data-kind': node.attrs.kind, class: 'kb-figure-node' })]; },
+  addNodeView() { return ReactNodeViewRenderer(FigureView); },
+  addCommands() {
+    return {
+      insertFigure: (kind = 'steps') => ({ commands }) => commands.insertContent([{ type: 'figure', attrs: { kind, data: FIGURE_TEMPLATES[kind] || {} } }, { type: 'paragraph' }]),
+    };
+  },
+});
+
+export const KB_NODES = [Steps, Step, Callout, Checklist, CheckItem, Video, EmbedPage, FileAttachment, FigureNode];

@@ -41,6 +41,7 @@ function LessonEditor({ lesson, onChange }) {
         <button type="button" onClick={() => editor?.chain().focus().insertSteps().run()}>Steps</button>
         <button type="button" onClick={() => editor?.chain().focus().insertCallout('tip').run()}>Tip</button>
         <button type="button" onClick={() => editor?.chain().focus().insertCallout('warning').run()}>Warning</button>
+        <button type="button" onClick={() => editor?.chain().focus().insertFigure('steps').run()}>Figure</button>
       </div>
       <div className="kb-editor" style={{ minHeight: 220 }}><EditorContent editor={editor} /></div>
     </div>
@@ -122,6 +123,9 @@ export default function CourseBuilder({ id, me }) {
   const [publishNote, setPublishNote] = useState('');
   const [publishOpen, setPublishOpen] = useState(false);
   const timer = useRef(null);
+  // The departments People actually has, for the Department box (11/07/2026).
+  const [deptOptions, setDeptOptions] = useState(null);
+  useEffect(() => { if (tab === 'settings' && deptOptions === null) api.kbAudienceOptions().then((o) => setDeptOptions(o.departments || [])).catch(() => setDeptOptions([])); }, [tab, deptOptions]);
 
   const load = () => { if (isNew) return; setErr(''); api.kbCourseBuilder(id).then((d) => { setData(d); setDraft(d.draft); setDirty(false); if (!cur && d.draft.lessons[0]) setCur(d.draft.lessons[0]._id); }).catch((e) => setErr(errText(e))); };
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -130,7 +134,7 @@ export default function CourseBuilder({ id, me }) {
     if (!draft || !data) return;
     setSaving(true);
     try {
-      const d = await api.kbUpdateCourse(data.course.id, { title: draft.title, description: draft.description, overview: draft.overview, est_minutes: draft.est_minutes, recert_months: draft.recert_months, default_due_days: draft.default_due_days ?? data.course.default_due_days ?? 0, departments: draft.departments, lessons: draft.lessons, quiz: draft.quiz, rev: data.rev });
+      const d = await api.kbUpdateCourse(data.course.id, { title: draft.title, description: draft.description, overview: draft.overview, est_minutes: draft.est_minutes, recert_months: draft.recert_months, default_due_days: draft.default_due_days ?? data.course.default_due_days ?? 0, departments: draft.departments, delivery: draft.delivery || data.course.delivery || 'online', level: draft.level || '', tags: draft.tags || '', lessons: draft.lessons, quiz: draft.quiz, rev: data.rev });
       setData(d); setDirty(false); if (!silent) toast('Saved');
     } catch (e) { toast(errText(e), 'err'); } finally { setSaving(false); }
   };
@@ -299,6 +303,19 @@ export default function CourseBuilder({ id, me }) {
                   ? 'Completed only when a trainer marks the person Attended at a session, or signs them off a hands-on check. Lessons are reading before the session.'
                   : 'Completed when every lesson is done and the quiz is passed.'}</div></div>
               <div className="kb-field"><label>Description</label><textarea className="kb-textarea" style={{ minHeight: 60 }} value={draft.description} onChange={(e) => patch({ description: e.target.value })} placeholder="One sentence on who this is for and what they will be able to do" /></div>
+              {/* Where it sits in the catalog (11/07/2026): the department shelf, the level, the topics. */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="kb-field"><label>Department</label>
+                  <input className="kb-input" list="kb-course-depts" value={draft.departments || ''} onChange={(e) => patch({ departments: e.target.value })} placeholder="Operations" />
+                  <datalist id="kb-course-depts">{(deptOptions || []).map((d) => <option key={d} value={d} />)}</datalist>
+                  <div className="kb-help">The shelf it sits on in the catalog. Several departments: separate them with commas.</div></div>
+                <div className="kb-field"><label>Level</label>
+                  <div className="kb-seg" role="radiogroup" aria-label="Level" style={{ alignSelf: 'flex-start' }}>
+                    {[['', 'None'], ['foundations', 'Foundations'], ['core', 'Core'], ['advanced', 'Advanced']].map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={(draft.level || '') === k} className={(draft.level || '') === k ? 'on' : ''} onClick={() => patch({ level: k })}>{l}</button>)}
+                  </div>
+                  <div className="kb-help">Foundations for a first week, Core for the job, Advanced for people who lead it.</div></div>
+              </div>
+              <div className="kb-field"><label>Topics</label><input className="kb-input" value={draft.tags || ''} onChange={(e) => patch({ tags: e.target.value })} placeholder="storage, cubby, safety" /><div className="kb-help">Comma between topics. Search in the catalog finds them.</div></div>
               <div className="kb-field"><label>What you'll learn</label>{(draft.overview || []).map((o, i) => <div key={i} style={{ display: 'flex', gap: 6 }}><input className="kb-input" value={o} onChange={(e) => patch({ overview: draft.overview.map((x, j) => (j === i ? e.target.value : x)) })} /><button type="button" className="kb-ibtn" aria-label="Remove" onClick={() => patch({ overview: draft.overview.filter((_, j) => j !== i) })}><X size={14} /></button></div>)}<button type="button" className="kb-btn sm ghost" style={{ alignSelf: 'flex-start' }} onClick={() => patch({ overview: [...(draft.overview || []), ''] })}><Plus />Outcome</button></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div className="kb-field"><label>Time</label><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="number" min="1" className="kb-input" style={{ width: 90 }} value={draft.est_minutes} onChange={(e) => patch({ est_minutes: Number(e.target.value) || 15 })} /><span className="kb-meta">minutes</span></div></div>

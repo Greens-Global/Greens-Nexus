@@ -40,6 +40,32 @@ Click the **Training** tab. **My Training** lists everything assigned to you:
 
 ## Taking a Course
 
+```figure
+{
+  "kind": "steps",
+  "title": "How a Course Is Taken",
+  "items": [
+    {
+      "label": "Lessons",
+      "note": "read each one and mark it complete"
+    },
+    {
+      "label": "Checkpoints",
+      "note": "practice questions; never a quiz try"
+    },
+    {
+      "label": "The final quiz",
+      "note": "80% to pass, three tries"
+    },
+    {
+      "label": "Your certificate",
+      "note": "issued when you pass"
+    }
+  ],
+  "caption": "A course that renews puts itself back on your list 30 days before the certificate expires."
+}
+```
+
 Open a course from **My Training**. The first screen, **What You'll Learn**, lists the lessons, the checkpoints and the final quiz with its rules.
 
 ### Lessons

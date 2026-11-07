@@ -83,6 +83,7 @@ def _assign_course(db, course: models.KbCourse, emp: models.NexusEmployee, *, du
     db.add(models.KbCourseAssignment(id=kb_core.new_id("asn"), course_id=course.id, user_email=email,
                                      user_name=(emp.display_name or f"{emp.first_name} {emp.last_name}").strip(),
                                      due_date=due, assigned_by=by, created_at=kb_core.now(), source=source, rule_id=rule_id, plan_id=plan_id))
+    db.flush()   # autoflush is off: a second path or rule in the same pass must see this row, or the course is assigned twice (11/07/2026)
     kb_core.notify(db, recipient=email, ntype="kb_course_assigned", title="Training Assigned",
                    body=f"{course.title}" + (f" - due {_us(due)}" if due else ""), ref_id=course.id, item_name=course.title,
                    sub=f"course:{course.id}", dedupe_today=True)

@@ -61,6 +61,39 @@ What you do:
 
 ## Occupancy: Three Kinds
 
+```figure
+{
+  "kind": "compare",
+  "title": "Three Ways to Say How Full a Site Is",
+  "columns": [
+    {
+      "name": "Unit occupancy",
+      "note": "units rented / total units",
+      "facts": [
+        "How many doors are rented",
+        "The simplest count"
+      ]
+    },
+    {
+      "name": "Physical occupancy",
+      "note": "rented square feet / total rentable square feet",
+      "facts": [
+        "How much space is rented",
+        "The most quoted figure"
+      ]
+    },
+    {
+      "name": "Economic occupancy",
+      "note": "rent achieved / gross potential rent at street rates",
+      "facts": [
+        "How much of the possible money the site earns",
+        "Discounts, free units and unpaid rent pull it down"
+      ]
+    }
+  ]
+}
+```
+
 "How full is the site?" has three different answers. Knowing all three is what separates a professional from a beginner.
 
 | Kind | Formula | What it tells you |
@@ -72,6 +105,43 @@ What you do:
 **Gross potential rent** is what the site would earn if every unit were rented at today's street rate.
 
 ### Worked Example 1: Unit Occupancy at Greens
+
+```figure
+{
+  "kind": "bars",
+  "title": "Unit Occupancy by Site and Kind",
+  "unit": "%",
+  "max": 100,
+  "items": [
+    {
+      "label": "Escondido enclosed storage",
+      "value": 97.2,
+      "text": "697 of 717, 97.2%"
+    },
+    {
+      "label": "Murrieta parking",
+      "value": 93.2,
+      "text": "150 of 161, 93.2%"
+    },
+    {
+      "label": "Valley Center enclosed storage",
+      "value": 81.9,
+      "text": "465 of 568, 81.9%"
+    },
+    {
+      "label": "Fairfield parking",
+      "value": 69.6,
+      "text": "211 of 303, 69.6%"
+    },
+    {
+      "label": "Temecula parking",
+      "value": 69.2,
+      "text": "333 of 481, 69.2%"
+    }
+  ],
+  "caption": "From Greens' Cubby, 11/2026."
+}
+```
 
 These are real counts of active and leased units (From Greens' Cubby, 11/2026):
 

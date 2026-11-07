@@ -14,6 +14,8 @@
   ],
   "est_minutes": 210,
   "delivery": "online",
+  "level": "foundations",
+  "tags": "self-storage, new hire, lien, rental agreement",
   "min_reading_minutes": 120,
   "lessons": [
     {
@@ -24,6 +26,9 @@
     },
     {
       "file": "03-the-product-units-and-sizes.md"
+    },
+    {
+      "file": "03a-the-facility-what-a-storage-site-is-made-of.md"
     },
     {
       "file": "04-access-locks-and-security.md"
@@ -155,6 +160,36 @@
           ],
           "explanation": "Gate codes are passwords and only people on the account get access. Do not confirm the person is a tenant, and never let anyone in on your own code.",
           "lesson": "04-access-locks-and-security.md"
+        },
+        {
+          "type": "single",
+          "q": "A tenant on the second floor of a climate-controlled building says her unit \"has no ceiling, so anyone could climb in.\" What is true?",
+          "options": [
+            "She is right; interior units are open at the top and should be avoided",
+            "The gap above the partitions is closed with wire mesh, which stops climbing and lets the sprinklers and conditioned air reach every unit",
+            "Only drive-up units have ceilings of their own",
+            "The building's roof is her ceiling, and nothing is between the units"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "Partitions stop short of the roof and mesh closes the gap. Nobody gets through it, and it is why sprinklers, air and light serve every unit.",
+          "lesson": "03a-the-facility-what-a-storage-site-is-made-of.md"
+        },
+        {
+          "type": "single",
+          "q": "A roll-up door is heavy to lift and will not stay up. What do you do?",
+          "options": [
+            "Adjust the spring in the drum with a screwdriver",
+            "Spray the guides and tell the tenant to lift harder",
+            "Report it for a trained technician; a spring under tension is dangerous to adjust",
+            "Take the door off its guides"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "Lost spring tension is a technician's job with the right tools. Staff report it and never force or adjust a door.",
+          "lesson": "03a-the-facility-what-a-storage-site-is-made-of.md"
         }
       ]
     },
@@ -519,7 +554,7 @@
   ],
   "quiz": {
     "passPct": 80,
-    "drawCount": 35,
+    "drawCount": 37,
     "maxTries": 3,
     "shuffle": true,
     "questions": [
@@ -1584,6 +1619,99 @@
         ],
         "explanation": "Conversion = rentals / inquiries = 15 / 60 = 25%. Faster callbacks raise it without more marketing.",
         "lesson": "16-numbers-that-matter-and-words-to-know.md"
+      },
+      {
+        "type": "single",
+        "q": "What is a hasp?",
+        "options": [
+          "The round lock that sits inside a latch",
+          "A hinged, slotted plate that swings over a staple so a lock through the staple holds the door shut",
+          "The spring-loaded drum a roll-up door rolls onto",
+          "The keypad pedestal at the gate"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A hasp is the hinged plate; the staple is the loop; the lock's shackle goes through the staple. On a roll-up door the hasp is built into the latch.",
+        "lesson": "04-access-locks-and-security.md"
+      },
+      {
+        "type": "single",
+        "q": "On a site with facility-managed cylinder locks, a tenant has lost her only key. What happens?",
+        "options": [
+          "The manager cuts the lock with a witness and photos",
+          "She proves who she is on the account, the manager pulls the core with the control key and issues a new core and keys; a fee may apply",
+          "She buys a padlock and the facility drills out the cylinder",
+          "Nothing can be done until the lease ends"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A cylinder lock's core is changed, not cut. Identity is proved on the account first, and the Lock Removal/Inventory Fee may apply.",
+        "lesson": "04-access-locks-and-security.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which statements about the control key on a cylinder-lock site are right? Pick all that apply.",
+        "options": [
+          "It opens every cylinder-lock door on the site",
+          "It is signed out and never lent or copied",
+          "It is kept on the same ring as the office keys for convenience",
+          "Losing it means the manager treats the site as needing a re-key",
+          "Any employee may carry one"
+        ],
+        "answer": [
+          0,
+          1,
+          3
+        ],
+        "explanation": "The control key pulls every core. It is signed out, never lent or copied, never on a shared ring, and a lost one is a site-wide re-key.",
+        "lesson": "04-access-locks-and-security.md"
+      },
+      {
+        "type": "single",
+        "q": "Why do most storage latches have two holes?",
+        "options": [
+          "So a tenant can use two locks for extra security",
+          "So the facility's overlock can go on without touching or cutting the tenant's lock",
+          "One is for the key and one for the shackle",
+          "Because padlocks and disc locks need different holes"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The second hole is for the overlock. The tenant's lock stays; the facility's lock is added, and the door cannot open until it comes off.",
+        "lesson": "04-access-locks-and-security.md"
+      },
+      {
+        "type": "single",
+        "q": "A tenant parks his trailer in a fire lane \"for an hour\" while he unloads. What is right?",
+        "options": [
+          "It is fine for an hour if the office knows",
+          "Fire lanes are never blocked; ask him to move it to the aisle in front of his unit",
+          "It is fine as long as the gate is open",
+          "Only the fire department can ask him to move"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A fire lane is the path a fire engine needs. Nothing is parked in it for any length of time.",
+        "lesson": "03a-the-facility-what-a-storage-site-is-made-of.md"
+      },
+      {
+        "type": "single",
+        "q": "What is the exit loop at a gate?",
+        "options": [
+          "The chain that pulls a sliding gate",
+          "A wire loop under the pavement inside the gate that senses a vehicle leaving and opens the gate without a code",
+          "The second keypad on the way out",
+          "The paved length where cars wait outside the gate"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A loop opens the gate for anyone leaving. An exit keypad instead gives a complete access log. Know which your site has.",
+        "lesson": "03a-the-facility-what-a-storage-site-is-made-of.md"
       }
     ]
   }

@@ -53,6 +53,36 @@ The **Requester** is you by default. If you are raising it for a coworker (for e
 
 ## Following Your Ticket
 
+```figure
+{
+  "kind": "steps",
+  "title": "Where a Ticket Goes",
+  "items": [
+    {
+      "label": "New or Open",
+      "note": "received, not yet worked"
+    },
+    {
+      "label": "In Progress",
+      "note": "someone has it"
+    },
+    {
+      "label": "Waiting",
+      "note": "for you, or for an outside vendor"
+    },
+    {
+      "label": "Resolved",
+      "note": "the team says it is fixed"
+    },
+    {
+      "label": "Closed",
+      "note": "finished"
+    }
+  ],
+  "caption": "Waiting for User means the team is waiting on you. Reply, and it moves again."
+}
+```
+
 Your tickets are in three lists under the Help Center tiles:
 
 - **Open Tickets:** raised for you and not closed yet. Until someone replies, a row says **Expect a reply by** with the date and time the team aims to answer by. A blue dot means something changed since you last looked.

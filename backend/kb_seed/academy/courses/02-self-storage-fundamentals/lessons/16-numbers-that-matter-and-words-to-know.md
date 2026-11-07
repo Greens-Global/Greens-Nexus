@@ -1,17 +1,53 @@
 ---
 title: Numbers That Matter and Words to Know
-summary: The metrics a storage site lives by and the habit behind each one, a 54-term glossary, ten myths to bust and the mistakes new hires make most.
+summary: The metrics a storage site lives by and the habit behind each one, a 65-term glossary, ten myths to bust and the mistakes new hires make most.
 ---
 
 ## What You'll Be Able to Do
 
 - Explain the main metrics a storage site tracks and work out the simple ones.
 - Connect each metric to something you do every day.
-- Use the 54 words of the storage business correctly.
+- Use the 65 words of the storage business correctly.
 - Bust the ten most common myths customers believe.
 - Avoid the mistakes new hires make most often.
 
 ## The Numbers That Matter
+
+```figure
+{
+  "kind": "compare",
+  "title": "What Each Number Watches",
+  "columns": [
+    {
+      "name": "Filling the site",
+      "facts": [
+        "Unit, physical and economic occupancy",
+        "Move-ins and move-outs",
+        "Net rentals",
+        "Rentable units"
+      ]
+    },
+    {
+      "name": "Getting paid",
+      "facts": [
+        "Delinquency %",
+        "Lien and auction count",
+        "Autopay %"
+      ]
+    },
+    {
+      "name": "Growing each rental",
+      "facts": [
+        "Conversion rate",
+        "Average length of stay",
+        "Protection penetration",
+        "Merchandise per move-in",
+        "Online reviews"
+      ]
+    }
+  ]
+}
+```
 
 Managers and owners watch a short list of numbers. You do not need to run the reports (Cubby Fundamentals covers that), but you should know what each number means and what you do that moves it.
 
@@ -69,52 +105,63 @@ The average stay in the industry is about a year and a half (the Why People Rent
 | 6 | Auction (lien sale) | The public sale of a defaulted tenant's goods to satisfy the lien |
 | 7 | Autopay | Automatic recurring card or bank payment |
 | 8 | Bailment | A relationship where one party takes custody of another's goods; storage agreements create no bailment |
-| 9 | Climate-controlled unit | A unit in a temperature-regulated (sometimes humidity-regulated) space |
-| 10 | Commercially reasonable (California) | The standard a lien sale must meet: in person or on a public auction website (B&P 21707) |
-| 11 | Concession | A discount or promotion, such as a free month |
-| 12 | Conversion rate | The share of inquiries or reservations that become rentals |
-| 13 | Cylinder lock | A lock built into the door latch, with a unique core per tenant |
-| 14 | Declaration in Opposition (California) | A sworn form a tenant returns to stop a lien sale; the owner must then go to court |
-| 15 | Delinquency | Rent past due |
-| 16 | Disc lock | A round lock with a shrouded shackle; hard to cut |
-| 17 | Drive-up unit | An exterior unit you can park in front of |
-| 18 | ECRI | Existing Customer Rate Increase: a rent increase for a current tenant |
-| 19 | Economic occupancy | Rent actually achieved / gross potential rent at street rates |
-| 20 | Exclusive control | The tenant alone controls access to the unit and its contents |
-| 21 | Gate code | A tenant's personal entry code; a password |
-| 22 | Gross potential rent | The rent if every unit were rented at street rate |
-| 23 | In-place rate | What an existing tenant pays now |
-| 24 | Interior unit | A unit reached from inside a building |
-| 25 | Late fee | A fee for late rent; capped in California (B&P 21713.5) |
-| 26 | Lessor, owner, operator | The facility side. California law says "owner"; Texas says "lessor." |
-| 27 | Occupant, tenant, lessee | The renter. California law says "occupant"; Texas says "tenant." |
-| 28 | Letters testamentary, letters of administration | Court documents showing who controls a deceased person's estate |
-| 29 | Lien | The facility's legal claim on stored property for unpaid charges |
-| 30 | Preliminary Lien Notice (California) | The first statutory notice, after 14 consecutive days unpaid (B&P 21703) |
-| 31 | Lockout | Suspending a tenant's gate access and/or overlocking the unit |
-| 32 | Management system | The facility software for rentals, payments, gates and reports; at Greens, Cubby |
-| 33 | Month-to-month | A rental that renews each month until ended |
-| 34 | Move-in, move-out | A new rental; a vacate |
-| 35 | Net rentable square feet | The total square feet available to rent |
-| 36 | Net rentals | Move-ins minus move-outs |
-| 37 | Notice of claim (Texas) | The statutory notice that starts the Texas lien sale clock (59.043) |
-| 38 | Notice of Lien Sale (California) | The second notice, giving a sale date at least 14 days out (B&P 21705(b)) |
-| 39 | Overlock | A facility lock placed on a unit to block access |
-| 40 | Physical occupancy | Rented square feet / total rentable square feet |
-| 41 | Protection plan | An operator program, not insurance, that waives the liability release and covers losses up to a limit |
-| 42 | Rate lock | A promise not to raise rent for a period |
-| 43 | REIT | Real Estate Investment Trust: a publicly traded real estate owner |
-| 44 | Rent roll | A list of all rented units, tenants and rents |
-| 45 | Rentable, unrentable unit | Ready to sell, or out of service |
-| 46 | Reservation | A unit held for a future move-in |
-| 47 | SCRA | Servicemembers Civil Relief Act: no storage lien enforcement on an active-duty servicemember, or within 90 days after, without a court order (50 U.S.C. 3958) |
-| 48 | Smart entry | Bluetooth or app-based gate and unit access |
-| 49 | Stabilized | A facility that has reached its target occupancy after its first lease-up |
-| 50 | Street rate | Today's advertised move-in price |
-| 51 | Tenant insurance | A third-party insurance policy covering the tenant's goods |
-| 52 | Third-party management | An outside company running a facility for its owner |
-| 53 | Unit mix | The combination of unit sizes and types at a facility |
-| 54 | Verified mail (Texas) | Mail with proof of mailing through USPS or a common carrier; used for Texas notices since 2012 |
+| 9 | Bollard (crash post) | A steel post at a building corner, a canopy post or a keypad that takes the hit a truck would give the wall |
+| 10 | Climate-controlled unit | A unit in a temperature-regulated (sometimes humidity-regulated) space |
+| 11 | Commercially reasonable (California) | The standard a lien sale must meet: in person or on a public auction website (B&P 21707) |
+| 12 | Concession | A discount or promotion, such as a free month |
+| 13 | Control key | The key that pulls the core out of a cylinder lock; opens every cylinder-lock door on the site, so it is signed out and never lent |
+| 14 | Conversion rate | The share of inquiries or reservations that become rentals |
+| 15 | Core (cylinder core) | The keyed part inside a cylinder lock; changed between tenants so the old key no longer works |
+| 16 | Cylinder lock | A lock built into the door latch, with a unique core per tenant |
+| 17 | Declaration in Opposition (California) | A sworn form a tenant returns to stop a lien sale; the owner must then go to court |
+| 18 | Delinquency | Rent past due |
+| 19 | Disc lock | A round lock with a shrouded shackle; hard to cut |
+| 20 | Drive aisle | The lane between buildings that a truck parks in and a fire engine drives down; fire lanes are never blocked |
+| 21 | Drive-up unit | An exterior unit you can park in front of |
+| 22 | Economic occupancy | Rent actually achieved / gross potential rent at street rates |
+| 23 | ECRI | Existing Customer Rate Increase: a rent increase for a current tenant |
+| 24 | Exclusive control | The tenant alone controls access to the unit and its contents |
+| 25 | Exit loop | A wire loop under the pavement inside the gate that opens it for a vehicle leaving, with no code |
+| 26 | Gate code | A tenant's personal entry code; a password |
+| 27 | Gross potential rent | The rent if every unit were rented at street rate |
+| 28 | Hasp | The hinged, slotted plate that swings over a staple so a lock can hold a door shut; on a roll-up door, part of the latch |
+| 29 | In-place rate | What an existing tenant pays now |
+| 30 | Interior unit | A unit reached from inside a building |
+| 31 | Latch | The slide bolt and plate at a roll-up door's bottom corner; the lock goes through its hole, and most have a second hole for the overlock |
+| 32 | Late fee | A fee for late rent; capped in California (B&P 21713.5) |
+| 33 | Lessor, owner, operator | The facility side. California law says "owner"; Texas says "lessor." |
+| 34 | Letters testamentary, letters of administration | Court documents showing who controls a deceased person's estate |
+| 35 | Lien | The facility's legal claim on stored property for unpaid charges |
+| 36 | Lockout | Suspending a tenant's gate access and/or overlocking the unit |
+| 37 | Management system | The facility software for rentals, payments, gates and reports; at Greens, Cubby |
+| 38 | Mesh (security mesh) | Wire mesh closing the gap between the top of a unit's partitions and the roof; stops climbing, lets sprinklers and air through |
+| 39 | Month-to-month | A rental that renews each month until ended |
+| 40 | Move-in, move-out | A new rental; a vacate |
+| 41 | Net rentable square feet | The total square feet available to rent |
+| 42 | Net rentals | Move-ins minus move-outs |
+| 43 | Notice of claim (Texas) | The statutory notice that starts the Texas lien sale clock (59.043) |
+| 44 | Notice of Lien Sale (California) | The second notice, giving a sale date at least 14 days out (B&P 21705(b)) |
+| 45 | Occupant, tenant, lessee | The renter. California law says "occupant"; Texas says "tenant." |
+| 46 | Overlock | A facility lock placed on a unit to block access |
+| 47 | Partition | A unit's steel wall; not load-bearing, not soundproof |
+| 48 | Physical occupancy | Rented square feet / total rentable square feet |
+| 49 | Preliminary Lien Notice (California) | The first statutory notice, after 14 consecutive days unpaid (B&P 21703) |
+| 50 | Protection plan | An operator program, not insurance, that waives the liability release and covers losses up to a limit |
+| 51 | Rate lock | A promise not to raise rent for a period |
+| 52 | REIT | Real Estate Investment Trust: a publicly traded real estate owner |
+| 53 | Rent roll | A list of all rented units, tenants and rents |
+| 54 | Rentable, unrentable unit | Ready to sell, or out of service |
+| 55 | Reservation | A unit held for a future move-in |
+| 56 | Roll-up door | A corrugated steel curtain that rolls onto a spring-loaded drum in a hood above the opening |
+| 57 | SCRA | Servicemembers Civil Relief Act: no storage lien enforcement on an active-duty servicemember, or within 90 days after, without a court order (50 U.S.C. 3958) |
+| 58 | Smart entry | Bluetooth or app-based gate and unit access |
+| 59 | Stabilized | A facility that has reached its target occupancy after its first lease-up |
+| 60 | Staple | The loop a lock's shackle passes through on a hasp |
+| 61 | Street rate | Today's advertised move-in price |
+| 62 | Tenant insurance | A third-party insurance policy covering the tenant's goods |
+| 63 | Third-party management | An outside company running a facility for its owner |
+| 64 | Unit mix | The combination of unit sizes and types at a facility |
+| 65 | Verified mail (Texas) | Mail with proof of mailing through USPS or a common carrier; used for Texas notices since 2012 |
 
 Also useful: **unit occupancy** (units rented / total units), **value limit** (a contract cap on the value a tenant may store), **walk-through** (the routine check of every unit and lock) and **vacant unit prep** (making a unit rent-ready).
 
@@ -160,7 +207,7 @@ Also useful: **unit occupancy** (units rented / total units), **value limit** (a
 
 - Know the core metrics: unit, physical and economic occupancy; move-ins, move-outs and net rentals; delinquency; conversion; length of stay; protection penetration; autopay.
 - Every metric has a habit behind it: answer and follow up, size well, quote real rates, collect early, offer protection, a lock and autopay, keep the walk honest.
-- Learn the 54 words; they are the language of the business and of this academy.
+- Learn the 65 words; they are the language of the business and of this academy.
 - Bust the ten myths kindly and accurately.
 - Escalate the unusual: a Declaration in Opposition, bankruptcy, military service or a death.
 

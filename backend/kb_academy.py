@@ -39,6 +39,8 @@ class CourseSpec:
     min_reading_minutes: int
     lessons: list
     quiz: dict
+    level: str = ""
+    tags: str = ""
 
 
 @dataclass
@@ -87,7 +89,8 @@ def load(root: Path = ROOT) -> Academy:
             quiz = c.get("quiz") or {}
             _link_questions(lessons, [q for L in lessons for q in L.get("questions") or []] + list(quiz.get("questions") or []))
             a.courses.append(CourseSpec(slug, c["title"], c.get("description", ""), c.get("overview", []), c.get("est_minutes", 0),
-                                        c.get("delivery", ""), c.get("min_reading_minutes", 0), lessons, quiz))
+                                        c.get("delivery", ""), c.get("min_reading_minutes", 0), lessons, quiz,
+                                        c.get("level", ""), c.get("tags", "")))
         except (OSError, ValueError, KeyError, TypeError) as e:
             a.errors.append(f"{d.parent.name}: cannot load ({type(e).__name__}: {e})")
     return a
@@ -122,6 +125,8 @@ def _texts(node) -> list[str]:
 
 def _all_text(node) -> list[str]:
     if isinstance(node, dict):
+        if node.get("type") == "figure":
+            return kb_blocks.figure_text(node).split("\n")
         out = [node["text"]] if isinstance(node.get("text"), str) else []
         for v in node.values():
             out += _all_text(v)
@@ -257,4 +262,13 @@ def problems(a: Academy) -> list[str]:
         for s in [c.title, c.description] + list(c.overview):
             if _BANNED.search(str(s)):
                 out.append(f"{c.slug}: banned copy {_BANNED.search(str(s)).group(0)!r}")
+        if c.level not in ("foundations", "core", "advanced"):
+            out.append(f"{c.slug}: level {c.level!r} must be foundations, core or advanced")
+        for L in c.lessons:
+            if L["type"] == "text":
+                for b in L["blocks"].get("content") or []:
+                    if b.get("type") == "figure":
+                        for name in kb_blocks.figure_drawings(b):
+                            if name not in kb_blocks.DRAWING_NAMES:
+                                out.append(f"{c.slug} {L['title']!r}: no drawing named {name!r}")
     return out

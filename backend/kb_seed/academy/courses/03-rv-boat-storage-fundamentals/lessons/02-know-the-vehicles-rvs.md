@@ -38,6 +38,114 @@ The training point is simple:
 
 ## The RV Types
 
+```figure
+{
+  "kind": "drawings",
+  "title": "What Each RV Looks Like",
+  "items": [
+    {
+      "draw": "rv-class-a",
+      "label": "Class A",
+      "note": "bus-shaped; 25 to 45 ft; often tows a car"
+    },
+    {
+      "draw": "rv-class-b",
+      "label": "Class B",
+      "note": "a camper van; 17 to 24 ft"
+    },
+    {
+      "draw": "rv-class-c",
+      "label": "Class C",
+      "note": "a truck cab with a bunk over it; 21 to 35 ft"
+    },
+    {
+      "draw": "rv-travel-trailer",
+      "label": "Travel trailer",
+      "note": "towed on a ball hitch; body 12 to 35 ft plus the tongue"
+    },
+    {
+      "draw": "rv-fifth-wheel",
+      "label": "Fifth wheel",
+      "note": "a raised nose that hitches in a pickup bed; 22 to 45 ft; the tallest towable"
+    },
+    {
+      "draw": "rv-toy-hauler",
+      "label": "Toy hauler",
+      "note": "a rear ramp door and a garage; 25 to 45 ft"
+    },
+    {
+      "draw": "rv-pop-up",
+      "label": "Pop-up",
+      "note": "a folding canvas camper; 8 to 16 ft folded"
+    },
+    {
+      "draw": "rv-truck-camper",
+      "label": "Truck camper",
+      "note": "slides into a pickup bed; truck length plus the overhang"
+    },
+    {
+      "draw": "rv-teardrop",
+      "label": "Teardrop",
+      "note": "a tiny sleeping trailer; 10 to 16 ft"
+    }
+  ],
+  "caption": "Side views, facing left. Mirrors, awnings, slide-outs, ladders and spare tires stick out past what is drawn."
+}
+```
+
+```figure
+{
+  "kind": "bars",
+  "title": "Typical Lengths by RV Type",
+  "unit": "ft",
+  "max": 50,
+  "items": [
+    {
+      "label": "Class A",
+      "low": 25,
+      "value": 45
+    },
+    {
+      "label": "Fifth wheel",
+      "low": 22,
+      "value": 45
+    },
+    {
+      "label": "Toy hauler",
+      "low": 25,
+      "value": 45
+    },
+    {
+      "label": "Class C",
+      "low": 21,
+      "value": 35
+    },
+    {
+      "label": "Travel trailer (body)",
+      "low": 12,
+      "value": 35,
+      "text": "12 to 35 ft, plus a 3 to 5 ft tongue"
+    },
+    {
+      "label": "Class B",
+      "low": 17,
+      "value": 24
+    },
+    {
+      "label": "Teardrop",
+      "low": 10,
+      "value": 16
+    },
+    {
+      "label": "Pop-up (folded)",
+      "low": 8,
+      "value": 16
+    }
+  ],
+  "caption": "A trailer's storage length is hitch to bumper; a fifth wheel's kingpin overhang may not be in the stated length."
+}
+```
+
 Ranges below are approximate. They vary a lot by model and year, and sources differ (Neighbor, Camper Report and Outdoorsy guides, as of 2026). Always measure the real vehicle.
 
 | Type | What it is | Typical length | Typical height | Notes for staff |

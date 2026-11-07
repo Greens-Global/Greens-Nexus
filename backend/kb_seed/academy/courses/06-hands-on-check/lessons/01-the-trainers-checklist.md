@@ -13,6 +13,32 @@ summary: What the Hands-On Check is, how long it takes, who signs you off, and t
 
 ## What the Hands-On Check Is
 
+```figure
+{
+  "kind": "steps",
+  "title": "About 90 Minutes, in Three Parts",
+  "items": [
+    {
+      "label": "A mock sales call",
+      "note": "about 30 minutes; scored on the 22-item sheet"
+    },
+    {
+      "label": "A guided site walk",
+      "note": "about 30 minutes"
+    },
+    {
+      "label": "A supervised move-in in Cubby",
+      "note": "about 30 minutes"
+    },
+    {
+      "label": "The sign-off",
+      "note": "your manager or a senior team member, in Nexus"
+    }
+  ],
+  "caption": "Any part can be done again. The sign-off is the trainer's call and needs no score in Nexus."
+}
+```
+
 The Hands-On Check is the last course in the Greens Storage Academy. It is not a quiz. It is an in-person sign-off that you can do the job, not only read about it. Your trainer watches you do three things on your own site:
 
 1. A mock sales call.

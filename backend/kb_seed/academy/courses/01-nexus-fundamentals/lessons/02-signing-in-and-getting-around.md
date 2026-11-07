@@ -32,6 +32,43 @@ You cannot skip it. If you see it again a few weeks later, that is normal: the p
 
 ## The Layout on a Computer
 
+```figure
+{
+  "kind": "layout",
+  "title": "The Three Parts of Every Nexus Screen",
+  "cols": 12,
+  "rows": 7,
+  "regions": [
+    {
+      "label": "The left menu",
+      "note": "My Desk, Work, Modules, System; the clock at the foot",
+      "x": 1,
+      "y": 1,
+      "w": 3,
+      "h": 7
+    },
+    {
+      "label": "The header",
+      "note": "Search Nexus, + Create, the bell, ? Help, your profile",
+      "x": 4,
+      "y": 1,
+      "w": 9,
+      "h": 1
+    },
+    {
+      "label": "The page",
+      "note": "the module you are in, its tabs across the top",
+      "x": 4,
+      "y": 2,
+      "w": 9,
+      "h": 6,
+      "tone": "ok"
+    }
+  ],
+  "caption": "On a phone the left menu becomes a drawer and the tabs sit in the page itself."
+}
+```
+
 On a computer, Nexus has three parts:
 
 1. **The left menu** (the sidebar), which moves you between modules.

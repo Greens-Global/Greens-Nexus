@@ -52,6 +52,30 @@ Items 1 to 19 are things you did or did not do. Items 20 to 22 are judgments. Th
 
 ## How to Score a Call
 
+```figure
+{
+  "kind": "stats",
+  "title": "What the Score Means",
+  "items": [
+    {
+      "value": "Below 70%",
+      "label": "Not yet",
+      "note": "pick the two items that would have changed the call most, practice, try again"
+    },
+    {
+      "value": "70% to 89%",
+      "label": "Pass",
+      "note": "the mystery-shop minimum for a phone shop (Mixon, 2020)"
+    },
+    {
+      "value": "90% and up",
+      "label": "Excellent",
+      "note": "Mixon's standard for a certificate-level call"
+    }
+  ]
+}
+```
+
 1. Mark each item **Yes**, **No** or **N/A**.
 2. Use N/A only when an item truly could not apply. Examples: the caller said "I rented with you before" in the first sentence (item 4), or the caller hung up before a close was possible. Not asking is a No, not an N/A.
 3. Count the Yes marks and the items that applied (22 minus the N/A items).

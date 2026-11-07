@@ -13,6 +13,32 @@ summary: Use the Time Clock every shift - the four buttons, the start, break and
 
 ## The Four Buttons
 
+```figure
+{
+  "kind": "cycle",
+  "title": "One Working Day on the Clock",
+  "items": [
+    {
+      "label": "Punch In",
+      "note": "a Beginning of Day note"
+    },
+    {
+      "label": "Start Break",
+      "note": "a short reason, such as Lunch"
+    },
+    {
+      "label": "End Break",
+      "note": "back on the clock"
+    },
+    {
+      "label": "Punch Out",
+      "note": "an End of Day summary"
+    }
+  ],
+  "caption": "Start Break pauses your paid time; Punch Out ends the day. You only ever see the buttons that make sense right now."
+}
+```
+
 The Time Clock is on the **Workday** Overview, and the same clock sits at the foot of the left menu on a computer and in a small pill on a phone. It only ever shows the buttons that make sense right now:
 
 | You are | You see | What it does |

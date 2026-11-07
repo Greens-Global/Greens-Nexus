@@ -27,6 +27,53 @@ A wrong fit on day one means a bad first experience, a transfer, and often a rat
 
 ## Length: Measure What Will Sit in the Space
 
+```figure
+{
+  "kind": "drawing",
+  "title": "Storage Length Is Hitch to Bumper",
+  "draw": "measure-length",
+  "label": "From the coupler to the rearmost thing on the back",
+  "note": "The spare tire, the bike rack and the ladder count. The advertised length often does not include the tongue."
+}
+```
+
+```figure
+{
+  "kind": "compare",
+  "title": "Where the Tape Starts and Ends",
+  "columns": [
+    {
+      "name": "Travel trailer",
+      "facts": [
+        "From the coupler, where it hooks to the hitch ball",
+        "To the rear bumper, including the spare, bike rack or ladder"
+      ]
+    },
+    {
+      "name": "Fifth wheel",
+      "facts": [
+        "From the front of the nose or pin box",
+        "To the rear bumper and anything on it"
+      ]
+    },
+    {
+      "name": "Motorhome",
+      "facts": [
+        "From the front bumper",
+        "To the rearmost item: ladder, spare, bike rack, tow bar"
+      ]
+    },
+    {
+      "name": "Boat on a trailer",
+      "facts": [
+        "From the tip of the trailer tongue",
+        "To the motor's lower unit, the swim platform or a mast overhang"
+      ]
+    }
+  ]
+}
+```
+
 Ask for the **overall length as it will sit in the space**, never the model name or the brochure number.
 
 | Vehicle | Measure from | To |
@@ -44,6 +91,16 @@ A towed car behind a motorhome is a **separate vehicle** and usually a separate 
 Add about **3 to 4 ft** to the measured length for walking room and a safety margin. An operator's rule of thumb is that a 38 ft RV needs at least a 42 ft space (Inside Self Storage, 2007). Your manager may set a different margin for your site.
 
 ## Height: Measure to the Highest Point
+
+```figure
+{
+  "kind": "drawing",
+  "title": "Height Is to the Highest Point",
+  "draw": "measure-height",
+  "label": "From the ground to the top of the air conditioner or antenna",
+  "note": "Not the roof line. A covered or enclosed space has to clear this with room to spare."
+}
+```
 
 Height only matters for covered and enclosed spaces, but there it decides everything. Measure from the ground to the **highest point**:
 

@@ -921,6 +921,60 @@ keep the diff minimal.
   pass runs under the `kb_daily` Automations switch. A course's
   `default_due_days` only fills a hand assignment with no date picked.
   `test_kb_training_due.py` pins all of it.
+- **Learning paths and the catalog (Neil, 11/07/2026: "missing role based
+  paths and departmental trainings"):** a training plan IS a learning path
+  with a `kind` (onboarding | role | department | custom), ordered `stages`
+  (names; each item carries its `stage` index) and `open_enrollment`
+  (anyone may start it from the catalog - `POST /kb/plans/{id}/enroll`,
+  source `self`, no due date; a rule or hand assignment still sets one).
+  "Role path" = kind role with `audience.job_titles`; "department
+  training" = kind department with `audience.departments` - the audience IS
+  the targeting, never a second field. A course carries `level`
+  (foundations | core | advanced) and `tags`, part of the draft until
+  Publish, and shelves in the catalog by its first `departments` entry.
+  `GET /kb/catalog` is the ONE list (published courses, active paths,
+  `for_me` = the audience names the caller); grouping lives in
+  `frontend/src/kb/training/catalogModel.js`. Training's screens are My
+  Learning (`training`), Catalog (`catalog`), Compliance and, for authors,
+  Courses; a path is `path:<id>`; a course opens on its Course Home
+  (outline, what you learn) before the lessons. Manage > Learning Paths
+  (`manage/Plans.jsx`) suggests a path for every job title and department
+  in People that has none. The Academy plan is the onboarding path
+  (`kb_academy_seed.apply_paths_once`, four stages). The look (Neil,
+  11/07/2026: no "styling rectangles"): no tile grid, no stat boxes, no
+  colored side bars, no uppercase eyebrows - a shelf is a titled list, a
+  path carries its LADDER (`training/cards.jsx` `PathLadder`: one segment
+  per stage, filled as the stage is done, the live accent on the stage in
+  hand), a course or path opens on a title page (`kb-lead`), levels and
+  kinds are words. `kb_daily._assign_course` flushes after its insert so
+  two paths covering one course in a pass assign it once.
+- **Figures in pages and courses (Neil, 11/07/2026: "graphics and visual
+  elements, not just text"):** a `figure` block is a diagram drawn from
+  DATA - `kb_blocks.FIGURE_KINDS` steps | timeline | compare | sizes | bars
+  | stats | layout | cycle, drawn by `kb/components/Figure.jsx` - never an
+  image file: crisp at any width, theme-aware, no storage, no license.
+  Authors insert one from Add Block > Figure (the editor node keeps it and
+  edits its JSON in place); the Academy package writes one as a
+  ```` ```figure ```` fence (`kb_md`, rules in `kb_seed/academy/README.md`);
+  `kb_blocks._clean_figure` keeps only known keys, short strings and finite
+  numbers. A figure goes where it says something faster than prose (a
+  sequence, a ladder of days, things to scale, numbers side by side) and
+  its words pass the same content checks. `kb_academy_seed.apply_content_once`
+  (11/07/2026) puts the package's lessons, new ones included, into every
+  imported course nobody has saved since the first run (`_untouched`:
+  `updated_at` still equals `created_at`), and only the figures into an
+  unedited lesson of a course somebody saved, in the course's DRAFT only. Pull nothing from the web into a course: an outside
+  image has a license and teaches nothing about our sites. DRAWINGS (Neil,
+  11/07/2026: "a drawing of what they look like") are the one illustration
+  library: `kb/components/drawings.jsx`, line drawings by name on a 200 x
+  110 canvas in one style (ink line, soft body fill, green glass, one
+  accent), shown by the `drawing` and `drawings` figure kinds;
+  `kb_blocks.DRAWING_NAMES` is the same list (its test keeps them equal) and
+  the content test fails a name that does not exist. A new drawing goes in
+  both lists; never a second illustration path or an image file. The
+  library also holds the site itself (the fence, the gate, the buildings,
+  inside a unit, the roll-up door, the hasp, the cylinder core) and the
+  three shapes of space from above (drive-in, pull-through, angled).
 
 ## Asana — removed (Sep 2026)
 
