@@ -29,6 +29,87 @@ Below the tiles is the list of your tickets.
 
 ## Submitting a Ticket
 
+```figure
+{
+  "kind": "screen",
+  "title": "Submit a Ticket",
+  "device": "computer",
+  "module": "Help Center",
+  "sub": "System",
+  "parts": [
+    {
+      "kind": "sheet",
+      "title": "Submit a Ticket",
+      "fields": [
+        {
+          "label": "Title",
+          "value": "Gate 2 keypad not responding",
+          "n": 1
+        },
+        {
+          "label": "What Is Happening?",
+          "kind": "textarea",
+          "value": "Since 7:30 AM the entry keypad shows nothing when a code is typed. Exit loop works. Tried the intercom; no answer."
+        },
+        {
+          "label": "Evidence",
+          "hint": "Record Screen · Attach File · or press Ctrl+V to paste a screenshot",
+          "n": 2
+        },
+        {
+          "label": "Department",
+          "kind": "select",
+          "value": "Facilities"
+        },
+        {
+          "label": "Type",
+          "kind": "select",
+          "value": "Incident"
+        },
+        {
+          "label": "Priority",
+          "kind": "select",
+          "value": "High",
+          "n": 3
+        }
+      ],
+      "buttons": [
+        "Cancel",
+        {
+          "label": "Create Ticket",
+          "primary": true
+        }
+      ]
+    },
+    {
+      "kind": "list",
+      "title": "Open Tickets",
+      "items": [
+        {
+          "label": "Light out in the front office",
+          "note": "Expect a reply by 11/08/2026 9:00 AM",
+          "badge": "Open"
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Short and specific: what and where."
+    },
+    {
+      "n": 2,
+      "text": "Always add a photo; it saves a trip and a phone call."
+    },
+    {
+      "n": 3,
+      "text": "Set it honestly."
+    }
+  ]
+}
+```
+
 A ticket is the right tool whenever something is broken, missing or needs another team: a gate that will not close, a light out in the front office, a computer that will not print, a question for IT.
 
 1. Open **Help Center** and click **Submit a Ticket**. (Or use **New Ticket** in the + menu or on Dashboard Quick Actions.)
@@ -52,6 +133,85 @@ After you submit, the form shows **What Happens Next**: the ticket number, which
 The **Requester** is you by default. If you are raising it for a coworker (for example, they have no signal), pick them as the Requester. They get the updates, and you can still follow it under **Tickets I'm Following**.
 
 ## Following Your Ticket
+
+```figure
+{
+  "kind": "screen",
+  "title": "Your Tickets in Help Center",
+  "device": "computer",
+  "module": "Help Center",
+  "sub": "System",
+  "parts": [
+    {
+      "kind": "tiles",
+      "items": [
+        {
+          "label": "Submit a Ticket",
+          "value": "+"
+        },
+        {
+          "label": "Documentation",
+          "value": "?"
+        },
+        {
+          "label": "Knowledge Base & Training",
+          "value": "2"
+        },
+        {
+          "label": "How Do I...",
+          "value": "→"
+        }
+      ]
+    },
+    {
+      "kind": "list",
+      "title": "Open Tickets",
+      "items": [
+        {
+          "label": "Gate 2 keypad not responding",
+          "note": "#4830 · Facilities · In Progress since 8:40 AM",
+          "badge": "In Progress",
+          "tone": "live"
+        },
+        {
+          "label": "Light out in the front office",
+          "note": "#4821 · Facilities · they asked which fixture",
+          "badge": "Waiting for User",
+          "tone": "warn",
+          "n": 1
+        },
+        {
+          "label": "Printer will not print from the office computer",
+          "note": "#4799 · IT · Expect a reply by 11/08/2026 9:00 AM",
+          "badge": "Open"
+        }
+      ]
+    },
+    {
+      "kind": "list",
+      "title": "Closed Tickets",
+      "items": [
+        {
+          "label": "Roll-up door bent at bottom, unit B14",
+          "note": "#4712 · Maintenance · you confirmed the fix 11/01/2026",
+          "badge": "Closed",
+          "n": 2
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "The team is waiting on you. Reply, and it moves again."
+    },
+    {
+      "n": 2,
+      "text": "Resolved, then Confirm Resolution and Done, then the short survey."
+    }
+  ]
+}
+```
 
 ```figure
 {
@@ -112,6 +272,71 @@ Once a ticket is **Closed**, it stays closed. If the same problem comes back lat
 
 ## Report a Problem at a Place
 
+```figure
+{
+  "kind": "screen",
+  "title": "Report a Problem, From a Site Tag",
+  "device": "phone",
+  "module": "Building C",
+  "sub": "Murrieta",
+  "parts": [
+    {
+      "kind": "list",
+      "title": "Open Tickets Here",
+      "items": [
+        {
+          "label": "Nothing reported at this place",
+          "note": "You are the first"
+        }
+      ],
+      "n": 1
+    },
+    {
+      "kind": "form",
+      "title": "Report a Problem",
+      "fields": [
+        {
+          "label": "Where",
+          "kind": "select",
+          "value": "Unit C-108 door"
+        },
+        {
+          "label": "Details",
+          "kind": "textarea",
+          "value": "Roll-up door bent at bottom left, will not close fully, vacant unit."
+        },
+        {
+          "label": "Photos",
+          "value": "2 photos attached",
+          "n": 2
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Send Report",
+          "primary": true,
+          "n": 3
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "See whether someone beat you to it."
+    },
+    {
+      "n": 2,
+      "text": "Photos are evidence: at the time, of the thing, in good light."
+    },
+    {
+      "n": 3,
+      "text": "It becomes a ticket for the team that looks after this place, already linked to the property."
+    }
+  ]
+}
+```
+
 Some Greens sites and pieces of equipment carry a QR tag. Scan it with your phone's camera and Nexus opens that place:
 
 - **Open Tickets** lists what is already reported there, so you can see if someone beat you to it.
@@ -138,6 +363,65 @@ Your entry is reviewed by someone else; a person never reviews their own entry.
 > Photos are evidence. Take them at the time, of the actual thing, in good light. A clear photo of a damaged door, with the unit number in the shot, is worth more than a paragraph.
 
 ## Working With No Signal
+
+```figure
+{
+  "kind": "screen",
+  "title": "The Offline Bar",
+  "device": "phone",
+  "module": "Workday",
+  "parts": [
+    {
+      "kind": "banner",
+      "tone": "warn",
+      "text": "Waiting to send: 1 form, 1 punch.",
+      "buttons": [
+        {
+          "label": "Sync Now",
+          "primary": true,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "kind": "card",
+      "title": "Daily Site Inspection",
+      "rows": [
+        {
+          "label": "Sent 2:14 PM",
+          "value": "Saved on This Phone",
+          "tone": "warn",
+          "n": 2
+        }
+      ],
+      "note": "It sends itself when signal comes back. Sending it twice never creates two."
+    },
+    {
+      "kind": "clock",
+      "state": "in",
+      "value": "6h 20m",
+      "label": "Punched in at 8:00 AM",
+      "buttons": [
+        "Start Break",
+        {
+          "label": "Punch Out",
+          "primary": true
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Tries right away. Review appears instead when the server refused something; Keep Mine or Use Theirs when someone else changed the same record."
+    },
+    {
+      "n": 2,
+      "text": "Nothing to redo. Keep working."
+    }
+  ]
+}
+```
 
 You can fill a form, punch and use Workday with no signal. When you click **Send** with no signal, the entry shows **Saved on This Phone** and sends itself when signal comes back. Sending the same entry twice never creates two.
 

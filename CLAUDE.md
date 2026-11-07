@@ -960,10 +960,23 @@ keep the diff minimal.
   numbers. A figure goes where it says something faster than prose (a
   sequence, a ladder of days, things to scale, numbers side by side) and
   its words pass the same content checks. `kb_academy_seed.apply_content_once`
-  (11/07/2026) puts the package's lessons, new ones included, into every
-  imported course nobody has saved since the first run (`_untouched`:
-  `updated_at` still equals `created_at`), and only the figures into an
-  unedited lesson of a course somebody saved, in the course's DRAFT only. Pull nothing from the web into a course: an outside
+  (11/07/2026) runs whenever the package's digest changes
+  (`kb_academy.digest`, kept as the mark's value): a page or course the
+  package has and the database does not is created as a draft, the
+  package's lessons (new ones included) replace those of every imported
+  course nobody has saved since the first run (`_untouched`: `updated_at`
+  within a minute of `created_at`, never published), and only the figures
+  go into an unedited lesson of a course somebody saved - DRAFTS only.
+  SCREENS (Neil, 11/07/2026: "realistic screenshots, not real"): the
+  `screen` figure kind (`kb/components/Screen.jsx`) draws a Nexus screen
+  from data - device computer | phone | card, the module, tabs and header
+  buttons, parts in order (tiles, card, clock, table, form, list, banner,
+  dialog, sheet, bell, toast, text) and numbered callouts - in the app's
+  own vocabulary, fictional names only, never an image of a real screen.
+  The Nexus Fundamentals course teaches with 28 of them. The seventh
+  course, Property & Vendor Management for Storage Sites (managers; not on
+  the new-hire plan - `plan.json` lists a subsequence of `kb_academy.ORDER`),
+  reads Asset Management, Tickets and the vendor Compliance tab the same way. Pull nothing from the web into a course: an outside
   image has a license and teaches nothing about our sites. DRAWINGS (Neil,
   11/07/2026: "a drawing of what they look like") are the one illustration
   library: `kb/components/drawings.jsx`, line drawings by name on a 200 x

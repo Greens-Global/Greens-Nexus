@@ -12,7 +12,7 @@ def _q(i):
 
 
 def _pkg(tmp_path: Path, mutate=None) -> Path:
-    cfg = {"plan": {"name": "P", "description": "d", "due_days": 30, "courses": list(SLUGS)},
+    cfg = {"plan": {"name": "P", "description": "d", "due_days": 30, "courses": [s for s in SLUGS if s != "property-vendor-management"]},
            "page": "---\ntitle: Gate Codes\nsummary: s\npage_type: policy\ntags: a, b\n---\n\n## Codes\n\nText.\n",
            "lesson": "---\ntitle: Welcome Aboard\nsummary: s\n---\n\n## Hi\n\nHello there.\n",
            "lessons": [{"file": "01.md"}, {"page": "gate-codes", "title": "Gate Codes", "summary": "s"},

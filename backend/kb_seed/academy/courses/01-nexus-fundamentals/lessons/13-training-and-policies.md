@@ -27,6 +27,80 @@ The Library is how Greens does things, written down: SOPs, policies, guides and 
 
 ### My Training
 
+```figure
+{
+  "kind": "screen",
+  "title": "My Training",
+  "device": "computer",
+  "module": "Knowledge Base & Training",
+  "sub": "Help Center",
+  "tabs": [
+    "Library",
+    "Training"
+  ],
+  "tab": "Training",
+  "parts": [
+    {
+      "kind": "card",
+      "title": "Continue Where You Left Off",
+      "rows": [
+        {
+          "label": "Self-Storage Fundamentals · The Product: Units and Sizes",
+          "value": "Continue",
+          "tone": "ok"
+        }
+      ],
+      "n": 1
+    },
+    {
+      "kind": "list",
+      "title": "Courses",
+      "items": [
+        {
+          "label": "Nexus Fundamentals",
+          "note": "Due 11/20/2026",
+          "badge": "In Progress",
+          "tone": "live"
+        },
+        {
+          "label": "Self-Storage Fundamentals",
+          "note": "Due 12/04/2026",
+          "badge": "Not Started"
+        },
+        {
+          "label": "Hands-On Check",
+          "note": "In person · after the courses",
+          "badge": "Not Started"
+        }
+      ]
+    },
+    {
+      "kind": "list",
+      "title": "Read and Sign",
+      "items": [
+        {
+          "label": "Site Hours and Access Policy",
+          "note": "v2 · sign by 11/15/2026",
+          "badge": "Sign",
+          "tone": "warn",
+          "n": 2
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Picks up the lesson you were on."
+    },
+    {
+      "n": 2,
+      "text": "A policy to read and sign; a new version comes back here."
+    }
+  ]
+}
+```
+
 Click the **Training** tab. **My Training** lists everything assigned to you:
 
 | Part | What it shows |
@@ -79,6 +153,53 @@ You can leave and come back at any time. Lessons you marked complete stay comple
 Along the way, a **checkpoint** asks a few questions about what you just read. Answer them and click **Check My Answers**. A checkpoint is practice; it does not count as a quiz try. If you miss something, it tells you what is worth rereading. Use checkpoints to find your gaps before the quiz.
 
 ### The Final Quiz
+
+```figure
+{
+  "kind": "screen",
+  "title": "Not Quite",
+  "device": "card",
+  "parts": [
+    {
+      "kind": "card",
+      "title": "Not quite. You need 80%.",
+      "note": "You scored 72% · 18 of 25 · 2 tries left",
+      "rows": [
+        {
+          "label": "Reread these before you try again",
+          "value": ""
+        },
+        {
+          "label": "Punching In, Breaks and Punching Out",
+          "value": "Open",
+          "n": 1
+        },
+        {
+          "label": "Your Time Sheet",
+          "value": "Open"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Try Again",
+          "primary": true,
+          "n": 2
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "The lessons your wrong answers came from."
+    },
+    {
+      "n": 2,
+      "text": "The next try draws different questions. Read first."
+    }
+  ]
+}
+```
 
 At the end is the **Final Quiz**. Its card tells you the rules, for example "25 of 50 questions · 80% to pass · 3 tries." That means:
 

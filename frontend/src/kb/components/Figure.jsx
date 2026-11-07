@@ -14,10 +14,12 @@
 //   cycle     { title, caption, items: [{ label, note }] }            a loop
 //   drawing   { title, caption, draw, label, note }                   one line drawing (drawings.jsx), large
 //   drawings  { title, caption, items: [{ draw, label, note }] }      a gallery of drawings
+//   screen    { title, caption, device, module, tabs, tab, actions, parts, callouts }  a realistic Nexus screen (Screen.jsx)
 //
 // tone: '' | 'ok' (green) | 'live' (the live accent) | 'warn' (amber) | 'bad' (red)
 import { ChevronRight } from 'lucide-react';
 import Drawing from './drawings';
+import Screen from './Screen';
 
 const TONE = { ok: 'var(--kb-green)', live: 'var(--wk-live, #ed631a)', warn: '#d97706', bad: '#dc2626' };
 const tone = (t) => TONE[t] || '';
@@ -188,13 +190,13 @@ function Drawings({ d }) {
   );
 }
 
-const KINDS = { steps: Steps, timeline: Timeline, compare: Compare, sizes: Sizes, bars: Bars, stats: Stats, layout: Layout, cycle: Cycle, drawing: OneDrawing, drawings: Drawings };
+const KINDS = { steps: Steps, timeline: Timeline, compare: Compare, sizes: Sizes, bars: Bars, stats: Stats, layout: Layout, cycle: Cycle, drawing: OneDrawing, drawings: Drawings, screen: Screen };
 
 export default function Figure({ kind, data }) {
   const Body = KINDS[kind];
   const d = data && typeof data === 'object' ? data : {};
   if (!Body) return null;
-  return <Frame kind={kind} title={d.title} caption={d.caption} wide={kind === 'layout' || kind === 'compare' || kind === 'drawings'}><Body d={d} /></Frame>;
+  return <Frame kind={kind} title={d.title} caption={d.caption} wide={kind === 'layout' || kind === 'compare' || kind === 'drawings' || kind === 'screen'}><Body d={d} /></Frame>;
 }
 
 // Starting shapes for the editor's Add Block > Figure.
@@ -209,5 +211,8 @@ export const FIGURE_TEMPLATES = {
   cycle: { title: 'Round and round', items: [{ label: 'Rent due' }, { label: 'Autopay runs' }, { label: 'Paid through' }] },
   drawing: { title: 'Measure hitch to bumper', draw: 'measure-length', label: 'The storage length', note: 'from the coupler to the rearmost thing on the back' },
   drawings: { title: 'What they look like', items: [{ draw: 'rv-class-a', label: 'Class A', note: '25 to 45 ft' }, { draw: 'rv-travel-trailer', label: 'Travel trailer', note: '12 to 35 ft, plus the tongue' }] },
+  screen: { title: 'The Time Clock', device: 'computer', module: 'Workday', tabs: ['Overview', 'Time Sheet', 'Time Off', 'Performance'], tab: 'Overview', badge: 2,
+    parts: [{ kind: 'clock', state: 'in', value: '3h 12m', label: 'Punched in at 8:02 AM', tabs: ['Today', 'This Week', 'Pay Period'], tab: 'Today', buttons: [{ label: 'Start Break', n: 1 }, { label: 'Punch Out', primary: true, n: 2 }] }],
+    callouts: [{ n: 1, text: 'Start Break pauses your paid time.' }, { n: 2, text: 'Punch Out ends your day.' }] },
 };
 export const FIGURE_KINDS = Object.keys(KINDS);

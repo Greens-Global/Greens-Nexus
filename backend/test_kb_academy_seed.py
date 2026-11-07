@@ -17,7 +17,7 @@ import kb_academy  # noqa: E402
 import kb_academy_seed  # noqa: E402
 import kb_access  # noqa: E402
 import models  # noqa: E402
-from kb_academy_testpkg import _pkg  # noqa: E402  the same minimal package the content test validates
+from kb_academy_testpkg import _pkg, _q  # noqa: E402  the same minimal package the content test validates
 
 ROWS = (models.KbCollection, models.KbDocument, models.KbCourse, models.KbTrainingPlan, models.NexusSetting, models.NexusEmployee)
 
@@ -67,7 +67,7 @@ def test_first_run_creates_drafts(_package):
     plan = db.get(models.KbTrainingPlan, res["plan"])
     assert plan.active is False and plan.due_days == 30
     ids = {c.id: t for t, c in courses.items()}
-    assert [(i["kind"], ids[i["id"]]) for i in json.loads(plan.items)] == [("course", s.title) for s in a.courses]
+    assert [(i["kind"], ids[i["id"]]) for i in json.loads(plan.items)] == [("course", s.title) for s in a.courses if s.slug in a.plan["courses"]]   # the plan's six, not the manager course
     assert db.get(models.NexusSetting, kb_academy_seed.MARK)
     # Learning paths (11/07/2026): the plan is the onboarding path with its
     # stages, each course in one; courses carry the package's level and tags.
@@ -87,7 +87,7 @@ def test_paths_pass_upgrades_a_plan_a_first_run_made_before_paths(_package):
         c.level, c.tags = "", ""
     db.commit()
     out = kb_academy_seed.apply_paths_once(db)
-    assert out == {"plan": plan.id, "courses": 6}
+    assert out == {"plan": plan.id, "courses": 7}
     db.expire_all()
     plan = db.get(models.KbTrainingPlan, plan.id)
     assert plan.kind == "onboarding" and json.loads(plan.stages) == kb_academy_seed.ACADEMY_STAGES
@@ -107,7 +107,7 @@ def test_paths_pass_leaves_hand_set_values_alone(_package):
     c.level, c.tags = "advanced", "mine"
     db.commit()
     out = kb_academy_seed.apply_paths_once(db)
-    assert out["plan"] == "" and out["courses"] == 5
+    assert out["plan"] == "" and out["courses"] == 6
     db.expire_all()
     assert db.get(models.KbTrainingPlan, plan.id).kind == "role"
     assert db.get(models.KbCourse, c.id).level == "advanced"
@@ -220,7 +220,7 @@ def test_content_pass_refreshes_untouched_courses_and_figures_in_touched_ones(_p
     saved.updated_at = "2026-11-07T10:00:00"
     db.commit()
     out = kb_academy_seed.apply_content_once(db)
-    assert out == {"courses": 5, "lessons": 6}   # four untouched courses whole (one of them now two lessons), one figure into the saved course
+    assert out == {"pages": 0, "courses": 6, "lessons": 7}   # five untouched courses whole (one of them now two lessons), one figure into the saved course
     db.expire_all()
     for title, c in courses.items():
         d = json.loads(db.get(models.KbCourse, c.id).draft)
@@ -229,4 +229,23 @@ def test_content_pass_refreshes_untouched_courses_and_figures_in_touched_ones(_p
     d = json.loads(db.get(models.KbCourse, courses["Nexus Fundamentals"].id).draft)
     assert [L["title"] for L in d["lessons"]][:2] == [d["lessons"][0]["title"], "The Facility"]   # the new lesson landed, in place
     assert d["lessons"][1]["_id"] == "l_nexus-fundamentals_02"
-    assert kb_academy_seed.apply_content_once(db) is None
+    assert kb_academy_seed.apply_content_once(db) is None   # the package did not change
+    # the package grows a course (the code's ORDER grows with it): the pass imports it as a draft
+    import kb_academy as ka
+    extra = kb_academy.ROOT / "courses" / "09-extra-course"
+    (extra / "lessons").mkdir(parents=True)
+    (extra / "lessons" / "01.md").write_text("---\ntitle: Extra Lesson\nsummary: s\n---\n\n## Hi\n\nMore words here.\n", encoding="utf-8")
+    (extra / "course.json").write_text(json.dumps({"slug": "extra-course", "title": "Extra Course", "description": "d", "overview": ["o"], "est_minutes": 30,
+                                                   "delivery": "online", "level": "core", "tags": "x", "min_reading_minutes": 0,
+                                                   "lessons": [{"file": "01.md"}], "quiz": {"passPct": 80, "drawCount": 25, "maxTries": 3, "questions": [_q(i) for i in range(45)]}}), encoding="utf-8")
+    monkeypatch_order = list(ka.ORDER) + ["extra-course"]
+    ka.ORDER, saved = monkeypatch_order, ka.ORDER
+    ka.MIN_READING["extra-course"] = 0
+    try:
+        out = kb_academy_seed.apply_content_once(db)
+    finally:
+        ka.ORDER = saved
+    assert out == {"pages": 0, "courses": 1, "lessons": 0}
+    made = db.query(models.KbCourse).filter(models.KbCourse.title == "Extra Course").one()
+    assert made.status == "draft" and json.loads(made.draft)["lessons"][0]["title"] == "Extra Lesson"
+    assert made.id not in [i["id"] for i in json.loads(db.query(models.KbTrainingPlan).one().items)]   # not in the plan: not added to it
