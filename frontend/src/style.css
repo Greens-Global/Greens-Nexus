@@ -9793,3 +9793,24 @@ body:has(.apv-phone) { overflow-x: clip; }
     position: static; margin: 0; padding-bottom: 0; border-bottom: 0; background: none; overflow-x: auto;
   }
 }
+
+/* ── Record link chips (Notes 11/06/2026; tasks and tickets 11/07/2026) ──
+   The editor's chip (notes/recordLink.jsx) and the same link shown from
+   sanitized HTML in a comment or note (tasks/lib.js sanitizeRichHtml). */
+.nt-reclink { display: inline; white-space: nowrap; }
+.nt-reclink-btn {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; vertical-align: baseline;
+  padding: 0 6px 0 5px; margin: 0 1px; border: 1px solid var(--wk-line2); border-radius: 6px;
+  background: var(--card); color: var(--wk-green); font: inherit; font-weight: 600; line-height: 1.5; cursor: pointer;
+}
+.nt-reclink-btn:hover, .nt-reclink-btn:focus-visible { background: var(--wk-hover); outline: none; }
+.nt-reclink-btn:disabled { cursor: default; opacity: .6; }
+.nt-reclink-btn > svg { flex-shrink: 0; color: var(--muted); }
+.nt-reclink-title { overflow: hidden; text-overflow: ellipsis; max-width: 32ch; }
+.ProseMirror-selectednode > .nt-reclink-btn, .nt-reclink.ProseMirror-selectednode .nt-reclink-btn { box-shadow: 0 0 0 2px var(--wk-green); }
+a[data-type="recordLink"][data-ref] {
+  display: inline-block; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+  padding: 0 6px; margin: 0 1px; border: 1px solid var(--wk-line2); border-radius: 6px;
+  background: var(--card); color: var(--wk-green); font-weight: 600; text-decoration: none; cursor: pointer;
+}
+a[data-type="recordLink"][data-ref]:hover { background: var(--wk-hover); }

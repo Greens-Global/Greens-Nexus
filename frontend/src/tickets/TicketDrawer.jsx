@@ -58,6 +58,7 @@ import { TicketAttachments } from './TicketAttachments';
 import { TicketActivity } from './TicketActivity';
 import TicketJobAction from './TicketJobAction';
 import TicketPhoneCard from './TicketPhoneCard';
+import MentionedIn from '../components/MentionedIn';
 
 // The drawer's Help With field: a pick saves at once, a typed "Other" answer
 // saves when the field loses focus - never one save per keystroke (each save
@@ -955,6 +956,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         </div>
       )}
 
+      {/* Record links (11/07/2026): the notes, tasks and tickets that link here with [[. */}
+      <MentionedIn refKey={`ticket:${t.id}`} nameOf={nameOf}
+        frame={(title, body) => <div style={field}><label style={label}>{title}</label>{body}</div>} />
   </>);
   // The public-reply / internal-note switch is the desk's. The person
   // who raised the ticket just replies (Neil, Sep 30: "they should

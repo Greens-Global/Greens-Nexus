@@ -24,6 +24,7 @@ import { NoteAudio, NoteVideo } from './noteMedia';
 import { BoardEmbed } from './board/BoardEmbed';
 import { RecordLink } from './recordLink';
 import { Callout, Toggle } from './noteBlocks';
+import { LiveList } from './liveList';
 
 const ALIGN = ['left', 'center', 'right', 'justify'];
 const SafeTextAlign = TextAlign.extend({
@@ -117,6 +118,8 @@ export function buildExtensions(placeholder, collab = null, { strict = false } =
     RecordLink,
     // Callouts and toggles (11/07/2026, noteBlocks.jsx).
     Callout, Toggle,
+    // Live task lists (11/07/2026, liveList.jsx).
+    LiveList,
     ...(collab?.extensions || []),
   ];
 }

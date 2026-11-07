@@ -29,6 +29,7 @@ import {
   AlignRight, Link2, Table as TableIcon, Minus, CalendarDays, Pilcrow, ListPlus, Rows3, Columns3, Trash2, Check, X,
   Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, PenTool, FileSymlink,
   Info, Lightbulb, TriangleAlert, ListCollapse,
+  ListTodo,
 } from 'lucide-react';
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
@@ -36,6 +37,8 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { useKeyboardInset, keyboardUp } from '../lib/useVisualViewport';
 import BoardPicker from './board/BoardPicker';
 import { useRecordSearch, recordContent, RECORD_META } from './recordLink';
+import { boxesKey, syncBoxesFromTasks, listenForBoxTicks } from './checklistTasks';
+import { TextSelection } from '@tiptap/pm/state';
 import {
   EDITED, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
   canRecord, canDictate, clock,
@@ -56,6 +59,7 @@ const SLASH = [
   { key: 'code', label: 'Code Block', hint: 'Monospaced text', icon: SquareCode, keys: 'pre snippet', run: (c) => c.toggleCodeBlock() },
   { key: 'table', label: 'Table', hint: '3 x 3 with a header row', icon: TableIcon, keys: 'grid', run: (c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }) },
   { key: 'divider', label: 'Divider', hint: 'A horizontal rule', icon: Minus, keys: 'hr line rule', run: (c) => c.setHorizontalRule() },
+  { key: 'livelist', label: 'Live Task List', hint: 'My tasks or a project, always up to date', icon: ListTodo, keys: 'tasks project embed view live list todo', run: (c) => c.insertLiveList() },
   { key: 'callout', label: 'Callout', hint: 'A note set apart in a box', icon: Info, keys: 'note box info aside', run: (c) => c.setCallout('info') },
   { key: 'tip', label: 'Tip Callout', hint: 'A helpful tip in a box', icon: Lightbulb, keys: 'callout hint idea', run: (c) => c.setCallout('tip') },
   { key: 'warning', label: 'Warning Callout', hint: 'Something to watch out for', icon: TriangleAlert, keys: 'callout caution danger alert', run: (c) => c.setCallout('warning') },
@@ -171,6 +175,10 @@ export default function NoteEditor({
   const videoInput = useRef(null);
   const mediaRef = useRef(() => {});
   const actRef = useRef({});
+  // Checklist lines that are tasks (checklistTasks.js): when the set of task
+  // boxes changes (the note loads, a line becomes a task), their ticks are
+  // brought up to date with the tasks - editors only.
+  const boxesRef = useRef(() => {});
 
   const editor = useEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,7 +198,9 @@ export default function NoteEditor({
       if (touched.current && !theirs) changeRef.current?.(ed.getHTML());
       else if (theirs) remoteRef.current?.(ed.getHTML());
       scanRef.current(ed);
+      boxesRef.current(ed);
     },
+    onCreate: ({ editor: ed }) => boxesRef.current(ed),
     onSelectionUpdate: ({ editor: ed }) => scanRef.current(ed),
     editorProps: {
       attributes: { class: 'nt-prose', 'aria-label': 'Note text', role: 'textbox', 'aria-multiline': 'true' },
@@ -413,12 +423,43 @@ export default function NoteEditor({
     editor.chain().focus().insertContent('[[').run();
   };
 
-  const makeTask = () => {
+  // The line (or selection) becomes a link to the task it made, on a
+  // checklist line, so ticking it finishes the task (checklistTasks.js). If
+  // the note changed while the task was being made, the words stay as they
+  // are - the notice still opens the task.
+  const makeTask = async () => {
     if (!editor || !onMakeTask) return;
     const { from, to, empty, $from } = editor.state.selection;
-    const text = empty ? $from.parent.textContent : editor.state.doc.textBetween(from, to, ' ');
-    onMakeTask(text.replace(/\s+/g, ' ').trim());
+    const text = (empty ? $from.parent.textContent : editor.state.doc.textBetween(from, to, ' ')).replace(/\s+/g, ' ').trim();
+    const range = empty ? { from: $from.start(), to: $from.end() } : { from, to };
+    const before = editor.state.doc;
+    const task = await onMakeTask(text);
+    if (!task?.id || !text || editor.isDestroyed || editor.state.doc !== before) return;
+    touched.current = true;
+    const chain = editor.chain().setMeta(EDITED, true)
+      .insertContentAt(range, recordContent({ kind: 'task', id: task.id, title: task.title || text }));
+    const inList = ['taskItem', 'listItem'].includes($from.node(Math.max(0, $from.depth - 1))?.type?.name);
+    (inList || !empty ? chain : chain.setTextSelection(range.from).toggleTaskList())
+      // The cursor after the link, so the next Enter starts a new line, never an empty one above it.
+      .command(({ tr }) => { tr.setSelection(TextSelection.create(tr.doc, tr.selection.$from.end())); return true; })
+      .run();
   };
+
+  useEffect(() => {
+    if (!editor || readOnly) { boxesRef.current = () => {}; return undefined; }
+    let key = null;
+    let timer = 0;
+    boxesRef.current = (ed) => {
+      const k = boxesKey(ed.state.doc);
+      if (k === key) return;
+      key = k;
+      clearTimeout(timer);
+      if (k) timer = setTimeout(() => { syncBoxesFromTasks(ed, EDITED).then((n) => { if (n) touched.current = true; }); }, 600);
+    };
+    boxesRef.current(editor);
+    const off = listenForBoxTicks(editor, EDITED, setMediaErr);
+    return () => { clearTimeout(timer); off(); boxesRef.current = () => {}; };
+  }, [editor, readOnly]);
 
   // The menu floats under the caret, kept on screen.
   let menuPos = null;
@@ -484,6 +525,7 @@ export default function NoteEditor({
             active={voice.recording} danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
           <TBtn icon={Clapperboard} text="Video" label="Add a Video" disabled={live} onClick={pickVideo} />
           <TBtn icon={PenTool} text="Board" label="Insert Board - one of your boards, as a picture that opens it" active={boardPick} onClick={openBoardPick} />
+          <Btn icon={ListTodo} label="Live Task List - my tasks or a project, always up to date" onClick={run((c) => c.insertLiveList())} />
           {onMakeTask && <TBtn icon={ListPlus} text="Make a Task" label="Make a Task - from the selection or the current line" onClick={makeTask} />}
           </div>
         </div>
@@ -535,6 +577,7 @@ export default function NoteEditor({
               <PBtn icon={TableIcon} label="Insert Table" onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
               <PBtn icon={Minus} label="Divider" onClick={run((c) => c.setHorizontalRule())} />
               <PBtn icon={PenTool} label="Insert Board" active={boardPick} onClick={() => { setMore(false); openBoardPick(); }} />
+              <PBtn icon={ListTodo} label="Live Task List" onClick={run((c) => c.insertLiveList())} />
               {onMakeTask && <PBtn icon={ListPlus} label="Make a Task" onClick={makeTask} />}
               <PBtn icon={Undo2} label="Undo" disabled={!e.can().undo()} onClick={run((c) => c.undo())} />
               <PBtn icon={Redo2} label="Redo" disabled={!e.can().redo()} onClick={run((c) => c.redo())} />

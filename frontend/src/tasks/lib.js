@@ -8,6 +8,7 @@ import { toViewUrl, isOwnImageUrl } from '../lib/storageView';
 import { dialog } from '../ui/dialog';
 import { MEDIA_MAX, mediaKind, checkMedia, withType } from '../lib/voice';
 import { labelKey, labelName, labelTone, labelsInUse } from './labels';
+import { safeRef, listenForRecordLinkClicks } from '../lib/recordRef';
 
 export const EMPTY_FILTER = {
   // collaboratorIds = people in a task's follower list (Asana "collaborators").
@@ -1310,7 +1311,7 @@ export function parseImportedAuthor(body) {
 const RICH_TAGS = new Set(['P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'DEL',
   'CODE', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'A', 'IMG', 'MARK', 'SPAN',
   'H1', 'H2', 'H3', 'H4', 'HR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TD', 'TH']);
-const RICH_ATTRS = { A: ['href', 'title'], IMG: ['src', 'alt', 'title'] };
+const RICH_ATTRS = { A: ['href', 'title', 'data-type', 'data-ref'], IMG: ['src', 'alt', 'title'] };
 const SAFE_URL = /^(https?:|mailto:|data:image\/)/i;
 
 /** Comment and description bodies are stored as HTML and come from people -
@@ -1361,6 +1362,22 @@ export function sanitizeRichHtml(html, nameOf) {
           child.replaceWith(link);
           continue;
         }
+      }
+      if (tag === 'A' && (child.hasAttribute('data-type') || child.hasAttribute('data-ref'))) {
+        // A [[ record chip (11/07/2026): kept only whole and valid, never with
+        // an href (a planted one would look like the record); anything else
+        // loses both attributes and stays an ordinary link.
+        const ref = child.getAttribute('data-type') === 'recordLink' ? safeRef(child.getAttribute('data-ref') || '') : '';
+        if (ref) {
+          child.removeAttribute('href');
+          child.setAttribute('data-ref', ref);
+          child.setAttribute('role', 'link');       // no href, so reachable by Tab and Enter this way
+          child.setAttribute('tabindex', '0');
+          listenForRecordLinkClicks();
+          continue;
+        }
+        child.removeAttribute('data-type');
+        child.removeAttribute('data-ref');
       }
       if (tag === 'A') {
         const href = child.getAttribute('href') || '';

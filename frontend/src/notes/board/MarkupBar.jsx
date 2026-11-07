@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   MousePointer2, Hand, PenLine, Highlighter, MoveUpRight, Square, Type, MessageSquarePlus, Eraser,
   Undo2, Redo2, Trash2, MoreHorizontal, Check, Circle, Diamond, Minus, ImagePlus, Frame, Pointer, Shapes, SlidersHorizontal, ChevronDown,
-  Workflow, RectangleHorizontal, StickyNote, FileText, Users, ListTree, RefreshCw, ArrowDownNarrowWide, ArrowRightLeft,
+  Workflow, RectangleHorizontal, StickyNote, FileText, Users, ListTree, RefreshCw, ArrowDownNarrowWide, ArrowRightLeft, FileSymlink,
 } from 'lucide-react';
 import { MARKUP_TOOLS, MORE_TOOLS, MARKUP_COLORS, MARKUP_SIZES, colorByKey, isMoreTool } from './markupTools';
 
@@ -33,6 +33,7 @@ const DIAGRAM_ROWS = [
   { key: 'shape:decision', label: 'Decision', Icon: Diamond },
   { key: 'shape:terminal', label: 'Start / End', Icon: Circle },
   { key: 'shape:note', label: 'Note', Icon: StickyNote },
+  { key: 'record', label: 'Record Card', Icon: FileSymlink },
   { kicker: 'Draw a Diagram' },
   { key: 'text', label: 'Diagram from Text', Icon: FileText },
   { key: 'org', label: 'Org Chart from People', Icon: Users },

@@ -28,6 +28,7 @@ import { useImageZoom } from './components';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { api } from '../api';
 import { matchPeople } from '../lib/peopleSearch';
+import { RecordLink, useRecordSearch, recordContent, RECORD_META } from '../notes/recordLink';
 import { canDictate, useDictation, canRecord, useVoiceRecorder, clock, spokenAfter, useReportRecording, STOP_VOICE_FIRST } from '../lib/voice';
 
 // Highlight, as a local mark. @tiptap/extension-highlight would be a new
@@ -60,6 +61,9 @@ const buildExtensions = (placeholder) => [
   // typing, saved fine, and then vanished from the editor on the next load.
   Image.configure({ inline: false, allowBase64: true, HTMLAttributes: { style: 'max-width:100%;height:auto;border-radius:8px' } }),
   Placeholder.configure({ placeholder }),
+  // Record links (Neil, 11/07/2026): a [[ chip always renders; typing [[
+  // offers the picker only where the editor says `recordLinks`.
+  RecordLink,
 ];
 
 function Btn({ icon: Icon, label, active, disabled, onClick, danger, big = false }) {
@@ -110,11 +114,19 @@ export default function RichDescription({
   // on the right, the text scrolls past `compact` px and the @mention list
   // opens upward - there is no room under a box at the screen's foot.
   compact = 0,
+  // Record links (Neil, 11/07/2026, notes/recordLink.jsx): [[ opens a picker
+  // of notes, tasks, tickets, jobs and pages; the pick is a chip that opens
+  // the record, and the record lists this place under Mentioned In. Only
+  // where the words stay inside the company - a task's description and
+  // comments, a ticket's internal note - never a reply mailed to a requester.
+  recordLinks = false,
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [ai, setAi] = useState(null);   // { busy, error, suggestion, original }
   // @mention autocomplete: { query, index, coords } while an @word is being typed.
   const [mention, setMention] = useState(null);
+  // [[ record picker: { query, from, index } while a [[word is being typed.
+  const [rec, setRec] = useState(null);
   const addRef = useRef(null);
   const fileRef = useRef(null);
   const imageRef = useRef(null);
@@ -237,17 +249,27 @@ export default function RichDescription({
     return matchPeople(people, mention.query, { limit: 6 });
   }, [mention, people]);
 
+  const records = useRecordSearch(rec ? rec.query : null);
+  const recRows = records.rows;
+
   const scanForMention = useCallback((ed) => {
-    if (!mentionPeople) return;
     const { state } = ed;
     const { from, empty } = state.selection;
-    if (!empty) { setMention(null); return; }
+    if (!empty) { setMention(null); setRec(null); return; }
     // Text of the current block up to the cursor.
     const before = state.doc.textBetween(Math.max(0, from - 60), from, '\n', '\ufffc');
+    const r = recordLinks ? /\[\[([^[\]\n\ufffc]{0,40})$/.exec(before) : null;
+    if (r) {
+      setMention(null);
+      setRec((prev) => ({ query: r[1], from: from - r[1].length - 2, index: prev ? prev.index : 0 }));
+      return;
+    }
+    setRec(null);
+    if (!mentionPeople) return;
     const m = /(^|[\s(])@([\w.\-']*)$/.exec(before);
     if (!m) { setMention(null); return; }
     setMention((prev) => ({ query: m[2], from: from - m[2].length - 1, index: prev ? prev.index : 0 }));
-  }, [mentionPeople]);
+  }, [mentionPeople, recordLinks]);
 
   useEffect(() => { mentionScanRef.current = scanForMention; }, [scanForMention]);
   useEffect(() => { submitRef.current = onSubmit || null; }, [onSubmit]);
@@ -269,8 +291,23 @@ export default function RichDescription({
     onChange?.(editor.getHTML());
   }, [editor, mention, onChange]);
 
+  const insertRecord = useCallback((row) => {
+    if (!editor || !rec || !row) return;
+    editor.chain().focus().deleteRange({ from: rec.from, to: editor.state.selection.from }).insertContent(recordContent(row)).run();
+    setRec(null);
+    onChange?.(editor.getHTML());
+  }, [editor, rec, onChange]);
+
   useEffect(() => {
     mentionKeyRef.current = (event) => {
+      if (rec) {
+        if (event.key === 'Escape') { setRec(null); return true; }
+        if (!recRows.length) return false;
+        if (event.key === 'ArrowDown') { event.preventDefault(); setRec((m) => ({ ...m, index: (m.index + 1) % recRows.length })); return true; }
+        if (event.key === 'ArrowUp') { event.preventDefault(); setRec((m) => ({ ...m, index: (m.index - 1 + recRows.length) % recRows.length })); return true; }
+        if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); insertRecord(recRows[rec.index] || recRows[0]); return true; }
+        return false;
+      }
       if (!mention || matches.length === 0) return false;
       if (event.key === 'ArrowDown') { event.preventDefault(); setMention((m) => ({ ...m, index: (m.index + 1) % matches.length })); return true; }
       if (event.key === 'ArrowUp') { event.preventDefault(); setMention((m) => ({ ...m, index: (m.index - 1 + matches.length) % matches.length })); return true; }
@@ -278,7 +315,7 @@ export default function RichDescription({
       if (event.key === 'Escape') { setMention(null); return true; }
       return false;
     };
-  }, [mention, matches, insertMention]);
+  }, [mention, matches, insertMention, rec, recRows, insertRecord]);
 
   // Keep the paste hook pointing at the current `attach`.
   useEffect(() => { pasteRef.current = (f) => (onAttachFile ? attach(f) : insertImage(f)); }, [attach, insertImage, onAttachFile]);
@@ -334,6 +371,29 @@ export default function RichDescription({
           <div className="nx-scroll" style={{ maxHeight: compact, overflowY: 'auto', overscrollBehavior: 'contain' }}><EditorContent editor={editor} /></div>
         ) : <EditorContent editor={editor} />}
         {zoomViewer}
+        {rec && (recRows.length > 0 || records.loading) && (
+          <div role="listbox" aria-label="Link to a Record"
+            style={{ position: 'absolute', left: 8, zIndex: 70, ...(compact ? { top: -6, transform: 'translateY(-100%)' } : { bottom: -6, transform: 'translateY(100%)' }),
+                     minWidth: 280, maxWidth: 420, background: NX.surface, border: `1px solid ${NX.border}`,
+                     borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+            {!recRows.length && <div style={{ padding: '6px 8px', fontSize: 12.5, color: NX.faint }}>Searching…</div>}
+            {recRows.map((row, i) => {
+              const meta = RECORD_META[row.kind] || RECORD_META.note;
+              const Icon = meta.icon;
+              return (
+                <div key={row.key} role="option" aria-selected={i === rec.index}
+                  onMouseDown={(e) => { e.preventDefault(); insertRecord(row); }}
+                  onMouseEnter={() => setRec((m) => ({ ...m, index: i }))}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13,
+                           background: i === rec.index ? NX.hover : 'transparent' }}>
+                  <Icon size={14} style={{ color: NX.faint, flexShrink: 0 }} aria-hidden="true" />
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.title}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>{row.detail || meta.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {mention && matches.length > 0 && (
           <div style={{ position: 'absolute', left: 8, zIndex: 70, ...(compact ? { top: -6, transform: 'translateY(-100%)' } : { bottom: -6, transform: 'translateY(100%)' }),
                         minWidth: 240, background: NX.surface, border: `1px solid ${NX.border}`,
