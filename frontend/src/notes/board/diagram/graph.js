@@ -240,39 +240,54 @@ export function layout(graph, { dir = 'TB', origin = { x: 0, y: 0 } } = {}) {
 
 // ---- Board -> graph (Tidy Up) ----------------------------------------------
 //
-// The boxes on the board (the selection, else everything) and the arrows
-// tied to two of them at both ends. `elements` is the board's element list;
-// this reads only the element JSON every engine keeps (type, ids, bindings,
-// the label text's containerId), never the engine.
+// The diagram to tidy: the selected boxes and every box tied to them by an
+// arrow, or - nothing selected - every box tied by an arrow to another box.
+// A box no arrow ties (a markup box round a problem on a picture, a loose
+// note) never moves unless it is selected itself. `elements` is the board's
+// element list; this reads only the element JSON every engine keeps (type,
+// ids, bindings, the label text's containerId), never the engine.
 
 const BOX = { rectangle: 'step', diamond: 'decision', ellipse: 'terminal' };
-const STYLE_KEYS = ['strokeColor', 'backgroundColor', 'fillStyle', 'strokeWidth', 'strokeStyle', 'roughness', 'opacity', 'roundness', 'frameId', 'groupIds', 'link', 'customData'];
+const STYLE_KEYS = ['strokeColor', 'backgroundColor', 'fillStyle', 'strokeWidth', 'strokeStyle', 'roughness', 'opacity', 'roundness', 'angle', 'frameId', 'groupIds', 'link', 'customData'];
 
 export function graphFromElements(elements, selectedIds = {}) {
   const live = (elements || []).filter((e) => e && !e.isDeleted);
   const anySelected = Object.values(selectedIds || {}).some(Boolean);
-  const picked = (e) => !anySelected || !!selectedIds[e.id];
   const labelOf = new Map();   // container id -> its bound text element
   for (const e of live) if (e.type === 'text' && e.containerId) labelOf.set(e.containerId, e);
-  const boxes = live.filter((e) => BOX[e.type] && picked(e) && !e.locked && !e.customData?.nexusComment);
-  const boxIds = new Set(boxes.map((b) => b.id));
-  const arrows = live.filter((e) => e.type === 'arrow'
-    && boxIds.has(e.startBinding?.elementId) && boxIds.has(e.endBinding?.elementId));
+  const eligible = new Map(live.filter((e) => BOX[e.type] && !e.locked && !e.customData?.nexusComment).map((e) => [e.id, e]));
+  const tied = live.filter((e) => e.type === 'arrow' && !e.locked
+    && eligible.has(e.startBinding?.elementId) && eligible.has(e.endBinding?.elementId)
+    && e.startBinding.elementId !== e.endBinding.elementId);
+  // Grow from the start set along tied arrows, so no arrow is left with one
+  // end moved and the other not.
+  const picked = new Set(anySelected
+    ? [...eligible.keys()].filter((id) => selectedIds[id])
+    : tied.flatMap((a) => [a.startBinding.elementId, a.endBinding.elementId]));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const a of tied) {
+      const s = a.startBinding.elementId; const t = a.endBinding.elementId;
+      if (picked.has(s) !== picked.has(t)) { picked.add(s); picked.add(t); grew = true; }
+    }
+  }
+  const boxes = [...eligible.values()].filter((b) => picked.has(b.id));
+  const arrows = tied.filter((a) => picked.has(a.startBinding.elementId));
   const nodes = boxes.map((b) => {
     const style = {};
     for (const k of STYLE_KEYS) if (b[k] !== undefined) style[k] = b[k];
     const t = labelOf.get(b.id);
-    if (t) { style.fontSize = t.fontSize; style.fontFamily = t.fontFamily; style.textColor = t.strokeColor; }
+    if (t) { style.fontSize = t.fontSize; style.fontFamily = t.fontFamily; style.textColor = t.strokeColor; style.textAlign = t.textAlign; style.verticalAlign = t.verticalAlign; }
     return { id: b.id, label: t?.originalText ?? t?.text ?? '', shape: BOX[b.type], w: b.width, h: b.height, style, version: b.version };
   });
   const edges = arrows.map((a) => {
     const t = labelOf.get(a.id);
     const style = {};
-    for (const k of ['strokeColor', 'strokeWidth', 'strokeStyle', 'roughness', 'opacity', 'elbowed', 'roundness']) if (a[k] !== undefined) style[k] = a[k];
+    for (const k of ['strokeColor', 'strokeWidth', 'strokeStyle', 'roughness', 'opacity', 'roundness', 'frameId', 'groupIds']) if (a[k] !== undefined) style[k] = a[k];
     return { from: a.startBinding.elementId, to: a.endBinding.elementId, label: t?.originalText ?? t?.text ?? '', style };
   });
   // What the rebuild replaces: the boxes (kept ids), their labels, the arrows and theirs.
-  const replaced = new Set([...boxIds, ...arrows.map((a) => a.id)]);
+  const replaced = new Set([...boxes.map((b) => b.id), ...arrows.map((a) => a.id)]);
   for (const id of [...replaced]) { const t = labelOf.get(id); if (t) replaced.add(t.id); }
   const origin = boxes.length
     ? { x: Math.min(...boxes.map((b) => b.x)), y: Math.min(...boxes.map((b) => b.y)) }

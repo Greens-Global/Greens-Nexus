@@ -7,6 +7,24 @@
 // GET /workflows/{id} (its own rule), tasks are GET /tasks.
 import { api } from '../../../api';
 
+// The directory and the task list are big reads; the sheet asks for the
+// picker and then the preview (and again on each pick), so one copy is
+// shared for a minute. Refresh after that reads fresh.
+// shortcut: whole-list reads filtered here - a project-filtered /tasks read would be lighter if this gets slow.
+const FRESH_MS = 60_000;
+const cache = new Map();   // key -> { at, promise }
+function shared(key, read) {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < FRESH_MS) return hit.promise;
+  const promise = read();
+  cache.set(key, { at: Date.now(), promise });
+  promise.catch(() => cache.delete(key));
+  return promise;
+}
+export const _clearSourceCache = () => cache.clear();
+const directory = () => shared('directory', () => api.getContactDirectory());
+const allTasks = () => shared('tasks', () => api.getTasks());
+
 export const SOURCES = Object.freeze({
   org: { label: 'Org Chart from People', short: 'Org Chart' },
   workflow: { label: 'Workflow as Diagram', short: 'Workflow' },
@@ -95,7 +113,8 @@ export function workflowGraph(definition, layoutFn, wordsFn) {
  *  from the blocker to the task it holds up. Done tasks are drawn as
  *  Start / End ovals so the finished part of a chain reads at a glance. */
 export function taskGraph(tasks, projectId) {
-  const inProject = (tasks || []).filter((t) => t && String(t.projectId) === String(projectId));
+  const pid = String(projectId);
+  const inProject = (tasks || []).filter((t) => t && (String(t.projectId) === pid || (t.projectIds || []).some((p) => String(p) === pid)));
   const byId = new Map(inProject.map((t) => [String(t.id), t]));
   const linked = new Set();
   const edges = [];
@@ -119,7 +138,7 @@ export function taskGraph(tasks, projectId) {
 /** The choices a source's picker offers: [{ value, label }]. */
 export async function sourceOptions(source) {
   if (source === 'org') {
-    const d = await api.getContactDirectory();
+    const d = await directory();
     const people = (d?.people || []).filter((p) => p?.email);
     return [{ value: '', label: 'Everyone' }, ...people
       .sort((a, b) => String(a.name).localeCompare(String(b.name)))
@@ -136,21 +155,24 @@ export async function sourceOptions(source) {
   return [];
 }
 
-/** The graph for one source and choice, from today's data. */
-export async function loadGraph(source, ref) {
+/** The graph for one source and choice, from today's data (`fresh`: past
+ *  the shared copy - Refresh). */
+export async function loadGraph(source, ref, { fresh = false } = {}) {
+  if (fresh) cache.clear();
   if (source === 'org') {
-    const d = await api.getContactDirectory();
+    const d = await directory();
     return orgGraph(d?.people || [], ref);
   }
   if (source === 'workflow') {
-    const [w, catalog, canvas, words] = await Promise.all([
+    const [w, catalog, canvas, words, defs] = await Promise.all([
       api.wfGet(ref), api.wfCatalog().catch(() => null),
-      import('../../../workflows/canvas/layout'), import('../../../workflows/canvas/words'),
+      import('../../../workflows/canvas/layout'), import('../../../workflows/canvas/words'), import('../../../workflows/lib/definition'),
     ]);
-    return workflowGraph(w?.definition?.trigger ? w.definition : (w?.draft || w?.definition), canvas.layout, (n) => words.nodeWords(n, catalog, null));
+    // What the builder shows: the draft when there is one, normalized the same way.
+    return workflowGraph(defs.normalizeDefinition(w?.draft || w?.definition), canvas.layout, (n) => words.nodeWords(n, catalog, null));
   }
   if (source === 'tasks') {
-    const tasks = await api.getTasks();
+    const tasks = await allTasks();
     return taskGraph(Array.isArray(tasks) ? tasks : tasks?.tasks || [], ref);
   }
   return { nodes: [], edges: [] };

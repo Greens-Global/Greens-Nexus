@@ -622,9 +622,13 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   }, [api, markupApi, chooseTool, scheduleSave]);
 
   // ---- Diagrams ------------------------------------------------------------
+  // One diagram notice at a time; never over the board's too-large warning.
+  const flashTimer = useRef(0);
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
   const flash = useCallback((text, error = false) => {
-    setNotice({ text, error, code: 'diagram' });
-    setTimeout(() => setNotice((n) => (n?.code === 'diagram' ? null : n)), error ? 5000 : 3500);
+    clearTimeout(flashTimer.current);
+    setNotice((n) => (n?.code === 'large' ? n : { text, error, code: 'diagram' }));
+    flashTimer.current = setTimeout(() => setNotice((n) => (n?.code === 'diagram' ? null : n)), error ? 5000 : 3500);
   }, []);
   // A new diagram lands centered on what the stage shows, selected.
   const placeGraph = useCallback((graph, { dir = 'TB', source = '', ref = '' } = {}) => {
@@ -648,7 +652,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     if (!api || !diagramApi) return;
     const els = api.getSceneElementsIncludingDeleted();
     const { graph, replaced, origin } = graphFromElements(els, api.getAppState()?.selectedElementIds);
-    if (graph.nodes.length < 2) { flash('Select two or more boxes to tidy up - or nothing, to tidy the whole board.'); return; }
+    if (graph.nodes.length < 2) { flash('Nothing to tidy - select boxes joined by arrows, or nothing to tidy every diagram on the board.'); return; }
     const built = diagramApi.build(layoutGraph(graph, { dir, origin }), { look: lookRef.current });
     api.updateScene({ elements: mergeBuilt(els, built, replaced), captureUpdate: CAPTURE.IMMEDIATELY });
     scheduleSave();
@@ -659,10 +663,14 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     const st = stampOf(api.getSceneElementsIncludingDeleted(), api.getAppState()?.selectedElementIds);
     if (!st) return;
     let graph;
-    try { graph = await loadGraph(st.source, st.ref); } catch { flash('The data did not load - the diagram is unchanged. Try again in a moment.', true); return; }
+    try { graph = await loadGraph(st.source, st.ref, { fresh: true }); } catch { flash('The data did not load - the diagram is unchanged. Try again in a moment.', true); return; }
     if (!graph?.nodes?.length) { flash('There is nothing to draw from this source now - the diagram is unchanged.'); return; }
     const now = api.getSceneElementsIncludingDeleted();
-    const { replaced, origin } = graphFromElements(now, stampSelection(now, st.id));
+    const mine = stampSelection(now, st.id);
+    // Gone while the data loaded (deleted here or by someone else): nothing to
+    // redraw - and an empty selection would read as the whole board.
+    if (!Object.keys(mine).length) return;
+    const { replaced, origin } = graphFromElements(now, mine);
     const g = prefixGraph(graph, st.id);
     const built = stampBoxes(diagramApi.build(layoutGraph(g, { dir: st.dir || 'TB', origin }), { look: lookRef.current }), g.nodes.map((n) => n.id), st);
     api.updateScene({ elements: mergeBuilt(now, built, replaced), captureUpdate: CAPTURE.IMMEDIATELY });

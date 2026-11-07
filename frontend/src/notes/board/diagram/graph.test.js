@@ -91,9 +91,16 @@ describe('graphFromElements', () => {
     expect([...replaced].sort()).toEqual(['a', 'b', 'ta', 'tx', 'x']);
     expect(origin).toEqual({ x: 10, y: 20 });
   });
-  it('limits itself to the selection when there is one', () => {
+  it('takes the selection and every box an arrow ties to it, so no arrow is left behind', () => {
     const { graph } = graphFromElements(els, { a: true });
-    expect(graph.nodes.map((n) => n.id)).toEqual(['a']);
-    expect(graph.edges).toEqual([]);
+    expect(graph.nodes.map((n) => n.id)).toEqual(['a', 'b']);
+    expect(graph.edges).toHaveLength(1);
+  });
+  it('with nothing selected, leaves loose boxes (markup round a picture) where they are', () => {
+    const loose = [...els, { id: 'mark', type: 'rectangle', x: 900, y: 900, width: 50, height: 50 }];
+    const { graph, replaced } = graphFromElements(loose);
+    expect(graph.nodes.map((n) => n.id)).not.toContain('mark');
+    expect(replaced.has('mark')).toBe(false);
+    expect(graphFromElements(loose, { mark: true }).graph.nodes.map((n) => n.id)).toEqual(['mark']);
   });
 });

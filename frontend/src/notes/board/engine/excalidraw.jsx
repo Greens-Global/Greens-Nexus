@@ -211,7 +211,7 @@ export const diagram = {
     for (const n of placed.nodes) {
       const s = n.style || {};
       const colors = SHAPE_STYLE[n.shape] || SHAPE_STYLE.step;
-      const { fontSize, fontFamily, textColor, ...box } = s;
+      const { fontSize, fontFamily, textColor, textAlign, verticalAlign, ...box } = s;
       skeleton.push({
         type: BOX_TYPE[n.shape] || 'rectangle', id: n.id, x: n.x, y: n.y, width: n.w, height: n.h,
         strokeColor: colors.stroke, backgroundColor: colors.fill, fillStyle: 'solid', strokeWidth: 2,
@@ -219,6 +219,9 @@ export const diagram = {
         ...box,
         label: n.label ? {
           text: n.label, fontSize: fontSize || 18, fontFamily: fontFamily || d.currentItemFontFamily, strokeColor: textColor || NEXUS_INK,
+          ...(textAlign ? { textAlign } : {}), ...(verticalAlign ? { verticalAlign } : {}),
+          // the label travels with its box: same frame, same groups
+          ...(box.frameId ? { frameId: box.frameId } : {}), ...(box.groupIds?.length ? { groupIds: box.groupIds } : {}),
         } : undefined,
       });
     }

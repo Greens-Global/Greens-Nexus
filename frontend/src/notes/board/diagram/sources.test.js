@@ -44,16 +44,18 @@ describe('workflowGraph', () => {
 });
 
 describe('taskGraph', () => {
-  it('keeps only linked tasks of the project, blocker first', () => {
+  it('keeps only linked tasks of the project (extra projects count), blocker first', () => {
     const tasks = [
       { id: 1, projectId: 'p', title: 'Pour', blockedByIds: [2], code: 'T-1' },
       { id: 2, projectId: 'p', title: 'Frame', completed: true },
       { id: 3, projectId: 'p', title: 'Alone' },
       { id: 4, projectId: 'q', title: 'Other', blockedByIds: [1] },
       { id: 5, projectId: 'p', title: 'Waits Outside', blockedByIds: [4] },
+      { id: 6, projectId: 'q', projectIds: ['p'], title: 'Also Here' },
+      { id: 7, projectId: 'p', title: 'Waits on Also Here', blockedByIds: [6] },
     ];
     const g = taskGraph(tasks, 'p');
-    expect(g.nodes.map((n) => [n.label, n.shape]).sort()).toEqual([['Frame', 'terminal'], ['T-1 Pour', 'step']]);
-    expect(g.edges).toEqual([{ from: 't:2', to: 't:1', label: '' }]);
+    expect(g.nodes.map((n) => [n.label, n.shape]).sort()).toEqual([['Also Here', 'step'], ['Frame', 'terminal'], ['T-1 Pour', 'step'], ['Waits on Also Here', 'step']]);
+    expect(g.edges).toEqual([{ from: 't:2', to: 't:1', label: '' }, { from: 't:6', to: 't:7', label: '' }]);
   });
 });
