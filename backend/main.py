@@ -4261,7 +4261,7 @@ def _tier_seeds():
                 print(f"[startup] learning paths seeded - plan: {res['plan'] or 'none'}, courses stamped: {res['courses']}")
             res = kb_academy_seed.apply_content_once(db)   # the package's lessons into the courses nobody edited, figures into untouched lessons (11/07/2026)
             if res:
-                print(f"[startup] academy content refreshed - courses: {res['courses']}, lessons: {res['lessons']}")
+                print(f"[startup] academy content refreshed - pages: {res['pages']}, courses: {res['courses']}, lessons: {res['lessons']}")
         except Exception as e:
             db.rollback()
             print(f"[startup] storage academy import skipped: {e}")

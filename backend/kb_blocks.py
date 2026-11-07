@@ -38,9 +38,12 @@ CALLOUT_KINDS = ("warning", "tip", "note", "safety")
 # size, follows the theme, needs no storage and carries no license. Each kind
 # has a small shape; `_clean_figure` keeps only these keys, short strings and
 # finite numbers, so a figure can never carry markup.
-FIGURE_KINDS = ("steps", "timeline", "compare", "sizes", "bars", "stats", "layout", "cycle", "drawing", "drawings")
+FIGURE_KINDS = ("steps", "timeline", "compare", "sizes", "bars", "stats", "layout", "cycle", "drawing", "drawings", "screen")
 _FIGURE_KEYS = {"title", "caption", "unit", "max", "cols", "rows", "items", "columns", "regions",
-                "label", "note", "at", "tone", "name", "facts", "w", "h", "x", "y", "value", "low", "text", "draw"}
+                "label", "note", "at", "tone", "name", "facts", "w", "h", "x", "y", "value", "low", "text", "draw",
+                # screen (Neil, 11/07/2026: "realistic screenshots, not real"): a Nexus screen drawn from data
+                "device", "module", "sub", "tabs", "tab", "actions", "parts", "kind", "buttons", "fields", "state",
+                "badge", "callouts", "n", "hint", "primary"}
 # The line drawings the app can show by name (frontend/src/kb/components/
 # drawings.jsx draws them; its test keeps this list equal to its own). A
 # figure that names a drawing not here fails the content test.
@@ -75,8 +78,9 @@ def figure(kind: str, data: dict) -> dict:
 
 def _clean_figure(kind: str, data: Any, depth: int = 0) -> Any:
     """Only known keys, strings of at most 300 characters, finite numbers,
-    booleans and lists of at most 40, four levels deep."""
-    if depth > 4:
+    booleans and lists of at most 40, six levels deep (a screen's table is
+    parts > part > rows > row > cell)."""
+    if depth > 6:
         return None
     if isinstance(data, dict):
         out = {}

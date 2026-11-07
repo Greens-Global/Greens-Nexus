@@ -65,6 +65,61 @@ If you open **Profile**, then **Phone Notifications** in Safari, the Install Nex
 
 ## Turning On Push to This Device
 
+```figure
+{
+  "kind": "screen",
+  "title": "Profile, Phone Notifications",
+  "device": "phone",
+  "module": "Profile",
+  "sub": "Dashboard",
+  "parts": [
+    {
+      "kind": "card",
+      "title": "Phone Notifications",
+      "rows": [
+        {
+          "label": "Install Nexus",
+          "value": "Installed",
+          "tone": "ok",
+          "n": 1
+        },
+        {
+          "label": "Push to This Device",
+          "value": "On",
+          "tone": "ok",
+          "n": 2
+        }
+      ],
+      "text": "The same notices as your bell, as notifications on this device."
+    },
+    {
+      "kind": "card",
+      "title": "Appearance",
+      "rows": [
+        {
+          "label": "Dark Mode",
+          "value": "Off"
+        },
+        {
+          "label": "Navigation Motion",
+          "value": "Company Default"
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "On Android, Install is a button here. On an iPhone, Safari's Share, then Add to Home Screen."
+    },
+    {
+      "n": 2,
+      "text": "The switch. When it will not turn on, the line under it says exactly why."
+    }
+  ]
+}
+```
+
 Push sends the same notices as your bell to your phone as notifications. It is the bell, delivered to your pocket. It never sends anything that is not in your bell, and company-wide broadcasts do not push.
 
 1. Open Nexus from the home screen icon.

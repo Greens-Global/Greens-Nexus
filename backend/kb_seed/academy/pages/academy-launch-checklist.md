@@ -46,6 +46,8 @@ The DRAFT rows were written from no Greens source and stay drafts until the owne
 | Confirm the four DRAFT rows (a car in the space, slides and awnings, truck campers, the Non-Operational Vehicle Deposit) and add them to Greens' Rules and Regulations | Operations Manager | Greens Vehicle Storage Rules, House Rules |
 | Confirm or change the DRAFT waiver limits and approvers, and the one-waive-a-year rule | Operations Manager | Greens Waivers, Credits and Refunds, Who May Approve What |
 | Each site's perimeter (fence or wall), gate type, exit method (keypad or loop) and building list, for the Facility lesson's walk | Operations Manager | Site Profile pages, Gate and Access Notes |
+| Greens' approval limits by level for repairs and purchases, and who holds each | Operations Manager / a Super Administrator | Property & Vendor Management > Getting the Work Done, Quotes and Approvals |
+| The after-hours vendor list for each site and who holds it | Operations Manager | Property & Vendor Management > Vendors, Finding and Adding a Vendor |
 | Which sites use cylinder locks, and on which buildings, so staff can tell a tenant what lock to bring | Operations Manager | Site Profile pages, Storage Units; Self-Storage Fundamentals > Access, Locks and Security, The Cylinder Lock, Explained |
 | Whether a vehicle may be stored in the 15 ft wide enclosed units, and how Cubby should tag them | Operations Manager | Site Profile: Escondido, Storage Units |
 | Measured clear heights at Escondido | Operations Manager | Site Profile: Escondido, Clear Heights |

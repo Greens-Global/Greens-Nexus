@@ -56,6 +56,83 @@ On the left menu clock, the buttons are icons: Play punches in (or ends a break)
 
 ## The Message Boxes
 
+```figure
+{
+  "kind": "screen",
+  "title": "Punch In, Then the Beginning of Day Box",
+  "device": "computer",
+  "module": "Workday",
+  "tabs": [
+    "Overview",
+    "Time Sheet",
+    "Time Off",
+    "Performance"
+  ],
+  "tab": "Overview",
+  "parts": [
+    {
+      "kind": "clock",
+      "state": "out",
+      "value": "0h 00m",
+      "label": "Off the clock",
+      "tabs": [
+        "Today",
+        "This Week",
+        "Pay Period"
+      ],
+      "tab": "Today",
+      "buttons": [
+        {
+          "label": "Punch In",
+          "primary": true
+        }
+      ]
+    },
+    {
+      "kind": "dialog",
+      "title": "Beginning of Day",
+      "text": "What do you plan to work on today? It posts to your team's Teams chat as you, marked Sent by Nexus.",
+      "fields": [
+        {
+          "label": "Message",
+          "kind": "textarea",
+          "value": "Opening, gate check, two move-ins at 10",
+          "n": 1
+        },
+        {
+          "kind": "check",
+          "label": "I already sent my login (BOD) message",
+          "value": false,
+          "n": 2
+        }
+      ],
+      "buttons": [
+        "Cancel",
+        {
+          "label": "Send & start the day",
+          "primary": true,
+          "n": 3
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "One or two lines is plenty. You can dictate it."
+    },
+    {
+      "n": 2,
+      "text": "Tick this if you already sent it another way; the punch goes through without posting again."
+    },
+    {
+      "n": 3,
+      "text": "The punch records when you send."
+    }
+  ]
+}
+```
+
 At most Greens sites, each punch asks for a short message that posts to your team's Teams chat as you, marked "Sent by Nexus." This keeps your manager and teammates in the loop without a separate text. The four boxes are:
 
 | Punch | Box | What to write | Button |
@@ -73,6 +150,56 @@ Two things to know:
 Unless your role skips them, Nexus does not punch you in or out without the message, so write it. One or two lines is plenty. You can also dictate it instead of typing.
 
 ## Location at the Punch
+
+```figure
+{
+  "kind": "screen",
+  "title": "Needs Attention: Location Was Off",
+  "device": "phone",
+  "module": "Workday",
+  "parts": [
+    {
+      "kind": "banner",
+      "tone": "bad",
+      "text": "Needs Attention: location was off when you clocked in.",
+      "buttons": [
+        {
+          "label": "Turn On",
+          "primary": true,
+          "n": 1
+        },
+        {
+          "label": "Skip",
+          "n": 2
+        }
+      ]
+    },
+    {
+      "kind": "clock",
+      "state": "in",
+      "value": "0h 04m",
+      "label": "Punched in at 8:00 AM · Location Off",
+      "buttons": [
+        "Start Break",
+        {
+          "label": "Punch Out",
+          "primary": true
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Asks your phone for its location and adds it to this clock-in."
+    },
+    {
+      "n": 2,
+      "text": "Keeps it as Location Off and lets your manager know."
+    }
+  ]
+}
+```
 
 When you punch, Nexus checks where you are, **at that moment only**. It does not track you between punches. A punch never waits for your location and is never blocked by it.
 
@@ -94,6 +221,67 @@ If you clock in with location turned off, a red **Needs Attention** bar asks you
 The first time you punch, you may be asked to read and acknowledge a monitoring notice. Read it; it explains what Nexus records.
 
 ## Clocking In Early
+
+```figure
+{
+  "kind": "screen",
+  "title": "The Early Clock-In Question",
+  "device": "phone",
+  "module": "Workday",
+  "parts": [
+    {
+      "kind": "clock",
+      "state": "out",
+      "value": "0h 00m",
+      "label": "Off the clock · shift at 9:00 AM",
+      "buttons": [
+        {
+          "label": "Punch In",
+          "primary": true
+        }
+      ]
+    },
+    {
+      "kind": "list",
+      "title": "My Schedule",
+      "items": [
+        {
+          "label": "Today, 9:00 AM to 5:30 PM",
+          "note": "Fairfield, Office",
+          "badge": "Next",
+          "tone": "live"
+        }
+      ]
+    },
+    {
+      "kind": "dialog",
+      "title": "Early Clock-In",
+      "text": "You're clocking in early - your shift starts at 9:00 AM, about 25 minutes from now. Clock in anyway?",
+      "buttons": [
+        {
+          "label": "Not Yet",
+          "n": 1
+        },
+        {
+          "label": "Clock In Anyway",
+          "primary": true,
+          "n": 2
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Cancels. Come back closer to your start time."
+    },
+    {
+      "n": 2,
+      "text": "Records the punch; your manager gets a notice. Only when asked to start early."
+    }
+  ]
+}
+```
 
 If you press **Punch In** well before your scheduled shift (the window is set by your company), Nexus asks first with an **Early Clock-In** box: "You're clocking in early - your shift starts at 9:00 AM, about 25 minutes from now. Clock in anyway?"
 
@@ -121,6 +309,56 @@ If a clock-in is never closed and becomes more than 16 hours old, that shift sho
 > If you forgot to punch out yesterday, do **not** punch in and out now to "fix" it. That creates a second, wrong shift. Use **Fix My Punch Out** and ask for the real time. Your manager approves it.
 
 ## When a Punch Does Not Record
+
+```figure
+{
+  "kind": "screen",
+  "title": "Your Punch Did Not Record",
+  "device": "phone",
+  "module": "Workday",
+  "parts": [
+    {
+      "kind": "clock",
+      "state": "in",
+      "value": "8h 45m",
+      "label": "Punch out still sending · Don't punch out to fix it",
+      "buttons": [
+        "Start Break",
+        {
+          "label": "Punch Out",
+          "primary": true
+        }
+      ]
+    },
+    {
+      "kind": "dialog",
+      "title": "Your Punch Did Not Record",
+      "text": "No signal. Your punch out is saved on this phone at 4:45 PM, the time you pressed the button, and Nexus keeps trying on its own.",
+      "buttons": [
+        {
+          "label": "Retry Now",
+          "n": 1
+        },
+        {
+          "label": "OK, Keep Trying",
+          "primary": true,
+          "n": 2
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Once you have signal."
+    },
+    {
+      "n": 2,
+      "text": "Walk on. It goes in at 4:45 PM by itself. Never punch again to fix it."
+    }
+  ]
+}
+```
 
 At the back of a lot or in a steel building, your phone may lose signal right as you punch. Nexus is built for this:
 

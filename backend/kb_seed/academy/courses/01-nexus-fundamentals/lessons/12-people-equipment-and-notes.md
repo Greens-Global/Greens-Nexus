@@ -13,6 +13,67 @@ summary: Find and reach anyone with the Directory and Teams, borrow and return e
 
 ## The Directory
 
+```figure
+{
+  "kind": "screen",
+  "title": "A Directory Card",
+  "device": "computer",
+  "module": "Team",
+  "tabs": [
+    "Directory",
+    "Shifts"
+  ],
+  "tab": "Directory",
+  "actions": [
+    "Export PDF"
+  ],
+  "parts": [
+    {
+      "kind": "card",
+      "title": "Dana Reyes",
+      "note": "Site Manager · Temecula · Operations",
+      "rows": [
+        {
+          "label": "Work email",
+          "value": "d.reyes@example.com"
+        },
+        {
+          "label": "Office",
+          "value": "Temecula"
+        },
+        {
+          "label": "Reports to",
+          "value": "Regional Manager"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Chat",
+          "primary": true,
+          "n": 1
+        },
+        "Call",
+        "Video",
+        "Email",
+        "Save Contact",
+        "View on Chart"
+      ],
+      "n": 2
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Chat, Call and Video open Microsoft Teams. Nexus has no chat of its own."
+    },
+    {
+      "n": 2,
+      "text": "The job title under the name, never the tier; a small mark beside the name shows a Manager or an Administrator."
+    }
+  ]
+}
+```
+
 Open **Team** from the left menu and click **Directory**. Everyone at Greens is there.
 
 - **Search** by name.
@@ -74,6 +135,63 @@ Every handover and return takes a photo. That photo is proof of the item's condi
 On a computer you can paste a photo with Ctrl+V. On a phone, use the camera.
 
 ### Borrowing an Item
+
+```figure
+{
+  "kind": "screen",
+  "title": "Item Management, My Stuff",
+  "device": "phone",
+  "module": "Item Management",
+  "sub": "Dashboard",
+  "parts": [
+    {
+      "kind": "list",
+      "title": "My Stuff",
+      "items": [
+        {
+          "label": "Pressure washer (PW-02)",
+          "note": "Approved - take it with a handover photo",
+          "badge": "Take It",
+          "tone": "ok",
+          "n": 1
+        },
+        {
+          "label": "Extension ladder 24 ft",
+          "note": "Handed over by R. Chen · confirm with your photo",
+          "badge": "Confirm Receipt",
+          "tone": "live",
+          "n": 2
+        },
+        {
+          "label": "Site keys, ring B",
+          "note": "Assigned to you · accept it to confirm you have it",
+          "badge": "Accept"
+        },
+        {
+          "label": "Dolly (DL-07)",
+          "note": "Due back 11/12/2026",
+          "badge": "Start Return",
+          "n": 3
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "You take it yourself, with a handover photo."
+    },
+    {
+      "n": 2,
+      "text": "Someone handed it over; you confirm with your own photo."
+    },
+    {
+      "n": 3,
+      "text": "Photo, Condition (Good or Damaged), Confirm Return. Extend asks for more time."
+    }
+  ]
+}
+```
 
 1. Open **Item Management** and click **Borrow** (or **Request an Item** in the + menu or Dashboard Quick Actions).
 2. Find the item and click **Add**. It shows **In Cart**.
