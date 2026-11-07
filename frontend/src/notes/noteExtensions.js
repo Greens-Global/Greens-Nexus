@@ -23,6 +23,7 @@ import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table
 import { NoteAudio, NoteVideo } from './noteMedia';
 import { BoardEmbed } from './board/BoardEmbed';
 import { RecordLink } from './recordLink';
+import { Callout, Toggle } from './noteBlocks';
 
 const ALIGN = ['left', 'center', 'right', 'justify'];
 const SafeTextAlign = TextAlign.extend({
@@ -114,6 +115,8 @@ export function buildExtensions(placeholder, collab = null, { strict = false } =
     BoardEmbed,
     // A [[ link to a note, task, job or Knowledge Base page (Record Links, 11/06/2026).
     RecordLink,
+    // Callouts and toggles (11/07/2026, noteBlocks.jsx).
+    Callout, Toggle,
     ...(collab?.extensions || []),
   ];
 }

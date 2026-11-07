@@ -28,6 +28,7 @@ import {
   List, ListOrdered, ListChecks, IndentIncrease, IndentDecrease, Quote, SquareCode, AlignLeft, AlignCenter,
   AlignRight, Link2, Table as TableIcon, Minus, CalendarDays, Pilcrow, ListPlus, Rows3, Columns3, Trash2, Check, X,
   Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, PenTool, FileSymlink,
+  Info, Lightbulb, TriangleAlert, ListCollapse,
 } from 'lucide-react';
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
@@ -55,6 +56,10 @@ const SLASH = [
   { key: 'code', label: 'Code Block', hint: 'Monospaced text', icon: SquareCode, keys: 'pre snippet', run: (c) => c.toggleCodeBlock() },
   { key: 'table', label: 'Table', hint: '3 x 3 with a header row', icon: TableIcon, keys: 'grid', run: (c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }) },
   { key: 'divider', label: 'Divider', hint: 'A horizontal rule', icon: Minus, keys: 'hr line rule', run: (c) => c.setHorizontalRule() },
+  { key: 'callout', label: 'Callout', hint: 'A note set apart in a box', icon: Info, keys: 'note box info aside', run: (c) => c.setCallout('info') },
+  { key: 'tip', label: 'Tip Callout', hint: 'A helpful tip in a box', icon: Lightbulb, keys: 'callout hint idea', run: (c) => c.setCallout('tip') },
+  { key: 'warning', label: 'Warning Callout', hint: 'Something to watch out for', icon: TriangleAlert, keys: 'callout caution danger alert', run: (c) => c.setCallout('warning') },
+  { key: 'toggle', label: 'Toggle', hint: 'A section that folds away', icon: ListCollapse, keys: 'collapse fold expand details accordion', run: (c) => c.setToggle() },
   { key: 'record', label: 'Link to a Record', hint: 'A note, task, job or page - or type [[', icon: FileSymlink, keys: 'page note task job board kb knowledge mention backlink [[', run: (c) => c.insertContent('[[') },
   { key: 'date', label: "Today's Date", hint: 'Insert the date', icon: CalendarDays, keys: 'today now', run: (c) => c.insertContent(`${formatDate(new Date())} `) },
 ];
@@ -325,7 +330,7 @@ export default function NoteEditor({
       { key: 'video', label: 'Video', hint: 'Add a clip from this computer', icon: Clapperboard, keys: 'movie clip film', act: 'video' },
       { key: 'board', label: 'Board', hint: 'Insert one of your boards', icon: PenTool, keys: 'whiteboard drawing sketch markup', act: 'board' },
     ].filter(Boolean);
-    return [...SLASH, ...(live ? [] : capture)].filter((s) => !q || s.label.toLowerCase().includes(q) || (s.keys || '').includes(q)).slice(0, 12);
+    return [...SLASH, ...(live ? [] : capture)].filter((s) => !q || s.label.toLowerCase().includes(q) || (s.keys || '').includes(q)).slice(0, 24);
   }, [menu, people, dictateOk, recordOk, live, records.rows]);
 
   useEffect(() => {
@@ -460,6 +465,8 @@ export default function NoteEditor({
             onClick={run((c) => (e.can().liftListItem('taskItem') ? c.liftListItem('taskItem') : c.liftListItem('listItem')))} />
           <Sep />
           <Btn icon={Quote} label="Quote" active={on('blockquote')} onClick={run((c) => c.toggleBlockquote())} />
+          <Btn icon={Info} label="Callout - a note in a box" active={on('callout')} onClick={run((c) => c.setCallout('info'))} />
+          <Btn icon={ListCollapse} label="Toggle - a section that folds away" active={on('toggle')} onClick={run((c) => c.setToggle())} />
           <Btn icon={SquareCode} label="Code Block" active={on('codeBlock')} onClick={run((c) => c.toggleCodeBlock())} />
           <Btn icon={Minus} label="Divider" onClick={run((c) => c.setHorizontalRule())} />
           <Btn icon={Link2} label="Link (Ctrl+K)" active={on('link')} onClick={openLink} />
@@ -521,6 +528,8 @@ export default function NoteEditor({
               <PBtn icon={Strikethrough} label="Strikethrough" active={on('strike')} onClick={run((c) => c.toggleStrike())} />
               <PBtn icon={Highlighter} label="Highlight" active={on('highlight')} onClick={run((c) => c.toggleHighlight())} />
               <PBtn icon={Quote} label="Quote" active={on('blockquote')} onClick={run((c) => c.toggleBlockquote())} />
+              <PBtn icon={Info} label="Callout" active={on('callout')} onClick={run((c) => c.setCallout('info'))} />
+              <PBtn icon={ListCollapse} label="Toggle" active={on('toggle')} onClick={run((c) => c.setToggle())} />
               <PBtn icon={Link2} label="Link" active={on('link')} onClick={openLink} />
               <PBtn icon={FileSymlink} label="Link to a Record" onClick={() => { setMore(false); startRecordLink(); }} />
               <PBtn icon={TableIcon} label="Insert Table" onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
