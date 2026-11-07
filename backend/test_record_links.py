@@ -155,6 +155,19 @@ class RecordLinkTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             TK.task_list_embed(source="payroll", show="open", user=STRANGER, db=self.db)
 
+    def test_a_boards_record_cards_count_and_a_deleted_card_does_not(self):
+        import json
+        card = lambda ref, gone=False: {"id": ref, "type": "rectangle", "isDeleted": gone, "customData": {"nexusRecord": {"ref": ref}}}  # noqa: E731
+        scene = {"type": "nexus-board", "elements": [card(TARGET), card("ticket:k9", gone=True), card("payroll:1")]}
+        b = models.NexusNote(id="note_brd1", kind="board", owner_email=AGENT["email"], title="Plan", body="", scene=json.dumps(scene))
+        self.db.add(b)
+        self.db.commit()
+        self.assertEqual(self.links(), [("note", "note:note_brd1", TARGET, False)])
+        scene["elements"][0]["isDeleted"] = True
+        b.scene = json.dumps(scene)
+        self.db.commit()
+        self.assertEqual(self.links(), [])
+
     def test_the_backfill_writes_old_notes_once(self):
         n = models.NexusNote(id="note_old1", owner_email=AGENT["email"], title="Old", body=f"<p>{link(TARGET)}</p>")
         self.db.add(n)

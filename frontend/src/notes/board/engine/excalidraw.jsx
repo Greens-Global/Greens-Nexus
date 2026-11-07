@@ -116,6 +116,9 @@ export const Menu = { Root: MenuRoot, Item: MenuItem, Custom: MenuCustom, Separa
 export function Canvas({
   scene, onChange, look, readOnly = false, viewportRef, onReady, theme = 'light', name,
   phone = false, autoFocus, collaborating = false, onPointerUpdate, topRight = null, menu = null, children,
+  // A Record Card's link (customData.nexusRecord, Neil 11/07/2026) opens the
+  // record inside Nexus; every other link keeps the engine's own behavior.
+  onRecordOpen,
 }) {
   const initialData = useMemo(() => fromScene(scene), [scene]);
   const uiOptions = useMemo(() => ({
@@ -131,6 +134,12 @@ export function Canvas({
     tools: { image: !readOnly },
   }), [readOnly]);
   const handleChange = useCallback((elements, appState, files) => { onChange?.({ elements, appState, files }); }, [onChange]);
+  const handleLinkOpen = useCallback((element, event) => {
+    const ref = element?.customData?.nexusRecord?.ref;
+    if (!ref || !onRecordOpen) return;
+    event?.preventDefault?.();
+    onRecordOpen(ref);
+  }, [onRecordOpen]);
   return (
     <div ref={viewportRef} className="nx-engine" data-look={look}>
       <Excalidraw
@@ -150,6 +159,7 @@ export function Canvas({
         isCollaborating={collaborating}
         onPointerUpdate={onPointerUpdate}
         renderTopRightUI={topRight ? () => topRight : undefined}
+        onLinkOpen={handleLinkOpen}
       >
         {menu}
         {children}

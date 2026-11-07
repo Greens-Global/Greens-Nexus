@@ -28,3 +28,16 @@ export function listenForRecordLinkClicks() {
 
 /** `html` with every record chip turned back into its plain words. */
 export const unlinkRecords = (html) => String(html || '').replace(/<a\b[^>]*data-type="recordLink"[^>]*>([\s\S]*?)<\/a>/g, '$1');
+
+/** The address a record opens at, for a board card's link (the board opens
+ *  it inside Nexus; the address serves an exported board and a new tab). */
+export function recordHref(ref) {
+  const r = safeRef(ref);
+  if (!r) return '';
+  const i = r.indexOf(':');
+  const kind = r.slice(0, i);
+  const id = encodeURIComponent(r.slice(i + 1));
+  if (kind === 'task') return `/tasks?task=${id}`;
+  if (kind === 'ticket') return `/tickets?ticket=${id}`;
+  return `/#record=${encodeURIComponent(r)}`;
+}

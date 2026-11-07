@@ -42,6 +42,10 @@ import DiagramSheet from './diagram/DiagramSheet';
 import { layout as layoutGraph, graphFromElements, bounds } from './diagram/graph';
 import { newStamp, prefixGraph, stampBoxes, stampOf, stampSelection, mergeBuilt, placeOrigin } from './diagram/place';
 import { loadGraph } from './diagram/sources';
+import RecordCardSheet from './diagram/RecordCardSheet';
+import { cardGraph, markCard, taskCards, refreshedCards } from './diagram/recordCards';
+import { openRecord } from '../recordLink';
+import { api as nexusApi } from '../../api';
 import {
   DEFAULT_MARKUP, TOOL_KEYS, MARKUP_COLORS, MARKUP_SIZES, toolByKey, strokeStyle, toolFromEngine,
   commentPin, pinMeasurer, nextCommentNumber, stageToBoard, restyle, removeSelected, PIN_MAX,
@@ -175,7 +179,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   const [hasSelection, setHasSelection] = useState(false);
   // Diagrams (board/diagram/): the sheet open, the + buttons' box, Refresh.
   const diagramApi = canEdit ? engine?.diagram : null;
-  const [dgSheet, setDgSheet] = useState(null);     // 'text' | 'org' | 'workflow' | 'tasks'
+  const [dgSheet, setDgSheet] = useState(null);     // 'text' | 'org' | 'workflow' | 'tasks' | 'record'
   const [grip, setGrip] = useState(null);
   const gripRef = useRef(null);
   const [canRefresh, setCanRefresh] = useState(false);
@@ -677,6 +681,40 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     scheduleSave();
     flash('Redrawn from today\'s data.');
   }, [api, diagramApi, flash, scheduleSave]);
+  // Record Cards (11/07/2026, diagram/recordCards.js): a picked record lands
+  // as one box that opens it; a task card says Open / Done.
+  const placeRecord = useCallback(async (row) => {
+    if (!api || !diagramApi || !row) return;
+    const ref = `${row.kind === 'board' ? 'note' : row.kind}:${row.id}`;
+    const state = row.kind === 'task' ? (await nexusApi.taskStates([row.id]).catch(() => null))?.tasks?.[row.id] : null;
+    const stamp = newStamp();
+    const g = prefixGraph(cardGraph(row, state), stamp);
+    const r = stageRef.current?.getBoundingClientRect?.();
+    const center = stageToBoard({ clientX: (r?.left || 0) + (r?.width || 0) / 2, clientY: (r?.top || 0) + (r?.height || 0) / 2 }, r, api.getAppState());
+    const current = api.getSceneElementsIncludingDeleted();
+    const placed = layoutGraph(g, { origin: placeOrigin(center, bounds(layoutGraph(g)), current) });
+    const built = markCard(diagramApi.build(placed, { look: lookRef.current }), g.nodes[0].id, ref);
+    api.updateScene({ elements: [...current, ...built], appState: { selectedElementIds: { [g.nodes[0].id]: true } }, captureUpdate: CAPTURE.IMMEDIATELY });
+    api.scrollToContent(built, { fitToContent: false, animate: true });
+    scheduleSave();
+    flash('Added. Use the link button on the card to open it.');
+  }, [api, diagramApi, scheduleSave, flash]);
+  // An editor opening the board brings each task card's Open / Done line up
+  // to date - once per board open, as newer versions (they sync and save).
+  const cardsChecked = useRef(false);
+  useEffect(() => {
+    if (!api || !canEdit || cardsChecked.current) return;
+    cardsChecked.current = true;
+    const ids = [...new Set(taskCards(api.getSceneElementsIncludingDeleted()).map((c) => c.taskId))].slice(0, 50);
+    if (!ids.length) return;
+    nexusApi.taskStates(ids).then((res) => {
+      const changed = refreshedCards(api.getSceneElementsIncludingDeleted(), res?.tasks);
+      if (!changed.length) return;
+      const byId = new Map(changed.map((e) => [e.id, e]));
+      api.updateScene({ elements: api.getSceneElementsIncludingDeleted().map((e) => byId.get(e.id) || e), captureUpdate: CAPTURE.NEVER });
+      scheduleSave();
+    }).catch(() => {});
+  }, [api, canEdit, scheduleSave]);
   const growBox = useCallback((side) => { diagramApi?.grow(stageRef.current, side); }, [diagramApi]);
   const onDiagram = useCallback((key) => {
     if (key.startsWith('shape:')) {
@@ -761,6 +799,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
                   onPointerUpdate={collab ? onPointerUpdate : undefined}
                   topRight={isPhone || !canEdit ? null : lookToggle}
                   menu={menu}
+                  onRecordOpen={openRecord}
                 />
               </EngineBoundary>
             )}
@@ -802,7 +841,11 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
             ))}
           </div>
         )}
-        {dgSheet && diagramApi && (
+        {dgSheet === 'record' && diagramApi && (
+          <RecordCardSheet noteId={note?.id || ''} onClose={() => setDgSheet(null)}
+            onPick={(row) => { setDgSheet(null); placeRecord(row); }} />
+        )}
+        {dgSheet && dgSheet !== 'record' && diagramApi && (
           <DiagramSheet mode={dgSheet} onClose={() => setDgSheet(null)}
             onPlace={(graph, opts) => { setDgSheet(null); placeGraph(graph, opts); }} />
         )}

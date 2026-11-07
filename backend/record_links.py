@@ -14,6 +14,7 @@ wall and visibility, the ticket's participant rule, and for an internal ticket
 note the desk's internal-note rule. Nothing about a place the reader cannot
 open is counted or named.
 """
+import json
 import re
 from datetime import datetime, timezone
 
@@ -34,6 +35,35 @@ def refs_in(html: str) -> list:
         if r not in out:
             out.append(r)
     return out
+
+
+def scene_refs(raw: str) -> list:
+    """The records a board's cards stand for (Record Cards, 11/07/2026): each
+    live element's customData.nexusRecord.ref, in order, each once."""
+    if not raw or '"nexusRecord"' not in raw:
+        return []
+    try:
+        els = (json.loads(raw) or {}).get("elements") or []
+    except (TypeError, ValueError, AttributeError):
+        return []
+    out = []
+    for e in els:
+        if not isinstance(e, dict) or e.get("isDeleted"):
+            continue
+        ref = ((e.get("customData") or {}).get("nexusRecord") or {}).get("ref")
+        if isinstance(ref, str) and RECORD_REF.match(ref) and ref not in out:
+            out.append(ref)
+    return out
+
+
+def _refs_of(obj, deleted=False) -> list:
+    import models
+    if deleted:
+        return []
+    if isinstance(obj, models.NexusNote):
+        out = refs_in(obj.body or "")
+        return out + [r for r in scene_refs(obj.scene or "") if r not in out]
+    return refs_in(getattr(obj, _source_kind(obj)[0], "") or "")
 
 
 def _now() -> str:
@@ -64,18 +94,15 @@ def _rewrite(session, obj, deleted=False) -> None:
     import models
     if not getattr(obj, "id", None):
         return
-    field = _source_kind(obj)
-    if field is None:
+    fields = _source_kind(obj)
+    if fields is None:
         return
     is_new = obj in session.new
     if not deleted and not is_new:
         state = inspect(obj).attrs
-        moved = state[field].history.has_changes() or (
-            isinstance(obj, models.TaskComment) and state.internal.history.has_changes())
-        if not moved:
+        if not any(state[f].history.has_changes() for f in fields):
             return
-    html = "" if deleted else (getattr(obj, field, "") or "")
-    refs = refs_in(html)
+    refs = _refs_of(obj, deleted)
     if is_new and not refs:
         return                       # nothing to write and nothing written before
     src = _source(session, obj)
@@ -93,14 +120,15 @@ def _rewrite(session, obj, deleted=False) -> None:
 
 
 def _source_kind(obj):
-    """The HTML field of a row that can hold links, else None."""
+    """The fields of a row that can hold links (a board's cards are in its
+    scene; a comment moving to or from internal moves its links), else None."""
     import models
     if isinstance(obj, models.NexusNote):
-        return "body"
+        return ("body", "scene")
     if isinstance(obj, (models.Task, models.TaskTicket)):
-        return "description"
+        return ("description",)
     if isinstance(obj, models.TaskComment):
-        return "body"
+        return ("body", "internal")
     return None
 
 
