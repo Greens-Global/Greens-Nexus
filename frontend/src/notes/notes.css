@@ -516,3 +516,26 @@
 
 /* "Mentioned In" under a note (components/MentionedIn.jsx). */
 .nt-mentions { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--wk-line2); }
+
+/* ── Callouts and toggles (Neil, 11/07/2026, noteBlocks.jsx) ── */
+.nt-callout { display: flex; gap: 10px; margin: .6em 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--wk-line2); background: var(--wk-hover); }
+.nt-callout-icon { flex-shrink: 0; display: grid; place-items: center; height: 1.55em; color: var(--muted); }
+.nt-callout-body { flex: 1 1 auto; min-width: 0; }
+.nt-callout-body > :first-child { margin-top: 0; }
+.nt-callout-body > :last-child { margin-bottom: 0; }
+.nt-callout[data-tone="tip"] { border-color: color-mix(in srgb, var(--wk-green) 35%, transparent); background: color-mix(in srgb, var(--wk-green) 8%, transparent); }
+.nt-callout[data-tone="tip"] .nt-callout-icon { color: var(--wk-green); }
+/* Warnings stay yellow with an icon (house rule), never orange. */
+.nt-callout[data-tone="warning"] { border-color: rgba(202, 138, 4, .45); background: rgba(250, 204, 21, .12); }
+.nt-callout[data-tone="warning"] .nt-callout-icon { color: #a16207; }
+.nt-toggle { margin: .5em 0; }
+.nt-toggle-head { display: flex; align-items: center; gap: 4px; }
+.nt-toggle-chev { display: grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0; padding: 0; border: none; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; transition: transform .15s ease-out; }
+.nt-toggle-chev:hover { background: var(--wk-hover); color: var(--ink); }
+.nt-toggle.is-open > .nt-toggle-head .nt-toggle-chev { transform: rotate(90deg); }
+.nt-toggle-title { flex: 1 1 auto; min-width: 0; border: none; background: transparent; font: inherit; font-weight: 600; color: var(--ink); padding: 2px 4px; outline: none; text-align: left; }
+.nt-toggle-title.is-read { cursor: pointer; }
+.nt-toggle-title::placeholder { color: var(--wk-faint, #9699a6); font-weight: 500; }
+.nt-toggle-body { padding-left: 28px; }
+.nt-toggle-body[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .nt-toggle-chev { transition: none; } }

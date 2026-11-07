@@ -152,11 +152,17 @@ _NOTE_ATTRS = {
     "ul": ("data-type",),
     "li": ("data-type", "data-checked"),
     "span": ("data-type", "data-id", "data-label"),
+    # Callouts and toggles (Neil, 11/07/2026, notes/noteBlocks.jsx): the only
+    # <div>s a note keeps - <div data-type="callout" data-tone="info|tip|warning">
+    # and <div data-type="toggle" data-summary="..." data-open="true|false">.
+    "div": ("data-type", "data-tone", "data-summary", "data-open"),
     "p": ("style",), "h1": ("style",), "h2": ("style",), "h3": ("style",), "h4": ("style",),
     "td": ("colspan", "rowspan"), "th": ("colspan", "rowspan"),
 }
 _ALIGN = re.compile(r"^text-align:\s*(left|center|right|justify);?$", re.I)
-_DATA_TYPES = {"taskList", "taskItem", "mention", "boardEmbed", "recordLink"}
+_DATA_TYPES = {"taskList", "taskItem", "mention", "boardEmbed", "recordLink", "callout", "toggle"}
+_DIV_TYPES = ("callout", "toggle")
+_TONES = ("info", "tip", "warning")
 _NOTE_REF = re.compile(r"^note_[A-Za-z0-9]{1,64}$")
 # A record link's target: what it is and its id - nothing that could be a URL.
 # The kinds are the ones the [[ picker offers (notes/recordLink.jsx).
@@ -170,6 +176,26 @@ class _NoteSanitizer(_RichSanitizer):
     def __init__(self):
         super().__init__()
         self._in_media = 0
+        self._divs = []         # per open <div>: True = kept (a callout / toggle), False = unwrapped
+
+    def _div_start(self, attrs):
+        if self.drop_depth:
+            return                      # inside a dropped tree: neither counted nor kept
+        self._in_media = 0              # an unclosed player never swallows the rest of the note
+        kind = next(((v or "").strip() for k, v in attrs if (k or "").lower() == "data-type"), "")
+        keep = kind in _DIV_TYPES
+        self._divs.append(keep)
+        if keep:
+            self.out.append(f"<div{self._attrs('div', attrs)}>")
+            self.open.append("div")
+
+    def _div_end(self):
+        if self._divs and self._divs.pop() and "div" in self.open:
+            while self.open:
+                t = self.open.pop()
+                self.out.append(f"</{t}>")
+                if t == "div":
+                    break
 
     def _attrs(self, tag, attrs):
         allowed = _NOTE_ATTRS.get(tag, ())
@@ -202,11 +228,18 @@ class _NoteSanitizer(_RichSanitizer):
                 continue
             elif k == "data-ref" and not _RECORD_REF.match(v):
                 continue
+            elif k == "data-tone" and v not in _TONES:
+                continue
+            elif k == "data-open" and v not in ("true", "false"):
+                continue
             kept.append(f' {k}="{escape(v[:200], quote=True)}"')
         return "".join(kept)
 
     def handle_starttag(self, tag, attrs):
         if tag in ("label", "input"):
+            return
+        if tag == "div":
+            self._div_start(attrs)      # a plain <div> is unwrapped; its end never closes a kept one
             return
         if tag in _MEDIA:
             if self.drop_depth:
@@ -230,6 +263,10 @@ class _NoteSanitizer(_RichSanitizer):
         super().handle_startendtag(tag, attrs)
 
     def handle_endtag(self, tag):
+        if tag == "div":
+            if not self.drop_depth:
+                self._div_end()
+            return
         if tag in _MEDIA:
             self._in_media = max(0, self._in_media - 1)
             return
@@ -370,6 +407,16 @@ def _full(n: models.NexusNote, me: str) -> dict:
     out["body"] = n.body or ""
     out["scene"] = n.scene or ""
     out["sharedWith"] = _shares(n) if out["mine"] else [s for s in _shares(n) if s["email"] == me]
+    # Seen By (Neil, 11/07/2026): who else has opened it, from `seen` - the
+    # owner's alone (a sharer never learns who else the note went to), and only
+    # people it is still shared with. `latest` = they have the words as they are now.
+    if out["mine"]:
+        s = _seen(n)
+        shared = {x["email"] for x in _shares(n)}
+        rev_now = int(s["content"].get("rev") or n.rev or 1)
+        out["seenBy"] = sorted(
+            ({"email": e, "latest": int(r or 0) >= rev_now} for e, r in s["by"].items() if e != me and e in shared),
+            key=lambda x: x["email"])
     return out
 
 

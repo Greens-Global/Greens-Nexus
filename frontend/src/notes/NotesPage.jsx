@@ -815,6 +815,17 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                 Shared with {note.sharedWith.length} {note.sharedWith.length === 1 ? 'person' : 'people'}
               </button>
             )}
+            {/* Seen By (11/07/2026): the owner's view of who opened a shared note (the server sends it to the owner only). */}
+            {mine && note.seenBy?.length > 0 && (() => {
+              const behind = note.seenBy.filter((x) => !x.latest);
+              return (
+                <span className="nt-seen" title={note.seenBy.map((x) => `${nameOf(x.email)}${x.latest ? '' : ' - not since your last change'}`).join('\n')}>
+                  Seen by {note.seenBy.length === 1 ? nameOf(note.seenBy[0].email) : `${note.seenBy.length} people`}
+                  {behind.length > 0 && (note.seenBy.length === 1 ? ' · not since your last change' : ` · ${behind.length} not since your last change`)}
+                </span>
+              );
+            })()}
+            {mine && note.sharedWith?.length > 0 && !(note.seenBy?.length) && <span>Not opened yet</span>}
             {note.editedBy && note.editedBy !== (myEmail || '').toLowerCase() && note.updatedAt && (
               <span>Edited by {nameOf(note.editedBy)} {editedLabel(note.updatedAt).replace(/^edited /i, '')}</span>
             )}
