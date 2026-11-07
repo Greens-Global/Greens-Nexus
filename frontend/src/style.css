@@ -4789,8 +4789,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
    sheet share components/search/useNexusSearch. */
 .hdr-search { position: relative; width: 252px; flex-shrink: 0; transition: width .18s ease-out; }
 /* With room for it, the box grows on focus to the width of its results panel,
-   so the panel hangs straight under it (Neil, 11/07/2026). */
-@media (min-width: 1440px) { .hdr-search:focus-within { width: 440px; } }
+   so the panel hangs straight under it (Neil, 11/07/2026). It grows OVER the
+   header's center (the negative margin keeps its flex size), so the module
+   tabs never refit into More while someone types. */
+@media (min-width: 1440px) { .hdr-search:focus-within { width: 440px; margin-left: -188px; z-index: 2; } }
 @media (prefers-reduced-motion: reduce) { .hdr-search { transition: none; } }
 .hdr-search .search-bar { height: 38px; padding: 0 10px 0 12px; box-sizing: border-box; }
 .hdr-search-kbd {

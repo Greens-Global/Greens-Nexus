@@ -27,7 +27,11 @@ vi.mock('../contexts/RoleContext', async (importOriginal) => ({
   useRole: () => ({ myRole: 'administrator', isExternal: false, can: () => true, myGrantedModules: new Map() }),
 }));
 vi.mock('../lib/peoplePhotos', () => ({ usePersonPhoto: () => '' }));
-vi.mock('../lib/timeclockStore', () => ({ useTimeclock: () => ({ state: 'out', todayMin: 0 }), openTimeClock: vi.fn() }));
+vi.mock('../lib/timeclockStore', async (importOriginal) => ({
+  ...(await importOriginal()),
+  useTimeclock: () => ({ state: 'out', todayMin: 0 }),
+  openTimeClock: vi.fn(),
+}));
 
 const MobileMenu = (await import('./MobileMenu')).default;
 
