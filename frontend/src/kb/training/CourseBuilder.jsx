@@ -41,6 +41,7 @@ function LessonEditor({ lesson, onChange }) {
         <button type="button" onClick={() => editor?.chain().focus().insertSteps().run()}>Steps</button>
         <button type="button" onClick={() => editor?.chain().focus().insertCallout('tip').run()}>Tip</button>
         <button type="button" onClick={() => editor?.chain().focus().insertCallout('warning').run()}>Warning</button>
+        <button type="button" onClick={() => editor?.chain().focus().insertFigure('steps').run()}>Figure</button>
       </div>
       <div className="kb-editor" style={{ minHeight: 220 }}><EditorContent editor={editor} /></div>
     </div>

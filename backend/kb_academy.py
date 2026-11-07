@@ -125,6 +125,8 @@ def _texts(node) -> list[str]:
 
 def _all_text(node) -> list[str]:
     if isinstance(node, dict):
+        if node.get("type") == "figure":
+            return kb_blocks.figure_text(node).split("\n")
         out = [node["text"]] if isinstance(node.get("text"), str) else []
         for v in node.values():
             out += _all_text(v)

@@ -396,3 +396,86 @@
   .kb .kb-item-side { flex: 1 1 100%; flex-direction: row; align-items: center; justify-content: space-between; padding-left: 42px; }
   .kb .kb-outline-min { width: auto; }
 }
+
+/* ── Figures (Neil, 11/07/2026): diagrams drawn from data, inside a page ── */
+.kb .kb-fig { display: flex; flex-direction: column; align-items: stretch; gap: 0; margin: 6px 0 18px; padding: 16px 18px 14px; border: 1px solid var(--kb-line); border-radius: 12px; background: var(--kb-card); min-width: 0; overflow: hidden; }   /* the app styles a bare <figure> as a row; this one is a column */
+.kb .kb-fig-title { display: block; font-family: 'Figtree', 'Inter', sans-serif; font-size: 14.5px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 12px; color: var(--kb-ink); }
+.kb .kb-fig-caption { display: block; font-size: 12.5px; color: var(--kb-dim); margin: 10px 0 0; line-height: 1.4; }
+.kb .kb-fig-body { min-width: 0; }
+.kb .kb-fig-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13.5px; line-height: 1.35; }
+.kb .kb-fig-text b { font-weight: 600; color: var(--kb-ink); }
+.kb .kb-fig-text span { color: var(--kb-dim); font-size: 12.5px; }
+/* steps: a flow, left to right; down a phone */
+.kb .kb-fig-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px 6px; align-items: flex-start; }
+.kb .kb-fig-steps li { display: flex; align-items: flex-start; gap: 8px; flex: 1 1 150px; min-width: 0; max-width: 260px; }
+.kb .kb-fig-n { width: 24px; height: 24px; border-radius: 50%; background: var(--kb-green-soft); color: var(--kb-green); font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; margin-top: 1px; }
+.kb .kb-fig-arrow { color: var(--kb-dim); flex: 0 0 auto; margin: 4px 0 0 auto; display: inline-flex; }
+/* timeline: a rail with a dot per event */
+.kb .kb-fig-timeline { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: max-content 20px minmax(0, 1fr); column-gap: 12px; }
+.kb .kb-fig-timeline li { display: contents; }
+.kb .kb-fig-at { font-size: 13px; font-weight: 600; color: var(--kb-ink); font-variant-numeric: tabular-nums; padding: 7px 0; text-align: right; white-space: nowrap; }
+.kb .kb-fig-dot { position: relative; width: 20px; align-self: stretch; }
+.kb .kb-fig-dot::before { content: ''; position: absolute; left: 9px; top: 0; bottom: 0; width: 2px; background: var(--kb-line); }
+.kb .kb-fig-dot::after { content: ''; position: absolute; left: 5px; top: 12px; width: 10px; height: 10px; border-radius: 50%; background: var(--tone, var(--kb-green)); box-shadow: 0 0 0 3px var(--kb-card); }
+.kb .kb-fig-timeline li:first-child .kb-fig-dot::before { top: 12px; }
+.kb .kb-fig-timeline li:last-child .kb-fig-dot::before { bottom: auto; height: 12px; }
+.kb .kb-fig-timeline .kb-fig-text { padding: 7px 0; }
+.kb .kb-fig-timeline li[style] .kb-fig-text b { color: var(--tone); }
+/* compare: columns */
+.kb .kb-fig-compare { display: grid; grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr)); gap: 0 18px; }
+.kb .kb-fig-col { min-width: 0; padding: 0 0 4px; border-left: 1px solid var(--kb-line); padding-left: 14px; }
+.kb .kb-fig-col:first-child { border-left: 0; padding-left: 0; }
+.kb .kb-fig-colname { font-family: 'Figtree', 'Inter', sans-serif; font-weight: 700; font-size: 14.5px; margin-bottom: 2px; }
+.kb .kb-fig-colnote { font-size: 12.5px; color: var(--kb-dim); margin-bottom: 6px; }
+.kb .kb-fig-col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; font-size: 13px; line-height: 1.4; }
+.kb .kb-fig-col li { padding-left: 12px; position: relative; }
+.kb .kb-fig-col li::before { content: ''; position: absolute; left: 0; top: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--kb-green); }
+/* sizes: rectangles to scale */
+.kb .kb-fig-sizes { display: flex; flex-wrap: wrap; gap: 18px 22px; align-items: flex-end; }
+.kb .kb-fig-size { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.kb .kb-fig-box { border: 1.5px solid var(--kb-green); background: var(--kb-green-soft); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12.5px; color: var(--kb-green); min-width: 28px; min-height: 28px; }
+.kb .kb-fig-sizemeta { display: flex; flex-direction: column; font-size: 12.5px; max-width: 170px; line-height: 1.35; }
+.kb .kb-fig-sizemeta b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.kb .kb-fig-sizemeta span { color: var(--kb-dim); }
+/* bars */
+.kb .kb-fig-bars { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 8px 12px; align-items: center; }
+.kb .kb-fig-bar { display: contents; }
+.kb .kb-fig-barlabel { font-size: 13px; font-weight: 600; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.kb .kb-fig-track { position: relative; height: 10px; border-radius: 5px; background: var(--kb-paper); border: 1px solid var(--kb-line); overflow: hidden; }
+.kb .kb-fig-track i { position: absolute; top: 0; bottom: 0; background: var(--tone, var(--kb-green)); border-radius: 5px; }
+.kb .kb-fig-barval { font-size: 12.5px; color: var(--kb-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* stats */
+.kb .kb-fig-stats { display: flex; flex-wrap: wrap; gap: 14px 28px; margin: 0; }
+.kb .kb-fig-stats > div { display: flex; flex-direction: column; min-width: 110px; max-width: 200px; }
+.kb .kb-fig-stats dd { margin: 0; font-family: 'Figtree', 'Inter', sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; color: var(--kb-ink); font-variant-numeric: tabular-nums; }
+.kb .kb-fig-stats dt { font-size: 12.5px; color: var(--kb-dim); margin-top: 3px; line-height: 1.35; }
+.kb .kb-fig-stats dt span { display: block; font-size: 11.5px; }
+/* layout: a wireframe */
+.kb .kb-fig-layout { display: grid; gap: 6px; background: var(--kb-paper); border: 1px solid var(--kb-line); border-radius: 10px; padding: 8px; }
+.kb .kb-fig-region { border: 1px solid var(--kb-line); background: var(--kb-card); border-radius: 6px; padding: 6px 8px; min-width: 0; overflow: hidden; display: flex; flex-direction: column; gap: 1px; font-size: 12px; line-height: 1.3; }
+.kb .kb-fig-region.one { flex-direction: row; align-items: baseline; gap: 8px; white-space: nowrap; }
+.kb .kb-fig-region.one span { overflow: hidden; text-overflow: ellipsis; }
+.kb .kb-fig-region b { font-weight: 600; color: var(--kb-ink); }
+.kb .kb-fig-region span { color: var(--kb-dim); font-size: 11.5px; }
+.kb .kb-fig-region.ok { border-color: var(--kb-green); background: var(--kb-green-soft); }
+.kb .kb-fig-region.live { border-color: var(--wk-live, #ed631a); background: var(--wk-live-tint, #fdeee5); }
+/* cycle: a ring */
+.kb .kb-fig-cycle { position: relative; width: min(100%, 360px); aspect-ratio: 1; margin: 0 auto; color: var(--kb-line); }
+.kb .kb-fig-cycle svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.kb .kb-fig-cycle svg path { stroke: var(--kb-dim); opacity: .6; }
+.kb .kb-fig-node { position: absolute; transform: translate(-50%, -50%); width: 110px; padding: 6px 8px; background: var(--kb-card); border: 1px solid var(--kb-line); border-radius: 8px; text-align: center; font-size: 12.5px; line-height: 1.3; display: flex; flex-direction: column; gap: 1px; color: var(--kb-ink); }
+.kb .kb-fig-node b { font-weight: 600; }
+.kb .kb-fig-node span { color: var(--kb-dim); font-size: 11.5px; }
+.kb .kb-figure-node { margin: 0 0 12px; }
+@media (max-width: 640px) {
+  .kb .kb-fig { padding: 14px 14px 12px; }
+  .kb .kb-fig-steps { flex-direction: column; gap: 6px; }
+  .kb .kb-fig-steps li { max-width: none; }
+  .kb .kb-fig-arrow { display: none; }
+  .kb .kb-fig-compare { grid-template-columns: 1fr; gap: 12px; }
+  .kb .kb-fig-col { border-left: 0; padding-left: 0; border-top: 1px solid var(--kb-line); padding-top: 10px; }
+  .kb .kb-fig-col:first-child { border-top: 0; padding-top: 0; }
+  .kb .kb-fig-bars { grid-template-columns: 1fr; gap: 2px; }
+  .kb .kb-fig-barval { margin-bottom: 6px; }
+  .kb .kb-fig-node { width: 92px; font-size: 11.5px; }
+}

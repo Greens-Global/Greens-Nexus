@@ -66,6 +66,36 @@ You can also leave a note on a day for your manager with **Add Note**, for examp
 
 ## Approval and Signing
 
+```figure
+{
+  "kind": "steps",
+  "title": "From the End of the Pay Period to Payroll",
+  "items": [
+    {
+      "label": "The pay period ends",
+      "note": "nothing to submit"
+    },
+    {
+      "label": "Your manager reviews",
+      "note": "Review & Approve, or Send Back with a note"
+    },
+    {
+      "label": "You get a bell and an email",
+      "note": "often a yellow priority bar too"
+    },
+    {
+      "label": "You sign",
+      "note": "Sign & Submit, in Nexus Sign"
+    },
+    {
+      "label": "The period is final",
+      "note": "the signed copy files to My Documents"
+    }
+  ],
+  "caption": "Only you sign your Time Sheet. Your manager approves it and never signs it."
+}
+```
+
 Here is the whole flow, start to finish:
 
 1. **The pay period ends.** You do not have to submit anything first. (If you want your manager to look early, **Send to Manager** asks them to review before the period ends. It is optional.)

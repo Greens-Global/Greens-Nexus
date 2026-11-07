@@ -19,6 +19,60 @@ And a lot of the calls are not new customers at all. One vendor claims up to 80%
 
 ## What Mystery Shoppers Found
 
+```figure
+{
+  "kind": "bars",
+  "title": "What Staff Did on Shopped Calls",
+  "unit": "%",
+  "max": 100,
+  "items": [
+    {
+      "label": "Invited the caller to visit",
+      "value": 98,
+      "text": "98%"
+    },
+    {
+      "label": "Asked about the caller's needs",
+      "value": 94.9,
+      "text": "94.9%"
+    },
+    {
+      "label": "Answered professionally",
+      "value": 92,
+      "text": "92%"
+    },
+    {
+      "label": "Used the property name at the close",
+      "value": 39.8,
+      "text": "39.8%"
+    },
+    {
+      "label": "Asked to set an appointment time",
+      "value": 33,
+      "text": "33%"
+    },
+    {
+      "label": "Asked the caller to rent",
+      "value": 25.4,
+      "text": "25.4%",
+      "tone": "bad"
+    },
+    {
+      "label": "Gave no information about features",
+      "value": 22,
+      "text": "22%",
+      "tone": "warn"
+    },
+    {
+      "label": "Offered to send follow-up information",
+      "value": 21,
+      "text": "21%"
+    }
+  ],
+  "caption": "The call is friendly almost every time. The ask for the rental happens one call in four."
+}
+```
+
 The best study we have is old, and it is still the best. In 2004, IntelliShop placed about 1,000 mystery-shop calls to more than 500 storage facilities and graded what staff did (Ron Welty, Inside Self-Storage, 12/2004). Here is what they found:
 
 | What staff did | How often |

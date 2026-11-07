@@ -27,6 +27,53 @@ Height matters too. Most units have ceilings of roughly 8 to 10 feet, which is t
 
 ## The Size Guide
 
+```figure
+{
+  "kind": "sizes",
+  "title": "The Six Standard Sizes, to Scale",
+  "unit": "ft",
+  "items": [
+    {
+      "name": "5x5",
+      "w": 5,
+      "h": 5,
+      "note": "a hall closet"
+    },
+    {
+      "name": "5x10",
+      "w": 5,
+      "h": 10,
+      "note": "a walk-in closet"
+    },
+    {
+      "name": "10x10",
+      "w": 10,
+      "h": 10,
+      "note": "half a one-car garage; the most popular size"
+    },
+    {
+      "name": "10x15",
+      "w": 10,
+      "h": 15,
+      "note": "about two-thirds of a one-car garage"
+    },
+    {
+      "name": "10x20",
+      "w": 10,
+      "h": 20,
+      "note": "a one-car garage"
+    },
+    {
+      "name": "10x30",
+      "w": 10,
+      "h": 30,
+      "note": "a two-car garage"
+    }
+  ],
+  "caption": "Width is the door side; depth runs back from it. Square feet = width times depth."
+}
+```
+
 This is the guide to learn by heart. Capacities are approximate and assume reasonable packing (U-Haul, RentCafe and industry size guides).
 
 | Size | Square feet | About the size of | What typically fits |

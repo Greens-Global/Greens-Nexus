@@ -54,6 +54,48 @@ Whether a storage rent balance counts as a "consumer debt" under each law, and h
 
 ## The Greens Collections Ladder
 
+```figure
+{
+  "kind": "timeline",
+  "title": "The Collections Ladder, and the Call That Goes With Each Rung",
+  "items": [
+    {
+      "at": "2nd",
+      "label": "Call failed-autopay tenants",
+      "note": "a service call: their card did not go through"
+    },
+    {
+      "at": "6th",
+      "label": "Call past-due tenants",
+      "note": "\"I'm calling to help you avoid the late fee on the 11th\""
+    },
+    {
+      "at": "11th",
+      "label": "The late fee posts; the gate code changes",
+      "note": "no call task",
+      "tone": "warn"
+    },
+    {
+      "at": "15th",
+      "label": "The preliminary lien notice goes out",
+      "note": "the tenant may call worried; explain calmly",
+      "tone": "warn"
+    },
+    {
+      "at": "30th",
+      "label": "Final collection call",
+      "note": "the amount, the key date, the ways to pay"
+    },
+    {
+      "at": "35th and later",
+      "label": "The lien notice, and the vehicle lien steps",
+      "note": "your manager guides these",
+      "tone": "bad"
+    }
+  ]
+}
+```
+
 Cubby runs the ladder and raises the tasks; you make the calls (From Greens' Cubby, 11/2026; full detail on Greens Delinquency Timeline).
 
 | Day | Cubby task or event | The conversation |

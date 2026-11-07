@@ -13,6 +13,42 @@ summary: The metrics a storage site lives by and the habit behind each one, a 54
 
 ## The Numbers That Matter
 
+```figure
+{
+  "kind": "compare",
+  "title": "What Each Number Watches",
+  "columns": [
+    {
+      "name": "Filling the site",
+      "facts": [
+        "Unit, physical and economic occupancy",
+        "Move-ins and move-outs",
+        "Net rentals",
+        "Rentable units"
+      ]
+    },
+    {
+      "name": "Getting paid",
+      "facts": [
+        "Delinquency %",
+        "Lien and auction count",
+        "Autopay %"
+      ]
+    },
+    {
+      "name": "Growing each rental",
+      "facts": [
+        "Conversion rate",
+        "Average length of stay",
+        "Protection penetration",
+        "Merchandise per move-in",
+        "Online reviews"
+      ]
+    }
+  ]
+}
+```
+
 Managers and owners watch a short list of numbers. You do not need to run the reports (Cubby Fundamentals covers that), but you should know what each number means and what you do that moves it.
 
 | Metric | What it is | How to work it out | The habit that moves it |

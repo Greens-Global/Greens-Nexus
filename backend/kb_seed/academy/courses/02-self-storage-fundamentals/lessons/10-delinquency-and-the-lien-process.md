@@ -112,6 +112,59 @@ After the lien and the costs of sale are paid, any money left over is **held for
 
 ### The California Steps at a Glance
 
+```figure
+{
+  "kind": "timeline",
+  "title": "California: the Minimum Days",
+  "items": [
+    {
+      "at": "Day 0",
+      "label": "Rent is due"
+    },
+    {
+      "at": "Day 10",
+      "label": "A late fee may post",
+      "note": "not before 10 days unpaid",
+      "tone": "warn"
+    },
+    {
+      "at": "Day 14",
+      "label": "Preliminary Lien Notice",
+      "note": "after 14 consecutive days unpaid, to the tenant and the alternate address",
+      "tone": "warn"
+    },
+    {
+      "at": "+14 days",
+      "label": "Termination date: the lien attaches",
+      "note": "at least 14 days after the notice is mailed; access may be denied",
+      "tone": "bad"
+    },
+    {
+      "at": "Then",
+      "label": "Notice of Lien Sale",
+      "note": "with a blank Declaration in Opposition"
+    },
+    {
+      "at": "+14 days",
+      "label": "The earliest sale date",
+      "note": "at least 14 days after that notice is mailed"
+    },
+    {
+      "at": "Before the sale",
+      "label": "Advertising",
+      "note": "two weeks of newspaper, or newspaper plus 7 days online"
+    },
+    {
+      "at": "After",
+      "label": "A commercially reasonable sale",
+      "note": "excess proceeds held one year, then the county",
+      "tone": "bad"
+    }
+  ],
+  "caption": "Minimums from the Self-Service Storage Facility Act, Bus. & Prof. Code 21700 to 21716. Training only, not legal advice."
+}
+```
+
 | # | Step | Minimum timing |
 |---|---|---|
 | 1 | Rent unpaid | Day 0 is the due date |
@@ -197,6 +250,64 @@ A registered vehicle or vessel is not sold through the normal unit lien sale.
 The RV & Boat Storage course teaches these paths in full. At Greens, the vehicle step is the Cubby task "61st - Vehicle Lien Filing/Tow Notice" (From Greens' Cubby, 11/2026).
 
 ## What Greens' Cubby Does Today
+
+```figure
+{
+  "kind": "timeline",
+  "title": "The Day-by-Day Ladder in Cubby",
+  "items": [
+    {
+      "at": "1st",
+      "label": "Rent due; autopay runs"
+    },
+    {
+      "at": "2nd",
+      "label": "Call tenants whose autopay failed"
+    },
+    {
+      "at": "6th",
+      "label": "Call everyone still unpaid"
+    },
+    {
+      "at": "11th",
+      "label": "Late fee posts; the gate code changes",
+      "tone": "warn"
+    },
+    {
+      "at": "15th",
+      "label": "Preliminary lien notice goes out",
+      "note": "the $25.00 notice fee posts",
+      "tone": "warn"
+    },
+    {
+      "at": "20th",
+      "label": "Overlock Needed is flagged",
+      "tone": "warn"
+    },
+    {
+      "at": "30th",
+      "label": "Final collection call"
+    },
+    {
+      "at": "35th",
+      "label": "Lien Notice goes out",
+      "note": "the $35.00 fee posts",
+      "tone": "bad"
+    },
+    {
+      "at": "61st",
+      "label": "Vehicle lien filing or tow notice",
+      "tone": "bad"
+    },
+    {
+      "at": "62nd",
+      "label": "Second lien sale ad publishes",
+      "tone": "bad"
+    }
+  ],
+  "caption": "From Greens' Cubby, 11/2026. The two calls early in the month stop most of this from ever happening."
+}
+```
 
 Greens' own day-by-day ladder, with every task and fee, is on the **Greens Delinquency Timeline** page, the next lesson in this course. The outline for California (From Greens' Cubby, 11/2026):
 

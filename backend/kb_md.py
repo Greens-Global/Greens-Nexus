@@ -1,12 +1,17 @@
 """Markdown subset -> Knowledge Base block JSON (Storage Academy authoring).
 
 Supported: ## / ### headings, paragraphs, **bold**, *italic*, bullets, 1. lists,
-- [ ] checklists, GitHub tables, > [!TIP|NOTE|WARNING|SAFETY] callouts, ---.
+- [ ] checklists, GitHub tables, > [!TIP|NOTE|WARNING|SAFETY] callouts, ---,
+and a figure (11/07/2026): a fenced block whose first line is ```figure and
+whose body is the figure's JSON ({"kind": "steps", "title": ..., "items":
+[...]}; the kinds and keys are kb_blocks.FIGURE_KINDS / _FIGURE_KEYS). A
+fence that is not valid JSON, or names no known kind, is an error.
 Anything else stays a paragraph. A `#` line is an error: the lesson title
 comes from the front matter.
 """
 from __future__ import annotations
 
+import json
 import re
 
 import kb_blocks as kb
@@ -58,7 +63,7 @@ def _cells(line: str) -> list[str]:
 
 def _is_block_start(ln: str) -> bool:
     s = ln.strip()
-    return (not s or s.startswith(("#", ">", "|")) or s == "---" or bool(_BULLET.match(s) or _ORDERED.match(s)))
+    return (not s or s.startswith(("#", ">", "|", "```")) or s == "---" or bool(_BULLET.match(s) or _ORDERED.match(s)))
 
 
 def to_blocks(md: str) -> dict:
@@ -78,6 +83,26 @@ def to_blocks(md: str) -> dict:
         elif s == "---":
             out.append({"type": "horizontalRule"})
             i += 1
+        elif s.startswith("```"):
+            fence = s[3:].strip().lower()
+            start = i
+            i += 1
+            body: list[str] = []
+            while i < len(lines) and lines[i].strip() != "```":
+                body.append(lines[i])
+                i += 1
+            if i >= len(lines):
+                raise ValueError(f"line {start + 1}: the ``` fence is never closed")
+            i += 1
+            if fence != "figure":
+                raise ValueError(f"line {start + 1}: only ```figure fences are supported")
+            try:
+                data = json.loads("\n".join(body))
+            except ValueError as e:
+                raise ValueError(f"line {start + 1}: figure is not valid JSON ({e})") from None
+            if not isinstance(data, dict) or data.get("kind") not in kb.FIGURE_KINDS:
+                raise ValueError(f"line {start + 1}: figure needs a kind: {', '.join(kb.FIGURE_KINDS)}")
+            out.append(kb.figure(data["kind"], {k: v for k, v in data.items() if k != "kind"}))
         elif _CALLOUT.match(s):
             kind = _CALLOUT.match(s).group(1).lower()
             i += 1

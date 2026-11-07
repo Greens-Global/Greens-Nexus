@@ -27,6 +27,43 @@ A wrong fit on day one means a bad first experience, a transfer, and often a rat
 
 ## Length: Measure What Will Sit in the Space
 
+```figure
+{
+  "kind": "compare",
+  "title": "Where the Tape Starts and Ends",
+  "columns": [
+    {
+      "name": "Travel trailer",
+      "facts": [
+        "From the coupler, where it hooks to the hitch ball",
+        "To the rear bumper, including the spare, bike rack or ladder"
+      ]
+    },
+    {
+      "name": "Fifth wheel",
+      "facts": [
+        "From the front of the nose or pin box",
+        "To the rear bumper and anything on it"
+      ]
+    },
+    {
+      "name": "Motorhome",
+      "facts": [
+        "From the front bumper",
+        "To the rearmost item: ladder, spare, bike rack, tow bar"
+      ]
+    },
+    {
+      "name": "Boat on a trailer",
+      "facts": [
+        "From the tip of the trailer tongue",
+        "To the motor's lower unit, the swim platform or a mast overhang"
+      ]
+    }
+  ]
+}
+```
+
 Ask for the **overall length as it will sit in the space**, never the model name or the brochure number.
 
 | Vehicle | Measure from | To |

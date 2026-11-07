@@ -81,6 +81,42 @@ The tenant supplies and owns the lock, and keeps the only key. Many sites sell l
 
 ### The Three Common Lock Types
 
+```figure
+{
+  "kind": "compare",
+  "title": "Three Locks, Strongest to Weakest",
+  "columns": [
+    {
+      "name": "Disc lock",
+      "note": "a round body that hides most of the shackle",
+      "facts": [
+        "Hard to cut with bolt cutters",
+        "The industry's standard recommendation",
+        "A common item to sell"
+      ]
+    },
+    {
+      "name": "Cylinder lock",
+      "note": "built into the door latch by the facility",
+      "facts": [
+        "Nothing exposed to cut",
+        "A unique keyed core per tenant",
+        "Re-keyed between tenants"
+      ]
+    },
+    {
+      "name": "Padlock",
+      "note": "the classic lock with an exposed U-shaped shackle",
+      "facts": [
+        "The weakest: easy to cut or pry",
+        "The cheapest",
+        "Recommend a disc lock instead"
+      ]
+    }
+  ]
+}
+```
+
 | Lock | What it looks like | Strength | Notes |
 |---|---|---|---|
 | **Disc lock** | A round body that hides most of the shackle | Hard to cut with bolt cutters | The industry's standard recommendation. A common item to sell. |

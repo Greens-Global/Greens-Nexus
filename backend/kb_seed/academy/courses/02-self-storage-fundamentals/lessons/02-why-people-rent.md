@@ -23,6 +23,50 @@ Understanding the reason behind the rental helps you in three ways:
 
 ## The 4 Ds
 
+```figure
+{
+  "kind": "compare",
+  "title": "The Four Ds, and What Each Customer Needs",
+  "columns": [
+    {
+      "name": "Death",
+      "note": "a family empties a home before it is sold",
+      "facts": [
+        "Time and patience",
+        "A larger unit for furniture",
+        "Flexibility on move-in day"
+      ]
+    },
+    {
+      "name": "Divorce",
+      "note": "one person moves to a smaller place",
+      "facts": [
+        "Discretion",
+        "A quick rental",
+        "Often a 5x10 or a 10x10"
+      ]
+    },
+    {
+      "name": "Downsizing",
+      "note": "a smaller home or a senior community",
+      "facts": [
+        "Climate control for furniture and keepsakes",
+        "A ground-floor unit"
+      ]
+    },
+    {
+      "name": "Dislocation",
+      "note": "a move, a job loss, an eviction, a fire, a flood",
+      "facts": [
+        "Speed",
+        "A clear price",
+        "A short-notice move-in"
+      ]
+    }
+  ]
+}
+```
+
 The industry's shorthand for the biggest drivers of storage demand is the **4 Ds**:
 
 | D | What it looks like | What the customer often needs |
@@ -64,6 +108,48 @@ A **segment** is a group of customers with similar needs. Knowing the segment he
 | **Vehicle owners** | RV, boat, trailer and car owners | Need the right space size and length, paperwork for the vehicle and their own insurance. Separate course. |
 
 ### What the National Numbers Say About Renters
+
+```figure
+{
+  "kind": "bars",
+  "title": "What Renters Do",
+  "unit": "%",
+  "max": 100,
+  "items": [
+    {
+      "label": "Rent an exterior drive-up unit",
+      "value": 55.7,
+      "text": "55.7%"
+    },
+    {
+      "label": "Rent more than one unit",
+      "value": 25,
+      "text": "about 25%"
+    },
+    {
+      "label": "Travel under 20 minutes to their unit",
+      "value": 69,
+      "text": "69% or more"
+    },
+    {
+      "label": "Buy boxes, tape or supplies",
+      "value": 41,
+      "text": "41%"
+    },
+    {
+      "label": "Business renters who stay over two years",
+      "value": 47.5,
+      "text": "47.5%"
+    },
+    {
+      "label": "All renters who stay over two years",
+      "value": 24,
+      "text": "about 24%"
+    }
+  ],
+  "caption": "SSA Demand Study, 2023."
+}
+```
 
 The Self Storage Association's 2023 Demand Study (as reported in the Self Storage Almanac, 2024) gives a picture of the typical renter:
 

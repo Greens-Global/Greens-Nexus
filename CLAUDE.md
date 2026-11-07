@@ -948,6 +948,21 @@ keep the diff minimal.
   hand), a course or path opens on a title page (`kb-lead`), levels and
   kinds are words. `kb_daily._assign_course` flushes after its insert so
   two paths covering one course in a pass assign it once.
+- **Figures in pages and courses (Neil, 11/07/2026: "graphics and visual
+  elements, not just text"):** a `figure` block is a diagram drawn from
+  DATA - `kb_blocks.FIGURE_KINDS` steps | timeline | compare | sizes | bars
+  | stats | layout | cycle, drawn by `kb/components/Figure.jsx` - never an
+  image file: crisp at any width, theme-aware, no storage, no license.
+  Authors insert one from Add Block > Figure (the editor node keeps it and
+  edits its JSON in place); the Academy package writes one as a
+  ```` ```figure ```` fence (`kb_md`, rules in `kb_seed/academy/README.md`);
+  `kb_blocks._clean_figure` keeps only known keys, short strings and finite
+  numbers. A figure goes where it says something faster than prose (a
+  sequence, a ladder of days, things to scale, numbers side by side) and
+  its words pass the same content checks. `kb_academy_seed.apply_figures_once`
+  puts the package's figures into an imported lesson nobody edited, in the
+  course's DRAFT only. Pull nothing from the web into a course: an outside
+  image has a license and teaches nothing about our sites.
 
 ## Asana — removed (Sep 2026)
 

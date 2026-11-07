@@ -32,6 +32,53 @@ For vehicles, the questions are different: overall length including the tongue o
 
 ## The Size Guide
 
+```figure
+{
+  "kind": "sizes",
+  "title": "Picture the Space",
+  "unit": "ft",
+  "items": [
+    {
+      "name": "5x5",
+      "w": 5,
+      "h": 5,
+      "note": "a hall closet: boxes, seasonal items, a small dresser"
+    },
+    {
+      "name": "5x10",
+      "w": 5,
+      "h": 10,
+      "note": "a walk-in closet: a studio's furniture"
+    },
+    {
+      "name": "10x10",
+      "w": 10,
+      "h": 10,
+      "note": "half a one-car garage: a one-bedroom apartment"
+    },
+    {
+      "name": "10x15",
+      "w": 10,
+      "h": 15,
+      "note": "a small one-car garage: a two-bedroom"
+    },
+    {
+      "name": "10x20",
+      "w": 10,
+      "h": 20,
+      "note": "a one-car garage: a three-bedroom house, or a car"
+    },
+    {
+      "name": "10x30",
+      "w": 10,
+      "h": 30,
+      "note": "a large garage: a four- to five-bedroom house"
+    }
+  ],
+  "caption": "Say the comparison out loud. \"About half a one-car garage\" sells better than \"100 square feet.\""
+}
+```
+
 Self-Storage Fundamentals, The Product: Units and Sizes covered unit sizes in detail. Here is the sales version: what to compare it to, and what usually fits. Room counts vary by brand and by how much stuff people have, so use this as a starting point and then listen.
 
 | Size | Square feet | Compare it to | What usually fits |

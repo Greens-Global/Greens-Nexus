@@ -29,13 +29,73 @@ BLOCK_TYPES = {
     "tableCell", "image", "checklist", "checkItem", "steps", "step", "callout",
     "video", "embedPage", "text", "doc",
     "file",   # an attachment (WP 5.2): a PDF form, spreadsheet or manual in kb-media
+    "figure",   # a diagram drawn from data (Neil, 11/07/2026): steps, timeline, compare, sizes, bars, stats, layout, cycle
 }
 MARK_TYPES = {"bold", "italic", "underline", "strike", "code", "link", "highlight"}
 CALLOUT_KINDS = ("warning", "tip", "note", "safety")
+# Figures (Neil, 11/07/2026: "graphics and visual elements in the courses").
+# A figure is DATA the app draws - never an image file - so it is crisp at any
+# size, follows the theme, needs no storage and carries no license. Each kind
+# has a small shape; `_clean_figure` keeps only these keys, short strings and
+# finite numbers, so a figure can never carry markup.
+FIGURE_KINDS = ("steps", "timeline", "compare", "sizes", "bars", "stats", "layout", "cycle")
+_FIGURE_KEYS = {"title", "caption", "unit", "max", "cols", "rows", "items", "columns", "regions",
+                "label", "note", "at", "tone", "name", "facts", "w", "h", "x", "y", "value", "low", "text"}
+_FIGURE_TONES = ("ok", "live", "warn", "bad", "")
 VIDEO_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "loom.com", "sharepoint.com", "microsoft.com")
 
 
 # ----------------------------------------------------------------- builders
+
+def figure(kind: str, data: dict) -> dict:
+    return {"type": "figure", "attrs": {"kind": kind, "data": _clean_figure(kind, data)}}
+
+
+def _clean_figure(kind: str, data: Any, depth: int = 0) -> Any:
+    """Only known keys, strings of at most 300 characters, finite numbers,
+    booleans and lists of at most 40, four levels deep."""
+    if depth > 4:
+        return None
+    if isinstance(data, dict):
+        out = {}
+        for k, v in data.items():
+            if k not in _FIGURE_KEYS:
+                continue
+            if k == "tone":
+                out[k] = v if v in _FIGURE_TONES else ""
+                continue
+            cv = _clean_figure(kind, v, depth + 1)
+            if cv is not None and cv != "" and cv != []:
+                out[k] = cv
+        return out
+    if isinstance(data, list):
+        return [c for c in (_clean_figure(kind, v, depth + 1) for v in data[:40]) if c is not None]
+    if isinstance(data, bool):
+        return data
+    if isinstance(data, (int, float)):
+        return data if -1e9 < float(data) < 1e9 and data == data else None
+    if isinstance(data, str):
+        return data.strip()[:300]
+    return None
+
+
+def figure_text(node: dict) -> str:
+    """Every string a figure shows, for search and the content checks."""
+    out: list[str] = []
+
+    def walk(v):
+        if isinstance(v, dict):
+            for k, x in v.items():
+                if k != "tone":
+                    walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+        elif isinstance(v, str) and v.strip():
+            out.append(v.strip())
+    walk((node.get("attrs") or {}).get("data") or {})
+    return "\n".join(out)
+
 
 def doc(content: list | None = None) -> dict:
     return {"type": "doc", "content": content or [paragraph("")]}
@@ -161,6 +221,8 @@ def node_text(node: dict) -> str:
         return node.get("text") or ""
     if node.get("type") == "file":   # an attachment is found by its name
         return f"Attachment: {(node.get('attrs') or {}).get('name') or ''}"
+    if node.get("type") == "figure":
+        return figure_text(node)
     out: list[str] = []
     for c in node.get("content") or []:
         if not isinstance(c, dict):
@@ -349,13 +411,18 @@ def sanitize(d: Any, image_ok=None) -> dict:
                      "rowspan": int(rs) if isinstance(rs, int) and rs > 1 else 1}
         elif t == "codeBlock":
             attrs = {"language": str(attrs_in.get("language") or "")[:30]}
+        elif t == "figure":
+            kind = attrs_in.get("kind")
+            if kind not in FIGURE_KINDS:
+                return []
+            attrs = {"kind": kind, "data": _clean_figure(kind, attrs_in.get("data") or {})}
         children: list[dict] = []
         for c in node.get("content") or []:
             children.extend(fix(c, depth + 1))
         n = {"type": t}
         if attrs:
             n["attrs"] = attrs
-        if t in ("horizontalRule", "hardBreak", "image", "video", "embedPage", "file"):
+        if t in ("horizontalRule", "hardBreak", "image", "video", "embedPage", "file", "figure"):
             return [n]
         # containers need at least one child the schema accepts
         if t == "steps":

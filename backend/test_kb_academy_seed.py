@@ -195,3 +195,29 @@ def test_question_lesson_id_survives_import(_package, tmp_path, monkeypatch):
     kb_academy_seed.apply_once(db)
     draft = json.loads(db.query(models.KbCourse).filter(models.KbCourse.title == "Nexus Fundamentals").one().draft)
     assert draft["quiz"]["questions"][0]["lessonId"] == draft["lessons"][0]["_id"] == "l_nexus-fundamentals_01"
+
+
+def test_figures_pass_fills_untouched_lessons_and_leaves_edited_ones(_package, tmp_path):
+    db = _package
+    res = kb_academy_seed.apply_once(db)   # the package as imported, no figures in it
+    # now the package gains a figure in the one lesson
+    import kb_academy
+    lesson = next(kb_academy.ROOT.glob("courses/01-*/lessons/01.md"))
+    for f in kb_academy.ROOT.glob("courses/*/lessons/01.md"):
+        f.write_text(f.read_text() + '\n```figure\n{"kind": "steps", "title": "Flow", "items": [{"label": "One"}]}\n```\n', encoding="utf-8")
+    courses = {c.title: c for c in db.query(models.KbCourse).all()}
+    # one course's lesson was edited by hand since the import
+    edited = db.get(models.KbCourse, courses["Hands On Check"].id)
+    d = json.loads(edited.draft)
+    d["lessons"][0]["blocks"]["content"].append({"type": "paragraph", "content": [{"type": "text", "text": "Edited by hand."}]})
+    edited.draft = json.dumps(d)
+    db.commit()
+    out = kb_academy_seed.apply_figures_once(db)
+    assert out == {"courses": 5, "lessons": 5}
+    db.expire_all()
+    for title, c in courses.items():
+        d = json.loads(db.get(models.KbCourse, c.id).draft)
+        has = any(b.get("type") == "figure" for b in d["lessons"][0]["blocks"]["content"])
+        assert has == (title != "Hands On Check"), title
+    assert kb_academy_seed.apply_figures_once(db) is None
+    assert lesson.exists()

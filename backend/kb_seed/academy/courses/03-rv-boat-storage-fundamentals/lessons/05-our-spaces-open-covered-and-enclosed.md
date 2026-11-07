@@ -14,6 +14,45 @@ summary: The three kinds of vehicle space, what each protects against and where 
 
 ## The Three Products
 
+```figure
+{
+  "kind": "compare",
+  "title": "Open, Covered and Enclosed",
+  "columns": [
+    {
+      "name": "Open",
+      "note": "a marked space on a paved or gravel lot",
+      "facts": [
+        "The lowest price",
+        "Any height fits",
+        "No protection from sun, rain or hail",
+        "The least protected from theft"
+      ]
+    },
+    {
+      "name": "Covered",
+      "note": "a roof only, with open sides",
+      "facts": [
+        "Protection from sun, UV and hail",
+        "A middle price",
+        "A height limit and posts to hit",
+        "Blowing rain and dust still reach the vehicle"
+      ]
+    },
+    {
+      "name": "Enclosed",
+      "note": "a building unit with a roll-up door",
+      "facts": [
+        "The best security and protection",
+        "The highest rent",
+        "Door width and height limits",
+        "The hardest to back into"
+      ]
+    }
+  ]
+}
+```
+
 | Product | What it is | Pros | Cons |
 |---|---|---|---|
 | **Open (uncovered)** | A marked space on a paved or gravel lot | The lowest price; any height fits | No protection from sun, rain or hail; the least protected from theft |
@@ -94,6 +133,42 @@ Things a good vehicle lot has (Inside Self Storage, 2009 and 2015):
 Staff do not design lots, but you notice when something stops working: a gate that closes too early, a faded line, a missing space number, a bent post. Report it.
 
 ## What Greens Has
+
+```figure
+{
+  "kind": "bars",
+  "title": "Open Vehicle Spaces by Site",
+  "max": 500,
+  "items": [
+    {
+      "label": "Temecula",
+      "value": 454,
+      "text": "454 open, plus 27 covered and 28 pull-through"
+    },
+    {
+      "label": "Fairfield",
+      "value": 303,
+      "text": "303 open (gravel)"
+    },
+    {
+      "label": "Murrieta",
+      "value": 161,
+      "text": "161 open (paved), 36 pull-through"
+    },
+    {
+      "label": "Escondido",
+      "value": 90,
+      "text": "90 open (gravel and paved)"
+    },
+    {
+      "label": "Valley Center",
+      "value": 1,
+      "text": "1 open, plus 2 enclosed 12x38 garages"
+    }
+  ],
+  "caption": "From Greens' Cubby, 11/2026."
+}
+```
 
 All counts: From Greens' Cubby, 11/2026.
 

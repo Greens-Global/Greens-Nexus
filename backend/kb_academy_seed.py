@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 MARK = "kb.storage_academy_seeded_2026_11"
 PATHS_MARK = "kb.learning_paths_seeded_2026_11"
+FIGURES_MARK = "kb.academy_figures_2026_11"
 # The Academy plan as the onboarding path (Neil, 11/07/2026): four stages, the
 # six courses in order. Index = the course's position in kb_academy.ORDER.
 ACADEMY_STAGES = ["Week 1: Nexus and the Business", "Week 2: Storage and Cubby", "Weeks 3 and 4: Serving and Selling", "Sign-Off"]
@@ -186,3 +187,54 @@ def apply_paths_once(db: Session) -> dict | None:
     db.add(NexusSetting(key=PATHS_MARK, value=now, updated_by="startup", updated_at=now))
     db.commit()
     return {"plan": plan_id, "courses": stamped}
+
+
+def _without_figures(blocks: dict) -> dict:
+    return {"type": "doc", "content": [b for b in (blocks or {}).get("content") or [] if b.get("type") != "figure"]}
+
+
+def apply_figures_once(db: Session) -> dict | None:
+    """Figures (Neil, 11/07/2026), once: an Academy lesson a first run
+    imported and NOBODY edited since (its blocks equal the package's blocks
+    with the figures taken out) is replaced by the package's lesson, figures
+    in. The change lands in the course's DRAFT - a never-published course
+    edits its draft, a published one gets a draft it did not have (the
+    author sees "unpublished edits" and publishes) - never in a live
+    version. A lesson that was edited is left exactly as it is. Returns
+    {courses, lessons} touched, or None once marked."""
+    from models import KbCourse, NexusSetting
+    import kb_academy
+    import kb_core
+    from routers.kb_training import _draft_of
+
+    if db.get(NexusSetting, FIGURES_MARK):
+        return None
+    a = kb_academy.load(kb_academy.ROOT)
+    if kb_academy.problems(a):
+        return None
+    courses_touched, lessons_touched = 0, 0
+    for spec in a.courses:
+        c = db.query(KbCourse).filter(KbCourse.title == spec.title[:200]).first()
+        if c is None:
+            continue
+        pkg = {L["title"]: L["blocks"] for L in spec.lessons if L["type"] == "text"}
+        draft = _draft_of(c)
+        changed = False
+        for L in draft.get("lessons") or []:
+            if L.get("type") != "text" or L.get("title") not in pkg:
+                continue
+            new = pkg[L["title"]]
+            if not any(b.get("type") == "figure" for b in new.get("content") or []):
+                continue
+            if _without_figures(L.get("blocks") or {}) == _without_figures(new):
+                L["blocks"] = new
+                lessons_touched += 1
+                changed = True
+        if changed:
+            c.draft = json.dumps(draft)
+            c.updated_at = kb_core.now()
+            courses_touched += 1
+    now = kb_core.now()
+    db.add(NexusSetting(key=FIGURES_MARK, value=now, updated_by="startup", updated_at=now))
+    db.commit()
+    return {"courses": courses_touched, "lessons": lessons_touched}
