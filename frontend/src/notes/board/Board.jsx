@@ -28,7 +28,7 @@
 // Lazy: NotesPage imports this file with React.lazy; the engine's chunk is
 // fetched only when a board opens.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, X, Presentation, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react';
+import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, X, Presentation, ChevronLeft, ChevronRight, ChevronUp, Plus } from 'lucide-react';
 import './board.css';
 import { loadEngine, CAPTURE } from './engine';
 import BoardFallback, { EngineBoundary, BoardLoading } from './engine/fallback';
@@ -38,6 +38,10 @@ import { remoteWins } from './boardSync';
 import { exportPng, exportSvg, exportThumb, copyPng, downloadBlob, downloadScene } from './exportBoard';
 import { saveDraft, loadDraft, clearDraft } from './draft';
 import MarkupBar from './MarkupBar';
+import DiagramSheet from './diagram/DiagramSheet';
+import { layout as layoutGraph, graphFromElements, bounds } from './diagram/graph';
+import { newStamp, prefixGraph, stampBoxes, stampOf, stampSelection, mergeBuilt, placeOrigin } from './diagram/place';
+import { loadGraph } from './diagram/sources';
 import {
   DEFAULT_MARKUP, TOOL_KEYS, MARKUP_COLORS, MARKUP_SIZES, toolByKey, strokeStyle, toolFromEngine,
   commentPin, pinMeasurer, nextCommentNumber, stageToBoard, restyle, removeSelected, PIN_MAX,
@@ -86,6 +90,25 @@ function writeMarkupPref(m) {
 // Tools the ink and width do not apply to (they draw nothing, or a picture).
 const NO_INK = new Set(['select', 'hand', 'eraser', 'image', 'frame', 'laser']);
 const anySelected = (ids) => !!ids && Object.keys(ids).some((k) => ids[k]);
+
+// The + buttons on a selected box (board/diagram/): where the box sits on
+// the stage, or null when there is no single box to grow from.
+const GRIP_BOXES = new Set(['rectangle', 'diamond', 'ellipse']);
+const SIDE_WORD = { up: 'Above', right: 'to the Right', down: 'Below', left: 'to the Left' };
+function gripFor(elements, appState) {
+  const sel = appState?.selectedElementIds || {};
+  const ids = Object.keys(sel).filter((k) => sel[k]);
+  if (ids.length !== 1 || appState?.activeTool?.type !== 'selection' || appState?.editingTextElement
+    || appState?.selectedElementsAreBeingDragged || appState?.resizingElement || appState?.newElement) return null;
+  const el = (elements || []).find((e) => e.id === ids[0]);
+  if (!el || el.isDeleted || el.locked || !GRIP_BOXES.has(el.type) || el.customData?.nexusComment) return null;
+  const zoom = Number(appState?.zoom?.value) || 1;
+  return {
+    x: Math.round((el.x + (Number(appState.scrollX) || 0)) * zoom), y: Math.round((el.y + (Number(appState.scrollY) || 0)) * zoom),
+    w: Math.round(el.width * zoom), h: Math.round(el.height * zoom),
+  };
+}
+const sameGrip = (a, b) => (!a && !b) || (a && b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h);
 
 // Hide Tools (Neil, 11/06/2026): a computer's bar and zoom can fold away, per browser.
 const TOOLS_HIDDEN = 'nx-board-tools-hidden';
@@ -150,6 +173,13 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   const mkRef = useRef(mk);
   useEffect(() => { mkRef.current = mk; }, [mk]);
   const [hasSelection, setHasSelection] = useState(false);
+  // Diagrams (board/diagram/): the sheet open, the + buttons' box, Refresh.
+  const diagramApi = canEdit ? engine?.diagram : null;
+  const [dgSheet, setDgSheet] = useState(null);     // 'text' | 'org' | 'workflow' | 'tasks'
+  const [grip, setGrip] = useState(null);
+  const gripRef = useRef(null);
+  const [canRefresh, setCanRefresh] = useState(false);
+  const canRefreshRef = useRef(false);
   const selRef = useRef(false);
   const [phoneMore, setPhoneMore] = useState(false);
   const [styleOpen, setStyleOpen] = useState(false);
@@ -404,6 +434,10 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     if (style !== styleRef.current) { styleRef.current = style; setStyleOpen(style); }
     const t = toolFromEngine(appState?.activeTool?.type, mkRef.current.tool);
     if (t && t !== mkRef.current.tool) setMk((m) => ({ ...m, tool: t }));
+    const g = gripFor(elements, appState);
+    if (!sameGrip(g, gripRef.current)) { gripRef.current = g; setGrip(g); }
+    const st = sel ? stampOf(elements, appState?.selectedElementIds) : null;
+    if (!!st !== canRefreshRef.current) { canRefreshRef.current = !!st; setCanRefresh(!!st); }
     storeNewFiles(files, elements);
     // Into the shared document first (the others see it as it is drawn),
     // then the save timer.
@@ -587,6 +621,72 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     scheduleSave();
   }, [api, markupApi, chooseTool, scheduleSave]);
 
+  // ---- Diagrams ------------------------------------------------------------
+  // One diagram notice at a time; never over the board's too-large warning.
+  const flashTimer = useRef(0);
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
+  const flash = useCallback((text, error = false) => {
+    clearTimeout(flashTimer.current);
+    setNotice((n) => (n?.code === 'large' ? n : { text, error, code: 'diagram' }));
+    flashTimer.current = setTimeout(() => setNotice((n) => (n?.code === 'diagram' ? null : n)), error ? 5000 : 3500);
+  }, []);
+  // A new diagram lands centered on what the stage shows, selected.
+  const placeGraph = useCallback((graph, { dir = 'TB', source = '', ref = '' } = {}) => {
+    if (!api || !diagramApi || !graph?.nodes?.length) return;
+    const stamp = newStamp();
+    const g = prefixGraph(graph, stamp);
+    const r = stageRef.current?.getBoundingClientRect?.();
+    const center = stageToBoard({ clientX: (r?.left || 0) + (r?.width || 0) / 2, clientY: (r?.top || 0) + (r?.height || 0) / 2 }, r, api.getAppState());
+    const current = api.getSceneElementsIncludingDeleted();
+    const placed = layoutGraph(g, { dir, origin: placeOrigin(center, bounds(layoutGraph(g, { dir })), current) });
+    let built = diagramApi.build(placed, { look: lookRef.current });
+    if (source) built = stampBoxes(built, g.nodes.map((n) => n.id), { id: stamp, source, ref, dir });
+    const selected = Object.fromEntries(g.nodes.map((n) => [n.id, true]));
+    api.updateScene({ elements: [...current, ...built], appState: { selectedElementIds: selected }, captureUpdate: CAPTURE.IMMEDIATELY });
+    api.scrollToContent(built, { fitToContent: g.nodes.length > 1, animate: true });
+    scheduleSave();
+  }, [api, diagramApi, scheduleSave]);
+  // Tidy Up: the selected boxes (or the whole board) laid out again, sizes,
+  // colors and labels kept, as one change.
+  const tidy = useCallback((dir) => {
+    if (!api || !diagramApi) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    const { graph, replaced, origin } = graphFromElements(els, api.getAppState()?.selectedElementIds);
+    if (graph.nodes.length < 2) { flash('Nothing to tidy - select boxes joined by arrows, or nothing to tidy every diagram on the board.'); return; }
+    const built = diagramApi.build(layoutGraph(graph, { dir, origin }), { look: lookRef.current });
+    api.updateScene({ elements: mergeBuilt(els, built, replaced), captureUpdate: CAPTURE.IMMEDIATELY });
+    scheduleSave();
+  }, [api, diagramApi, flash, scheduleSave]);
+  // Refresh from Source: a data diagram drawn again from today's data, where it is.
+  const refreshDiagram = useCallback(async () => {
+    if (!api || !diagramApi) return;
+    const st = stampOf(api.getSceneElementsIncludingDeleted(), api.getAppState()?.selectedElementIds);
+    if (!st) return;
+    let graph;
+    try { graph = await loadGraph(st.source, st.ref, { fresh: true }); } catch { flash('The data did not load - the diagram is unchanged. Try again in a moment.', true); return; }
+    if (!graph?.nodes?.length) { flash('There is nothing to draw from this source now - the diagram is unchanged.'); return; }
+    const now = api.getSceneElementsIncludingDeleted();
+    const mine = stampSelection(now, st.id);
+    // Gone while the data loaded (deleted here or by someone else): nothing to
+    // redraw - and an empty selection would read as the whole board.
+    if (!Object.keys(mine).length) return;
+    const { replaced, origin } = graphFromElements(now, mine);
+    const g = prefixGraph(graph, st.id);
+    const built = stampBoxes(diagramApi.build(layoutGraph(g, { dir: st.dir || 'TB', origin }), { look: lookRef.current }), g.nodes.map((n) => n.id), st);
+    api.updateScene({ elements: mergeBuilt(now, built, replaced), captureUpdate: CAPTURE.IMMEDIATELY });
+    scheduleSave();
+    flash('Redrawn from today\'s data.');
+  }, [api, diagramApi, flash, scheduleSave]);
+  const growBox = useCallback((side) => { diagramApi?.grow(stageRef.current, side); }, [diagramApi]);
+  const onDiagram = useCallback((key) => {
+    if (key.startsWith('shape:')) {
+      placeGraph({ nodes: [{ id: 'n1', label: '', shape: key.slice(6) }], edges: [] });
+      flash(isPhone ? 'Double-tap to type in it, or + to add the next box.' : 'Press Enter to type in it, or + to add the next box.');
+    } else if (key.startsWith('tidy:')) tidy(key.slice(5));
+    else if (key === 'refresh') refreshDiagram();
+    else setDgSheet(key);
+  }, [placeGraph, tidy, refreshDiagram, flash, isPhone]);
+
   const lookToggle = (
     <div className="nx-board-look" role="group" aria-label="Look">
       {LOOKS.map((k) => (
@@ -671,7 +771,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
           </div>
         )}
         {showBar && !toolsHidden && !present && (
-          <MarkupBar phone={isPhone} tool={mk.tool} colorKey={inkFor(mk)} sizeKey={mk.size} hasSelection={hasSelection}
+          <MarkupBar diagram={diagramApi ? { onAction: onDiagram, canTidy: true, canRefresh } : null} phone={isPhone} tool={mk.tool} colorKey={inkFor(mk)} sizeKey={mk.size} hasSelection={hasSelection}
             onTool={chooseTool} onColor={chooseColor} onSize={chooseSize} onUndo={undo} onRedo={redo} onDelete={deleteSelected}
             styleOpen={styleOpen} onStyle={isPhone ? toggleStyle : undefined}
             onMore={isPhone ? () => setPhoneMore(true) : undefined} onHide={isPhone ? undefined : () => hideTools(true)} />
@@ -691,6 +791,21 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
             <button type="button" className="nx-present-exit" onClick={stopPresent} title="Exit (Esc)"><X size={15} aria-hidden="true" /> Exit</button>
           </div>
         </>)}
+        {showBar && diagramApi && grip && !toolsHidden && !present && (
+          <div className="nx-dg-grip" style={{ left: grip.x, top: grip.y, width: grip.w, height: grip.h }}>
+            {['up', 'right', 'down', 'left'].map((side) => (
+              <button key={side} type="button" className={`nx-dg-plus is-${side}`} data-side={side}
+                aria-label={`Add the Next Box ${SIDE_WORD[side]}`} title={isPhone ? 'Add the Next Box' : 'Add the Next Box (Ctrl + Arrow)'}
+                onPointerDown={(e) => e.stopPropagation()} onClick={() => growBox(side)}>
+                <Plus size={14} strokeWidth={2.5} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
+        {dgSheet && diagramApi && (
+          <DiagramSheet mode={dgSheet} onClose={() => setDgSheet(null)}
+            onPlace={(graph, opts) => { setDgSheet(null); placeGraph(graph, opts); }} />
+        )}
         {notice && <div className={`nx-board-note${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</div>}
         {showBar && isPhone && phoneMore && (
           <div className="nx-mk-sheet-wrap" onPointerDown={(e) => { if (e.target === e.currentTarget) setPhoneMore(false); }}>

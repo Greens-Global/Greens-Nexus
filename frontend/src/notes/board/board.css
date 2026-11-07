@@ -274,3 +274,74 @@
   display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 999px; padding: 7px 12px; cursor: pointer;
   background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); font: inherit; font-size: 12.5px; font-weight: 700;
 }
+
+/* ---- Diagrams (Neil, 11/06/2026, board/diagram/) ------------------------ */
+.nx-mk-diagram { max-height: min(70vh, 520px); overflow-y: auto; }
+.nx-mk-diagram .nx-mk-tray-kicker { padding: 8px 10px 2px; }
+.nx-mk-diagram .nx-mk-tray-kicker:first-child { padding-top: 4px; }
+
+/* The + buttons around a selected box: grow the flow that way. */
+.nx-dg-grip { position: absolute; z-index: 4; pointer-events: none; }
+.nx-dg-plus {
+  position: absolute; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  pointer-events: auto; cursor: pointer; padding: 0;
+  background: var(--wk-surface, #fff); color: var(--wk-brand, #15803d); border: 1.5px solid var(--wk-brand, #15803d);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, .16); opacity: .9;
+  transition: transform 160ms var(--ease-out, ease-out), opacity 160ms var(--ease-out, ease-out), background 160ms var(--ease-out, ease-out);
+}
+.nx-dg-plus:hover, .nx-dg-plus:focus-visible { opacity: 1; background: var(--wk-brand, #15803d); color: #fff; transform: scale(1.12); outline: none; }
+.nx-dg-plus.is-up { left: 50%; top: -34px; margin-left: -11px; }
+.nx-dg-plus.is-down { left: 50%; bottom: -34px; margin-left: -11px; }
+.nx-dg-plus.is-left { top: 50%; left: -34px; margin-top: -11px; }
+.nx-dg-plus.is-right { top: 50%; right: -34px; margin-top: -11px; }
+.nx-board.is-phone .nx-dg-plus { width: 32px; height: 32px; }
+.nx-board.is-phone .nx-dg-plus.is-up { top: -44px; margin-left: -16px; }
+.nx-board.is-phone .nx-dg-plus.is-down { bottom: -44px; margin-left: -16px; }
+.nx-board.is-phone .nx-dg-plus.is-left { left: -44px; margin-top: -16px; }
+.nx-board.is-phone .nx-dg-plus.is-right { right: -44px; margin-top: -16px; }
+@media (prefers-reduced-motion: reduce) { .nx-dg-plus { transition: none; } .nx-dg-plus:hover { transform: none; } }
+
+/* The diagram sheet: what you give it on the left, the preview on the right. */
+.nx-dg { display: flex; gap: 16px; flex: 1; min-height: 0; }
+.nx-dg-side { width: 340px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.nx-dg-starters { display: flex; flex-wrap: wrap; gap: 6px; }
+.nx-dg-chip {
+  font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line, rgba(0, 0, 0, .12)); background: var(--wk-surface, #fff); color: inherit;
+}
+.nx-dg-chip:hover { border-color: var(--wk-brand, #15803d); color: var(--wk-brand, #15803d); }
+.nx-dg-text {
+  flex: 1; min-height: 220px; resize: none; width: 100%; box-sizing: border-box; padding: 10px 12px;
+  font: 13.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: inherit;
+  border: 1px solid var(--line, rgba(0, 0, 0, .14)); border-radius: 10px; background: var(--wk-surface, #fff);
+}
+.nx-dg-text:focus { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -1px; }
+.nx-dg-hint { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted, #6b7570); white-space: pre-line; }
+.nx-dg-label { font-size: 12px; font-weight: 600; color: var(--muted, #6b7570); }
+.nx-dg-select {
+  font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 8px; color: inherit;
+  border: 1px solid var(--line, rgba(0, 0, 0, .14)); background: var(--wk-surface, #fff);
+}
+.nx-dg-error { margin: 0; font-size: 13px; color: var(--wk-red, #b91c1c); }
+.nx-dg-seg { display: inline-flex; border: 1px solid var(--line, rgba(0, 0, 0, .12)); border-radius: 8px; overflow: hidden; align-self: flex-start; }
+.nx-dg-seg button { font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.nx-dg-seg button + button { border-left: 1px solid var(--line, rgba(0, 0, 0, .12)); }
+.nx-dg-seg button[aria-checked="true"] { background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); font-weight: 600; }
+.nx-dg-preview {
+  flex: 1; min-width: 0; min-height: 320px; display: flex; align-items: center; justify-content: center; padding: 12px;
+  border: 1px solid var(--line, rgba(0, 0, 0, .08)); border-radius: 12px; background: var(--wk-bg-subtle, #f8faf8); color: #1c2420;
+}
+.nx-dg-svg { width: 100%; height: 100%; max-height: 70vh; }
+.nx-dg-nlabel { font: 600 15px Inter, system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; fill: #1c2420; }
+.nx-dg-elabel { font: 500 13px Inter, system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; fill: #475569; paint-order: stroke; stroke: #f8faf8; stroke-width: 4px; }
+.nx-dg-empty { font-size: 13.5px; color: var(--muted, #6b7570); }
+.nx-dg-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
+.nx-dg-count { flex: 1; font-size: 13px; color: var(--muted, #6b7570); }
+@media (max-width: 640px) {
+  .nx-dg { flex-direction: column; }
+  .nx-dg-side { width: auto; }
+  .nx-dg-text { min-height: 160px; font-size: 16px; }
+  .nx-dg-select { font-size: 16px; }
+  .nx-dg-preview { min-height: 260px; }
+}
+.nx-mk.is-phone .nx-mk-diagram .nx-mk-tray-kicker { grid-column: 1 / -1; padding: 6px 4px 0; }
