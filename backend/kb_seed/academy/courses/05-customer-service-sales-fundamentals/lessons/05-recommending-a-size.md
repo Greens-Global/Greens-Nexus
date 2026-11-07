@@ -119,6 +119,16 @@ Going up a size is not upselling if you explain why:
 
 ## Climate-Sensitive Items
 
+```figure
+{
+  "kind": "drawing",
+  "title": "When Heat Is the Reason",
+  "draw": "unit-climate",
+  "label": "A climate-controlled unit",
+  "note": "Say what the building does: the temperature is regulated. Never promise humidity control or a number you have not confirmed."
+}
+```
+
 At Greens, climate-controlled units are at Escondido: 549 of its 717 enclosed units (From Greens' Cubby, 11/2026). At the other sites, drive-up units are the main enclosed product (Valley Center has 207 drive-up units, From Greens' Cubby, 11/2026).
 
 Ask about heat when the customer mentions any of these:

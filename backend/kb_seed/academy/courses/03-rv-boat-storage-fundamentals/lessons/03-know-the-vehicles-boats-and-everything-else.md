@@ -38,6 +38,56 @@ You will hear these on every boat call.
 
 ```figure
 {
+  "kind": "drawings",
+  "title": "What Each Boat Looks Like on Its Trailer",
+  "items": [
+    {
+      "draw": "boat-bass",
+      "label": "Bass boat",
+      "note": "low; a big outboard and a trolling motor on the bow"
+    },
+    {
+      "draw": "boat-pontoon",
+      "label": "Pontoon",
+      "note": "wide tubes and a deck; the bimini makes it tall"
+    },
+    {
+      "draw": "boat-wake",
+      "label": "Ski or wake boat",
+      "note": "the wake tower is the height problem, even folded"
+    },
+    {
+      "draw": "boat-bowrider",
+      "label": "Bowrider or deck boat",
+      "note": "the general family boat"
+    },
+    {
+      "draw": "boat-center-console",
+      "label": "Center console",
+      "note": "twin outboards off the back and a T-top"
+    },
+    {
+      "draw": "boat-cuddy",
+      "label": "Cuddy cabin or cruiser",
+      "note": "a small cabin makes it taller"
+    },
+    {
+      "draw": "boat-sailboat",
+      "label": "Trailerable sailboat",
+      "note": "the mast lies on the boat and can stick out past both ends"
+    },
+    {
+      "draw": "boat-jet-ski",
+      "label": "Jet skis",
+      "note": "often two on one trailer, 15 to 20 ft in all"
+    }
+  ],
+  "caption": "The trailer tongue, the motor's lower unit and a swim platform add several feet to the hull length."
+}
+```
+
+```figure
+{
   "kind": "bars",
   "title": "Typical Hull Lengths by Boat Type",
   "unit": "ft",

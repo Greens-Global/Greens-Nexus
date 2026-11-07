@@ -962,7 +962,14 @@ keep the diff minimal.
   its words pass the same content checks. `kb_academy_seed.apply_figures_once`
   puts the package's figures into an imported lesson nobody edited, in the
   course's DRAFT only. Pull nothing from the web into a course: an outside
-  image has a license and teaches nothing about our sites.
+  image has a license and teaches nothing about our sites. DRAWINGS (Neil,
+  11/07/2026: "a drawing of what they look like") are the one illustration
+  library: `kb/components/drawings.jsx`, line drawings by name on a 200 x
+  110 canvas in one style (ink line, soft body fill, green glass, one
+  accent), shown by the `drawing` and `drawings` figure kinds;
+  `kb_blocks.DRAWING_NAMES` is the same list (its test keeps them equal) and
+  the content test fails a name that does not exist. A new drawing goes in
+  both lists; never a second illustration path or an image file.
 
 ## Asana — removed (Sep 2026)
 

@@ -12,9 +12,12 @@
 //   stats     { title, caption, items: [{ value, label, note }] }     the numbers that matter
 //   layout    { title, caption, cols, rows, regions: [{ label, note, x, y, w, h, tone }] }
 //   cycle     { title, caption, items: [{ label, note }] }            a loop
+//   drawing   { title, caption, draw, label, note }                   one line drawing (drawings.jsx), large
+//   drawings  { title, caption, items: [{ draw, label, note }] }      a gallery of drawings
 //
 // tone: '' | 'ok' (green) | 'live' (the live accent) | 'warn' (amber) | 'bad' (red)
 import { ChevronRight } from 'lucide-react';
+import Drawing from './drawings';
 
 const TONE = { ok: 'var(--kb-green)', live: 'var(--wk-live, #ed631a)', warn: '#d97706', bad: '#dc2626' };
 const tone = (t) => TONE[t] || '';
@@ -163,13 +166,35 @@ function Cycle({ d }) {
   );
 }
 
-const KINDS = { steps: Steps, timeline: Timeline, compare: Compare, sizes: Sizes, bars: Bars, stats: Stats, layout: Layout, cycle: Cycle };
+function OneDrawing({ d }) {
+  return (
+    <div className="kb-fig-drawing">
+      <Drawing name={d.draw} title={d.label || d.title} />
+      {(d.label || d.note) && <div className="kb-fig-text" style={{ alignItems: 'center', textAlign: 'center' }}>{d.label && <b>{d.label}</b>}{d.note && <span>{d.note}</span>}</div>}
+    </div>
+  );
+}
+
+function Drawings({ d }) {
+  return (
+    <div className="kb-fig-drawings">
+      {(d.items || []).map((it, i) => (
+        <div key={i} className="kb-fig-draw">
+          <Drawing name={it.draw} title={it.label} />
+          <div className="kb-fig-text">{it.label && <b>{it.label}</b>}{it.note && <span>{it.note}</span>}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const KINDS = { steps: Steps, timeline: Timeline, compare: Compare, sizes: Sizes, bars: Bars, stats: Stats, layout: Layout, cycle: Cycle, drawing: OneDrawing, drawings: Drawings };
 
 export default function Figure({ kind, data }) {
   const Body = KINDS[kind];
   const d = data && typeof data === 'object' ? data : {};
   if (!Body) return null;
-  return <Frame kind={kind} title={d.title} caption={d.caption} wide={kind === 'layout' || kind === 'compare'}><Body d={d} /></Frame>;
+  return <Frame kind={kind} title={d.title} caption={d.caption} wide={kind === 'layout' || kind === 'compare' || kind === 'drawings'}><Body d={d} /></Frame>;
 }
 
 // Starting shapes for the editor's Add Block > Figure.
@@ -182,5 +207,7 @@ export const FIGURE_TEMPLATES = {
   stats: { title: 'The numbers', items: [{ value: '1 in 8', label: 'households rent storage' }, { value: '85%', label: 'national occupancy' }] },
   layout: { title: 'Where things are', cols: 12, rows: 6, regions: [{ label: 'Left menu', x: 1, y: 1, w: 3, h: 6 }, { label: 'Header', x: 4, y: 1, w: 9, h: 1 }, { label: 'The page', x: 4, y: 2, w: 9, h: 5, tone: 'ok' }] },
   cycle: { title: 'Round and round', items: [{ label: 'Rent due' }, { label: 'Autopay runs' }, { label: 'Paid through' }] },
+  drawing: { title: 'Measure hitch to bumper', draw: 'measure-length', label: 'The storage length', note: 'from the coupler to the rearmost thing on the back' },
+  drawings: { title: 'What they look like', items: [{ draw: 'rv-class-a', label: 'Class A', note: '25 to 45 ft' }, { draw: 'rv-travel-trailer', label: 'Travel trailer', note: '12 to 35 ft, plus the tongue' }] },
 };
 export const FIGURE_KINDS = Object.keys(KINDS);

@@ -29,6 +29,16 @@ A wrong fit on day one means a bad first experience, a transfer, and often a rat
 
 ```figure
 {
+  "kind": "drawing",
+  "title": "Storage Length Is Hitch to Bumper",
+  "draw": "measure-length",
+  "label": "From the coupler to the rearmost thing on the back",
+  "note": "The spare tire, the bike rack and the ladder count. The advertised length often does not include the tongue."
+}
+```
+
+```figure
+{
   "kind": "compare",
   "title": "Where the Tape Starts and Ends",
   "columns": [
@@ -81,6 +91,16 @@ A towed car behind a motorhome is a **separate vehicle** and usually a separate 
 Add about **3 to 4 ft** to the measured length for walking room and a safety margin. An operator's rule of thumb is that a 38 ft RV needs at least a 42 ft space (Inside Self Storage, 2007). Your manager may set a different margin for your site.
 
 ## Height: Measure to the Highest Point
+
+```figure
+{
+  "kind": "drawing",
+  "title": "Height Is to the Highest Point",
+  "draw": "measure-height",
+  "label": "From the ground to the top of the air conditioner or antenna",
+  "note": "Not the roof line. A covered or enclosed space has to clear this with room to spare."
+}
+```
 
 Height only matters for covered and enclosed spaces, but there it decides everything. Measure from the ground to the **highest point**:
 

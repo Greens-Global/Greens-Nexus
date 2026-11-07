@@ -83,6 +83,30 @@ The tenant supplies and owns the lock, and keeps the only key. Many sites sell l
 
 ```figure
 {
+  "kind": "drawings",
+  "title": "The Three Locks",
+  "items": [
+    {
+      "draw": "lock-disc",
+      "label": "Disc lock",
+      "note": "the round body hides the shackle; hard to cut"
+    },
+    {
+      "draw": "lock-cylinder",
+      "label": "Cylinder lock",
+      "note": "built into the latch; nothing exposed"
+    },
+    {
+      "draw": "lock-padlock",
+      "label": "Padlock",
+      "note": "an exposed shackle; easy to cut"
+    }
+  ]
+}
+```
+
+```figure
+{
   "kind": "compare",
   "title": "Three Locks, Strongest to Weakest",
   "columns": [

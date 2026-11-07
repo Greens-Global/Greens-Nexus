@@ -24,7 +24,7 @@ Kinds and their keys (`kb_blocks.FIGURE_KINDS`, drawn by
 facts), `sizes` (unit, items: name, w, h, note - rectangles to scale), `bars`
 (unit, max, items: label, value, low, text, tone), `stats` (items: value,
 label, note), `layout` (cols, rows, regions: label, note, x, y, w, h, tone),
-`cycle` (items: label, note). `tone` is ok | live | warn | bad. Every
+`cycle` (items: label, note), `drawing` (draw, label, note - one line drawing, large) and `drawings` (items: draw, label, note - a gallery). A `draw` names one of `kb_blocks.DRAWING_NAMES` (RVs, boats, spaces, measuring, locks, unit types; drawn by `components/drawings.jsx`). `tone` is ok | live | warn | bad. Every
 figure may carry a `title` and a `caption`. Put the figure right under the
 heading it illustrates, and only where it says something the prose cannot
 say as fast: a sequence, a ladder of days, things to scale, numbers side by

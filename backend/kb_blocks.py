@@ -38,9 +38,28 @@ CALLOUT_KINDS = ("warning", "tip", "note", "safety")
 # size, follows the theme, needs no storage and carries no license. Each kind
 # has a small shape; `_clean_figure` keeps only these keys, short strings and
 # finite numbers, so a figure can never carry markup.
-FIGURE_KINDS = ("steps", "timeline", "compare", "sizes", "bars", "stats", "layout", "cycle")
+FIGURE_KINDS = ("steps", "timeline", "compare", "sizes", "bars", "stats", "layout", "cycle", "drawing", "drawings")
 _FIGURE_KEYS = {"title", "caption", "unit", "max", "cols", "rows", "items", "columns", "regions",
-                "label", "note", "at", "tone", "name", "facts", "w", "h", "x", "y", "value", "low", "text"}
+                "label", "note", "at", "tone", "name", "facts", "w", "h", "x", "y", "value", "low", "text", "draw"}
+# The line drawings the app can show by name (frontend/src/kb/components/
+# drawings.jsx draws them; its test keeps this list equal to its own). A
+# figure that names a drawing not here fails the content test.
+DRAWING_NAMES = (
+    "rv-class-a", "rv-class-b", "rv-class-c", "rv-travel-trailer", "rv-fifth-wheel", "rv-toy-hauler", "rv-pop-up", "rv-truck-camper", "rv-teardrop",
+    "boat-bass", "boat-pontoon", "boat-wake", "boat-bowrider", "boat-center-console", "boat-cuddy", "boat-sailboat", "boat-jet-ski",
+    "space-open", "space-covered", "space-enclosed",
+    "measure-length", "measure-height",
+    "lock-disc", "lock-cylinder", "lock-padlock",
+    "unit-drive-up", "unit-interior", "unit-climate",
+)
+
+
+def figure_drawings(node: dict) -> list[str]:
+    """The drawing names a figure asks for."""
+    d = (node.get("attrs") or {}).get("data") or {}
+    out = [d["draw"]] if isinstance(d.get("draw"), str) else []
+    out += [it["draw"] for it in d.get("items") or [] if isinstance(it, dict) and isinstance(it.get("draw"), str)]
+    return out
 _FIGURE_TONES = ("ok", "live", "warn", "bad", "")
 VIDEO_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "loom.com", "sharepoint.com", "microsoft.com")
 

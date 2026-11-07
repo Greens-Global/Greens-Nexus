@@ -40,6 +40,61 @@ The training point is simple:
 
 ```figure
 {
+  "kind": "drawings",
+  "title": "What Each RV Looks Like",
+  "items": [
+    {
+      "draw": "rv-class-a",
+      "label": "Class A",
+      "note": "bus-shaped; 25 to 45 ft; often tows a car"
+    },
+    {
+      "draw": "rv-class-b",
+      "label": "Class B",
+      "note": "a camper van; 17 to 24 ft"
+    },
+    {
+      "draw": "rv-class-c",
+      "label": "Class C",
+      "note": "a truck cab with a bunk over it; 21 to 35 ft"
+    },
+    {
+      "draw": "rv-travel-trailer",
+      "label": "Travel trailer",
+      "note": "towed on a ball hitch; body 12 to 35 ft plus the tongue"
+    },
+    {
+      "draw": "rv-fifth-wheel",
+      "label": "Fifth wheel",
+      "note": "a raised nose that hitches in a pickup bed; 22 to 45 ft; the tallest towable"
+    },
+    {
+      "draw": "rv-toy-hauler",
+      "label": "Toy hauler",
+      "note": "a rear ramp door and a garage; 25 to 45 ft"
+    },
+    {
+      "draw": "rv-pop-up",
+      "label": "Pop-up",
+      "note": "a folding canvas camper; 8 to 16 ft folded"
+    },
+    {
+      "draw": "rv-truck-camper",
+      "label": "Truck camper",
+      "note": "slides into a pickup bed; truck length plus the overhang"
+    },
+    {
+      "draw": "rv-teardrop",
+      "label": "Teardrop",
+      "note": "a tiny sleeping trailer; 10 to 16 ft"
+    }
+  ],
+  "caption": "Side views, facing left. Mirrors, awnings, slide-outs, ladders and spare tires stick out past what is drawn."
+}
+```
+
+```figure
+{
   "kind": "bars",
   "title": "Typical Lengths by RV Type",
   "unit": "ft",

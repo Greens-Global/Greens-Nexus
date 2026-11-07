@@ -459,6 +459,14 @@
 .kb .kb-fig-region span { color: var(--kb-dim); font-size: 11.5px; }
 .kb .kb-fig-region.ok { border-color: var(--kb-green); background: var(--kb-green-soft); }
 .kb .kb-fig-region.live { border-color: var(--wk-live, #ed631a); background: var(--wk-live-tint, #fdeee5); }
+/* drawings: a line drawing, or a gallery of them */
+.kb .kb-drawing { display: block; width: 100%; height: auto; color: var(--kb-ink); }
+.kb .kb-fig-drawing { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.kb .kb-fig-drawing .kb-drawing { max-width: 440px; }
+.kb .kb-fig-drawings { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 18px 20px; }
+.kb .kb-fig-draw { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.kb .kb-fig-draw .kb-drawing { border-radius: 10px; background: var(--kb-paper); padding: 6px 8px; }
+.kb .kb-fig-draw .kb-fig-text { padding: 0 2px; }
 /* cycle: a ring */
 .kb .kb-fig-cycle { position: relative; width: min(100%, 360px); aspect-ratio: 1; margin: 0 auto; color: var(--kb-line); }
 .kb .kb-fig-cycle svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }

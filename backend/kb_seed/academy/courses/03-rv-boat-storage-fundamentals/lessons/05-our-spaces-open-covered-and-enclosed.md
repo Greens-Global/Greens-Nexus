@@ -16,6 +16,30 @@ summary: The three kinds of vehicle space, what each protects against and where 
 
 ```figure
 {
+  "kind": "drawings",
+  "title": "Open, Covered, Enclosed",
+  "items": [
+    {
+      "draw": "space-open",
+      "label": "Open",
+      "note": "a marked space under the sky; any height fits"
+    },
+    {
+      "draw": "space-covered",
+      "label": "Covered",
+      "note": "a canopy roof on posts; a height limit"
+    },
+    {
+      "draw": "space-enclosed",
+      "label": "Enclosed",
+      "note": "a garage with a roll-up door; door width and height limits"
+    }
+  ]
+}
+```
+
+```figure
+{
   "kind": "compare",
   "title": "Open, Covered and Enclosed",
   "columns": [

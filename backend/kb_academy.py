@@ -264,4 +264,11 @@ def problems(a: Academy) -> list[str]:
                 out.append(f"{c.slug}: banned copy {_BANNED.search(str(s)).group(0)!r}")
         if c.level not in ("foundations", "core", "advanced"):
             out.append(f"{c.slug}: level {c.level!r} must be foundations, core or advanced")
+        for L in c.lessons:
+            if L["type"] == "text":
+                for b in L["blocks"].get("content") or []:
+                    if b.get("type") == "figure":
+                        for name in kb_blocks.figure_drawings(b):
+                            if name not in kb_blocks.DRAWING_NAMES:
+                                out.append(f"{c.slug} {L['title']!r}: no drawing named {name!r}")
     return out
