@@ -382,7 +382,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
               attach a file TO. The "+" menu still offers inline images (embedded
               as data URLs), and files can be attached from the task drawer once
               it's created. */}
-          <RichDescription value={form.description} onChange={(html) => set('description', html)} />
+          <RichDescription value={form.description} onChange={(html) => set('description', html)} recordLinks />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

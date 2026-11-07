@@ -165,8 +165,9 @@ _DIV_TYPES = ("callout", "toggle")
 _TONES = ("info", "tip", "warning")
 _NOTE_REF = re.compile(r"^note_[A-Za-z0-9]{1,64}$")
 # A record link's target: what it is and its id - nothing that could be a URL.
-# The kinds are the ones the [[ picker offers (notes/recordLink.jsx).
-_RECORD_REF = re.compile(r"^(note|task|job|kb):[A-Za-z0-9_\-.]{1,100}$")
+# The kinds are the ones the [[ picker offers (notes/recordLink.jsx); the
+# same pattern as record_links.RECORD_REF - change them together.
+_RECORD_REF = re.compile(r"^(note|task|job|kb|ticket):[A-Za-z0-9_\-.]{1,100}$")
 
 
 _MEDIA = {"audio": ' controls preload="metadata"', "video": ' controls playsinline preload="metadata"'}
@@ -790,26 +791,19 @@ def create_note(body: NoteIn, user: dict = Depends(get_current_user), db: Sessio
 # ── record links: "Mentioned In" ───────────────────────────────────────────
 @router.get("/mentions")
 def note_mentions(ref: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """The notes the caller may read that link to a record (Record Links, Neil
-    11/06/2026): `ref` is `<kind>:<id>` as a [[ link stores it. Only the
-    caller's own live notes and the ones shared with them - a note they
-    cannot open is never counted or named - and a note never lists itself."""
-    me = _me(user)
+    """What links to a record with [[ (Record Links, Neil 11/06/2026; every
+    place, 11/07/2026): `ref` is `<kind>:<id>` as a link stores it. `items` is
+    every note, board, task and ticket the caller may open that links to it
+    (record_links.mentions - a place they cannot open is never counted or
+    named, and a record never lists itself); `notes` is the notes and boards
+    among them, the shape this route had before."""
     ref = (ref or "").strip()
     if not _RECORD_REF.match(ref):
         raise HTTPException(400, "Unknown record")
-    needle = f'data-ref="{ref}"'
-    N = models.NexusNote
-    # LIKE narrows the rows; the exact check below is what counts (`_` is a
-    # LIKE wildcard and note ids carry one).
-    rows = db.query(N).filter(N.trashed_at == "", N.body.like(f"%{needle}%")).all()
-    self_id = ref[5:] if ref.startswith("note:") else ""
-    out = [n for n in rows if needle in (n.body or "") and n.id != self_id and _access(n, me)]
-    out.sort(key=lambda n: n.updated_at or "", reverse=True)
-    return {"notes": [{"id": n.id, "kind": n.kind or "note", "title": n.title or "", "day": n.day or "",
-                       "owner": n.owner_email, "mine": _access(n, me) == "owner",
-                       "updatedAt": n.updated_at or ""} for n in out[:50]],
-            "total": len(out)}
+    import record_links
+    out = record_links.mentions(db, user, ref)
+    out["notes"] = [i for i in out["items"] if i["kind"] in ("note", "board")]
+    return out
 
 
 @router.get("/{note_id}")

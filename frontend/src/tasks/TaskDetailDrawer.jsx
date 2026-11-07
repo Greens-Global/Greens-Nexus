@@ -1974,7 +1974,7 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
                 "[Asana · Name]" stamp still in the body instead of the real
                 author. Reusing the component means the two can't drift again. */}
             {shown.map((th) => (
-              <CommentThread key={th.root.id} thread={th} taskId={task.id} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />
+              <CommentThread key={th.root.id} thread={th} taskId={task.id} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} recordLinks {...handlers} />
             ))}
           </div>
           <button onClick={onViewAll} style={{ ...btn('ghost'), padding: 0, fontSize: 12, fontWeight: 600, color: NX.primary, marginTop: 8 }}>
@@ -1990,6 +1990,7 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
           onChange={setBody}
           onSubmit={submit}
           mentionPeople={people}
+          recordLinks
           minHeight={64}
           onStageFiles={(fs) => setPending((p) => [...p, ...fs])}
           onRecordingChange={setVoiceRec}
@@ -2034,6 +2035,7 @@ function DescriptionInput({ task, value, onCommit, refresh }) {
     <RichDescription
       value={v}
       onChange={setV}
+      recordLinks
       onCommit={(html) => onCommit(html)}
       onAttachFile={attach}
       minHeight={90}
@@ -2137,7 +2139,7 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
       {canComment && <div data-nx-noguard onPaste={(e) => onPasteStage(e, setPending)}>
         <RichDescription value={body} onChange={setBody} onSubmit={submit}
-          mentionPeople={people} minHeight={64}
+          mentionPeople={people} minHeight={64} recordLinks
           onStageFiles={(fs) => setPending((p) => [...p, ...fs])} onRecordingChange={setVoiceRec} />
         <PendingAttachments files={pending} setFiles={setPending} />
         <FailedUploads failed={uploads.failed} onRetry={uploads.retry} onDismiss={uploads.dismiss} />
@@ -2153,7 +2155,7 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
       {comments === null ? <LoadingState />
         : list.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No comments yet.</div>
           : <div ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {list.map((th) => <CommentThread key={th.root.id} thread={th} taskId={task.id} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />)}
+            {list.map((th) => <CommentThread key={th.root.id} thread={th} taskId={task.id} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} recordLinks {...handlers} />)}
           </div>}
     </div>
   );

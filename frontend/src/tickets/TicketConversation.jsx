@@ -21,6 +21,7 @@ import {
   returnToTicketAfterRecording,
 } from './ticketViewShared';
 import { RecordUploadButtons } from './TicketEvidence';
+import { unlinkRecords } from '../lib/recordRef';
 
 // ── Conversation thread ──────────────────────────────────────────────────────
 // The same editor the task module's comments use (RichDescription), not a bare
@@ -73,7 +74,9 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
   const insertSaved = (html) => onReplyChange((r) => ({ ...r, body: isEmptyDoc(r.body) ? html : `${r.body || ''}${html}` }));
   const { body, internal } = reply;
   const setBody = (b) => onReplyChange((r) => ({ ...r, body: b }));
-  const setInternal = (i) => onReplyChange((r) => ({ ...r, internal: i }));
+  // A [[ record link is for internal notes only (11/07/2026): switched to a
+  // public reply, which is mailed to the requester, a chip becomes its words.
+  const setInternal = (i) => onReplyChange((r) => ({ ...r, internal: i, body: i ? r.body : unlinkRecords(r.body) }));
   const people = usePeople();
   const [zoomImage, zoomViewer] = useImageZoom();
   // A comment updates the ticket row itself (last_comment_at, which drives
@@ -149,6 +152,7 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
           onChange={setBody}
           onSubmit={onDone}
           mentionPeople={people}
+          recordLinks={internal}
           minHeight={64}
           placeholder={internal ? 'Internal note - visible to agents, not the requester…' : canInternal ? 'Public reply…' : 'Write a reply…'}
         />

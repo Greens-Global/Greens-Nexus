@@ -506,6 +506,8 @@ export const api = {
   getPersonProfile: (email) => req(`/tasks/people/${encodeURIComponent(email)}`),
   createTask: (data) => req("/tasks", { method: "POST", body: JSON.stringify(data) }),
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // Title and done-ness of tasks a record link shows (11/07/2026): { tasks: { id: {...} } }, unseen ones left out.
+  taskStates: (ids) => req(`/tasks/states?ids=${encodeURIComponent((ids || []).join(","))}`),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
   bulkUpdateTasks: (ids, patch) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }),
   // The batch bar's Dates action (Oct 22 2026): { op: shift|set_due|set_start|clear_due,
@@ -736,6 +738,8 @@ export const api = {
   // The unscoped call above is the agent queue and carries every ticket in the
   // company, so filtering in the browser would still ship them all.
   getMyTickets: () => req("/task-tickets?mine=true"),
+  // [[ record link picker (11/07/2026): tickets the caller may open, by subject or code.
+  searchTickets: (q, limit = 6) => req(`/task-tickets/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   createTaskTicket: (data) => req("/task-tickets", { method: "POST", body: JSON.stringify(data) }),
   // Create Task from Ticket (Oct 14 2026): one call, both sides linked -> { task, ticket }.
   createTaskFromTicket: (id) => req(`/task-tickets/${id}/tasks`, { method: "POST" }),

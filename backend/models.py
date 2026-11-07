@@ -10175,3 +10175,19 @@ class DocComment(Base):
     resolved_by  = Column(String, default="")
     created_at   = Column(String, default="")
     updated_at   = Column(String, default="")
+
+
+class NexusRecordLink(Base):
+    """One [[ record link (Neil, 11/07/2026, record_links.py): the row that
+    holds it (`src_ref`: note:<id> | task:<id> | ticket:<id> | comment:<id>),
+    the place it shows as (`parent_ref`: the note, task or ticket - a comment's
+    task or ticket), and what it points at (`dst_ref`). `internal` = written in
+    an internal ticket note. Written only by record_links' before_flush hook.
+    New table - RLS (main.py sweep)."""
+    __tablename__ = "nexus_record_links"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    src_ref    = Column(String, nullable=False, index=True)
+    parent_ref = Column(String, nullable=False)
+    dst_ref    = Column(String, nullable=False, index=True)
+    internal   = Column(Boolean, default=False)
+    created_at = Column(String, default="")

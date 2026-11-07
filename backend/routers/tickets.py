@@ -964,6 +964,35 @@ class ListScope:
         return ticket_confidential.include(q).filter(ticket_confidential.visible_filter(self.db, self.user))
 
 
+@router.get("/task-tickets/search")
+def search_tickets(q: str = "", limit: int = 6, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """Tickets whose subject or code holds `q`, for the [[ record link picker
+    (Neil, 11/07/2026). Exactly who sees what in the list above: the company
+    wall, the confidential rule, and for a caller off the desk only the
+    tickets they are part of (ListScope) - so a search never names a ticket
+    the caller could not open."""
+    term = (q or "").strip().lower()
+    if len(term) < 2:
+        return {"tickets": []}
+    limit = max(1, min(int(limit or 6), 20))
+    T_ = models.TaskTicket
+    scope = ListScope(db, user)
+    qy = scope.confidential(scope.apply(db.query(T_), people=False))
+    if not scope.desk:
+        qy = scope.apply(qy)
+    like = f"%{term}%"
+    qy = qy.filter(or_(func.lower(T_.subject).like(like), func.lower(func.coalesce(T_.code, "")).like(like)))
+    rows = []
+    for t in qy.order_by(T_.created_at.desc()).limit(200).all():
+        if scope.admits(t) and term in f"{(t.subject or '').lower()} {(t.code or '').lower()}":
+            rows.append(t)
+        if len(rows) >= limit:
+            break
+    return {"tickets": [{"id": t.id, "code": t.code or "", "subject": t.subject or "", "status": t.status or ""}
+                        for t in rows]}
+
+
 @router.get("/task-tickets")
 def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
                  db: Session = Depends(get_db)):

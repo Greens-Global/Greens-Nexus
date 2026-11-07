@@ -36,6 +36,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { useKeyboardInset, keyboardUp } from '../lib/useVisualViewport';
 import BoardPicker from './board/BoardPicker';
 import { useRecordSearch, recordContent, RECORD_META } from './recordLink';
+import { boxesKey, syncBoxesFromTasks, listenForBoxTicks } from './checklistTasks';
 import {
   EDITED, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
   canRecord, canDictate, clock,
@@ -171,6 +172,10 @@ export default function NoteEditor({
   const videoInput = useRef(null);
   const mediaRef = useRef(() => {});
   const actRef = useRef({});
+  // Checklist lines that are tasks (checklistTasks.js): when the set of task
+  // boxes changes (the note loads, a line becomes a task), their ticks are
+  // brought up to date with the tasks - editors only.
+  const boxesRef = useRef(() => {});
 
   const editor = useEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,7 +195,9 @@ export default function NoteEditor({
       if (touched.current && !theirs) changeRef.current?.(ed.getHTML());
       else if (theirs) remoteRef.current?.(ed.getHTML());
       scanRef.current(ed);
+      boxesRef.current(ed);
     },
+    onCreate: ({ editor: ed }) => boxesRef.current(ed),
     onSelectionUpdate: ({ editor: ed }) => scanRef.current(ed),
     editorProps: {
       attributes: { class: 'nt-prose', 'aria-label': 'Note text', role: 'textbox', 'aria-multiline': 'true' },
@@ -413,12 +420,40 @@ export default function NoteEditor({
     editor.chain().focus().insertContent('[[').run();
   };
 
-  const makeTask = () => {
+  // The line (or selection) becomes a link to the task it made, on a
+  // checklist line, so ticking it finishes the task (checklistTasks.js). If
+  // the note changed while the task was being made, the words stay as they
+  // are - the notice still opens the task.
+  const makeTask = async () => {
     if (!editor || !onMakeTask) return;
     const { from, to, empty, $from } = editor.state.selection;
-    const text = empty ? $from.parent.textContent : editor.state.doc.textBetween(from, to, ' ');
-    onMakeTask(text.replace(/\s+/g, ' ').trim());
+    const text = (empty ? $from.parent.textContent : editor.state.doc.textBetween(from, to, ' ')).replace(/\s+/g, ' ').trim();
+    const range = empty ? { from: $from.start(), to: $from.end() } : { from, to };
+    const before = editor.state.doc;
+    const task = await onMakeTask(text);
+    if (!task?.id || !text || editor.isDestroyed || editor.state.doc !== before) return;
+    touched.current = true;
+    const chain = editor.chain().setMeta(EDITED, true)
+      .insertContentAt(range, recordContent({ kind: 'task', id: task.id, title: task.title || text }));
+    const inList = ['taskItem', 'listItem'].includes($from.node(Math.max(0, $from.depth - 1))?.type?.name);
+    (inList || !empty ? chain : chain.setTextSelection(range.from).toggleTaskList()).run();
   };
+
+  useEffect(() => {
+    if (!editor || readOnly) { boxesRef.current = () => {}; return undefined; }
+    let key = null;
+    let timer = 0;
+    boxesRef.current = (ed) => {
+      const k = boxesKey(ed.state.doc);
+      if (k === key) return;
+      key = k;
+      clearTimeout(timer);
+      if (k) timer = setTimeout(() => { syncBoxesFromTasks(ed, EDITED).then((n) => { if (n) touched.current = true; }); }, 600);
+    };
+    boxesRef.current(editor);
+    const off = listenForBoxTicks(editor, EDITED, setMediaErr);
+    return () => { clearTimeout(timer); off(); boxesRef.current = () => {}; };
+  }, [editor, readOnly]);
 
   // The menu floats under the caret, kept on screen.
   let menuPos = null;

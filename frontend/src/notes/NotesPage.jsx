@@ -692,7 +692,8 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
     try {
       const t = await createTaskFrom(line, note, myEmail);
       toast(`Task created: ${line.slice(0, 60)}`, t?.id ? { label: 'Open Task', run: () => openTask(t.id) } : null);
-    } catch (e) { toast(e.message || 'Could not create the task'); }
+      return t;   // the editor turns the line into a link to it (NoteEditor makeTask)
+    } catch (e) { toast(e.message || 'Could not create the task'); return null; }
   };
 
   const actions = (
