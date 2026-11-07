@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import ModuleTabs, { HeaderTabsProvider, ModuleBar, ModuleActions, ModuleActionsSlot } from './ModuleTabs';
-import { PageTrailProvider } from './PageTrail';
+import { PageTrailProvider, useTrailCrumbs } from './PageTrail';
 
 // One page header (11/05/2026): every module reads the same way - its name
 // and its tabs in the top header (11/06/2026), its buttons at the right end of
@@ -91,5 +91,42 @@ describe('the module bar', () => {
   it('renders actions in place when there is no shell (a module rendered alone)', () => {
     render(<ModuleActions><button type="button">Add Asset</button></ModuleActions>);
     expect(screen.getByRole('button', { name: 'Add Asset' })).toBeTruthy();
+  });
+});
+
+describe('Back over the name (Neil, 11/06/2026, option C)', () => {
+  const withBack = (children, back, label = 'People', nameRef = null) => render(
+    <HeaderTabsProvider>
+      <PageTrailProvider view="hr" label={label} onNavigate={() => {}}>
+        <header><ModuleBar back={back} nameRef={nameRef} /></header>
+        <div className="viewport">{children}</div>
+      </PageTrailProvider>
+    </HeaderTabsProvider>,
+  );
+
+  it('says where Back goes in a line above the name, and goes there', () => {
+    const onBack = vi.fn();
+    withBack(<ModuleTabs tabs={[{ key: 'a', label: 'People' }, { key: 'b', label: 'Hiring' }]} active="a" onChange={() => {}} />,
+      { label: 'Operations', onBack });
+    const name = document.querySelector('.module-bar-name');
+    const btn = screen.getByRole('button', { name: 'Back to Operations' });
+    expect(btn.textContent).toBe('Operations');
+    expect(name.firstElementChild).toBe(btn);
+    expect(name.querySelector('.page-trail--bar').textContent).toBe('People');
+    fireEvent.click(btn);
+    expect(onBack).toHaveBeenCalled();
+  });
+
+  it("names the page above a record, never the module you are in", () => {
+    function Record() { useTrailCrumbs([{ label: 'Portfolio', onClick: () => {} }]); return <ModuleTabs tabs={[]} active="" onChange={() => {}} />; }
+    withBack(<Record />, { label: 'Asset Management', onBack: () => {} }, 'Asset Management');
+    expect(screen.getByRole('button', { name: 'Back to Portfolio' })).toBeTruthy();
+  });
+
+  it("keeps this page's name (its lit tab) for the next move inside the module", () => {
+    const nameRef = { current: '' };
+    withBack(<ModuleTabs tabs={[{ key: 'a', label: 'People' }, { key: 'b', label: 'Hiring' }]} active="b" onChange={() => {}} />, null, 'People', nameRef);
+    expect(nameRef.current).toBe('Hiring');
+    expect(document.querySelector('.module-bar-back')).toBeNull();   // nowhere to go back to: no line
   });
 });

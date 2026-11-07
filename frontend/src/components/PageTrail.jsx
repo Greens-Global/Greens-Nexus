@@ -69,6 +69,12 @@ export function useTrailCrumbs(crumbs, onHome) {
   useLayoutEffect(() => () => set?.([]), [set]);
 }
 
+/** The module's name and the pages above this one, for the top bar's Back line. */
+export function useTrailInfo() {
+  const ctx = useContext(TrailCtx);
+  return ctx ? { view: ctx.view, label: ctx.label, crumbs: ctx.crumbs } : null;
+}
+
 /** The name of the tab `key` names in a <ModuleTabs> list, dropdown items included. */
 export function tabLabelOf(tabs, key) {
   for (const t of tabs || []) {

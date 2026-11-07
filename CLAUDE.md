@@ -201,6 +201,9 @@ keep the diff minimal.
   name (the page trail, with the pages above a record), its tabs and its
   buttons (`<ModuleActions>`) - a page never repeats the module or tab name as
   a title of its own, and a module with one tab shows no tabs.
+  Back is a small "← Operations" line OVER the module's name (`ModuleBar`'s
+  `back`), never a bare arrow beside it; inside a module it names the page
+  you came from (a tab, or a record's "Portfolio") - phones keep their arrow.
   `scripts/check-module-headers.mjs` (in `npm run lint`) fails a new
   `view-title-group`; record pages that name the record are on its list.
 - **Popups are sheets from the right** (Neil, 11/01/2026): on a desktop,

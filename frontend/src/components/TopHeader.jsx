@@ -56,7 +56,7 @@ import { useActionCounts } from '../lib/useActionCounts';
 import { clearOfflineReadCache } from '../lib/offline/read';
 
 
-export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel }) {
+export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, pageNameRef, prevView }) {
   const { instance, accounts } = useMsal();
   const { actingAs, stopActAs, isExternal, myTier, myTitle } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>) - drawn
@@ -358,14 +358,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         {/* Phone-only centered wordmark (desktop hides it) - tap = home */}
         <button className="header-brand" onClick={() => onNavigate('dashboard')} aria-label="Go to Dashboard">NEXUS</button>
         <div className="breadcrumb">
-          {canGoBack && (
-            <button className="breadcrumb-back" onClick={onBack} title={`Back to ${prevLabel}`}>
-              <ArrowLeft style={{ width: 15, height: 15 }} />
-            </button>
-          )}
           {/* The page trail (Neil, 11/04/2026) names the module and the pages
               above a record, in the page above its title (PageTrail.jsx), so
-              the bar keeps only Back - the trail goes UP, this goes BACK. The
+              Back is the small line over the module's name (ModuleBar) on a
+              computer - the trail goes UP, Back goes BACK. The
               name stays for screen readers and Build Mode's capture. */}
           <span className="breadcrumb-current sr-only">{displayTitle}</span>
         </div>
@@ -375,7 +371,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
           tabs, never its buttons - rides here, right after Back, on a computer
           (Neil, 11/06/2026: one row, more of the page to work with). Phones
           keep the in-page strip (ModuleBar in ModuleTabs.jsx). */}
-      <div className="header-center"><ModuleBar /></div>
+      <div className="header-center"><ModuleBar back={canGoBack ? { label: prevLabel, view: prevView, onBack } : null} nameRef={pageNameRef} /></div>
 
       <div className="header-right">
         {searchBar}

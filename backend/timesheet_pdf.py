@@ -55,7 +55,8 @@ PURPLE = colors.HexColor("#6d28d9")
 _CELL = ParagraphStyle("cell", fontName="Helvetica", fontSize=7.5, leading=9, alignment=1, textColor=INK)
 _LEFT = ParagraphStyle("left", parent=_CELL, alignment=0)
 _RIGHT = ParagraphStyle("right", parent=_CELL, alignment=2)
-_HEAD = ParagraphStyle("head", parent=_CELL, fontName="Helvetica-Bold")
+# Every header sits left (Neil, 11/06/2026), on the grid and the summary alike.
+_HEAD = ParagraphStyle("head", parent=_CELL, fontName="Helvetica-Bold", alignment=0)
 
 # Page 1 holds the whole card (Charmi, Oct 20: "it should auto fit on one
 # page"). render steps down these (font size, leading, top / bottom cell
@@ -649,10 +650,11 @@ def india_reconciliation(card: dict) -> list:
 
 
 def _summary_table(rows: list, fixed: bool) -> Table:
-    data = [[_p(""), _p("HOURS", bold=True), _p("AMOUNT" if fixed else "WAGE", bold=True)]]
-    data += [[_p(a, _RIGHT, bold=a.isupper()), _p(b, bold=a.isupper()), _p(c, bold=a.isupper())]
+    data = [[_p(""), _p("HOURS", _HEAD), _p("AMOUNT" if fixed else "WAGE", _HEAD)]]
+    data += [[_p(a, _RIGHT, bold=a.isupper()), _p(b, _LEFT, bold=a.isupper()), _p(c, _LEFT, bold=a.isupper())]
              for a, b, c in rows]
-    # Full width under the grid (Charmi, Oct 20), the figures centered.
+    # Full width under the grid (Charmi, Oct 20); the figures sit left under
+    # their left-set headers (Neil, 11/06/2026).
     t = Table(data, colWidths=[WIDTH - 240, 120, 120])
     cmds = [("GRID", (0, 0), (-1, -1), 0.4, LINE), ("BACKGROUND", (0, 0), (-1, 0), HEAD),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
