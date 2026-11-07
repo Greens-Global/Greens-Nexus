@@ -38,6 +38,9 @@ import { safeHtml } from './noteSafeHtml';
 import { createTaskFrom, openTask } from './notesTasks';
 import { parseScene } from './board/scene';
 import TemplatePicker from './board/TemplatePicker';
+import NoteTemplatePicker from './NoteTemplatePicker';
+import { noteTemplate } from './noteTemplates';
+import MentionedIn from '../components/MentionedIn';
 import { templateScene } from './board/templates';
 import { exportPng, exportSvg, copyPng, downloadScene } from './board/exportBoard';
 import { storeTaskFile } from '../tasks/lib';
@@ -427,7 +430,7 @@ function ShortcutsPop({ open, onClose }) {
   const mod = /Mac|iPhone|iPad/.test(navigator.platform || '') ? 'Cmd' : 'Ctrl';
   const rows = [
     ['Quick Note from anywhere', quickNoteKeys()],
-    ['Save now', `${mod}+S`], ['Search notes', '/'], ['Block menu', '/ in a note'], ['Mention someone', '@'],
+    ['Save now', `${mod}+S`], ['Search notes', '/'], ['Block menu', '/ in a note'], ['Mention someone', '@'], ['Link a note, task, job or page', '[['],
     ['Checklist', `${mod}+Shift+9`], ['Link', `${mod}+K`], ['Bold / Italic / Underline', `${mod}+B / I / U`],
     ['Heading 1 / 2 / 3', '# / ## / ###'], ['Hide or show the list', `${mod}+\\`], ['Exit full screen', 'Esc'],
   ];
@@ -673,7 +676,9 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   const toggleTemplate = () => {
     setMenu('');
     sync.setMeta({ template: !note.template });
-    toast(note.template ? 'No longer a template' : 'Saved as a template - New Board lists it under Your Templates');
+    toast(note.template ? 'No longer a template'
+      : board ? 'Saved as a template - New Board lists it under Your Templates'
+        : 'Saved as a template - New From Template lists it under Your Templates');
   };
   // The outline: the note's headings; a click scrolls the editor to it.
   const headings = board ? [] : noteHeadings(note.body);
@@ -756,7 +761,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                     <button type="button" role="menuitem" className="nt-pop-row" onClick={exportMd}><Download size={15} /> Export as Markdown</button>
                     <button type="button" role="menuitem" className="nt-pop-row" onClick={print}><Printer size={15} /> Print or Save as PDF</button>
                   </>)}
-                  {board && mine && !trashed && (
+                  {mine && !trashed && note.kind !== 'daily' && (
                     <button type="button" role="menuitem" className="nt-pop-row" onClick={toggleTemplate}><LayoutTemplate size={15} /> {note.template ? 'Stop Using as Template' : 'Use as Template'}</button>
                   )}
                   {!trashed && note.kind !== 'daily' && onDuplicate && (
@@ -853,12 +858,17 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             : collab.phase === 'ready'
               ? (
                 <LiveBoundary key={`live:${collab.epoch}`} onCrash={collab.fail}>
-                  <NoteEditor collab={collab} readOnly={readOnly} people={people}
+                  <NoteEditor collab={collab} readOnly={readOnly} people={people} noteId={note.id}
                     onChange={(html) => sync.edit({ body: html })} onRemoteChange={sync.seeRemote} onMakeTask={readOnly ? undefined : makeTask} />
                 </LiveBoundary>
               )
-              : <NoteEditor key="saved" value={note.body || ''} readOnly={readOnly} people={people}
+              : <NoteEditor key="saved" value={note.body || ''} readOnly={readOnly} people={people} noteId={note.id}
                   onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : makeTask} />}
+          {/* The other notes that link here with [[ (Record Links, 11/06/2026); nothing when none. */}
+          {!board && !trashed && (
+            <MentionedIn refKey={`note:${note.id}`} nameOf={nameOf}
+              frame={(title, body) => <section className="nt-mentions" aria-label="Mentioned In"><div className="nt-w-label">{title}</div>{body}</section>} />
+          )}
         </div>
   );
   const dialogs = (<>
@@ -995,6 +1005,18 @@ export default function NotesPage({ activeSub, onSubChange }) {
     const copy = await copyNote(id, (n) => `${n.title || noteTitle(n)} (Copy)`);
     if (copy) toast(`Made a copy: ${noteTitle(copy)}`);
   };
+  // New From Template (11/06/2026): a note from a starter (noteTemplates.js)
+  // or a copy of one of the person's own template notes.
+  const [pickingNoteTpl, setPickingNoteTpl] = useState(false);
+  const startNoteTemplate = async (key) => {
+    setPickingNoteTpl(false);
+    const t = noteTemplate(key);
+    if (t) await newNote({ title: t.title().slice(0, 200), body: t.body() });
+  };
+  const startFromNote = async (row) => {
+    setPickingNoteTpl(false);
+    await copyNote(row.id, (n) => n.title || '');
+  };
   // Your Templates: a new board from one of the person's own template boards.
   const startFromBoard = async (row) => {
     setPickingTemplate(false);
@@ -1113,6 +1135,9 @@ export default function NotesPage({ activeSub, onSubChange }) {
             {isPhone
               ? <button type="button" className="nt-icon-btn" aria-label="New Board" title="New Board" onClick={newBoard}><PenTool size={17} /></button>
               : <button type="button" className="nt-text-btn is-board-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
+            {isPhone
+              ? <button type="button" className="nt-icon-btn" aria-label="New From Template" title="New From Template" onClick={() => setPickingNoteTpl(true)}><LayoutTemplate size={17} /></button>
+              : <button type="button" className="nt-text-btn" onClick={() => setPickingNoteTpl(true)} title="Start a note from a layout - meeting notes, a 1:1, a site walk"><LayoutTemplate size={15} /> From Template</button>}
             <button type="button" className="nt-text-btn is-primary" onClick={() => newNote()}><Plus size={15} /> New Note</button>
           </div>
         </div>
@@ -1149,6 +1174,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
                         <span className="nt-row-icons">
                           {n.unseen && n.id !== selectedId && <span className="nt-unseen" role="img" aria-label="Updated since you last looked" title={`Updated by ${n.editedBy || 'someone'} since you last looked`} />}
                           {n.pinned && <Pin size={13} aria-label="Pinned" />}
+                          {n.template && <LayoutTemplate size={13} aria-label="Template" />}
                           {(n.shared || !n.mine) && <Users size={13} aria-label={n.mine ? 'Shared' : 'Shared with you'} />}
                         </span>
                       </span>
@@ -1206,6 +1232,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
       </div>
       {toastNode}
       {showPicker && <TemplatePicker onPick={startBoard} onPickBoard={startFromBoard} onClose={closePicker} />}
+      {pickingNoteTpl && <NoteTemplatePicker onPick={startNoteTemplate} onPickNote={startFromNote} onClose={() => setPickingNoteTpl(false)} />}
       {rowMenu && (
         <RowMenu at={rowMenu} onClose={closeRowMenu}>
           <button type="button" role="menuitem" className="nt-pop-row" onClick={() => select(rowMenu.n.id)}><FolderOpen size={15} /> Open</button>

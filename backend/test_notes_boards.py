@@ -196,14 +196,18 @@ class BoardsTest(unittest.TestCase):
         self.assertEqual([x["id"] for x in r["notes"]], [b["id"]])
         self.assertEqual(r["counts"]["boards"], 1)
         self.assertEqual(self.client.get("/notes?view=templates").json()["notes"], [])
-        # Use as Template is the owner's mark: no rev move, a board's alone.
+        # Use as Template is the owner's mark: no rev move.
         t = self.patch(b, template=True)
         self.assertEqual(t.status_code, 200, t.text)
         self.assertTrue(t.json()["template"])
         self.assertEqual(t.json()["rev"], b["rev"])
         self.assertEqual([x["id"] for x in self.client.get("/notes?view=templates").json()["notes"]], [b["id"]])
+        # A plain note may be a template too (Note Templates, 11/06/2026); a daily scratchpad may not.
         plain = [x for x in self.client.get("/notes").json()["notes"] if x["kind"] == "note"][0]
-        self.assertEqual(self.patch(plain, template=True).status_code, 400)
+        self.assertEqual(self.patch(plain, template=True).status_code, 200)
+        self.assertEqual(self.patch(self.client.get(f"/notes/{plain['id']}").json(), template=False).status_code, 200)
+        daily = self.client.post("/notes", json={"kind": "daily", "day": TODAY}).json()
+        self.assertEqual(self.patch(daily, template=True).status_code, 400)
         self.client.put(f"/notes/{b['id']}/share", json={"email": BOB, "can": "edit"})
         self.as_(BOB)
         self.assertEqual(self.patch(self.client.get(f"/notes/{b['id']}").json(), template=False).status_code, 403)

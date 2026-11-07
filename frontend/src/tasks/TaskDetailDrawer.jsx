@@ -52,6 +52,7 @@ import { currentVersionsOf, isEgnyteLink, canVersion } from './egnyteLinks';
 import { isWebLink } from './webLinks';
 import { shareRules, mayOpenUp } from './shareRules';
 import { ticketNo } from '../tickets/ticketMeta';
+import MentionedIn from '../components/MentionedIn';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
 import { recurrenceLabel } from './recurrence';
@@ -1670,6 +1671,9 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       <Section title="Attachments">
         <AttachmentsTab task={task} refresh={refresh} canAttach={canComment} canRemoveAny={canEditProject} onShowOnCard={readOnly ? null : (v) => patch({ cardPreviewMode: v })} />
       </Section>
+
+      {/* The notes that link this task with [[ (Record Links, 11/06/2026) - nothing when none. */}
+      <MentionedIn refKey={`task:${task.id}`} nameOf={nameOf} frame={(title, body) => <Section title={title}>{body}</Section>} />
     </div>
   );
 }

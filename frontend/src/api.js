@@ -3345,6 +3345,9 @@ export const api = {
   noteUnshare: (id, email) => req(`/notes/${encodeURIComponent(id)}/share/${encodeURIComponent(email)}`, { method: "DELETE" }),
   noteVersions: (id) => req(`/notes/${encodeURIComponent(id)}/versions`),
   noteRestoreVersion: (id, versionId) => req(`/notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`, { method: "POST" }),
+  // Record Links (11/06/2026): the notes the caller may read that link to a
+  // record - ref is "<kind>:<id>" (note | task | job | kb), as a [[ link stores it.
+  noteMentions: (ref) => req(`/notes/mentions?ref=${encodeURIComponent(ref)}`),
   // Working together (Oct 30 2026): the open note's heartbeat (who else is
   // here, and its rev), and for a shared note's editors the live co-typing
   // key, channel and shared state, seeded once (409 = someone else did).
