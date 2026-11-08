@@ -12926,6 +12926,19 @@ def _is_confidential(r) -> bool:
     return bool(getattr(r, "confidential", 0))
 
 
+# Principals decide their own time off (Neil, 11/07/2026: "a managing
+# principal, a principal, and the founding principal are people that can
+# approve their own time off by default, with a backup being HR" - this
+# overrides the 09/30 "nobody approves their own" rule for these titles
+# only). Their usual approver (the manager, else the company's HR contact,
+# else the administrators) can still decide it as the backup.
+SELF_APPROVING_TITLES = {"managing principal", "principal", "founding principal"}
+
+
+def _self_approves(emp) -> bool:
+    return ((getattr(emp, "job_title", "") or "").strip().lower() in SELF_APPROVING_TITLES) if emp else False
+
+
 class _TimeoffPrivacy:
     """Who may read a confidential request, for ONE caller - built once per
     request so a 300-row list costs one employee load, not 300.
@@ -13032,8 +13045,12 @@ class _TimeoffPrivacy:
 
     def can_decide(self, r) -> bool:
         em = (r.employee_email or "").strip().lower()
-        if not self.viewer or self.viewer == em:
+        if not self.viewer:
             return False
+        if self.viewer == em:
+            # Only a principal, and only the first level - HR's second
+            # approval stays HR's.
+            return not _awaiting_hr(r) and _self_approves(self._emp(em))
         if _awaiting_hr(r):
             # The manager's level is done: only HR decides now, and never the
             # person who approved the first level.
@@ -13237,7 +13254,7 @@ def _leave_balance_note(db: Session, email: str, row) -> str:
         if not b.get("live"):
             return ""
         have = float(b[bucket]["available"]) - float(b[bucket]["upcoming"])
-        need = leave_balances.request_hours(row, float(b["policy"].get("hoursPerDay") or 8))
+        need = leave_balances.request_hours(row, float(b["policy"].get("hoursPerDay") or 8), db)
         left = have - need
         tail = f"{left:g} h after this" if left >= 0 else f"{-left:g} h more than they have - the rest would be unpaid"
         return f" {bucket.title()} balance: {have:g} h, {tail}."
@@ -13319,7 +13336,7 @@ def my_timeoff(user: dict = Depends(get_current_user), db: Session = Depends(get
     rows = (db.query(TimeOffRequest).filter(TimeOffRequest.employee_email == user["email"])
             .order_by(TimeOffRequest.created_at.desc()).limit(50).all())
     priv = _TimeoffPrivacy(db, user["email"])
-    return [_ser_timeoff(r, priv=priv) for r in rows]
+    return _with_holidays(db, rows, [_ser_timeoff(r, priv=priv) for r in rows])
 
 
 _TIMEOFF_LIST_LIMIT = 2000
@@ -13363,13 +13380,31 @@ def list_timeoff(status: str = "", from_: str = Query("", alias="from"), to: str
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
     priv = _TimeoffPrivacy(db, user["email"])
-    return _mark_for(db, user, [_ser_timeoff(r, names, priv) for r in rows], "email")
+    return _mark_for(db, user, _with_holidays(db, rows, [_ser_timeoff(r, names, priv) for r in rows]), "email")
 
 
 class TimeOffDecision(BaseModel):
     status: str                      # approved | rejected
     note: Optional[str] = ""
     remove_shifts: bool = False      # approving: mark the published shifts inside the leave for removal
+
+
+def _with_holidays(db: Session, rows: list, out: list) -> list:
+    """Each full-day request carries `holidays`: the person's own company
+    holidays inside it (ISO dates), so the screen's Days count skips them
+    like the balance does (Neil, 11/07/2026). One holiday read per list."""
+    full = [(r, o) for r, o in zip(rows, out) if r.start_date and not (r.start_time and r.end_time)]
+    if not full:
+        return out
+    lo = min(r.start_date[:10] for r, _o in full)
+    hi = max((r.end_date or r.start_date)[:10] for r, _o in full)
+    per = {}
+    for e, d in _holiday_days(db, {r.employee_email for r, _o in full}, lo, hi):
+        per.setdefault(e, []).append(d)
+    for r, o in full:
+        a, b = r.start_date[:10], (r.end_date or r.start_date)[:10]
+        o["holidays"] = sorted(d for d in per.get((r.employee_email or "").lower(), []) if a <= d <= b)
+    return out
 
 
 def _timeoff_shift_conflicts(db: Session, row: TimeOffRequest) -> list:
@@ -13433,7 +13468,8 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     # Nobody decides their own time off (a manager's scope includes themself),
     # and a confidential request is decided only by its approvers.
     priv = _TimeoffPrivacy(db, user["email"])
-    if (row.employee_email or "").strip().lower() == (user.get("email") or "").strip().lower():
+    own = (row.employee_email or "").strip().lower() == (user.get("email") or "").strip().lower()
+    if own and not priv.can_decide(row):
         raise HTTPException(403, "You can't approve or reject your own time off - your manager or HR decides it.")
     if not priv.can_decide(row):
         raise HTTPException(403, f"This request is confidential - only {priv.reviewer_names(row) or 'the approver'} can decide it.")
