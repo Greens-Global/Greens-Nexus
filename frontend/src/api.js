@@ -3335,8 +3335,8 @@ export const api = {
   perfFeedbackAnswer: (id, data) => req(`/performance/feedback/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
   perfFeedbackDecline: (id, note = "") => req(`/performance/feedback/${encodeURIComponent(id)}/decline`, { method: "POST", body: JSON.stringify({ note }) }),
   perfFeedbackCancel: (id) => req(`/performance/feedback/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
-  perfKudos: ({ scope = "company", person = "", company = "" } = {}) =>
-    req(`/performance/kudos?${new URLSearchParams({ scope, person, company }).toString()}`),
+  perfKudos: ({ scope = "company", person = "", company = "", limit = 60 } = {}) =>
+    req(`/performance/kudos?${new URLSearchParams({ scope, person, company, limit: String(limit) }).toString()}`),
   perfKudosGive: (data) => req("/performance/kudos", { method: "POST", body: JSON.stringify(data) }),
   perfKudosHide: (id) => req(`/performance/kudos/${encodeURIComponent(id)}/hide`, { method: "POST" }),
   // Kudos thanks, the recipient's moment and the Teams chat (Neil, 11/08/2026).
@@ -3345,8 +3345,7 @@ export const api = {
   perfKudosUnseen: () => req("/performance/kudos/unseen"),
   perfKudosSeen: (id) => req(`/performance/kudos/${encodeURIComponent(id)}/seen`, { method: "POST" }),
   perfKudosSummary: () => req("/performance/kudos/summary"),
-  perfKudosChat: () => req("/performance/kudos/chat"),
-  perfKudosChatSave: (chat_id) => req("/performance/kudos/chat", { method: "PUT", body: JSON.stringify({ chat_id }) }),
+  perfKudosOptions: (to) => req(`/performance/kudos/options?to=${encodeURIComponent(to || "")}`),
   perfPlans: ({ person = "", company = "" } = {}) => req(`/performance/plans?${new URLSearchParams({ person, company }).toString()}`),
   perfPlan: (id) => req(`/performance/plans/${encodeURIComponent(id)}`),
   perfPlanCreate: (data) => req("/performance/plans", { method: "POST", body: JSON.stringify(data) }),

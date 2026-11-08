@@ -11,7 +11,6 @@ import { SettingCard, SettingRow, SwitchRow, NumberBox } from '../components/set
 import { Spinner, ErrorBanner } from '../components/AsyncState';
 import SaveRow from '../components/SaveRow';
 import { useGroupDirty } from '../lib/groupDirty';
-import { useRole } from '../contexts/RoleContext';
 
 export function PerformanceReminderSettings({ company = '', onOverride, toastOk, toastErr }) {
   const [meta, setMeta] = useState(null);
@@ -72,28 +71,17 @@ export function PerformanceReminderSettings({ company = '', onOverride, toastOk,
 
 // Kudos (Neil, 11/08/2026): the company values a kudos may be tagged with -
 // a chip list that saves on change, an organization default a company may
-// override (the same "performance" scoped setting) - and, for a Super
-// Administrator only, the Teams chat every kudos is posted to (empty = no
-// "Also post to Teams" switch on the send form).
+// override (the same "performance" scoped setting as the reminders).
 export function PerformanceKudosSettings({ company = '', onOverride, toastOk, toastErr }) {
-  const { isGlobalAdmin } = useRole() || {};
   const [meta, setMeta] = useState(null);
   const [loadErr, setLoadErr] = useState('');
   const [draft, setDraft] = useState('');
-  const [chat, setChat] = useState(null);      // { chatId } - Super Administrators only
-  const [chatDraft, setChatDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => {
     api.perfSettings(company).then(m => { setLoadErr(''); setMeta(m); }).catch(e => setLoadErr(e?.message || 'Could not load the settings.'));
   }, [company]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    if (!isGlobalAdmin || company) return;
-    api.perfKudosChat().then(c => { setChat(c); setChatDraft(c?.chatId || ''); }).catch(() => setChat(null));
-  }, [isGlobalAdmin, company]);
   useEffect(() => { if (meta && company) onOverride?.(!!meta.override); }, [meta, company, onOverride]);
-  const chatDirty = chat !== null && chatDraft.trim() !== (chat.chatId || '');
-  useGroupDirty(chatDirty);
 
   async function save(values, reset = false) {
     setBusy(true);
@@ -104,12 +92,6 @@ export function PerformanceKudosSettings({ company = '', onOverride, toastOk, to
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); load(); }
     finally { setBusy(false); }
   }
-  async function saveChat() {
-    setBusy(true);
-    try { const c = await api.perfKudosChatSave(chatDraft.trim()); setChat(c); setChatDraft(c.chatId || ''); toastOk?.('Saved.'); }
-    catch (e) { toastErr?.(e?.message || 'Could not save.'); }
-    finally { setBusy(false); }
-  }
 
   if (loadErr) return <ErrorBanner message={loadErr} onRetry={load} />;
   if (!meta) return <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="section" /></div>;
@@ -118,7 +100,7 @@ export function PerformanceKudosSettings({ company = '', onOverride, toastOk, to
   const add = () => { const v = draft.trim(); if (v && !values.some(x => x.toLowerCase() === v.toLowerCase())) save([...values, v]); };
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      {company && <span className="nx-set-pad" style={{ fontSize: 12, color: 'var(--muted)' }}>{meta.override ? 'This company has values of its own.' : 'This company uses the default values.'}</span>}
+      {company && <span className="nx-set-pad" style={{ fontSize: 12, color: 'var(--muted)' }}>{meta.override ? 'This company has settings of its own.' : 'This company uses the default.'}</span>}
       <SettingCard>
         <SettingRow title="Company Values" desc="The values a kudos may be tagged with - the send form asks which one they lived. No values, no question.">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
@@ -142,23 +124,60 @@ export function PerformanceKudosSettings({ company = '', onOverride, toastOk, to
             <div style={{ marginTop: 8 }}><button type="button" className="secondary-btn" disabled={busy} onClick={() => save([], true)} style={{ fontSize: 11.5 }}>Use the Default</button></div>
           )}
         </SettingRow>
-        {chat !== null && !company && (
-          <SettingRow title="Teams Chat" desc="The id of the Teams chat every kudos is posted to, as the sender. Leave it empty and the send form offers no Teams switch. Super Administrators only.">
-            <input className="form-input" value={chatDraft} onChange={e => setChatDraft(e.target.value)} placeholder="19:...@thread.v2" aria-label="Teams chat id"
-              style={{ width: 'min(100%, 420px)', fontSize: 12.5, padding: '5px 8px' }} />
-          </SettingRow>
-        )}
       </SettingCard>
-      {chat !== null && !company && (
-        <div className="nx-set-pad">
-          <SaveRow dirty={chatDirty} busy={busy} onSave={saveChat} onDiscard={() => setChatDraft(chat.chatId || '')} />
-        </div>
-      )}
       {!canEdit && (
         <p className="nx-set-pad" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
           {company ? 'Only HR for this company can change these.' : 'The default for every company is changed by HR with access to every company. Pick your company to set its own.'}
         </p>
       )}
+    </div>
+  );
+}
+
+// Kudos Teams Chat (Neil, 11/08/2026): the chat a company's kudos are posted
+// to, layered the same way (an organization default, a company's own over
+// it); its group opens to a Super Administrator only (AdminConsole `needs`),
+// and the save route refuses anyone else. One Save row, as a typed field.
+export function PerformanceKudosChatSettings({ company = '', onOverride, toastOk, toastErr }) {
+  const [meta, setMeta] = useState(null);
+  const [loadErr, setLoadErr] = useState('');
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    api.perfSettings(company).then(m => { setLoadErr(''); setMeta(m); setDraft(m.settings?.kudosTeamsChatId || ''); })
+      .catch(e => setLoadErr(e?.message || 'Could not load the settings.'));
+  }, [company]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (meta && company) onOverride?.(!!meta.override); }, [meta, company, onOverride]);
+  const saved = meta?.settings?.kudosTeamsChatId || '';
+  const dirty = !!meta && draft.trim() !== saved;
+  useGroupDirty(dirty);
+
+  async function save(reset = false) {
+    setBusy(true);
+    try {
+      const m = await api.perfSettingsSave({ company, settings: { kudosTeamsChatId: draft.trim() }, reset });
+      setMeta(m); setDraft(m.settings?.kudosTeamsChatId || '');
+      toastOk?.(reset ? 'Back to the default for every company.' : 'Saved.');
+    } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
+    finally { setBusy(false); }
+  }
+
+  if (loadErr) return <ErrorBanner message={loadErr} onRetry={load} />;
+  if (!meta) return <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="section" /></div>;
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {company && <span className="nx-set-pad" style={{ fontSize: 12, color: 'var(--muted)' }}>{meta.override ? 'This company has settings of its own.' : 'This company uses the default.'}</span>}
+      <SettingCard>
+        <SettingRow title="Teams Chat" desc="The id of the Teams chat this company's kudos are posted to, as the sender (the fallback posters must be members of it). Leave it empty and the send form offers no Teams switch for this company.">
+          <input className="form-input" value={draft} onChange={e => setDraft(e.target.value)} placeholder="19:...@thread.v2" aria-label="Teams chat id"
+            style={{ width: 'min(100%, 420px)', fontSize: 12.5, padding: '5px 8px' }} />
+        </SettingRow>
+      </SettingCard>
+      <div className="nx-set-pad">
+        <SaveRow dirty={dirty} busy={busy} onSave={() => save(false)} onDiscard={() => setDraft(saved)}
+          onUseDefault={company && meta.override ? () => save(true) : undefined} />
+      </div>
     </div>
   );
 }

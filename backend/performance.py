@@ -64,7 +64,10 @@ SETTINGS_KEY = "performance"
 DEFAULTS = {"checkinEveryDays": 14, "oneOnOneReminder": True,
             # Kudos (Neil, 11/08/2026): the company values a kudos may be tagged
             # with; empty = no picker. A company may override the organization's list.
-            "kudosValues": []}
+            "kudosValues": [],
+            # The Teams chat a company's kudos are posted to ('' = none); a Super
+            # Administrator's to write (routers/performance.save_settings).
+            "kudosTeamsChatId": ""}
 KUDOS_VALUES_MAX = 20
 CHECKIN_DAYS_MAX = 90
 
@@ -268,6 +271,7 @@ def clean_settings(cfg: dict) -> dict:
         if v and v.lower() not in [x.lower() for x in seen]:
             seen.append(v)
     out["kudosValues"] = seen[:KUDOS_VALUES_MAX]
+    out["kudosTeamsChatId"] = str(cfg.get("kudosTeamsChatId") or "").strip()[:200]
     return out
 
 

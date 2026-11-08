@@ -7,7 +7,6 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-import auth
 import models
 import perf_feedback as pf
 import perf_plans as pp
@@ -108,15 +107,11 @@ class ThanksIn(BaseModel):
     note: Optional[str] = ""
 
 
-class KudosChatIn(BaseModel):
-    chat_id: Optional[str] = ""
-
-
 @router.get("/kudos")
 def list_kudos(scope: str = "company", person: str = "", company: str = "",
-               user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+               user: dict = Depends(get_current_user), db: Session = Depends(get_db), limit: int = 60):
     _me(user)
-    return pf.kudos_list(db, user, scope=scope, person=person, company=company)
+    return pf.kudos_list(db, user, scope=scope, person=person, company=company, limit=limit)
 
 
 @router.post("/kudos", status_code=201)
@@ -146,26 +141,12 @@ def kudos_summary(user: dict = Depends(get_current_user), db: Session = Depends(
     return pf.summary(db, user)
 
 
-@router.get("/kudos/chat")
-def get_kudos_chat(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get("/kudos/options")
+def kudos_options(to: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The send form, once a recipient is picked: their company's values and
+    whether their company posts kudos to Teams."""
     _me(user)
-    if not auth.is_global_admin(user, db):
-        raise HTTPException(403, "Only a Super Administrator sets the kudos Teams chat.")
-    return {"chatId": pf.teams_chat_id(db)}
-
-
-@router.put("/kudos/chat")
-def save_kudos_chat(body: KudosChatIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    me = _me(user)
-    if not auth.is_global_admin(user, db):
-        raise HTTPException(403, "Only a Super Administrator sets the kudos Teams chat.")
-    row = db.get(models.NexusSetting, pf.CHAT_ID_KEY)
-    if row is None:
-        row = models.NexusSetting(key=pf.CHAT_ID_KEY)
-        db.add(row)
-    row.value, row.updated_by, row.updated_at = (body.chat_id or "").strip()[:200], me, perf.now_iso()
-    db.commit()
-    return {"chatId": row.value}
+    return pf.options(db, user, to)
 
 
 @router.post("/kudos/{kid}/thanks", status_code=201)

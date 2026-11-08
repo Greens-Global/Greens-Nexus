@@ -6,7 +6,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // recipient's moment card and the Dashboard widget.
 
 const m = {
-  perfKudos: vi.fn(), perfKudosGive: vi.fn(), perfKudosThank: vi.fn(), perfKudosUnthank: vi.fn(),
+  perfKudos: vi.fn(), perfKudosGive: vi.fn(), perfKudosThank: vi.fn(), perfKudosUnthank: vi.fn(), perfKudosOptions: vi.fn(),
   perfKudosUnseen: vi.fn(), perfKudosSeen: vi.fn(), getPeopleDirectory: vi.fn(),
 };
 let actAs = null;
@@ -25,7 +25,7 @@ const ME = 'erin@x.com';
 const CTX = { email: ME, name: 'Erin Test' };
 const K = {
   id: 'k1', fromEmail: 'pat@x.com', fromName: 'Pat Test', toEmail: 'sam@x.com', toName: 'Sam Lee', message: 'Saved the Friday close',
-  value: 'Ownership', createdAt: '2026-10-29T10:00:00+00:00', seenAt: '', thanksCount: 2, myThanks: null, can: { hide: false, thank: true },
+  value: 'Ownership', createdAt: '2026-10-29T10:00:00+00:00', seenAt: '', thanksCount: 2, myThanks: null, can: { hide: false, thank: true, takeBack: false },
   thanks: [{ email: 'marco@x.com', name: 'Marco Diaz', note: 'Well earned' }, { email: 'ana@x.com', name: 'Ana Ruiz', note: '' }],
 };
 
@@ -38,8 +38,8 @@ beforeEach(() => {
 
 describe('Kudos thanks row', () => {
   it('names who added their thanks, opens the notes, adds mine with a note and takes it back', async () => {
-    m.perfKudos.mockResolvedValue({ items: [K], receivedLast90: 0, values: [], teamsChat: false });
-    const mine = { ...K, myThanks: { note: 'Me too' }, can: { hide: false, thank: false },
+    m.perfKudos.mockResolvedValue({ items: [K], receivedLast90: 0 });
+    const mine = { ...K, myThanks: { note: 'Me too' }, can: { hide: false, thank: false, takeBack: true },
       thanks: [...K.thanks, { email: ME, name: 'Erin Test', note: 'Me too' }], thanksCount: 3 };
     m.perfKudosThank.mockResolvedValue(mine);
     m.perfKudosUnthank.mockResolvedValue(K);
@@ -65,6 +65,16 @@ describe('Kudos thanks row', () => {
     expect(screen.queryByRole('button', { name: 'Add Your Thanks' })).toBeNull();
   });
 
+  it("the recipient's own thanks is the reply - Say Thanks, and no Take Back on it", async () => {
+    const replied = { ...K, toEmail: ME, myThanks: { note: 'Thank you' }, can: { hide: false, thank: false, takeBack: false },
+      thanks: [...K.thanks, { email: ME, name: 'Erin Test', note: 'Thank you' }] };
+    m.perfKudos.mockResolvedValue({ items: [{ ...K, toEmail: ME }, replied].map((k, i) => ({ ...k, id: `k${i}` })), receivedLast90: 2 });
+    render(<KudosCard ctx={CTX} />);
+    expect(await screen.findByRole('button', { name: 'Say Thanks' })).toBeTruthy();
+    expect(screen.getByText(/You said thanks/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Take Back' })).toBeNull();
+  });
+
   it('reads the names like a sentence', () => {
     expect(thanksSentence(['Marco'])).toBe('Marco');
     expect(thanksSentence(['Marco', 'Ana'])).toBe('Marco and Ana');
@@ -74,11 +84,13 @@ describe('Kudos thanks row', () => {
 });
 
 describe('Give Kudos form', () => {
-  it('offers the company values and the Teams switch, and sends both', async () => {
+  it("offers the recipient's company values and the Teams switch once a recipient is picked, and sends both", async () => {
+    m.perfKudosOptions.mockResolvedValue({ values: ['Ownership', 'Safety First'], teamsChat: true });
     m.perfKudosGive.mockResolvedValue({ ...K, toName: 'Sam Lee' });
     const given = vi.fn();
-    render(<GiveKudosModal me={ME} to="sam@x.com" values={['Ownership', 'Safety First']} teamsChat onGiven={given} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Safety First' }));
+    render(<GiveKudosModal me={ME} to="sam@x.com" onGiven={given} />);
+    await waitFor(() => expect(m.perfKudosOptions).toHaveBeenCalledWith('sam@x.com'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Safety First' }));
     expect(screen.getByRole('button', { name: 'Safety First' }).getAttribute('aria-pressed')).toBe('true');
     const sw = screen.getByRole('switch', { name: 'Also post to Teams' });
     expect(sw.checked).toBe(true);
@@ -89,9 +101,17 @@ describe('Give Kudos form', () => {
     await waitFor(() => expect(given).toHaveBeenCalled());
   });
 
-  it('shows no picker and no switch when the company has neither', () => {
-    render(<GiveKudosModal me={ME} to="sam@x.com" values={[]} teamsChat={false} />);
+  it("shows no picker and no switch when the recipient's company has neither, or before a recipient is picked", async () => {
+    m.perfKudosOptions.mockResolvedValue({ values: [], teamsChat: false });
+    const { unmount } = render(<GiveKudosModal me={ME} to="sam@x.com" />);
+    await waitFor(() => expect(m.perfKudosOptions).toHaveBeenCalledWith('sam@x.com'));
     expect(screen.queryByRole('group', { name: /Which value/ })).toBeNull();
+    expect(screen.queryByRole('switch')).toBeNull();
+    unmount();
+    m.perfKudosOptions.mockClear();
+    render(<GiveKudosModal me={ME} />);
+    await new Promise(r => setTimeout(r, 0));
+    expect(m.perfKudosOptions).not.toHaveBeenCalled();
     expect(screen.queryByRole('switch')).toBeNull();
   });
 });
@@ -134,13 +154,18 @@ describe('The recipient moment', () => {
 });
 
 describe('Kudos widget', () => {
-  it('renders the feed with the value and thanks, and See All', async () => {
+  it('asks for six rows, renders the value and thanks and See All, and says when a thank fails', async () => {
     m.perfKudos.mockResolvedValue({ items: [K], receivedLast90: 0 });
+    m.perfKudosThank.mockRejectedValue(new Error('You already added your thanks.'));
     render(<KudosWidget me={ME} />);
     expect(await screen.findByText('Saved the Friday close')).toBeTruthy();
+    expect(m.perfKudos).toHaveBeenCalledWith({ scope: 'company', limit: 6 });
     expect(screen.getByText('Ownership')).toBeTruthy();
     expect(screen.getByText('Marco and Ana added their thanks')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Add Your Thanks' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'See All' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Your Thanks' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toBe('You already added your thanks.');
   });
 });

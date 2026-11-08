@@ -48,13 +48,23 @@ export function ValuePicker({ values = [], value, onChange }) {
   );
 }
 
-export function GiveKudosModal({ me, to = '', values = [], teamsChat = false, onClose, onGiven, toastErr }) {
+export function GiveKudosModal({ me, to = '', onClose, onGiven, toastErr }) {
   const people = usePeople();
   const [who, setWho] = useState(to);
   const [msg, setMsg] = useState('');
   const [value, setValue] = useState('');
   const [teams, setTeams] = useState(true);
   const [busy, setBusy] = useState(false);
+  // The recipient's company decides the values and the Teams chat (read once a recipient is picked).
+  const [opts, setOpts] = useState({ values: [], teamsChat: false });
+  useEffect(() => {
+    if (!who) { setOpts({ values: [], teamsChat: false }); return undefined; }
+    let on = true;
+    api.perfKudosOptions(who).then(o => { if (on) { setOpts({ values: o?.values || [], teamsChat: !!o?.teamsChat }); setValue(v => ((o?.values || []).includes(v) ? v : '')); } })
+      .catch(() => { if (on) setOpts({ values: [], teamsChat: false }); });
+    return () => { on = false; };
+  }, [who]);
+  const { values, teamsChat } = opts;
   const choices = people.filter(p => !p.external && p.email !== me);
   async function send() {
     if (!who) { toastErr?.('Pick who the kudos are for.'); return; }
@@ -127,7 +137,7 @@ export function ThanksRow({ k, me, onThank, onUnthank }) {
           </button>
         )}
         {mine ? (
-          <span>{recipient ? 'You said thanks' : 'You added your thanks'} · <button type="button" style={TEXT_BTN} disabled={busy} onClick={() => onUnthank(k)}>Take Back</button></span>
+          <span>{recipient ? 'You said thanks' : 'You added your thanks'}{k.can?.takeBack && <> · <button type="button" style={TEXT_BTN} disabled={busy} onClick={() => onUnthank(k)}>Take Back</button></>}</span>
         ) : k.can?.thank && !adding ? (
           <button type="button" style={TEXT_BTN} onClick={() => setAdding(true)}>{recipient ? 'Say Thanks' : 'Add Your Thanks'}</button>
         ) : null}
@@ -230,7 +240,7 @@ export function KudosCard({ ctx, person = '', name = '', focusId = '', toastOk, 
             empty={person ? `No kudos for ${first || 'them'} yet.` : tab === 'mine' ? 'No kudos to or from you yet.' : 'No kudos yet - be the first to thank someone.'} />
         </div>
       )}
-      {give && <GiveKudosModal me={ctx?.email} to={person} values={data?.values || []} teamsChat={!!data?.teamsChat} onClose={() => setGive(false)} toastErr={toastErr}
+      {give && <GiveKudosModal me={ctx?.email} to={person} onClose={() => setGive(false)} toastErr={toastErr}
         onGiven={(k) => { setGive(false); toastOk?.(`Kudos sent to ${k.toName}.`); load(); }} />}
     </section>
   );
@@ -241,9 +251,11 @@ export function KudosCard({ ctx, person = '', name = '', focusId = '', toastOk, 
 export function KudosWidget({ me = '' }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
-  const load = useCallback(() => api.perfKudos({ scope: 'company' }).then(r => { setErr(''); setData(r); }).catch(e => setErr(e?.message || 'Could not load the kudos.')), []);
+  const [note, setNote] = useState('');   // a failed thank says so under the list, never silently
+  const load = useCallback(() => api.perfKudos({ scope: 'company', limit: 6 }).then(r => { setErr(''); setData(r); }).catch(e => setErr(e?.message || 'Could not load the kudos.')), []);
   useEffect(() => { load(); }, [load]);
-  const { thank, unthank } = useThanks(setData);
+  const say = useCallback((m) => { setNote(m); setTimeout(() => setNote(''), 5000); }, []);
+  const { thank, unthank } = useThanks(setData, say);
   const go = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'performance' } }));
   return (
     <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
@@ -256,6 +268,7 @@ export function KudosWidget({ me = '' }) {
           <KudosList items={(data.items || []).slice(0, 6)} me={me} onThank={thank} onUnthank={unthank} compact
             empty="No kudos yet - be the first to thank someone." />
         )}
+        {note && <div role="alert" style={{ marginTop: 8, fontSize: 12.5, color: 'var(--red, #b91c1c)' }}>{note}</div>}
       </div>
     </div>
   );
