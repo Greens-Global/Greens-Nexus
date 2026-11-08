@@ -192,28 +192,24 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .wd-metric-v { font-size: 16px; font-weight: 700; color: var(--ink); margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .wd-week-total { font-size: 12.5px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
     [data-theme="dark"] .wd-clock-side { background: rgba(255,255,255,.02); }
-    /* Overview tiles (dk-stat look, hero gradient included) in one compact
-       row: chip, then number / label / hint, then the arrow. */
-    /* --wd-n: the tiles after Hours, counted by MyHR (Time Off, Time With Us
-       when there is a start date, My Tickets when there is work - Neil,
-       11/04/2026 - and the actions cell). */
-    .wd-statgrid { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(var(--wd-n, 3), minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-    .wd-statgrid--nohours { grid-template-columns: repeat(var(--wd-n, 3), minmax(0, 1fr)); }
-    /* Ask HR + Reimbursements (Oct 18 2026) + Purchase Request (Oct 22 2026):
-       compact rows sharing the last cell, so none squeezes the row to
-       "Document..." - the same tile look, a smaller badge, no pill. Three
-       rows run a touch tighter than two did. */
-    .wd-actions { display: grid; grid-auto-rows: 1fr; gap: 6px; min-width: 0; } /* three rows, four with Fill a Form */
-    .wd-actions > .dk-stat.wd-stat.wd-askhr { padding: 6px 12px; gap: 10px; min-height: 0; box-shadow: 0 3px 10px rgba(43, 69, 225, .08); }
+    /* The Workday actions (Neil, 11/08/2026 - the summary tiles went): ONE
+       row of pills under the clock card - Ask HR, Reimbursements, Purchase
+       Request, Fill a Form and My Tickets when there is one - equal widths,
+       2 x 2 under 1000px, a stack on a phone. The same tile look as before,
+       a smaller badge, no call-to-action pill. */
+    .wd-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; margin-bottom: 16px; min-width: 0; }
+    .wd-actions > .dk-stat.wd-stat.wd-askhr { padding: 10px 14px; gap: 10px; min-height: 0; box-shadow: 0 3px 10px rgba(43, 69, 225, .08); }
     .wd-actions > .dk-stat.wd-stat.wd-askhr::after { width: 64px; height: 64px; right: -22px; top: -22px; }
-    .wd-actions .wd-askhr-badge { width: 28px; height: 28px; border-radius: 9px; box-shadow: 0 3px 8px rgba(43, 69, 225, .25); }
-    .wd-actions .wd-askhr-badge svg { width: 15px; height: 15px; }
+    .wd-actions .wd-askhr-badge { width: 32px; height: 32px; border-radius: 10px; box-shadow: 0 3px 8px rgba(43, 69, 225, .25); }
+    .wd-actions .wd-askhr-badge svg { width: 16px; height: 16px; }
     .wd-actions .wd-askhr-dot { top: -3px; right: -3px; width: 9px; height: 9px; }
     .wd-actions .wd-askhr-title { font-size: 13.5px; }
-    .wd-actions .wd-askhr-sub { font-size: 11px; margin-top: 1px; }
+    .wd-actions .wd-askhr-sub { font-size: 11.5px; margin-top: 1px; }
     .wd-actions .wd-askhr-cta { display: none; }
     .wd-actions .wd-askhr-go { margin-left: auto; flex-shrink: 0; color: var(--muted); transition: transform .15s ease, color .15s ease; }
     .wd-actions .wd-askhr:hover .wd-askhr-go { color: var(--wk-brand, #2b45e1); transform: translateX(2px); }
+    @media (max-width: 1000px) { .wd-actions { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 600px) { .wd-actions { grid-template-columns: minmax(0, 1fr); gap: 10px; } }
     /* Ask HR tile (Oct 15 2026): a light echo of the hero's gradient so it reads
        as the place to go for HR, with a solid badge and a call-to-action pill. */
     .dk-stat.wd-stat.wd-askhr { position: relative; overflow: hidden; border: 1px solid rgba(43, 69, 225, .18);
@@ -233,43 +229,8 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     [data-theme="dark"] .dk-stat.wd-stat.wd-askhr { background: linear-gradient(135deg, rgba(66, 86, 232, .22) 0%, rgba(22, 163, 74, .16) 100%), var(--card); border-color: rgba(120, 140, 255, .28); }
     /* 1440, not 1200: at a 1280 laptop the pill crushed the tile to "Ask / HR / D.." (Oct 17). */
     @media (max-width: 1440px) { .wd-askhr-cta { display: none; } }
-    .dk-stat.wd-stat.wd-hero { padding: 0; gap: 0; align-items: stretch; }
-    .wd-hero-part { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; border-radius: inherit; transition: background .15s ease; }
-    .wd-hero-part:first-child { flex: 1.15; }
-    .wd-hero-part:hover:not(:disabled) { background: rgba(255,255,255,.08); }
-    .wd-hero-part:disabled { cursor: default; }
-    .wd-hero-part:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
-    .dk-stat.wd-hero:hover { transform: none; }
-    .wd-hero-shift { flex: 1; position: relative; }
-    .wd-hero-shift::before { content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; border-left: 1px solid rgba(255,255,255,.28); }
-    .wd-hero-shift-l { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: rgba(255,255,255,.8); }
-    .wd-hero-shift-v { font-size: 16px; font-weight: 700; color: #fff; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .wd-hero-shift-s { font-size: 11.5px; color: rgba(255,255,255,.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    @media (max-width: 1000px) { .wd-statgrid { grid-template-columns: 1fr 1fr; } .wd-statgrid > .wd-hero { grid-column: 1 / -1; }
-      /* The hero spans the row, so an even child count leaves the last tile alone
-         beside an empty cell (Ask HR, cut to "Documents, profile ch...") - it takes the row. */
-      .wd-statgrid > .wd-hero ~ :last-child:nth-child(even),
-      .wd-statgrid--nohours > :last-child:nth-child(odd) { grid-column: 1 / -1; }
-      /* On their own full-width row the three sit side by side. */
-      .wd-actions { grid-template-rows: none; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-    @media (max-width: 600px) {
-      .wd-statgrid { grid-template-columns: 1fr 1fr; gap: 10px; }
-      .wd-hero .dk-stat-sub { display: block; }
-      /* Three across a phone cut every title short - they stack. */
-      .wd-actions { grid-template-columns: minmax(0, 1fr); }
-
-      .dk-stat.wd-stat { padding: 10px 12px; gap: 10px; }
-      .wd-stat .dk-chip { width: 30px; height: 30px; }
-      .wd-stat .dk-stat-num { font-size: 18px; }
-      .wd-stat .dk-stat-sub, .wd-stat .dk-stat-arrow { display: none; }
-    }
     .dk-stat.wd-stat { flex-direction: row; align-items: center; gap: 12px; padding: 12px 14px; }
-    .wd-stat .dk-chip { width: 34px; height: 34px; }
     .wd-stat-text { flex: 1; min-width: 0; }
-    .wd-stat .dk-stat-num { font-size: 21px; margin-top: 0; line-height: 1.15; }
-    .wd-stat .dk-stat-label { margin-top: 1px; font-size: 12.5px; }
-    .wd-stat .dk-stat-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; }
-    .wd-stat .dk-stat-arrow { flex-shrink: 0; }
     @media (max-width: 900px) { .wd-clock-body { grid-template-columns: 1fr; } .wd-clock-main { justify-content: center; } .wd-clock-side { border-left: none; border-top: 1px solid var(--line); } }
     /* Phone (Oct 13): the dial beside the status, the punch button the full
        width under both; no greeting line (the module header already says
@@ -290,7 +251,7 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
       .wd-bars-plot { height: 76px; }
       .wd-overview { display: flex; flex-direction: column; }
       .wd-overview > .wd-clock-wrap { order: -1; margin-bottom: 12px; }
-      .wd-overview > .wd-statgrid { margin-bottom: 12px; }
+      .wd-overview > .wd-actions { margin-bottom: 12px; }
       .wd-overview .myhr-grid, .wd-overview .myhr-grid > div, .wd-overview .myhr-main { gap: 12px; }
       .wd-overview .dash-card { padding: 16px; }
       .wd-overview .dash-card-head { margin-bottom: 10px; }
@@ -1485,7 +1446,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Nexus Sign documents waiting on me, signed here (Oct 18) - Documents needs a grant. */}
       {tab === 'overview' && <DocumentsToSign focusParty={signOf(activeSub)} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'overview' && (
-        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} askFocus={askFocus} openForm={formOpen} clock={clockWidget} leaveBalance={leaveBal} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
+        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} askFocus={askFocus} openForm={formOpen} clock={clockWidget} leaveBalance={leaveBal} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setPurchaseOpen({ newForm: false })} />
       )}
 
       {/* Time sheets waiting on my signature - above my own timesheet. Renders
