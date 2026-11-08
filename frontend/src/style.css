@@ -9897,3 +9897,42 @@ a[data-type="recordLink"][data-ref]:hover { background: var(--wk-hover); }
   .nx-copy-icon > svg, .nx-reorder.is-dragging .nx-reorder-row { transition: none; }
   .nx-lbtn-face, .nx-newpill, .nx-fieldnote { animation: none !important; }
 }
+
+/* ── People > person record (pass of 11/08/2026) ───────────────────────────
+   A label column in the canon beside the value, hairline rows, a reading
+   width for the sections and an "at a glance" column beside the tabs on a
+   wide screen. The phone stacks label over value. */
+.pr-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 4px 16px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); min-height: 40px; box-sizing: border-box; }
+.pr-row-label { font-size: 12px; font-weight: 500; color: var(--muted); line-height: 1.35; }
+.pr-row-value { font-size: 13.5px; color: var(--ink); min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
+.pr-row-value .form-input, .pr-row-value select.form-input { height: 34px; padding: 0 10px; font-size: 13.5px; border-radius: 8px; }
+.pr-row-value textarea.form-input { height: auto; padding: 7px 10px; }
+.pr-link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.pr-link:hover { text-decoration-color: var(--muted); }
+.pr-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; flex-wrap: wrap; }
+.pr-section-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink); flex: 1; }
+.pr-section { max-width: 780px; }
+.pr-record { container-type: inline-size; }
+/* Narrow record (the Directory split on a laptop, a phone): the glance strip
+   runs across the top, above the tabs. Wide record: a column on the right. */
+.pr-body { display: flex; flex-direction: column; gap: 22px; margin-top: 18px; }
+.pr-body > .pr-main { min-width: 0; order: 2; }
+.pr-glance { order: 1; display: flex; flex-direction: row; flex-wrap: wrap; gap: 14px 28px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+@container (min-width: 1000px) {
+  /* The sections keep a reading width; the glance column sits right beside them, not at the far edge of a wide screen. */
+  .pr-body { display: grid; grid-template-columns: minmax(0, 820px) 272px; gap: 36px; align-items: start; justify-content: start; }
+  .pr-glance { order: 2; flex-direction: column; flex-wrap: nowrap; gap: 14px; padding-bottom: 0; border-bottom: none; position: sticky; top: 80px; }
+}
+.pr-glance-row { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pr-glance-row > .pr-row-label { font-size: 12px; }
+.pr-glance-person { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); min-width: 0; }
+.pr-glance-person small { display: block; font-size: 11.5px; color: var(--muted); }
+.pr-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+.pr-tab { padding: 8px 12px; font-size: 13px; font-weight: 500; font-family: inherit; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; white-space: nowrap; }
+.pr-tab[aria-current="page"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--wk-brand, var(--pine)); }
+.pr-h3 { margin: 26px 0 8px; font-size: 14px; font-weight: 600; color: var(--ink); }
+.pr-facts { font-size: 12.5px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+.pr-status-btn { background: none; border: none; padding: 0; cursor: pointer; display: inline-flex; }
+@media (max-width: 640px) {
+  .pr-row { grid-template-columns: 1fr; gap: 2px; padding: 8px 0; }
+}

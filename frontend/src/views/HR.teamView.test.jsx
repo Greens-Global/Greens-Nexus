@@ -4,8 +4,8 @@ import { render, screen, fireEvent, cleanup, within } from '@testing-library/rea
 // Managers see their own team in People (Pranshu, 10/06): the Manager tier
 // with the People grant sees People and Time only - no
 // Hiring / Org Chart / Leave / Checklists, no Add Person - and each person's
-// profile has read-only tabs (Overview, Job, Time & Scheduling, Access, Assets,
-// Work Logs - 11/03/2026): no Pay & Benefits, Compliance, Documents or Checklist, no Edit. The
+// profile has read-only tabs (Overview, Job, Time & Scheduling, Access, Assets - seven
+// tabs since 11/08/2026): no Pay, Compliance, Documents or Checklist, no Edit. The
 // server enforces all of it; this is the matching screen.
 
 const PEOPLE = [
@@ -70,14 +70,14 @@ describe('People limited to my team', () => {
   it('names the manager themself as "you", not "no manager"', async () => {
     await renderPeople();
     fireEvent.click(screen.getAllByText('Mia Mid')[0]);   // reports to val@x.com - the viewer, not in their own list
-    expect(screen.getByText('reports to you')).toBeTruthy();
-    expect(screen.queryByText('no manager')).toBeNull();
+    expect(screen.getByText(/Reports to you/)).toBeTruthy();   // the facts line under the name
+    expect(screen.queryByText(/no manager/i)).toBeNull();
   }, 20000);
 
   it("shows a DIRECT report's Pay & Benefits read only - no Edit, no bank, no upload", async () => {
     await renderPeople();
     fireEvent.click(screen.getAllByText('Mia Mid')[0]);   // reports to val@x.com, the viewer
-    fireEvent.click(screen.getByRole('button', { name: 'Pay & Benefits' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pay' }));
     expect(await screen.findByText(/\$5,200/)).toBeTruthy();
     expect(screen.getByText(/Read only · your direct report/)).toBeTruthy();
     expect(screen.queryByText('Bank accounts')).toBeNull();
@@ -88,10 +88,10 @@ describe('People limited to my team', () => {
   it('opens a profile with read-only tabs and the Access tab as a list', async () => {
     await renderPeople();
     fireEvent.click(screen.getAllByText('Leo Low')[0]);
-    const tabNames = ['Overview', 'Job', 'Time & Scheduling', 'Access', 'Assets', 'Work Logs'];
+    const tabNames = ['Overview', 'Job', 'Time & Scheduling', 'Access', 'Assets'];
     for (const t of tabNames) expect(screen.getByRole('button', { name: t })).toBeTruthy();
     for (const t of ['Role', 'Work Mode', 'More Details']) expect(screen.queryByRole('button', { name: t })).toBeNull();
-    for (const t of ['Pay & Benefits', 'Reimbursements', 'Compliance', 'Documents', 'Checklist', 'Interviews']) {
+    for (const t of ['Pay', 'Reimbursements', 'Compliance', 'Documents', 'Checklist', 'Interviews']) {
       expect(screen.queryByRole('button', { name: t })).toBeNull();
     }
     expect(screen.queryByRole('button', { name: /^Edit$/ })).toBeNull();

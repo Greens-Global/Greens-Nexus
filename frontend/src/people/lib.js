@@ -55,7 +55,7 @@ export const pickRows = (list) => {
 };
 export const PICK_BOX = { height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13.5, fontWeight: 400 };
 
-export const FL = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.05em', textTransform: 'uppercase' };
+export const FL = { fontSize: 12, fontWeight: 500, color: 'var(--muted)', display: 'block', marginBottom: 6 };
 export const BOX = { width: '100%', boxSizing: 'border-box' };
 export const DATE_BOX = { width: '100%', boxSizing: 'border-box', height: 38, padding: '0 12px', border: '1px solid var(--line)', borderRadius: 10, fontSize: 13.5, background: 'var(--card)' };
 export const HINT = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4 };

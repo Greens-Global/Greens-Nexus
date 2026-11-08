@@ -7,6 +7,8 @@ import SendFederalFormMenu from '../components/SendFederalFormMenu';
 import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import { ProbationBadge } from '../components/HrProbation';
+import { StatusLabel } from '../components/StatusLabel';
+import PersonActions from '../components/PersonActions';
 import MailboxExportResult from '../components/MailboxExportResult';
 import { RoleChangeRequestCard, RoleChangeDecisionModal } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
@@ -584,13 +586,14 @@ function nextExpiry(e) {
   return cands.sort((a, b) => a.days - b.days)[0];
 }
 
+// A small figure card (the Team view's access strip keeps it).
 function StatCard({ label, value, sub, tone }) {
   const color = tone === 'red' ? 'hsl(var(--color-red))' : tone === 'orange' ? 'hsl(var(--color-orange))' : 'var(--ink)';
   return (
-    <div style={{ flex: '1 1 120px', minWidth: 110, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
-      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 3, color, lineHeight: 1.1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>}
+    <div style={{ flex: '1 1 120px', minWidth: 110, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8, padding: '11px 14px' }}>
+      <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, marginTop: 3, color, lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>}
     </div>
   );
 }
@@ -842,7 +845,7 @@ function TeamAccessView({ employee }) {
 // with unsaved edits asks first. The tab bodies live in frontend/src/people/.
 // Old keys still land: 'location' (Work Mode) is Time & Scheduling and
 // 'details' (More Details) is the foot of Overview.
-const LEGACY_TAB = { location: 'time', details: 'overview' };
+const LEGACY_TAB = { location: 'time', details: 'overview', expenses: 'pay', compliance: 'documents', checklist: 'job', bod: 'time' };
 function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], focusProbation = false, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged, onReload }) {
   // Removed from Nexus (soft delete) - the record is intact and restorable.
   const isRemoved = !!e.deletedAt;
@@ -886,7 +889,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   async function removeFromNexus() {
     if (!await dialog.confirm(
       `Remove ${fullName(e)} from Nexus? They disappear from the directory and everywhere else in Nexus, but nothing is deleted - you can restore them any time from the Deleted filter. It does NOT change or deprovision their Microsoft 365 account - use Offboard for a full offboarding.`,
-      { title: 'Remove From Nexus Only', confirmText: 'Remove From Nexus', danger: true })) return;
+      { title: 'Remove From Nexus Only', confirmText: 'Remove From Nexus', danger: true, hold: true })) return;
     try {
       await api.deleteEmployee(e.id);
       toastOk(`${fullName(e)} removed from Nexus. Restore them any time from the Deleted filter.`);
@@ -913,171 +916,181 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   // plus Pay & Benefits and Reimbursements for their DIRECT reports (Oct 7).
   // Tab order and names are Neil's (11/03/2026); the keys stay so links land.
   const directReport = teamView && !!mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase();
+  // Seven tabs (Neil, 11/08/2026): Checklist rides on Job, Work Logs on
+  // Time, Reimbursements on Pay, Compliance on Documents; Access and Assets
+  // stay their own. The old keys still land (LEGACY_TAB).
   const tabs = (teamView ? [
-    ['overview', 'Overview', Contact],
-    ['job', 'Job', Briefcase],
-    ['time', 'Time & Scheduling', CalendarClock],
-    directReport && ['pay', 'Pay & Benefits', Wallet],
-    directReport && ['expenses', 'Reimbursements', Receipt],
-    ['access', 'Access', Shield],
-    ['assets', 'Assets', Package],
-    ['bod', 'Work Logs', Clock],
+    ['overview', 'Overview'],
+    ['job', 'Job'],
+    ['time', 'Time & Scheduling'],
+    directReport && ['pay', 'Pay'],
+    ['access', 'Access'],
+    ['assets', 'Assets'],
   ] : [
-    ['overview', 'Overview', Contact],
-    ['job', 'Job', Briefcase],
-    ['time', 'Time & Scheduling', CalendarClock],
-    canSeeComp && ['pay', 'Pay & Benefits', Wallet],
-    ['expenses', 'Reimbursements', Receipt],
-    ['compliance', 'Compliance', ShieldCheck],
-    // Everyone in People sees Access (Pranshu, Oct 14): the pending role
-    // change and the role history; managing access stays admin-only.
-    ['access', 'Access', Shield],
-    ['documents', 'Documents', FileText],
-    ['assets', 'Assets', Package],
-    ['checklist', 'Checklist', ListChecks],
-    ['bod', 'Work Logs', Clock],
+    ['overview', 'Overview'],
+    ['job', 'Job'],
+    ['time', 'Time & Scheduling'],
+    canSeeComp && ['pay', 'Pay'],
+    ['documents', 'Documents'],
+    ['access', 'Access'],
+    ['assets', 'Assets'],
   ]).filter(Boolean);
+  const shownTab = tabs.some(([id]) => id === tab) ? tab : 'overview';
   const expiry = nextExpiry(e);
+  const tenure = fmtTenure(e.startDate);
+  const canAct = canEditProfile && !teamView && ['active', 'onboarding'].includes(e.status) && e.identityType !== 'external';
+  const facts = [
+    TYPE_LABEL[e.employmentType],
+    e.department,
+    e.location,
+    manager ? `Reports to ${fullName(manager)}` : mgrEmail ? `Reports to ${mgrEmail === (viewerEmail || '').toLowerCase() ? 'you' : mgrEmail}` : null,
+    reports.length ? `${reports.length} direct report${reports.length === 1 ? '' : 's'}` : null,
+    e.startDate ? `Since ${formatDate(e.startDate)}${tenure ? ` (${tenure})` : ''}` : null,
+  ].filter(Boolean);
+  // Everything HR can do to the record, behind one Actions menu (11/08/2026);
+  // the two that cannot be taken back sit last, in red.
+  const actions = isRemoved || teamView ? [] : [
+    canChangeRole && canAct && { label: 'Promote', Icon: TrendingUp, onClick: () => setRoleAction('promotion'), title: 'Promotion letter through Nexus Sign - new role, pay and date; the employee and their manager sign' },
+    canChangeRole && canAct && { label: 'Change Role', Icon: Shield, onClick: () => setRoleAction('choose'), title: 'Move them to a different role - as a promotion with a letter, or just the role' },
+    { label: 'Change Status', Icon: Pencil, onClick: () => setStatusOpen(true), title: 'Change status (with reason)' },
+    e.m365Id && { label: 'Push to Microsoft 365', Icon: Network, disabled: pushBusy, title: 'Push name, title, department, phone, office (and manager) from Nexus back to their Entra account',
+      onClick: async () => {
+        setPushBusy(true);
+        try {
+          const r = await api.pushToEntra(e.id);
+          const mgr = r.manager === true ? ' · manager' : '';
+          toastOk(`Pushed ${r.written.length} fields${mgr} to Microsoft 365.`);
+          onReload?.();
+        } catch (err) { toastErr(err?.message || 'Could not push to Microsoft 365.'); }
+        setPushBusy(false);
+      } },
+    e.m365Id && e.personalEmail && { label: 'Resend Welcome Email', Icon: Mail, disabled: welcomeBusy, title: 'Send the branded welcome email to their personal address again',
+      onClick: async () => {
+        setWelcomeBusy(true);
+        try { const r = await api.resendWelcome(e.id); toastOk(`Welcome email sent to ${r.sentTo}.`); }
+        catch (err) { toastErr(err?.message || 'Could not send welcome email.'); }
+        setWelcomeBusy(false);
+      } },
+    (canAct || isAdmin) && null,
+    canAct && { label: 'Offboard', Icon: LogOut, danger: true, onClick: () => setOffboardOpen(true), title: 'Last day, the separation package through Nexus Sign, and everything that happens when they leave' },
+    isAdmin && { label: 'Remove From Nexus', Icon: Trash2, danger: true, onClick: removeFromNexus, title: "Remove this person's Nexus record only - does not touch Microsoft 365" },
+  ].filter(x => x !== false && x !== undefined);
+  const glance = !isMobile && (
+    <aside className="pr-glance" aria-label="At a glance">
+      {manager && (
+        <div className="pr-glance-row">
+          <span className="pr-row-label">Reports To</span>
+          <span className="pr-glance-person"><Avatar e={manager} size={26} card={false} /><span style={{ minWidth: 0 }}>{fullName(manager)}<small>{manager.jobTitle || ''}</small></span></span>
+        </div>
+      )}
+      {reports.length > 0 && (
+        <div className="pr-glance-row">
+          <span className="pr-row-label">Direct Reports · {reports.length}</span>
+          {reports.slice(0, 5).map(r => (
+            <span key={r.id} className="pr-glance-person"><Avatar e={r} size={26} card={false} /><span style={{ minWidth: 0 }}>{fullName(r)}<small>{r.jobTitle || ''}</small></span></span>
+          ))}
+          {reports.length > 5 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>and {reports.length - 5} more</span>}
+        </div>
+      )}
+      {e.location && <div className="pr-glance-row"><span className="pr-row-label">Site</span><span style={{ fontSize: 13 }}>{e.location}</span></div>}
+      {e.startDate && <div className="pr-glance-row"><span className="pr-row-label">Started</span><span style={{ fontSize: 13 }}>{formatDate(e.startDate)}{tenure ? ` · ${tenure}` : ''}</span></div>}
+      {!teamView && expiry && (
+        <div className="pr-glance-row">
+          <span className="pr-row-label">{expiry.label}</span>
+          <span style={{ fontSize: 13, color: expiry.days < 0 ? 'hsl(var(--color-red))' : expiry.days <= 60 ? '#b45309' : 'var(--ink)' }}>
+            {expiry.days < 0 ? 'Expired' : `In ${expiry.days} day${expiry.days === 1 ? '' : 's'}`} · {formatDate(expiry.date)}
+          </span>
+        </div>
+      )}
+      {!teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} pendingOnly />}
+      {(e.probation || checklists.length > 0) && (
+        <div className="pr-glance-row" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          {checklists.map(p => <ChecklistChip key={p.checklistId} p={p} onClick={() => setTab('job')} />)}
+          <ProbationBadge p={e.probation} />
+        </div>
+      )}
+      {(e.workEmail || e.phone) && (
+        <div className="pr-glance-row">
+          <span className="pr-row-label">Contact</span>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <PersonActions email={e.workEmail} name={fullName(e)} external={e.identityType !== 'internal'} myEmail={viewerEmail} variant="pill" />
+          </div>
+          {e.workEmail && <a className="pr-link" href={`mailto:${e.workEmail}`} style={{ fontSize: 13 }}>{e.workEmail}</a>}
+          {e.phone && <a className="pr-link" href={`tel:${e.phone.replace(/[^\d+]/g, '')}`} style={{ fontSize: 13 }}>{e.phone}</a>}
+        </div>
+      )}
+    </aside>
+  );
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '22px 24px', boxShadow: 'var(--shadow-sm)' }}>
+    <div className="pr-record" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, padding: isMobile ? '16px 16px' : '20px 24px' }}>
       {isMobile && (
         <button onClick={() => guardRecordLeave(() => onBack?.())} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', padding: 0, marginBottom: 14 }}>
           <ChevronLeft size={15} /> All People
         </button>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6, flexWrap: 'wrap' }}>
-        {/* Avatar opens the photo editor: view, re-crop with grid + zoom, or change */}
+      {/* The header is the person (11/08/2026): photo, name, what they do,
+          the facts in one line; one primary when it applies and one Actions
+          menu - not a toolbar. */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <button title={teamView ? fullName(e) : 'View or change profile photo'} disabled={teamView} onClick={() => setPhotoOpen(true)}
-          style={{ position: 'relative', cursor: 'pointer', flexShrink: 0, background: 'none', border: 'none', padding: 0 }}>
-          <Avatar e={e} size={56} card={false} />
-          <span style={{ position: 'absolute', right: -4, bottom: -4, width: 22, height: 22, borderRadius: '50%', background: 'var(--pine)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--card)' }}>
-            <Camera size={11} />
-          </span>
+          style={{ position: 'relative', cursor: teamView ? 'default' : 'pointer', flexShrink: 0, background: 'none', border: 'none', padding: 0 }}>
+          <Avatar e={e} size={64} card={false} />
+          {!teamView && (
+            <span style={{ position: 'absolute', right: -3, bottom: -3, width: 20, height: 20, borderRadius: '50%', background: 'var(--card)', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--line)' }}>
+              <Camera size={11} />
+            </span>
+          )}
         </button>
-        {/* min width: with HR's actions in the header (Promote / Change Role /
-            Offboard) the buttons wrap to a second line instead of squeezing
-            the name into a one-word column. */}
-        <div style={{ flex: 1, minWidth: 'min(100%, 220px)' }}>
-          <div style={{ fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 'min(100%, 260px)' }}>
+          <div style={{ fontWeight: 700, fontSize: 22, lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             {fullName(e)}<TierMark tier={e.tier} size={16} />
             {e.identityType && e.identityType !== 'internal' && (
-              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-orange),0.14)', color: 'hsl(var(--color-orange))' }}>
-                {e.identityType === 'guest' ? 'Guest' : 'External'}
-              </span>
+              <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--muted)' }}>{e.identityType === 'guest' ? 'Guest' : 'External'}</span>
             )}
+            {isRemoved
+              ? <StatusLabel label="Removed" color="hsl(var(--color-red))" size="sm" />
+              : teamView
+                ? <StatusLabel label={sm.label} color={sm.fg} size="sm" />
+                : <button type="button" className="pr-status-btn" onClick={() => setStatusOpen(true)} title="Change status (with reason)"><StatusLabel label={sm.label} color={sm.fg} size="sm" /></button>}
+            {!onSchedule && !isRemoved && <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)' }}>Off the Schedule</span>}
           </div>
-          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
-            {[e.jobTitle, e.employeeCode].filter(Boolean).join(' · ')}
+          <div style={{ fontSize: 14, color: 'var(--ink)', marginTop: 3 }}>
+            {[e.jobTitle, companyName].filter(Boolean).join(' · ') || '-'}
+            {e.employeeCode && <span style={{ color: 'var(--muted)' }}> · {e.employeeCode}</span>}
           </div>
+          {facts.length > 0 && <div className="pr-facts">{facts.join(' · ')}</div>}
         </div>
-        {/* A removed person is read-only: Restore is the only way forward, so
-            editing, status changes and provisioning are all withheld rather
-            than left live on a record that is not currently in the company. */}
-        {teamView ? (
-          <>
-            <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: isRemoved ? 'hsla(var(--color-red),0.12)' : sm.bg, color: isRemoved ? 'hsl(var(--color-red))' : sm.fg }}>
-              {isRemoved ? 'Removed' : sm.label}
-            </span>
-            {!onSchedule && !isRemoved && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Off the Schedule</span>}
-          </>
-        ) : isRemoved ? (
-          <>
-            <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: 'hsla(var(--color-red),0.12)', color: 'hsl(var(--color-red))' }}>
-              Removed
-            </span>
-            {isAdmin && (
-              <button className="primary-btn" onClick={restoreToNexus} disabled={restoreBusy}
-                title="Put this person back into Nexus with their full record"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-                <RotateCcw size={13} /> {restoreBusy ? 'Restoring…' : 'Restore to Nexus'}
-              </button>
-            )}
-          </>
-        ) : (
-        <>
-        <button onClick={() => setStatusOpen(true)} title="Change status (with reason)"
-          style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg, border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          {sm.label} <Pencil size={10} />
-        </button>
-        {!onSchedule && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Off the Schedule</span>}
-        {/* Open onboarding / offboarding / leave checklist at a glance. */}
-        {checklists.map(p => <ChecklistChip key={p.checklistId} p={p} onClick={() => setTab('checklist')} />)}
-        <ProbationBadge p={e.probation} />
-        {canEditProfile && !teamView && ['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' && (
-          <>
-            {canChangeRole && (<>
-            <button className="secondary-btn" onClick={() => setRoleAction('promotion')}
-              title="Promotion letter through Nexus Sign - new role, pay and date; the employee and their manager sign"
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {isRemoved && isAdmin && (
+            <button className="primary-btn" onClick={restoreToNexus} disabled={restoreBusy}
+              title="Put this person back into Nexus with their full record"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-              <TrendingUp size={13} /> Promote
+              <RotateCcw size={13} /> {restoreBusy ? 'Restoring…' : 'Restore to Nexus'}
             </button>
-            <button className="secondary-btn" onClick={() => setRoleAction('choose')}
-              title="Move them to a different role - as a promotion with a letter, or just the role"
+          )}
+          {!isRemoved && !teamView && !e.m365Id && (
+            <button className="primary-btn" onClick={() => setProvisionOpen(true)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-              <Shield size={13} /> Change Role
+              <CheckCircle size={13} /> Provision Accounts
             </button>
-            </>)}
-            <button className="secondary-btn" onClick={() => setOffboardOpen(true)}
-              title="Last day, the separation package through Nexus Sign, and everything that happens when they leave"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}>
-              <LogOut size={13} /> Offboard
-            </button>
-          </>
-        )}
-        {isAdmin && (
-          <button className="secondary-btn" onClick={removeFromNexus}
-            title="Remove this person's Nexus record only - does not touch Microsoft 365"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}>
-            <Trash2 size={13} /> Remove From Nexus
-          </button>
-        )}
-        {!e.m365Id ? (
-          <button className="primary-btn" onClick={() => setProvisionOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, background: 'hsl(var(--color-green))' }}>
-            <CheckCircle size={13} /> Provision Accounts
-          </button>
-        ) : (
-          <>
-            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))' }}>M365 ✓</span>
-            <button className="secondary-btn" disabled={pushBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
-              title="Push name, title, department, phone, office (and manager) from Nexus back to their Entra account"
-              onClick={async () => {
-                setPushBusy(true);
-                try {
-                  const r = await api.pushToEntra(e.id);
-                  const mgr = r.manager === true ? ' · manager' : '';
-                  toastOk(`Pushed ${r.written.length} fields${mgr} to M365.`);
-                  onReload?.();
-                } catch (err) { toastErr(err?.message || 'Could not push to M365.'); }
-                setPushBusy(false);
-              }}>
-              {pushBusy ? <Spinner size={13} /> : <Network size={13} />} Push to M365
-            </button>
-            {e.personalEmail && (
-              <button className="secondary-btn" disabled={welcomeBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
-                title="Send the branded welcome email to their personal address again"
-                onClick={async () => {
-                  setWelcomeBusy(true);
-                  try { const r = await api.resendWelcome(e.id); toastOk(`Welcome email sent to ${r.sentTo}.`); }
-                  catch (err) { toastErr(err?.message || 'Could not send welcome email.'); }
-                  setWelcomeBusy(false);
-                }}>
-                {welcomeBusy ? <Spinner size={13} /> : <Mail size={13} />} Resend Welcome
-              </button>
-            )}
-          </>
-        )}
-        </>
-        )}
+          )}
+          {actions.length > 0 && <ActionsMenu items={actions} />}
+        </div>
       </div>
       {isRemoved && (
-        <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: 'hsla(var(--color-red),0.08)', border: '1px solid hsla(var(--color-red),0.25)', fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.55 }}>
+        <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'hsla(var(--color-red),0.08)', border: '1px solid hsla(var(--color-red),0.25)', fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.55 }}>
           Removed from Nexus{e.deletedBy ? ` by ${e.deletedBy}` : ''}
           {e.deletedAt ? ` on ${formatDate(e.deletedAt)}` : ''}. Their record is kept in full and
           nothing was deleted. Their Microsoft 365 account was never changed.
         </div>
       )}
-      {!teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} pendingOnly />}
+      {isMobile && !teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} pendingOnly />}
+      {isMobile && (e.probation || checklists.length > 0) && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+          {checklists.map(p => <ChecklistChip key={p.checklistId} p={p} onClick={() => setTab('job')} />)}
+          <ProbationBadge p={e.probation} />
+        </div>
+      )}
       {!teamView && <PersonLifeEvents employeeId={e.id} workEmail={e.workEmail} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
       {roleAction === 'choose' && <RoleChangeModal employee={e} toastErr={toastErr}
         onClose={() => setRoleAction(null)} onPromote={() => setRoleAction('promotion')}
@@ -1114,93 +1127,95 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
         onClose={() => { setSignParty(null); setEventsKey(n => n + 1); }}
         onDone={() => { setSignParty(null); setEventsKey(n => n + 1); onReload?.(); toastOk('Signed.'); }} />
-      {/* Stat cards - all derived from the loaded record, no extra fetch */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
-        <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
-        <StatCard label="Direct Reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : mgrEmail ? `reports to ${mgrEmail === (viewerEmail || '').toLowerCase() ? 'you' : mgrEmail}` : 'no manager'} />
-        <StatCard label="Type" value={TYPE_LABEL[e.employmentType] || '-'} sub={e.department || '-'} />
-        {teamView ? null : expiry
-          ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days}d`} sub={formatDate(expiry.date)} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
-          : <StatCard label="Compliance" value="Clear" sub="no upcoming expiry" />}
-      </div>
 
-      {/* Tab strip */}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: 18, borderBottom: '1px solid var(--line)' }}>
-        {tabs.map(([id, tlabel, Icon]) => (
-          <button key={id} onClick={() => setTab(id)} aria-current={tab === id ? 'page' : undefined}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${tab === id ? 'var(--pine)' : 'transparent'}`, color: tab === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
-            <Icon size={14} /> {tlabel}
-          </button>
-        ))}
-      </div>
+      <div className="pr-body">
+        <div className="pr-main">
+          <div className="pr-tabs scroll-tabs">
+            {tabs.map(([id, tlabel]) => (
+              <button key={id} type="button" className="pr-tab" onClick={() => setTab(id)} aria-current={shownTab === id ? 'page' : undefined}>{tlabel}</button>
+            ))}
+          </div>
 
-      <div style={{ marginTop: 16 }}>
-        {tab === 'overview' && (
-          <OverviewTab e={e} employees={employees} canEdit={canEdit} canSync={canEdit} isRemoved={isRemoved}
-            readOnlyCustom={teamView || isRemoved || !canEditProfile}
-            onSaved={onEmployeeUpdated} toastOk={toastOk} toastErr={toastErr} />
-        )}
+          {shownTab === 'overview' && (
+            <OverviewTab e={e} employees={employees} canEdit={canEdit} canSync={canEdit} isRemoved={isRemoved}
+              readOnlyCustom={teamView || isRemoved || !canEditProfile}
+              onSaved={onEmployeeUpdated} toastOk={toastOk} toastErr={toastErr} />
+          )}
 
-        {tab === 'job' && (
-          <JobTab e={e} employees={employees} companyName={companyName} viewerEmail={viewerEmail} canEdit={canEdit} isRemoved={isRemoved}
-            empTypes={EMP_TYPES} statusLabel={isRemoved ? 'Removed' : sm.label}
-            onChangeStatus={!teamView && !isRemoved ? () => setStatusOpen(true) : null}
-            focusProbation={focusProbation} onReload={onReload}
-            onOffboard={init => { setOffboardInitial(init); setOffboardOpen(true); }}
-            roleHistoryKey={`${requestsKey}-${eventsKey}-${e.updatedAt || ''}`}
-            onSaved={onEmployeeUpdated} toastOk={toastOk} toastErr={toastErr} />
-        )}
+          {shownTab === 'job' && (
+            <>
+              <JobTab e={e} employees={employees} companyName={companyName} viewerEmail={viewerEmail} canEdit={canEdit} isRemoved={isRemoved}
+                empTypes={EMP_TYPES} statusLabel={isRemoved ? 'Removed' : sm.label}
+                onChangeStatus={!teamView && !isRemoved ? () => setStatusOpen(true) : null}
+                focusProbation={focusProbation} onReload={onReload}
+                onOffboard={init => { setOffboardInitial(init); setOffboardOpen(true); }}
+                roleHistoryKey={`${requestsKey}-${eventsKey}-${e.updatedAt || ''}`}
+                onSaved={onEmployeeUpdated} toastOk={toastOk} toastErr={toastErr} />
+              {!teamView && (
+                <>
+                  <h3 className="pr-h3">Checklists</h3>
+                  <ChecklistSection employee={e} canEdit={canEditChecklist && !isRemoved} myEmail={viewerEmail} toastOk={toastOk} toastErr={toastErr} />
+                </>
+              )}
+            </>
+          )}
 
-        {tab === 'time' && (
-          <TimeTab e={e} onSchedule={onSchedule} onScheduleChange={on => { setScheduleNow(on); onReload?.(); }}
-            canEdit={canEdit} canSeeComp={canSeeComp} toastOk={toastOk} toastErr={toastErr} />
-        )}
+          {shownTab === 'time' && (
+            <>
+              <TimeTab e={e} onSchedule={onSchedule} onScheduleChange={on => { setScheduleNow(on); onReload?.(); }}
+                canEdit={canEdit} canSeeComp={canSeeComp} toastOk={toastOk} toastErr={toastErr} />
+              <h3 className="pr-h3">Work Logs</h3>
+              <WorkLogsSection employee={e} />
+            </>
+          )}
 
-        {tab === 'pay' && (canSeeComp || directReport) && (
-          <PayTab employee={e} readOnly={teamView} onGoCompliance={teamView ? null : () => setTab('compliance')} toastOk={toastOk} toastErr={toastErr} />
-        )}
+          {shownTab === 'pay' && (canSeeComp || directReport) && (
+            <>
+              <PayTab employee={e} readOnly={teamView} onGoCompliance={teamView ? null : () => setTab('documents')} toastOk={toastOk} toastErr={toastErr} />
+              {/* Every reimbursement this person filed, with receipts and history (Oct 18 2026). */}
+              {e.workEmail && (
+                <>
+                  <h3 className="pr-h3">Reimbursements</h3>
+                  <PersonReimbursements email={e.workEmail.toLowerCase()} toastErr={toastErr} />
+                </>
+              )}
+            </>
+          )}
 
-        {tab === 'compliance' && !teamView && (
-          <ComplianceTab e={e} canEdit={canEdit} paperworkKey={eventsKey} onSaved={onEmployeeUpdated} toastErr={toastErr} />
-        )}
+          {shownTab === 'documents' && !teamView && (
+            <>
+              <ComplianceTab e={e} canEdit={canEdit} paperworkKey={eventsKey} onSaved={onEmployeeUpdated} toastErr={toastErr} />
+              <h3 className="pr-h3">Documents</h3>
+              {/* Signed offer / packet / letters, one line each with their filing (off the header - Neil, Oct 22). */}
+              <PersonLifeEvents signed employeeId={e.id} workEmail={e.workEmail} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />
+              <DocumentsSection employeeId={e.id} employee={e} onSent={onReload} toastOk={toastOk} toastErr={toastErr} />
+              {/* The person's wired Egnyte folder (Neil, Aug 6): hiring package,
+                  invoices, payment proofs live in Egnyte, not as Nexus uploads.
+                  Resolution + re-pointing happen in Egnyte - Wiring. */}
+              {e.workEmail && (
+                <div style={{ marginTop: 18 }}>
+                  <h3 className="pr-h3">Egnyte Folder</h3>
+                  <EgnytePersonFolder email={e.workEmail} personName={fullName(e)} />
+                </div>
+              )}
+              {/* Started only from Offboard / Change Status; here is just the result. */}
+              <MailboxExportResult employeeId={e.id} toastErr={toastErr} />
+            </>
+          )}
 
-        {tab === 'assets' && <AssetsSection employee={e} />}
+          {shownTab === 'assets' && <AssetsSection employee={e} />}
 
-        {/* A role change request from before Oct 22 still waiting: HR decides
-            or cancels it here, or from the bell / email. */}
-        {tab === 'access' && <RoleChangeRequestCard employeeId={e.id} refreshKey={requestsKey}
-          toastOk={toastOk} toastErr={toastErr} onDecided={() => { setRequestsKey(n => n + 1); onReload?.(); }} />}
-        {tab === 'access' && teamView && <TeamAccessView employee={e} />}
-        {/* keyed on updatedAt: a role change made from the Change Role modal
-            re-reads the job role and access shown here */}
-        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess key={e.updatedAt} email={meEmail} identityType={e.identityType} companyId={e.company || ''} showLifecycle={!isRemoved} onExternalChanged={onExternalChanged} onRemoved={() => onRemoved?.(e.id)} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
-          onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('choose') : undefined} />}
-
-        {tab === 'bod' && <WorkLogsSection employee={e} />}
-
-        {/* Every reimbursement this person filed, with receipts and history (Oct 18 2026). */}
-        {tab === 'expenses' && e.workEmail && <PersonReimbursements email={e.workEmail.toLowerCase()} toastErr={toastErr} />}
-
-        {tab === 'checklist' && <ChecklistSection employee={e} canEdit={canEditChecklist && !isRemoved} myEmail={viewerEmail} toastOk={toastOk} toastErr={toastErr} />}
-
-        {tab === 'documents' && (
-          <>
-            {/* Signed offer / packet / letters, one line each with their filing (off the header - Neil, Oct 22). */}
-            {!teamView && <PersonLifeEvents signed employeeId={e.id} workEmail={e.workEmail} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
-            <DocumentsSection employeeId={e.id} employee={teamView ? null : e} onSent={onReload} toastOk={toastOk} toastErr={toastErr} />
-            {/* The person's wired Egnyte folder (Neil, Aug 6): hiring package,
-                invoices, payment proofs live in Egnyte, not as Nexus uploads.
-                Resolution + re-pointing happen in Egnyte - Wiring. */}
-            {e.workEmail && (
-              <div style={{ marginTop: 18 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>Egnyte Folder</div>
-                <EgnytePersonFolder email={e.workEmail} personName={fullName(e)} />
-              </div>
-            )}
-            {/* Started only from Offboard / Change Status; here is just the result. */}
-            <MailboxExportResult employeeId={e.id} toastErr={toastErr} />
-          </>
-        )}
+          {/* A role change request from before Oct 22 still waiting: HR decides
+              or cancels it here, or from the bell / email. */}
+          {shownTab === 'access' && <RoleChangeRequestCard employeeId={e.id} refreshKey={requestsKey}
+            toastOk={toastOk} toastErr={toastErr} onDecided={() => { setRequestsKey(n => n + 1); onReload?.(); }} />}
+          {shownTab === 'access' && teamView && <TeamAccessView employee={e} />}
+          {/* keyed on updatedAt: a role change made from the Change Role modal
+              re-reads the job role and access shown here */}
+          {shownTab === 'access' && isAdmin && !teamView && <EmployeeAccess key={e.updatedAt} email={meEmail} identityType={e.identityType} companyId={e.company || ''} showLifecycle={!isRemoved} onExternalChanged={onExternalChanged} onRemoved={() => onRemoved?.(e.id)} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
+            onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('choose') : undefined} />}
+        </div>
+        {glance}
       </div>
       {photoOpen && (
         <PhotoEditorModal employee={e} toastOk={toastOk} toastErr={toastErr}
@@ -1213,6 +1228,42 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       )}
       {statusOpen && (
         <StatusChangeModal employee={e} employees={employees} toastOk={toastOk} toastErr={toastErr} onClose={() => setStatusOpen(false)} onSaved={onEmployeeUpdated} />
+      )}
+    </div>
+  );
+}
+
+// The record's Actions menu (11/08/2026): every action HR can take, the
+// ones that cannot be taken back last and in red. `null` is a divider.
+function ActionsMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const down = (ev) => { if (ref.current && !ref.current.contains(ev.target)) setOpen(false); };
+    const key = (ev) => { if (ev.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', down);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', down); document.removeEventListener('keydown', key); };
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" className="secondary-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+        Actions <ChevronDown size={14} />
+      </button>
+      {open && (
+        <div role="menu" aria-label="Actions" className="header-user-dropdown" style={{ width: 250 }}>
+          {items.map((it, i) => it === null
+            ? <div key={`d${i}`} className="hud-divider" role="separator" />
+            : (
+              <button key={it.label} type="button" role="menuitem" className="hud-item" disabled={it.disabled} title={it.title}
+                onClick={() => { setOpen(false); it.onClick(); }}
+                style={it.danger ? { color: 'hsl(var(--color-red))' } : undefined}>
+                <it.Icon size={15} style={{ flexShrink: 0, color: it.danger ? 'hsl(var(--color-red))' : 'var(--muted)' }} aria-hidden="true" /> {it.label}
+              </button>
+            ))}
+        </div>
       )}
     </div>
   );

@@ -5,7 +5,7 @@ import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-li
 // in place - Edit turns them on, one Save row at the foot saves them through
 // the existing routes, Discard Changes puts the record back - and leaving a
 // tab with unsaved edits asks first. Time & Scheduling carries the On the
-// Schedule switch; the PAN is read only on Pay & Benefits (Compliance is its
+// Schedule switch; the PAN is read only on Pay (Compliance, on Documents, is its
 // one editable home). A manager sees the same read-only strip as before.
 
 const LEO = { id: 'e2', firstName: 'Leo', lastName: 'Low', workEmail: 'leo@x.com', managerEmail: 'mia@x.com', status: 'active',
@@ -53,7 +53,8 @@ afterEach(() => { cleanup(); updateEmployee.mockClear(); setOnSchedule.mockClear
 
 async function openLeo() {
   const { default: HR } = await import('../views/HR');
-  render(<HR activeSub="hr-people" onSubChange={() => {}} />);
+  const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
+  render(<QueryClientProvider client={new QueryClient()}><HR activeSub="hr-people" onSubChange={() => {}} /></QueryClientProvider>);
   fireEvent.click((await screen.findAllByText('Leo Low'))[0]);
   await screen.findByRole('button', { name: 'Time & Scheduling' });
 }
@@ -63,7 +64,8 @@ const tab = (name) => fireEvent.click(screen.getByRole('button', { name }));
 describe('Person record - HR', () => {
   it('shows the tabs in the new order, with no More Details or Work Mode tab', async () => {
     await openLeo();
-    expect(tabNames()).toEqual(['Overview', 'Job', 'Time & Scheduling', 'Pay & Benefits', 'Reimbursements', 'Compliance', 'Access', 'Documents', 'Assets', 'Checklist', 'Work Logs']);
+    // Seven tabs (Neil, 11/08/2026): Checklist rides on Job, Work Logs on Time, Reimbursements on Pay, Compliance on Documents.
+    expect(tabNames()).toEqual(['Overview', 'Job', 'Time & Scheduling', 'Pay', 'Documents', 'Access', 'Assets']);
     // More Details is Overview's last section now; the header has no Edit popup.
     expect(screen.getByText('More Details')).toBeTruthy();
     expect(screen.queryByText('Office & contact')).toBeNull();
@@ -86,7 +88,8 @@ describe('Person record - HR', () => {
 
   it('Discard Changes puts the record back and saves nothing', async () => {
     await openLeo();
-    fireEvent.click(screen.getByRole('button', { name: /^Edit$/ }));
+    // Overview edits per section (11/08/2026): the first Edit is Profile's.
+    fireEvent.click(screen.getAllByRole('button', { name: /^Edit$/ })[0]);
     fireEvent.change(screen.getByLabelText('Personal Email'), { target: { value: 'leo.new@gmail.com' } });
     fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
     expect(screen.queryByLabelText('Personal Email')).toBeNull();
@@ -120,9 +123,9 @@ describe('Person record - HR', () => {
     expect(screen.getByRole('switch', { name: 'On the Schedule' }).checked).toBe(false);
   }, 30000);
 
-  it('Pay & Benefits shows the PAN read only, with Edit in Compliance', async () => {
+  it('Pay shows the PAN read only, with Edit in Compliance', async () => {
     await openLeo();
-    tab('Pay & Benefits');
+    tab('Pay');
     const pan = await screen.findByTestId('pay-pan');
     expect(within(pan).getByText('••••••234F')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Edit$/ }));
@@ -138,7 +141,7 @@ describe('Person record - a manager on their team', () => {
   it('sees the same read-only strip, Job read only, the switch off limits', async () => {
     role.team = true;
     await openLeo();
-    expect(tabNames()).toEqual(['Overview', 'Job', 'Time & Scheduling', 'Access', 'Assets', 'Work Logs']);
+    expect(tabNames()).toEqual(['Overview', 'Job', 'Time & Scheduling', 'Access', 'Assets']);
     expect(screen.queryByRole('button', { name: /^Edit$/ })).toBeNull();
     tab('Job');
     expect(screen.getAllByText('Tech').length).toBeGreaterThan(0);

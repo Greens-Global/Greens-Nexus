@@ -2,28 +2,40 @@ import { Pencil } from 'lucide-react';
 import SaveRow from '../components/SaveRow';
 import { FL, HINT } from './lib';
 
-// Small pieces every tab of the person record shares (11/03/2026): the read
-// row, the section heading, the field label and the Edit button. The look is
-// the record's existing one - hairline rows, uppercase muted labels.
+// Small pieces every tab of the person record shares (11/03/2026). The look
+// is the record's (pass of 11/08/2026): a label column in the canon - 12px,
+// normal case, muted - beside the value, hairline rows, no icon per row,
+// section titles in Title Case. An email or a phone number is a link.
 
-// One read row: icon, label, value.
-export function Row({ icon: Icon, label, value }) {
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE = /^\+?[\d\s().-]{7,}$/;
+
+// One read row: label, value. `children` in place of `value` puts a control
+// in the value cell (a section being edited in place). An empty value says
+// "Not set" - every field still reads on the main screen (Neil, Oct 12).
+export function Row({ label, value, children, htmlFor }) {
+  let shown = children;
+  if (shown == null) {
+    const v = value == null ? '' : String(value);
+    if (!v.trim()) shown = <span style={{ color: 'var(--muted)' }}>Not set</span>;
+    else if (EMAIL.test(v.trim())) shown = <a href={`mailto:${v.trim()}`} className="pr-link">{v}</a>;
+    else if (PHONE.test(v.trim())) shown = <a href={`tel:${v.replace(/[^\d+]/g, '')}`} className="pr-link">{v}</a>;
+    else shown = v;
+  }
+  const Label = htmlFor ? 'label' : 'span';
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-      {Icon && <Icon size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
-      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', width: 130, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{value || '-'}</span>
+    <div className="pr-row">
+      <Label htmlFor={htmlFor} className="pr-row-label">{label}</Label>
+      <div className="pr-row-value">{shown}</div>
     </div>
   );
 }
 
 // A section heading with anything on its right (an Edit button, a status line).
-export function SectionHead({ icon: Icon, title, children, first = false }) {
+export function SectionHead({ title, children, first = false }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: first ? '0 0 2px' : '20px 0 2px', flexWrap: 'wrap' }}>
-      <h3 style={{ margin: 0, fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
-        {Icon && <Icon size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />}{title}
-      </h3>
+    <div className="pr-section-head" style={{ marginTop: first ? 0 : 26 }}>
+      <h3>{title}</h3>
       {children}
     </div>
   );
@@ -54,7 +66,7 @@ export function TabSaveRow({ t, note, saveDisabled = false }) {
 export function EditButton({ onClick, label = 'Edit' }) {
   return (
     <button type="button" className="secondary-btn" onClick={onClick}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '5px 11px' }}>
       <Pencil size={13} /> {label}
     </button>
   );
