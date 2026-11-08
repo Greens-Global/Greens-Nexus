@@ -20,6 +20,7 @@ import ProjectLookPicker from './ProjectLookPicker';
 import { projectLook } from './projectLook';
 import { isFollowing } from './followRules';
 import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
+import { ProjectStatusChip, useProjectStatusEditor } from './projectStatus';
 
 const EMPTY_FORM = {
   name: '', description: '', color: NX.blue, icon: '', ownerId: null,
@@ -93,6 +94,8 @@ export default function ProjectsView({ onNavigate }) {
   const { projects, portfolios, tasks, nameOf, portfolioById, teams, customFields,
     createProject, updateProject, deleteProject, myEmail } = store;
   const people = usePeople();
+  // Project health (Neil, 11/08/2026): the chip's editor rule and save.
+  const health = useProjectStatusEditor();
   // Project-scoped select fields (Location, etc.) - each gets its own filter
   // dropdown. Multiselect/text/etc. project fields are out of scope for now;
   // a select is what a "filter through X" ask actually means.
@@ -315,6 +318,7 @@ export default function ProjectsView({ onNavigate }) {
           cards={cards} isMobile={isMobile} nameOf={nameOf} portfolioById={portfolioById}
           onOpen={openProject} onEdit={startEdit} onDelete={remove}
           onDuplicate={setDuplicating} onSaveTemplate={setTemplating}
+          canSetStatus={health.canSet} onSetStatus={health.save}
         />
       ) : (
         <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14, padding: '16px 16px 76px' }}>
@@ -397,7 +401,13 @@ export default function ProjectsView({ onNavigate }) {
                   {pf && <span style={chip(NX.purple, `${NX.purple}1a`)}>{pf.name}</span>}
                   {(() => {
                     const m = PROJECT_STATUS_META[projectStatusFor(stats)];
-                    return <span style={{ ...chip(m.color, m.tint), marginLeft: 'auto' }}>{m.label}</span>;
+                    // The set status when there is one (Neil, 11/08/2026), else the rollup's word as before.
+                    return (
+                      <span style={{ marginLeft: 'auto', display: 'inline-flex' }}>
+                        <ProjectStatusChip project={p} nameOf={nameOf} onSave={health.canSet(p) ? health.save : null}
+                          fallback={<span style={chip(m.color, m.tint)}>{m.label}</span>} />
+                      </span>
+                    );
                   })()}
                 </div>
                 </div>
@@ -452,7 +462,7 @@ export default function ProjectsView({ onNavigate }) {
  *  only the shape differs, so nothing has to be learned twice. Sorting is
  *  inherited from `cards` (archived last, then by name), matching the grid. */
 export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, onEdit, onDelete,
-                             onDuplicate, onSaveTemplate }) {
+                             onDuplicate, onSaveTemplate, canSetStatus = null, onSetStatus = null }) {
   const cell = { minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 };
   // Header sort. `null` is the unsorted state - the order `cards` arrives in
   // (archived last, then by name) - which is where a third click returns to.
@@ -596,7 +606,11 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
                   </div>
                 ),
                 status: (
-                  <div style={cell}><span style={chip(meta.color, meta.tint)}>{meta.label}</span></div>
+                  // The set status when there is one (Neil, 11/08/2026), else the rollup's word as before.
+                  <div style={cell}>
+                    <ProjectStatusChip project={p} nameOf={nameOf} onSave={onSetStatus && canSetStatus?.(p) ? onSetStatus : null}
+                      fallback={<span style={chip(meta.color, meta.tint)}>{meta.label}</span>} />
+                  </div>
                 ),
                 actions: actionsCell,
               })[c.key]}</Fragment>)}

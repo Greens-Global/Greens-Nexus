@@ -3746,3 +3746,12 @@ async function _attachConstructionMarkup(source, { name, blob }) {
   if (error) throw new Error(error);
   return api.attachConstructionMarkup(source.id, { url: payload.url, storage_path: payload.storage_path || '', mime_type: payload.mime_type || 'image/png', size_bytes: payload.size_bytes || 0, name: name || 'Mark Up' });
 }
+
+// Tasks scheduling (Neil, 11/08/2026): what automatic scheduling would move
+// if a task were saved with these fields (nothing written), and a project's
+// schedule baselines (routers/task_projects.py).
+api.previewTaskSchedule = (id, data) => req(`/tasks/${encodeURIComponent(id)}/schedule-preview`, { method: 'POST', body: JSON.stringify(data || {}) });
+api.getTaskProjectBaselines = (projectId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines`);
+api.takeTaskProjectBaseline = (projectId, name = '') => req(`/task-projects/${encodeURIComponent(projectId)}/baselines`, { method: 'POST', body: JSON.stringify({ name }) });
+api.getTaskProjectBaselineDiff = (projectId, baselineId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}/diff`);
+api.deleteTaskProjectBaseline = (projectId, baselineId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}`, { method: 'DELETE' });

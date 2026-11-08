@@ -1,13 +1,15 @@
 // Task Module - additional view kinds: Timeline (gantt), Files (attachment
 // gallery), Workload (per-assignee load). Ported from the export's
 // NexusTimelineView / NexusFilesView / NexusWorkloadView to the Nexus idiom.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from '../../components/AsyncState';
-import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download, ChevronDown, ChevronRight, CornerDownRight, ListTree, Check, HardDrive, ExternalLink, Link2 } from 'lucide-react';
+import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download, ChevronDown, ChevronRight, CornerDownRight, ListTree, Check, HardDrive, ExternalLink, Link2, Layers } from 'lucide-react';
 import { api } from '../../api';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
-import { Avatar, EmptyState, AttachmentViewer, useIsMobile } from '../components';
-import { fmtDate, taskAssignees, localISO, nestSubtaskRows } from '../lib';
+import { Avatar, EmptyState, AttachmentViewer, Modal, useIsMobile } from '../components';
+import { fmtDate, taskAssignees, localISO, nestSubtaskRows, roleAtLeast } from '../lib';
+import AnchoredMenu from '../../components/AnchoredMenu';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 import { useCanEditTask } from '../canEditTask';
 import { toDownloadUrl } from '../../lib/storageView';
 import { isEgnyteLink, safeEgnyteHref } from '../egnyteLinks';
@@ -25,6 +27,33 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const toISO = localISO;
 const fromISO = (s) => new Date(s + 'T00:00:00');
 const addDays = (iso, n) => { const d = fromISO(iso); d.setDate(d.getDate() + n); return toISO(d); };
+
+// Automatic scheduling (Neil, 11/08/2026, backend task_schedule.py). The
+// server places an auto task; the Timeline only shows the mode (a link glyph)
+// and warns on a MANUAL successor that starts before its predecessor is done
+// (OpenProject's bracket) - never blocks.
+const isAuto = (t) => (t?.scheduleMode || 'manual') === 'auto';
+// shortcut: weekends only here - the server's rule also skips the company's
+// holidays, so the bracket may miss a start that lands on one; it is a hint.
+const addWorkingDays = (iso, n) => {
+  let d = fromISO(iso);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  for (let i = 0; i < n; i += 1) { d.setDate(d.getDate() + 1); while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); }
+  return toISO(d);
+};
+/** The earliest start the task's predecessors allow (due + lag + 1 working day), '' with none dated. */
+export function earliestStart(t, lookup) {
+  let best = '';
+  for (const id of t.blockedByIds || []) {
+    const p = lookup(id);
+    if (!p?.dueOn) continue;
+    const s = addWorkingDays(p.dueOn, ((t.dependencyLags || {})[id] || 0) + 1);
+    if (s > best) best = s;
+  }
+  return best;
+}
+export const startsTooEarly = (t, lookup) => !isAuto(t) && !!t.startOn && (() => { const e = earliestStart(t, lookup); return !!e && t.startOn < e; })();
+const slipText = (n) => (n > 0 ? `+${n}d` : `${n}d`);
 
 
 // Initials from a display name or email (e.g. "Sagar Shoundik" → "SS").
@@ -51,9 +80,46 @@ const MAX_TIMELINE_ROWS = 300;
 // stands on its own with "in <parent>" under its title. `taskById` names
 // those parents.
 const INDENT = 14, INDENT_PHONE = 8;
-export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onToggleSubtasks = null, taskById = null }) {
+export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onToggleSubtasks = null, taskById = null, projectId = null, projectRole = null }) {
   const store = useTasks();
   const { applyServerTask, offerUndo } = store;
+  // Schedule baselines (Neil, 11/08/2026): a project's dates frozen on a
+  // day. The menu lists them; the one picked draws every baselined bar as a
+  // gray ghost under the current one with the due date's slip at its end,
+  // and opens the Changes Since panel. Taken by editors, deleted by the owner.
+  const [baselines, setBaselines] = useState(null);     // null = not loaded yet
+  const [blOpen, setBlOpen] = useState(false);
+  const [baseline, setBaseline] = useState(null);       // the picked diff
+  const [panel, setPanel] = useState(false);
+  const blRef = useRef(null);
+  const canTakeBaseline = !!projectId && (projectRole == null || roleAtLeast(projectRole, 'editor'));
+  const canDeleteBaseline = !!projectId && (projectRole == null || roleAtLeast(projectRole, 'owner'));
+  const loadBaselines = () => api.getTaskProjectBaselines(projectId).then((r) => setBaselines(r || [])).catch(() => setBaselines([]));
+  const openBaselines = () => { if (baselines === null) loadBaselines(); setBlOpen((o) => !o); };
+  const pickBaseline = async (b) => {
+    setBlOpen(false);
+    try {
+      const d = await api.getTaskProjectBaselineDiff(projectId, b.id);
+      setBaseline(d);
+      setPanel(true);
+    } catch (err) { say(err?.message || 'That baseline could not be loaded.'); }
+  };
+  const takeBaseline = async () => {
+    setBlOpen(false);
+    try {
+      const b = await api.takeTaskProjectBaseline(projectId);
+      setBaselines((prev) => [b, ...(prev || [])]);
+      say(`Baseline "${b.name}" saved with ${b.count} task${b.count === 1 ? '' : 's'}.`);
+    } catch (err) { say(err?.message || 'The baseline could not be saved.'); }
+  };
+  const deleteBaseline = async (b) => {
+    await api.deleteTaskProjectBaseline(projectId, b.id);
+    setBaselines((prev) => (prev || []).filter((x) => x.id !== b.id));
+    if (baseline?.id === b.id) { setBaseline(null); setPanel(false); }
+  };
+  const clearBaseline = () => { setBaseline(null); setPanel(false); };
+  const ghostOf = useMemo(() => new Map((baseline?.snapshot || []).map((s) => [s.id, s])), [baseline]);
+  const slipOf = useMemo(() => new Map((baseline?.moved || []).map((m) => [m.id, m.slipDays])), [baseline]);
   // A read-only person sees the bars but cannot drag them (Oct 22 2026).
   const canEditTask = useCanEditTask(store);
   // Conditional row colors (Oct 22 2026): the title column gets the accent
@@ -146,7 +212,9 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
   const onBarPointerDown = (t, e) => {
     if (e.button !== 0 || busyId || !canEditTask(t)) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const mode = t.isMilestone ? 'move' : dragModeAt(e.clientX - rect.left, rect.width || barGeom(t).width);
+    let mode = t.isMilestone ? 'move' : dragModeAt(e.clientX - rect.left, rect.width || barGeom(t).width);
+    // An auto task's start is computed: dragging it changes its length only.
+    if (isAuto(t) && mode === 'move') mode = 'end';
     if (e.pointerType === 'touch' || e.pointerType === 'pen') {
       // A finger or a stylus (an iPad pencil pans the page the same way under
       // touch-action pan-x pan-y): wait for a long press, so a swipe across
@@ -215,8 +283,9 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
   const openUnlessDragged = (id) => { if (!justDragged.current) onOpen(id); };
   const cursorFor = (t) => {
     if (drag && drag.id === t.id) return drag.mode === 'move' ? 'grabbing' : 'ew-resize';
-    return canEditTask(t) ? 'grab' : 'pointer';
+    return canEditTask(t) ? (isAuto(t) ? 'ew-resize' : 'grab') : 'pointer';
   };
+  const lookup = (id) => taskById?.[id] || rows.find((r) => r.id === id) || null;
   const rowOf = new Map(rows.map((t, i) => [t.id, i]));
   const weeks = [];
   for (let i = 0; i < totalDays; i += 7) { const d = fromISO(addDays(start, i)); weeks.push({ x: i * DAY_W, label: `${d.getDate()}`, month: d.getDate() <= 7 ? MONTHS[d.getMonth()] : '' }); }
@@ -232,6 +301,42 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
     )}
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '12px 16px 0' }}>
       {subtaskSwitch}
+      {projectId && (
+        <span ref={blRef} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button type="button" onClick={openBaselines} aria-haspopup="menu" aria-expanded={blOpen}
+            title="Save today's dates as a baseline, or compare the schedule with a saved one"
+            style={{ ...btn('outline'), fontSize: 12.5, color: baseline ? NX.blue : NX.dim }}>
+            <Layers size={14} /> {baseline ? baseline.name : 'Baseline'} <ChevronDown size={12} />
+          </button>
+          {baseline && !isMobile && (
+            <button type="button" onClick={clearBaseline} title="Hide the baseline" style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, color: NX.dim }}>Clear</button>
+          )}
+          <AnchoredMenu anchorRef={blRef} open={blOpen} onClose={() => setBlOpen(false)}
+            style={{ width: 300, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4, fontFamily: FONT }}>
+            {canTakeBaseline && (
+              <button type="button" role="menuitem" className="nx-menu-row" onClick={takeBaseline}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '8px 9px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: FONT, color: NX.ink, background: 'transparent' }}>
+                <Layers size={14} /> Take Baseline
+              </button>
+            )}
+            {baselines === null ? <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>Loading…</div>
+              : baselines.length === 0 ? <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>No baselines yet. Take one to compare the schedule later.</div>
+              : baselines.map((b) => (
+                <div key={b.id} role="menuitem" className="nx-menu-row" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 4px 4px 9px', borderRadius: 7 }}>
+                  <button type="button" onClick={() => pickBaseline(b)} aria-current={baseline?.id === b.id || undefined}
+                    style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1, textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px 0', fontFamily: FONT }}>
+                    <span style={{ fontSize: 13, color: NX.ink, fontWeight: baseline?.id === b.id ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{b.name}</span>
+                    <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(b.takenAt)} · {b.count} task{b.count === 1 ? '' : 's'}{b.takenBy ? ` · ${nameOf ? nameOf(b.takenBy) : b.takenBy}` : ''}</span>
+                  </button>
+                  {canDeleteBaseline && (
+                    <HoldButton label="Delete" doneLabel="Deleted" size="sm" holdMs={HOLD_RECORD_MS} ariaLabel={`Delete baseline ${b.name}`}
+                      onConfirm={() => deleteBaseline(b)} />
+                  )}
+                </div>
+              ))}
+          </AnchoredMenu>
+        </span>
+      )}
       <div role="status" aria-live="polite" style={{ flex: 1, minWidth: 0, minHeight: 18, fontSize: 12, fontFamily: FONT, color: notice ? NX.ink : NX.faint }}>
         {notice || (rows.some(canEditTask)
           ? 'Drag a bar to move it, or its edge to change the start or due date. Tasks waiting on it move with it.'
@@ -326,21 +431,94 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
               const ini = primary ? initialsOf(nameOf ? nameOf(primary) : primary) : '';
               const edge = { position: 'absolute', top: 0, bottom: 0, width: HANDLE_W, cursor: 'ew-resize' };
               const rc = rowColors?.get(t.id);
+              const auto = isAuto(t);
+              const early = startsTooEarly(t, lookup);
+              // The baseline's ghost (desktop only - a phone's bars are too small
+              // for two) and the due date's slip, red when later, green when earlier.
+              const ghost = !isMobile && ghostOf.get(t.id);
+              const ghostG = ghost && (ghost.start || ghost.due) ? (() => {
+                const s = ghost.start || ghost.due, e = ghost.due || ghost.start;
+                return { left: dayOffset(s) * DAY_W, width: Math.max(DAY_W, (dayOffset(e) - dayOffset(s) + 1) * DAY_W) };
+              })() : null;
+              const slip = !isMobile && baseline ? slipOf.get(t.id) : null;
+              const title = `${t.title} (${meta.label})${rc ? ` - ${rc.name}` : ''}${auto ? ' - automatic: starts after its predecessors; drag to change its length' : ''}`;
               return (
-                <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={`${t.title} (${meta.label})${rc ? ` - ${rc.name}` : ''}`} aria-label={rc ? `${t.title}, colored ${rc.name}` : t.title} data-bar={t.id}
+                <Fragment key={t.id}>
+                {ghostG && (
+                  <div data-ghost={t.id} title={`Baseline: ${fmtDate(ghost.start || ghost.due)}${ghost.due && ghost.start && ghost.due !== ghost.start ? ` - ${fmtDate(ghost.due)}` : ''}`}
+                    style={{ position: 'absolute', left: ghostG.left, width: ghostG.width, top: i * ROW_H + 37, height: 5, borderRadius: 3, background: '#94a3b8', opacity: 0.7, pointerEvents: 'none' }} />
+                )}
+                {early && (
+                  <span data-early={t.id} role="img" aria-label="Starts before its predecessor finishes" title="Starts before its predecessor finishes"
+                    style={{ position: 'absolute', left: g.left - 7, top: i * ROW_H + 6, width: 5, height: 32, borderLeft: `2px solid ${NX.amber}`, borderTop: `2px solid ${NX.amber}`, borderBottom: `2px solid ${NX.amber}`, borderRadius: '2px 0 0 2px', pointerEvents: 'auto', zIndex: 2 }} />
+                )}
+                <button {...pointer} onClick={() => openUnlessDragged(t.id)} title={title} aria-label={rc ? `${t.title}, colored ${rc.name}` : t.title} data-bar={t.id} data-auto={auto || undefined}
                   style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: cursorFor(t), background: meta.color, overflow: 'hidden', touchAction: 'pan-x pan-y', WebkitTouchCallout: 'none', userSelect: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1, boxShadow: dragging ? '0 6px 18px rgba(0,0,0,0.25)' : 'none', transition: dragging ? 'none' : 'left 0.12s, width 0.12s', ...(rc ? { outline: `2px solid ${rc.hex}`, outlineOffset: 1 } : null) }} data-row-color={rc?.id}>
                   <span style={{ ...edge, left: 0 }} />
+                  {auto && <Link2 size={11} aria-hidden="true" style={{ flexShrink: 0, opacity: 0.9 }} />}
                   {ini && <span style={{ flexShrink: 0, fontWeight: 700, opacity: 0.9 }}>{ini}</span>}
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.95 }}>{t.title}</span>
                   <span style={{ ...edge, right: 0 }} />
                 </button>
+                {slip != null && slip !== 0 && (
+                  <span data-slip={t.id} title={slip > 0 ? `Due ${slip} working day${slip === 1 ? '' : 's'} later than the baseline` : `Due ${-slip} working day${slip === -1 ? '' : 's'} earlier than the baseline`}
+                    style={{ position: 'absolute', left: g.left + g.width + 5, top: i * ROW_H + 14, fontSize: 11, fontWeight: 700, color: slip > 0 ? NX.red : NX.green, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+                    {slipText(slip)}
+                  </span>
+                )}
+                </Fragment>
               );
             })}
           </div>
         </div>
       </div>
     </div>
+    {panel && baseline && (
+      <BaselineChanges baseline={baseline} nameOf={nameOf} onOpen={onOpen} onClose={() => setPanel(false)} onClear={clearBaseline} />
+    )}
     </>
+  );
+}
+
+// The Changes Since panel (a list, so a sheet from the right on a desktop and
+// the phone sheet on a phone): Added / Removed / Moved since the baseline,
+// Clear hides the ghosts, Close keeps them.
+function BaselineChanges({ baseline: b, nameOf, onOpen, onClose, onClear }) {
+  const span = (r) => (r.start && r.due && r.start !== r.due ? `${fmtDate(r.start)} - ${fmtDate(r.due)}` : fmtDate(r.due || r.start) || 'No dates');
+  const section = (title, rows, line) => (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>{title} · {rows.length}</div>
+      {rows.length === 0 ? <div style={{ fontSize: 12.5, color: NX.faint }}>None</div> : rows.map((r) => (
+        <button key={r.id} type="button" onClick={() => onOpen?.(r.id)} className="nx-menu-row"
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, width: '100%', textAlign: 'left', padding: '7px 9px', borderRadius: 8, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT }}>
+          <span style={{ fontSize: 13, color: NX.ink, fontWeight: 600 }}>{r.title}</span>
+          <span style={{ fontSize: 12, color: NX.dim }}>{line(r)}</span>
+        </button>
+      ))}
+    </div>
+  );
+  return (
+    <Modal title={`Changes Since ${b.name}`} onClose={onClose} width="min(480px, 100vw)" minHeight="auto"
+      footer={(
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, width: '100%' }}>
+          <button type="button" onClick={onClear} style={{ ...btn('outline'), fontSize: 12.5 }}>Clear</button>
+          <button type="button" onClick={onClose} style={{ ...btn('primary'), fontSize: 12.5 }}>Close</button>
+        </div>
+      )}>
+      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14 }}>
+        Taken {fmtDate(b.takenAt)}{b.takenBy ? ` by ${nameOf ? nameOf(b.takenBy) : b.takenBy}` : ''} · {b.unchanged} task{b.unchanged === 1 ? '' : 's'} unchanged
+      </div>
+      {section('Moved', b.moved || [], (m) => (
+        <>
+          {span(m.from)} <span aria-hidden="true">→</span> {span(m.to)}
+          {m.slipDays != null && m.slipDays !== 0 && (
+            <span style={{ marginLeft: 6, fontWeight: 700, color: m.slipDays > 0 ? NX.red : NX.green }}>{slipText(m.slipDays)}</span>
+          )}
+        </>
+      ))}
+      {section('Added', b.added || [], span)}
+      {section('Removed', b.removed || [], (r) => `${span(r)} · no longer in the project`)}
+    </Modal>
   );
 }
 
