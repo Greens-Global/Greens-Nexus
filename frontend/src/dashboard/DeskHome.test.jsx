@@ -46,7 +46,9 @@ describe('DeskHome attention queue', () => {
     expect(screen.getByRole('button', { name: /Request an Item/ })).toBeTruthy();
     // The three retired white tiles are count buttons under Open Tasks (Neil, 11/08/2026).
     expect(screen.queryByText('Signatures Needed')).toBeNull();
-    for (const t of ['0 checked out', '0 equipment', '1 to sign']) expect(screen.getByRole('button', { name: t })).toBeTruthy();
+    for (const t of ['Checked out 0', 'Equipment 0', 'To sign 1']) expect(screen.getByRole('button', { name: t })).toBeTruthy();
+    // The band shares the left column with the queue (the rail starts level with it).
+    expect(document.querySelector('.dk-main > .dk-col > .dk-hero + .dk-queue')).toBeTruthy();
     expect(screen.queryByText('newest first')).toBeNull();
   });
 });

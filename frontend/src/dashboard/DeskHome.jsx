@@ -89,31 +89,32 @@ const timeAgo = (ts) => {
   return `${Math.round(h / 24)}d`;
 };
 
-// The ONE stat tile (Neil, 11/08/2026): Open Tasks keeps its gradient look,
-// and the three counts that used to be white tiles of their own (checked
-// out, equipment, to sign) are one line of small buttons under it, each
-// going where its tile's arrow went. The tile is a div so the count buttons
-// are not buttons inside a button.
+// The ONE stat band (Neil, 11/08/2026): a gradient band as wide as the
+// queue under it - Open Tasks (chip, big number, label, sub line) on the
+// left, and on the right the three counts that used to be white tiles of
+// their own (checked out, equipment, to sign) as small stat items, each a
+// button to where its tile's arrow went. The band is a div so the count
+// buttons are not buttons inside a button.
 function Stat({ i, label, value, sub, tip, chip, Icon, onGo, links = [] }) {
   const n = useCountUp(value ?? 0);
   const loaded = value != null;   // a placeholder until the count is in, never a 0
   return (
     <div className="dk-stat dk-stat--hero dk-hero dk-rise" style={{ '--i': i }}>
       <button type="button" className="dk-hero-main" onClick={onGo} title={tip}>
-        <span className="dk-stat-top">
-          <span className={`dk-chip dk-chip--${chip}`}><Icon /></span>
-          <ArrowUpRight size={15} className="dk-stat-arrow" />
+        <span className={`dk-chip dk-chip--${chip}`}><Icon /></span>
+        <span className="dk-hero-text">
+          <span className="dk-stat-num">{loaded ? n : <CountSkeleton />}</span>
+          <span className="dk-stat-label">{label}</span>
+          <span className="dk-stat-sub">{sub}</span>
         </span>
-        <span className="dk-stat-num">{loaded ? n : <CountSkeleton />}</span>
-        <span className="dk-stat-label">{label}</span>
-        <span className="dk-stat-sub">{sub}</span>
+        <ArrowUpRight size={15} className="dk-stat-arrow" />
       </button>
       <span className="dk-hero-links">
-        {links.map((l, k) => (
-          <Fragment key={l.label}>
-            {k > 0 && <span aria-hidden="true">·</span>}
-            <button type="button" className="dk-hero-link" onClick={l.go} title={l.tip}>{l.value ?? 0} {l.label}</button>
-          </Fragment>
+        {links.map((l) => (
+          <button key={l.label} type="button" className="dk-hero-link" onClick={l.go} title={l.tip}>
+            <span className="dk-hero-k">{l.label}</span>
+            <span className="dk-hero-n">{l.value ?? 0}</span>
+          </button>
         ))}
       </span>
     </div>
@@ -308,9 +309,9 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
     : <>You're all caught up.</>;
 
   const counts = [
-    { label: 'checked out', value: kpis.my_checkouts, tip: 'Checked-Out Items - with you right now', go: () => navTo('inventory', 'checkouts') },
-    { label: 'equipment', value: kpis.my_assignments, tip: 'My Equipment - permanently assigned', go: () => navTo('inventory') },
-    { label: 'to sign', value: pendingSigs, tip: 'Signatures Needed - waiting on you', go: () => navTo('myhr') },
+    { label: 'Checked out', value: kpis.my_checkouts, tip: 'Checked-Out Items - with you right now', go: () => navTo('inventory', 'checkouts') },
+    { label: 'Equipment', value: kpis.my_assignments, tip: 'My Equipment - permanently assigned', go: () => navTo('inventory') },
+    { label: 'To sign', value: pendingSigs, tip: 'Signatures Needed - waiting on you', go: () => navTo('myhr') },
   ];
 
   return (
@@ -318,15 +319,15 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
       {/* ── Greeting + session ── */}
       <DeskGreeting summary={summary} right={headerRight} menu={headerMenu} />
 
-      {/* ── The one stat tile, one column wide (Neil, 11/08/2026) ── */}
-      <div className="dk-board">
+      {/* ── Stat band + attention queue (left column) + rail ──
+          The band lives in the left column with the queue (Neil,
+          11/08/2026) so the rail starts level with it instead of under an
+          empty stat row; the old full-width .dk-board row is gone from Home. */}
+      <div className="dk-main">
+        <div className="dk-col">
         <Stat i={1} label="Open Tasks" value={kpis.my_open_tasks} sub={myTasksFootnote(kpis) || 'Due soon or in progress'}
           tip={`Open Tasks - ${MY_TASKS_RULE}${myTasksFootnote(kpis) ? `. ${myTasksFootnote(kpis)}` : ''}`}
           chip="blue" Icon={CheckSquare} onGo={() => navTo('tasks')} links={counts} />
-      </div>
-
-      {/* ── Attention queue + rail ── */}
-      <div className="dk-main">
         <div className="dk-card dk-queue dk-rise" style={{ '--i': 5 }}>
           {/* No count badge, no "newest first" (Neil, 11/08/2026): the
               greeting already says how many need you. */}
@@ -351,6 +352,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
             ))}
             <MoreRow count={hiddenCount} onClick={viewAll} label={`View All (${attentionTotal})`} />
           </>)}
+        </div>
         </div>
 
         <div className="dk-rail">
