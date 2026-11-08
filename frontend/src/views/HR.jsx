@@ -3598,9 +3598,9 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
           <StatusDonut segments={deptSegs} total={total} size={84} />
           <div className="pp-legend">
             {deptSegs.map(d => (
-              <span key={d.key}><i style={{ background: d.color }} /><em>{d.label}</em><b>{loading ? '-' : d.n}</b></span>
+              <span key={d.key}><i style={{ background: d.color }} /><span className="pp-legend-name">{d.label}</span><b>{loading ? '-' : d.n}</b></span>
             ))}
-            {!loading && deptSegs.length === 0 && <span style={{ color: 'var(--muted)' }}>Departments appear as people are added.</span>}
+            {!loading && deptSegs.length === 0 && <span className="pp-legend-empty">Departments appear as people are added.</span>}
           </div>
         </div>
       </div>
@@ -3626,7 +3626,7 @@ function PendingRoleBadge({ req, onOpen }) {
 
 // A directory filter on a phone: half the row, so four make a 2x2.
 // The multi-pick filters line up with the native selects beside them (16px on a phone - the iOS zoom rule).
-const FILTER_TRIGGER = (phone) => phone ? { minHeight: 46, fontSize: 16 } : { minHeight: 38, fontSize: 13.5 };
+const FILTER_TRIGGER = { phone: { minHeight: 46, fontSize: 16 }, desk: { minHeight: 38, fontSize: 13.5 } };
 const PHONE_FILTER = { flex: '1 1 calc(50% - 4px)', width: 'auto', minWidth: 0 };
 
 export default function HR({ activeSub, onSubChange }) {
@@ -4137,11 +4137,11 @@ export default function HR({ activeSub, onSubChange }) {
                   <option value="external">External &amp; guests</option>
                 </select>
                 <div style={isMobile ? PHONE_FILTER : { width: 170 }}>
-                  <ChipMultiSelect value={companyF} onChange={v => { setCompanyF(v); setDeptF([]); setSelectedId(null); }} placeholder="All Companies" searchPlaceholder="Search companies…" placeholderInk triggerStyle={FILTER_TRIGGER(isMobile)}
+                  <ChipMultiSelect value={companyF} onChange={v => { setCompanyF(v); setDeptF([]); setSelectedId(null); }} placeholder="All Companies" searchPlaceholder="Search companies…" placeholderInk triggerStyle={isMobile ? FILTER_TRIGGER.phone : FILTER_TRIGGER.desk}
                     options={entities.map(en => ({ id: en.id, label: en.name }))} />
                 </div>
                 <div style={isMobile ? PHONE_FILTER : { width: 170 }}>
-                  <ChipMultiSelect value={deptF} onChange={v => { setDeptF(v); setSelectedId(null); }} placeholder="All Departments" searchPlaceholder="Search departments…" placeholderInk triggerStyle={FILTER_TRIGGER(isMobile)}
+                  <ChipMultiSelect value={deptF} onChange={v => { setDeptF(v); setSelectedId(null); }} placeholder="All Departments" searchPlaceholder="Search departments…" placeholderInk triggerStyle={isMobile ? FILTER_TRIGGER.phone : FILTER_TRIGGER.desk}
                     options={deptChoices.map(d => ({ id: d, label: d }))} />
                 </div>
                 {/* Choosing Deleted fetches that list here rather than in an
