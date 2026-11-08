@@ -337,7 +337,8 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
           </AnchoredMenu>
         </span>
       )}
-      <div role="status" aria-live="polite" style={{ flex: 1, minWidth: 0, minHeight: 18, fontSize: 12, fontFamily: FONT, color: notice ? NX.ink : NX.faint }}>
+      {/* On a phone the hint takes its own line under the buttons - squeezed beside two of them it wrapped into a column of single words. */}
+      <div role="status" aria-live="polite" style={{ flex: 1, minWidth: isMobile && projectId ? '100%' : 0, minHeight: 18, fontSize: 12, fontFamily: FONT, color: notice ? NX.ink : NX.faint }}>
         {notice || (rows.some(canEditTask)
           ? 'Drag a bar to move it, or its edge to change the start or due date. Tasks waiting on it move with it.'
           : 'You can view these dates. Ask the project owner for edit access to change them.')}
