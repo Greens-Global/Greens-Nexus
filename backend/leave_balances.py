@@ -481,9 +481,12 @@ def _today(db: Session, email: str) -> date:
     return date.fromisoformat(timeclock._employee_today(db, email))
 
 
-def request_hours(r, hours_per_day: float) -> float:
+def request_hours(r, hours_per_day: float, db: Session | None = None) -> float:
     """Hours a time-off request covers: its window on a part day, else its
-    weekdays (Mon-Fri) at the policy's hours a day."""
+    weekdays (Mon-Fri) at the policy's hours a day. With `db`, the person's
+    own company holidays are not counted (Neil, 11/07/2026: a vacation over
+    Thanksgiving drew the holiday from the balance) - the same working days
+    as timeoff_recommend.working_days."""
     st, et = (getattr(r, "start_time", "") or ""), (getattr(r, "end_time", "") or "")
     if st and et:
         try:
@@ -497,6 +500,9 @@ def request_hours(r, hours_per_day: float) -> float:
         d1 = date.fromisoformat((r.end_date or r.start_date)[:10])
     except (TypeError, ValueError):
         return 0.0
+    if db is not None:
+        import timeoff_recommend
+        return len(timeoff_recommend.working_days(db, r)) * hours_per_day
     n, d = 0, d0
     while d <= d1 and n < 400:
         if d.weekday() < 5:
@@ -609,7 +615,7 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
         b = bucket_of(r.type, pol)
         if b not in upcoming:
             continue
-        (upcoming if r.status == "approved" else pending)[b] += request_hours(r, hpd)
+        (upcoming if r.status == "approved" else pending)[b] += request_hours(r, hpd, db)
 
     out["vacation"] = {
         "method": vp.get("method", "none"), "available": round(vac_total, 2),
@@ -665,7 +671,7 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
                               models.TimeOffRequest.end_date >= today.isoformat()).all()):
                 rt = (r.type or "").strip().lower()
                 if any(x and x in rt for x in reasons):
-                    hrs = request_hours(r, hpd)
+                    hrs = request_hours(r, hpd, db)
                     if r.status == "approved":
                         up += hrs
                     else:

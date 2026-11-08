@@ -285,3 +285,65 @@ class BriefingTests(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PrincipalAndHolidayTests(_Base):
+    """Neil, 11/07/2026: a Managing Principal, Principal or Founding Principal
+    decides their own time off, with HR as the backup; and a company holiday
+    inside a request is not a day of leave."""
+
+    def _title(self, email, title):
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == email).update({"job_title": title})
+            db.add(models.HrCompanyHoliday(id="h-conf-thanks", company_id=CO, date="2026-11-26", name="Thanksgiving Day"))
+            db.commit()
+        finally:
+            db.close()
+
+    def _cleanup(self):
+        super()._cleanup()
+        db = database.SessionLocal()
+        try:
+            db.query(models.HrCompanyHoliday).filter(models.HrCompanyHoliday.id == "h-conf-thanks").delete()
+            db.commit()
+        finally:
+            db.close()
+
+    def _span(self, who):
+        self._as(who)
+        r = self.client.post("/timeclock/timeoff", json={"type": "vacation", "start_date": NEXT_MON,
+                                                          "end_date": "2026-11-27", "note": ""})
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def test_a_principal_decides_their_own_and_hr_stays_the_backup(self):
+        self._title(SUPER, "Managing Principal")
+        req = self._span(SUPER)
+        self.assertTrue(self._listed(SUPER, req["id"])["canDecide"])
+        self.assertTrue(self._listed(HRC, req["id"])["canDecide"])       # no manager: the HR contact backs up
+        self.assertEqual(self._decide(SUPER, req["id"]).status_code, 200)
+
+        other = self._span(NOMGR)                                         # same place, no principal title
+        self._as(NOMGR)
+        mine = next(x for x in self.client.get("/timeclock/timeoff/mine").json() if x["id"] == other["id"])
+        self.assertFalse(mine["canDecide"])
+        self.assertEqual(self._decide(HRC, other["id"]).status_code, 200)
+
+    def test_any_other_title_still_cannot(self):
+        self._title(MGR, "Director")
+        req = self._span(MGR)
+        self.assertEqual(self._decide(MGR, req["id"]).status_code, 403)
+
+    def test_a_holiday_inside_the_request_is_not_counted(self):
+        import leave_balances
+        self._title(EMP, "")
+        req = self._span(EMP)                                             # Mon 11/23 - Fri 11/27, Thanksgiving 11/26
+        self.assertEqual(self._listed(MGR, req["id"])["holidays"], ["2026-11-26"])
+        db = database.SessionLocal()
+        try:
+            row = db.get(models.TimeOffRequest, req["id"])
+            self.assertEqual(leave_balances.request_hours(row, 8, db), 32)
+            self.assertEqual(leave_balances.request_hours(row, 8), 40)    # without db: plain weekdays, as before
+        finally:
+            db.close()
