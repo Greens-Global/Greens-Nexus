@@ -517,7 +517,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
         <>
           <div className="myhr-grid">
 
-            {/* ── Left rail: contact + equipment ── (minWidth 0: a long line
+            {/* ── Left rail: contact, equipment, documents ── (minWidth 0: a long line
                 must wrap, not widen the column past a phone) */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
               {/* The profile card went (Neil, 11/08/2026): name, title, work
@@ -614,33 +614,17 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                 )}
               </div>
               )}
-            </div>
-
-            {/* ── Main grid: My Schedule across the top, documents beside time
-                off, then Ask HR ── */}
-            <div className="myhr-main">
-              {/* My Schedule (Pranshu, Oct 15 2026): your own shifts, in
-                  Workday as Neil asked (Oct 13), as a full-width card - the
-                  week's day cards, a My Week | Team switch for your group's
-                  week, swap/offer requests and availability. Above Documents
-                  and Time Off, beside (never above) your details column, so
-                  the hero and the clock stay where they are. */}
-              <div className="dash-card myhr-span2" id="myhr-schedule" style={{ scrollMarginTop: 80 }}>
-                {cardHead('My Schedule', 'Your shifts this week, and your group\'s')}
-                <MyShifts embedded focusConfirm={focusConfirm} trail={timeOffTrail} />
-              </div>
-
-              {/* Full width since the Time Off card went (Pranshu, 10/15): what
-                  is coming up is on the Time Off tab. One line while there is
-                  no document (Neil, 11/08/2026). */}
+              {/* My Documents (Neil, 11/08/2026): under My Equipment in this
+                  column, so My Schedule stands alone on the right. One line
+                  while there is no document. */}
               {totalDocCount === 0 ? (
-                <div className="dash-card myhr-span2 wd-oneline">
+                <div className="dash-card wd-oneline">
                   <span className="dash-card-title">My Documents</span>
                   <span className="wd-oneline-text">No documents yet.</span>
                   <FileText size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
                 </div>
               ) : (
-              <div className="dash-card myhr-span2">
+              <div className="dash-card">
                 {cardHead('My Documents', 'Signed copies, files HR filed for you and your paystubs',
                   totalDocCount > 3 ? (
                     <input className="form-input" placeholder="Search…" aria-label="Search my documents" value={docQuery} onChange={e => setDocQuery(e.target.value)}
@@ -706,6 +690,20 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                 })()}
               </div>
               )}
+            </div>
+
+            {/* ── Main column: My Schedule alone (11/08/2026) ── */}
+            <div className="myhr-main">
+              {/* My Schedule (Pranshu, Oct 15 2026): your own shifts, in
+                  Workday as Neil asked (Oct 13), as a full-width card - the
+                  week's day cards, a My Week | Team switch for your group's
+                  week, swap/offer requests and availability. Beside (never
+                  above) your details column, so the clock stays where it is. */}
+              <div className="dash-card myhr-span2" id="myhr-schedule" style={{ scrollMarginTop: 80 }}>
+                {cardHead('My Schedule', 'Your shifts this week, and your group\'s')}
+                <MyShifts embedded focusConfirm={focusConfirm} trail={timeOffTrail} />
+              </div>
+
               {previewFile && (
                 <EgnytePreview file={previewFile} onClose={() => setPreviewFile(null)}
                   fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />
