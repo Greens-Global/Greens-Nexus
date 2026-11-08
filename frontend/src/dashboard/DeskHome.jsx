@@ -5,8 +5,8 @@ widgets.
 OWN-WORLD: white cards on #f6f7fb, Figtree type, brand #2b45e1 (Stella cobalt), colored icon
 chips carrying meaning, soft shadows, friendly copy. Light always.
 STORY: an employee reads their day in five seconds - greeting, session chip,
-four numbers, the "needs your attention" list - then acts.
-FIRST VIEWPORT: greeting + session/timezone meta → four stat cards → attention
+one stat tile, the "needs your attention" list - then acts.
+FIRST VIEWPORT: greeting + session/timezone meta → one stat tile → attention
 queue (left) + team pulse / quick actions (right). Primary action = top queue
 row.
 FORM: category standard played straight at full fidelity (user's canon call,
@@ -16,7 +16,7 @@ import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from '
 import { useMsal } from '@azure/msal-react';
 import {
   ArrowUpRight, CheckCircle2, CheckSquare, ChevronRight,
-  Package, PenLine, Ticket, Users,
+  Package, Ticket,
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
@@ -89,19 +89,35 @@ const timeAgo = (ts) => {
   return `${Math.round(h / 24)}d`;
 };
 
-function Stat({ i, label, value, sub, tip, chip, Icon, onGo, hero }) {
+// The ONE stat band (Neil, 11/08/2026): a gradient band as wide as the
+// queue under it - Open Tasks (chip, big number, label, sub line) on the
+// left, and on the right the three counts that used to be white tiles of
+// their own (checked out, equipment, to sign) as small stat items, each a
+// button to where its tile's arrow went. The band is a div so the count
+// buttons are not buttons inside a button.
+function Stat({ i, label, value, sub, tip, chip, Icon, onGo, links = [] }) {
   const n = useCountUp(value ?? 0);
   const loaded = value != null;   // a placeholder until the count is in, never a 0
   return (
-    <button className={`dk-stat dk-rise${hero ? ' dk-stat--hero' : ''}`} style={{ '--i': i }} onClick={onGo} title={tip}>
-      <span className="dk-stat-top">
+    <div className="dk-stat dk-stat--hero dk-hero dk-rise" style={{ '--i': i }}>
+      <button type="button" className="dk-hero-main" onClick={onGo} title={tip}>
         <span className={`dk-chip dk-chip--${chip}`}><Icon /></span>
+        <span className="dk-hero-text">
+          <span className="dk-stat-num">{loaded ? n : <CountSkeleton />}</span>
+          <span className="dk-stat-label">{label}</span>
+          <span className="dk-stat-sub">{sub}</span>
+        </span>
         <ArrowUpRight size={15} className="dk-stat-arrow" />
+      </button>
+      <span className="dk-hero-links">
+        {links.map((l) => (
+          <button key={l.label} type="button" className="dk-hero-link" onClick={l.go} title={l.tip}>
+            <span className="dk-hero-k">{l.label}</span>
+            <span className="dk-hero-n">{l.value == null ? <CountSkeleton /> : l.value}</span>
+          </button>
+        ))}
       </span>
-      <span className="dk-stat-num">{loaded ? n : <CountSkeleton />}</span>
-      <span className="dk-stat-label">{label}</span>
-      <span className="dk-stat-sub">{sub}</span>
-    </button>
+    </div>
   );
 }
 
@@ -202,7 +218,7 @@ function FavoritesCard({ myEmail }) {
   const { loading, favorites } = useFavoriteLinks();
   const openLinks = () => navTo('dashboard', 'links');
   return (
-    <div className="dk-card dk-rise" style={{ '--i': 9 }}>
+    <div className="dk-card dk-rise" style={{ '--i': 6 }}>
       <div className="dk-pane-head">
         Favorites
         <button type="button" className="dk-fav-open" onClick={openLinks}>{favorites.length ? `${favorites.length} in Links` : 'Open Links'}</button>
@@ -292,11 +308,12 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
     ? <>You have <b>{attentionTotal} item{attentionTotal === 1 ? '' : 's'}</b> that need your attention today.</>
     : <>You're all caught up.</>;
 
-  const stats = [
-    { label: 'Open Tasks', value: kpis.my_open_tasks, sub: myTasksFootnote(kpis) || 'Due soon or in progress', tip: `Open Tasks - ${MY_TASKS_RULE}${myTasksFootnote(kpis) ? `. ${myTasksFootnote(kpis)}` : ''}`, chip: 'blue', Icon: CheckSquare, go: () => navTo('tasks'), hero: true },
-    { label: 'Checked-Out Items', value: kpis.my_checkouts, sub: 'With you right now', chip: 'orange', Icon: Package, go: () => navTo('inventory', 'checkouts') },
-    { label: 'My Equipment', value: kpis.my_assignments, sub: 'Permanently assigned', chip: 'brand', Icon: Users, go: () => navTo('inventory') },
-    { label: 'Signatures Needed', value: pendingSigs, sub: 'Waiting on you', chip: 'green', Icon: PenLine, go: () => navTo('myhr') },
+  const counts = [
+    // `value` stays undefined until /kpis (or the signature fetch) lands, so
+    // the band shows a CountSkeleton there, never a placeholder 0.
+    { label: 'Checked Out', value: kpis.my_checkouts, tip: 'Checked-Out Items - with you right now', go: () => navTo('inventory', 'checkouts') },
+    { label: 'Equipment', value: kpis.my_assignments, tip: 'My Equipment - permanently assigned', go: () => navTo('inventory') },
+    { label: 'To Sign', value: pendingSigs, tip: 'Signatures Needed - waiting on you', go: () => navTo('myhr') },
   ];
 
   return (
@@ -304,21 +321,18 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
       {/* ── Greeting + session ── */}
       <DeskGreeting summary={summary} right={headerRight} menu={headerMenu} />
 
-      {/* ── Stat cards ── */}
-      <div className="dk-board">
-        {stats.map((s, i) => (
-          <Stat key={s.label} i={1 + i} {...s} onGo={s.go} hero={s.hero} />
-        ))}
-      </div>
-
-      {/* ── Attention queue + rail ── */}
+      {/* ── Stat band + attention queue (left column) + rail ──
+          The band lives in the left column with the queue (Neil,
+          11/08/2026) so the rail starts level with it. */}
       <div className="dk-main">
-        <div className="dk-card dk-queue dk-rise" style={{ '--i': 5 }}>
-          <div className="dk-pane-head">
-            Needs Your Attention
-            {attentionTotal > 0 && <span className="dk-count">{attentionTotal}</span>}
-            <span className="dk-meta">newest first</span>
-          </div>
+        <div className="dk-col">
+        <Stat i={1} label="Open Tasks" value={kpis.my_open_tasks} sub={myTasksFootnote(kpis) || 'Due soon or in progress'}
+          tip={`Open Tasks - ${MY_TASKS_RULE}${myTasksFootnote(kpis) ? `. ${myTasksFootnote(kpis)}` : ''}`}
+          chip="blue" Icon={CheckSquare} onGo={() => navTo('tasks')} links={counts} />
+        <div className="dk-card dk-queue dk-rise" style={{ '--i': 2 }}>
+          {/* No count badge, no "newest first" (Neil, 11/08/2026): the
+              greeting already says how many need you. */}
+          <div className="dk-pane-head">Needs Your Attention</div>
           {queue.length === 0 ? (
             <div className="dk-clear">
               <span className="dk-clear-icon"><CheckCircle2 size={22} /></span>
@@ -340,10 +354,11 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
             <MoreRow count={hiddenCount} onClick={viewAll} label={`View All (${attentionTotal})`} />
           </>)}
         </div>
+        </div>
 
         <div className="dk-rail">
           {can('supervisor') && teamKpis && (
-            <div className="dk-card dk-rise" style={{ '--i': 6 }}>
+            <div className="dk-card dk-rise" style={{ '--i': 3 }}>
               <div className="dk-pane-head">Team Pulse</div>
               <button className="dk-team-row" onClick={() => navTo('timeclock')}>
                 <span className="dk-dot dk-dot--up" /> Clocked In Now
@@ -380,7 +395,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
             const max = Math.max(480, ...series.map(s => s.min));
             const fmtH = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
             return (
-              <div className="dk-card dk-rise" style={{ '--i': 7 }}>
+              <div className="dk-card dk-rise" style={{ '--i': 4 }}>
                 <div className="dk-pane-head">My Hours <span className="dk-meta">last 7 days · {fmtH(total)}</span></div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 88, padding: '14px 16px 10px' }}>
                   {series.map(s => (
@@ -396,7 +411,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
             );
           })()}
 
-          <div className="dk-card dk-rise" style={{ '--i': 8 }}>
+          <div className="dk-card dk-rise" style={{ '--i': 5 }}>
             <div className="dk-pane-head">Quick Actions</div>
             <button className="dk-key" onClick={() => navTo('inventory', 'catalog')}>
               <span className="dk-chip dk-chip--orange"><Package /></span> Request an Item
