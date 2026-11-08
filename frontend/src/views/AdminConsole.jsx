@@ -191,6 +191,7 @@ const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
 const CubbyTasksSettingsPanel = lazy(() => import('../operations/CubbyTasksSettings'));
 // Performance (Oct 27 2026): the goal and 1:1 reminders, layered per company.
 const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
+const PerformanceKudosSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceKudosSettings })));
 const ScorecardSettings = lazy(() => import('../performance/Scorecards'));
 const BonusPlanSettings = lazy(() => import('../performance/BonusPlans'));
 // Workflows (Oct 28 2026): the switches, ceilings, digest and pause - layered per company.
@@ -587,6 +588,12 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
     sub: 'How long a goal kept by hand may go without an update before its owner is reminded, and the reminder the day before a 1:1 with an empty agenda. Review reminders go out by themselves.',
     keywords: 'performance goals check-in reminder one on one 1:1 agenda review rating okr objectives' },
+  // Kudos (Neil, 11/08/2026): the company values a kudos is tagged with (layered)
+  // and, for a Super Administrator, the Teams chat kudos are posted to.
+  { id: 'performance-kudos', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Kudos', flush: true,
+    needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
+    sub: 'The company values a kudos may be tagged with, and the Teams chat every kudos is posted to.',
+    keywords: 'kudos thanks values recognition teams chat post appreciation' },
   // KPI scorecards per department (Charmi, 10/30/2026): a company's own, so a company face.
   { id: 'performance-scorecards', subject: 'performance', face: 'company', scope: 'company', icon: Target, title: 'KPI Scorecards',
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
@@ -846,6 +853,7 @@ const COMPANY_STATE = {
   'shift-settings': (cid) => api.shiftRequestSettingsGetFor(cid).then(r => ownState(!!r?.hasOverride)),
   'hr-letters': (cid) => api.hrLetterSettings(cid).then(r => ownState(!!r?.hasOverride)),
   'performance-reminders': (cid) => api.perfSettings(cid).then(m => ownState(!!m?.override)),
+  'performance-kudos': (cid) => api.perfSettings(cid).then(m => ownState(!!m?.override)),
   'india-contractor-policy': (cid) => api.timeIndiaPolicyGet(cid).then(r => ownState(!!r?.hasOverride)),
   'workflows-config': (cid) => api.wfSettings(cid).then(m => ownState(!!m?.override)),
 };
@@ -2066,6 +2074,7 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
       case 'performance-scorecards': return <LazyPanelSection key={key} id={id} Panel={ScorecardSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'performance-bonus':      return <LazyPanelSection key={key} id={id} Panel={BonusPlanSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'performance-reminders': return <LazyPanelSection key={key} id={id} Panel={PerformanceReminderSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
+      case 'performance-kudos':     return <LazyPanelSection key={key} id={id} Panel={PerformanceKudosSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'workflows-config':     return <LazyPanelSection key={key} id={id} Panel={WorkflowsSettingsPanel} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'holiday-policies':     return <LazyPanelSection key={key} id={id} Panel={HolidayPoliciesPanel} chrome={chrome} entities={entities} toastOk={toastOk} toastErr={toastErr} />;
       default:                     return null;
