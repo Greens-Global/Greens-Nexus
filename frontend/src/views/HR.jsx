@@ -22,7 +22,7 @@ import {
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
   ChevronDown, ChevronUp, Link2, ExternalLink,
   ListChecks, RefreshCw, Hourglass, BarChart3,
-  Target, CalendarClock, Package,
+  Target, CalendarClock, Package, Activity,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -586,13 +586,13 @@ function nextExpiry(e) {
   return cands.sort((a, b) => a.days - b.days)[0];
 }
 
-// A small figure card (the Team view's access strip keeps it).
+// A small fact card: the record's four facts and the Team view's access strip.
 function StatCard({ label, value, sub, tone }) {
   const color = tone === 'red' ? 'hsl(var(--color-red))' : tone === 'orange' ? 'hsl(var(--color-orange))' : 'var(--ink)';
   return (
     <div style={{ flex: '1 1 120px', minWidth: 110, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8, padding: '11px 14px' }}>
       <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 700, marginTop: 3, color, lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: 16, fontWeight: 700, marginTop: 3, color, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
       {sub && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>}
     </div>
   );
@@ -939,14 +939,6 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const expiry = nextExpiry(e);
   const tenure = fmtTenure(e.startDate);
   const canAct = canEditProfile && !teamView && ['active', 'onboarding'].includes(e.status) && e.identityType !== 'external';
-  const facts = [
-    TYPE_LABEL[e.employmentType],
-    e.department,
-    e.location,
-    manager ? `Reports to ${fullName(manager)}` : mgrEmail ? `Reports to ${mgrEmail === (viewerEmail || '').toLowerCase() ? 'you' : mgrEmail}` : null,
-    reports.length ? `${reports.length} direct report${reports.length === 1 ? '' : 's'}` : null,
-    e.startDate ? `Since ${formatDate(e.startDate)}${tenure ? ` (${tenure})` : ''}` : null,
-  ].filter(Boolean);
   // Everything HR can do to the record, behind one Actions menu (11/08/2026);
   // the two that cannot be taken back sit last, in red.
   const actions = isRemoved || teamView ? [] : [
@@ -975,52 +967,6 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     canAct && { label: 'Offboard', Icon: LogOut, danger: true, onClick: () => setOffboardOpen(true), title: 'Last day, the separation package through Nexus Sign, and everything that happens when they leave' },
     isAdmin && { label: 'Remove From Nexus', Icon: Trash2, danger: true, onClick: removeFromNexus, title: "Remove this person's Nexus record only - does not touch Microsoft 365" },
   ].filter(x => x !== false && x !== undefined);
-  const glance = !isMobile && (
-    <aside className="pr-glance" aria-label="At a glance">
-      {manager && (
-        <div className="pr-glance-row">
-          <span className="pr-row-label">Reports To</span>
-          <span className="pr-glance-person"><Avatar e={manager} size={26} card={false} /><span style={{ minWidth: 0 }}>{fullName(manager)}<small>{manager.jobTitle || ''}</small></span></span>
-        </div>
-      )}
-      {reports.length > 0 && (
-        <div className="pr-glance-row">
-          <span className="pr-row-label">Direct Reports · {reports.length}</span>
-          {reports.slice(0, 5).map(r => (
-            <span key={r.id} className="pr-glance-person"><Avatar e={r} size={26} card={false} /><span style={{ minWidth: 0 }}>{fullName(r)}<small>{r.jobTitle || ''}</small></span></span>
-          ))}
-          {reports.length > 5 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>and {reports.length - 5} more</span>}
-        </div>
-      )}
-      {e.location && <div className="pr-glance-row"><span className="pr-row-label">Site</span><span style={{ fontSize: 13 }}>{e.location}</span></div>}
-      {e.startDate && <div className="pr-glance-row"><span className="pr-row-label">Started</span><span style={{ fontSize: 13 }}>{formatDate(e.startDate)}{tenure ? ` · ${tenure}` : ''}</span></div>}
-      {!teamView && expiry && (
-        <div className="pr-glance-row">
-          <span className="pr-row-label">{expiry.label}</span>
-          <span style={{ fontSize: 13, color: expiry.days < 0 ? 'hsl(var(--color-red))' : expiry.days <= 60 ? '#b45309' : 'var(--ink)' }}>
-            {expiry.days < 0 ? 'Expired' : `In ${expiry.days} day${expiry.days === 1 ? '' : 's'}`} · {formatDate(expiry.date)}
-          </span>
-        </div>
-      )}
-      {!teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} pendingOnly />}
-      {(e.probation || checklists.length > 0) && (
-        <div className="pr-glance-row" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {checklists.map(p => <ChecklistChip key={p.checklistId} p={p} onClick={() => setTab('job')} />)}
-          <ProbationBadge p={e.probation} />
-        </div>
-      )}
-      {(e.workEmail || e.phone) && (
-        <div className="pr-glance-row">
-          <span className="pr-row-label">Contact</span>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <PersonActions email={e.workEmail} name={fullName(e)} external={e.identityType !== 'internal'} myEmail={viewerEmail} variant="pill" />
-          </div>
-          {e.workEmail && <a className="pr-link" href={`mailto:${e.workEmail}`} style={{ fontSize: 13 }}>{e.workEmail}</a>}
-          {e.phone && <a className="pr-link" href={`tel:${e.phone.replace(/[^\d+]/g, '')}`} style={{ fontSize: 13 }}>{e.phone}</a>}
-        </div>
-      )}
-    </aside>
-  );
   return (
     <div className="pr-record" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, padding: isMobile ? '16px 16px' : '20px 24px' }}>
       {isMobile && (
@@ -1028,13 +974,13 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           <ChevronLeft size={15} /> All People
         </button>
       )}
-      {/* The header is the person (11/08/2026): photo, name, what they do,
-          the facts in one line; one primary when it applies and one Actions
-          menu - not a toolbar. */}
+      {/* The header is the person (11/08/2026): photo, name, what they do;
+          Message / Call, one primary when it applies and one Actions menu -
+          not a toolbar. The four fact cards sit under it, then the tabs. */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <button title={teamView ? fullName(e) : 'View or change profile photo'} disabled={teamView} onClick={() => setPhotoOpen(true)}
           style={{ position: 'relative', cursor: teamView ? 'default' : 'pointer', flexShrink: 0, background: 'none', border: 'none', padding: 0 }}>
-          <Avatar e={e} size={64} card={false} />
+          <Avatar e={e} size={56} card={false} />
           {!teamView && (
             <span style={{ position: 'absolute', right: -3, bottom: -3, width: 20, height: 20, borderRadius: '50%', background: 'var(--card)', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--line)' }}>
               <Camera size={11} />
@@ -1042,7 +988,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           )}
         </button>
         <div style={{ flex: 1, minWidth: 'min(100%, 260px)' }}>
-          <div style={{ fontWeight: 700, fontSize: 22, lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 700, fontSize: 20, lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             {fullName(e)}<TierMark tier={e.tier} size={16} />
             {e.identityType && e.identityType !== 'internal' && (
               <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--muted)' }}>{e.identityType === 'guest' ? 'Guest' : 'External'}</span>
@@ -1058,9 +1004,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             {[e.jobTitle, companyName].filter(Boolean).join(' · ') || '-'}
             {e.employeeCode && <span style={{ color: 'var(--muted)' }}> · {e.employeeCode}</span>}
           </div>
-          {facts.length > 0 && <div className="pr-facts">{facts.join(' · ')}</div>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {e.workEmail && <PersonActions email={e.workEmail} name={fullName(e)} external={e.identityType !== 'internal'} myEmail={viewerEmail} variant="pill" />}
           {isRemoved && isAdmin && (
             <button className="primary-btn" onClick={restoreToNexus} disabled={restoreBusy}
               title="Put this person back into Nexus with their full record"
@@ -1084,8 +1030,18 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           nothing was deleted. Their Microsoft 365 account was never changed.
         </div>
       )}
-      {isMobile && !teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} pendingOnly />}
-      {isMobile && (e.probation || checklists.length > 0) && (
+      {/* Four facts, no extra fetch: tenure, manager, type, compliance. */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
+        <StatCard label="Tenure" value={tenure || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
+        <StatCard label="Reports To" value={manager ? fullName(manager) : mgrEmail ? (mgrEmail === (viewerEmail || '').toLowerCase() ? 'You' : mgrEmail) : 'No manager'}
+          sub={reports.length ? `${reports.length} direct report${reports.length === 1 ? '' : 's'}` : 'no direct reports'} />
+        <StatCard label="Type" value={TYPE_LABEL[e.employmentType] || '-'} sub={[e.department, e.location].filter(Boolean).join(' · ') || '-'} />
+        {teamView ? null : expiry
+          ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days} day${expiry.days === 1 ? '' : 's'}`} sub={formatDate(expiry.date)} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
+          : <StatCard label="Compliance" value="Clear" sub="no upcoming expiry" />}
+      </div>
+      {!teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} pendingOnly />}
+      {(e.probation || checklists.length > 0) && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
           {checklists.map(p => <ChecklistChip key={p.checklistId} p={p} onClick={() => setTab('job')} />)}
           <ProbationBadge p={e.probation} />
@@ -1215,7 +1171,6 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           {shownTab === 'access' && isAdmin && !teamView && <EmployeeAccess key={e.updatedAt} email={meEmail} identityType={e.identityType} companyId={e.company || ''} showLifecycle={!isRemoved} onExternalChanged={onExternalChanged} onRemoved={() => onRemoved?.(e.id)} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
             onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('choose') : undefined} />}
         </div>
-        {glance}
       </div>
       {photoOpen && (
         <PhotoEditorModal employee={e} toastOk={toastOk} toastErr={toastErr}
@@ -3445,13 +3400,6 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
 // composition, status breakdown, department spread - replacing the four
 // identical number tiles. Everything is computed from the live employee list;
 // nothing is fabricated, and zero/loading states stay designed.
-const WK_STATUS_COLOR = {
-  onboarding: 'hsl(var(--color-blue))',
-  active: 'hsl(var(--color-green))',
-  inactive: 'hsl(var(--color-orange))',
-  offboarded: 'var(--wk-faint)',
-};
-const WK_TYPE_COLORS = ['var(--wk-brand)', 'hsl(var(--color-blue))', 'hsl(var(--color-orange))', 'hsl(var(--color-purple))'];
 
 function StatCardShell({ Icon, title, meta, children }) {
   // Stella card anatomy: bordered icon chip + title over a hairline divider,
@@ -3499,161 +3447,75 @@ function StatusDonut({ segments, total }) {
   );
 }
 
-// KPI tile (owner's chosen concept, Jul 28): rounded-2xl tile - one solid
-// brand tile per row, the rest white - with label, big number, delta/sub
-// caption, and a REAL corner arrow action (filter or jump), never decoration.
-function KpiTile({ label, value, delta, sub, solid, onGo, goTitle, loading }) {
-  const fg = solid ? '#fff' : 'var(--ink)';
-  return (
-    <div style={{
-      position: 'relative', borderRadius: 16, padding: '16px 18px', minWidth: 0,
-      background: solid ? 'linear-gradient(135deg, #4256e8 0%, var(--wk-brand) 100%)' : 'var(--card)',
-      border: solid ? '1px solid transparent' : '1px solid var(--wk-line2)',
-      boxShadow: 'var(--wk-shadow)', fontFamily: 'var(--wk-font)',
-      display: 'flex', flexDirection: 'column', gap: 7, justifyContent: 'center',
-    }}>
-      <span style={{ fontSize: 13.5, fontWeight: 500, color: solid ? 'rgba(255,255,255,.8)' : 'var(--muted)' }}>{label}</span>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-        <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', color: fg, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-          {loading ? <CountSkeleton /> : value}
-        </span>
-        {delta && (
-          <span style={{
-            padding: '3px 9px', borderRadius: 20, fontSize: 11.5, fontWeight: 700,
-            background: solid ? 'rgba(255,255,255,.22)' : 'hsla(var(--color-green),0.12)',
-            color: solid ? '#fff' : 'hsl(var(--color-green))',
-          }}>{delta}</span>
-        )}
-      </span>
-      {sub && <span style={{ fontSize: 12, color: solid ? 'rgba(255,255,255,.65)' : 'var(--wk-faint)' }}>{sub}</span>}
-      {onGo && (
-        <button onClick={onGo} title={goTitle} aria-label={goTitle}
-          style={{
-            position: 'absolute', top: 12, right: 12, width: 30, height: 30, borderRadius: '50%',
-            border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            background: solid ? 'rgba(255,255,255,.2)' : 'var(--wk-hover)',
-            color: solid ? '#fff' : 'var(--muted)',
-          }}>
-          <ArrowUpRight size={15} />
-        </button>
-      )}
-    </div>
-  );
-}
 
-// Flat monthly bar chart (11/05/2026, Neil's flat sweep - it was one fat
-// pill when a single month had joiners): thin bars with barely rounded tops
-// on a baseline rule, heights in proportion to the count, the count over
-// every month that has one, the latest month in the brand color, the rest a
-// quiet tint of it. An empty month is just the baseline. Native tooltips.
-function MonthlyBars({ employees }) {
-  // NEW JOINERS per month, from recorded start dates - deliberately NOT a
-  // cumulative headcount curve. Most legacy profiles were imported without a
-  // start date, so a cumulative series claimed the company was near-empty
-  // until the first dated hire (Jul 28 bug report: 57 people, bars ~0).
-  // Per-month joins only assert what the data actually records.
-  const now = new Date();
-  const buckets = [];
-  for (let i = 7; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    buckets.push({
-      label: d.toLocaleString('en-US', { month: 'short' }),
-      n: employees.filter(e => (e.startDate || '').slice(0, 7) === key).length,
-    });
-  }
-  if (buckets.every(b => b.n === 0)) return (
-    <div style={{ height: 155, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '0 18px' }}>
-      No recorded start dates in the last 8 months - new joins chart here once profiles carry start dates.
-    </div>
-  );
-  const max = Math.max(...buckets.map(b => b.n), 1);
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', height: 132, borderBottom: '1px solid var(--line, var(--border-color))' }}>
-        {buckets.map((b, i) => {
-          const isLast = i === buckets.length - 1;
-          return (
-            <div key={i} title={`${b.label}: ${b.n} joined`}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4, height: '100%' }}>
-              {b.n > 0 && (
-                <span style={{ fontSize: 11.5, fontWeight: isLast ? 700 : 600, color: isLast ? 'var(--wk-brand)' : 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{b.n}</span>
-              )}
-              {b.n > 0 && (
-                <div style={{
-                  width: '100%', maxWidth: 14,
-                  height: Math.max(3, Math.round((b.n / max) * 100)),
-                  borderRadius: '2px 2px 0 0',
-                  background: isLast ? 'var(--wk-brand)' : 'color-mix(in srgb, var(--wk-brand) 32%, transparent)',
-                }} />
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ display: 'flex', gap: 12, marginTop: 7 }}>
-        {buckets.map((b, i) => (
-          <span key={i} style={{ flex: 1, textAlign: 'center', fontSize: 11.5, color: 'var(--wk-faint)' }}>{b.label}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 const DEPT_COLORS = ['#2b45e1', '#dc7a18', '#248f4b', '#8a31c9', '#b8860b'];
 
-function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatusFilter, onJumpToDirectory }) {
-  // Total People counts the company's own people; external and guest users
-  // (their own list on this screen) read underneath as "+N external" - the
-  // ones still active (Neil, Oct 13 - 62 vs 59 active read wrong).
-  // Left and Inactive people are NOT counted (Charmi, Oct 20 2026: after an
-  // offboarding Total still read 51 while the directory's Active tab read
-  // 58) - the tiles now add up to the Active tab: Total = Active + Onboarding,
-  // and Total + external = the Active tab's count.
+function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatusFilter, onJumpToDirectory, onGoExits, entityName, onOpenPerson, refreshKey }) {
+  // Three cards (Neil, 11/08/2026: "the Active tile seems useless", "New
+  // Joiners is bloat"): People with its statuses and types, Status with the
+  // counts HR acts on, Departments. Left and Inactive people are NOT counted
+  // in People (Charmi, Oct 20 2026): Total = Active + Onboarding.
   const isExt = isExternalPerson;
   const current = employees.filter(e => !isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active'));
   const { people: total, active: nActive, onboarding: nOnboarding, external: nExternal } = peopleTallies(employees, externals);
-  const joined = current.filter(e => (e.startDate || '').slice(0, 4) === String(new Date().getFullYear())).length;
-  const types = EMP_TYPES
-    .map(([k, label], i) => ({ key: k, label, color: WK_TYPE_COLORS[i % WK_TYPE_COLORS.length], n: current.filter(e => e.employmentType === k).length }));
+  const nInactive = employees.filter(e => !isExt(e) && e.status === 'inactive').length;
+  const nProbation = current.filter(e => ['in_probation', 'extended'].includes(e.probation?.status)).length;
+  const types = EMP_TYPES.map(([k, label]) => ({ key: k, label, n: current.filter(e => e.employmentType === k).length })).filter(t => t.n > 0);
   const depts = [...current.reduce((m, e) => {
     if (e.department) m.set(e.department, (m.get(e.department) || 0) + 1);
     return m;
   }, new Map())].sort((a, b) => b[1] - a[1]);
   const deptSegs = depts.map(([name, n], i) => ({ key: name, label: name, color: DEPT_COLORS[i % DEPT_COLORS.length], n }));
 
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(300px, 1.05fr) 1.4fr 1.15fr', gap: 14, marginBottom: 16, alignItems: 'stretch' }}>
-      {/* 2×2 KPI tiles - solid brand hero + white siblings. repeat(2, ...) so
-          the phone guard on inline "1fr 1fr" keeps them 2x2 (Oct 17). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
-        <KpiTile solid label="Total People" value={total} loading={loading}
-          delta={joined > 0 ? `↑ ${joined} this year` : undefined}
-          sub={nExternal ? `+${nExternal} external` : 'no external users'}
-          onGo={onJumpToDirectory} goTitle="See the directory" />
-        <KpiTile label="Active" value={nActive} loading={loading} sub={total ? `${Math.round((nActive / total) * 100)}% of people` : 'no people yet'}
-          onGo={() => onStatusFilter?.('active')} goTitle="Filter directory to active" />
-        <KpiTile label="Onboarding" value={nOnboarding} loading={loading} sub="joining now"
-          onGo={() => onStatusFilter?.('onboarding')} goTitle="Filter directory to onboarding" />
-        <KpiTile label="Departments" value={depts.length} loading={loading} sub="across the company" />
-      </div>
+  // Exits in progress and who is on leave today - two small reads, HR only
+  // (the Team view never shows this row).
+  const [exits, setExits] = useState(null);
+  const [onLeave, setOnLeave] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    api.exitStatements().then(r => alive && setExits((r?.exits || []).length)).catch(() => alive && setExits(0));
+    api.getContactDirectory().then(r => alive && setOnLeave((r?.people || []).filter(p => p.availability?.label === 'On Leave').length)).catch(() => alive && setOnLeave(0));
+    return () => { alive = false; };
+  }, [refreshKey]);
 
-      {/* New joiners per month - a flat bar chart (MonthlyBars) */}
-      <StatCardShell Icon={Users} title="New Joiners" meta="last 8 months">
-        <MonthlyBars employees={employees} />
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 14px', fontSize: 12.5, color: 'var(--muted)' }}>
-          {types.filter(t => t.n > 0).map(t => (
-            <span key={t.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: t.color }} />
-              {t.label} <b style={{ color: 'var(--ink)', fontWeight: 600 }}>{t.n}</b>
-            </span>
-          ))}
-          {!loading && total === 0 && <span>No people yet</span>}
+  const Row = ({ label, n, onGo, tone }) => (
+    <button type="button" className="pp-status-row" onClick={onGo} disabled={!onGo}>
+      <span>{label}</span>
+      <b style={{ color: tone && n ? tone : 'var(--ink)' }}>{loading || n == null ? <CountSkeleton width="1.2em" /> : n}</b>
+    </button>
+  );
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.1fr)', gap: 14, marginBottom: 16, alignItems: 'stretch' }}>
+      <StatCardShell Icon={Users} title="People" meta={nExternal ? `+${nExternal} external` : undefined}>
+        <button type="button" onClick={onJumpToDirectory} title="See the directory"
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+          {loading ? <CountSkeleton /> : total}
+        </button>
+        <div className="pp-status-list" style={{ marginTop: 12 }}>
+          <Row label="Active" n={nActive} onGo={() => onStatusFilter?.('active')} />
+          {nInactive > 0 && <Row label="Inactive" n={nInactive} onGo={() => onStatusFilter?.('inactive')} />}
+        </div>
+        {types.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', fontSize: 12.5, color: 'var(--muted)', marginTop: 10 }}>
+            {types.map(t => <span key={t.key}>{t.label} <b style={{ color: 'var(--ink)', fontWeight: 600 }}>{t.n}</b></span>)}
+          </div>
+        )}
+      </StatCardShell>
+
+      {/* What HR acts on this week; every count opens the people behind it. */}
+      <StatCardShell Icon={Activity} title="Status">
+        <div className="pp-status-list">
+          <Row label="Onboarding" n={nOnboarding} onGo={() => onStatusFilter?.('onboarding')} />
+          <Row label="Exits In Progress" n={exits} onGo={onGoExits} />
+          <Row label="On Leave Today" n={onLeave} />
+          <Row label="On Probation" n={nProbation} onGo={() => onStatusFilter?.('__probation:open__')} />
+          <RecordsAudit row entityName={entityName} refreshKey={refreshKey} onOpen={onOpenPerson} />
         </div>
       </StatCardShell>
 
-      {/* Category donut + side legend (the concept's Sales by Category card) */}
-      <StatCardShell Icon={Building2} title="By department" meta={depts.length ? `${depts.length} total` : undefined}>
+      <StatCardShell Icon={Building2} title="Departments" meta={depts.length ? `${depts.length} total` : undefined}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
           <StatusDonut segments={deptSegs} total={total} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 0 }}>
@@ -4140,12 +4002,13 @@ export default function HR({ activeSub, onSubChange }) {
         {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}
         {/* HR letters waiting on HR (Oct 27 2026) - the server decides who sees them: the company's HR contact, administrators, Full HR. */}
         <LetterRequestsPanel toastOk={toastOk} toastErr={toastErr} />
-        {!hrTeam && <RecordsAudit entityName={entityName} refreshKey={employees} onOpen={id => { setOpenTab('documents'); setSelectedId(id); }} />}
-        {/* Stat cards - headcount composition, status breakdown, department
-            spread (real data, designed zero/loading states) */}
-        <PeopleStatCards employees={employees} externals={extEmployees} loading={loading} isMobile={isMobile}
+        {/* Three cards: People, Status (what HR acts on), Departments. A phone
+            with a record open shows the record, not the cards above it. */}
+        {!hrTeam && !(selected && isMobile) && <PeopleStatCards employees={employees} externals={extEmployees} loading={loading} isMobile={isMobile}
           onStatusFilter={s => { setStatusF(s); setSelectedId(null); }}
-          onJumpToDirectory={() => { setSelectedId(null); setStatusF('All'); }} />
+          onJumpToDirectory={() => { setSelectedId(null); setStatusF('All'); }}
+          onGoExits={() => onSubChange?.('hr-exits')}
+          entityName={entityName} refreshKey={employees} onOpenPerson={id => { setOpenTab('documents'); setSelectedId(id); }} />}
 
         {error && (
           <div style={{ background: 'var(--bad-bg)', color: 'var(--bad-fg)', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>

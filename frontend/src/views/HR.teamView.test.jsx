@@ -70,7 +70,7 @@ describe('People limited to my team', () => {
   it('names the manager themself as "you", not "no manager"', async () => {
     await renderPeople();
     fireEvent.click(screen.getAllByText('Mia Mid')[0]);   // reports to val@x.com - the viewer, not in their own list
-    expect(screen.getByText(/Reports to you/)).toBeTruthy();   // the facts line under the name
+    expect(screen.getByText('Reports To')).toBeTruthy(); expect(screen.getByText('You')).toBeTruthy();   // the facts line under the name
     expect(screen.queryByText(/no manager/i)).toBeNull();
   }, 20000);
 

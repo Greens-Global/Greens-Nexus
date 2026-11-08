@@ -7,7 +7,8 @@ import { AlertTriangle } from 'lucide-react';
 import { api } from '../api';
 import { Modal } from '../tasks/components';
 
-export default function RecordsAudit({ entityName, onOpen, refreshKey }) {
+// `row` (11/08/2026): one line inside People's Status card instead of the banner.
+export default function RecordsAudit({ entityName, onOpen, refreshKey, row = false }) {
   const [people, setPeople] = useState([]);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -15,10 +16,16 @@ export default function RecordsAudit({ entityName, onOpen, refreshKey }) {
     api.getRecordsAudit().then(r => alive && setPeople(r.people || [])).catch(() => alive && setPeople([]));
     return () => { alive = false; };
   }, [refreshKey]);
-  if (!people.length) return null;
+  if (!people.length && !row) return null;
   const n = people.length;
   return (
     <>
+      {row ? (
+        <button type="button" className="pp-status-row" onClick={() => setOpen(true)} disabled={!n} title="Who is missing something on file or has an expired document">
+          <span>Records Audit</span>
+          <b style={{ color: n ? '#b45309' : 'var(--ink)' }}>{n}</b>
+        </button>
+      ) : (
       <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: '1px solid rgba(180,83,9,0.35)', background: 'rgba(180,83,9,0.07)', borderRadius: 12, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
         <AlertTriangle size={15} style={{ color: '#b45309', flexShrink: 0 }} />
         <span style={{ flex: 1, minWidth: 200 }}>
@@ -26,6 +33,7 @@ export default function RecordsAudit({ entityName, onOpen, refreshKey }) {
         </span>
         <button type="button" className="secondary-btn" onClick={() => setOpen(true)} style={{ fontSize: 12.5 }}>Review</button>
       </div>
+      )}
       {open && (
         <Modal title="Records Audit" onClose={() => setOpen(false)}>
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
