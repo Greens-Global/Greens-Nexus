@@ -28,7 +28,7 @@ vi.mock('../Sidebar', () => ({ NAV: [], isNavItemVisible: () => true }));
 vi.mock('../MobileMenu', () => ({ SUBMENUS: {}, visibleSubs: () => null }));
 
 const { default: GlobalSearch } = await import('../GlobalSearch');
-const { __resetLinksCache } = await import('./useNexusSearch');
+const { resetLinksSearchCache } = await import('./useNexusSearch');
 const { __setTablePrefsCache } = await import('../../tasks/tableCols');
 
 const open = (q) => {
@@ -37,7 +37,7 @@ const open = (q) => {
   fireEvent.change(screen.getByRole('textbox'), { target: { value: q } });
 };
 
-beforeEach(() => { __resetLinksCache(); __setTablePrefsCache({ search: { data: { favorites: [], recents: [] } } }); window.open = vi.fn(); calls.clickExternalLink.mockClear(); calls.clickPersonalLink.mockClear(); });
+beforeEach(() => { resetLinksSearchCache(); __setTablePrefsCache({ search: { data: { favorites: [], recents: [] } } }); window.open = vi.fn(); calls.clickExternalLink.mockClear(); calls.clickPersonalLink.mockClear(); });
 afterEach(() => { cleanup(); __setTablePrefsCache(null); });
 
 describe('Links in search', () => {

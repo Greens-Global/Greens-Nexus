@@ -120,7 +120,9 @@ function useLinks(enabled) {
   }, [enabled]);
   return linksKnown || loaded || { company: [], personal: [] };
 }
-export const __resetLinksCache = () => { linksKnown = null; linksAsk = null; };
+// The Links page calls this after any link changes, so the next search
+// reads the directory again.
+export const resetLinksSearchCache = () => { linksKnown = null; linksAsk = null; };
 const openSite = (url, link) => {
   window.open(url, '_blank', 'noopener');
   const [kind, id] = (link || '').split(':');

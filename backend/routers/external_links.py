@@ -493,23 +493,40 @@ class LinkRequestAdded(BaseModel):
     link_id: int
 
 
-def links_admins(db: Session) -> list[str]:
-    """Every email require_links_admin admits: the manager tier and above by
-    role, plus the members of an Access Group granting external-links at
-    editor or above. Never a broadcast."""
-    out = set()
-    for r in db.query(models.NexusRole.email, models.NexusRole.role).all():
-        if _ROLE_LEVEL.get((r.role or "").lower(), 0) >= _ROLE_LEVEL["manager"]:
-            out.add((r.email or "").strip().lower())
-    rank_by_group = {}
+def _members(db: Session, group_ids: list) -> set:
+    if not group_ids:
+        return set()
+    return {(m.email or "").strip().lower() for m in
+            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_(group_ids)).all()} - {""}
+
+
+def links_admins(db: Session, requester_email: str) -> list[str]:
+    """Who is belled about a link request (house review, 11/08/2026): the
+    members of the Access Groups granting external-links at editor or above;
+    with none, the Administrators (level 4 and up) of the requester's own
+    company; with none of those, the Super Administrators (the owner tier
+    and the global-admin groups). Never the whole manager tier, never a
+    broadcast."""
+    from auth import company_of, company_of_email_map
+    granted = []
     for g in db.query(models.NexusGroup).filter(models.NexusGroup.allowed_modules.like("%external-links%")).all():
         for part in (g.allowed_modules or "").split(","):
             mid, _, level = part.strip().partition(":")
             if mid == "external-links" and _MODULE_LEVEL_RANK.get(level, 0) >= _MODULE_LEVEL_RANK["editor"]:
-                rank_by_group[g.id] = True
-    if rank_by_group:
-        for m in db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_(list(rank_by_group))).all():
-            out.add((m.email or "").strip().lower())
+                granted.append(g.id)
+    out = _members(db, granted)
+    if out:
+        return sorted(out)
+    roles = {(r.email or "").strip().lower(): _ROLE_LEVEL.get((r.role or "").lower(), 0)
+             for r in db.query(models.NexusRole.email, models.NexusRole.role).all()}
+    company = company_of(requester_email, db)
+    if company:
+        companies = company_of_email_map(db)
+        out = {em for em, lvl in roles.items() if lvl >= _ROLE_LEVEL["administrator"] and companies.get(em, "") == company}
+        if out:
+            return sorted(out)
+    ga = [g.id for g in db.query(models.NexusGroup.id).filter(models.NexusGroup.is_global_admin == 1).all()]
+    out = {em for em, lvl in roles.items() if lvl >= _ROLE_LEVEL["owner"]} | _members(db, ga)
     out.discard("")
     return sorted(out)
 
@@ -528,7 +545,7 @@ def create_link_request(body: LinkRequestCreate, user: dict = Depends(get_curren
     db.flush()
     who = user.get("name") or user["email"]
     host = urlparse(url).hostname or url
-    for admin in links_admins(db):
+    for admin in links_admins(db, user["email"]):
         _notify(db, type="link_request", recipient=admin, title="Link Requested",
                 body=f'{who} asked for "{name}" ({host}){" - " + req.note if req.note else ""}. Open Manage on Links to add or decline it.',
                 ref_id=str(req.id), item_name=name, requested_by=who, about_email=user["email"])
@@ -554,8 +571,12 @@ def _open_request(request_id: int, db: Session) -> models.ExternalLinkRequest:
 
 @router.post("/requests/{request_id}/decline")
 def decline_link_request(request_id: int, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    from routers.items import _notify
     req = _open_request(request_id, db)
     req.status, req.decided_by, req.decided_at = "declined", user["email"], _now()
+    _notify(db, type="link_request_decided", recipient=req.requested_by, title="Link Request Declined",
+            body=f'Your request for "{req.name}" was declined by {user.get("name") or user["email"]}.',
+            ref_id=str(req.id), item_name=req.name, about_email=req.requested_by)
     db.commit()
     db.refresh(req)
     return req
@@ -563,13 +584,25 @@ def decline_link_request(request_id: int, user: dict = Depends(require_links_adm
 
 @router.patch("/requests/{request_id}")
 def mark_link_request_added(request_id: int, body: LinkRequestAdded, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    from routers.items import _notify
     req = _open_request(request_id, db)
-    if not db.query(models.ExternalLink.id).filter(models.ExternalLink.id == body.link_id).first():
+    link = db.query(models.ExternalLink).filter(models.ExternalLink.id == body.link_id).first()
+    if not link:
         raise HTTPException(status_code=404, detail="Link not found")
     req.status, req.decided_by, req.decided_at, req.link_id = "added", user["email"], _now(), body.link_id
+    _notify(db, type="link_request_decided", recipient=req.requested_by, title="Link Added",
+            body=f'"{link.name}" is now in Links - you asked for it on {_us_date(req.created_at)}.',
+            ref_id=str(req.id), item_name=link.name, about_email=req.requested_by)
     db.commit()
     db.refresh(req)
     return req
+
+
+def _us_date(iso: str) -> str:
+    try:
+        return datetime.fromisoformat(iso).strftime("%m/%d/%Y")
+    except (TypeError, ValueError):
+        return iso or ""
 
 
 @router.patch("/reorder")
@@ -685,18 +718,19 @@ def increment_click(link_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{link_id}/check")
-async def check_external_link(link_id: int, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
-    """Check Now (11/08/2026): one fetch under the SSRF guard, off the event
-    loop; marks or clears unreachable_since at once (links_health.py)."""
+def check_external_link(link_id: int, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    """Check Now (11/08/2026): a plain def, so the fetch and the database work
+    both run on FastAPI's threadpool; the one mark-or-clear rule is
+    links_health.check_now. `result` is ok | miss | skipped (skipped = the
+    address is only reachable from inside the network; nothing recorded)."""
     import links_health
     link = db.query(models.ExternalLink).filter(models.ExternalLink.id == link_id).first()
     if not link:
         raise HTTPException(status_code=404, detail="Link not found")
-    ok = await asyncio.to_thread(links_health.reachable, link.url)
-    link.unreachable_since = "" if ok else (link.unreachable_since or _now())
+    result = links_health.check_now(db, link)
     db.commit()
     db.refresh(link)
-    return link
+    return {"link": link, "result": result, "message": links_health.SKIPPED_TEXT if result == links_health.SKIPPED else ""}
 
 
 # ── Site logos, cached on our own origin ─────────────────────────────────────

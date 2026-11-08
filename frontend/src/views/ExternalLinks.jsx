@@ -22,6 +22,7 @@ import { readIds, writeIds } from '../links/shortcutStorage';
 import { parseBookmarks } from '../links/bookmarks';
 import { Modal } from '../tasks/components';
 import { formatDate } from '../lib/datetime';
+import { resetLinksSearchCache } from '../components/search/useNexusSearch';
 import {
   canonDepartment, canonLink, canonPersonalLink, matchDepartment, sortDepartments,
   readPickedDepartment, writePickedDepartment,
@@ -369,6 +370,9 @@ export default function ExternalLinks() {
     api.getPersonalLinks().then(p => setPersonalLinks((p || []).map(canonPersonalLink))).catch(() => setPersonalLinks([]));
   }, []);
   useEffect(() => { load(); }, [load]);
+  // Every link write lands in one of these two lists, so this is the one
+  // place that tells the header search to read the directory again.
+  useEffect(() => { resetLinksSearchCache(); }, [links, personalLinks]);
 
   useEffect(() => {
     if (!banner) return;
@@ -691,10 +695,13 @@ export default function ExternalLinks() {
   };
   const checkLink = async (link) => {
     try {
-      const updated = canonLink(await api.checkExternalLink(link.id));
+      const r = await api.checkExternalLink(link.id);
+      const updated = canonLink(r.link);
       setLinks(prev => (prev || []).map(l => (l.id === link.id ? updated : l)));
-      setBanner(updated.unreachable_since
-        ? { kind: 'err', text: `"${link.name}" is not reachable right now.` }
+      // ok = answered; miss = no answer (a first miss is a strike, a second
+      // marks it); skipped = only reachable from inside the network, not checked.
+      setBanner(r.result === 'skipped' ? { kind: 'ok', text: `"${link.name}": ${r.message}.` }
+        : r.result === 'miss' ? { kind: 'err', text: updated.unreachable_since ? `"${link.name}" is not reachable.` : `"${link.name}" did not answer - one more miss marks it.` }
         : { kind: 'ok', text: `"${link.name}" is reachable.` });
     } catch (e) {
       setBanner({ kind: 'err', text: e?.message || 'Could not check this link.' });
@@ -2818,9 +2825,12 @@ function ImportBookmarksModal({ existing, onClose, onImported }) {
   const [rows, setRows] = useState(null);         // null until a file is read
   const [picked, setPicked] = useState(new Set());
   const [progress, setProgress] = useState(null); // { done, total, error }
+  const [fileName, setFileName] = useState('');
+  const fileRef = useRef(null);
   const created = useRef([]);
   const readFile = (file) => {
     if (!file) return;
+    setFileName(file.name);
     const reader = new FileReader();
     reader.onload = () => {
       const parsed = parseBookmarks(String(reader.result || ''), existing.map(l => l.url));
@@ -2859,7 +2869,13 @@ function ImportBookmarksModal({ existing, onClose, onImported }) {
       <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 0 }}>
         Export your bookmarks from Chrome, Edge, Firefox or Safari (an HTML file), then choose it here. Only web links come in; ones you already have are skipped.
       </p>
-      {!rows && <input type="file" accept=".html,.htm,text/html" onChange={e => readFile(e.target.files?.[0])} />}
+      {!rows && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input ref={fileRef} type="file" accept=".html,.htm" style={{ display: 'none' }} onChange={e => readFile(e.target.files?.[0])} />
+          <button type="button" className="secondary-btn" onClick={() => fileRef.current?.click()}><Upload size={14} /> Choose File</button>
+          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{fileName || 'No file chosen'}</span>
+        </div>
+      )}
       {rows && rows.length === 0 && <p style={{ fontSize: 13 }}>No new web links in that file.</p>}
       {rows && rows.length > 0 && !progress && (
         <>
