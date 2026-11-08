@@ -48,7 +48,6 @@ import TierMark from '../components/TierMark';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
 import InvestorChart from '../components/InvestorChart';
-import PersonActions from '../components/PersonActions';
 import OrgChartCanvas, { ReportsPill } from '../components/orgchart/OrgChartCanvas';
 import { divisionColor as divColorFor, countBelow } from '../components/orgchart/tree';
 import { takePendingPerson } from '../lib/personNav';
