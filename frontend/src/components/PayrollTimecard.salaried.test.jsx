@@ -74,15 +74,23 @@ describe('a salaried card on the new Time Sheet', () => {
     expect(screen.getByText('Missed Days')).toBeTruthy();                 // the chip strip
     expect(within(container.querySelector('tr[data-ts-day="2026-11-03"]')).getByText('Absent')).toBeTruthy();
   }, 20000);
-
+  // The phone shows the week that holds today, so this test pins the clock
+  // inside the fixture's first week (it broke on Sunday 11/08/2026 when
+  // "today" moved into the second week).
   it('on a phone: day cards with the day status and the salary summary', async () => {
     PHONE = true;
-    const { container } = await mount();
-    await screen.findByText('Net Pay');
-    expect(container.querySelector('table.ts-grid')).toBeNull();
-    const absent = container.querySelector('[data-ts-day="2026-11-03"]');
-    expect(within(absent).getByText('Absent')).toBeTruthy();
-    expect(within(container.querySelector('[data-ts-day="2026-11-01"]')).getByText('Weekend Worked')).toBeTruthy();
-    expect(screen.queryByText('Est. Pay')).toBeNull();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 5, 12, 0, 0));
+    try {
+      const { container } = await mount();
+      await screen.findByText('Net Pay');
+      expect(container.querySelector('table.ts-grid')).toBeNull();
+      const absent = container.querySelector('[data-ts-day="2026-11-03"]');
+      expect(within(absent).getByText('Absent')).toBeTruthy();
+      expect(within(container.querySelector('[data-ts-day="2026-11-01"]')).getByText('Weekend Worked')).toBeTruthy();
+      expect(screen.queryByText('Est. Pay')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   }, 20000);
 });
