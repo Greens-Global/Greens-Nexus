@@ -44,7 +44,7 @@ AGREED = ("", "accepted")      # "" = legacy row, or a date nobody needs to conf
 # While an extension waits for approval the CURRENT date is still the agreed one.
 REQUESTED = "extension_requested"
 SOURCES = ("app", "bulk", "asana", "cubby", "proposal", "counter", "automation", "cascade",   # cubby: cubby_tasks.py   # automation: task_automation.py; cascade: task_schedule.py (Oct 2026)
-           "approved")
+           "approved", "auto")   # auto: automatic scheduling, task_schedule.reschedule_successors (11/08/2026)
 # The 3rd extension onward needs approval - and so does any that lands more
 # than a calendar month after the first agreed date.
 APPROVAL_FROM = 3

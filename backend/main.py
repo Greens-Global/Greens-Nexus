@@ -1604,6 +1604,12 @@ def _run_migrations():
             "ALTER TABLE kb_courses ADD COLUMN teaches VARCHAR DEFAULT ''",
             "ALTER TABLE kb_courses ADD COLUMN reviewed_at VARCHAR DEFAULT ''",
             "ALTER TABLE kb_courses ADD COLUMN review_flag TEXT DEFAULT ''",
+            # Automatic scheduling + project health (Neil 11/08/2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN schedule_mode VARCHAR DEFAULT 'manual'",
+            "ALTER TABLE tasks ADD COLUMN dependency_lags JSON DEFAULT '{}'",
+            "ALTER TABLE task_projects ADD COLUMN status_note VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects ADD COLUMN status_set_by VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects ADD COLUMN status_set_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3825,6 +3831,19 @@ def _run_migrations():
         # Refresher (Neil 11/07/2026): spaced repetition - a new table, explicit
         # RLS. models.KbRefresherItem.
         "ALTER TABLE kb_refresher_items ENABLE ROW LEVEL SECURITY",
+        # Automatic scheduling (Neil, 11/08/2026): a task's mode and its lags
+        # per predecessor - every existing task stays manual. models.Task,
+        # task_schedule.py.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS schedule_mode VARCHAR DEFAULT 'manual'",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS dependency_lags JSON DEFAULT '{}'",
+        # Project health (Neil, 11/08/2026): who set a project's status, when
+        # and why. models.TaskProject.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS status_note VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS status_set_by VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS status_set_at VARCHAR DEFAULT ''",
+        # Schedule baselines (Neil, 11/08/2026): a new table, explicit RLS.
+        # models.TaskProjectBaseline.
+        "ALTER TABLE task_project_baselines ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
