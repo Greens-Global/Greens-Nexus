@@ -8,13 +8,14 @@ import { WIDGETS, clampToLimits } from './widgets.jsx';
 // the pulse/actions column on the right, agenda below - so entering
 // Customize reads as "Home, now editable", not a different product.
 const DEFAULT_PERSONAL = [
-  // Row 1 mirrors Home's stat board - the page greeting renders above the
+  // Row 1 mirrors Home's stat band - the page greeting renders above the
   // grid (DeskGreeting in CustomDashboard), so no clock/greeting card here.
-  // hero: the one solid-gradient focal tile, same as Home's Open Tasks card.
-  // The three white KPI tiles beside it (checkouts, equipment, unread) left
-  // the default board (Neil, 11/08/2026); the kpi widget stays in the gallery
-  // and boards that already carry them keep them.
-  { i: 'd3', type: 'kpi',           x: 0, y: 0, w: 3, h: 2, config: { metric: 'my_open_tasks', hero: true } },
+  // hero: the one solid-gradient focal tile, the band shape Home has (w8,
+  // over the attention feed). The three white KPI tiles that used to sit
+  // beside it (checkouts, equipment, unread) left the default board (Neil,
+  // 11/08/2026); the kpi widget stays in the gallery and boards that
+  // already carry them keep them.
+  { i: 'd3', type: 'kpi',           x: 0, y: 0, w: 8, h: 2, config: { metric: 'my_open_tasks', hero: true } },
   // w8: takes the space At a Glance had (retired - Neil, Oct 13 2026).
   { i: 'd7', type: 'notifications', x: 0, y: 2, w: 8, h: 5 },
   // Quick Actions is not on the default board any more (Neil, 11/05/2026:

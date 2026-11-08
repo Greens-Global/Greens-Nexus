@@ -32,13 +32,16 @@ describe('DeskHome attention queue', () => {
     expect(await screen.findByText('12 items')).toBeTruthy();
     expect(document.querySelectorAll('.dk-queue-row')).toHaveLength(7);
     expect(document.querySelector('.dk-count')).toBeNull();   // no badge, no "newest first" (Neil, 11/08/2026)
+    // No kpis yet: the two item counts are skeletons, never a placeholder 0; signatures are in.
+    expect(document.querySelectorAll('.dk-hero-link [data-count-skeleton]')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'To Sign 4' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /View All \(12\)/ }));
     expect(openPanel).toHaveBeenCalledTimes(1);
   });
 
   it('no View All row when everything fits; Title Case headings', async () => {
     apiMock.mySignatures.mockResolvedValue([{ id: 1, title: 'Offer letter' }]);
-    render(<DeskHome notifications={[notif(1)]} />);
+    render(<DeskHome notifications={[notif(1)]} kpis={{ my_checkouts: 0, my_assignments: 0 }} />);
     await waitFor(() => expect(document.querySelectorAll('.dk-queue-row')).toHaveLength(2));
     expect(screen.queryByRole('button', { name: /View All/ })).toBeNull();
     expect(screen.getByText('2 items')).toBeTruthy();
@@ -46,7 +49,7 @@ describe('DeskHome attention queue', () => {
     expect(screen.getByRole('button', { name: /Request an Item/ })).toBeTruthy();
     // The three retired white tiles are count buttons under Open Tasks (Neil, 11/08/2026).
     expect(screen.queryByText('Signatures Needed')).toBeNull();
-    for (const t of ['Checked out 0', 'Equipment 0', 'To sign 1']) expect(screen.getByRole('button', { name: t })).toBeTruthy();
+    for (const t of ['Checked Out 0', 'Equipment 0', 'To Sign 1']) expect(screen.getByRole('button', { name: t })).toBeTruthy();
     // The band shares the left column with the queue (the rail starts level with it).
     expect(document.querySelector('.dk-main > .dk-col > .dk-hero + .dk-queue')).toBeTruthy();
     expect(screen.queryByText('newest first')).toBeNull();
