@@ -248,7 +248,11 @@ def for_review(db: Session, user: dict, r: models.PerfReview, cycle: models.Perf
 
 # ── Kudos ────────────────────────────────────────────────────────────────────
 
-def give_kudos(db: Session, user: dict, to: str, message: str) -> models.PerfKudos:
+def kudos_values(db: Session, company_id: str) -> list:
+    return perf.settings_for_company(db, company_id).get("kudosValues") or []
+
+
+def give_kudos(db: Session, user: dict, to: str, message: str, value: str = "") -> models.PerfKudos:
     me = _low(user.get("email"))
     to = _low(to)
     if to == me:
@@ -261,20 +265,182 @@ def give_kudos(db: Session, user: dict, to: str, message: str) -> models.PerfKud
         raise HTTPException(400, "Say what they did.")
     if len(msg) > KUDOS_MAX:
         raise HTTPException(400, f"Keep it to {KUDOS_MAX} characters.")
+    value = (value or "").strip()[:40]
+    if value:
+        # shortcut: the picker shows the SENDER's company list; a value from either company's list is accepted
+        mine = perf.employee(db, me)
+        allowed = kudos_values(db, emp.company or "") + kudos_values(db, (mine.company if mine else "") or "")
+        if value.lower() not in [v.lower() for v in allowed]:
+            raise HTTPException(400, "Pick one of the company's values.")
     since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     K = models.PerfKudos
     if db.query(K).filter(K.from_email == me, K.created_at >= since).count() >= KUDOS_PER_DAY:
         raise HTTPException(429, f"{KUDOS_PER_DAY} kudos a day at most - try again tomorrow.")
     k = K(id=perf.new_id(), company_id=emp.company or "", from_email=me, to_email=to, message=msg,
-          created_at=perf.now_iso(), hidden_at="", hidden_by="")
+          created_at=perf.now_iso(), hidden_at="", hidden_by="", value=value, seen_at="")
     db.add(k)
     sender = perf.name_of(db, me)
-    _tell(db, to, "perf-kudos", "Kudos For You", f"{sender}: \"{msg[:200]}\"", f"performance:kudos:{k.id}", emp.company or "")
+    # One bell per kudos (Neil, 11/08/2026), grown in place as people add their thanks.
+    _tell(db, to, _bell_key(k), "Kudos For You", f"{sender}: \"{msg[:200]}\"", f"performance:kudos:{k.id}", emp.company or "")
     mgr = _low(emp.manager_email)
     if mgr and mgr != me and mgr != to:
         _tell(db, mgr, "perf-kudos-team", "Kudos For Your Team",
               f"{sender} gave {perf.name_of(db, to)} kudos: \"{msg[:160]}\"", f"performance:kudos:{k.id}", emp.company or "")
     return k
+
+
+def _bell_key(k: models.PerfKudos) -> str:
+    return f"perf-kudos:{k.id}"
+
+
+# ── Thanks (Neil, 11/08/2026) ────────────────────────────────────────────────
+
+THANKS_NOTE_MAX = 200
+
+
+def _thanks_rows(db: Session, kudos_ids: list) -> dict:
+    T = models.PerfKudosThanks
+    out = {kid: [] for kid in kudos_ids}
+    if kudos_ids:
+        for t in db.query(T).filter(T.kudos_id.in_(kudos_ids)).order_by(T.created_at.asc()).all():
+            out.setdefault(t.kudos_id, []).append(t)
+    return out
+
+
+def _recount_bell(db: Session, k: models.PerfKudos) -> None:
+    """The recipient's one "Kudos For You" bell for this kudos, rewritten
+    with how many people added their thanks - never a bell per thanks."""
+    import notify_rollup
+    T = models.PerfKudosThanks
+    n = db.query(T).filter(T.kudos_id == k.id, T.from_email != _low(k.to_email)).count()
+    sender = perf.name_of(db, k.from_email)
+    head = f"{sender} sent you kudos" + (f" · {n} {'person' if n == 1 else 'people'} added their thanks" if n else "")
+    notify_rollup.upsert_rollup(db, recipient=k.to_email, key=_bell_key(k), title="Kudos For You",
+                                line=f"{head}\n\"{(k.message or '')[:200]}\"", replace=True,
+                                action={"view": "myhr", "sub": f"performance:kudos:{k.id}"}, company=k.company_id or "")
+
+
+def add_thanks(db: Session, user: dict, k: models.PerfKudos, note: str = "") -> models.PerfKudosThanks:
+    """A "+1" on someone else's kudos, or - from the recipient - the reply
+    (Say Thanks), which bells the sender once and marks the kudos seen."""
+    me = _low(user.get("email"))
+    if k is None or k.hidden_at or not can_read_kudos(db, user, k):
+        raise HTTPException(404, "Kudos not found")
+    if me == _low(k.from_email):
+        raise HTTPException(400, "Those are your own kudos.")
+    T = models.PerfKudosThanks
+    if db.query(T).filter(T.kudos_id == k.id, T.from_email == me).first() is not None:
+        raise HTTPException(409, "You already added your thanks.")
+    t = T(id=perf.new_id(), kudos_id=k.id, from_email=me, note=(note or "").strip()[:THANKS_NOTE_MAX],
+          created_at=perf.now_iso())
+    db.add(t)
+    db.flush()   # the unique key answers a race with an error, never two rows
+    if me == _low(k.to_email):
+        k.seen_at = k.seen_at or perf.now_iso()
+        _tell(db, k.from_email, f"perf-kudos-thanks:{k.id}", "They Said Thanks",
+              f"{perf.name_of(db, me)} said thanks for your kudos" + (f": \"{t.note}\"" if t.note else ""),
+              f"performance:kudos:{k.id}", k.company_id or "")
+    else:
+        _recount_bell(db, k)
+    return t
+
+
+def remove_thanks(db: Session, user: dict, k: models.PerfKudos) -> None:
+    me = _low(user.get("email"))
+    if k is None or not can_read_kudos(db, user, k):
+        raise HTTPException(404, "Kudos not found")
+    T = models.PerfKudosThanks
+    t = db.query(T).filter(T.kudos_id == k.id, T.from_email == me).first()
+    if t is None:
+        raise HTTPException(404, "You had not added your thanks.")
+    db.delete(t)
+    db.flush()
+    if me != _low(k.to_email):
+        _recount_bell(db, k)
+
+
+def unseen(db: Session, user: dict) -> list:
+    """The caller's received kudos they have not looked at yet, newest first, three at most."""
+    me = _low(user.get("email"))
+    K = models.PerfKudos
+    rows = (db.query(K).filter(K.to_email == me, K.hidden_at == "", K.seen_at == "")
+            .order_by(K.created_at.desc()).limit(3).all())
+    return [kudos_out(db, user, k) for k in rows]
+
+
+def mark_seen(db: Session, user: dict, k: models.PerfKudos) -> None:
+    if k is None or _low(k.to_email) != _low(user.get("email")):
+        raise HTTPException(404, "Kudos not found")
+    k.seen_at = k.seen_at or perf.now_iso()
+
+
+def summary(db: Session, user: dict) -> dict:
+    """The Workday profile row: kudos received this year and who sent the latest."""
+    me = _low(user.get("email"))
+    K = models.PerfKudos
+    year = datetime.now(timezone.utc).strftime("%Y-01-01")
+    q = db.query(K).filter(K.to_email == me, K.hidden_at == "", K.created_at >= year)
+    latest = q.order_by(K.created_at.desc()).first()
+    return {"thisYear": q.count(), "latestFrom": perf.name_of(db, latest.from_email) if latest else ""}
+
+
+# ── The Teams post (Neil, 11/08/2026) ────────────────────────────────────────
+# One post per kudos through the ticket Teams queue (kind "kudos", the same
+# retry sweep as every other Teams post) into the chat Settings names
+# (`kudos_teams_chat_id`, a Super Administrator's). Never a Graph call here.
+
+TEAMS_KIND = "kudos"
+CHAT_ID_KEY = "kudos_teams_chat_id"
+
+
+def teams_chat_id(db: Session) -> str:
+    row = db.get(models.NexusSetting, CHAT_ID_KEY)
+    return (row.value or "").strip() if row else ""
+
+
+def queue_teams_post(db: Session, k: models.PerfKudos):
+    """Queue (not send) the kudos post; None when no chat is set. The caller
+    commits and hands the row to routers.tickets._deliver_teams_dm."""
+    import html as html_lib
+    from routers.task_util import gen_id
+    chat_id = teams_chat_id(db)
+    if not chat_id:
+        return None
+    text = f"Kudos: {perf.name_of(db, k.from_email)} to {perf.name_of(db, k.to_email)} - " \
+           + (f"{k.value} - " if k.value else "") + (k.message or "")
+    row = models.TicketTeamsMessage(id=gen_id(), ticket_id=k.id, agent_email=k.from_email, requester_email=k.from_email,
+                                    html=f"<p>{html_lib.escape(text)}</p>", chat_id=chat_id, created_at=perf.now_iso(),
+                                    kind=TEAMS_KIND)
+    db.add(row)
+    return row
+
+
+def deliver_teams(db: Session, row) -> bool:
+    """One delivery attempt for a claimed kudos row (teams_post.deliver_ticket_row):
+    as the sender when they are in the chat, else the feedback chat's fallback
+    posters. Commits the outcome."""
+    import bff_session
+    from feature_requests import _env_posters
+    from teams_post import send_chat_message
+    errors = []
+    for who in dict.fromkeys([_low(row.requester_email), *_env_posters()]):
+        if not who:
+            continue
+        tok = bff_session.graph_token_for_email(db, who)
+        if not tok:
+            errors.append(f"{who}: no Teams session")
+            continue
+        try:
+            send_chat_message(tok, row.chat_id, row.html)
+        except Exception as ex:  # noqa: BLE001 - the next person may be in the chat
+            errors.append(f"{who}: {str(ex)[:120]}")
+            continue
+        row.agent_email, row.sent, row.send_error = who, 1, ""
+        db.commit()
+        return True
+    row.send_error = ("; ".join(errors) or "nobody to post as")[:300]
+    db.commit()
+    return False
 
 
 def can_read_kudos(db: Session, user: dict, k: models.PerfKudos) -> bool:
@@ -294,12 +460,19 @@ def hide_kudos(db: Session, user: dict, k: models.PerfKudos) -> None:
     k.hidden_at, k.hidden_by = perf.now_iso(), me
 
 
-def kudos_out(db: Session, user: dict, k: models.PerfKudos) -> dict:
+def kudos_out(db: Session, user: dict, k: models.PerfKudos, thanks: Optional[list] = None) -> dict:
     me = _low(user.get("email"))
+    if thanks is None:
+        thanks = _thanks_rows(db, [k.id])[k.id]
+    mine = next((t for t in thanks if _low(t.from_email) == me), None)
     return {"id": k.id, "fromEmail": k.from_email, "fromName": perf.name_of(db, k.from_email),
             "toEmail": k.to_email, "toName": perf.name_of(db, k.to_email), "message": k.message or "",
+            "value": k.value or "", "seenAt": k.seen_at or "",
             "createdAt": k.created_at or "", "hidden": bool(k.hidden_at),
-            "can": {"hide": not k.hidden_at and (me == _low(k.from_email) or perf.hr_for(db, user, k.company_id or ""))}}
+            "thanks": [{"email": t.from_email, "name": perf.name_of(db, t.from_email), "note": t.note or ""} for t in thanks],
+            "thanksCount": len(thanks), "myThanks": {"note": mine.note or ""} if mine else None,
+            "can": {"hide": not k.hidden_at and (me == _low(k.from_email) or perf.hr_for(db, user, k.company_id or "")),
+                    "thank": not k.hidden_at and me != _low(k.from_email) and mine is None}}
 
 
 def kudos_list(db: Session, user: dict, scope: str = "company", person: str = "", company: str = "") -> dict:
@@ -331,7 +504,11 @@ def kudos_list(db: Session, user: dict, scope: str = "company", person: str = ""
     rows = q.order_by(K.created_at.desc()).limit(60).all()
     since = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
     received = db.query(K).filter(K.to_email == me, K.hidden_at == "", K.created_at >= since).count()
-    return {"items": [kudos_out(db, user, k) for k in rows if can_read_kudos(db, user, k)], "receivedLast90": received}
+    thanks = _thanks_rows(db, [k.id for k in rows])
+    mine = perf.employee(db, me)
+    return {"items": [kudos_out(db, user, k, thanks[k.id]) for k in rows if can_read_kudos(db, user, k)], "receivedLast90": received,
+            # The send form: the viewer's company values and whether a Teams chat is set.
+            "values": kudos_values(db, (mine.company if mine else "") or ""), "teamsChat": bool(teams_chat_id(db))}
 
 
 def waiting_feedback(db: Session, user: dict) -> list:

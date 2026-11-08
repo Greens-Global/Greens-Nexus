@@ -3,10 +3,11 @@
 shapes and checks. Something the caller may not see answers 404."""
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import auth
 import models
 import perf_feedback as pf
 import perf_plans as pp
@@ -99,6 +100,16 @@ def cancel_feedback(fid: str, user: dict = Depends(get_current_user), db: Sessio
 class KudosIn(BaseModel):
     to: str
     message: str
+    value: Optional[str] = ""
+    post_teams: Optional[bool] = True    # the "Also post to Teams" switch; nothing is posted with no chat set
+
+
+class ThanksIn(BaseModel):
+    note: Optional[str] = ""
+
+
+class KudosChatIn(BaseModel):
+    chat_id: Optional[str] = ""
 
 
 @router.get("/kudos")
@@ -109,11 +120,78 @@ def list_kudos(scope: str = "company", person: str = "", company: str = "",
 
 
 @router.post("/kudos", status_code=201)
-def give_kudos(body: KudosIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def give_kudos(body: KudosIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+               background_tasks: BackgroundTasks = None):
     _me(user)
-    k = pf.give_kudos(db, user, body.to, body.message)
+    k = pf.give_kudos(db, user, body.to, body.message, body.value or "")
+    row = pf.queue_teams_post(db, k) if body.post_teams else None
+    db.commit()
+    if row is not None and background_tasks is not None:
+        from routers.tickets import _deliver_teams_dm
+        background_tasks.add_task(_deliver_teams_dm, row.id)
+    return pf.kudos_out(db, user, k)
+
+
+# Thanks and the recipient's moment (Neil, 11/08/2026). Unseen comes before
+# /kudos/{kid} so the word is never read as an id.
+@router.get("/kudos/unseen")
+def unseen_kudos(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _me(user)
+    return pf.unseen(db, user)
+
+
+@router.get("/kudos/summary")
+def kudos_summary(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _me(user)
+    return pf.summary(db, user)
+
+
+@router.get("/kudos/chat")
+def get_kudos_chat(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _me(user)
+    if not auth.is_global_admin(user, db):
+        raise HTTPException(403, "Only a Super Administrator sets the kudos Teams chat.")
+    return {"chatId": pf.teams_chat_id(db)}
+
+
+@router.put("/kudos/chat")
+def save_kudos_chat(body: KudosChatIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    me = _me(user)
+    if not auth.is_global_admin(user, db):
+        raise HTTPException(403, "Only a Super Administrator sets the kudos Teams chat.")
+    row = db.get(models.NexusSetting, pf.CHAT_ID_KEY)
+    if row is None:
+        row = models.NexusSetting(key=pf.CHAT_ID_KEY)
+        db.add(row)
+    row.value, row.updated_by, row.updated_at = (body.chat_id or "").strip()[:200], me, perf.now_iso()
+    db.commit()
+    return {"chatId": row.value}
+
+
+@router.post("/kudos/{kid}/thanks", status_code=201)
+def thank_kudos(kid: str, body: ThanksIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _me(user)
+    k = _locked(db, models.PerfKudos, kid)
+    pf.add_thanks(db, user, k, body.note or "")
     db.commit()
     return pf.kudos_out(db, user, k)
+
+
+@router.delete("/kudos/{kid}/thanks")
+def unthank_kudos(kid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _me(user)
+    k = _locked(db, models.PerfKudos, kid)
+    pf.remove_thanks(db, user, k)
+    db.commit()
+    return pf.kudos_out(db, user, k)
+
+
+@router.post("/kudos/{kid}/seen")
+def seen_kudos(kid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _me(user)
+    pf.mark_seen(db, user, db.get(models.PerfKudos, kid))
+    db.commit()
+    return {"ok": True, "id": kid}
 
 
 @router.post("/kudos/{kid}/hide")
