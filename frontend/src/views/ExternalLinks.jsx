@@ -19,6 +19,9 @@ import AnchoredMenu from '../components/AnchoredMenu';
 // (Sep 24), so both screens run one form and read one recents list.
 import { PersonalLinkModal, normalizeUrl } from '../links/personalLinkModal.jsx';
 import { readIds, writeIds } from '../links/shortcutStorage';
+import { parseBookmarks } from '../links/bookmarks';
+import { Modal } from '../tasks/components';
+import { formatDate } from '../lib/datetime';
 import {
   canonDepartment, canonLink, canonPersonalLink, matchDepartment, sortDepartments,
   readPickedDepartment, writePickedDepartment,
@@ -28,7 +31,7 @@ import {
   Settings2, Bookmark, History,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
   FolderPlus, Check, RefreshCw, SlidersHorizontal, Save,
-  MoreHorizontal, Copy, ArrowUp, ArrowDown,
+  MoreHorizontal, Copy, ArrowUp, ArrowDown, Send,
 } from 'lucide-react';
 import { ModuleActions } from '../components/ModuleTabs';
 
@@ -190,6 +193,17 @@ export default function ExternalLinks() {
   const [modal, setModal] = useState(null); // { mode: 'add'|'edit', form, id }
   const [saving, setSaving] = useState(false);
   const [showManage, setShowManage] = useState(false);
+  // Request a Link (11/08/2026): anyone asks; the open requests sit at the
+  // top of Manage for the links admins. Import Bookmarks: a browser's
+  // exported bookmarks file into Personal Links.
+  const [showRequest, setShowRequest] = useState(false);
+  const [showImportBookmarks, setShowImportBookmarks] = useState(false);
+  const [requests, setRequests] = useState([]);
+  const loadRequests = useCallback(() => {
+    if (!canManage) return;
+    api.getLinkRequests().then(r => setRequests(Array.isArray(r) ? r : [])).catch(() => {});
+  }, [canManage]);
+  useEffect(() => { loadRequests(); }, [loadRequests]);
   // Personal Links' own entry point into the same admin-managed Department/
   // Category picker Company Links' Manage modal has (Aug 14, "we should add
   // manage section in personal links also") - same taxonomy, same
@@ -664,6 +678,28 @@ export default function ExternalLinks() {
 
   const openAdd = () => setModal({ mode: 'add', id: null, form: { ...emptyForm, departments: department ? [department] : [], companies: companyFilter ? [companyFilter] : [], categories: category ? [category] : [] } });
   const openAddForDept = (dept) => setModal({ mode: 'add', id: null, form: { ...emptyForm, departments: [dept] } });
+  // Add from a request: the create form prefilled; the save marks the request added.
+  const openAddFromRequest = (req) => setModal({ mode: 'add', id: null, requestId: req.id, form: { ...emptyForm, name: req.name, url: req.url } });
+  const declineRequest = async (req) => {
+    try {
+      await api.declineLinkRequest(req.id);
+      setRequests(prev => prev.filter(r => r.id !== req.id));
+      setBanner({ kind: 'ok', text: `Request for "${req.name}" declined.` });
+    } catch (e) {
+      setBanner({ kind: 'err', text: e?.message || 'Could not decline this request.' });
+    }
+  };
+  const checkLink = async (link) => {
+    try {
+      const updated = canonLink(await api.checkExternalLink(link.id));
+      setLinks(prev => (prev || []).map(l => (l.id === link.id ? updated : l)));
+      setBanner(updated.unreachable_since
+        ? { kind: 'err', text: `"${link.name}" is not reachable right now.` }
+        : { kind: 'ok', text: `"${link.name}" is reachable.` });
+    } catch (e) {
+      setBanner({ kind: 'err', text: e?.message || 'Could not check this link.' });
+    }
+  };
   const openEdit = (link) => setModal({
     mode: 'edit', id: link.id,
     form: {
@@ -691,6 +727,7 @@ export default function ExternalLinks() {
         const created = canonLink(await api.createExternalLink({ ...f, url }));
         setLinks(prev => [...(prev || []), created]);
         setBanner({ kind: 'ok', text: `"${created.name}" added.` });
+        if (modal.requestId) api.markLinkRequestAdded(modal.requestId, created.id).then(loadRequests).catch(() => {});
       } else {
         const updated = canonLink(await api.updateExternalLink(modal.id, { ...f, url }));
         setLinks(prev => (prev || []).map(l => (l.id === modal.id ? updated : l)));
@@ -953,6 +990,11 @@ export default function ExternalLinks() {
               <Settings2 size={14} /> Manage
             </button>
           )}
+          {!canManage && section === 'company' && (
+            <button className="secondary-btn" onClick={() => setShowRequest(true)} title="Ask for a company link to be added">
+              <Send size={14} /> Request a Link
+            </button>
+          )}
         </div>
       </ModuleActions>
 
@@ -1004,6 +1046,9 @@ export default function ExternalLinks() {
             <option value="">All Categories</option>
             {personalCategoriesAvailable.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          <button className="secondary-btn" onClick={() => setShowImportBookmarks(true)} title="Bring in a bookmarks file exported from your browser">
+            <Upload size={14} /> Import Bookmarks
+          </button>
           {/* Same tile/list toggle as Company, so the row keeps its shape
               across the tab switch instead of the search box resizing. */}
           {!editing && <ViewToggle view={gridView} onChange={setGridView} />}
@@ -1137,7 +1182,18 @@ export default function ExternalLinks() {
           onRefreshDescription={refreshDescription} onRefreshAllDescriptions={refreshAllDescriptions}
           taxonomy={taxonomy} onAddTaxonomy={addTaxonomy} onRenameTaxonomy={renameTaxonomy} onDeleteTaxonomy={deleteTaxonomy}
           departmentNames={departmentNames} categoryNames={categoryNames} onBulkUpdate={bulkUpdateLinks} onBulkDelete={bulkDeleteLinks}
+          requests={requests} onAddFromRequest={openAddFromRequest} onDeclineRequest={declineRequest} onCheck={checkLink}
         />
+      )}
+
+      {showRequest && (
+        <LinkRequestModal onClose={() => setShowRequest(false)}
+          onSent={(name) => { setShowRequest(false); setBanner({ kind: 'ok', text: `Request for "${name}" sent to the links admins.` }); }} />
+      )}
+
+      {showImportBookmarks && (
+        <ImportBookmarksModal existing={personalLinks || []} onClose={() => setShowImportBookmarks(false)}
+          onImported={(created) => { if (created.length) setPersonalLinks(prev => [...(prev || []), ...created.map(canonPersonalLink)]); }} />
       )}
 
       {modal && (
@@ -2374,10 +2430,20 @@ function ManageModal({
   links, onClose, onAdd, onAddForDept, onEdit, onDelete, canDelete, onReorder, onImported, companyName,
   onRefreshDescription, onRefreshAllDescriptions,
   taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames, onBulkUpdate, onBulkDelete,
+  requests = [], onAddFromRequest, onDeclineRequest, onCheck,
 }) {
   const isMobile = useIsMobile();
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('all');
+  // Usage (11/08/2026): sort each category by how often it was opened; the
+  // drag order comes back when the sort is off. Check Now: one link's
+  // reachability, at once.
+  const [byOpened, setByOpened] = useState(false);
+  const [checkingId, setCheckingId] = useState(null);
+  const doCheck = async (link) => {
+    setCheckingId(link.id);
+    try { await onCheck?.(link); } finally { setCheckingId(null); }
+  };
   const [showImport, setShowImport] = useState(false);
   const [dragId, setDragId] = useState(null);
   const [dropCategory, setDropCategory] = useState(null);
@@ -2440,16 +2506,16 @@ function ManageModal({
       const cats = l.categories && l.categories.length ? l.categories : ['Other'];
       cats.forEach(k => { if (!map.has(k)) map.set(k, []); map.get(k).push(l); });
     });
-    for (const arr of map.values()) arr.sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
+    for (const arr of map.values()) arr.sort((a, b) => (byOpened ? ((b.clicks || 0) - (a.clicks || 0)) : (a.sort_order - b.sort_order)) || a.name.localeCompare(b.name));
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [rows]);
+  }, [rows, byOpened]);
 
   const attention = useMemo(() => attentionFor(links), [links]);
   const emptyDepartments = useMemo(() => departmentNames.filter(d => !links.some(l => (l.departments || []).includes(d))), [links, departmentNames]);
   useEffect(() => {
     if (!emptyDepartments.includes(deptPick)) setDeptPick(emptyDepartments[0] || '');
   }, [emptyDepartments]); // eslint-disable-line react-hooks/exhaustive-deps
-  const canReorder = q.trim() === '';
+  const canReorder = q.trim() === '' && !byOpened;
 
   // `cat` is which GROUP COLUMN this drop landed in (from the render loop's
   // own closure), not "the" category of either link - a link can be in
@@ -2479,6 +2545,7 @@ function ManageModal({
         bulkApplying, applyBulk, applyBulkDelete, refreshingId, doRefreshOne, refreshingAll, doRefreshAll, canReorder,
         onClose, onAdd, onAddForDept, onEdit, onDelete, canDelete, onReorder, onImported, companyName,
         taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames,
+        requests, onAddFromRequest, onDeclineRequest, byOpened, setByOpened,
       }} />
     );
   }
@@ -2512,9 +2579,16 @@ function ManageModal({
             <button className="secondary-btn" onClick={doRefreshAll} disabled={refreshingAll} title="Re-fetch and shorten every link's description">
               <RefreshCw size={14} className={refreshingAll ? 'spin' : undefined} /> {refreshingAll ? 'Shortening...' : 'Shorten Descriptions'}
             </button>
+            <button className="secondary-btn" onClick={() => setByOpened(v => !v)} aria-pressed={byOpened} title="Sort each category by how often its links are opened">
+              <ArrowDown size={14} /> {byOpened ? 'Sorted By Opened' : 'Sort By Opened'}
+            </button>
             <button className="secondary-btn" onClick={() => setShowImport(true)}><Upload size={14} /> Import</button>
             <button className="primary-btn" onClick={onAdd}><Plus size={15} /> Add Link</button>
           </div>
+        )}
+
+        {tab === 'all' && requests.length > 0 && (
+          <RequestedList requests={requests} onAdd={onAddFromRequest} onDecline={onDeclineRequest} style={{ margin: '12px 24px 0' }} />
         )}
 
         {tab === 'all' && selectedIds.size > 0 && (
@@ -2591,7 +2665,14 @@ function ManageModal({
                             <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {(l.departments && l.departments.length) ? l.departments.join(', ') : 'All departments'}{(l.companies && l.companies.length) ? ` · ${l.companies.map(companyName).join(', ')}` : ''}
                             </span>
-                            <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>{l.clicks || 0} uses</span>
+                            <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }} title={l.last_opened_at ? `Last opened ${formatDate(l.last_opened_at)}` : 'Never opened'}>{openedText(l)}</span>
+                            {staleLink(l) && <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>Not opened in 90 days</span>}
+                            {l.unreachable_since && <span style={{ fontSize: 11, color: 'hsl(var(--color-red))', flexShrink: 0 }}>Not reachable since {formatDate(l.unreachable_since)}</span>}
+                            {onCheck && (
+                              <IconBtn onClick={() => doCheck(l)} title="Check Now - is this site reachable?" disabled={checkingId === l.id}>
+                                <Globe size={13} className={checkingId === l.id ? 'spin' : undefined} />
+                              </IconBtn>
+                            )}
                             <IconBtn onClick={() => doRefreshOne(l)} title="Re-fetch and shorten this link's description" disabled={refreshingId === l.id}>
                               <RefreshCw size={13} className={refreshingId === l.id ? 'spin' : undefined} />
                             </IconBtn>
@@ -2652,6 +2733,162 @@ function ManageModal({
   );
 }
 
+// Usage (11/08/2026): "3 uses · opened 11/02/2026"; quiet when the last open
+// (or, never opened, the add date) is more than 90 days back.
+const DAY_MS = 86400000;
+const openedText = (l) => `${l.clicks || 0} use${l.clicks === 1 ? '' : 's'}${l.last_opened_at ? ` · opened ${formatDate(l.last_opened_at)}` : ''}`;
+function staleLink(l) {
+  const ref = l.last_opened_at || l.created_at;
+  if (!ref) return false;
+  const t = new Date(ref).getTime();
+  return Number.isFinite(t) && Date.now() - t > 90 * DAY_MS;
+}
+
+// The open link requests at the top of Manage (11/08/2026): Add opens the
+// create form prefilled; Decline closes the request.
+function RequestedList({ requests, onAdd, onDecline, style }) {
+  return (
+    <div style={{ ...style, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--mist)' }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>Requested ({requests.length})</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {requests.map(r => {
+          let host = r.url;
+          try { host = new URL(r.url).hostname.replace(/^www\./, ''); } catch { /* shown as typed */ }
+          return (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{r.name} <span style={{ fontWeight: 400, color: 'var(--muted)' }}>· {host}</span></div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                  {r.requested_by} · {formatDate(r.created_at)}{r.note ? ` · ${r.note}` : ''}
+                </div>
+              </div>
+              <button className="primary-btn" onClick={() => onAdd(r)} style={{ flexShrink: 0 }}><Plus size={13} /> Add</button>
+              <button className="secondary-btn" onClick={() => onDecline(r)} style={{ flexShrink: 0 }}><X size={13} /> Decline</button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Request a Link (11/08/2026): name, URL and why; the links admins are belled.
+function LinkRequestModal({ onClose, onSent }) {
+  const [form, setForm] = useState({ name: '', url: '', note: '' });
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  const submit = async () => {
+    if (!form.name.trim() || !form.url.trim()) { setError('Name and URL are required.'); return; }
+    setSending(true); setError('');
+    try { await api.createLinkRequest(form); onSent(form.name.trim()); }
+    catch (e) { setError(e?.message || 'Could not send this request.'); }
+    finally { setSending(false); }
+  };
+  return (
+    <Modal title="Request a Link" onClose={onClose} isDirty={!!(form.name || form.url || form.note)}
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close()} disabled={sending}>Cancel</button>
+          <button className="primary-btn" onClick={submit} disabled={sending}>{sending ? 'Sending...' : 'Send Request'}</button>
+        </>
+      )}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 0 }}>Ask for a company link to be added to Links. The people who manage Links get a notice and add or decline it.</p>
+      <div className="form-group">
+        <label>Name</label>
+        <input className="form-input" value={form.name} onChange={set('name')} placeholder="e.g. Ramp" autoFocus />
+      </div>
+      <div className="form-group">
+        <label>URL</label>
+        <input className="form-input" value={form.url} onChange={set('url')} placeholder="https://" inputMode="url" />
+      </div>
+      <div className="form-group">
+        <label>Why (optional)</label>
+        <textarea className="form-input" rows={3} value={form.note} onChange={set('note')} placeholder="Who needs it and what for" />
+      </div>
+      {error && <p style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', margin: 0 }}>{error}</p>}
+    </Modal>
+  );
+}
+
+// Import Bookmarks (11/08/2026): a browser's exported bookmarks HTML
+// (Chrome, Edge, Firefox, Safari) parsed here; a checklist of the new
+// http(s) links; one create per row, in order, stopping at the first error.
+function ImportBookmarksModal({ existing, onClose, onImported }) {
+  const [rows, setRows] = useState(null);         // null until a file is read
+  const [picked, setPicked] = useState(new Set());
+  const [progress, setProgress] = useState(null); // { done, total, error }
+  const created = useRef([]);
+  const readFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseBookmarks(String(reader.result || ''), existing.map(l => l.url));
+      setRows(parsed);
+      setPicked(new Set(parsed.map((_, i) => i)));
+    };
+    reader.readAsText(file);
+  };
+  const toggle = (i) => setPicked(prev => { const n = new Set(prev); if (n.has(i)) n.delete(i); else n.add(i); return n; });
+  const run = async () => {
+    const chosen = [...picked].sort((a, b) => a - b).map(i => rows[i]);
+    setProgress({ done: 0, total: chosen.length, error: '' });
+    for (let i = 0; i < chosen.length; i++) {
+      const r = chosen[i];
+      try {
+        created.current.push(await api.createPersonalLink({ name: r.title, url: r.url, description: r.folder ? `From ${r.folder}` : '', icon: 'Link2', vault_cred_id: '', department: '', category: '' }));
+        setProgress({ done: i + 1, total: chosen.length, error: '' });
+      } catch (e) {
+        setProgress({ done: i, total: chosen.length, error: `Stopped at "${r.title}" after ${i} link${i === 1 ? '' : 's'}: ${e?.message || 'could not add it'}.` });
+        onImported(created.current);
+        return;
+      }
+    }
+    onImported(created.current);
+  };
+  const finished = progress && !progress.error && progress.done === progress.total;
+  const importing = progress && !progress.error && !finished;
+  return (
+    <Modal title="Import Bookmarks" onClose={onClose} isDirty={!!rows && !progress}
+      footer={(close) => (
+        <>
+          <button className="secondary-btn" onClick={() => close()} disabled={importing}>{progress ? 'Done' : 'Cancel'}</button>
+          {rows && !progress && <button className="primary-btn" onClick={run} disabled={picked.size === 0}><Upload size={14} /> Import {picked.size || ''}</button>}
+        </>
+      )}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 0 }}>
+        Export your bookmarks from Chrome, Edge, Firefox or Safari (an HTML file), then choose it here. Only web links come in; ones you already have are skipped.
+      </p>
+      {!rows && <input type="file" accept=".html,.htm,text/html" onChange={e => readFile(e.target.files?.[0])} />}
+      {rows && rows.length === 0 && <p style={{ fontSize: 13 }}>No new web links in that file.</p>}
+      {rows && rows.length > 0 && !progress && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, fontSize: 12.5, color: 'var(--muted)' }}>
+            <span>{picked.size} of {rows.length} selected</span>
+            <button type="button" className="secondary-btn" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => setPicked(new Set(rows.map((_, i) => i)))}>Select All</button>
+            <button type="button" className="secondary-btn" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => setPicked(new Set())}>Clear</button>
+          </div>
+          <div className="nx-fill" style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {rows.map((r, i) => (
+              <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={picked.has(i)} onChange={() => toggle(i)} />
+                <LinkIcon url={r.url} size={24} iconSize={12} radius={6} fg="var(--muted)" bg="var(--mist)" gradient={false} />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
+                {r.folder && <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>{r.folder}</span>}
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+      {progress && (
+        <p style={{ fontSize: 13, color: progress.error ? 'hsl(var(--color-red))' : 'var(--ink)' }}>
+          {progress.error || (finished ? `Imported ${progress.done} link${progress.done === 1 ? '' : 's'}.` : `Importing ${progress.done} of ${progress.total}...`)}
+        </p>
+      )}
+    </Modal>
+  );
+}
+
 function ManageTab({ active, onClick, children }) {
   return (
     <button onClick={onClick} style={{
@@ -2680,6 +2917,7 @@ function ManageMobileSheet({ m }) {
     bulkApplying, applyBulk, applyBulkDelete, refreshingId, doRefreshOne, refreshingAll, doRefreshAll, canReorder,
     onClose, onAdd, onAddForDept, onEdit, onDelete, canDelete, onReorder, onImported, companyName,
     taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames,
+    requests, onAddFromRequest, onDeclineRequest, byOpened, setByOpened,
   } = m;
   const [more, setMore] = useState(false);
   const [sheet, setSheet] = useState(null); // { link, cat } - the row whose actions are open
@@ -2698,7 +2936,8 @@ function ManageMobileSheet({ m }) {
   const sub = (l) => {
     const depts = (l.departments && l.departments.length) ? l.departments.join(', ') : 'All departments';
     const cos = (l.companies && l.companies.length) ? ` · ${l.companies.map(companyName).join(', ')}` : '';
-    return `${depts}${cos} · ${l.clicks || 0} uses`;
+    const health = l.unreachable_since ? ` · Not reachable since ${formatDate(l.unreachable_since)}` : staleLink(l) ? ' · Not opened in 90 days' : '';
+    return `${depts}${cos} · ${openedText(l)}${health}`;
   };
 
   const actionSheet = sheet && (() => {
@@ -2772,6 +3011,7 @@ function ManageMobileSheet({ m }) {
                 <>
                   <div style={{ position: 'fixed', inset: 0, zIndex: 4 }} onClick={() => setMore(false)} />
                   <div className="links-manage-menu">
+                    <ViewMenuItem icon={ArrowDown} label={byOpened ? 'Sort By Manage Order' : 'Sort By Opened'} onClick={() => { setMore(false); setByOpened(v => !v); }} />
                     <ViewMenuItem icon={Upload} label="Import Links" onClick={() => { setMore(false); setShowImport(true); }} />
                     <ViewMenuItem icon={RefreshCw} label={refreshingAll ? 'Shortening...' : 'Shorten All Descriptions'} onClick={() => { setMore(false); if (!refreshingAll) doRefreshAll(); }} />
                   </div>
@@ -2779,6 +3019,10 @@ function ManageMobileSheet({ m }) {
               )}
             </div>
           </div>
+        )}
+
+        {tab === 'all' && requests.length > 0 && (
+          <RequestedList requests={requests} onAdd={onAddFromRequest} onDecline={onDeclineRequest} style={{ margin: '12px 16px 0' }} />
         )}
 
         {tab === 'all' && selectedIds.size > 0 && (

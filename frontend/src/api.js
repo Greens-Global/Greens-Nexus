@@ -949,6 +949,12 @@ export const api = {
   updatePersonalLink: (id, data) => req(`/personal-links/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deletePersonalLink: (id) => req(`/personal-links/${id}`, { method: "DELETE" }),
   clickPersonalLink: (id) => req(`/personal-links/${id}/click`, { method: "PATCH" }),
+  // Request a Link + link health (11/08/2026)
+  createLinkRequest: (data) => req("/external-links/requests", { method: "POST", body: JSON.stringify(data) }),
+  getLinkRequests: () => req("/external-links/requests"),
+  declineLinkRequest: (id) => req(`/external-links/requests/${id}/decline`, { method: "POST" }),
+  markLinkRequestAdded: (id, linkId) => req(`/external-links/requests/${id}`, { method: "PATCH", body: JSON.stringify({ link_id: linkId }) }),
+  checkExternalLink: (id) => req(`/external-links/${id}/check`, { method: "POST" }),
 
   // Link Layout - per-user Links Module personalization (ordering, folders,
   // favorites), backend-persisted so it follows the account across devices
