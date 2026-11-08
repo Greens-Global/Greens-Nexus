@@ -9,7 +9,7 @@ import {
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
   Bookmark, Plus, Link2, Lock,
   PenLine, Contact, ShoppingCart, Cake, UserMinus,
-  Ticket as TicketIcon, CloudSun, Search, HardHat, Building2, GraduationCap,
+  Ticket as TicketIcon, CloudSun, Search, HardHat, Building2, GraduationCap, Award,
 } from 'lucide-react';
 import { formatTime, formatDayLong } from '../lib/datetime';
 import { api } from '../api';
@@ -69,6 +69,8 @@ const AnnouncementsWidget = lazy(() => import('./essentials/Announcements.jsx'))
 const MyTeamWidget        = lazy(() => import('./essentials/MyTeam.jsx'));
 // Accounting tiles (Oct 1) - the ledger search, for people with the grant.
 const lazyAccounting = (name) => lazy(() => import('./accountingWidgets.jsx').then(m => ({ default: m[name] })));
+// Kudos (Neil, 11/08/2026): the company feed, Add Your Thanks inline - performance/Kudos.jsx.
+const KudosFeed = lazy(() => import('../performance/Kudos.jsx').then(m => ({ default: m.KudosWidget })));
 const FindTransactionWidget = lazyAccounting('FindTransactionWidget');
 
 // Fire the app's cross-view navigation event (see CLAUDE.md).
@@ -1067,6 +1069,11 @@ function RefresherWidget() {
   return <div className="kb" style={{ padding: 2 }}><Refresher compact /></div>;
 }
 
+function KudosWidget() {
+  const { myEmail } = useRole();
+  return <Suspense fallback={<WidgetSkeleton rows={3} />}><KudosFeed me={(myEmail || '').toLowerCase()} /></Suspense>;
+}
+
 export const WIDGETS = {
   kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi', compact: true },
   // At a Glance, retired (Neil, Oct 13 2026: "nobody cares that there's 1,925
@@ -1151,6 +1158,7 @@ export const WIDGETS = {
   // (exempt) person never sees it placed or offered (see widgetHidden).
   'my-time':       { title: 'My Time',       cat: 'Workday', icon: Hourglass,  size: { w: 3, h: 3 }, limits: { minW: 3, minH: 3, maxW: 4, maxH: 4 },  render: MyTimeWidget, timeTracked: true },
   refresher:       { title: 'Refresher',     cat: 'Workday', icon: GraduationCap, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 6 }, render: RefresherWidget, fit: true },
+  kudos:           { title: 'Kudos',         cat: 'Workday', icon: Award,      size: { w: 4, h: 5 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 8 }, render: KudosWidget, fit: true },
   announcements:   { title: 'Announcements', cat: 'Live',    icon: Megaphone,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 8 },  render: AnnouncementsWidget, fit: true },
   'my-team':       { title: 'My Team',       cat: 'Team',    icon: Users,      size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 12, maxH: 8 }, render: MyTeamWidget, minRole: 'supervisor', fit: true },
   // Oct 1: a module-gated tile - `module` names the Access Group grant that

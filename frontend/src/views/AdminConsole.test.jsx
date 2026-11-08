@@ -301,6 +301,19 @@ describe('AdminConsole', () => {
     expect(screen.queryByText('Daily Briefing')).not.toBeInTheDocument();
   });
 
+  it('Kudos Values is HR\'s; the Kudos Teams Chat group opens to a Super Administrator alone (mayOpen is the one rule, 11/08/2026)', async () => {
+    apiOverrides.perfSettings = () => Promise.resolve({ settings: { kudosValues: ['Ownership'], kudosTeamsChatId: '' }, canEdit: true, override: false, companies: [] });
+    asRole('administrator', { isGlobalAdmin: false });
+    render(<AdminConsole activeSub="performance" onSubChange={() => {}} />);
+    expect(await screen.findByRole('region', { name: 'Kudos Values' }, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Kudos Teams Chat' })).not.toBeInTheDocument();
+    cleanup();
+    asRole('administrator', { isGlobalAdmin: true });
+    render(<AdminConsole activeSub="performance" onSubChange={() => {}} />);
+    expect(await screen.findByRole('region', { name: 'Kudos Teams Chat' }, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Kudos Values' })).toBeInTheDocument();
+  });
+
   it('opens each group for exactly who its save route lets in (the registry gates, Oct 23)', async () => {
     // A supervisor with a People (hr) editor grant limited to Greens Global:
     // Companies, Locations and Hiring are theirs - with their company picked

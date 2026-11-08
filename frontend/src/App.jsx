@@ -17,6 +17,7 @@ import { PageTrailProvider, ShellTrail } from "./components/PageTrail";
 import NotificationToasts from "./components/NotificationToasts";
 import PriorityBar from "./components/PriorityBar";
 import LocationNoticeBar from "./components/LocationNoticeBar";
+import KudosMoment from "./performance/KudosMoment";
 import { RoleChangeDeepLinkFallback } from "./components/RoleChangeRequests";
 import TimeclockWidget from "./components/TimeclockWidget";
 import { StepUpOverlay } from "./stepup/StepUp";
@@ -983,6 +984,8 @@ function MainApp() {
             {!pdfHasDoc && <WidgetBoundary name="priority-bar" resetKey={widgetKey}><PriorityBar onNavigate={navigate} /></WidgetBoundary>}
             {/* A clock-in with no location (Neil, Oct 21 2026): the red Turn On / Skip bar. */}
             {!pdfHasDoc && <WidgetBoundary name="location-bar" resetKey={widgetKey}><LocationNoticeBar /></WidgetBoundary>}
+            {/* A kudos not seen yet (Neil, 11/08/2026): the small card, once. */}
+            <WidgetBoundary name="kudos-moment" resetKey={widgetKey}><KudosMoment /></WidgetBoundary>
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
                 dashboard surfaces - see the Work OS section in style.css */}
             {/* pdf-editor is flush for the same reason tasks is: it owns its

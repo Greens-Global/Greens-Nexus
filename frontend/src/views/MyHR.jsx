@@ -5,7 +5,7 @@ import {
   FileText, Download, Pencil, Check, X,
   Banknote, MessageSquarePlus, Package, ArrowRight,
   HardDrive, Folder, FolderOpen, ChevronRight, ChevronLeft, Eye,
-  FileSignature, CircleHelp, MessageSquare, UserPen,
+  FileSignature, CircleHelp, MessageSquare, UserPen, Award,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner, CountSkeleton } from '../components/AsyncState';
@@ -131,6 +131,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
   }, [focusConfirm]);
   const [profile, setProfile] = useState(null);
   const [profErr, setProfErr] = useState('');
+  const [kudos, setKudos] = useState(null);   // { thisYear, latestFrom } - the one Kudos row (Neil, 11/08/2026)
   const [docs, setDocs] = useState(null);     // null = loading, false = failed
   const [leave, setLeave] = useState(null);   // null = loading, false = failed
   const [stubs, setStubs] = useState([]);
@@ -222,6 +223,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
     // Through the phone (field offline, Neil 11/03/2026): with no signal the
     // tiles - Fill a Form among them - still draw from the last copy kept.
     offlineRead('myhr:profile', () => api.myHrProfile()).then(setProfile).catch(e => setProfErr(e?.message || 'Could not load your profile'));
+    api.perfKudosSummary().then(setKudos).catch(() => {});
     api.myHrDocs().then(d => setDocs(Array.isArray(d) ? d : [])).catch(() => setDocs(false));
     api.timeOffMine().then(l => setLeave(Array.isArray(l) ? l : [])).catch(() => setLeave(false));
     api.myPaystubs().then(r => setStubs(Array.isArray(r) ? r : [])).catch(() => {});
@@ -555,6 +557,15 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                     accounting and means nothing to the employee. */}
                 <Row Icon={Network} label="Reports to" value={profile.manager} />
                 <Row Icon={CalendarDays} label="Start date" value={formatDate(profile.startDate)} />
+                {/* Kudos (Neil, 11/08/2026): this year's count and the latest sender, to Workday > Performance; nothing when zero. */}
+                {kudos?.thisYear > 0 && (
+                  <Row Icon={Award} label="Kudos" value={(
+                    <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'performance' } }))}
+                      style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textAlign: 'left', display: 'block', width: '100%', whiteSpace: 'normal', lineHeight: 1.35 }}>
+                      {kudos.thisYear} this year{kudos.latestFrom ? ` · latest from ${kudos.latestFrom}` : ''}
+                    </button>
+                  )} />
+                )}
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0 2px' }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Contact & Emergency</span>

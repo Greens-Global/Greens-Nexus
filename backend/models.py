@@ -9702,6 +9702,23 @@ class PerfKudos(Base):
     created_at  = Column(String, default="", index=True)
     hidden_at   = Column(String, default="")
     hidden_by   = Column(String, default="")
+    # Kudos thanks (Neil, 11/08/2026): the company value it lived, and when
+    # the recipient first saw it (the moment card shows an unseen one once).
+    value       = Column(String, default="")
+    seen_at     = Column(String, default="")
+
+
+class PerfKudosThanks(Base):
+    """One person's "+1" on a kudos (Neil, 11/08/2026): a short optional
+    note, one row per person and kudos. The recipient's own row is their
+    reply (Say Thanks) and bells the sender once."""
+    __tablename__ = "perf_kudos_thanks"
+    __table_args__ = (UniqueConstraint("kudos_id", "from_email", name="uq_perf_kudos_thanks_person"),)
+    id          = Column(String, primary_key=True)                      # uuid
+    kudos_id    = Column(String, nullable=False, index=True)
+    from_email  = Column(String, nullable=False, index=True)
+    note        = Column(String, default="")                            # <= 200 chars
+    created_at  = Column(String, default="")
 
 
 class PerfPlan(Base):

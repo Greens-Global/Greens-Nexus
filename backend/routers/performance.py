@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+import auth
 import models
 import perf_metrics
 import performance as perf
@@ -1056,6 +1057,8 @@ def save_settings(body: SettingsIn, user: dict = Depends(get_current_user), db: 
     if reach is False or (not cid and reach is not None) or (cid and not perf.hr_for(db, user, cid)):
         raise HTTPException(403, "Only HR for every company can change the default." if not cid
                             else "Only HR for this company can change its settings.")
+    if "kudosTeamsChatId" in (body.settings or {}) and not auth.is_global_admin(user, db):
+        raise HTTPException(403, "Only a Super Administrator sets the kudos Teams chat.")
     if body.reset and cid:
         scoped_settings.reset(db, perf.SETTINGS_KEY, cid)
     else:

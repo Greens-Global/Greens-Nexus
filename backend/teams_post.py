@@ -240,6 +240,10 @@ def deliver_ticket_row(db, row) -> bool:
         # not a DM: feature_requests.deliver picks who posts it.
         import feature_requests
         return feature_requests.deliver(db, row)
+    if (getattr(row, "kind", "") or "") == "kudos":
+        # A kudos for the chat Settings names (perf_feedback.py).
+        import perf_feedback
+        return perf_feedback.deliver_teams(db, row)
     if (getattr(row, "kind", "") or "") == "build_mode":
         # A Build Session card for the chat its author picked, screenshots
         # inline (build_mode_chat.py).

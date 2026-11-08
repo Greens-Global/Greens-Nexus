@@ -7519,6 +7519,15 @@ body.sched-stretching, body.sched-stretching * { cursor: ew-resize !important; u
 .nx-react:hover .nx-react-emoji { transform: scale(1.25) rotate(-8deg); }
 .nx-react:active { transform: scale(.92); }
 .nx-react.is-popping { animation: nx-react-pop .42s cubic-bezier(.34, 1.56, .64, 1); }
+
+/* The recipient's kudos moment (Neil, 11/08/2026, performance/KudosMoment.jsx):
+   one small card, bottom right on a computer, slides in once with the
+   sheets' timing; the bottom of the screen on a phone. */
+.nx-kudos-moment { position: fixed; right: 20px; bottom: 20px; z-index: 3500; width: min(380px, calc(100vw - 40px)); box-sizing: border-box;
+  display: grid; gap: 10px; padding: 14px 16px; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .18); animation: nx-slide-in var(--dur-lg) var(--ease-out); font-family: var(--wk-font, 'Inter', sans-serif); }
+@media (max-width: 640px) { .nx-kudos-moment { right: 0; left: 0; bottom: 0; width: 100%; border-radius: 14px 14px 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom)); } }
+@media (prefers-reduced-motion: reduce) { .nx-kudos-moment { animation: none; } }
 @keyframes nx-react-pop { 0% { transform: scale(1); } 35% { transform: scale(1.22); } 65% { transform: scale(.94); } 100% { transform: scale(1); } }
 .nx-react-float { position: absolute; left: 50%; top: 0; pointer-events: none; font-size: 18px; animation: nx-react-float .8s ease-out forwards; }
 @keyframes nx-react-float { 0% { opacity: 0; transform: translate(-50%, 0) scale(.6); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -34px) scale(1.5); } }
