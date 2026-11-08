@@ -6,7 +6,7 @@
 // the mobile and office numbers sit below them as plain copyable details.
 import { useEffect, useState } from 'react';
 import {
-  MessageSquare, Phone, Video, Mail, Copy, Check, Smartphone, Building2, MapPin, Clock,
+  MessageSquare, Phone, Video, Mail, Smartphone, Building2, MapPin, Clock,
   Star, Download, User, ListTodo, Network, ArrowLeft, Users,
 } from 'lucide-react';
 import { NX, FONT } from '../tasks/theme';
@@ -14,6 +14,7 @@ import {
   teamsChat, teamsCall, teamsVideo, mailto, telHref, initialsOf, hueOf, AVAILABILITY_META, presenceOf,
   chainUp, directReports, byLastName, localTimeLabel, offsetFromViewer, vCardOf, downloadText, safeFileName,
 } from './lib';
+import UiCopyButton from '../ui/CopyButton';
 
 export function Avatar({ p, size = 40, radius }) {
   const r = radius ?? Math.round(size * 0.28);
@@ -97,18 +98,7 @@ export function StatusPills({ p }) {
 }
 
 function CopyButton({ value, label }) {
-  const [done, setDone] = useState(false);
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(value); setDone(true); setTimeout(() => setDone(false), 1400); } catch { /* clipboard blocked */ }
-  };
-  return (
-    <button type="button" onClick={copy} title={`Copy ${label}`} aria-label={`Copy ${label}`} style={{
-      border: 'none', background: 'transparent', color: done ? NX.green : NX.faint, cursor: 'pointer', padding: 3, borderRadius: 6,
-      display: 'inline-flex', alignItems: 'center', flexShrink: 0,
-    }}>
-      {done ? <Check size={13} /> : <Copy size={13} />}
-    </button>
-  );
+  return <UiCopyButton value={value} what={label} iconOnly style={{ border: 'none', background: 'transparent', color: NX.faint, padding: 3, borderRadius: 6, flexShrink: 0 }} />;
 }
 
 const PRIMARY = {

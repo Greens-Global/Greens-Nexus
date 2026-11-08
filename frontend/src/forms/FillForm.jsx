@@ -41,7 +41,8 @@ import { formatAccuracy, formatDistance } from '../lib/distance';
 import { formatDateTime } from '../lib/datetime';
 import { toText } from '../tasks/formula';
 import { NX, FONT, btn } from '../tasks/theme';
-import { groupDefs, isVisible, visibleAnswers, validateAnswers, computeFormulas, nearestSite } from './formRules';
+import { groupDefs, isVisible, visibleAnswers, validateAnswers, computeFormulas, nearestSite, checkOne } from './formRules';
+import { useFieldCheck, FieldNote } from '../ui/FieldCheck';
 import { groupLabel } from './formsModel';
 import { loadDraft, saveDraft, clearDraft, newEntryKey, hasContent, draftNotice } from './formDraft';
 import { useRole } from '../contexts/RoleContext';
@@ -285,6 +286,11 @@ function SignatureField({ value, onChange, entryKey, disabled, signerName, phone
 
 function Field({ def, value, error, onChange, ctx, idKey }) {
   const inputId = `ff-${idKey}`;
+  // A typed box explains itself as it is filled in (ui/FieldCheck, the same
+  // check the submit runs); the submit's own message still wins.
+  const simple = !['photo', 'gps', 'rating', 'yesno', 'signature', 'checkbox', 'scan'].includes(def.type) && !def.formula;
+  const live = useFieldCheck(value, simple ? (v) => checkOne(def, v) : null, error);
+  const shownError = live.message;
   const disabled = ctx.disabled;
   const required = !!def.required;
   let control;
@@ -300,7 +306,7 @@ function Field({ def, value, error, onChange, ctx, idKey }) {
     // The 12-hour picker, never the native time box (it follows the computer's region).
     case 'time': control = <TimeField value={value || ''} onChange={(v) => onChange(v || '')} ariaLabel={def.label} disabled={disabled} step={5} style={{ width: '100%' }} />; break;
     case 'checkbox': ownLabel = false; control = <TypedFieldInput def={def} value={value} onChange={onChange} error={!!error} />; break;
-    default: control = <TypedFieldInput def={def} value={value} onChange={onChange} error={!!error} />;
+    default: control = <TypedFieldInput def={def} value={value} onChange={onChange} error={!!shownError} />;
   }
   if (def.formula) {
     const v = ctx.computed?.[def.token];
@@ -312,7 +318,7 @@ function Field({ def, value, error, onChange, ctx, idKey }) {
   }
   // The label wraps a simple control so a tap on it focuses the box (and the
   // control is found by its label); a composite control gets a plain heading.
-  const simple = !['photo', 'gps', 'rating', 'yesno', 'signature', 'checkbox', 'scan'].includes(def.type) && !def.formula;
+
   const head = (
     <>
       {/* The required mark is an icon, not text, so the label reads as its words alone. */}
@@ -321,10 +327,10 @@ function Field({ def, value, error, onChange, ctx, idKey }) {
     </>
   );
   return (
-    <div data-field={def.token} data-error={error ? 'true' : undefined} style={{ marginBottom: 16 }}>
+    <div data-field={def.token} data-error={error ? 'true' : undefined} onChange={live.onChange} onBlur={live.onBlur} style={{ marginBottom: 16 }}>
       {simple ? <label style={{ display: 'block' }}>{head}{control}</label>
         : <>{ownLabel && (def.type === 'scan' ? <label htmlFor={inputId} style={{ display: 'block' }}>{head}</label> : head)}{control}</>}
-      {error && <div role="alert" style={errStyle}>{error}</div>}
+      <FieldNote message={shownError} ok={live.ok} style={shownError ? errStyle : undefined} />
     </div>
   );
 }

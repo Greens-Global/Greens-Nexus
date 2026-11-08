@@ -74,7 +74,7 @@ describe('WorkflowsSettings', () => {
     expect(body.webhookHosts).toEqual(['hooks.example.com', 'alerts.example.com']);
     // Only the secret typed this time, keyed by the host as saved.
     expect(body.webhookSecrets).toEqual({ 'alerts.example.com': 's3cret' });
-    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled());
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: /^Saved?$/ })).toBeDisabled());
     expect(screen.getByLabelText('Runs per hour cap').value).toBe('500');
   });
 

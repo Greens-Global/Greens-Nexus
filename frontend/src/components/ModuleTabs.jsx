@@ -5,6 +5,7 @@ import AnchoredMenu from './AnchoredMenu';
 import TabInk from './TabInk';
 import PageTrail, { tabLabelOf, useTrailInfo } from './PageTrail';
 import { PHONE_QUERY } from '../lib/keys';
+import ChangeFlash from './ChangeFlash';
 
 /*
 Module tab strip -> header center (Work OS shell, Jul 28).
@@ -160,7 +161,7 @@ function HeaderStrip({ entry, measured = false }) {
           {Icon && <Icon size={16} strokeWidth={2} />}
           <span>{label}</span>
           {cur && cur.label !== label && <span className="tab-group-current">{cur.label}</span>}
-          {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}</span>}
+          {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}<ChangeFlash value={badge} /></span>}
           {items && <ChevronDown size={14} className="tab-group-caret" />}
         </button>
       );
@@ -179,7 +180,7 @@ function HeaderStrip({ entry, measured = false }) {
           onClick={() => pick(key)}>
           {Icon && <Icon size={16} strokeWidth={2} />}
           <span>{label}</span>
-          {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}</span>}
+          {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}<ChangeFlash value={badge} /></span>}
         </button>
       )))}
     </nav>
@@ -257,7 +258,7 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
           {Icon && <Icon size={16} />} {label}
           {/* tone: 'alarm' (Tickets, 10/31/2026) - a count that is a call to
               act (tickets nobody owns) in amber; every other count stays quiet. */}
-          {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}</span>}
+          {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}<ChangeFlash value={badge} /></span>}
         </button>
       )))}
     </div>
@@ -305,7 +306,7 @@ export function TabGroupButton({ tab, active, onSelect, className, iconSize = 16
         {Icon && <Icon size={iconSize} strokeWidth={2} />}
         <span>{label}</span>
         {current && current.label !== label && <span className="tab-group-current">{current.label}</span>}
-        {tab.badge > 0 && <span className="hdr-tab-badge">{tab.badge}</span>}
+        {tab.badge > 0 && <span className="hdr-tab-badge">{tab.badge}<ChangeFlash value={tab.badge} /></span>}
         <ChevronDown size={14} className="tab-group-caret" style={{ opacity: 0.7, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
       <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} minWidth={200} aria-label={label} style={MENU_STYLE}>
@@ -329,7 +330,7 @@ function MenuRows({ items, active, onPick }) {
       onMouseEnter={() => setFlyout(null)} onClick={() => onPick(it.key)} style={rowStyle(it.key === active)}>
       {it.Icon ? <it.Icon size={15} /> : null}
       <span style={{ flex: 1 }}>{it.label}</span>
-      {it.badge > 0 ? <span className="hdr-tab-badge">{it.badge}</span> : null}
+      {it.badge > 0 ? <span className="hdr-tab-badge">{it.badge}<ChangeFlash value={it.badge} /></span> : null}
       {it.key === active ? <Check size={14} /> : null}
     </button>
   )));

@@ -31,7 +31,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { LoadingState, Spinner } from '../components/AsyncState';
 import { Headset, Building2, Siren, ChevronDown, ChevronRight } from 'lucide-react';
-import DragList from './DragList';
+import DragList from '../ui/ReorderList';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, card } from '../tasks/theme';

@@ -165,7 +165,9 @@ export function visibleAnswers(defs, answers = {}) {
   return out;
 }
 
-function checkOne(def, v) {
+/** One answer's problem ('' = fine) - what the submit checks, and what a
+ *  field shows as it is typed (ui/FieldCheck). */
+export function checkOne(def, v) {
   const empty = isEmptyAnswer(def, v);
   if (def.required && empty) return 'This field is required';
   if (empty) return '';

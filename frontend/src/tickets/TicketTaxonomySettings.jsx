@@ -25,7 +25,7 @@ import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
 import { TICKET_TYPE_META, TICKET_TYPE_KEYS, TICKET_TYPE_ORDER, FIRST_RESPONSE_HOURS } from './ticketMeta';
-import DragList from './DragList';
+import DragList from '../ui/ReorderList';
 import { refreshTicketConfig } from './ticketConfig';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
