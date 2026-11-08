@@ -6,10 +6,9 @@
 // Used by the Favorites widget (widgets.jsx) and the Favorites card on the
 // home (DeskHome.jsx), so a link looks and opens the same in both.
 //
-// Geometry: a CSS grid of equal cells (auto-fill, one minimum width), each
-// tile the same height - a fixed icon and a name box that is always two
-// lines tall - so columns and rows line up whatever the names are. No hover
-// scale: the grid sits in a scrolling card and a scaled tile would clip.
+// Geometry (Neil, 11/08/2026): the Links page's app tiles, a wrapping row of
+// equal 86px tiles, each a 56px icon over a one-line name. No hover scale:
+// the row sits in a scrolling card and a scaled tile would clip.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { LinkIcon } from '../components/LinkIcon.jsx';
@@ -62,17 +61,21 @@ export function openFavorite(link, myEmail) {
   pushRecentId(myEmail, link.id);
 }
 
+// The Links page's own app tile (.app-grid / .app-tile / .app-tile-name in
+// style.css, LinkIcon) at 56px, the name one line with an ellipsis, in a row
+// that wraps (Neil, 11/08/2026). `dk-fav-*` only trims what a scrolling card
+// cannot take (the hover scale, the two-line name box).
 export function FavoriteTileGrid({ links, onOpen, colorFor = favoriteColor, label = 'Favorite links' }) {
   return (
-    <ul className="nx-fav-grid" aria-label={label}>
+    <ul className="app-grid dk-fav-grid" aria-label={label}>
       {links.map((l) => {
         const color = colorFor(l);
         return (
           <li key={l._uid || l.id}>
-            <a className="nx-fav-tile" href={l.url} target="_blank" rel="noopener noreferrer" title={l.description ? `${l.name} - ${l.description}` : l.name}
+            <a className="app-tile dk-fav-tile" href={l.url} target="_blank" rel="noopener noreferrer" title={l.description ? `${l.name} - ${l.description}` : l.name}
               onClick={(e) => { e.preventDefault(); onOpen(l); }}>
-              <LinkIcon url={l.url} iconKey={l.icon} size={40} radius={11} fg={color.fg} bg={color.bg} />
-              <span className="nx-fav-name">{l.name}</span>
+              <LinkIcon url={l.url} iconKey={l.icon} size={56} radius={16} fg={color.fg} bg={color.bg} />
+              <span className="app-tile-name">{l.name}</span>
             </a>
           </li>
         );

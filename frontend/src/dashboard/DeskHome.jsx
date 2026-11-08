@@ -5,8 +5,8 @@ widgets.
 OWN-WORLD: white cards on #f6f7fb, Figtree type, brand #2b45e1 (Stella cobalt), colored icon
 chips carrying meaning, soft shadows, friendly copy. Light always.
 STORY: an employee reads their day in five seconds - greeting, session chip,
-four numbers, the "needs your attention" list - then acts.
-FIRST VIEWPORT: greeting + session/timezone meta → four stat cards → attention
+one stat tile, the "needs your attention" list - then acts.
+FIRST VIEWPORT: greeting + session/timezone meta → one stat tile → attention
 queue (left) + team pulse / quick actions (right). Primary action = top queue
 row.
 FORM: category standard played straight at full fidelity (user's canon call,
@@ -16,7 +16,7 @@ import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from '
 import { useMsal } from '@azure/msal-react';
 import {
   ArrowUpRight, CheckCircle2, CheckSquare, ChevronRight,
-  Package, PenLine, Ticket, Users,
+  Package, Ticket,
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
@@ -89,19 +89,34 @@ const timeAgo = (ts) => {
   return `${Math.round(h / 24)}d`;
 };
 
-function Stat({ i, label, value, sub, tip, chip, Icon, onGo, hero }) {
+// The ONE stat tile (Neil, 11/08/2026): Open Tasks keeps its gradient look,
+// and the three counts that used to be white tiles of their own (checked
+// out, equipment, to sign) are one line of small buttons under it, each
+// going where its tile's arrow went. The tile is a div so the count buttons
+// are not buttons inside a button.
+function Stat({ i, label, value, sub, tip, chip, Icon, onGo, links = [] }) {
   const n = useCountUp(value ?? 0);
   const loaded = value != null;   // a placeholder until the count is in, never a 0
   return (
-    <button className={`dk-stat dk-rise${hero ? ' dk-stat--hero' : ''}`} style={{ '--i': i }} onClick={onGo} title={tip}>
-      <span className="dk-stat-top">
-        <span className={`dk-chip dk-chip--${chip}`}><Icon /></span>
-        <ArrowUpRight size={15} className="dk-stat-arrow" />
+    <div className="dk-stat dk-stat--hero dk-hero dk-rise" style={{ '--i': i }}>
+      <button type="button" className="dk-hero-main" onClick={onGo} title={tip}>
+        <span className="dk-stat-top">
+          <span className={`dk-chip dk-chip--${chip}`}><Icon /></span>
+          <ArrowUpRight size={15} className="dk-stat-arrow" />
+        </span>
+        <span className="dk-stat-num">{loaded ? n : <CountSkeleton />}</span>
+        <span className="dk-stat-label">{label}</span>
+        <span className="dk-stat-sub">{sub}</span>
+      </button>
+      <span className="dk-hero-links">
+        {links.map((l, k) => (
+          <Fragment key={l.label}>
+            {k > 0 && <span aria-hidden="true">·</span>}
+            <button type="button" className="dk-hero-link" onClick={l.go} title={l.tip}>{l.value ?? 0} {l.label}</button>
+          </Fragment>
+        ))}
       </span>
-      <span className="dk-stat-num">{loaded ? n : <CountSkeleton />}</span>
-      <span className="dk-stat-label">{label}</span>
-      <span className="dk-stat-sub">{sub}</span>
-    </button>
+    </div>
   );
 }
 
@@ -292,11 +307,10 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
     ? <>You have <b>{attentionTotal} item{attentionTotal === 1 ? '' : 's'}</b> that need your attention today.</>
     : <>You're all caught up.</>;
 
-  const stats = [
-    { label: 'Open Tasks', value: kpis.my_open_tasks, sub: myTasksFootnote(kpis) || 'Due soon or in progress', tip: `Open Tasks - ${MY_TASKS_RULE}${myTasksFootnote(kpis) ? `. ${myTasksFootnote(kpis)}` : ''}`, chip: 'blue', Icon: CheckSquare, go: () => navTo('tasks'), hero: true },
-    { label: 'Checked-Out Items', value: kpis.my_checkouts, sub: 'With you right now', chip: 'orange', Icon: Package, go: () => navTo('inventory', 'checkouts') },
-    { label: 'My Equipment', value: kpis.my_assignments, sub: 'Permanently assigned', chip: 'brand', Icon: Users, go: () => navTo('inventory') },
-    { label: 'Signatures Needed', value: pendingSigs, sub: 'Waiting on you', chip: 'green', Icon: PenLine, go: () => navTo('myhr') },
+  const counts = [
+    { label: 'checked out', value: kpis.my_checkouts, tip: 'Checked-Out Items - with you right now', go: () => navTo('inventory', 'checkouts') },
+    { label: 'equipment', value: kpis.my_assignments, tip: 'My Equipment - permanently assigned', go: () => navTo('inventory') },
+    { label: 'to sign', value: pendingSigs, tip: 'Signatures Needed - waiting on you', go: () => navTo('myhr') },
   ];
 
   return (
@@ -304,21 +318,19 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
       {/* ── Greeting + session ── */}
       <DeskGreeting summary={summary} right={headerRight} menu={headerMenu} />
 
-      {/* ── Stat cards ── */}
+      {/* ── The one stat tile, one column wide (Neil, 11/08/2026) ── */}
       <div className="dk-board">
-        {stats.map((s, i) => (
-          <Stat key={s.label} i={1 + i} {...s} onGo={s.go} hero={s.hero} />
-        ))}
+        <Stat i={1} label="Open Tasks" value={kpis.my_open_tasks} sub={myTasksFootnote(kpis) || 'Due soon or in progress'}
+          tip={`Open Tasks - ${MY_TASKS_RULE}${myTasksFootnote(kpis) ? `. ${myTasksFootnote(kpis)}` : ''}`}
+          chip="blue" Icon={CheckSquare} onGo={() => navTo('tasks')} links={counts} />
       </div>
 
       {/* ── Attention queue + rail ── */}
       <div className="dk-main">
         <div className="dk-card dk-queue dk-rise" style={{ '--i': 5 }}>
-          <div className="dk-pane-head">
-            Needs Your Attention
-            {attentionTotal > 0 && <span className="dk-count">{attentionTotal}</span>}
-            <span className="dk-meta">newest first</span>
-          </div>
+          {/* No count badge, no "newest first" (Neil, 11/08/2026): the
+              greeting already says how many need you. */}
+          <div className="dk-pane-head">Needs Your Attention</div>
           {queue.length === 0 ? (
             <div className="dk-clear">
               <span className="dk-clear-icon"><CheckCircle2 size={22} /></span>

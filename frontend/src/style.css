@@ -9941,3 +9941,39 @@ a[data-type="recordLink"][data-ref]:hover { background: var(--wk-hover); }
 @media (max-width: 640px) {
   .pr-row { grid-template-columns: 1fr; gap: 2px; padding: 8px 0; }
 }
+
+/* ── Dashboard cleanup 11/08/2026 (Neil) ──────────────────────────────────
+   Home's stat row is ONE gradient tile: Open Tasks as before, and under it
+   one line of count buttons (checked out · equipment · to sign) that go
+   where the three retired white tiles went. Favorites in the card are the
+   Links page's app tiles (.app-tile) at 56px with a one-line name. */
+.dk-hero { padding: 0; display: flex; flex-direction: column; align-items: stretch; }
+.dk-hero-main {
+  display: flex; flex-direction: column; align-items: flex-start;
+  width: 100%; padding: 16px 18px 12px;
+  background: none; border: none; border-radius: var(--wk-r) var(--wk-r) 0 0;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.dk-hero-main:focus-visible, .dk-hero-link:focus-visible { outline: 2px solid #fff; outline-offset: -3px; border-radius: 6px; }
+.dk-hero-links {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px;
+  padding: 9px 18px 12px; border-top: 1px solid rgba(255, 255, 255, .18);
+  font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, .72); line-height: 1.3;
+}
+.dk-hero-link {
+  background: none; border: none; padding: 0; margin: 0;
+  font: inherit; font-size: 12px; font-weight: 500; color: #fff; cursor: pointer;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.dk-hero-link:hover { text-decoration: underline; }
+/* A phone's half-width tile cannot hold the line: the counts stack, no dots. */
+@media (max-width: 560px) {
+  .dk-hero-main { padding: 13px 14px 10px; }
+  .dk-hero-links { padding: 8px 14px 10px; flex-direction: column; align-items: flex-start; gap: 3px; }
+  .dk-hero-links > [aria-hidden] { display: none; }
+}
+.dk-fav-grid { list-style: none; margin: 0; padding: 0; gap: 8px 4px; }
+.dk-fav-grid > li { min-width: 0; }
+.dk-fav-tile { text-decoration: none; color: inherit; }
+.dk-fav-tile:hover, .dk-fav-tile:focus-visible, .dk-fav-tile:active { transform: none; }
+.dk-fav-tile .app-tile-name { display: block; width: 100%; height: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; word-break: normal; }
