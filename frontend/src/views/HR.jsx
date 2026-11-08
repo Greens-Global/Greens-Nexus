@@ -46,6 +46,7 @@ import TierMark from '../components/TierMark';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
 import InvestorChart from '../components/InvestorChart';
+import PersonActions from '../components/PersonActions';
 import OrgChartCanvas, { ReportsPill } from '../components/orgchart/OrgChartCanvas';
 import { divisionColor as divColorFor, countBelow } from '../components/orgchart/tree';
 import { takePendingPerson } from '../lib/personNav';
@@ -1628,16 +1629,16 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
 // head-tag if set, else inherited from the nearest tagged manager above them.
 // The palette lives with the canvas so both charts colour a division alike.
 
-// A single node card - minimal, fixed-width, avatar-forward, with a coloured
-// division accent bar down its left edge. The reports pill hangs off the bottom
-// edge and doubles as the collapse toggle. data-orgcard lets the canvas tell a
+// A single node card: fixed width, the photo, and the four lines Neil set
+// (Oct 14 2026) - name, role, department, company - each on its own line so
+// every card reads the same way. The reports count hangs off the bottom edge
+// and doubles as the collapse toggle. data-orgcard lets the canvas tell a
 // card press from a pan; data-email lets drop resolve the target across the
-// zoom transform.
-// Pass (Neil, 11/03/2026: "still very average"): the card reads in a clear
-// order - the name, the role in ink, then department and company quieter -
-// with the division as its left rule and a lead marked in words, no chips.
-// It is a keyboard stop (Enter / Space open the person), the person whose
-// panel is open stays marked, and the × shows on hover or focus only.
+// zoom transform. Pass (Neil, 11/07/2026): house chrome only - radius 8, a
+// hairline, no color bar (the division colors the connectors below its lead
+// instead), a lead marked in words, an external marked in words. It is a
+// keyboard stop (Enter / Space open the person), the person whose panel is
+// open stays marked, and the x shows on hover or focus only.
 function OrgNodeCard({ e, kids, total = 0, isCollapsed, onToggle, onSelect, dnd, entityName, highlight, current = false, selected = false, divName, divColor, isHead, dim, onUnlink = null }) {
   const ext = isExternalPerson(e);
   const email = (e.workEmail || '').toLowerCase();
@@ -1645,10 +1646,10 @@ function OrgNodeCard({ e, kids, total = 0, isCollapsed, onToggle, onSelect, dnd,
   const isDragging = dnd.draggingId === e.id;
   const company = (ext ? e.externalCompany : entityName(e.company)) || '';
   const line = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
-  const ring = isTarget ? 'hsl(var(--color-green))' : selected ? 'hsl(var(--color-green))' : current ? 'hsl(var(--color-blue))' : null;
+  const ring = isTarget || selected ? 'hsl(var(--color-green))' : current ? 'hsl(var(--color-blue))' : null;
   return (
-    <div data-orgcard="1" data-email={email} className="nx-orgcard" style={{ position: 'relative', paddingBottom: kids > 0 ? 12 : 0 }}>
-      {/* × = take this person out of the reporting line (Visesh, Aug 11) - the
+    <div data-orgcard="1" data-email={email} className="nx-orgcard" style={{ position: 'relative', paddingBottom: kids > 0 ? 11 : 0 }}>
+      {/* x = take this person out of the reporting line (Visesh, Aug 11) - the
           direct alternative to dragging them into open space. Outside the
           overflow-hidden card so it can sit on the corner; shown on hover
           and on keyboard focus (style.css "Organizational Chart"). */}
@@ -1674,38 +1675,30 @@ function OrgNodeCard({ e, kids, total = 0, isCollapsed, onToggle, onSelect, dnd,
         onPointerDown={ev => dnd.onCardPointerDown(ev, e)}
         onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSelect(e); } }}
         style={{
-          position: 'relative', width: 228, padding: '12px 14px 12px 18px', display: 'flex', alignItems: 'center', gap: 12,
+          position: 'relative', width: 228, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 11,
           background: isTarget ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
-          border: `1px ${ext && !ring ? 'dashed' : 'solid'} ${ring || (ext ? 'hsla(var(--color-orange),0.6)' : 'var(--line)')}`,
-          borderRadius: 12,
+          border: `1px solid ${ring || 'var(--line)'}`,
+          borderRadius: 8,
           boxShadow: ring ? `0 0 0 3px ${isTarget || selected ? 'hsla(var(--color-green),0.18)' : 'hsla(var(--color-blue),0.18)'}` : highlight ? '0 0 0 3px hsla(var(--color-blue),0.10)' : 'var(--shadow-sm)',
           cursor: 'grab', opacity: dim ? 0.28 : isDragging ? 0.4 : 1, overflow: 'hidden',
           touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
           transition: 'border-color 0.12s, box-shadow 0.12s, opacity 0.15s',
         }}>
-        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: divColor ? `hsl(${divColor})` : 'var(--line)' }} />
-        <Avatar e={e} size={42} card={false} />
+        <Avatar e={e} size={40} card={false} />
         <div style={{ flex: 1, minWidth: 0, lineHeight: 1.35 }}>
-          {/* Four lines (Neil, Oct 14 2026): name, role, department, company -
-              each on its own line so every card reads the same way. An
-              external user carries the designation beside the name and
-              their own company on the company line. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-            <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', minWidth: 0, ...line }}>{fullName(e)}</span>
+            <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--ink)', minWidth: 0, ...line }}>{fullName(e)}</span>
             <TierMark tier={e.tier} size={12} />
           </div>
-          <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)', opacity: e.jobTitle ? 0.82 : 0.4, ...line }}>{e.jobTitle || '-'}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', ...line }}>{e.department || '-'}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', ...line }}>{company || '-'}</div>
-          {(ext || (isHead && divName)) && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', ...line }}>
-              {isHead && divName && <span style={{ color: `hsl(${divColor})` }}>{divName} Lead</span>}
-              {ext && (
-                <span title={e.identityType === 'guest' ? 'Guest account (Microsoft 365 guest)' : 'External user (no Microsoft 365 login)'}
-                  style={{ color: 'hsl(var(--color-orange))' }}>External</span>
-              )}
-            </div>
-          )}
+          <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)', opacity: e.jobTitle ? 0.82 : 0.4, ...line }}>
+            {e.jobTitle || '-'}
+            {isHead && divName && <span style={{ color: `hsl(${divColor})`, fontWeight: 600 }}> · {divName} Lead</span>}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', ...line }}>
+            {e.department || (ext ? '' : '-')}
+            {ext && <span title={e.identityType === 'guest' ? 'Guest account (Microsoft 365 guest)' : 'External user (no Microsoft 365 login)'}>{e.department ? ' · External' : 'External'}</span>}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', ...line }}>{company || '-'}</div>
         </div>
       </div>
       <ReportsPill count={kids} collapsed={isCollapsed} onToggle={() => onToggle(email)}
@@ -1719,20 +1712,35 @@ function OrgNodeCard({ e, kids, total = 0, isCollapsed, onToggle, onSelect, dnd,
 // reports. Changes are made on their record (Open Record lands on the Job
 // tab); dragging a card onto a manager on the chart still reassigns the
 // reporting line right there. A sheet from the right (the shared Modal).
-function OrgSidePanel({ e, people, externals = [], entityName, inheritedDivision, onClose, onSelect, onOpenRecord }) {
+// Pass (11/07/2026): the sheet earns its width - the whole chain above them
+// (each a step), the team in all, and Teams Message / Call.
+function OrgSidePanel({ e, people, externals = [], entityName, inheritedDivision, myEmail = '', mobile = false, onClose, onSelect, onOpenRecord }) {
   const ext = isExternalPerson(e);
-  const myEmail = (e.workEmail || '').toLowerCase();
-  const mgrEmail = (e.managerEmail || '').toLowerCase();
-  const manager = mgrEmail ? [...people, ...externals].find(p => (p.workEmail || '').toLowerCase() === mgrEmail) : null;
-  const reports = people.filter(p => (p.managerEmail || '').toLowerCase() === myEmail && myEmail);
+  const email = (e.workEmail || '').toLowerCase();
+  const everyone = [...people, ...externals];
+  const find = (em) => em ? everyone.find(p => (p.workEmail || '').toLowerCase() === em) : null;
+  const chain = [];
+  for (let cur = find((e.managerEmail || '').toLowerCase()), hops = 0; cur && hops < 20; hops++) {
+    chain.push(cur);
+    cur = find((cur.managerEmail || '').toLowerCase());
+  }
+  const reports = people.filter(p => (p.managerEmail || '').toLowerCase() === email && email);
+  const kidsOf = (p) => people.filter(k => (k.managerEmail || '').toLowerCase() === (p.workEmail || '').toLowerCase() && p.workEmail);
+  const inAll = reports.length ? countBelow(e, kidsOf) : 0;
   const division = (e.division || '').trim();
   const inherited = (inheritedDivision || '').trim();
   const company = ext ? (e.externalCompany || '') : (e.company ? entityName(e.company) : '');
   const row = (label, value) => (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) 1fr', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--line)', fontSize: 13.5 }}>
-      <span style={{ color: 'var(--muted)', fontWeight: 600, fontSize: 12.5 }}>{label}</span>
+      <span style={{ color: 'var(--muted)', fontWeight: 500, fontSize: 12.5 }}>{label}</span>
       <span style={{ color: value ? 'var(--ink)' : 'var(--muted)', minWidth: 0, overflowWrap: 'anywhere' }}>{value || '-'}</span>
     </div>
+  );
+  const step = (p) => (
+    <button key={p.id} type="button" onClick={() => onSelect(p)}
+      style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3, textDecorationColor: 'var(--line)' }}>
+      {fullName(p)}
+    </button>
   );
   return (
     <Modal title={fullName(e)} onClose={onClose} zIndex={4000}
@@ -1753,26 +1761,34 @@ function OrgSidePanel({ e, people, externals = [], entityName, inheritedDivision
             </div>
             {e.workEmail && <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{e.workEmail}</div>}
           </div>
+          <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
+            <PersonActions email={e.workEmail} name={fullName(e)} external={ext} myEmail={myEmail} variant="pill" />
+          </div>
         </div>
-        {row('Reports To', manager ? fullName(manager) : (e.managerEmail || 'No manager - top of a tree'))}
+        {row('Reports To', chain.length
+          ? <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '2px 6px' }}>
+              {chain.map((p, i) => <span key={p.id} style={{ display: 'inline-flex', gap: 6, alignItems: 'baseline' }}>{i > 0 && <span style={{ color: 'var(--muted)' }}>then</span>}{step(p)}</span>)}
+            </span>
+          : (e.managerEmail || 'No manager - top of a tree'))}
         {row('Job Title', e.jobTitle)}
         {row('Department', e.department)}
         {row('Company', company)}
         {row('Division', division ? `Lead of ${division}` : inherited ? `${inherited} (from their manager)` : '')}
+        {reports.length > 0 && row('Team', `${reports.length} direct report${reports.length === 1 ? '' : 's'}${inAll > reports.length ? `, ${inAll} in all` : ''}`)}
         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10, lineHeight: 1.5 }}>
-          Change any of these on their record. To move someone to a new manager, drag their card onto that manager on the chart.
+          Change any of these on their record.{mobile ? '' : ' To move someone to a new manager, drag their card onto that manager on the chart.'}
         </div>
 
         {reports.length > 0 && (
           <>
-            <div style={{ fontSize: 13, fontWeight: 700, margin: '18px 0 8px' }}>Direct Reports ({reports.length})</div>
+            <div style={{ fontSize: 13, fontWeight: 600, margin: '18px 0 8px' }}>Direct Reports ({reports.length})</div>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {reports.map(p => (
                 <button key={p.id} onClick={() => onSelect(p)}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', border: 'none', borderBottom: '1px solid var(--line)', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
                   <Avatar e={p} size={28} card={false} />
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fullName(p)}</span>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{fullName(p)}</span>
                     <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{p.jobTitle || p.department || ''}</span>
                   </span>
                   <ChevronRight size={13} style={{ color: 'var(--muted)' }} />
@@ -1786,6 +1802,75 @@ function OrgSidePanel({ e, people, externals = [], entityName, inheritedDivision
   );
 }
 
+// The phone's chart (Neil, 11/07/2026): no canvas under 641px - the
+// reporting line as an indented list, a tap opens the person, the chevron
+// folds a team. Reports To is set on the record or by HR on a computer.
+function OrgListRows({ nodes, depth = 0, childrenOf, collapsed, onToggle, onSelect, keyOf, selectedId, currentId = '', entityName }) {
+  return nodes.map(n => {
+    const kids = childrenOf(n);
+    const key = keyOf(n);
+    const open = kids.length > 0 && !collapsed.has(key);
+    return (
+      <div key={key}>
+        <div data-email={(n.workEmail || '').toLowerCase()} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 8px 9px 0', paddingLeft: 8 + depth * 18, borderBottom: '1px solid var(--line)',
+          background: selectedId === n.id ? 'hsla(var(--color-green),0.08)' : currentId === n.id ? 'hsla(var(--color-blue),0.08)' : 'transparent' }}>
+          {kids.length > 0
+            ? <button type="button" onClick={() => onToggle(key)} aria-label={open ? `Hide ${kids.length} reports` : `Show ${kids.length} reports`} aria-expanded={open}
+                style={{ width: 28, height: 28, border: 'none', background: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, flex: 'none' }}>
+                {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </button>
+            : <span aria-hidden="true" style={{ width: 28, flex: 'none' }} />}
+          <button type="button" onClick={() => onSelect(n)} style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, border: 'none', background: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', font: 'inherit' }}>
+            <Avatar e={n} size={34} card={false} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(n)}</span>
+              <span style={{ display: 'block', fontSize: 12.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {[n.jobTitle, isExternalPerson(n) ? n.externalCompany : entityName(n.company)].filter(Boolean).join(' · ') || '-'}
+              </span>
+            </span>
+            {kids.length > 0 && <span style={{ fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{kids.length}</span>}
+          </button>
+        </div>
+        {open && <OrgListRows nodes={kids} depth={depth + 1} childrenOf={childrenOf} collapsed={collapsed} onToggle={onToggle} onSelect={onSelect} keyOf={keyOf} selectedId={selectedId} currentId={currentId} entityName={entityName} />}
+      </div>
+    );
+  });
+}
+
+// The people with no manager, beside the chart (Neil, 11/07/2026) - each
+// with a Reports To picker, so nobody has to drag a card up a scrolling
+// page. A row can still be dragged onto a manager on the chart.
+function NoManagerDock({ people, rows, dnd, onSetManager, onSelect, selectedId, entityName, mobile = false, below = false }) {
+  return (
+    <aside aria-label="No manager" style={{ width: below ? '100%' : 272, flex: 'none', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', padding: '12px 14px', alignSelf: below ? 'stretch' : 'flex-start', maxHeight: below ? 'none' : 'max(360px, calc(100vh - 240px))', overflowY: 'auto', boxSizing: 'border-box' }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>No Manager <span style={{ color: 'var(--muted)', fontWeight: 500 }}>{people.length}</span></div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2, marginBottom: 6, lineHeight: 1.4 }}>Pick who they report to{mobile ? '' : ', or drag them onto a manager'}.</div>
+      <div style={below ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', columnGap: 20 } : undefined}>
+      {people.map(e => {
+        const email = (e.workEmail || '').toLowerCase();
+        return (
+          <div key={e.id} data-email={email} className="nx-orgcard" style={{ padding: '10px 0', borderTop: '1px solid var(--line)' }}>
+            <div role="button" tabIndex={0} data-orgtile="1" aria-label={`${fullName(e)}${e.jobTitle ? `, ${e.jobTitle}` : ''}`}
+              onPointerDown={mobile ? undefined : ev => dnd.onCardPointerDown(ev, e)} onClick={mobile ? () => onSelect(e) : undefined}
+              onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSelect(e); } }}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: mobile ? 'pointer' : 'grab', marginBottom: 8, touchAction: 'none', userSelect: 'none',
+                outline: selectedId === e.id ? '2px solid hsl(var(--color-green))' : 'none', outlineOffset: 4, borderRadius: 6, opacity: dnd.draggingId === e.id ? 0.4 : 1 }}>
+              <Avatar e={e} size={34} card={false} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</span>
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[e.jobTitle, entityName(e.company)].filter(Boolean).join(' · ') || '-'}</span>
+              </span>
+            </div>
+            <PersonSelect value={null} onChange={v => v && onSetManager(e, v)} people={rows.filter(r => r.email !== email)} allowNone={false}
+              placeholder="Reports to" ariaLabel={`Reports To for ${fullName(e)}`} style={{ height: 34, borderRadius: 8, fontSize: 13 }} />
+          </div>
+        );
+      })}
+      </div>
+    </aside>
+  );
+}
+
 const ORG_EXTERNALS_KEY = 'nx-orgchart-externals';
 function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOpenRecord, toastOk, toastErr }) {
   // External users on the chart is an option (Neil, Oct 14 2026): off by
@@ -1796,7 +1881,9 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
   useEffect(() => { try { localStorage.setItem(ORG_EXTERNALS_KEY, String(includeExternal)); } catch { /* storage blocked */ } }, [includeExternal]);
   // Two charts, one tab (Neil, Aug 11): the reporting tree, and the investor
   // book grouped by relationship owner - investors don't report to anyone.
-  const [chartMode, setChartMode] = useState('org');   // 'org' | 'investors'
+  const { myEmail: viewerEmail } = useRole();
+  const mobile = useIsMobile(640);                      // the phone gets a list, not a canvas
+  const narrow = useIsMobile(1499);                     // the No Manager dock sits below the chart, not beside it
   const [draggingId, setDraggingId] = useState(null);
   const [overKey, setOverKey] = useState(null); // target workEmail, or '__none__' for the clear zone
   const [selected, setSelected] = useState(null);        // side-panel person
@@ -1809,24 +1896,26 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
   const [dragGhost, setDragGhost] = useState(null);   // {name, x, y} while dragging a card
   const chartRef = useRef(null);                      // the shared canvas: centerView / fitToView / focusOn / bounds
   const dragRef = useRef(null);
-  const unlinkedRef = useRef(null);                   // the No Manager list, for the count's link
   // Externals are active / inactive / staged (never offboarded): only the
   // active ones belong on the chart or in the toggle's count.
   const liveExternals = externals.filter(e => (e.status || 'active') === 'active');
   const people = [...employees.filter(e => e.status !== 'offboarded'), ...(includeExternal ? liveExternals : [])];
 
-  // First render: show the top two levels at full size (roots + their direct
-  // reports); deeper teams start collapsed behind their pill. Keeps the chart
-  // readable instead of shrinking 40 people into ant-sized cards.
+  // First render (Neil, 11/07/2026): the whole company, fitted. Leaves stack
+  // under their manager now, so even 60 people are one readable screen; past
+  // that, teams below the third level start folded behind their count.
   useEffect(() => {
     if (seeded || !people.length) return;
-    const emailSet = new Set(people.map(p => (p.workEmail || '').toLowerCase()).filter(Boolean));
-    const isRoot = p => !((p.managerEmail || '') && emailSet.has((p.managerEmail || '').toLowerCase()));
-    const rootEmails = new Set(people.filter(isRoot).map(p => (p.workEmail || '').toLowerCase()));
-    const managers = new Set(people.filter(p =>
-      people.some(k => (k.managerEmail || '').toLowerCase() === (p.workEmail || '').toLowerCase() && p.workEmail))
-      .map(p => (p.workEmail || '').toLowerCase()));
-    setCollapsedSet(new Set([...managers].filter(m => !rootEmails.has(m))));
+    const folded = new Set();
+    if (people.length > 60) {
+      const byMail = new Map(people.map(p => [(p.workEmail || '').toLowerCase(), p]));
+      const depthOf = (p) => { let d = 0, cur = p; while (cur && (cur.managerEmail || '') && byMail.has((cur.managerEmail || '').toLowerCase()) && d < 30) { cur = byMail.get((cur.managerEmail || '').toLowerCase()); d++; } return d; };
+      for (const p of people) {
+        const em = (p.workEmail || '').toLowerCase();
+        if (em && depthOf(p) >= 3 && people.some(k => (k.managerEmail || '').toLowerCase() === em)) folded.add(em);
+      }
+    }
+    setCollapsedSet(folded);
     setSeeded(true);
   }, [people, seeded]);
   const emails = new Set(people.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
@@ -1869,12 +1958,19 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
         return;
       }
     }
+    const before = dragged.managerEmail || '';
     try {
       const saved = await api.updateEmployee(dragged.id, { manager_email: targetEmail });
       onUpdated(saved);
-      toastOk(targetEmail
+      // Every change can be taken back (11/07/2026): the toast carries Undo,
+      // which puts the previous manager back.
+      dialog.undo(targetEmail
         ? `${fullName(dragged)} now reports to ${fullName(byEmail.get(targetEmail))}.`
-        : `${fullName(dragged)} removed from the reporting line.`);
+        : `${fullName(dragged)} removed from the reporting line.`,
+      async () => {
+        try { onUpdated(await api.updateEmployee(dragged.id, { manager_email: before })); }
+        catch (err) { toastErr(err?.message || 'Could not put it back.'); }
+      });
     } catch (err) { toastErr(err?.message || 'Could not change the reporting line.'); }
   }
 
@@ -2057,17 +2153,55 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
     );
   };
 
-  // The canvas never overflows the page; you pan/zoom within a fixed viewport.
-  // Default = 100% zoom, centered on a filter change; Fit is opt-in.
-  // Opens on the top of the biggest tree, at full size, instead of the middle
-  // of every tree side by side (where the cards at both edges were cut off).
-  const openOnTop = () => {
-    if (!chartRef.current) return;
-    chartRef.current.centerView();
+  // The canvas never overflows the page; you pan/zoom within it. It opens
+  // fitted when the whole company reads at that size, else at 80% on the top
+  // of the biggest tree (a 49-person company fits a wide screen, and pans on
+  // a laptop); Fit is a button. Refits on a filter change.
+  const fit = () => setTimeout(() => {
+    const c = chartRef.current;
+    if (!c) return;
+    if (c.fitToView({ min: 0.7 })) return;
+    c.zoomTo(0.8);
     const top = visRoots[0];
     if (top) setTimeout(() => chartRef.current && chartRef.current.focusOn(keyOf(top), { align: 'top' }), 60);
+  }, 60);
+  useEffect(() => { if (seeded) fit(); }, [orgCompany, orgDept, seeded, includeExternal]); // eslint-disable-line react-hooks/exhaustive-deps
+  const expandAll = () => { setCollapsedSet(new Set()); fit(); };
+  const collapseAll = () => { setCollapsedSet(new Set([...visChildren.keys()])); fit(); };
+  // Open every team between a person and the top, so their card can show.
+  const reveal = (person) => {
+    const chain = [];
+    let cur = person, hops = 0;
+    while (cur && (cur.managerEmail || '') && hops < 20) {
+      const m = (cur.managerEmail || '').toLowerCase();
+      if (!byEmail.has(m)) break;
+      chain.push(m);
+      cur = byEmail.get(m);
+      hops++;
+    }
+    const me = (person.workEmail || '').toLowerCase();
+    setCollapsedSet(s => { const n = new Set(s); chain.forEach(a => n.delete(a)); if (me) n.delete(me); return n; });
   };
-  useEffect(() => { if (seeded) openOnTop(); }, [orgCompany, orgDept, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A division's name in the legend spotlights it AND brings its lead into
+  // view (11/07/2026: before, everything dimmed and nothing moved).
+  const spotlight = (d) => {
+    const on = activeDiv === d;
+    setActiveDiv(on ? '' : d);
+    if (on) return;
+    const lead = visible.find(p => (p.division || '').trim() === d);
+    if (!lead) return;
+    reveal(lead);
+    setTimeout(() => chartRef.current && chartRef.current.focusOn(keyOf(lead), { align: 'top' }), 80);
+  };
+  const pickerRows = pickRows(people);
+  // Find Me opens every team above the viewer first, so a folded or deep
+  // card still comes into view; someone not on the chart is told so.
+  const findMe = () => {
+    const me = byEmail.get((viewerEmail || '').toLowerCase());
+    if (!me || !visEmails.has((me.workEmail || '').toLowerCase())) { toastErr('You are not on this chart.'); return; }
+    reveal(me);
+    setTimeout(() => chartRef.current && chartRef.current.focusOn(keyOf(me)), 80);
+  };
 
   // Search = find & focus: expand every ancestor of the first match (plus the
   // match's own team), then glide the canvas so their card sits centre-stage.
@@ -2096,7 +2230,7 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
     // Let the expansion render, then centre the card in the viewport.
     // Someone with no manager is in the No Manager list below the chart.
     const t = setTimeout(() => {
-      if (!me || !chartRef.current || chartRef.current.focusOn(me)) return;
+      if (!me || (chartRef.current && chartRef.current.focusOn(me))) return;
       document.querySelector(`[data-email="${CSS.escape(me)}"]`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     }, 80);
     return () => clearTimeout(t);
@@ -2105,39 +2239,21 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
 
 
   if (!people.length) return (
-    <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
+    <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 8 }}>
       <Network size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
       <div style={{ fontSize: 14, fontWeight: 600 }}>Add people first - the chart draws itself from each person's "Reports to".</div>
     </div>
   );
+  const lineColorOf = (n) => { const d = divisionOf(n); return d ? `hsl(${divColor(d)})` : null; };
+  const dock = visUnlinked.length > 0 && (
+    <NoManagerDock people={visUnlinked} rows={pickerRows} dnd={dnd} onSetManager={(person, email) => drop(email, person)}
+      onSelect={setSelected} selectedId={selected?.id} entityName={entityName} mobile={mobile} below={mobile || narrow} />
+  );
   return (
     <div>
-      {/* Org ⇄ Investors switch */}
-      <div style={{ display: 'inline-flex', gap: 2, background: 'var(--mist)', borderRadius: 10, padding: 3, marginBottom: 14 }}>
-        {[['org', 'Organization', Network], ['investors', 'Investors', Briefcase]].map(([key, label, Icon]) => (
-          <button key={key} onClick={() => setChartMode(key)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-              fontFamily: 'Inter,sans-serif', fontSize: 12.5, fontWeight: 700,
-              background: chartMode === key ? 'var(--card)' : 'transparent',
-              color: chartMode === key ? 'var(--ink)' : 'var(--muted)',
-              boxShadow: chartMode === key ? 'var(--shadow-sm)' : 'none' }}>
-            <Icon size={13} /> {label}
-          </button>
-        ))}
-      </div>
-
-      {chartMode === 'investors' ? (
-        <InvestorChart employees={employees} toastOk={toastOk} toastErr={toastErr} />
-      ) : (
-      <>
-      {/* Toolbar: expand controls · full-width search · filters + count (People-tab style) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-        <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
-          onClick={() => { setCollapsedSet(new Set()); setTimeout(openOnTop, 60); }}>Expand All</button>
-        <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
-          onClick={() => { setCollapsedSet(new Set([...visChildren.keys()])); setTimeout(openOnTop, 60); }}>Collapse All</button>
-        {/* Kit proportion: search is a field, not a runway - cap its width. */}
-        <div className="search-bar" style={{ flex: '1 1 260px', minWidth: 200, maxWidth: 380, height: 34 }}>
+      {/* One toolbar row: find, the two filters, the externals option, the count. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div className="search-bar" style={{ flex: '1 1 240px', minWidth: 200, maxWidth: 380, height: 34 }}>
           <Search size={13} style={{ flexShrink: 0 }} />
           <input placeholder="Find a name or title…" aria-label="Find a person on the chart" value={orgQ} onChange={ev => { setOrgQ(ev.target.value); setMatchIdx(0); }}
             onKeyDown={ev => { if (ev.key === 'Enter') { ev.preventDefault(); stepMatch(ev.shiftKey ? -1 : 1); } else if (ev.key === 'Escape') setOrgQ(''); }} />
@@ -2155,110 +2271,92 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
           {orgQ && <button type="button" aria-label="Clear search" onClick={() => setOrgQ('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
         </div>
         <select className="form-input" value={orgCompany} onChange={ev => setOrgCompany(ev.target.value)} aria-label="Company"
-          style={{ width: 160, flex: '0 0 auto', fontSize: 12.5, fontWeight: 600, padding: '7px 26px 7px 10px', height: 34 }}>
+          style={{ width: 160, flex: '0 0 auto', fontSize: 12.5, fontWeight: 500, padding: '7px 26px 7px 10px', height: 34 }}>
           <option value="">All Companies</option>
           {(entities || []).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
         </select>
         <select className="form-input" value={orgDept} onChange={ev => setOrgDept(ev.target.value)} aria-label="Department"
-          style={{ width: 160, flex: '0 0 auto', fontSize: 12.5, fontWeight: 600, padding: '7px 26px 7px 10px', height: 34 }}>
+          style={{ width: 160, flex: '0 0 auto', fontSize: 12.5, fontWeight: 500, padding: '7px 26px 7px 10px', height: 34 }}>
           <option value="">All Departments</option>
           {departments.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
         {/* External users (guests, contractors, outside managers) are an
             option on the chart - off by default, remembered per device. */}
         {liveExternals.length > 0 && (
-          <label title="Show external users (guests and contractors) on the chart, under whoever they report to"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 34, padding: '0 12px', borderRadius: 10, flex: '0 0 auto', cursor: 'pointer',
-              border: `1.5px solid ${includeExternal ? 'hsl(var(--color-orange))' : 'var(--line)'}`, background: includeExternal ? 'hsla(var(--color-orange),0.08)' : 'var(--card)',
-              fontFamily: 'Inter,sans-serif', fontSize: 12.5, fontWeight: 700, color: includeExternal ? 'hsl(var(--color-orange))' : 'var(--ink)', userSelect: 'none' }}>
-            <input type="checkbox" checked={includeExternal} onChange={ev => setIncludeExternal(ev.target.checked)} style={{ margin: 0, accentColor: 'hsl(var(--color-orange))' }} />
-            External Users
-            <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)' }}>{liveExternals.length}</span>
-          </label>
+          <button type="button" className="secondary-btn" aria-pressed={includeExternal} onClick={() => setIncludeExternal(v => !v)}
+            title="Show external users (guests and contractors) on the chart, under whoever they report to"
+            style={{ fontSize: 12.5, height: 34, flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', gap: 6,
+              ...(includeExternal ? { borderColor: 'var(--ink)', color: 'var(--ink)', background: 'var(--mist)' } : {}) }}>
+            External Users <span style={{ color: 'var(--muted)', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{liveExternals.length}</span>
+          </button>
         )}
-        <span style={{ fontSize: 12, color: 'var(--muted)', flex: '0 0 auto', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: '0 0 auto', whiteSpace: 'nowrap', marginLeft: 'auto' }}>
           {visible.length}{filtered ? ` of ${people.length}` : ''} people
-          {visUnlinked.length > 0 && (
-            <>
-              {' · '}
-              <button type="button" onClick={() => unlinkedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'hsl(var(--color-orange))', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 2 }}>
-                {visUnlinked.length} with no manager
-              </button>
-            </>
-          )}
+          {visUnlinked.length > 0 && ` · ${visUnlinked.length} with no manager`}
         </span>
       </div>
 
-      {/* Division legend - flat, no chips (a dot, the name, its count):
-          click one to spotlight that division and dim the rest. The colors
-          match each card's left rule. */}
+      {/* Division legend - a dot, the name, its count: click one to spotlight
+          that division (its lead comes into view, the rest dims). The colors
+          match the connectors under each lead. */}
       {divisionNames.length > 0 && (
-        <div role="group" aria-label="Divisions" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 12, paddingBottom: 10, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', marginRight: 6 }}>Divisions</span>
+        <div role="group" aria-label="Divisions" style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', marginBottom: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginRight: 6 }}>Divisions</span>
           {divisionNames.map(d => {
             const on = activeDiv === d, col = divColor(d);
             return (
-              <button key={d} type="button" onClick={() => setActiveDiv(on ? '' : d)} aria-pressed={on}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 10px', border: 'none', background: 'none', cursor: 'pointer',
-                  fontFamily: 'Inter,sans-serif', fontSize: 12.5, fontWeight: on ? 700 : 600, color: 'var(--ink)',
-                  boxShadow: on ? `inset 0 -2px 0 hsl(${col})` : 'none',
-                  opacity: activeDiv && !on ? 0.45 : 1, transition: 'opacity 0.15s, box-shadow 0.15s' }}>
+              <button key={d} type="button" onClick={() => spotlight(d)} aria-pressed={on}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 9px', border: 'none', borderRadius: 8, background: on ? 'var(--mist)' : 'none', cursor: 'pointer',
+                  fontFamily: 'inherit', fontSize: 12.5, fontWeight: on ? 600 : 500, color: 'var(--ink)',
+                  opacity: activeDiv && !on ? 0.45 : 1, transition: 'opacity 0.15s' }}>
                 <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${col})` }} />
                 {d}
-                <span style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--muted)' }}>{divisionCounts[d] || 0}</span>
+                <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{divisionCounts[d] || 0}</span>
               </button>
             );
           })}
-          {activeDiv && (
-            <button type="button" onClick={() => setActiveDiv('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', padding: '6px 8px' }}>Clear Spotlight</button>
-          )}
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', marginLeft: 'auto' }}>A division is set on its lead's record, under Job</span>
+          {!mobile && <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>A division is set on its lead's record, under Job</span>}
         </div>
       )}
 
       {/* Detach zone appears only mid-drag - drag a card here to unlink it */}
       {draggingId && (
         <div data-detach="1"
-          style={{ marginBottom: 10, border: `2px dashed ${overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--line)'}`, borderRadius: 12, padding: '10px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--muted)', background: overKey === '__none__' ? 'hsla(var(--color-red),0.06)' : 'transparent' }}>
+          style={{ marginBottom: 10, border: `2px dashed ${overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--line)'}`, borderRadius: 8, padding: '10px 16px', textAlign: 'center', fontSize: 12.5, fontWeight: 600, color: overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--muted)', background: overKey === '__none__' ? 'hsla(var(--color-red),0.06)' : 'transparent' }}>
           Drag here to remove their reporting line
         </div>
       )}
 
-      {/* The chart canvas - drag empty space to pan, wheel / pinch / controls
-          to zoom, fit on the % button. Card drag is pointer-based (see
-          onCardPointerDown), so it works with a finger and resolves the drop
-          target through the zoom transform; a press on a card is never a pan. */}
-      <OrgChartCanvas ref={chartRef} roots={visRoots} childrenOf={childrenOf} keyOf={keyOf} renderCard={renderCard}
-        collapsed={collapsedSet} onToggle={toggle} ariaLabel="Organizational Chart"
-        borderColor={draggingId ? 'hsl(var(--color-green))' : 'var(--line)'}
-        emptyText={visUnlinked.length ? 'No reporting lines yet - everyone is listed below.' : 'No one matches these filters.'}
-        hint="Click a card for details · drag it onto a manager to move them · drop it in open space to remove their reporting line" />
-
-      {visUnlinked.length > 0 && (
-        <div ref={unlinkedRef} style={{ marginTop: 18, scrollMarginTop: 80 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>No Manager ({visUnlinked.length})</span>
-            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Drag a card onto their manager on the chart, or open their record and set Reports To.</span>
+      {mobile ? (
+        <div>
+          <div style={{ border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', padding: '0 10px', marginBottom: 12 }}>
+            {visRoots.length
+              ? <OrgListRows nodes={visRoots} childrenOf={childrenOf} collapsed={collapsedSet} onToggle={toggle} onSelect={setSelected} keyOf={keyOf} selectedId={selected?.id} currentId={matchKey} entityName={entityName} />
+              : <div style={{ padding: 16, fontSize: 13, color: 'var(--muted)' }}>{visUnlinked.length ? 'No reporting lines yet - everyone is listed below.' : 'No one matches these filters.'}</div>}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            {visUnlinked.map(e => {
-              const d = divisionOf(e);
-              return (
-                <OrgNodeCard key={e.id} e={e} kids={0} isCollapsed={false}
-                  onToggle={() => {}} onSelect={setSelected} dnd={dnd} entityName={entityName} highlight={isHighlight(e)}
-                  current={!!matchKey && e.id === matchKey} selected={!!selected && selected.id === e.id}
-                  divName={d} divColor={divColor(d)} isHead={!!(e.division || '').trim()} dim={false} />
-              );
-            })}
+          {dock}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: narrow ? 'column' : 'row', gap: 12, alignItems: 'stretch' }}>
+          {/* The chart canvas - drag empty space to pan, wheel / pinch / controls
+              to zoom. Card drag is pointer-based (see onCardPointerDown), so it
+              works with a finger and resolves the drop target through the zoom
+              transform; a press on a card is never a pan. */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <OrgChartCanvas ref={chartRef} roots={visRoots} childrenOf={childrenOf} keyOf={keyOf} renderCard={renderCard}
+              collapsed={collapsedSet} onToggle={toggle} ariaLabel="Organizational Chart" lineColorOf={lineColorOf}
+              onExpandAll={expandAll} onCollapseAll={collapseAll} onFindMe={findMe}
+              borderColor={draggingId ? 'hsl(var(--color-green))' : 'var(--line)'}
+              emptyText={visUnlinked.length ? 'No reporting lines yet - everyone is listed beside the chart.' : 'No one matches these filters.'} />
           </div>
+          {dock}
         </div>
       )}
 
       {/* Floating drag ghost - follows the pointer/finger while dragging a card */}
       {dragGhost && (
         <div style={{ position: 'fixed', left: dragGhost.x + 14, top: dragGhost.y + 8, zIndex: 2000, pointerEvents: 'none',
-          background: 'var(--ink)', color: 'var(--card)', fontSize: 12, fontWeight: 700, padding: '5px 11px', borderRadius: 8,
+          background: 'var(--ink)', color: 'var(--card)', fontSize: 12, fontWeight: 600, padding: '5px 11px', borderRadius: 8,
           boxShadow: 'var(--shadow-lg)', whiteSpace: 'nowrap' }}>
           {dragGhost.name}
           <span style={{ opacity: 0.7, fontWeight: 500 }}>{overKey === '__none__' ? ' → unlink' : overKey ? ' → drop to re-assign' : ''}</span>
@@ -2266,11 +2364,9 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
       )}
 
       {selected && (
-        <OrgSidePanel e={selected} people={people} externals={liveExternals} entityName={entityName}
+        <OrgSidePanel e={selected} people={people} externals={liveExternals} entityName={entityName} myEmail={viewerEmail} mobile={mobile}
           inheritedDivision={(selected.division || '').trim() ? '' : divisionOf(selected)}
           onClose={() => setSelected(null)} onSelect={setSelected} onOpenRecord={onOpenRecord} />
-      )}
-      </>
       )}
     </div>
   );
@@ -3658,7 +3754,7 @@ export default function HR({ activeSub, onSubChange }) {
   const { hrTeam } = useRole();
   // People Analytics (Oct 27 2026) is HR's: the manager tier's /hr allowlist
   // does not open it either.
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-reports', 'hr-exits', 'hr-performance'];
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-investors', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-reports', 'hr-exits', 'hr-performance'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -3953,6 +4049,9 @@ export default function HR({ activeSub, onSubChange }) {
   const PEOPLE_ITEMS = [
     { key: 'hr-people', label: 'People', Icon: Users },
     { key: 'hr-org', label: 'Organizational Chart', Icon: Network },
+    // The investor book by relationship owner (Neil, Aug 11) - its own entry
+    // since 11/07/2026, not a switch inside the org chart.
+    { key: 'hr-investors', label: 'Investor Chart', Icon: Briefcase },
     { key: 'hr-performance', label: 'Performance', Icon: Target },
   ].filter(t => SUBS.includes(t.key));
   const FLAT_TABS = [
@@ -4049,6 +4148,7 @@ export default function HR({ activeSub, onSubChange }) {
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} externals={extEmployees} entities={entities} onUpdated={onSaved}
         onOpenRecord={p => { setOpenTab('job'); setSelectedId(p.id); onSubChange?.('hr-people'); }} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-investors' && <InvestorChart employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {/* Leave balances, the year end, approval stand-ins and the old Leave
           history sit under Time > Time Off now (hrPanels, Oct 27 2026). */}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} hrPanels toastOk={toastOk} toastErr={toastErr} />}

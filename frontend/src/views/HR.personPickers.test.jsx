@@ -52,7 +52,7 @@ describe('HR people pickers', () => {
     const { default: HR } = await import('./HR');
     render(<HR activeSub="hr-org" onSubChange={() => {}} />);
     await screen.findByText('Val Top');
-    fireEvent.click(screen.getByRole('button', { name: 'Expand All' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all teams' }));
     fireEvent.pointerDown(screen.getByText('Sam Field').closest('[data-orgtile]'), { clientX: 10, clientY: 10, button: 0 });
     fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
     expect(screen.queryByRole('button', { name: /^Reports To:/ })).toBeNull();
