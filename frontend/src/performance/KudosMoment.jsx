@@ -5,13 +5,15 @@
 // bell), Close marks it seen; either way it never comes back. Never under
 // Act As. Mounted once in the shell (App.jsx), reads GET /kudos/unseen once
 // per load.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Award, X } from 'lucide-react';
 import { api, getActAsSessionId } from '../api';
 import { Avatar } from '../tasks/components';
+import { burstConfetti } from '../ui/Confetti';
 import { ValueLabel } from './Kudos';
 
 const shown = new Set();   // ids this load has already put on screen - a remount never repeats one
+const CONFETTI_DELAY_MS = 120;   // the burst comes from the card as it arrives, not before
 
 export default function KudosMoment() {
   const [queue, setQueue] = useState([]);
@@ -28,6 +30,16 @@ export default function KudosMoment() {
     }).catch(() => {});
     return () => { on = false; };
   }, []);
+  // Confetti, well done (Neil, 11/08/2026): once per card appearance - not
+  // again on Say Thanks or Close; nothing under reduced motion (Confetti.jsx).
+  const cardRef = useRef(null);
+  const kid = queue[0]?.id || '';
+  useEffect(() => {
+    if (!kid) return undefined;
+    let stop = () => {};
+    const t = setTimeout(() => { if (cardRef.current) stop = burstConfetti(cardRef.current.getBoundingClientRect()); }, CONFETTI_DELAY_MS);
+    return () => { clearTimeout(t); stop(); };
+  }, [kid]);
   const k = queue[0];
   if (!k) return null;
   const next = () => { setQueue(q => q.slice(1)); setNote(''); };
@@ -37,7 +49,7 @@ export default function KudosMoment() {
     finally { setBusy(false); next(); }
   }
   return (
-    <div className="nx-kudos-moment" role="dialog" aria-label={`${k.fromName} sent you kudos`}>
+    <div ref={cardRef} className="nx-kudos-moment" role="dialog" aria-label={`${k.fromName} sent you kudos`}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span className="wkc-chip"><Award size={14} /></span>
         <Avatar email={k.fromEmail} name={k.fromName} size={28} card={false} />

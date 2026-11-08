@@ -15,6 +15,9 @@ vi.mock('../api', () => ({
   getActAsSessionId: () => actAs,
 }));
 
+const confetti = vi.fn(() => () => {});
+vi.mock('../ui/Confetti', () => ({ burstConfetti: (...a) => confetti(...a) }));
+
 const { KudosCard, GiveKudosModal, KudosWidget, thanksSentence } = await import('./Kudos');
 const KudosMoment = (await import('./KudosMoment')).default;
 
@@ -28,6 +31,7 @@ const K = {
 
 beforeEach(() => {
   Object.values(m).forEach(f => f.mockReset());
+  confetti.mockClear();
   m.getPeopleDirectory.mockResolvedValue([]);
   actAs = null;
 });
@@ -100,12 +104,16 @@ describe('The recipient moment', () => {
     m.perfKudosSeen.mockResolvedValue({ ok: true });
     render(<KudosMoment />);
     expect(await screen.findByRole('dialog', { name: 'Pat Test sent you kudos' })).toBeTruthy();
+    // The confetti fires once per card, a beat after it arrives (Neil, 11/08/2026).
+    expect(confetti).not.toHaveBeenCalled();
+    await waitFor(() => expect(confetti).toHaveBeenCalledTimes(1));
     expect(screen.getByText('Ownership')).toBeTruthy();
     expect(screen.getByText('Saved the Friday close')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Your reply'), { target: { value: 'Thank you!' } });
     fireEvent.click(screen.getByRole('button', { name: 'Say Thanks' }));
     await waitFor(() => expect(m.perfKudosThank).toHaveBeenCalledWith('k1', 'Thank you!'));
     expect(await screen.findByRole('dialog', { name: 'Dana Whitfield sent you kudos' })).toBeTruthy();
+    await waitFor(() => expect(confetti).toHaveBeenCalledTimes(2));   // the next card, once more; never on Say Thanks itself
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(m.perfKudosSeen).toHaveBeenCalledWith('k2'));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
