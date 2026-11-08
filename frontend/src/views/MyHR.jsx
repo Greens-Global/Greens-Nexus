@@ -561,7 +561,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                 {kudos?.thisYear > 0 && (
                   <Row Icon={Award} label="Kudos" value={(
                     <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'performance' } }))}
-                      style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textAlign: 'left', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textAlign: 'left', display: 'block', width: '100%', whiteSpace: 'normal', lineHeight: 1.35 }}>
                       {kudos.thisYear} this year{kudos.latestFrom ? ` · latest from ${kudos.latestFrom}` : ''}
                     </button>
                   )} />

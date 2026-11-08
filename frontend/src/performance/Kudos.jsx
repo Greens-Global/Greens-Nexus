@@ -102,7 +102,8 @@ export function thanksSentence(names) {
 // The thanks row under a kudos: who added theirs (click to read the notes),
 // your own entry with Take Back, and the quiet Add Your Thanks button that
 // opens a one-line note inline.
-export function ThanksRow({ k, me, onThank, onUnthank, sayThanks = false }) {
+export function ThanksRow({ k, me, onThank, onUnthank }) {
+  const recipient = me === k.toEmail;   // the recipient's thanks is the reply (Say Thanks)
   const [adding, setAdding] = useState(false);
   const [note, setNote] = useState('');
   const [open, setOpen] = useState(false);
@@ -126,9 +127,9 @@ export function ThanksRow({ k, me, onThank, onUnthank, sayThanks = false }) {
           </button>
         )}
         {mine ? (
-          <span>{sayThanks && me === k.toEmail ? 'You said thanks' : 'You added your thanks'} · <button type="button" style={TEXT_BTN} disabled={busy} onClick={() => onUnthank(k)}>Take Back</button></span>
+          <span>{recipient ? 'You said thanks' : 'You added your thanks'} · <button type="button" style={TEXT_BTN} disabled={busy} onClick={() => onUnthank(k)}>Take Back</button></span>
         ) : k.can?.thank && !adding ? (
-          <button type="button" style={TEXT_BTN} onClick={() => setAdding(true)}>{sayThanks && me === k.toEmail ? 'Say Thanks' : 'Add Your Thanks'}</button>
+          <button type="button" style={TEXT_BTN} onClick={() => setAdding(true)}>{recipient ? 'Say Thanks' : 'Add Your Thanks'}</button>
         ) : null}
       </div>
       {open && withNotes.length > 0 && (
