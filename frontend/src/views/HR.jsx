@@ -3500,7 +3500,34 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
 
 
 
-const DEPT_COLORS = ['#2b45e1', '#dc7a18', '#248f4b', '#8a31c9', '#b8860b'];
+const DEPT_COLORS = ['#2b45e1', '#dc7a18', '#248f4b', '#8a31c9', '#b8860b', '#0e7490', '#be185d'];
+
+// The department ring: a donut with the headcount in the middle; `size` is
+// the drawn width, the drawing scales with it.
+function StatusDonut({ segments, total, size = 118 }) {
+  const R = 30, C = 2 * Math.PI * R, SW = 11, GAP = 2;
+  const live = segments.filter(s => s.n > 0);
+  let acc = 0;
+  return (
+    <svg viewBox="0 0 84 84" width={size} height={size} role="img" aria-label={`${total} people by department`} style={{ flexShrink: 0 }}>
+      <circle cx={42} cy={42} r={R} fill="none" stroke="var(--mist)" strokeWidth={SW} />
+      {total > 0 && live.map(s => {
+        const frac = s.n / total;
+        const len = Math.max(frac * C - (live.length > 1 ? GAP : 0), 1.5);
+        const el = (
+          <circle key={s.key} cx={42} cy={42} r={R} fill="none" stroke={s.color} strokeWidth={SW}
+            strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-acc} transform="rotate(-90 42 42)">
+            <title>{`${s.label}: ${s.n}`}</title>
+          </circle>
+        );
+        acc += frac * C;
+        return el;
+      })}
+      <text x={42} y={41} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 20, fontWeight: 700, fill: 'var(--ink)' }}>{total}</text>
+      <text x={42} y={54} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 8.5, fill: 'var(--muted)' }}>people</text>
+    </svg>
+  );
+}
 
 // One count: label over number, the whole thing a button when it opens the
 // people behind it.
@@ -3541,7 +3568,6 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
     return () => { alive = false; };
   }, [refreshKey]);
 
-  const pct = (n) => total ? `${Math.max(2, Math.round((n / total) * 100))}%` : '0%';
 
   return (
     <div className="pp-cards" style={{ gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px, .8fr) minmax(0, 1.5fr) minmax(0, 1.3fr)' }}>
@@ -3568,14 +3594,14 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
 
       <div className="pp-card">
         <div className="pp-card-title">Departments{depts.length ? <span className="pp-card-meta">{depts.length}</span> : null}</div>
-        <div className="pp-bar" aria-hidden="true">
-          {deptSegs.map(d => <span key={d.key} style={{ width: pct(d.n), background: d.color }} title={`${d.label} · ${d.n}`} />)}
-        </div>
-        <div className="pp-legend">
-          {deptSegs.map(d => (
-            <span key={d.key}><i style={{ background: d.color }} />{d.label} <b>{loading ? '-' : d.n}</b></span>
-          ))}
-          {!loading && deptSegs.length === 0 && <span style={{ color: 'var(--muted)' }}>Departments appear as people are added.</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <StatusDonut segments={deptSegs} total={total} size={84} />
+          <div className="pp-legend">
+            {deptSegs.map(d => (
+              <span key={d.key}><i style={{ background: d.color }} />{d.label} <b>{loading ? '-' : d.n}</b></span>
+            ))}
+            {!loading && deptSegs.length === 0 && <span style={{ color: 'var(--muted)' }}>Departments appear as people are added.</span>}
+          </div>
         </div>
       </div>
     </div>

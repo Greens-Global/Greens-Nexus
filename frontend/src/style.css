@@ -9917,10 +9917,8 @@ a[data-type="recordLink"][data-ref]:hover { background: var(--wk-hover); }
 .pp-stat-label { font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; }
 .pp-stat:not(:disabled):hover .pp-stat-label { color: var(--ink); }
 .pp-stat b { font-size: 20px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.pp-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; background: var(--mist); }
-.pp-bar span { display: block; height: 100%; }
-.pp-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--muted); }
-.pp-legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.pp-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 14px; flex: 1; min-width: 0; font-size: 12.5px; color: var(--muted); }
+.pp-legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .pp-legend i { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 .pp-legend b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .pr-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 4px 16px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); min-height: 40px; box-sizing: border-box; }
