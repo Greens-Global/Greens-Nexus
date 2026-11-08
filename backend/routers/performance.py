@@ -546,7 +546,8 @@ def my_team(user: dict = Depends(get_current_user), db: Session = Depends(get_db
 def scorecard(email: str = "", period: str = "quarter", start: str = "", end: str = "",
               user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """A person's Nexus numbers (perf_metrics.scorecard) for This Month, This
-    Quarter, This Review (their latest review's period) or a given range.
+    Quarter, This Year, All Time (from their start date, three years at
+    most), This Review (their latest review's period) or a given range.
     The person, their reporting chain and HR only - anyone else 404."""
     me = _me(user)
     who = (email or me).strip().lower()
@@ -566,6 +567,11 @@ def scorecard(email: str = "", period: str = "quarter", start: str = "", end: st
             raise HTTPException(400, "Pick a start within the last three years.")
     elif period == "month":
         s, e = perf_metrics.month_period(today)
+    elif period == "year":
+        s, e = perf_metrics.year_period(today)
+    elif period == "all":
+        emp = perf.employee(db, who)
+        s, e = perf_metrics.all_time_period(today, emp.start_date if emp else "", SCORECARD_OLDEST_DAYS)
     elif period == "review":
         import perf_reviews as pr
         s, e = pr.review_period_for(db, who) or perf_metrics.quarter_period(today)

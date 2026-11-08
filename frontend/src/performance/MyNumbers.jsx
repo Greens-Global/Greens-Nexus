@@ -1,6 +1,7 @@
 // My Numbers (Neil, Oct 29 2026: "it needs to provide some real metrics from
 // Nexus"): a row of tiles from what Nexus already records - arrival, hours,
-// time sheets, tasks, tickets, training - for This Month, This Quarter or
+// time sheets, tasks, tickets, training - for This Month, This Quarter,
+// This Year, All Time (from their start date, three years at most) or
 // This Review. Nobody types them; a number that does not apply to the person
 // is not shown (backend/perf_metrics.py).
 import { useEffect, useState } from 'react';
@@ -61,7 +62,7 @@ export function NumberTiles({ metrics }) {
 }
 
 // `email` ''= me. `start`/`end` fix the period (the review form); else the
-// person picks This Month / This Quarter / This Review.
+// person picks This Month / This Quarter / This Year / All Time / This Review.
 export default function MyNumbers({ email = '', start = '', end = '', title = 'My Numbers', bare = false, initialPeriod = 'quarter' }) {
   const fixed = !!(start && end);
   const [period, setPeriod] = useState(initialPeriod);
