@@ -313,6 +313,29 @@ describe('MyShifts Team > Shifts Month view (Neil, 11/04/2026)', () => {
   });
 });
 
+// Team > Shifts for someone in no shift group (Neil, 11/08/2026): the week
+// still draws - seven cells, a holiday's name or "No shifts" - with one line
+// saying why; nothing personal (own shifts, Request), no Month, and a
+// remembered Month is ignored (the week is fetched, not 28-42 days).
+describe('MyShifts Team > Shifts with no group (Neil, 11/08/2026)', () => {
+  it('draws an empty week with one line, no Month toggle, no Request, no own shifts', async () => {
+    localStorage.setItem('nexus.shifts.teamRange', 'month');
+    timeMySchedule.mockResolvedValue({ ...sched, teams: [], holidays: [{ date: DAY, name: 'Founders Day' }] });
+    render(<MyShifts part="team" />);
+    await screen.findByText(/Your manager shares shifts here\. Swaps and open-shift requests are in Workday > Time Off\./);
+    await waitFor(() => expect(document.querySelectorAll('[data-empty-week] > div').length).toBe(7));
+    expect(screen.getAllByText('No shifts').length).toBe(6);
+    expect(screen.getByText('Founders Day')).toBeTruthy();
+    expect(screen.getByText(/^Times in /)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Month' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Request/ })).toBeNull();
+    expect(screen.queryByText('Front Desk')).toBeNull();   // my own shift is My Week's, not the group's
+    expect(screen.queryByText(/Your group will show here/)).toBeNull();
+    const [from, to] = timeMySchedule.mock.calls.at(-1);
+    expect((new Date(to) - new Date(from)) / 86400000).toBe(6);   // the week, whatever Month was remembered
+  });
+});
+
 describe('MyShifts embedded (Workday > My Schedule, Oct 15 2026)', () => {
   it('switches between my week and the group grid, with availability behind a toggle', async () => {
     render(<MyShifts embedded />);
