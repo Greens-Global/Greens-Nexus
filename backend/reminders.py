@@ -747,6 +747,13 @@ async def reminders_loop():
             await asyncio.to_thread(kb_daily.run_daily)
         except Exception as e:
             print(f"[reminders] knowledge base loop error: {e}")
+        # Links health (11/08/2026): once a week, is every company link still
+        # reachable (links_health.py; two misses in a row mark it).
+        try:
+            import links_health
+            await asyncio.to_thread(links_health.run_daily)
+        except Exception as e:
+            print(f"[reminders] links health loop error: {e}")
         now = datetime.now(timezone.utc)
         nxt = now.replace(hour=_SCAN_HOUR_UTC, minute=0, second=0, microsecond=0)
         if nxt <= now:

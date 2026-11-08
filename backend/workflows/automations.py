@@ -118,6 +118,9 @@ def jobs() -> list[dict]:
              "none opened.", "Daily"),
         _job("credvault_rotation", "Credential Rotation Reminders",
              "Rotation due, overdue and hard expiry, to the owner and backup owner.", "Daily"),
+        _job("links_health", "Link Health Check",
+             "Once a week, opens every company link and marks in Manage the ones that have been down two weeks "
+             "in a row. Off: nothing is checked or marked.", "Weekly"),
         _job("kb_daily", "Training Reminders",
              "Training due, policies to sign, and the manager and owner digests; assignment rules and renewals "
              "keep running. Also sends policy signing requests through Nexus Sign.", "Daily", "emails:kb-reminders"),

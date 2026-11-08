@@ -27,7 +27,7 @@ from typing import Optional
 
 import models
 from database import get_db
-from auth import get_current_user, require_level_or_module
+from auth import get_current_user, require_level_or_module, _MODULE_LEVEL_RANK
 from safe_fetch import resolves_to_public_ip as _resolves_to_public_ip  # the SSRF guard, shared
 
 router = APIRouter(prefix="/external-links", tags=["External Links"], dependencies=[Depends(get_current_user)])
@@ -477,6 +477,101 @@ def create_external_link(link: ExternalLinkCreate, user: dict = Depends(require_
     return db_link
 
 
+# ── Request a Link (11/08/2026) ───────────────────────────────────────────────
+# Any signed-in person asks; every links admin gets one bell; Manage lists the
+# open requests with Add (the create form prefilled, then PATCH here with the
+# new link's id) and Decline. Registered before PATCH /{link_id} on purpose
+# (route order, see reorder_external_links).
+
+class LinkRequestCreate(BaseModel):
+    name: str
+    url: str
+    note: str = ""
+
+
+class LinkRequestAdded(BaseModel):
+    link_id: int
+
+
+def links_admins(db: Session) -> list[str]:
+    """Every email require_links_admin admits: the manager tier and above by
+    role, plus the members of an Access Group granting external-links at
+    editor or above. Never a broadcast."""
+    out = set()
+    for r in db.query(models.NexusRole.email, models.NexusRole.role).all():
+        if _ROLE_LEVEL.get((r.role or "").lower(), 0) >= _ROLE_LEVEL["manager"]:
+            out.add((r.email or "").strip().lower())
+    rank_by_group = {}
+    for g in db.query(models.NexusGroup).filter(models.NexusGroup.allowed_modules.like("%external-links%")).all():
+        for part in (g.allowed_modules or "").split(","):
+            mid, _, level = part.strip().partition(":")
+            if mid == "external-links" and _MODULE_LEVEL_RANK.get(level, 0) >= _MODULE_LEVEL_RANK["editor"]:
+                rank_by_group[g.id] = True
+    if rank_by_group:
+        for m in db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_(list(rank_by_group))).all():
+            out.add((m.email or "").strip().lower())
+    out.discard("")
+    return sorted(out)
+
+
+@router.post("/requests", status_code=201)
+def create_link_request(body: LinkRequestCreate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    from routers.items import _notify   # the one bell row writer (CLAUDE.md: server side only)
+    name, url = body.name.strip(), body.url.strip()
+    if not name or not url:
+        raise HTTPException(status_code=400, detail="Name and URL are required.")
+    if not re.match(r"^https?://", url, re.I):
+        url = f"https://{url}"
+    req = models.ExternalLinkRequest(name=name[:200], url=url[:2000], note=(body.note or "").strip()[:1000],
+                                     requested_by=user["email"].lower(), created_at=_now(), status="open")
+    db.add(req)
+    db.flush()
+    who = user.get("name") or user["email"]
+    host = urlparse(url).hostname or url
+    for admin in links_admins(db):
+        _notify(db, type="link_request", recipient=admin, title="Link Requested",
+                body=f'{who} asked for "{name}" ({host}){" - " + req.note if req.note else ""}. Open Manage on Links to add or decline it.',
+                ref_id=str(req.id), item_name=name, requested_by=who, about_email=user["email"])
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+@router.get("/requests")
+def list_link_requests(user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    return (db.query(models.ExternalLinkRequest).filter(models.ExternalLinkRequest.status == "open")
+            .order_by(models.ExternalLinkRequest.id.asc()).all())
+
+
+def _open_request(request_id: int, db: Session) -> models.ExternalLinkRequest:
+    req = db.query(models.ExternalLinkRequest).filter(models.ExternalLinkRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.status != "open":
+        raise HTTPException(status_code=409, detail="This request was already decided.")
+    return req
+
+
+@router.post("/requests/{request_id}/decline")
+def decline_link_request(request_id: int, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    req = _open_request(request_id, db)
+    req.status, req.decided_by, req.decided_at = "declined", user["email"], _now()
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+@router.patch("/requests/{request_id}")
+def mark_link_request_added(request_id: int, body: LinkRequestAdded, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    req = _open_request(request_id, db)
+    if not db.query(models.ExternalLink.id).filter(models.ExternalLink.id == body.link_id).first():
+        raise HTTPException(status_code=404, detail="Link not found")
+    req.status, req.decided_by, req.decided_at, req.link_id = "added", user["email"], _now(), body.link_id
+    db.commit()
+    db.refresh(req)
+    return req
+
+
 @router.patch("/reorder")
 def reorder_external_links(entries: list[ReorderEntry], user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
     """Bulk drag-reorder within a category - one round trip instead of N PATCHes.
@@ -583,6 +678,22 @@ def increment_click(link_id: int, db: Session = Depends(get_db)):
     if not link:
         raise HTTPException(status_code=404, detail="Link not found")
     link.clicks += 1
+    link.last_opened_at = _now()
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+@router.post("/{link_id}/check")
+async def check_external_link(link_id: int, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    """Check Now (11/08/2026): one fetch under the SSRF guard, off the event
+    loop; marks or clears unreachable_since at once (links_health.py)."""
+    import links_health
+    link = db.query(models.ExternalLink).filter(models.ExternalLink.id == link_id).first()
+    if not link:
+        raise HTTPException(status_code=404, detail="Link not found")
+    ok = await asyncio.to_thread(links_health.reachable, link.url)
+    link.unreachable_since = "" if ok else (link.unreachable_since or _now())
     db.commit()
     db.refresh(link)
     return link

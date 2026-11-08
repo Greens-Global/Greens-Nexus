@@ -393,6 +393,9 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN application VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN service_area VARCHAR DEFAULT ''",
             "ALTER TABLE external_links ADD COLUMN service_area VARCHAR DEFAULT ''",
+            # Links usage and health (11/08/2026): last open, down since.
+            "ALTER TABLE external_links ADD COLUMN last_opened_at VARCHAR DEFAULT ''",
+            "ALTER TABLE external_links ADD COLUMN unreachable_since VARCHAR DEFAULT ''",
             # The desk filters and groups on these two, and ADD COLUMN alone
             # leaves the model's index=True unhonored on a table create_all has
             # already made. Named exactly as SQLAlchemy names them, so a fresh
@@ -1774,6 +1777,9 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS application TEXT DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS service_area TEXT DEFAULT ''",
         "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS service_area TEXT DEFAULT ''",
+        # Links usage and health (11/08/2026): last open, down since.
+        "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS last_opened_at TEXT DEFAULT ''",
+        "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS unreachable_since TEXT DEFAULT ''",
         # See the SQLite list: ADD COLUMN does not honor the model's index=True
         # on an existing table. Named as SQLAlchemy names them so create_all on
         # a fresh database and this line converge on one index, not two.
