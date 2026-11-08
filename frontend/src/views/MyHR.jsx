@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { crisisCheck } from '../lib/crisisSupport';
 import {
+  User, Phone, Mail, Heart, CalendarDays, Network, BadgeCheck,
   FileText, Download, Pencil, Check, X,
   Banknote, MessageSquarePlus, Package, ArrowRight,
   HardDrive, Folder, FolderOpen, ChevronRight, ChevronLeft, Eye,
@@ -8,7 +9,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner, CountSkeleton } from '../components/AsyncState';
-import { formatDateLong } from '../lib/datetime';
+import { formatDate, formatDateLong } from '../lib/datetime';
 import { approvedLeaveDays, fmtDays } from '../lib/workdayStats';
 import { fmtLeave } from '../components/LeaveBalances';
 import EgnytePreview from '../egnyte/EgnytePreview';
@@ -108,6 +109,17 @@ function writeAskSeen(m) {
 }
 
 const fmtD = (iso) => formatDateLong(iso, '-');
+
+function Row({ Icon, label, value }) {
+  if (!value) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+      <Icon size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+      <span style={{ fontSize: 12.5, color: 'var(--muted)', width: 118, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 13.5, color: 'var(--ink)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }} title={typeof value === 'string' ? value : undefined}>{value}</span>
+    </div>
+  );
+}
 
 export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false, askFocus = null, leaveBalance = null, openForm = null }) {
   // A "confirm your schedule" bell or email (Shifts Phase 3a) lands here:
@@ -409,8 +421,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
   const leaveLabel = leave === null ? <CountSkeleton /> : leaveDaysThisYear == null ? '-' : `${fmtDays(leaveDaysThisYear)}d`;
 
   const em = profile?.personal?.emergency || {};
-  const contactEmpty = !!profile && !profile.personalEmail && !profile.phone && !em.name;
-  const contactLine = [profile?.phone, profile?.personalEmail, em.name && `${em.name}${em.phone ? ` ${em.phone}` : ''}`].filter(Boolean).join(' · ');
+  const initials = profile ? `${(profile.firstName || ' ')[0]}${(profile.lastName || ' ')[0]}`.trim().toUpperCase() : '';
   const input = { width: '100%' };
   const lbl = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '10px 0 4px' };
   const cardHead = (title, sub, action) => (
@@ -465,13 +476,16 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
           profile. */}
       {clockParts ? clockParts.card : clock}
       {/* The actions (Neil, 11/08/2026): ONE row of pill tiles under the clock
-          card - Ask HR, Reimbursements, Purchase Request, Fill a Form when
-          there is one, My Tickets when there is work - equal widths, 2 x 2 on a
-          narrow window, a stack on a phone (wd-actions in TimeClock.jsx's
-          Workday styles). The Hours tile went (the summary beside the punch
-          card already says This Week), so did Time Off This Year (on My
-          Schedule's week line) and Time With Us (nothing carries tenure). */}
+          card - My Tickets when there is work (first - Neil), Ask HR,
+          Reimbursements, Purchase Request, Fill a Form when there is one -
+          equal widths, 2 x 2 on a narrow window, a stack on a phone
+          (wd-actions in TimeClock.jsx's Workday styles). The Hours tile went
+          (the summary beside the punch card already says This Week), so did
+          Time Off This Year (on My Schedule's week line) and Time With Us
+          (now a line on Workday > Performance). */}
       <div className="wd-actions">
+            {/* My Tickets (Neil, 11/04/2026): shows only when there is work - and always, at 0, for someone on a maintenance team. Leads the row (Neil, 11/08/2026). */}
+            <MyWorkTile {...myWork} />
             {/* Ask HR (Pranshu, Oct 15 2026): a button, not a card at the
                 bottom. It opens the panel with New Request and every request
                 sent; a dot says HR did something you have not looked at yet. */}
@@ -500,8 +514,6 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
             <PurchaseRequestTile onOpen={onOpenPurchase || (() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'purchase' } })))} />
             {/* Fill a Form (Forms & Checklists, Neil 11/02/2026): the forms this person may fill, in the fill sheet. Shows only when there is one. `openForm` is the "form:<id>" / "form:pick" deep link. */}
             <FormsTile autoOpen={openForm} flash={flash} />
-            {/* My Tickets (Neil, 11/04/2026): shows only when there is work - and always, at 0, for someone on a maintenance team. */}
-            <MyWorkTile {...myWork} />
       </div>
       {/* No checklist steps on Workday (Oct 28 2026): an owner's steps are
           subtasks on their My Tasks. */}
@@ -520,27 +532,51 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
             {/* ── Left rail: contact, equipment, documents ── (minWidth 0: a long line
                 must wrap, not widen the column past a phone) */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
-              {/* The profile card went (Neil, 11/08/2026): name, title, work
-                  email, start date, reports to and employment told the person
-                  nothing new. Contact & Emergency is the one thing edited
-                  here, so it stays - a one-line nudge while the details are
-                  empty, a small line with Edit once they are filled (this is
-                  its only edit path), the form in place while editing. */}
+              {/* My Profile, compact (Neil, 11/08/2026, after seeing the
+                  cleanup): the header row, Reports to and Start date, then
+                  Contact & Emergency as the old card had it - the one thing
+                  edited here. No work email or employment rows. */}
               <div className="dash-card">
-                {!editing ? (
-                  <div className="wd-oneline">
-                    {/* Edit is a word at the end of the line, not a button beside it: in
-                        the 360px column the line wraps, and a button beside wrapped text
-                        read as part of the sentence. */}
-                    {!contactEmpty && <span className="dash-card-title">Contact & Emergency</span>}
-                    <span className="wd-oneline-text">
-                      {contactEmpty ? 'Add your contact and emergency details so HR can reach you.' : `${contactLine} ·`}
-                      {' '}<button type="button" className="wd-trail-link" onClick={startEdit} aria-label="Edit contact and emergency details"><Pencil size={11} aria-hidden="true" /> Edit</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10 }}>
+                  {profile.photoUrl
+                    ? <img src={profile.photoUrl} alt="" style={{ width: 54, height: 54, borderRadius: '50%', objectFit: 'cover' }} />
+                    : <div style={{ width: 54, height: 54, borderRadius: '50%', background: 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 18, color: 'var(--muted)' }}>{initials || <User size={22} />}</div>}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 16.5, fontWeight: 700, color: 'var(--ink)' }}>{profile.firstName} {profile.lastName}</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{[profile.jobTitle, profile.department].filter(Boolean).join(' · ')}</div>
+                  </div>
+                  {profile.status === 'active' && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))' }}>
+                      <BadgeCheck size={12} /> Active
                     </span>
+                  )}
+                </div>
+                {/* No employee code here (Neil, Oct 1): it is only used for
+                    Intacct reporting, so it stays in People for HR and
+                    accounting and means nothing to the employee. */}
+                <Row Icon={Network} label="Reports to" value={profile.manager} />
+                <Row Icon={CalendarDays} label="Start date" value={formatDate(profile.startDate)} />
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0 2px' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Contact & Emergency</span>
+                  {!editing && (
+                    <button className="secondary-btn" onClick={startEdit} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+                      <Pencil size={12} /> Edit
+                    </button>
+                  )}
+                </div>
+
+                {!editing ? (
+                  <div>
+                    <Row Icon={Mail} label="Personal email" value={profile.personalEmail} />
+                    <Row Icon={Phone} label="Phone" value={profile.phone} />
+                    <Row Icon={Heart} label="Emergency" value={em.name ? [em.name, em.relationship && `(${em.relationship})`, em.phone].filter(Boolean).join(' · ') : ''} />
+                    {!profile.personalEmail && !profile.phone && !em.name && (
+                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing here yet - add your contact details so HR can reach you.</div>
+                    )}
                   </div>
                 ) : (
                   <div>
-                    <div className="dash-card-title">Contact & Emergency</div>
                     <label style={lbl}>Personal email</label>
                     <input className="form-input" style={input} value={form.personal_email} onChange={e => setForm(f => ({ ...f, personal_email: e.target.value }))} />
                     <label style={lbl}>Phone</label>

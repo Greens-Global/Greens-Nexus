@@ -66,11 +66,15 @@ describe('Workday Overview with the Time Clock', () => {
     // card and the card is wrapped so the phone stylesheet can lead with it.
     expect(screen.getByRole('button', { name: /Punch In/ }).closest('.wd-punch-row')).toBeTruthy();
     expect(document.querySelector('.wd-overview > .wd-clock-wrap .wd-clock')).toBeTruthy();
-    // The clock card comes first, the action pills right under it; no profile card (11/08/2026).
+    // The clock card comes first, the action pills right under it (11/08/2026);
+    // the compact profile card (name, Reports to, Start date, no work email or
+    // employment) heads the left column.
     expect(document.querySelector('.wd-overview > .wd-clock-wrap + .wd-actions')).toBeTruthy();
-    expect(await screen.findByText('My Schedule')).toBeTruthy();
-    expect(screen.queryByText('Amy Test')).toBeNull();
-    expect(screen.queryByText('Reports to')).toBeNull();
+    expect(await screen.findByText('Amy Test')).toBeTruthy();
+    expect(screen.getByText('Reports to')).toBeTruthy();
+    expect(screen.getByText('01/15/2024')).toBeTruthy();
+    expect(screen.queryByText('Work email')).toBeNull();
+    expect(screen.queryByText('Employment')).toBeNull();
     // Overview, Time Sheet, Time Off, Purchase Requests (Oct 22 2026) - no Clock tab.
     const tabs = [...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim());
     // Purchase Requests is a popup from its Overview tile, not a tab (Sagar, Oct 27).
@@ -194,10 +198,11 @@ describe('Workday Overview with the Time Clock', () => {
     expect(eq.classList.contains('wd-oneline')).toBe(true);
     expect(within(eq).getByText('Nothing checked out right now.')).toBeTruthy();
     expect(screen.queryByText('Assigned to you or checked out')).toBeNull();
-    // Contact & Emergency empty: the nudge with Edit; the form opens in place.
-    expect(screen.queryByText('Contact & Emergency')).toBeNull();
-    const nudge = screen.getByText('Add your contact and emergency details so HR can reach you.');
-    fireEvent.click(within(nudge.closest('.dash-card')).getByRole('button', { name: /Edit/ }));
+    // Contact & Emergency empty: the nudge sentence inside the profile card, Edit opens the form in place.
+    const contact = screen.getByText('Contact & Emergency').closest('.dash-card');
+    expect(within(contact).getByText('Amy Test')).toBeTruthy();
+    expect(within(contact).getByText('Nothing here yet - add your contact details so HR can reach you.')).toBeTruthy();
+    fireEvent.click(within(contact).getByRole('button', { name: /Edit/ }));
     expect(screen.getByText('Emergency contact name')).toBeTruthy();
   }, SLOW);
 
