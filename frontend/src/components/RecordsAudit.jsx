@@ -21,8 +21,8 @@ export default function RecordsAudit({ entityName, onOpen, refreshKey, row = fal
   return (
     <>
       {row ? (
-        <button type="button" className="pp-status-row" onClick={() => setOpen(true)} disabled={!n} title="Who is missing something on file or has an expired document">
-          <span>Records Audit</span>
+        <button type="button" className="pp-stat" onClick={() => setOpen(true)} disabled={!n} title="Who is missing something on file or has an expired document">
+          <span className="pp-stat-label">Records Audit</span>
           <b style={{ color: n ? '#b45309' : 'var(--ink)' }}>{n}</b>
         </button>
       ) : (

@@ -22,7 +22,7 @@ import {
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
   ChevronDown, ChevronUp, Link2, ExternalLink,
   ListChecks, RefreshCw, Hourglass, BarChart3,
-  Target, CalendarClock, Package, Activity,
+  Target, CalendarClock, Package,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -60,7 +60,7 @@ import { googleMapsUrl } from '../lib/addressSearch';
 import WorkSiteFenceCheck from '../components/WorkSiteFenceCheck';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
-import { PersonSelect, Avatar as EmailAvatar, Modal, DateField } from '../tasks/components';
+import { PersonSelect, Avatar as EmailAvatar, Modal, DateField, ChipMultiSelect } from '../tasks/components';
 import StatusChangeSheet from '../people/StatusChangeSheet';
 import AddPersonSheet from '../people/AddPersonSheet';
 import AccessTab from '../people/AccessTab';
@@ -3401,51 +3401,7 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
 // identical number tiles. Everything is computed from the live employee list;
 // nothing is fabricated, and zero/loading states stay designed.
 
-function StatCardShell({ Icon, title, meta, children }) {
-  // Stella card anatomy: bordered icon chip + title over a hairline divider,
-  // then the body at its own rhythm (see .wkc in style.css).
-  return (
-    <div className="wkc">
-      <div className="wkc-head">
-        <span className="wkc-chip"><Icon size={14} /></span>
-        <span className="wkc-title">{title}</span>
-        {meta && <span className="wkc-meta">{meta}</span>}
-      </div>
-      <div className="wkc-body">{children}</div>
-    </div>
-  );
-}
 
-// Donut for the status breakdown (Stella's Task Summary form): SVG stroke
-// arcs with 2px surface gaps, center total, native tooltips. Identity is
-// never color-alone - the legend rows beside it carry label + count.
-function StatusDonut({ segments, total }) {
-  const R = 30, C = 2 * Math.PI * R, SW = 11, GAP = 2;
-  const live = segments.filter(s => s.n > 0);
-  let acc = 0;
-  return (
-    <svg viewBox="0 0 84 84" width={118} height={118} role="img" aria-label={`${total} people by status`} style={{ flexShrink: 0 }}>
-      <circle cx={42} cy={42} r={R} fill="none" stroke="var(--mist)" strokeWidth={SW} />
-      {total > 0 && live.map(s => {
-        const frac = s.n / total;
-        const len = Math.max(frac * C - (live.length > 1 ? GAP : 0), 1.5);
-        const el = (
-          <circle key={s.key} cx={42} cy={42} r={R} fill="none"
-            stroke={s.color} strokeWidth={SW}
-            strokeDasharray={`${len} ${C - len}`}
-            strokeDashoffset={-acc}
-            transform="rotate(-90 42 42)">
-            <title>{`${s.label}: ${s.n}`}</title>
-          </circle>
-        );
-        acc += frac * C;
-        return el;
-      })}
-      <text x={42} y={41} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 20, fontWeight: 700, fill: 'var(--ink)' }}>{total}</text>
-      <text x={42} y={54} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 8.5, fill: 'var(--muted)' }}>people</text>
-    </svg>
-  );
-}
 
 
 
@@ -3479,59 +3435,51 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
     return () => { alive = false; };
   }, [refreshKey]);
 
-  const Row = ({ label, n, onGo, tone }) => (
-    <button type="button" className="pp-status-row" onClick={onGo} disabled={!onGo}>
-      <span>{label}</span>
+  // One count: label over number, the whole thing a button when it opens
+  // the people behind it.
+  const Stat = ({ label, n, onGo, tone }) => (
+    <button type="button" className="pp-stat" onClick={onGo} disabled={!onGo}>
+      <span className="pp-stat-label">{label}</span>
       <b style={{ color: tone && n ? tone : 'var(--ink)' }}>{loading || n == null ? <CountSkeleton width="1.2em" /> : n}</b>
     </button>
   );
+  const pct = (n) => total ? `${Math.max(2, Math.round((n / total) * 100))}%` : '0%';
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.1fr)', gap: 14, marginBottom: 16, alignItems: 'stretch' }}>
-      <StatCardShell Icon={Users} title="People" meta={nExternal ? `+${nExternal} external` : undefined}>
-        <button type="button" onClick={onJumpToDirectory} title="See the directory"
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-          {loading ? <CountSkeleton /> : total}
-        </button>
-        <div className="pp-status-list" style={{ marginTop: 12 }}>
-          <Row label="Active" n={nActive} onGo={() => onStatusFilter?.('active')} />
-          {nInactive > 0 && <Row label="Inactive" n={nInactive} onGo={() => onStatusFilter?.('inactive')} />}
-        </div>
-        {types.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', fontSize: 12.5, color: 'var(--muted)', marginTop: 10 }}>
-            {types.map(t => <span key={t.key}>{t.label} <b style={{ color: 'var(--ink)', fontWeight: 600 }}>{t.n}</b></span>)}
-          </div>
-        )}
-      </StatCardShell>
+    <div className="pp-cards" style={{ gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px, .8fr) minmax(0, 1.5fr) minmax(0, 1.3fr)' }}>
+      {/* The headcount keeps its gradient tile (Neil, 11/08/2026). */}
+      <button type="button" className="pp-hero" onClick={onJumpToDirectory} title="See the directory">
+        <span className="pp-hero-label">People{nExternal ? ` · +${nExternal} external` : ''}</span>
+        <span className="pp-hero-n">{loading ? <CountSkeleton /> : total}</span>
+        <span className="pp-hero-sub">
+          {[`${nActive} active`, nInactive > 0 && `${nInactive} inactive`, ...types.map(t => `${t.n} ${t.label.toLowerCase()}`)].filter(Boolean).join(' · ')}
+        </span>
+      </button>
 
       {/* What HR acts on this week; every count opens the people behind it. */}
-      <StatCardShell Icon={Activity} title="Status">
-        <div className="pp-status-list">
-          <Row label="Onboarding" n={nOnboarding} onGo={() => onStatusFilter?.('onboarding')} />
-          <Row label="Exits In Progress" n={exits} onGo={onGoExits} />
-          <Row label="On Leave Today" n={onLeave} />
-          <Row label="On Probation" n={nProbation} onGo={() => onStatusFilter?.('__probation:open__')} />
+      <div className="pp-card">
+        <div className="pp-card-title">Status</div>
+        <div className="pp-stats">
+          <Stat label="Onboarding" n={nOnboarding} onGo={() => onStatusFilter?.('onboarding')} />
+          <Stat label="Exits" n={exits} onGo={onGoExits} />
+          <Stat label="On Leave Today" n={onLeave} />
+          <Stat label="On Probation" n={nProbation} onGo={() => onStatusFilter?.('__probation:open__')} />
           <RecordsAudit row entityName={entityName} refreshKey={refreshKey} onOpen={onOpenPerson} />
         </div>
-      </StatCardShell>
+      </div>
 
-      <StatCardShell Icon={Building2} title="Departments" meta={depts.length ? `${depts.length} total` : undefined}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-          <StatusDonut segments={deptSegs} total={total} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 0 }}>
-            {deptSegs.slice(0, 5).map(s => (
-              <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13.5 }}>
-                <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, flexShrink: 0 }} />
-                <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
-                <span style={{ marginLeft: 'auto', fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{loading ? '-' : s.n}</span>
-              </div>
-            ))}
-            {!loading && deptSegs.length === 0 && (
-              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Departments appear as people are added.</span>
-            )}
-          </div>
+      <div className="pp-card">
+        <div className="pp-card-title">Departments{depts.length ? <span className="pp-card-meta">{depts.length}</span> : null}</div>
+        <div className="pp-bar" aria-hidden="true">
+          {deptSegs.map(d => <span key={d.key} style={{ width: pct(d.n), background: d.color }} title={`${d.label} · ${d.n}`} />)}
         </div>
-      </StatCardShell>
+        <div className="pp-legend">
+          {deptSegs.map(d => (
+            <span key={d.key}><i style={{ background: d.color }} />{d.label} <b>{loading ? '-' : d.n}</b></span>
+          ))}
+          {!loading && deptSegs.length === 0 && <span style={{ color: 'var(--muted)' }}>Departments appear as people are added.</span>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -3600,8 +3548,9 @@ export default function HR({ activeSub, onSubChange }) {
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState('');
   const [search,    setSearch]    = useState('');
-  const [deptF,     setDeptF]     = useState('All');
-  const [companyF,  setCompanyF]  = useState('All');
+  // Companies and Departments pick several (Neil, 11/08/2026); [] = all.
+  const [deptF,     setDeptF]     = useState([]);
+  const [companyF,  setCompanyF]  = useState([]);
   const [statusF,   setStatusF]   = useState('All');
   // Active / Inactive lens on the list (Neil, Oct 12): someone who has Left
   // or is Inactive is not removed, a status change moves them to the
@@ -3759,7 +3708,7 @@ export default function HR({ activeSub, onSubChange }) {
   // Department filter choices are the departments actually in use, scoped to the
   // chosen company - no hardcoded list.
   const deptChoices = useMemo(() => {
-    const src = companyF === 'All' ? employees : employees.filter(e => e.company === companyF);
+    const src = companyF.length === 0 ? employees : employees.filter(e => companyF.includes(e.company));
     return [...new Set(src.map(e => (e.department || '').trim()).filter(Boolean))].sort();
   }, [employees, companyF]);
 
@@ -3777,8 +3726,8 @@ export default function HR({ activeSub, onSubChange }) {
       if (typeF === 'employee' && (isExtRow(e) || e.employmentType === 'contractor')) return false;
       if (typeF === 'contractor' && (isExtRow(e) || e.employmentType !== 'contractor')) return false;
       if (typeF === 'external' && !isExtRow(e)) return false;
-      if (companyF !== 'All' && e.company !== companyF) return false;
-      if (deptF !== 'All' && e.department !== deptF) return false;
+      if (companyF.length && !companyF.includes(e.company)) return false;
+      if (deptF.length && !deptF.includes(e.department)) return false;
       if (cfField && !matchesFieldFilter(cfField, e.customFields?.[cfField.fieldKey], cfF)) return false;
       // Skipped while showing removed people - they keep their old status, so
       // matching on it here would filter the list down to nothing.
@@ -4056,14 +4005,14 @@ export default function HR({ activeSub, onSubChange }) {
                   <option value="contractor">Contractors</option>
                   <option value="external">External &amp; guests</option>
                 </select>
-                <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ ...(isMobile ? PHONE_FILTER : { width: 150 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
-                  <option value="All">All Companies</option>
-                  {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-                </select>
-                <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ ...(isMobile ? PHONE_FILTER : { width: 155 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
-                  <option value="All">All Departments</option>
-                  {deptChoices.map(d => <option key={d}>{d}</option>)}
-                </select>
+                <div style={isMobile ? PHONE_FILTER : { width: 170 }}>
+                  <ChipMultiSelect value={companyF} onChange={v => { setCompanyF(v); setDeptF([]); setSelectedId(null); }} placeholder="All Companies" searchPlaceholder="Search companies…"
+                    options={entities.map(en => ({ id: en.id, label: en.name }))} />
+                </div>
+                <div style={isMobile ? PHONE_FILTER : { width: 170 }}>
+                  <ChipMultiSelect value={deptF} onChange={v => { setDeptF(v); setSelectedId(null); }} placeholder="All Departments" searchPlaceholder="Search departments…"
+                    options={deptChoices.map(d => ({ id: d, label: d }))} />
+                </div>
                 {/* Choosing Deleted fetches that list here rather than in an
                     effect - the dropdown is the only way into the view, so the
                     fetch belongs to the action that causes it. */}
@@ -4075,7 +4024,7 @@ export default function HR({ activeSub, onSubChange }) {
                     if (next === DELETED_F) loadDeleted();
                   }}
                   style={{ ...(isMobile ? PHONE_FILTER : { width: 135 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
-                  <option value="All">All statuses</option>
+                  <option value="All">All Statuses</option>
                   {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
                   <option value={PROBATION_F}>Probation Ending</option>
                   {PROBATION_LENSES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
