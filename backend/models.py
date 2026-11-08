@@ -274,6 +274,11 @@ class ExternalLink(Base):
     # where the app is added - and a ticket copies the value at intake.
     # A key from SERVICE_AREA_KEYS below; "" reads as "general".
     service_area = Column(String, default="")
+    # Usage and health (11/08/2026): when anyone last opened it (the click
+    # endpoint stamps it; Manage shows it and flags 90 quiet days), and since
+    # when the weekly links_health pass found the site down ("" = reachable).
+    last_opened_at = Column(String, default="")
+    unreachable_since = Column(String, default="")
 
 
 class ExternalLinkTaxonomy(Base):
@@ -10221,3 +10226,22 @@ class KbRefresherItem(Base):
     wrong_count      = Column(Integer, default=0)
     last_answered_at = Column(String, default="")
     created_at       = Column(String, default="")
+
+
+class ExternalLinkRequest(Base):
+    """Request a Link (11/08/2026): any signed-in person asks for a company
+    link; the links admins see the open ones at the top of Manage and Add
+    (the create form prefilled, then this row marked added with the link's
+    id) or Decline. New table - create_all builds it; RLS comes from
+    main._enable_rls_everywhere on dev and prod."""
+    __tablename__ = "external_link_requests"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    url = Column(String, nullable=False)
+    note = Column(String, default="")
+    requested_by = Column(String, nullable=False, index=True)
+    created_at = Column(String, default="")
+    status = Column(String, default="open", index=True)   # open | added | declined
+    decided_by = Column(String, default="")
+    decided_at = Column(String, default="")
+    link_id = Column(Integer, default=None)

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users, BookOpen, HardHat } from 'lucide-react';
+import { createElement, useEffect, useMemo, useState } from 'react';
+import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users, BookOpen, HardHat, Link2 } from 'lucide-react';
+import { LinkIcon } from '../LinkIcon.jsx';
 import { useRole } from '../../contexts/RoleContext';
 import { useInventory } from '../../contexts/InventoryContext';
 import { useRequisitions } from '../../contexts/RequisitionContext';
@@ -21,6 +22,10 @@ import { useTableValue } from '../../tasks/tableCols';
 //                /construction/search, walled like the module (11/03/2026).
 //   Items / Checkouts / Purchase Requests - from the data the app already
 //                holds in its contexts (local, instant).
+//   Links      - the company links and the person's Personal Links
+//                (11/08/2026), loaded once per session while a search is
+//                typed; a pick opens the site in a new tab and records the
+//                click the way the Links page does.
 //   Pages      - the sidebar's screens and their sections, visible exactly
 //                when the sidebar shows them (local, instant). Last, so
 //                Enter on a typed title opens the thing, not the module
@@ -84,15 +89,47 @@ function useQaEnabled(enabled) {
 const FAV_MAX = 12;
 const RECENT_MAX = 8;
 const EMPTY_SAVED = { favorites: [], recents: [] };
-const SAVED_ICON = { task: Check, job: HardHat, person: User, item: Package, checkout: ClipboardList, request: ShoppingCart, kb: BookOpen, page: LayoutDashboard };
+const SAVED_ICON = { task: Check, job: HardHat, person: User, item: Package, checkout: ClipboardList, request: ShoppingCart, kb: BookOpen, page: LayoutDashboard, link: Link2 };
 // What the store hands back is the person's own JSON: only well-formed entries count.
 const cleanTo = (to) => {
   if (!to || typeof to !== 'object') return null;
   if (typeof to.task === 'string' && to.task) return { task: to.task.slice(0, 100) };
   if (typeof to.person === 'string' && to.person.includes('@')) return { person: to.person.slice(0, 200), name: String(to.name || '').slice(0, 200) };
   if (typeof to.view === 'string' && /^[a-z0-9-]{1,40}$/i.test(to.view)) return { view: to.view, sub: typeof to.sub === 'string' ? to.sub.slice(0, 300) : undefined };
+  if (typeof to.url === 'string' && /^https?:\/\//i.test(to.url)) return { url: to.url.slice(0, 2000), link: typeof to.link === 'string' ? to.link.slice(0, 40) : undefined };
   return null;
 };
+
+// Links (11/08/2026): the company directory and the person's own links,
+// asked for once per session the first time a search is typed - the same
+// calls the Links page makes. `link` is "external:<id>" or "personal:<id>".
+let linksKnown = null;
+let linksAsk = null;
+const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
+function useLinks(enabled) {
+  const [loaded, setLoaded] = useState(linksKnown);
+  useEffect(() => {
+    if (!enabled || linksKnown !== null) return undefined;
+    let live = true;
+    linksAsk = linksAsk || Promise.all([
+      api.getExternalLinks().then((r) => (Array.isArray(r) ? r : [])).catch(() => []),
+      api.getPersonalLinks().then((r) => (Array.isArray(r) ? r : [])).catch(() => []),
+    ]).then(([company, personal]) => { linksKnown = { company, personal }; return linksKnown; });
+    linksAsk.then((v) => { if (live) setLoaded(v); });
+    return () => { live = false; };
+  }, [enabled]);
+  return linksKnown || loaded || { company: [], personal: [] };
+}
+// The Links page calls this after any link changes, so the next search
+// reads the directory again.
+export const resetLinksSearchCache = () => { linksKnown = null; linksAsk = null; };
+const openSite = (url, link) => {
+  window.open(url, '_blank', 'noopener');
+  const [kind, id] = (link || '').split(':');
+  if (kind === 'external' && id) api.clickExternalLink(Number(id)).catch(() => {});
+  if (kind === 'personal' && id) api.clickPersonalLink(Number(id)).catch(() => {});
+};
+const linkIcon = (url) => createElement(LinkIcon, { url, size: 20, iconSize: 12, radius: 5, fg: 'var(--muted)', bg: 'var(--mist)', gradient: false });
 const cleanEntry = (e) => {
   if (!e || typeof e !== 'object' || typeof e.key !== 'string' || !SAVED_ICON[e.kind]) return null;
   const to = cleanTo(e.to);
@@ -112,6 +149,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
   const isManager = can?.('manager');
   const canTasks = !!(can?.('administrator') || myGrantedModules?.has?.('tasks'));
   const qaEnabled = useQaEnabled(live);
+  const links = useLinks(live);
 
   // Screens registry: the sidebar's NAV, visible exactly as the sidebar
   // shows it, plus each module's sections. Built only while a search is
@@ -283,13 +321,34 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       run: () => navigate('sop', `page:${encodeURIComponent(p.id)}`),
     })));
 
+    const linkRows = [];
+    for (const l of links.company) {
+      if (linkRows.length >= 5) break;
+      if (match(l.name, l.description, hostOf(l.url), ...(l.categories || []))) linkRows.push({
+        key: `link:external:${l.id}`, icon: linkIcon(l.url), title: l.name,
+        detail: [(l.categories || [])[0], hostOf(l.url)].filter(Boolean).join(' · '),
+        save: { kind: 'link', to: { url: l.url, link: `external:${l.id}` } },
+        run: () => openSite(l.url, `external:${l.id}`),
+      });
+    }
+    for (const l of links.personal) {
+      if (linkRows.length >= 8) break;
+      if (match(l.name, l.description, hostOf(l.url), l.category)) linkRows.push({
+        key: `link:personal:${l.id}`, icon: linkIcon(l.url), title: l.name,
+        detail: ['Personal', hostOf(l.url)].filter(Boolean).join(' · '),
+        save: { kind: 'link', to: { url: l.url, link: `personal:${l.id}` } },
+        run: () => openSite(l.url, `personal:${l.id}`),
+      });
+    }
+    add('links', 'Links', linkRows);
+
     add('pages', 'Pages', screens.filter(s => match(s.label, s.context, s.view)).slice(0, 6).map(s => ({
       key: `page:${s.view}:${s.sub || ''}`, Icon: LayoutDashboard, title: s.label, detail: s.context,
       save: { kind: 'page', to: { view: s.view, sub: s.sub || undefined } },
       run: () => navigate(s.view, s.sub),
     })));
     return out;
-  }, [live, q, query, screens, hits, kbRows, items, checkouts, requisitions, isManager, myEmail, canTasks]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [live, q, query, screens, hits, kbRows, items, checkouts, requisitions, isManager, myEmail, canTasks, links]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Favorites and Recents ────────────────────────────────────────────────
   const [savedRaw, setSaved] = useTableValue('search', 'data', EMPTY_SAVED);
@@ -302,6 +361,8 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId: to.task } })), 0);
     } else if (to.person) {
       if (canTasks) openPersonTasks(to.person, to.name); else openContact(to.person);
+    } else if (to.url) {
+      openSite(to.url, to.link);
     } else navigate(to.view, to.sub);
   };
   const entryOf = (row) => (row?.save ? cleanEntry({ ...row.save, key: row.key, title: row.title, detail: row.detail }) : null);
@@ -322,7 +383,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
   const isFavorite = (row) => !!row?.key && favKeys.has(row.key);
   const savedGroups = useMemo(() => {
     if (!enabled || live) return [];
-    const toRow = (e) => ({ key: e.key, Icon: SAVED_ICON[e.kind], title: e.title, detail: e.detail, save: e, run: () => runTo(e.to) });
+    const toRow = (e) => ({ key: e.key, Icon: SAVED_ICON[e.kind], icon: e.to.url ? linkIcon(e.to.url) : undefined, title: e.title, detail: e.detail, save: e, run: () => runTo(e.to) });
     const out = [];
     if (favorites.length) out.push({ key: 'favorites', label: 'Favorites', rows: favorites.map(toRow), note: '' });
     const recent = recents.filter((r) => !favKeys.has(r.key));
