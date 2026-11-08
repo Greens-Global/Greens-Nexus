@@ -502,7 +502,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                   {askUnseen ? `${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR`
                     : letterQueue ? `${letterQueue} letter${letterQueue === 1 ? '' : 's'} to prepare`
                       : askOpenCount ? `${askOpenCount} open request${askOpenCount === 1 ? '' : 's'}`
-                        : letters.types.length ? 'Letters, documents, questions' : 'Documents, changes, questions'}
+                        : letters.types.length ? 'Letters and questions' : 'Documents and questions'}
                 </span>
               </span>
               <span className="wd-askhr-cta" aria-hidden="true">{askUnseen ? 'View' : letterQueue ? 'Review' : 'Ask a Question'} <ArrowRight size={13} /></span>

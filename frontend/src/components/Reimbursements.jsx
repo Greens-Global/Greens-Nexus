@@ -419,7 +419,7 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
   const c = counts(data);
   const waiting = c.approve + c.hrApprove + c.hrPay + c.sentBack;
   const sub = c.approve ? `${c.approve} to approve` : c.hrApprove ? `${c.hrApprove} for HR` : c.hrPay ? `${c.hrPay} to pay`
-    : c.sentBack ? `${c.sentBack} sent back` : c.mine ? `${c.mine} in progress` : 'Expenses you paid for';
+    : c.sentBack ? `${c.sentBack} sent back` : c.mine ? `${c.mine} in progress` : 'Expenses you paid';
   const replace = (u) => setData((d) => {
     if (!d || !u) return d;
     const swap = (list) => (list || []).map((x) => (x.id === u.id ? u : x));

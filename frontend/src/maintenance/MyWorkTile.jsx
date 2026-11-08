@@ -27,8 +27,9 @@ export function useMyMaintenanceWork() {
 export default function MyWorkTile({ work, count = 0, show = count > 0, reload }) {
   const [open, setOpen] = useState(false);
   if (!show && !open) return null;
-  const sub = work?.overdue ? `${work.overdue} overdue` : work?.preventive ? `${work.preventive} preventive`
-    : count ? 'Assigned to you' : 'Nothing open';
+  // Short enough for five pills across 1440 (Neil, 11/08/2026): the count,
+  // the overdue after it only when there is one.
+  const sub = count ? `${count} open${work?.overdue ? ` · ${work.overdue} overdue` : ''}` : 'Nothing open';
   const close = () => { setOpen(false); reload?.(); };
   return (
     <>
@@ -42,7 +43,7 @@ export default function MyWorkTile({ work, count = 0, show = count > 0, reload }
           </span>
           <span className="wd-stat-text">
             <span className="wd-askhr-title">My Tickets</span>
-            <span className={`wd-askhr-sub${work?.overdue ? ' wd-askhr-sub--new' : ''}`}>{count ? `${count} open · ${sub}` : sub}</span>
+            <span className={`wd-askhr-sub${work?.overdue ? ' wd-askhr-sub--new' : ''}`}>{sub}</span>
           </span>
           <ArrowRight className="wd-askhr-go" size={15} aria-hidden="true" />
         </button>
