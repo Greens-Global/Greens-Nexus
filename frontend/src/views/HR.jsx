@@ -18,11 +18,11 @@ import {
   Users, Plus, Search, X, Mail, Briefcase, Check, TrendingUp, LogOut,
   ChevronLeft, Network, UserPlus, Pencil, FileText,
   CheckCircle, ChevronRight, History, CalendarDays, Camera,
-  Building2, Trash2, Wallet, Receipt, Lock, Contact,
-  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
+  Building2, Trash2, Lock,
+  Shield, AlertTriangle, Clock, RotateCcw,
   ChevronDown, ChevronUp, Link2, ExternalLink,
   ListChecks, RefreshCw, Hourglass, BarChart3,
-  Target, CalendarClock, Package,
+  Target,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -945,7 +945,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     canChangeRole && canAct && { label: 'Promote', Icon: TrendingUp, onClick: () => setRoleAction('promotion'), title: 'Promotion letter through Nexus Sign - new role, pay and date; the employee and their manager sign' },
     canChangeRole && canAct && { label: 'Change Role', Icon: Shield, onClick: () => setRoleAction('choose'), title: 'Move them to a different role - as a promotion with a letter, or just the role' },
     { label: 'Change Status', Icon: Pencil, onClick: () => setStatusOpen(true), title: 'Change status (with reason)' },
-    e.m365Id && { label: 'Push to Microsoft 365', Icon: Network, disabled: pushBusy, title: 'Push name, title, department, phone, office (and manager) from Nexus back to their Entra account',
+    !!e.m365Id && { label: pushBusy ? 'Pushing to Microsoft 365…' : 'Push to Microsoft 365', Icon: Network, disabled: pushBusy, title: 'Push name, title, department, phone, office (and manager) from Nexus back to their Entra account',
       onClick: async () => {
         setPushBusy(true);
         try {
@@ -956,17 +956,17 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         } catch (err) { toastErr(err?.message || 'Could not push to Microsoft 365.'); }
         setPushBusy(false);
       } },
-    e.m365Id && e.personalEmail && { label: 'Resend Welcome Email', Icon: Mail, disabled: welcomeBusy, title: 'Send the branded welcome email to their personal address again',
+    !!(e.m365Id && e.personalEmail) && { label: welcomeBusy ? 'Sending Welcome Email…' : 'Resend Welcome Email', Icon: Mail, disabled: welcomeBusy, title: 'Send the branded welcome email to their personal address again',
       onClick: async () => {
         setWelcomeBusy(true);
         try { const r = await api.resendWelcome(e.id); toastOk(`Welcome email sent to ${r.sentTo}.`); }
         catch (err) { toastErr(err?.message || 'Could not send welcome email.'); }
         setWelcomeBusy(false);
       } },
-    (canAct || isAdmin) && null,
+    (canAct || isAdmin) && { divider: true },
     canAct && { label: 'Offboard', Icon: LogOut, danger: true, onClick: () => setOffboardOpen(true), title: 'Last day, the separation package through Nexus Sign, and everything that happens when they leave' },
     isAdmin && { label: 'Remove From Nexus', Icon: Trash2, danger: true, onClick: removeFromNexus, title: "Remove this person's Nexus record only - does not touch Microsoft 365" },
-  ].filter(x => x !== false && x !== undefined);
+  ].filter(Boolean);
   return (
     <div className="pr-record" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, padding: isMobile ? '16px 16px' : '20px 24px' }}>
       {isMobile && (
@@ -1209,7 +1209,7 @@ function ActionsMenu({ items }) {
       </button>
       {open && (
         <div role="menu" aria-label="Actions" className="header-user-dropdown" style={{ width: 250 }}>
-          {items.map((it, i) => it === null
+          {items.map((it, i) => it.divider
             ? <div key={`d${i}`} className="hud-divider" role="separator" />
             : (
               <button key={it.label} type="button" role="menuitem" className="hud-item" disabled={it.disabled} title={it.title}
@@ -3407,6 +3407,17 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
 
 const DEPT_COLORS = ['#2b45e1', '#dc7a18', '#248f4b', '#8a31c9', '#b8860b'];
 
+// One count: label over number, the whole thing a button when it opens the
+// people behind it.
+function Stat({ label, n, onGo, tone, loading }) {
+  return (
+    <button type="button" className="pp-stat" onClick={onGo} disabled={!onGo}>
+      <span className="pp-stat-label">{label}</span>
+      <b style={{ color: tone && n ? tone : 'var(--ink)' }}>{loading || n == null ? <CountSkeleton width="1.2em" /> : n}</b>
+    </button>
+  );
+}
+
 function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatusFilter, onJumpToDirectory, onGoExits, entityName, onOpenPerson, refreshKey }) {
   // Three cards (Neil, 11/08/2026: "the Active tile seems useless", "New
   // Joiners is bloat"): People with its statuses and types, Status with the
@@ -3435,14 +3446,6 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
     return () => { alive = false; };
   }, [refreshKey]);
 
-  // One count: label over number, the whole thing a button when it opens
-  // the people behind it.
-  const Stat = ({ label, n, onGo, tone }) => (
-    <button type="button" className="pp-stat" onClick={onGo} disabled={!onGo}>
-      <span className="pp-stat-label">{label}</span>
-      <b style={{ color: tone && n ? tone : 'var(--ink)' }}>{loading || n == null ? <CountSkeleton width="1.2em" /> : n}</b>
-    </button>
-  );
   const pct = (n) => total ? `${Math.max(2, Math.round((n / total) * 100))}%` : '0%';
 
   return (
@@ -3460,10 +3463,10 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
       <div className="pp-card">
         <div className="pp-card-title">Status</div>
         <div className="pp-stats">
-          <Stat label="Onboarding" n={nOnboarding} onGo={() => onStatusFilter?.('onboarding')} />
-          <Stat label="Exits" n={exits} onGo={onGoExits} />
-          <Stat label="On Leave Today" n={onLeave} />
-          <Stat label="On Probation" n={nProbation} onGo={() => onStatusFilter?.('__probation:open__')} />
+          <Stat loading={loading} label="Onboarding" n={nOnboarding} onGo={() => onStatusFilter?.('onboarding')} />
+          <Stat loading={loading} label="Exits" n={exits} onGo={onGoExits} />
+          <Stat loading={loading} label="On Leave Today" n={onLeave} />
+          <Stat loading={loading} label="On Probation" n={nProbation} onGo={() => onStatusFilter?.('__probation:open__')} />
           <RecordsAudit row entityName={entityName} refreshKey={refreshKey} onOpen={onOpenPerson} />
         </div>
       </div>
@@ -3727,7 +3730,7 @@ export default function HR({ activeSub, onSubChange }) {
       if (typeF === 'contractor' && (isExtRow(e) || e.employmentType !== 'contractor')) return false;
       if (typeF === 'external' && !isExtRow(e)) return false;
       if (companyF.length && !companyF.includes(e.company)) return false;
-      if (deptF.length && !deptF.includes(e.department)) return false;
+      if (deptF.length && !deptF.includes((e.department || '').trim())) return false;
       if (cfField && !matchesFieldFilter(cfField, e.customFields?.[cfField.fieldKey], cfF)) return false;
       // Skipped while showing removed people - they keep their old status, so
       // matching on it here would filter the list down to nothing.
@@ -3957,7 +3960,7 @@ export default function HR({ activeSub, onSubChange }) {
           onStatusFilter={s => { setStatusF(s); setSelectedId(null); }}
           onJumpToDirectory={() => { setSelectedId(null); setStatusF('All'); }}
           onGoExits={() => onSubChange?.('hr-exits')}
-          entityName={entityName} refreshKey={employees} onOpenPerson={id => { setOpenTab('documents'); setSelectedId(id); }} />}
+          entityName={entityName} refreshKey={peopleRev} onOpenPerson={id => { setOpenTab('documents'); setSelectedId(id); }} />}
 
         {error && (
           <div style={{ background: 'var(--bad-bg)', color: 'var(--bad-fg)', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>

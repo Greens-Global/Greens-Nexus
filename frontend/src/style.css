@@ -966,6 +966,7 @@ h1,h2,h3,h4,h5,h6,
   transition: background var(--transition-fast);
 }
 .hud-item:hover { background: var(--sidebar-hover-bg); }
+.hud-item:disabled { opacity: .55; cursor: default; }
 .hud-signout { color: hsl(var(--color-red)); }
 .hud-signout:hover { background: hsla(var(--color-red), 0.08); }
 

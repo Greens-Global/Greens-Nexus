@@ -15,11 +15,12 @@ const PHONE = /^\+?[\d\s().-]{7,}$/;
 // "Not set" - every field still reads on the main screen (Neil, Oct 12).
 export function Row({ label, value, children, htmlFor }) {
   let shown = children;
-  if (shown == null) {
+  if (shown == null && value != null && typeof value === 'object') shown = value; // an element, as is
+  else if (shown == null) {
     const v = value == null ? '' : String(value);
     if (!v.trim()) shown = <span style={{ color: 'var(--muted)' }}>Not set</span>;
     else if (EMAIL.test(v.trim())) shown = <a href={`mailto:${v.trim()}`} className="pr-link">{v}</a>;
-    else if (PHONE.test(v.trim())) shown = <a href={`tel:${v.replace(/[^\d+]/g, '')}`} className="pr-link">{v}</a>;
+    else if (/phone|mobile/i.test(String(label)) && PHONE.test(v.trim())) shown = <a href={`tel:${v.replace(/[^\d+]/g, '')}`} className="pr-link">{v}</a>;
     else shown = v;
   }
   const Label = htmlFor ? 'label' : 'span';

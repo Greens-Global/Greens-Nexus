@@ -135,6 +135,16 @@ describe('Person record - HR', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Edit$/ }));
     expect(screen.getByLabelText('PAN (India)').value).toBe('ABCDE1234F');
   }, 30000);
+
+  it('Actions opens for a person not yet provisioned (no M365 id), with one divider before the red items', async () => {
+    await openLeo();   // LEO has no m365Id: the Push / Resend items drop out, nothing crashes
+    fireEvent.click(screen.getByRole('button', { name: /^Actions/ }));
+    const menu = await screen.findByRole('menu', { name: 'Actions' });
+    expect(within(menu).getByRole('menuitem', { name: 'Change Status' })).toBeTruthy();
+    expect(within(menu).queryByRole('menuitem', { name: /Microsoft 365/ })).toBeNull();
+    expect(within(menu).getAllByRole('separator').length).toBe(1);
+    expect(within(menu).getByRole('menuitem', { name: 'Offboard' })).toBeTruthy();
+  }, 30000);
 });
 
 describe('Person record - a manager on their team', () => {
