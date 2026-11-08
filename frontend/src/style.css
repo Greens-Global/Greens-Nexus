@@ -966,6 +966,7 @@ h1,h2,h3,h4,h5,h6,
   transition: background var(--transition-fast);
 }
 .hud-item:hover { background: var(--sidebar-hover-bg); }
+.hud-item:disabled { opacity: .55; cursor: default; }
 .hud-signout { color: hsl(var(--color-red)); }
 .hud-signout:hover { background: hsla(var(--color-red), 0.08); }
 
@@ -9896,4 +9897,47 @@ a[data-type="recordLink"][data-ref]:hover { background: var(--wk-hover); }
 @media (prefers-reduced-motion: reduce) {
   .nx-copy-icon > svg, .nx-reorder.is-dragging .nx-reorder-row { transition: none; }
   .nx-lbtn-face, .nx-newpill, .nx-fieldnote { animation: none !important; }
+}
+
+/* ── People > person record (pass of 11/08/2026) ───────────────────────────
+   A label column in the canon beside the value, hairline rows, a reading
+   width for the sections. The phone stacks label over value.
+   .pp-*: the three short cards on top of People (11/08/2026). */
+.pp-cards { display: grid; gap: 12px; margin-bottom: 14px; align-items: stretch; }
+.pp-hero { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; padding: 14px 18px; border: none; border-radius: 12px; text-align: left; font-family: inherit; cursor: pointer; color: #fff; background: linear-gradient(135deg, #4256e8 0%, var(--wk-brand) 100%); box-shadow: var(--wk-shadow); }
+.pp-hero-label { font-size: 13px; font-weight: 500; color: rgba(255,255,255,.82); }
+.pp-hero-n { font-size: 34px; font-weight: 700; letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+.pp-hero-sub { font-size: 12px; color: rgba(255,255,255,.7); line-height: 1.4; }
+.pp-card { min-width: 0; padding: 12px 16px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--wk-shadow); display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+.pp-card-title { font-size: 13px; font-weight: 600; color: var(--ink); display: flex; align-items: baseline; gap: 8px; }
+.pp-card-meta { font-size: 12px; font-weight: 500; color: var(--muted); }
+.pp-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.pp-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 0; border: none; background: none; font: inherit; text-align: left; cursor: pointer; }
+.pp-stat:disabled { cursor: default; }
+.pp-stat-label { font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.pp-stat:not(:disabled):hover .pp-stat-label { color: var(--ink); }
+.pp-stat b { font-size: 20px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.pp-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 14px; flex: 1; min-width: 0; font-size: 12.5px; color: var(--muted); }
+.pp-legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pp-legend i { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.pp-legend b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pr-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 4px 16px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); min-height: 40px; box-sizing: border-box; }
+.pr-row-label { font-size: 12px; font-weight: 500; color: var(--muted); line-height: 1.35; }
+.pr-row-value { font-size: 13.5px; color: var(--ink); min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
+.pr-row-value .form-input, .pr-row-value select.form-input { height: 34px; padding: 0 10px; font-size: 13.5px; border-radius: 8px; }
+.pr-row-value textarea.form-input { height: auto; padding: 7px 10px; }
+.pr-link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.pr-link:hover { text-decoration-color: var(--muted); }
+.pr-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; flex-wrap: wrap; }
+.pr-section-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink); flex: 1; }
+.pr-section { max-width: 780px; }
+.pr-body { margin-top: 18px; }
+.pr-body > .pr-main { min-width: 0; }
+.pr-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+.pr-tab { padding: 8px 12px; font-size: 13px; font-weight: 500; font-family: inherit; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; white-space: nowrap; }
+.pr-tab[aria-current="page"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--wk-brand, var(--pine)); }
+.pr-h3 { margin: 26px 0 8px; font-size: 14px; font-weight: 600; color: var(--ink); }
+.pr-status-btn { background: none; border: none; padding: 0; cursor: pointer; display: inline-flex; }
+@media (max-width: 640px) {
+  .pr-row { grid-template-columns: 1fr; gap: 2px; padding: 8px 0; }
 }
