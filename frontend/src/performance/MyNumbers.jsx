@@ -9,6 +9,7 @@ import { api } from '../api';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { formatDate } from '../lib/datetime';
 import { tenureLabel } from '../lib/workdayStats';
+import { offlineRead } from '../lib/offline/read';
 import { PERIODS, card, cardHead, HD, muted } from './lib';
 
 // Time With Us (Neil, 11/08/2026: moved here from the Workday Overview tile):
@@ -19,7 +20,7 @@ function WithUs() {
   const [since, setSince] = useState('');
   useEffect(() => {
     let live = true;
-    Promise.resolve().then(() => api.myHrProfile()).then(p => { if (live) setSince(p?.startDate || ''); }).catch(() => {});
+    offlineRead('myhr:profile', () => api.myHrProfile()).then(p => { if (live) setSince(p?.startDate || ''); }).catch(() => {});
     return () => { live = false; };
   }, []);
   const tenure = tenureLabel(since);

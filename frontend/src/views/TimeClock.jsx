@@ -1056,19 +1056,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     setHoursView(v);
     try { localStorage.setItem('nx-wd-hours-view', v); } catch { /* storage blocked - fine */ }
   };
-  // Today's scheduled shift(s) from Shifts, for the clock's greeting band.
-  // null = not loaded (the line stays hidden rather than claiming "none").
-  const [todayShifts, setTodayShifts] = useState(null);
-  useEffect(() => {
-    if (tab !== 'overview') return undefined;
-    let live = true;
-    const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    api.timeMySchedule(d, d)
-      .then(r => { if (live) setTodayShifts((r?.scheduled || []).filter(x => x.date === d).sort((x, y) => (x.start || '').localeCompare(y.start || ''))); })
-      .catch(() => { if (live) setTodayShifts(null); });
-    return () => { live = false; };
-  }, [tab]);
-
   // Time Sheets to Sign sits on this Time Sheet tab (Oct 16): the time sheets
   // waiting on my signature, signed in place. Reviewing other people's time
   // sheets lives only in People > Time (Oct 22) - the Workday copy is gone.
@@ -1130,9 +1117,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const withLive = (k, min) => (min || 0) + (k === liveDay ? liveMin : 0);
   const avgOf = (total, n) => (n ? fmtMin(Math.round(total / n)) : '-');
   // This week, Monday to Sunday, the running shift included - the This Week
-  // view below AND Overview's Hours tile (clockWidget), so the two never
-  // disagree (11/05/2026: the tile read its own /time/me and sat on a
-  // placeholder while the card already said 1h 40m).
+  // view below (the Overview Hours tile that used to read it went 11/08/2026).
   const weekSeries = (() => {
     const base = dayOf(todayKey);
     const monday = new Date(base); monday.setDate(base.getDate() - ((base.getDay() + 6) % 7));
@@ -1190,24 +1175,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // Today's shift track (lib/shiftTrack.js - the same math as the sidebar
   // chip and My Time), moved by this screen's own one-second tick.
   const shiftTrackNow = trackFor({ status, state: tone, now, stale: staleShift });
-  // Today's shift for Overview's Hours tile (Oct 2 - it sits beside this
-  // week's hours rather than as a grey line under the greeting). null while
-  // loading, so the tile never claims "no shift" before it knows.
-  const todayShift = todayShifts === null ? null : todayShifts.length
-    ? { time: todayShifts.map(x => `${formatHHMM(x.start)} - ${formatHHMM(x.end)}`).join(', '), label: todayShifts[0].label || '' }
-    : { time: '', label: '' };
-
-  // Overview's top, in reading order (Oct 2): `intro` - the greeting with the
-  // day and today's shift, as plain page text - then MyHR's summary tiles,
-  // then `card` - the clock itself, which opens straight onto the punch
-  // panel and the hours panel (no header band of its own).
-  // `exempt` travels with the widget so Overview's Hours tile can hide itself
-  // on the remembered answer too, instead of waiting on /time/me.
-  // No greeting line (Neil, Oct 14 2026: the Dashboard already greets; here
-  // it only pushed the clock down).
-  // `week`: this week's minutes and days worked, null until /time/status answers.
-  const clockWidget = () => ({ card: clockCard(), shift: todayShift, exempt: exemptKnown,
-    week: status ? { min: weekMin, days: weekDaysWorked } : null });
+  // Overview's clock (Oct 2): `card` - the clock itself, which opens straight
+  // onto the punch panel and the hours panel (no header band of its own, no
+  // greeting line - Neil, Oct 14 2026). The `shift` / `exempt` / `week`
+  // fields and the per-mount today's-shift fetch went with the Hours tile
+  // (11/08/2026).
+  const clockWidget = () => ({ card: clockCard() });
   // Salaried/exempt people get no clock card at all (Neil, 10/06: "if it's
   // off, please take it off so the data that's coming in is relevant") - the
   // old "Time Tracking Is Off for You" note was a card about nothing. Not

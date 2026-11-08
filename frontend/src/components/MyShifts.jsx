@@ -253,6 +253,8 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
 
   // At a glance: the shift they are on (or the next one), the week's paid
   // hours, and time off. A whole approved day off takes its shifts out.
+  // A week with no shift at all keeps its day boxes short (Neil, 11/08/2026).
+  const anyShift = days.some((d) => d.shifts.length);
   const glance = useMemo(() => {
     if (!data) return null;
     let on = null, next = null;
@@ -415,8 +417,13 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
             : glance.next ? <>next shift <b style={{ color: 'var(--ink)' }}>{whenText(glance.next)} {shiftShortText(glance.next.s)}</b></>
               : 'next shift none'}
           {glance.late > 0 && <> · <b style={{ color: 'hsl(var(--color-orange))' }}>{glance.late} late</b></>}
-          {trail}
         </div>
+      )}
+      {/* The year's time off (Workday's `trail`) is its own line: it never
+          waits on the shifts fetch, the Team toggle or an error, and it does
+          not read "That week: ... Time off this year" when stepping weeks. */}
+      {trail && (
+        <div data-trail style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>{trail}</div>
       )}
       {mine && glance && !error && calPrefs && (
         <CalendarRow prefs={calPrefs} companyOn={calPrefs.companyOutlookCalendar === true} hasMailbox={calPrefs.hasMailbox !== false}
@@ -431,7 +438,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
         <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : embedded ? 'repeat(7, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
           {days.map((d, i) => (
             <div key={d.key} style={{
-              background: 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 12, padding: '10px 11px', minHeight: phone ? 0 : days.some((x) => x.shifts.length) ? 96 : 56,
+              background: 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 12, padding: '10px 11px', minHeight: phone ? 0 : anyShift ? 96 : 56,
               boxShadow: d.isToday ? '0 0 0 3px var(--wk-brand-tint)' : 'var(--wk-shadow)', display: 'flex', flexDirection: 'column', gap: 5,
             }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>

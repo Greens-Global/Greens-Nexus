@@ -434,8 +434,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
     </div>
   );
 
-  // What is coming up: pending or approved requests that have not ended yet,
-  // soonest first - the Time Off card's list (the full history is the tab).
+  // The status chip on an Earlier Request in the Ask HR panel (the pre-ticket
+  // requests; ticket rows use StatusLabel).
   const chip = (s) => { const m = STATUS_META[s] || STATUS_META.pending; return <span style={{ padding: '2px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: m.bg, color: m.fg, flexShrink: 0 }}>{m.label}</span>; };
   const pendingCount = Array.isArray(leave) ? leave.filter(r => r.status === 'pending').length : 0;
   // The paid-leave balance once HR has balances on (the Time Off tab's
@@ -451,9 +451,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
   // balance and the pending count follow it.
   const timeOffTrail = (
     <>
-      {' · '}Time off this year:{' '}
+      Time off this year:{' '}
       <button type="button" className="wd-trail-link" onClick={onOpenTimeOff}
-        aria-label="Time off this year - opens Time Off"
         title={`Approved time off in ${yr}, counted in working days (Mon-Fri). A partial day counts as its share of an 8-hour day. Opens Time Off.`}>
         {leaveLabel}
       </button>

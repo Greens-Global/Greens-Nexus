@@ -107,9 +107,12 @@ describe('Workday Overview with the Time Clock', () => {
     expect(screen.queryByText('Medical Appointment')).toBeNull();
     expect(screen.queryByRole('button', { name: /Request Time Off/ })).toBeNull();
     expect(screen.queryByText('Time Off This Year')).toBeNull();
-    const line = await screen.findByRole('status', { name: 'Week summary' });
+    // Its own line under the week summary, never inside it (the entry point does not wait on the shifts fetch).
+    const line = await waitFor(() => { const el = document.querySelector('[data-trail]'); expect(el).toBeTruthy(); return el; });
     expect(line.textContent).toContain('Time off this year:');
-    fireEvent.click(await within(line).findByRole('button', { name: /Time off this year/ }));
+    expect(screen.getByRole('status', { name: 'Week summary' }).textContent).not.toContain('Time off this year');
+    // The figure is the button's accessible name (the explanation is its title).
+    fireEvent.click(await within(line).findByRole('button', { name: '0d' }));
     expect(await screen.findByRole('button', { name: 'Reason: Personal' })).toBeTruthy();
   }, SLOW);
 
@@ -122,15 +125,12 @@ describe('Workday Overview with the Time Clock', () => {
     };
     await renderWorkday('overview');
     await screen.findByText('My Schedule');
-    const line = await screen.findByRole('status', { name: 'Week summary' });
-    await waitFor(() => expect(line.textContent).toContain('Time off this year: 0d · 51h 04m vacation · 2h 00m sick left'));
+    await waitFor(() => expect(document.querySelector('[data-trail]')?.textContent).toContain('Time off this year: 0d · 51h 04m vacation · 2h 00m sick left'));
   }, SLOW);
 
   it('keeps the plain time-off figure while balances are not set up', async () => {
     await renderWorkday('overview');
-    const line = await screen.findByRole('status', { name: 'Week summary' });
-    await waitFor(() => expect(line.textContent).toMatch(/Time off this year: 0d$/));
-    expect(line.textContent).not.toContain('left');
+    await waitFor(() => expect(document.querySelector('[data-trail]')?.textContent).toMatch(/^Time off this year: 0d$/));
   }, SLOW);
 
   it("shows today's shift in the Hours tile with no greeting line, and the week Monday to Sunday", async () => {
