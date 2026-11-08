@@ -278,6 +278,10 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
     return { id: ALL_TEAMS, name: 'All Teams', members: teams.flatMap((t) => t.members || []).filter((m) => !seen.has(m.email) && seen.add(m.email)) };
   }, [teams]);
   const team = (teamId === ALL_TEAMS && allTeam) || teams.find((t) => t.id === teamId) || teams[0] || null;
+  // Team > Shifts for someone in no shift group (Neil, 11/08/2026): the week's
+  // day cells still draw, each "No shifts", with one line above them - never a
+  // bare paragraph and nothing else.
+  const noGroup = !mine && !!data && !team;
   const teamRows = useMemo(() => {
     if (!team) return [];
     return team.members.map((m) => ({
@@ -420,11 +424,14 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
           onToggle={setShiftCalendar} onFlash={setFlash} />
       )}
 
+      {noGroup && !embedded && (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Your manager shares shifts here. Swaps and open-shift requests are in Workday &gt; Time Off.</div>
+      )}
       {error ? (
         <ErrorBanner message="Your shifts could not be loaded right now." onRetry={() => setReload((n) => n + 1)} />
       ) : !data ? (
         <SkeletonBlocks count={7} height={96} gridTemplateColumns="repeat(auto-fill, minmax(150px, 1fr))" />
-      ) : !mine ? null : (
+      ) : !mine && !noGroup ? null : (
         <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : embedded ? 'repeat(7, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
           {days.map((d, i) => (
             <div key={d.key} style={{
@@ -462,7 +469,8 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
                   </ShiftBlock>
                 );
               })}
-              {!d.shifts.length && !d.holiday && !d.timeoff.length && d.usual && (
+              {noGroup && !d.shifts.length && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shifts</div>}
+              {mine && !d.shifts.length && !d.holiday && !d.timeoff.length && d.usual && (
                 <div title="Your regular hours. No shift is shared for this day yet." style={{ marginTop: 'auto', border: '1px dashed var(--wk-line2, var(--line))', borderRadius: 6, padding: '4px 8px' }}>
                   <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>Usual Hours</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{formatHHMM(d.usual.start)} - {formatHHMM(d.usual.end)}</div>
@@ -511,7 +519,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       )}
       {mine && (!embedded || availOpen) && <MyAvailability />}
 
-      {!embedded && <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
+      {!embedded && !noGroup && <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
         <Info size={13} style={{ flexShrink: 0 }} />
         <span>
           Shifts are set by your manager. Only shifts they have shared appear here - ask them if something looks wrong.
