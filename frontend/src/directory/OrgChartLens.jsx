@@ -135,7 +135,7 @@ export default function OrgChartLens({ people, query, me, selected, onSelect, mo
 
       {divNames.length > 0 && (
         <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint, whiteSpace: 'nowrap' }}>Divisions</span>
+          <span style={{ fontSize: 12, fontWeight: 500, color: NX.dim, whiteSpace: 'nowrap' }}>Divisions</span>
           {divNames.map((d) => {
             const on = activeDiv === d, col = divisionColor(d, divNames);
             return (
@@ -156,13 +156,14 @@ export default function OrgChartLens({ people, query, me, selected, onSelect, mo
 
       <OrgChartCanvas ref={canvas} roots={trees} childrenOf={childrenOf} keyOf={keyOf} renderCard={renderCard}
         collapsed={folded} onToggle={toggle} ariaLabel="Organization chart"
-        height={mobile ? 'max(380px, 60vh)' : 'max(480px, calc(100vh - 430px))'}
+        lineColorOf={(n) => { const d = divisionOf(n.person || n); return d ? `hsl(${divisionColor(d, divNames)})` : null; }}
+        minHeight={mobile ? 380 : 480} cardWidth={CARD_W}
         emptyText={people.length ? 'Nobody here reports to anyone else you can see - the people are listed below.' : 'No one matches these filters.'}
         hint={mobile ? 'Drag to move · pinch to zoom · tap a card' : 'Drag to move · Ctrl + scroll or pinch to zoom · click a card for their contact card'} />
 
       {loose.length > 0 && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint, marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500, color: NX.dim, marginBottom: 4 }}>
             <Unlink size={12} /> Not Connected <span style={{ fontWeight: 600 }}>{loose.length}</span>
           </div>
           <div style={{ fontSize: 12, color: NX.dim, marginBottom: 10 }}>
@@ -198,13 +199,12 @@ export function OrgCard({ p, kids, below, collapsed, onToggle, active, me, hit, 
         className={`dir-card${active ? ' is-active' : ''}`} onClick={open}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
         style={{
-          position: 'relative', width: CARD_W, padding: '12px 12px 12px 18px', display: 'flex', alignItems: 'center', gap: 11,
-          background: NX.surface, borderRadius: 14, cursor: 'pointer', overflow: 'hidden', userSelect: 'none', WebkitUserSelect: 'none',
+          position: 'relative', width: CARD_W, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 11,
+          background: NX.surface, borderRadius: 8, cursor: 'pointer', overflow: 'hidden', userSelect: 'none', WebkitUserSelect: 'none',
           border: `1.5px solid ${active ? NX.primary : hit ? NX.blue : NX.border}`,
           boxShadow: active ? `0 0 0 3px color-mix(in srgb, ${NX.primary} 18%, transparent)` : hit ? '0 0 0 3px rgba(37,99,235,0.15)' : 'var(--shadow-sm)',
           opacity: dim ? 0.3 : 1,
         }}>
-        {divColor && <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, background: `hsl(${divColor})` }} />}
         <Avatar p={p} size={40} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -219,7 +219,7 @@ export function OrgCard({ p, kids, below, collapsed, onToggle, active, me, hit, 
             <div style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
               {off && <AvailabilityChip availability={p.availability} />}
               {isLead && divName && (
-                <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: `hsl(${divColor})`, background: `hsla(${divColor},0.12)`, borderRadius: 6, padding: '1px 6px', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: `hsl(${divColor})`, whiteSpace: 'nowrap' }}>
                   {divName} Lead
                 </span>
               )}

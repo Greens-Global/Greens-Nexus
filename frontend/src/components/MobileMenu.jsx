@@ -90,6 +90,7 @@ export const SUBMENUS = {
   hr: [
     { sub: 'hr-people', label: 'People' },
     { sub: 'hr-org',    label: 'Organizational Chart' },
+    { sub: 'hr-investors', label: 'Investor Chart' },
     { sub: 'hr-performance', label: 'Performance' },
     { sub: 'hr-hiring', label: 'Hiring' },
     // People > Leave became Time > Time Off (leave depth, Oct 27 2026).
