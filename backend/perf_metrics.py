@@ -418,6 +418,24 @@ def quarter_period(today: date) -> tuple:
     return today.replace(month=m, day=1).isoformat(), today.isoformat()
 
 
+def year_period(today: date) -> tuple:
+    return today.replace(month=1, day=1).isoformat(), today.isoformat()
+
+
+def all_time_period(today: date, start_date: str = "", oldest_days: int = 3 * 366) -> tuple:
+    """All Time (Neil, 11/07/2026): from the person's start date, but never
+    more than `oldest_days` back - every week of the span is a Workforce
+    Scorecard pass, the same bound a picked range has."""
+    floor = (today - timedelta(days=oldest_days)).isoformat()
+    s = (start_date or "")[:10]
+    try:
+        date.fromisoformat(s)
+    except ValueError:
+        s = ""
+    s = max(s, floor) if s else floor
+    return min(s, today.isoformat()), today.isoformat()
+
+
 def catalog() -> list:
     """What a Nexus-measured goal can be measured by (the goal form)."""
     return [{"key": k, "label": v[0], "unit": v[1], "good": v[2], "kind": v[3], "description": v[4]}

@@ -37,6 +37,8 @@ export const CADENCES = [
 export const PERIODS = [
   { key: 'month', label: 'This Month' },
   { key: 'quarter', label: 'This Quarter' },
+  { key: 'year', label: 'This Year' },
+  { key: 'all', label: 'All Time' },
   { key: 'review', label: 'This Review' },
 ];
 
