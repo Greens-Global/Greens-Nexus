@@ -32,6 +32,7 @@ export const TAB_ADDRESSES = {
   'time-off':      { view: 'myhr', sub: 'timeoff' },
   'shift-planner': { view: 'shifts', sub: 'schedule' },
   'org-chart':     { view: 'hr', sub: 'hr-org' },
+  'investor-chart': { view: 'hr', sub: 'hr-investors' },
   'nexus-sign':    { view: 'documents', sub: 'documents-esign' },
   'pdf-tools':     { view: 'documents', sub: 'documents-pdf' },
 };
