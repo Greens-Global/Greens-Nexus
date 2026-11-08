@@ -3509,7 +3509,7 @@ function StatusDonut({ segments, total, size = 118 }) {
   const live = segments.filter(s => s.n > 0);
   let acc = 0;
   return (
-    <svg viewBox="0 0 84 84" width={size} height={size} role="img" aria-label={`${total} people by department`} style={{ flexShrink: 0 }}>
+    <svg className="pp-donut" viewBox="0 0 84 84" width={size} height={size} role="img" aria-label={`${total} people by department`} style={{ flexShrink: 0 }}>
       <circle cx={42} cy={42} r={R} fill="none" stroke="var(--mist)" strokeWidth={SW} />
       {total > 0 && live.map(s => {
         const frac = s.n / total;
@@ -3598,9 +3598,9 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
           <StatusDonut segments={deptSegs} total={total} size={84} />
           <div className="pp-legend">
             {deptSegs.map(d => (
-              <span key={d.key}><i style={{ background: d.color }} />{d.label} <b>{loading ? '-' : d.n}</b></span>
+              <span key={d.key}><i style={{ background: d.color }} /><span className="pp-legend-name">{d.label}</span><b>{loading ? '-' : d.n}</b></span>
             ))}
-            {!loading && deptSegs.length === 0 && <span style={{ color: 'var(--muted)' }}>Departments appear as people are added.</span>}
+            {!loading && deptSegs.length === 0 && <span className="pp-legend-empty">Departments appear as people are added.</span>}
           </div>
         </div>
       </div>
@@ -3625,6 +3625,8 @@ function PendingRoleBadge({ req, onOpen }) {
 }
 
 // A directory filter on a phone: half the row, so four make a 2x2.
+// The multi-pick filters line up with the native selects beside them (16px on a phone - the iOS zoom rule).
+const FILTER_TRIGGER = { phone: { minHeight: 46, fontSize: 16 }, desk: { minHeight: 38, fontSize: 13.5 } };
 const PHONE_FILTER = { flex: '1 1 calc(50% - 4px)', width: 'auto', minWidth: 0 };
 
 export default function HR({ activeSub, onSubChange }) {
@@ -3994,7 +3996,8 @@ export default function HR({ activeSub, onSubChange }) {
             )}
             {/* Sync M365 / Company setup / Work sites moved to the Admin
                 module in full (Pranshu, Sep 9) - no longer buttons here. */}
-            {canSyncCodes && (
+            {/* A desk job - not offered on a phone (Neil, 11/08/2026 phone pass). */}
+            {canSyncCodes && !isMobile && (
               <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
                 onClick={() => setCodesOpen(true)} title="Match People to Intacct employees and update their employee codes">
                 <RefreshCw size={14} /> Sync Employee Codes From Intacct
@@ -4134,11 +4137,11 @@ export default function HR({ activeSub, onSubChange }) {
                   <option value="external">External &amp; guests</option>
                 </select>
                 <div style={isMobile ? PHONE_FILTER : { width: 170 }}>
-                  <ChipMultiSelect value={companyF} onChange={v => { setCompanyF(v); setDeptF([]); setSelectedId(null); }} placeholder="All Companies" searchPlaceholder="Search companies…"
+                  <ChipMultiSelect value={companyF} onChange={v => { setCompanyF(v); setDeptF([]); setSelectedId(null); }} placeholder="All Companies" searchPlaceholder="Search companies…" placeholderInk triggerStyle={isMobile ? FILTER_TRIGGER.phone : FILTER_TRIGGER.desk}
                     options={entities.map(en => ({ id: en.id, label: en.name }))} />
                 </div>
                 <div style={isMobile ? PHONE_FILTER : { width: 170 }}>
-                  <ChipMultiSelect value={deptF} onChange={v => { setDeptF(v); setSelectedId(null); }} placeholder="All Departments" searchPlaceholder="Search departments…"
+                  <ChipMultiSelect value={deptF} onChange={v => { setDeptF(v); setSelectedId(null); }} placeholder="All Departments" searchPlaceholder="Search departments…" placeholderInk triggerStyle={isMobile ? FILTER_TRIGGER.phone : FILTER_TRIGGER.desk}
                     options={deptChoices.map(d => ({ id: d, label: d }))} />
                 </div>
                 {/* Choosing Deleted fetches that list here rather than in an

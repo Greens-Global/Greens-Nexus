@@ -1587,7 +1587,9 @@ export function SearchSelect({
 // long list collapses to one control instead of a scrolling wall of checkboxes
 // that pushes the rest of a modal off screen.
 // `options` is [{ id, label }]; `value`/`onChange` are arrays of ids.
-export function ChipMultiSelect({ value, onChange, options, placeholder = 'Select…', searchPlaceholder = 'Search…', emptyText = 'Nothing to choose from.' }) {
+// `placeholderInk`: the placeholder reads as a value ("All Companies" = all), not
+// as a hint; `triggerStyle` lines the trigger up with the selects beside it.
+export function ChipMultiSelect({ value, onChange, options, placeholder = 'Select…', searchPlaceholder = 'Search…', emptyText = 'Nothing to choose from.', placeholderInk = false, triggerStyle }) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const touch = useTouchUi();
@@ -1616,9 +1618,9 @@ export function ChipMultiSelect({ value, onChange, options, placeholder = 'Selec
           if (e.key === 'Backspace' && ids.length) { e.preventDefault(); onChange(ids.slice(0, -1)); return; }
           openPickerOnKey(e, (k) => { setQ(k); setOpen(true); });
         }}
-        style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px', textAlign: 'left' }}>
+        style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px', textAlign: 'left', ...triggerStyle }}>
         <span className="nx-scroll" style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', maxHeight: 96, overflowY: 'auto' }}>
-          {ids.length === 0 && <span style={{ color: NX.faint, fontWeight: 400 }}>{placeholder}</span>}
+          {ids.length === 0 && <span style={{ color: placeholderInk ? NX.ink : NX.faint, fontWeight: 400 }}>{placeholder}</span>}
           {ids.map((id) => (
             <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 7px', fontSize: 12, color: NX.ink, maxWidth: '100%' }}>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{labelFor(id)}</span>
