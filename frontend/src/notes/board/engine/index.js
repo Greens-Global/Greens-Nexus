@@ -32,7 +32,14 @@
 //   version     string
 // and alongside the contract: `restore(elements, { refreshDimensions })` (the
 // engine's repair), `copyPng(raw)`, `Menu` ({ Root, Item, Custom,
-// Separator } for the board's own menu rows) and `CAPTURE`.
+// Separator } for the board's own menu rows), `CAPTURE`, and the optional
+// `markup` ({ setTool(handle, tool), setStyle(handle, appState),
+// toggleStyle(handle), undo(root), redo(root), prepare(elements) } - the markup bar, markupTools.js; a board
+// whose engine has none shows the engine's own tools alone).
+// and the optional `diagram` ({ build(placed, { look }) -> elements with every
+// arrow tied to its boxes, box ids kept; grow(root, side) - the next box on that
+// side, tied } - board/diagram/; a board whose engine has none shows no
+// Diagram button).
 //
 // `NexusScene` is the saved `nexus-board` JSON (scene.js) - unchanged on
 // disk by any of this.

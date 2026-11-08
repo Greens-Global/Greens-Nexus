@@ -8,6 +8,7 @@ import { visibleSubs } from '../MobileMenu';
 import { openContact } from '../../lib/contactNav';
 import { openPersonTasks } from '../../lib/personTasksNav';
 import { api } from '../../api';
+import { useTableValue } from '../../tasks/tableCols';
 
 // ONE search for the whole app (Neil, Oct 14 2026). The header bar on every
 // module and the phone sheet both draw from this hook, so what a search
@@ -24,6 +25,15 @@ import { api } from '../../api';
 //                when the sidebar shows them (local, instant). Last, so
 //                Enter on a typed title opens the thing, not the module
 //                whose name happens to contain the same letters.
+//
+// Favorites and Recents (Neil, 11/07/2026): with nothing typed, the search
+// opens on the person's starred results and the last ones they opened. Each
+// pickable row carries `save` ({ key, kind, title, detail, to }) - `to` says
+// where it goes (a task id, a person, or a view / sub), never a closure - and
+// the lists live in the person's own settings (task-prefs table "search",
+// `data`), so they follow them to every computer. A saved row opens the
+// record as it is now, inside the person's access; nothing is cached but the
+// name.
 
 export const SEARCH_PLACEHOLDER = 'Search Nexus';
 export const SEARCH_HINT = 'Pages, tasks, projects, people, items and requests.';
@@ -70,6 +80,26 @@ function useQaEnabled(enabled) {
   }, [enabled]);
   return (qaKnown ?? answered) === true;
 }
+
+const FAV_MAX = 12;
+const RECENT_MAX = 8;
+const EMPTY_SAVED = { favorites: [], recents: [] };
+const SAVED_ICON = { task: Check, job: HardHat, person: User, item: Package, checkout: ClipboardList, request: ShoppingCart, kb: BookOpen, page: LayoutDashboard };
+// What the store hands back is the person's own JSON: only well-formed entries count.
+const cleanTo = (to) => {
+  if (!to || typeof to !== 'object') return null;
+  if (typeof to.task === 'string' && to.task) return { task: to.task.slice(0, 100) };
+  if (typeof to.person === 'string' && to.person.includes('@')) return { person: to.person.slice(0, 200), name: String(to.name || '').slice(0, 200) };
+  if (typeof to.view === 'string' && /^[a-z0-9-]{1,40}$/i.test(to.view)) return { view: to.view, sub: typeof to.sub === 'string' ? to.sub.slice(0, 300) : undefined };
+  return null;
+};
+const cleanEntry = (e) => {
+  if (!e || typeof e !== 'object' || typeof e.key !== 'string' || !SAVED_ICON[e.kind]) return null;
+  const to = cleanTo(e.to);
+  if (!to) return null;
+  return { key: e.key.slice(0, 200), kind: e.kind, title: String(e.title || '').slice(0, 200) || 'Untitled', detail: String(e.detail || '').slice(0, 200), to };
+};
+const cleanList = (list, max) => (Array.isArray(list) ? list.map(cleanEntry).filter(Boolean).slice(0, max) : []);
 
 const navigate = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub: sub ?? undefined } }));
 
@@ -170,15 +200,18 @@ export function useNexusSearch(query, { enabled = true } = {}) {
         if (g.key === 'tasks') return {
           key: `task:${item.id}`, Icon: Check, title: item.title, done: !!item.completed,
           detail: [item.parentTitle ? `in ${item.parentTitle}` : '', item.projectName].filter(Boolean).join(' · '),
+          save: { kind: 'task', to: { task: String(item.id) } },
           run: () => { toTasks('mine'); setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId: item.id } })), 0); },
         };
         if (g.key === 'jobs') return {
           key: `job:${item.id}`, Icon: HardHat, title: item.name,
           detail: [JOB_TYPE_LABEL[item.jobType] || 'Project', item.code, item.address].filter(Boolean).join(' · '),
+          save: { kind: 'job', to: { view: 'ops', sub: `project:${item.id}` } },
           run: () => navigate('ops', `project:${item.id}`),
         };
         if (g.key === 'people') return {
           key: `person:${item.email}`, Icon: User, title: item.name, detail: item.email,
+          save: { kind: 'person', to: { person: item.email, name: item.name } },
           // A person opens their page in Tasks - their tasks - for anyone
           // with the Task module (Neil, Oct 18 2026); the Contact Directory
           // card for everyone else.
@@ -211,6 +244,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
         key: `item:${i.id}`, Icon: Package, title: i.name,
         detail: [i.itemType, i.location, itemStatusLabel(i)].filter(Boolean).join(' · '),
         // Opens the item record (Items redesign, 11/02/2026: <tab>@<itemId>).
+        save: { kind: 'item', to: { view: 'inventory', sub: `${isManager ? 'inventory' : 'borrow'}@${i.id}` } },
         run: () => navigate('inventory', `${isManager ? 'inventory' : 'borrow'}@${i.id}`),
       });
     }
@@ -224,6 +258,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       if (match(c.itemName, c.requestedBy)) checkoutRows.push({
         key: `checkout:${c.id}`, Icon: ClipboardList, title: c.itemName,
         detail: [c.requestedBy, statusLabel(c.status)].filter(Boolean).join(' · '),
+        save: { kind: 'checkout', to: { view: 'inventory', sub: `${isManager ? 'requests' : 'mystuff'}@${c.itemId}` } },
         run: () => navigate('inventory', `${isManager ? 'requests' : 'mystuff'}@${c.itemId}`),
       });
     }
@@ -235,6 +270,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       if (match(r.item, r.employeeName, r.id)) reqRows.push({
         key: `req:${r.id}`, Icon: ShoppingCart, title: `${r.item} - ${r.employeeName}`,
         detail: [r.id, statusLabel(r.status)].filter(Boolean).join(' · '),
+        save: { kind: 'request', to: { view: 'myhr', sub: 'purchase' } },
         run: () => navigate('myhr', 'purchase'),
       });
     }
@@ -243,16 +279,58 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     add('kb', 'Knowledge Base', kbRows.map((p) => ({
       key: `kb:${p.id}`, Icon: BookOpen, title: p.title,
       detail: [p.type_label, p.code, (p.collection || []).map((c) => c.name).join(' / ')].filter(Boolean).join(' · '),
+      save: { kind: 'kb', to: { view: 'sop', sub: `page:${encodeURIComponent(p.id)}` } },
       run: () => navigate('sop', `page:${encodeURIComponent(p.id)}`),
     })));
 
     add('pages', 'Pages', screens.filter(s => match(s.label, s.context, s.view)).slice(0, 6).map(s => ({
       key: `page:${s.view}:${s.sub || ''}`, Icon: LayoutDashboard, title: s.label, detail: s.context,
+      save: { kind: 'page', to: { view: s.view, sub: s.sub || undefined } },
       run: () => navigate(s.view, s.sub),
     })));
     return out;
   }, [live, q, query, screens, hits, kbRows, items, checkouts, requisitions, isManager, myEmail, canTasks]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const rows = useMemo(() => groups.flatMap(g => g.rows), [groups]);
-  return { groups, rows, searching, count: rows.length };
+  // ── Favorites and Recents ────────────────────────────────────────────────
+  const [savedRaw, setSaved] = useTableValue('search', 'data', EMPTY_SAVED);
+  const favorites = useMemo(() => cleanList(savedRaw?.favorites, FAV_MAX), [savedRaw]);
+  const recents = useMemo(() => cleanList(savedRaw?.recents, RECENT_MAX), [savedRaw]);
+  const favKeys = useMemo(() => new Set(favorites.map((f) => f.key)), [favorites]);
+  const runTo = (to) => {
+    if (to.task) {
+      navigate('tasks', 'mine');
+      setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId: to.task } })), 0);
+    } else if (to.person) {
+      if (canTasks) openPersonTasks(to.person, to.name); else openContact(to.person);
+    } else navigate(to.view, to.sub);
+  };
+  const entryOf = (row) => (row?.save ? cleanEntry({ ...row.save, key: row.key, title: row.title, detail: row.detail }) : null);
+  const write = (next) => {
+    try { setSaved(next); } catch { /* the lists are a convenience: a failed save never blocks the pick */ }
+  };
+  const remember = (row) => {
+    const e = entryOf(row);
+    if (!e) return;
+    write({ favorites, recents: [e, ...recents.filter((r) => r.key !== e.key)].slice(0, RECENT_MAX) });
+  };
+  const toggleFavorite = (row) => {
+    const e = entryOf(row);
+    if (!e) return;
+    const next = favKeys.has(e.key) ? favorites.filter((f) => f.key !== e.key) : [e, ...favorites].slice(0, FAV_MAX);
+    write({ favorites: next, recents });
+  };
+  const isFavorite = (row) => !!row?.key && favKeys.has(row.key);
+  const savedGroups = useMemo(() => {
+    if (!enabled || live) return [];
+    const toRow = (e) => ({ key: e.key, Icon: SAVED_ICON[e.kind], title: e.title, detail: e.detail, save: e, run: () => runTo(e.to) });
+    const out = [];
+    if (favorites.length) out.push({ key: 'favorites', label: 'Favorites', rows: favorites.map(toRow), note: '' });
+    const recent = recents.filter((r) => !favKeys.has(r.key));
+    if (recent.length) out.push({ key: 'recents', label: 'Recent', rows: recent.map(toRow), note: '' });
+    return out;
+  }, [enabled, live, favorites, recents, favKeys, canTasks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const shown = live ? groups : savedGroups;
+  const rows = useMemo(() => shown.flatMap(g => g.rows), [shown]);
+  return { groups: shown, rows, searching, count: rows.length, remember, toggleFavorite, isFavorite, saved: !live };
 }

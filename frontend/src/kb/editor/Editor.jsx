@@ -298,6 +298,7 @@ export default function Editor({ id, me }) {
     if (what === 'steps') c.insertSteps().run();
     else if (what === 'warning' || what === 'tip' || what === 'note' || what === 'safety') c.insertCallout(what).run();
     else if (what === 'checklist') c.insertChecklist().run();
+    else if (what === 'figure') c.insertFigure('steps').run();
     else if (what === 'table') c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
     else if (what === 'h2') c.toggleHeading({ level: 2 }).run();
     else if (what === 'h3') c.toggleHeading({ level: 3 }).run();
@@ -443,7 +444,7 @@ export default function Editor({ id, me }) {
                         {[['h2', Heading2, 'Heading', 'A section'], ['h3', Heading3, 'Subheading', ''], ['steps', ListOrdered, 'Steps', 'Numbered, with photos'], ['checklist', ListChecks, 'Checklist', 'Tick boxes'],
                           ['bullets', List, 'Bullet List', ''], ['numbers', ListOrdered, 'Numbered List', 'Plain numbers'], ['warning', AlertTriangle, 'Warning', 'Yellow callout'], ['safety', AlertTriangle, 'Safety', 'Red callout'],
                           ['tip', Lightbulb, 'Tip', 'Green callout'], ['table', TableIcon, 'Table', '3 by 3 to start'], ['image', ImageIcon, 'Image', 'Upload or paste'], ['video', Play, 'Video Link', 'YouTube, Loom, Vimeo'], ['videoUpload', Play, 'Upload a Video', 'MP4 or WebM, up to 200 MB'], ['file', Paperclip, 'Attachment', 'PDF, Word, Excel, up to 15 MB'],
-                          ['embed', BookOpen, 'Embed a Page', 'Another page, by title']].map(([k, Icon, l, s]) => (
+                          ['embed', BookOpen, 'Embed a Page', 'Another page, by title'], ['figure', ListOrdered, 'Figure', 'A diagram drawn from data: steps, a timeline, sizes to scale']].map(([k, Icon, l, s]) => (
                           <button key={k} type="button" onClick={() => insert(k)}><Icon /><span>{l}{s && <small>{s}</small>}</span></button>
                         ))}
                       </div>

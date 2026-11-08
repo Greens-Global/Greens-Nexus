@@ -1,0 +1,1049 @@
+{
+ "slug": "property-vendor-management",
+ "title": "Property & Vendor Management for Storage Sites",
+ "description": "For the people who run a Greens site: the building is the product, and this course teaches how to keep it. Preventive maintenance, every system and what fails, the lot and its paving, the trades and how a vendor is qualified, the path from ticket to invoice, inspections and permits, budgets and capital, risk and incidents, and the vendor relationship kept clean. Course 7 of the Academy.",
+ "overview": [
+  "The four jobs of property management and where the property lives in Nexus",
+  "Preventive, corrective and emergency maintenance, and a year of preventive work",
+  "Every building system, its early signs, the first response and the trade that fixes it",
+  "Asphalt, gravel, drainage, canopies, bollards and signs on a vehicle lot",
+  "The trades, the four vendor papers and the Compliance tab",
+  "The one path from ticket to scope, quote, approval, work, inspection and invoice",
+  "Inspections, permits, the fire cycle and the Records tab",
+  "Operating versus capital, the budget, service life and a Construction job",
+  "Risk, insurance, storms and incidents",
+  "Vendor performance, contracts, the written trail and the ethics"
+ ],
+ "est_minutes": 150,
+ "delivery": "online",
+ "level": "core",
+ "tags": "property management, vendors, maintenance, managers",
+ "teaches": "Asset Management, Tickets, Accounting, Construction",
+ "min_reading_minutes": 80,
+ "lessons": [
+  {
+   "file": "01-property-management-at-a-storage-site.md"
+  },
+  {
+   "file": "02-the-maintenance-mindset.md"
+  },
+  {
+   "file": "03-building-systems-and-what-fails.md"
+  },
+  {
+   "file": "04-grounds-paving-and-the-vehicle-lot.md"
+  },
+  {
+   "checkpoint": "Checkpoint: The Property",
+   "questions": [
+    {
+     "type": "single",
+     "q": "What does a storage site sell?",
+     "options": [
+      "Units and spaces, whatever their condition",
+      "Space that is dry, secure and reachable; the building is the product",
+      "Insurance and locks",
+      "Gate codes"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "The building is the product. A door that will not open or a lot that floods is the product failing in a tenant's hands.",
+     "lesson": "01-property-management-at-a-storage-site.md"
+    },
+    {
+     "type": "multi",
+     "q": "Which of these are the four jobs of property management? Pick all that apply.",
+     "options": [
+      "Protect the asset",
+      "Keep it rentable",
+      "Set the rates",
+      "Control the cost",
+      "Keep the record",
+      "Decide insurance claims"
+     ],
+     "answer": [
+      0,
+      1,
+      3,
+      4
+     ],
+     "explanation": "Rates and claims are the owner's decisions. The manager protects the asset, keeps it rentable, controls the cost and keeps the record.",
+     "lesson": "01-property-management-at-a-storage-site.md"
+    },
+    {
+     "type": "single",
+     "q": "Where are a property's warranties, inspections, permits and AHJ contacts kept?",
+     "options": [
+      "In the site's shared drive",
+      "On the Records tab of the property in Asset Management",
+      "In the vendor's files",
+      "In a ticket"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "The Records tab has seven collections, and a record with a date warns the Overview 90 days ahead.",
+     "lesson": "01-property-management-at-a-storage-site.md"
+    },
+    {
+     "type": "single",
+     "q": "The same door latch has failed three times this year. What is the right response?",
+     "options": [
+      "Keep fixing it; that is maintenance",
+      "Make it a preventive schedule, with the reason written in the schedule",
+      "Replace the whole door",
+      "Tell the tenant to be more careful"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Two of the same ticket is the signal. The third is a schedule with the reason written down.",
+     "lesson": "02-the-maintenance-mindset.md"
+    },
+    {
+     "type": "single",
+     "q": "What does closing a preventive ticket do in Nexus?",
+     "options": [
+      "Nothing until a manager reviews it",
+      "Writes the maintenance record on the property and moves the schedule on to its next date or reading",
+      "Deletes the schedule",
+      "Emails the vendor"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "The due occurrence files one ticket; closing it with a photo writes the record and moves the schedule on.",
+     "lesson": "02-the-maintenance-mindset.md"
+    },
+    {
+     "type": "single",
+     "q": "A breaker in the RV row's lighting panel trips. You reset it and it trips again. What now?",
+     "options": [
+      "Reset it again and tape it",
+      "Leave it off and call the electrician; a second trip is a fault",
+      "Open the panel and look",
+      "Swap the breaker from another slot"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Once is a reset; twice is a fault. Staff never open a panel.",
+     "lesson": "03-building-systems-and-what-fails.md"
+    },
+    {
+     "type": "single",
+     "q": "Who may adjust a roll-up door's spring?",
+     "options": [
+      "Any staff member with a wrench",
+      "The door vendor only",
+      "The tenant",
+      "The site manager"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "A spring under tension is a wrist or an eye. Staff report it and never touch it.",
+     "lesson": "03-building-systems-and-what-fails.md"
+    },
+    {
+     "type": "single",
+     "q": "A bollard at the end of a canopy row is bent. What is right?",
+     "options": [
+      "Straighten it with the skid steer",
+      "Replace it; a straightened post has lost its strength",
+      "Paint it so it shows",
+      "Leave it; it still stands"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "A bent bollard did its job. It is replaced, never straightened.",
+     "lesson": "04-grounds-paving-and-the-vehicle-lot.md"
+    }
+   ]
+  },
+  {
+   "file": "05-vendors-who-does-what-and-how-to-qualify-them.md"
+  },
+  {
+   "file": "06-getting-the-work-done-from-ticket-to-invoice.md"
+  },
+  {
+   "file": "07-inspections-permits-and-compliance.md"
+  },
+  {
+   "checkpoint": "Checkpoint: Vendors and Work",
+   "questions": [
+    {
+     "type": "single",
+     "q": "A roofer offers a quick, cheap, cash fix. He has a license but his insurance lapsed over the summer. What do you do?",
+     "options": [
+      "Take it; the price is good",
+      "Decline, and call the approved roofing vendor; no certificate, no vendor",
+      "Let him start and ask for the certificate later",
+      "Pay him from the site"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "An Expired vendor does no work on site, however small the job. The certificate is a one-page PDF; if it cannot come, that tells you something.",
+     "lesson": "05-vendors-who-does-what-and-how-to-qualify-them.md"
+    },
+    {
+     "type": "single",
+     "q": "What does additional insured on a vendor's certificate mean?",
+     "options": [
+      "The vendor insures Greens' building",
+      "Greens is named on the vendor's policy so it can claim on it directly when the vendor causes damage",
+      "The vendor's crew is covered by Greens",
+      "It is the same as workers comp"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Additional insured status is what lets Greens claim on the vendor's liability policy.",
+     "lesson": "05-vendors-who-does-what-and-how-to-qualify-them.md"
+    },
+    {
+     "type": "multi",
+     "q": "Which of these are the papers collected before a vendor's first visit? Pick all that apply.",
+     "options": [
+      "A current trade license",
+      "A certificate of insurance naming Greens as additional insured",
+      "Workers compensation",
+      "A W-9",
+      "A gate code for the vendor",
+      "A text with the price"
+     ],
+     "answer": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "explanation": "License, certificate, workers comp and W-9, plus references and a written scope. A vendor never gets a gate code, and a text is not a scope.",
+     "lesson": "05-vendors-who-does-what-and-how-to-qualify-them.md"
+    },
+    {
+     "type": "order",
+     "q": "Put the repair path in order.",
+     "options": [
+      "Ticket",
+      "Scope",
+      "Quotes and approval",
+      "Work",
+      "Inspect and photograph",
+      "Invoice"
+     ],
+     "answer": [],
+     "explanation": "Ticket, scope, quotes, approval, schedule and work, inspect, close, invoice. Skip a step and the one after has nothing to stand on.",
+     "lesson": "06-getting-the-work-done-from-ticket-to-invoice.md"
+    },
+    {
+     "type": "single",
+     "q": "A vendor arrives to service the gate. How do they get through the gate?",
+     "options": [
+      "You give them the site's master code",
+      "Staff open it, or a visitor code that expires that day",
+      "They use the tenant's code",
+      "They wait for a tenant to open it"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "A vendor never gets a gate code. A vendor with a standing code can come at 2:00 AM.",
+     "lesson": "06-getting-the-work-done-from-ticket-to-invoice.md"
+    },
+    {
+     "type": "single",
+     "q": "When may a ticket be marked Resolved after vendor work?",
+     "options": [
+      "When the vendor says it is done",
+      "After you inspected the finished work against the scope, tested it and attached the photo",
+      "When the invoice arrives",
+      "When the requester asks"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Resolved comes after the inspection and the photo, never before.",
+     "lesson": "06-getting-the-work-done-from-ticket-to-invoice.md"
+    },
+    {
+     "type": "single",
+     "q": "The fire inspector lists three deficiencies. What happens the same day?",
+     "options": [
+      "Nothing; the notice comes by mail",
+      "A ticket per item with its deadline, then closure with photos and the notice filed in Records",
+      "A call to the vendor for the whole list",
+      "The items are fixed quietly and not recorded"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Raise a ticket per item the day of, close each with photos, and file the closed notice in Records.",
+     "lesson": "07-inspections-permits-and-compliance.md"
+    },
+    {
+     "type": "single",
+     "q": "A vendor suggests skipping the permit on a new light pole circuit to save time. What does that tell you?",
+     "options": [
+      "Permits are optional for lighting",
+      "The vendor is telling you what else they skip; the licensed vendor pulls the permit and its cost is in the quote",
+      "Permits are the site's job",
+      "Nothing; it is normal"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Electrical work like a new circuit usually needs a permit, and the licensed vendor pulls it.",
+     "lesson": "07-inspections-permits-and-compliance.md"
+    }
+   ]
+  },
+  {
+   "file": "08-budgets-and-capital-planning.md"
+  },
+  {
+   "file": "09-risk-insurance-and-incidents.md"
+  },
+  {
+   "file": "10-vendor-relationships-performance-and-ethics.md"
+  },
+  {
+   "file": "11-words-to-know.md"
+  }
+ ],
+ "quiz": {
+  "passPct": 80,
+  "drawCount": 30,
+  "maxTries": 3,
+  "shuffle": true,
+  "questions": [
+   {
+    "type": "single",
+    "q": "Which decision belongs to the owner, not the site manager?",
+    "options": [
+     "Which approved vendor to call for a gate fault",
+     "Whether the work was done right",
+     "The capital plan: a new roof or a repave",
+     "When to clean the gutters"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "Capital, the budget, approved vendors, insurance and rates are the owner's; the manager runs the site inside them.",
+    "lesson": "01-property-management-at-a-storage-site.md"
+   },
+   {
+    "type": "single",
+    "q": "A manager who signs for a $3,000 repair without asking is doing what?",
+    "options": [
+     "The job well",
+     "Not the job; a manager who asks is doing it",
+     "Saving time",
+     "Nothing wrong if the vendor is approved"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "When in doubt, ask up. The approval limits are the control.",
+    "lesson": "01-property-management-at-a-storage-site.md"
+   },
+   {
+    "type": "single",
+    "q": "Which statement about vendors in Nexus is right?",
+    "options": [
+     "Vendors are kept in a list in Asset Management",
+     "A vendor is an Intacct vendor record reached through Accounting; there is no second list",
+     "Each site keeps its own spreadsheet",
+     "Vendors are tickets"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Vendors are Accounting's. Nobody keys money into Nexus; what a vendor was paid is read from the books.",
+    "lesson": "01-property-management-at-a-storage-site.md"
+   },
+   {
+    "type": "single",
+    "q": "Which kind of maintenance costs the most per hour?",
+    "options": [
+     "Preventive",
+     "Corrective",
+     "Emergency",
+     "They cost the same"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "After-hours rates, no time to quote, and often a claim behind it.",
+    "lesson": "02-the-maintenance-mindset.md"
+   },
+   {
+    "type": "single",
+    "q": "What is a floating preventive schedule?",
+    "options": [
+     "Due on a fixed date each year",
+     "Due so long after the work was last done",
+     "Due at a meter reading",
+     "Due when a tenant asks"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Floating schedules slip with the last visit, which suits lubrication and filters.",
+    "lesson": "02-the-maintenance-mindset.md"
+   },
+   {
+    "type": "single",
+    "q": "Where does a meter schedule's reading come from?",
+    "options": [
+     "Typed into the schedule by staff",
+     "The asset's own record, such as its hours or odometer; nobody types it twice",
+     "The vendor's invoice",
+     "The ticket"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Meter readings are read from the asset's record.",
+    "lesson": "02-the-maintenance-mindset.md"
+   },
+   {
+    "type": "single",
+    "q": "Why does a preventive ticket refuse to resolve without a photo?",
+    "options": [
+     "Photos are nice to have",
+     "The photo is the proof the work was done; it is the record",
+     "The vendor needs it for the invoice",
+     "It is a bug"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Resolving a preventive ticket by any path needs a photo.",
+    "lesson": "02-the-maintenance-mindset.md"
+   },
+   {
+    "type": "single",
+    "q": "A gate cycles slowly and grinds. What is the first response?",
+    "options": [
+     "Open the operator housing and look",
+     "Clear the track, check power, and raise a ticket with video; never work on the operator",
+     "Oil the chain yourself",
+     "Wait until it stops"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Staff never work inside an operator housing or adjust a chain under tension.",
+    "lesson": "03-building-systems-and-what-fails.md"
+   },
+   {
+    "type": "single",
+    "q": "Why does a climate-controlled building keep a daily temperature log?",
+    "options": [
+     "To bill tenants for power",
+     "It is the answer to the claim that heat damaged a tenant's goods",
+     "The vendor requires it",
+     "To set the thermostat"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "When a tenant claims heat damage, the log answers in one line.",
+    "lesson": "03-building-systems-and-what-fails.md"
+   },
+   {
+    "type": "single",
+    "q": "Who goes on a roof to look at a leak?",
+    "options": [
+     "The manager with a ladder and a phone",
+     "Only someone with fall protection and the training, usually the roofing vendor",
+     "Any staff member on a dry day",
+     "The tenant below"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A ladder against a gutter is how managers get hurt. Ask the vendor to photograph it.",
+    "lesson": "03-building-systems-and-what-fails.md"
+   },
+   {
+    "type": "single",
+    "q": "Which three systems hurt most when they fail?",
+    "options": [
+     "Signs, landscaping, pest control",
+     "The gate, the doors and the roof",
+     "Cameras, fences, elevators",
+     "The office restroom, the dumpster, the Wi-Fi"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A gate that will not open closes the site; a door that cannot be secured cannot be rented; a roof fails into tenants' goods.",
+    "lesson": "03-building-systems-and-what-fails.md"
+   },
+   {
+    "type": "single",
+    "q": "What kills asphalt?",
+    "options": [
+     "Cold weather",
+     "Sun drying it until it cracks, and water getting under it through the cracks",
+     "Painted lines",
+     "Gravel"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Crack seal and sealcoat are the defense against exactly those two.",
+    "lesson": "04-grounds-paving-and-the-vehicle-lot.md"
+   },
+   {
+    "type": "single",
+    "q": "Striping a vehicle lot should be done from what?",
+    "options": [
+     "The last striping, by eye",
+     "The management system's space map, checked afterward with a wheel",
+     "The vendor's standard layout",
+     "Whatever fits"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A space that is 12x45 in Cubby and painted 12x40 on the ground is a dispute on move-in day.",
+    "lesson": "04-grounds-paving-and-the-vehicle-lot.md"
+   },
+   {
+    "type": "single",
+    "q": "After the first heavy rain of the season on a gravel lot, what do you do?",
+    "options": [
+     "Nothing; gravel drains",
+     "Walk it before the vehicles come back; where water stood is where the grading goes next",
+     "Add asphalt",
+     "Close the lot"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Standing water shows where the crown and the drainage have failed.",
+    "lesson": "04-grounds-paving-and-the-vehicle-lot.md"
+   },
+   {
+    "type": "single",
+    "q": "A clear height sign on a canopy row was never re-measured after a canopy repair. What is the risk?",
+    "options": [
+     "None; the sign is decorative",
+     "A rig that fits the sign may not fit the row; a torn-off air conditioner is a claim with the sign in the middle of it",
+     "The vendor will not come back",
+     "The row cannot be rented"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Re-measure after any canopy work and replace the sign.",
+    "lesson": "04-grounds-paving-and-the-vehicle-lot.md"
+   },
+   {
+    "type": "single",
+    "q": "Which trade owns a dead photocell on a light pole?",
+    "options": [
+     "The gate vendor",
+     "The electrician",
+     "The landscaper",
+     "The door vendor"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Electrical owns panels, breakers, lighting and photocells.",
+    "lesson": "05-vendors-who-does-what-and-how-to-qualify-them.md"
+   },
+   {
+    "type": "single",
+    "q": "What does a W-9 have to do with a repair?",
+    "options": [
+     "Nothing",
+     "Accounting cannot pay a vendor it cannot report; no W-9, no check",
+     "It proves the vendor's license",
+     "It is the vendor's quote"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The W-9 is the tax form a vendor gives before it can be paid.",
+    "lesson": "05-vendors-who-does-what-and-how-to-qualify-them.md"
+   },
+   {
+    "type": "single",
+    "q": "A vendor's Compliance tab reads Expiring Soon. What do you do?",
+    "options": [
+     "Nothing until it reads Expired",
+     "Ask the vendor for the renewal now and file it when it comes; the vendor may still work",
+     "Cancel the vendor",
+     "Pay them early"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Expiring Soon may work; Expired may not. The managers are belled at 30, 7 and 0 days.",
+    "lesson": "05-vendors-who-does-what-and-how-to-qualify-them.md"
+   },
+   {
+    "type": "single",
+    "q": "Why share vendors across Greens sites?",
+    "options": [
+     "It is required",
+     "A vendor serving nearby sites gives same-day response and a multi-site rate",
+     "Each site should have its own",
+     "It is not allowed"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Ask the other sites who they use before adding a vendor.",
+    "lesson": "05-vendors-who-does-what-and-how-to-qualify-them.md"
+   },
+   {
+    "type": "single",
+    "q": "What is a scope of work?",
+    "options": [
+     "The vendor's invoice",
+     "One paragraph or document that says what is to be done, where, to what standard, by when, and what is excluded",
+     "The ticket title",
+     "A purchase order"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "It is what the vendor quotes against, what you inspect against, and what the invoice is matched to.",
+    "lesson": "06-getting-the-work-done-from-ticket-to-invoice.md"
+   },
+   {
+    "type": "single",
+    "q": "A $9,000 canopy repair is split into two $4,500 tickets to stay under the site's limit. What is that?",
+    "options": [
+     "Good planning",
+     "A limit avoided is a control broken; it is one job and needs the higher approval",
+     "Normal when the vendor asks",
+     "Fine if both tickets are closed"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A job split into two tickets to stay under a limit is not two jobs.",
+    "lesson": "06-getting-the-work-done-from-ticket-to-invoice.md"
+   },
+   {
+    "type": "single",
+    "q": "When does a vendor go into a rented unit?",
+    "options": [
+     "Whenever the repair needs it",
+     "Only with the tenant's written consent, or an emergency the manager approved with a witness and photos",
+     "When the tenant is late on rent",
+     "Never, under any circumstance"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The tenant has exclusive control of the unit.",
+    "lesson": "06-getting-the-work-done-from-ticket-to-invoice.md"
+   },
+   {
+    "type": "single",
+    "q": "Who pays a vendor's invoice?",
+    "options": [
+     "The site, in cash or on a card",
+     "Accounting, after the invoice matches the ticket, the scope, the quote and the inspection",
+     "The manager from petty cash",
+     "The tenant whose unit was fixed"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The site never pays a vendor. It makes the invoice matchable in one look.",
+    "lesson": "06-getting-the-work-done-from-ticket-to-invoice.md"
+   },
+   {
+    "type": "single",
+    "q": "What does an emergency skip?",
+    "options": [
+     "The record",
+     "The quotes, never the record; the ticket is raised during the call and the manager above is told the same day",
+     "The vendor's papers",
+     "The inspection"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "An emergency skips the quotes, never the record.",
+    "lesson": "06-getting-the-work-done-from-ticket-to-invoice.md"
+   },
+   {
+    "type": "single",
+    "q": "What goes on every vendor invoice so Accounting can match it in one look?",
+    "options": [
+     "The site manager's name",
+     "The ticket or purchase order number",
+     "The vendor's license",
+     "The tenant's unit number"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Ask every vendor to put the ticket number on the invoice.",
+    "lesson": "06-getting-the-work-done-from-ticket-to-invoice.md"
+   },
+   {
+    "type": "single",
+    "q": "What is an AHJ?",
+    "options": [
+     "A vendor category",
+     "Any authority having jurisdiction: an agency with the right to inspect the property and require things of it",
+     "A kind of permit",
+     "An insurance adjuster"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A storage site answers to several; each is a record with a next visit.",
+    "lesson": "07-inspections-permits-and-compliance.md"
+   },
+   {
+    "type": "single",
+    "q": "Which usually needs a permit?",
+    "options": [
+     "Replacing a faded sign panel",
+     "A new electrical circuit for light poles",
+     "Crack seal and striping",
+     "Replacing a photocell on an existing circuit"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Structural, electrical, plumbing, mechanical, sign and grading work usually needs one; like-for-like repair usually does not.",
+    "lesson": "07-inspections-permits-and-compliance.md"
+   },
+   {
+    "type": "single",
+    "q": "An alarm panel is beeping the morning of the fire inspection. What do you do?",
+    "options": [
+     "Silence it so the inspection goes well",
+     "Call the fire protection vendor; never silence a panel without calling, and never fake a record",
+     "Unplug it",
+     "Ignore it"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A false record is worse than a failed inspection.",
+    "lesson": "07-inspections-permits-and-compliance.md"
+   },
+   {
+    "type": "single",
+    "q": "What is an open permit?",
+    "options": [
+     "A permit for outdoor work",
+     "A permit whose work never passed its final inspection; a problem at sale, at refinance and at a claim",
+     "A permit the vendor holds",
+     "A permit with no fee"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The permit and its final go in Records.",
+    "lesson": "07-inspections-permits-and-compliance.md"
+   },
+   {
+    "type": "single",
+    "q": "How far ahead does a record with a next date warn the property's Overview?",
+    "options": [
+     "7 days",
+     "30 days",
+     "90 days",
+     "A year"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "Nothing on a storage site should lapse because nobody remembered.",
+    "lesson": "07-inspections-permits-and-compliance.md"
+   },
+   {
+    "type": "single",
+    "q": "Which is capital, not operating expense?",
+    "options": [
+     "Quarterly gate service",
+     "A new gate operator",
+     "Pest control",
+     "Striping with the sealcoat"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Capital replaces or adds something that lasts years; at Greens it runs as a Construction job.",
+    "lesson": "08-budgets-and-capital-planning.md"
+   },
+   {
+    "type": "single",
+    "q": "A budget line built as last year plus five percent has what problem?",
+    "options": [
+     "It is too low",
+     "No systems behind it; a line is a system and a number that can be defended",
+     "It is too high",
+     "It needs leadership approval"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Build lines from actuals, the schedules priced from vendor rates, and what you know is coming.",
+    "lesson": "08-budgets-and-capital-planning.md"
+   },
+   {
+    "type": "single",
+    "q": "What is the reserve?",
+    "options": [
+     "The site's petty cash",
+     "Capital set aside over a system's life to replace it, so a roof is not a crisis",
+     "A vendor's deposit",
+     "The emergency budget"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Your record of age, tickets and photos is what gets a system funded from it.",
+    "lesson": "08-budgets-and-capital-planning.md"
+   },
+   {
+    "type": "single",
+    "q": "What does the site manager key into Nexus about a capital job's money?",
+    "options": [
+     "The contract amount",
+     "Change orders",
+     "Nothing; the money is read from the books by the job's Project-Job code",
+     "The vendor's quotes"
+    ],
+    "answer": [
+     2
+    ],
+    "explanation": "Money is never keyed into Nexus. The site builds the case.",
+    "lesson": "08-budgets-and-capital-planning.md"
+   },
+   {
+    "type": "single",
+    "q": "Which budget number tells you the preventive schedules are wrong or skipped?",
+    "options": [
+     "Utilities",
+     "A rising emergency line",
+     "Landscaping",
+     "Supplies"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Every emergency dollar is a preventive dollar nobody spent.",
+    "lesson": "08-budgets-and-capital-planning.md"
+   },
+   {
+    "type": "single",
+    "q": "Which risk does Greens' property policy answer?",
+    "options": [
+     "A tenant's goods damaged by water",
+     "Storm damage to a roof or a rig into a canopy",
+     "A vendor's crew member hurt",
+     "A visitor tripping in a hallway"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Tenants' goods are the tenant's protection; a vendor's crew is the vendor's insurance; a visitor is the liability policy.",
+    "lesson": "09-risk-insurance-and-incidents.md"
+   },
+   {
+    "type": "single",
+    "q": "A storm lifted roof panels. The roofer can replace them today. What is right?",
+    "options": [
+     "Replace them today",
+     "Temporary protection only; permanent repair waits for the manager above you and, if it is a claim, the adjuster",
+     "Wait a week with no tarp",
+     "Let the tenant fix it"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A roof replaced before the adjuster saw it is a roof the carrier may not pay for.",
+    "lesson": "09-risk-insurance-and-incidents.md"
+   },
+   {
+    "type": "single",
+    "q": "A vendor's truck cracks a block wall and the crew lead offers to just fix it. What do you do?",
+    "options": [
+     "Accept; it saves a claim",
+     "Photograph it, get the lead's name, write it in the ticket, raise a repair ticket and tell the manager above you; the claim goes through the certificate",
+     "Deduct it from the invoice yourself",
+     "Ignore a small crack"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A quiet fix leaves no claim and no record.",
+    "lesson": "09-risk-insurance-and-incidents.md"
+   },
+   {
+    "type": "multi",
+    "q": "Which of these does a manager never say? Pick all that apply.",
+    "options": [
+     "We'll cover it.",
+     "I am documenting everything and passing it to my manager.",
+     "That was our fault.",
+     "Your insurance won't need to know.",
+     "Here is what I saw and photographed."
+    ],
+    "answer": [
+     0,
+     2,
+     3
+    ],
+    "explanation": "Admitting fault, promising payment, settling at the counter and keeping an incident off the record turn a small claim into a large one.",
+    "lesson": "09-risk-insurance-and-incidents.md"
+   },
+   {
+    "type": "single",
+    "q": "After an incident, when is the camera footage requested?",
+    "options": [
+     "At the end of the week",
+     "The same hour, so it is saved before the system overwrites it",
+     "After the claim is filed",
+     "Never; footage is private"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Tell your manager which camera and which time the same hour.",
+    "lesson": "09-risk-insurance-and-incidents.md"
+   },
+   {
+    "type": "single",
+    "q": "Which is a reason to buy a service contract rather than on-call work?",
+    "options": [
+     "The trade is needed twice a year",
+     "The system has both scheduled visits and emergencies, such as the gate or HVAC",
+     "The vendor prefers it",
+     "Contracts are always cheaper"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A contract buys scheduled visits and a defined emergency response; read it once a year against what it delivered.",
+    "lesson": "10-vendor-relationships-performance-and-ethics.md"
+   },
+   {
+    "type": "single",
+    "q": "What are the four things a vendor is scored on?",
+    "options": [
+     "Price, price, price, price",
+     "Response, quality, price, papers",
+     "Size, age, location, website",
+     "Speed, friendliness, uniforms, trucks"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "From the tickets, twice a year, with the note on the vendor record.",
+    "lesson": "10-vendor-relationships-performance-and-ethics.md"
+   },
+   {
+    "type": "single",
+    "q": "Where does a vendor relationship live?",
+    "options": [
+     "In the manager's phone",
+     "In the tickets and the email or Teams thread, and on the vendor record",
+     "In the vendor's memory",
+     "In a spreadsheet"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A relationship in one manager's phone leaves with that manager.",
+    "lesson": "10-vendor-relationships-performance-and-ethics.md"
+   },
+   {
+    "type": "single",
+    "q": "A vendor sends a holiday gift box to your home. What is right?",
+    "options": [
+     "Keep it; everyone does",
+     "Decline, write it on the vendor's record and tell the manager above you",
+     "Share it with the office",
+     "Keep it if it is under $100"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A gift is a quote you cannot question.",
+    "lesson": "10-vendor-relationships-performance-and-ethics.md"
+   },
+   {
+    "type": "single",
+    "q": "Before dropping the gate vendor, what must be true?",
+    "options": [
+     "Nothing; drop them",
+     "Written feedback was given, a second vendor is qualified so there is no gap, the manager above you decided, and the old record stays with the note",
+     "The vendor agreed",
+     "The contract ended"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Never a gap in gate or fire coverage; nothing is deleted.",
+    "lesson": "10-vendor-relationships-performance-and-ethics.md"
+   },
+   {
+    "type": "single",
+    "q": "What is a lien waiver?",
+    "options": [
+     "A tenant's waiver of the storage lien",
+     "A vendor's signed statement that it has been paid and waives its lien on the property",
+     "A permit",
+     "An insurance form"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Received on construction jobs; Nexus never writes the wording.",
+    "lesson": "11-words-to-know.md"
+   },
+   {
+    "type": "single",
+    "q": "What does finaled mean for a permit?",
+    "options": [
+     "It was paid for",
+     "Its work passed its last inspection",
+     "It expired",
+     "It was denied"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "An open permit is a problem at sale, at refinance and at a claim.",
+    "lesson": "11-words-to-know.md"
+   },
+   {
+    "type": "single",
+    "q": "What is hot work?",
+    "options": [
+     "Work in summer",
+     "Welding, torching or grinding; a permit and a fire watch, never near stored vehicles",
+     "HVAC repair",
+     "Asphalt sealcoat"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Hot work near stored vehicles is how a lot burns.",
+    "lesson": "11-words-to-know.md"
+   }
+  ]
+ }
+}

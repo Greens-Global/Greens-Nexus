@@ -387,8 +387,8 @@ class SigningTests(ReviewCase):
         first, sig = pages[0], pages[spot["page"]]
         self.assertGreater(float(first.mediabox.width), float(first.mediabox.height))
         text = " ".join(" ".join((pg.extract_text() or "").split()) for pg in pages)
-        for s in ("Time Sheet", "Company: Greens Test Co", "Approved by manager Max Test", "Pay Rate", "Wage",
-                  "$22.00/hr", "7:30 PM", "Total hours clocked for week of", "Total Regular hours at $22.00/hr",
+        for s in ("Time Sheet", "COMPANY Greens Test Co", "Approved by manager Max Test", "Pay Rate", "Wage",
+                  "$22.00/hr", "7:30 PM", "Total Hours:", "Total Regular hours at $22.00/hr",
                   "Note by employee: Car trouble", "Forgot to clock in", "TOTAL EDITED PUNCHES",
                   "4:00 PM", "11:00 PM", "7:00 PM"):
             self.assertIn(s, text)
@@ -415,7 +415,7 @@ class SigningTests(ReviewCase):
         import io
         pages = PdfReader(io.BytesIO(pdf)).pages
         text = " ".join(" ".join((pg.extract_text() or "").split()) for pg in pages)
-        for s_ in ("Salaried (monthly)", "Monthly Salary: $6,000.00", "Effect on Pay", "Day",
+        for s_ in ("Salaried (monthly)", "MONTHLY SALARY $6,000.00", "Effect on Pay", "Day",
                    "NET PAY THIS MONTH", "Signed by employee - finalizes the time sheet"):
             self.assertIn(s_, text)
         self.assertNotIn("Day Total", text)

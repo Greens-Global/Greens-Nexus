@@ -38,7 +38,8 @@ describe('Ticket list - the Done queue', () => {
     render(<TicketsView />);
     await screen.findByText('Printer jam');
     expect(screen.queryByText('Old monitor replaced')).toBeNull();     // resolved ticket out of the way
-    const done = screen.getByRole('button', { name: /^Done/ });
+    fireEvent.click(screen.getByRole('button', { name: /^Other Queues/ }));   // Done sits under Other Queues (11/06/2026)
+    const done = screen.getByRole('menuitem', { name: /^Done/ });
     expect(done.textContent.trim()).toBe('Done');                      // a tally, not work waiting - no count pill (10/31/2026)
     fireEvent.click(done);
     expect(screen.getByText('Old monitor replaced')).toBeTruthy();

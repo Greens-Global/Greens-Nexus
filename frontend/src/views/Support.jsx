@@ -582,14 +582,7 @@ export default function Support({ activeSub, onSubChange }) {
           <SupportDocs canImplement={canImplement} startOnGuide={onGuide} />
         </Suspense>
       ) : (<>
-      <div className="view-header">
-        <div className="view-title-group">
-          <PageTrail title="Help Center" />
-          <h2>Help Center</h2>
-          <p>Get help across Nexus</p>
-        </div>
-      </div>
-
+      {/* No page title: the module bar already says Help Center (Neil, 11/06/2026). */}
       <HelpCenterSearch onFileTicket={(seed) => setSubmitting(seed || true)} />
 
       <div className="support-grid" data-tour="support-options">

@@ -25,6 +25,109 @@ The Dashboard has tabs across the top:
 
 ## Reading Home
 
+```figure
+{
+  "kind": "screen",
+  "title": "Home, Top to Bottom",
+  "device": "computer",
+  "module": "Dashboard",
+  "tabs": [
+    "Dashboard",
+    "Approvals",
+    "Notes",
+    "Links"
+  ],
+  "tab": "Dashboard",
+  "actions": [
+    "Customize"
+  ],
+  "badge": 4,
+  "parts": [
+    {
+      "kind": "banner",
+      "tone": "warn",
+      "text": "Your Time Sheet for 10/16 to 10/31 is approved and waiting for your signature.",
+      "buttons": [
+        "Open"
+      ],
+      "n": 1
+    },
+    {
+      "kind": "text",
+      "title": "Good morning, Marco",
+      "text": "On the clock since 8:02 AM · Temecula · 9:14 AM"
+    },
+    {
+      "kind": "tiles",
+      "items": [
+        {
+          "label": "Open Tasks",
+          "value": "3"
+        },
+        {
+          "label": "Checked-Out Items",
+          "value": "1"
+        },
+        {
+          "label": "My Equipment",
+          "value": "4"
+        },
+        {
+          "label": "Signatures Needed",
+          "value": "1",
+          "n": 2
+        }
+      ]
+    },
+    {
+      "kind": "card",
+      "title": "Needs Your Attention",
+      "rows": [
+        {
+          "label": "Confirm your schedule for 11/10 to 11/16",
+          "value": "Open"
+        },
+        {
+          "label": "Ticket #4821 is Waiting for User",
+          "value": "Reply",
+          "tone": "warn"
+        }
+      ],
+      "n": 3
+    },
+    {
+      "kind": "card",
+      "title": "Quick Actions",
+      "buttons": [
+        "Request an Item",
+        "New Task",
+        "New Ticket"
+      ],
+      "note": "Ctrl+K opens search",
+      "n": 4
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "The yellow priority bar: the one thing you never ignore."
+    },
+    {
+      "n": 2,
+      "text": "A tile above zero is a nudge. Click it to jump to the list."
+    },
+    {
+      "n": 3,
+      "text": "Needs Your Attention, or You're All Caught Up."
+    },
+    {
+      "n": 4,
+      "text": "One-click shortcuts."
+    }
+  ]
+}
+```
+
 The designed default layout is called **Home**. From top to bottom it shows:
 
 1. **A greeting** with your clock status and local time.
@@ -64,6 +167,83 @@ Widgets anyone can add include Time Clock, My Requests, Due Back Soon, Coming Up
 
 ### Add the Announcements Widget
 
+```figure
+{
+  "kind": "screen",
+  "title": "Customize, Add Widget",
+  "device": "computer",
+  "module": "Dashboard",
+  "tabs": [
+    "Dashboard",
+    "Approvals",
+    "Notes",
+    "Links"
+  ],
+  "tab": "Dashboard",
+  "actions": [
+    "Save",
+    {
+      "label": "Done",
+      "primary": true
+    }
+  ],
+  "parts": [
+    {
+      "kind": "tiles",
+      "items": [
+        {
+          "label": "Open Tasks",
+          "value": "3"
+        },
+        {
+          "label": "Checked-Out Items",
+          "value": "1"
+        },
+        {
+          "label": "My Equipment",
+          "value": "4"
+        }
+      ]
+    },
+    {
+      "kind": "sheet",
+      "title": "Add Widget",
+      "items": [
+        {
+          "label": "Time Clock",
+          "note": "Your clock, right here"
+        },
+        {
+          "label": "Announcements",
+          "note": "Live · company posts, with Acknowledge",
+          "badge": "Add",
+          "tone": "ok",
+          "n": 1
+        },
+        {
+          "label": "My Requests",
+          "note": "Everything you have asked for"
+        },
+        {
+          "label": "Due Back Soon",
+          "note": "Borrowed items coming due"
+        },
+        {
+          "label": "Weather",
+          "note": "At your site"
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Announcements reach your Dashboard only through this widget. Add it on day one."
+    }
+  ]
+}
+```
+
 Company announcements reach your Dashboard **only through the Announcements widget**, and it is not on Home by default. If you never add it, you can miss an announcement that asks you to acknowledge something.
 
 1. Click **Customize**.
@@ -76,6 +256,111 @@ When an announcement asks you to confirm you read it, it shows an **Acknowledge*
 > Add the Announcements widget on your first day. It takes 30 seconds and it is the most common thing new team members miss.
 
 ## The Bell
+
+```figure
+{
+  "kind": "screen",
+  "title": "The Bell, Open",
+  "device": "computer",
+  "module": "Dashboard",
+  "tabs": [
+    "Dashboard",
+    "Approvals",
+    "Notes",
+    "Links"
+  ],
+  "tab": "Dashboard",
+  "badge": 7,
+  "parts": [
+    {
+      "kind": "tiles",
+      "items": [
+        {
+          "label": "Open Tasks",
+          "value": "3"
+        },
+        {
+          "label": "Checked-Out Items",
+          "value": "1"
+        },
+        {
+          "label": "My Equipment",
+          "value": "4"
+        },
+        {
+          "label": "Signatures Needed",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "kind": "card",
+      "title": "Needs Your Attention",
+      "rows": [
+        {
+          "label": "Confirm your schedule for 11/10 to 11/16",
+          "value": "Open"
+        }
+      ]
+    },
+    {
+      "kind": "bell",
+      "text": "2 need action · 5 updates",
+      "items": [
+        {
+          "label": "Schedule shared for 11/10 to 11/16",
+          "note": "Confirm it",
+          "n": 1
+        },
+        {
+          "label": "Reply on ticket #4821",
+          "note": "Maintenance desk, 10 min ago"
+        },
+        {
+          "label": "Still on Break?",
+          "note": "Your break has been open for 60 minutes"
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Mark All Read",
+          "n": 2
+        },
+        {
+          "label": "Clear All",
+          "n": 3
+        }
+      ]
+    },
+    {
+      "kind": "toast",
+      "text": "Approve: time off request from Priya N.",
+      "buttons": [
+        "Open"
+      ],
+      "n": 4
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Click a notice to open the exact thing it is about."
+    },
+    {
+      "n": 2,
+      "text": "Clears the red number without removing anything."
+    },
+    {
+      "n": 3,
+      "text": "Moves updates to Closed, where they stay for 30 days."
+    },
+    {
+      "n": 4,
+      "text": "A notice that needs action also pops up briefly as a toast."
+    }
+  ]
+}
+```
 
 The bell at the top right holds every alert meant for you: approvals, handovers, mentions, reminders, replies on tickets you raised, a schedule to confirm, a document to sign. A red number on the bell means unread alerts.
 

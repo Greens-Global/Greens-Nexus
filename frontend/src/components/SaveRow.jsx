@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Check } from 'lucide-react';
 import { Spinner } from './AsyncState';
 import { formatTime } from '../lib/datetime';
+import LoadingButton from '../ui/LoadingButton';
 
 // The one Save row of a Settings form (Oct 23 2026): at the foot of the
 // group, Save disabled until something changed, Discard Changes beside it
@@ -42,10 +43,9 @@ export default function SaveRow({
       {dirty && onDiscard && (
         <button type="button" className="secondary-btn" onClick={onDiscard} disabled={busy} style={{ fontSize: 12.5 }}>Discard Changes</button>
       )}
-      <button type="button" className="primary-btn" onClick={onSave} disabled={!dirty || busy || saveDisabled}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        {busy ? <Spinner size={13} /> : <Check size={13} />} {busy ? 'Saving…' : label}
-      </button>
+      <LoadingButton onClick={onSave} busy={busy} done={!!seen.savedAt} disabled={!dirty || saveDisabled} icon={<Check size={13} />}>
+        {label}
+      </LoadingButton>
     </div>
   );
 }

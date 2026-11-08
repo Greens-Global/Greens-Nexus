@@ -32,6 +32,74 @@ The **My Week | Team** switch shows your whole group's week in the same card. Th
 
 ### Confirm a New Schedule
 
+```figure
+{
+  "kind": "screen",
+  "title": "A Shared Schedule to Confirm",
+  "device": "phone",
+  "module": "Workday",
+  "badge": 1,
+  "parts": [
+    {
+      "kind": "banner",
+      "tone": "ok",
+      "text": "Your schedule was shared on 11/09/2026 by your manager (3 changes) - have a look and confirm.",
+      "buttons": [
+        {
+          "label": "Confirm",
+          "primary": true,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "kind": "card",
+      "title": "My Schedule",
+      "note": "5 shifts · 40 paid hours · next: Mon 9:00 AM",
+      "rows": [
+        {
+          "label": "Mon 11/16",
+          "value": "9:00 AM to 5:30 PM"
+        },
+        {
+          "label": "Tue 11/17",
+          "value": "9:00 AM to 5:30 PM"
+        },
+        {
+          "label": "Wed 11/18",
+          "value": "Usual Hours"
+        },
+        {
+          "label": "Thu 11/19",
+          "value": "11:00 AM to 7:30 PM",
+          "tone": "live",
+          "n": 2
+        },
+        {
+          "label": "Fri 11/20",
+          "value": "Time off"
+        }
+      ],
+      "buttons": [
+        "My Week",
+        "Team",
+        "Subscribe in another calendar"
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Confirm means I have seen it. Then talk to your manager if a day does not work."
+    },
+    {
+      "n": 2,
+      "text": "A changed day."
+    }
+  ]
+}
+```
+
 When your manager shares a new or changed schedule, you get a bell (and an email), and a banner at the top of My Schedule says: "Your schedule was shared on 11/09/2026 by your manager (3 changes) - have a look and confirm."
 
 1. Read the days that changed.
@@ -57,6 +125,99 @@ When they are on:
 Your requests and the ones sent to you are under **Workday**, **Time Off**, then **Shift Requests**. A request moves through **Waiting On Teammate** (your teammate must **Accept** or **Decline**) and **Waiting On Manager** (a manager approves it). Until it is approved, the original shift stands. Work the shift you are scheduled for until you see it approved.
 
 ## Requesting Time Off
+
+```figure
+{
+  "kind": "screen",
+  "title": "Request Time Off",
+  "device": "computer",
+  "module": "Workday",
+  "tabs": [
+    "Overview",
+    "Time Sheet",
+    "Time Off",
+    "Performance"
+  ],
+  "tab": "Time Off",
+  "parts": [
+    {
+      "kind": "form",
+      "title": "Request Time Off",
+      "fields": [
+        {
+          "label": "Reason",
+          "kind": "select",
+          "value": "Vacation"
+        },
+        {
+          "label": "From",
+          "value": "12/21/2026"
+        },
+        {
+          "label": "To",
+          "value": "12/23/2026"
+        },
+        {
+          "kind": "check",
+          "label": "All day",
+          "value": true
+        },
+        {
+          "label": "Note",
+          "kind": "textarea",
+          "hint": "Anything your approver should know"
+        },
+        {
+          "kind": "check",
+          "label": "Keep this confidential",
+          "value": false,
+          "n": 1
+        }
+      ],
+      "text": "Counts as 3 working days. Leaves you 7 vacation days.",
+      "buttons": [
+        {
+          "label": "Request for a Past Date",
+          "n": 2
+        },
+        {
+          "label": "Request",
+          "primary": true
+        }
+      ]
+    },
+    {
+      "kind": "list",
+      "title": "My Requests",
+      "note": "Your manager decides - you get a bell notification.",
+      "items": [
+        {
+          "label": "Vacation · 11/27/2026",
+          "note": "1 day",
+          "badge": "Approved",
+          "tone": "ok"
+        },
+        {
+          "label": "Sick · 11/05/2026",
+          "note": "1 day",
+          "badge": "Pending",
+          "tone": "warn"
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Your team sees only that you are out, never the note."
+    },
+    {
+      "n": 2,
+      "text": "Sick yesterday and could not ask in time? Past dates are grayed out; this is the way."
+    }
+  ]
+}
+```
 
 Open **Workday** and click the **Time Off** tab. The **Request Time Off** form has:
 

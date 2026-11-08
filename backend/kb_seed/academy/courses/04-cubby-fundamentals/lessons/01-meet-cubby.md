@@ -73,6 +73,77 @@ Cubby has its own vocabulary. Learn these and every screen makes more sense.
 
 ## Greens' Five Cubby Sites
 
+```figure
+{
+  "kind": "bars",
+  "title": "Enclosed Units by Site",
+  "max": 900,
+  "items": [
+    {
+      "label": "Valley Center",
+      "value": 847,
+      "text": "847 (508 leased)"
+    },
+    {
+      "label": "Escondido",
+      "value": 794,
+      "text": "794 (725 leased)"
+    },
+    {
+      "label": "Temecula",
+      "value": 34,
+      "text": "34 (25 leased)"
+    },
+    {
+      "label": "Murrieta",
+      "value": 8,
+      "text": "8 (6 leased)"
+    },
+    {
+      "label": "Fairfield",
+      "value": 4,
+      "text": "4 (1 leased)"
+    }
+  ],
+  "caption": "From Greens' Cubby, 11/2026. Two sites are storage sites; three are vehicle lots."
+}
+```
+
+```figure
+{
+  "kind": "bars",
+  "title": "Parking Spaces by Site",
+  "max": 500,
+  "items": [
+    {
+      "label": "Temecula",
+      "value": 481,
+      "text": "481 (333 leased)"
+    },
+    {
+      "label": "Fairfield",
+      "value": 303,
+      "text": "303 (211 leased)"
+    },
+    {
+      "label": "Murrieta",
+      "value": 161,
+      "text": "161 (150 leased)"
+    },
+    {
+      "label": "Escondido",
+      "value": 90,
+      "text": "90 (80 leased)"
+    },
+    {
+      "label": "Valley Center",
+      "value": 3,
+      "text": "3 (3 leased)"
+    }
+  ]
+}
+```
+
 Greens' Cubby has five sites, all in California. Each has its own mix, and the mix changes the work you do.
 
 | Site | Enclosed units (leased) | Parking spaces (leased) | Mostly |

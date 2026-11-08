@@ -104,6 +104,35 @@ describe('whose time sheet (Oct 29 2026)', () => {
     expect(head.textContent).toMatch(/Pay Period:/);
     expect(screen.queryByText('Simulate')).toBeNull();
     const sidebar = document.querySelector('.pr-sidebar');
-    expect(within(sidebar).getByPlaceholderText('Find someone...')).toBeTruthy();
+    expect(within(sidebar).getByPlaceholderText('Search')).toBeTruthy();
+  }, 20000);
+});
+
+describe('People > Time list (Neil, 11/06/2026)', () => {
+  it('says Current on the current period and Previous after stepping back', async () => {
+    await open();
+    expect(screen.getByTestId('period-when').textContent).toBe('Current');
+    fireEvent.click(screen.getByRole('button', { name: 'Previous pay period' }));
+    expect(screen.getByTestId('period-when').textContent).toBe('Previous');
+    fireEvent.click(screen.getByRole('button', { name: 'Next pay period' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next pay period' }));
+    expect(screen.getByTestId('period-when').textContent).toBe('Future');
+  }, 20000);
+
+  it('searches the list from its header and Esc clears it; the columns are named', async () => {
+    await open();
+    const list = () => within(document.querySelector('.pr-sidebar'));
+    await list().findByText('Sam Salary');
+    expect(list().getByRole('img', { name: 'Review Status' })).toBeTruthy();
+    expect(list().getByRole('img', { name: 'Missing Punches' })).toBeTruthy();
+    const box = list().getByRole('searchbox', { name: 'Search people' });
+    fireEvent.change(box, { target: { value: 'gary' } });
+    expect(list().queryByText('Sam Salary')).toBeNull();
+    expect(list().getByText('Gary Gap')).toBeTruthy();
+    fireEvent.change(box, { target: { value: 'sal@' } });   // the work email matches too
+    expect(list().getByText('Sam Salary')).toBeTruthy();
+    fireEvent.keyDown(box, { key: 'Escape' });
+    expect(box.value).toBe('');
+    expect(list().getByText('Gary Gap')).toBeTruthy();
   }, 20000);
 });

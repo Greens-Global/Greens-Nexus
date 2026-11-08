@@ -32,7 +32,7 @@ export function ListRow({ pr: asset, openProperty, secondaries = [], expanded, o
   const stage = asset.devStage || 'Active';
   const tone = stageTone(stage);
   const photo = (asset.images && asset.images[0]) || asset.image || '';
-  const stats = tileStats(asset);
+  const stats = tileStats(asset).filter((s) => s.v && s.v !== '-');   // an empty stat is hidden, never "- Acres"
   const Icon = typeIcon(asset);
   const isGroupLead = secondaries.length > 0;
   const borderLeft = isGroupLead ? '3px solid var(--pine)' : secondary ? '3px solid hsla(var(--color-purple), 0.5)' : '1px solid var(--border-color)';

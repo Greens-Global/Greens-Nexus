@@ -21,7 +21,7 @@ export const reviewDone = (status) => ['approved', 'signing', 'completed', 'corr
 
 export default function ReviewMark({ status }) {
   const m = REVIEW_MARK[status];
-  if (!m) return <span className="ts-rmark" aria-hidden="true" />;
+  if (!m) return <span className="ts-rmark" title="Not Reviewed Yet" aria-hidden="true" />;
   const { Icon } = m;
   return (
     <span className={`ts-rmark ${m.cls}`} title={m.text} role="img" aria-label={m.text}>

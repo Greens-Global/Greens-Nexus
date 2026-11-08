@@ -90,6 +90,40 @@ So if you see an outline shield beside a name, you know that person is an Admini
 
 ## What Nexus Will Ask of You
 
+```figure
+{
+  "kind": "cycle",
+  "title": "The Six Habits Nexus Asks of You",
+  "items": [
+    {
+      "label": "Punch in and out",
+      "note": "yourself, every shift"
+    },
+    {
+      "label": "Check your Time Sheet",
+      "note": "weekly, and sign it"
+    },
+    {
+      "label": "Confirm your schedule",
+      "note": "when one is shared"
+    },
+    {
+      "label": "Ask in Nexus",
+      "note": "time off, HR, equipment"
+    },
+    {
+      "label": "Report with a ticket or form",
+      "note": "with photos"
+    },
+    {
+      "label": "Finish your training",
+      "note": "by its due date"
+    }
+  ],
+  "caption": "Each habit has its own lesson in this course."
+}
+```
+
 From your first day, Nexus expects a few habits. Each one has a full lesson later:
 
 - **Punch in and out yourself, every shift**, and take your breaks on the clock (the Punching In, Breaks and Punching Out lesson).

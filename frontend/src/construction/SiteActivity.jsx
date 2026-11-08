@@ -37,7 +37,7 @@ import { useConstructionMeta } from './lib/meta';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { loadLogs as loadLogsThroughPhone, prefetchJob, startLog, loadPrefill } from './constructionOffline';
 import { readThrough } from '../lib/offline/store';
-import PageTrail from '../components/PageTrail';
+import { ModuleActions } from '../components/ModuleTabs';
 import { formatHoursWords } from '../lib/hoursText';
 
 // The browser's own date - only when the server has not said the jobsite's.
@@ -130,19 +130,16 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div className="view-header" style={{ marginBottom: 24 }}>
-        <div className="view-title-group">
-          <PageTrail title="Site Activity" />
-          <h2>Site Activity</h2>
-          <p>Daily logs from the crew and the weekly report they add up to</p>
-          {savedAt && <p style={{ fontSize: '0.78rem' }}>Opened from this phone (saved {formatDateTime(savedAt, '')}).</p>}
-        </div>
-        {project && (
+      {/* No page title (Neil, 11/06/2026): the module bar names the tab; Start
+          Today's Log rides its right end. */}
+      {project && (
+        <ModuleActions>
           <button className="primary-btn" onClick={startToday} disabled={busy}>
             <Plus size={16} />{busy ? 'Starting…' : "Start Today's Log"}
           </button>
-        )}
-      </div>
+        </ModuleActions>
+      )}
+      {savedAt && <p style={{ fontSize: '0.78rem', color: 'var(--muted)', margin: '0 0 12px' }}>Opened from this phone (saved {formatDateTime(savedAt, '')}).</p>}
 
       <ConstructionInbox />
 

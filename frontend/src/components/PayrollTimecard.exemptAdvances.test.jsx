@@ -55,7 +55,7 @@ describe("HR and an exempt person's advances", () => {
     expect(await screen.findByText('Salary Advances')).toBeTruthy();
     expect(payroll.mock.calls.map((c) => c[0])).toContain('sal@x.com');
     expect(payroll.mock.calls.map((c) => c[0])).not.toContain('amy@x.com');
-    expect(screen.getByRole('button', { name: /Grant A Salary Advance/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Salary Advance' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Mark Paid Out' }));
     const buttons = screen.getAllByRole('button', { name: 'Mark Paid Out' });
     fireEvent.click(buttons[buttons.length - 1]);

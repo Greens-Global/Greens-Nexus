@@ -17,6 +17,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 MARK = "kb.storage_academy_seeded_2026_11"
+PATHS_MARK = "kb.learning_paths_seeded_2026_11"
+CONTENT_MARK = "kb.academy_content"   # value = the package digest
+# The Academy plan as the onboarding path (Neil, 11/07/2026): four stages, the
+# six courses in order. Index = the course's position in kb_academy.ORDER.
+ACADEMY_STAGES = ["Week 1: Nexus and the Business", "Week 2: Storage and Cubby", "Weeks 3 and 4: Serving and Selling", "Sign-Off"]
+ACADEMY_STAGE_OF = [0, 0, 1, 1, 2, 3]
 COLLECTION = "Greens Storage Academy"
 DEPT = "Operations"
 FALLBACK_OWNER = "neil@greensglobal.com"
@@ -53,17 +59,73 @@ def _collection(db: Session, owner: str, owner_name: str):
     return col
 
 
+def _page(db: Session, col, p, owner: str, owner_name: str):
+    """The Academy page for a package page: found by title inside the
+    collection, else created as a draft. Returns (row, 1 if created)."""
+    from models import KbDocument
+    import kb_blocks
+    import kb_core
+    import kb_media
+    d = db.query(KbDocument).filter(KbDocument.collection_id == col.id, KbDocument.title == p.title[:300]).first()
+    if d is not None:
+        return d, 0
+    pt = p.page_type if p.page_type in kb_core.PAGE_TYPES else "how_to"
+    d = KbDocument(id=kb_core.new_id("kb"), doc_code="", title=p.title[:300],
+                   doc_type={"sop": "SOP", "policy": "SOP", "reference": "Guide", "how_to": "Guide"}[pt],
+                   departments="", service="", status="draft", owner_email=owner, owner_name=owner_name,
+                   reviewer_email="", reviewer_name="", version="0.1", effective_date="", body="{}", review_note="",
+                   revision_history="[]", require_ack=(pt == "policy"), views=0, review_every_months=0, verified_at="",
+                   verified_by="", stale_notified_at="", retention_months=84,
+                   tags=",".join(str(t).strip().lower() for t in p.tags if str(t).strip())[:500], related_ids="",
+                   content_text="", created_by=owner, created_at=kb_core.now(), updated_at=kb_core.now(),
+                   original_title="", original_content="", page_type=pt, collection_id=col.id,
+                   summary=(p.summary or "")[:300], major=0, minor=1, published_at="", audience="",
+                   signing="in_page", translations="", migrated_at=kb_core.now())
+    kb_core.set_content(d, kb_blocks.sanitize(p.blocks, image_ok=kb_media.is_storage_url))
+    kb_core.set_departments(d, [DEPT])
+    kb_core.assign_code(db, d)
+    db.add(d)
+    kb_core.event(db, kind="created", actor=owner, doc_id=d.id, version="0.1", actor_name=owner_name)
+    return d, 1
+
+
+def _course(db: Session, s, owner: str, owner_name: str, page_ids: dict):
+    """The course for a package course: found by title, else created as a
+    draft with the package's lessons and quiz. Returns (row, 1 if created)."""
+    from models import KbCourse
+    import kb_core
+    from routers.kb_training import _draft_of, _norm_lessons, _norm_quiz
+    c = db.query(KbCourse).filter(KbCourse.title == s.title[:200]).first()
+    if c is not None:
+        return c, 0
+    c = KbCourse(id=kb_core.new_id("crs"), course_code="", title=s.title[:200], description=(s.description or "")[:400],
+                 overview=json.dumps(s.overview or []), recert_months=0, default_due_days=0, departments=(s.departments or DEPT)[:200],
+                 status="draft", owner_email=owner, owner_name=owner_name, est_minutes=int(s.est_minutes or 15),
+                 lessons="[]", quiz=json.dumps({"passPct": 80, "drawCount": 0, "maxTries": 3, "shuffle": True, "questions": []}),
+                 created_at=kb_core.now(), updated_at=kb_core.now(), major=0, draft="", published_at="", published_by="")
+    kb_core.assign_course_code(db, c)
+    if s.delivery in ("online", "in_person"):
+        c.delivery = s.delivery
+    c.level, c.tags, c.teaches = s.level or "", s.tags or "", s.teaches or ""
+    draft = _draft_of(c)
+    lessons = [{**L, "docId": page_ids[L["page"]]} if L["type"] == "page" else L for L in s.lessons]
+    draft["lessons"] = _norm_lessons(db, lessons)
+    draft["quiz"] = _norm_quiz(s.quiz)
+    draft["teaches"] = s.teaches or ""
+    c.draft = json.dumps(draft)
+    db.add(c)
+    kb_core.event(db, kind="course_created", actor=owner, course_id=c.id, actor_name=owner_name)
+    return c, 1
+
+
 def apply_once(db: Session) -> dict | None:
     """Import the academy as drafts and write the mark, in one commit.
     Returns {collection, pages, courses, plan, owner} (pages / courses =
     rows created), or None when already marked or the package has problems."""
-    from models import KbCourse, KbDocument, KbTrainingPlan, NexusSetting
+    from models import KbTrainingPlan, NexusSetting
     import kb_academy
     import kb_access
-    import kb_blocks
     import kb_core
-    import kb_media
-    from routers.kb_training import _draft_of, _norm_lessons, _norm_quiz
 
     if db.get(NexusSetting, MARK):
         return None
@@ -79,59 +141,199 @@ def apply_once(db: Session) -> dict | None:
 
     page_ids, pages_made = {}, 0
     for p in a.pages.values():
-        # pages are matched inside the Academy only, so an unrelated page elsewhere is never linked
-        d = db.query(KbDocument).filter(KbDocument.collection_id == col.id, KbDocument.title == p.title[:300]).first()
-        if d is None:
-            pt = p.page_type if p.page_type in kb_core.PAGE_TYPES else "how_to"
-            d = KbDocument(id=kb_core.new_id("kb"), doc_code="", title=p.title[:300],
-                           doc_type={"sop": "SOP", "policy": "SOP", "reference": "Guide", "how_to": "Guide"}[pt],
-                           departments="", service="", status="draft", owner_email=owner, owner_name=owner_name,
-                           reviewer_email="", reviewer_name="", version="0.1", effective_date="", body="{}", review_note="",
-                           revision_history="[]", require_ack=(pt == "policy"), views=0, review_every_months=0, verified_at="",
-                           verified_by="", stale_notified_at="", retention_months=84,
-                           tags=",".join(str(t).strip().lower() for t in p.tags if str(t).strip())[:500], related_ids="",
-                           content_text="", created_by=owner, created_at=kb_core.now(), updated_at=kb_core.now(),
-                           original_title="", original_content="", page_type=pt, collection_id=col.id,
-                           summary=(p.summary or "")[:300], major=0, minor=1, published_at="", audience="",
-                           signing="in_page", translations="", migrated_at=kb_core.now())
-            kb_core.set_content(d, kb_blocks.sanitize(p.blocks, image_ok=kb_media.is_storage_url))
-            kb_core.set_departments(d, [DEPT])
-            kb_core.assign_code(db, d)
-            db.add(d)
-            kb_core.event(db, kind="created", actor=owner, doc_id=d.id, version="0.1", actor_name=owner_name)
-            pages_made += 1
+        d, made = _page(db, col, p, owner, owner_name)
+        pages_made += made
         page_ids[p.slug] = d.id
     db.flush()   # _norm_lessons looks the pages up by id
 
-    course_ids, courses_made = [], 0
+    by_slug, courses_made = {}, 0
     for s in a.courses:
-        c = db.query(KbCourse).filter(KbCourse.title == s.title[:200]).first()
-        if c is None:
-            c = KbCourse(id=kb_core.new_id("crs"), course_code="", title=s.title[:200], description=(s.description or "")[:400],
-                         overview=json.dumps(s.overview or []), recert_months=0, default_due_days=0, departments=DEPT,
-                         status="draft", owner_email=owner, owner_name=owner_name, est_minutes=int(s.est_minutes or 15),
-                         lessons="[]", quiz=json.dumps({"passPct": 80, "drawCount": 0, "maxTries": 3, "shuffle": True, "questions": []}),
-                         created_at=kb_core.now(), updated_at=kb_core.now(), major=0, draft="", published_at="", published_by="")
-            kb_core.assign_course_code(db, c)
-            if s.delivery in ("online", "in_person"):
-                c.delivery = s.delivery
-            draft = _draft_of(c)
-            lessons = [{**L, "docId": page_ids[L["page"]]} if L["type"] == "page" else L for L in s.lessons]
-            draft["lessons"] = _norm_lessons(db, lessons)
-            draft["quiz"] = _norm_quiz(s.quiz)
-            c.draft = json.dumps(draft)
-            db.add(c)
-            kb_core.event(db, kind="course_created", actor=owner, course_id=c.id, actor_name=owner_name)
-            courses_made += 1
-        course_ids.append(c.id)
+        c, made = _course(db, s, owner, owner_name, page_ids)
+        courses_made += made
+        by_slug[s.slug] = c.id
+    course_ids = [by_slug[slug] for slug in a.plan.get("courses") or [] if slug in by_slug]   # the plan's courses, in its order
 
     plan = db.query(KbTrainingPlan).filter(KbTrainingPlan.name == a.plan["name"][:200]).first()
     if plan is None:
         plan = KbTrainingPlan(id=kb_core.new_id("plan"), name=a.plan["name"][:200], description=(a.plan.get("description") or "")[:500],
-                              items=json.dumps([{"kind": "course", "id": i} for i in course_ids]), due_days=30, due_date="",
-                              audience="", active=False, created_by=owner, created_at=kb_core.now(), updated_at=kb_core.now())
+                              items=json.dumps([{"kind": "course", "id": i, "stage": ACADEMY_STAGE_OF[n] if n < len(ACADEMY_STAGE_OF) else -1} for n, i in enumerate(course_ids)]),
+                              due_days=30, due_date="", audience="", active=False, created_by=owner, created_at=kb_core.now(), updated_at=kb_core.now(),
+                              kind="onboarding", stages=json.dumps(ACADEMY_STAGES), open_enrollment=True)
         db.add(plan)
     now = kb_core.now()
     db.add(NexusSetting(key=MARK, value=now, updated_by="startup", updated_at=now))
     db.commit()
     return {"collection": col.id, "pages": pages_made, "courses": courses_made, "plan": plan.id, "owner": owner}
+
+
+def apply_paths_once(db: Session) -> dict | None:
+    """Learning paths (Neil, 11/07/2026), once: the Academy plan a first run
+    already made becomes the onboarding path (kind, four stages, each course
+    in its stage) and each Academy course gets its level and tags from the
+    package - only where nothing was set by hand. Returns {plan, courses}
+    (the plan id touched or '', courses stamped), or None once marked."""
+    from models import KbCourse, KbTrainingPlan, NexusSetting
+    import kb_academy
+    import kb_core
+
+    if db.get(NexusSetting, PATHS_MARK):
+        return None
+    a = kb_academy.load(kb_academy.ROOT)
+    stamped, plan_id = 0, ""
+    by_title = {}
+    for s in a.courses:
+        c = db.query(KbCourse).filter(KbCourse.title == s.title[:200]).first()
+        if c is None:
+            continue
+        by_title[s.slug] = c
+        if not (c.level or "") and not (c.tags or ""):
+            c.level, c.tags = s.level or "", s.tags or ""
+            stamped += 1
+    plan = db.query(KbTrainingPlan).filter(KbTrainingPlan.name == (a.plan.get("name") or "")[:200]).first() if a.plan else None
+    if plan is not None and (plan.kind or "custom") == "custom" and not (plan.stages or ""):
+        plan.kind = "onboarding"
+        plan.stages = json.dumps(ACADEMY_STAGES)
+        ids = [by_title[slug].id for slug in (a.plan.get("courses") or []) if slug in by_title]
+        try:
+            items = json.loads(plan.items or "[]")
+        except ValueError:
+            items = []
+        for it in items:
+            if isinstance(it, dict) and it.get("id") in ids:
+                it["stage"] = ACADEMY_STAGE_OF[ids.index(it["id"])]
+        plan.items = json.dumps(items)
+        plan.updated_at = kb_core.now()
+        plan_id = plan.id
+    now = kb_core.now()
+    db.add(NexusSetting(key=PATHS_MARK, value=now, updated_by="startup", updated_at=now))
+    db.commit()
+    return {"plan": plan_id, "courses": stamped}
+
+
+def _without_figures(blocks: dict) -> dict:
+    return {"type": "doc", "content": [b for b in (blocks or {}).get("content") or [] if b.get("type") != "figure"]}
+
+
+def _no_qids(lessons: list) -> list:
+    return [{**L, "questions": [{k: v for k, v in q.items() if k != "_id"} for q in L.get("questions") or []]} if L.get("type") == "checkpoint" else L
+            for L in lessons]
+
+
+def _untouched(c) -> bool:
+    """A course nobody has saved since a first run imported it: every save,
+    publish and import stamps updated_at; the first run stamps it in the
+    same transaction as created_at (two now() calls, microseconds apart),
+    so a gap under a minute means nobody has touched it since."""
+    from datetime import datetime, timezone
+    if c.major or not c.created_at or not c.updated_at:
+        return False
+
+    def _t(v: str):
+        d = datetime.fromisoformat(v)
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    try:
+        gap = _t(c.updated_at) - _t(c.created_at)
+    except (TypeError, ValueError):
+        return False
+    return abs(gap.total_seconds()) < 60
+
+
+def apply_content_once(db: Session) -> dict | None:
+    """The package's content, once per package version (Neil, 11/07/2026:
+    figures, drawings, screens, the facility lesson, a seventh course). The
+    mark's value is the package digest (kb_academy.digest), so the pass runs
+    again whenever the repository's package changes:
+    - a page or a course the package has and the database does not is
+      created as a draft, the way a first run makes it (a new course named
+      in the Academy plan is added to the plan's items at its stage);
+    - a course a first run imported and NOBODY saved since (`_untouched`)
+      takes the package's lessons and quiz whole, new lessons included;
+    - in a course somebody did save, a lesson is replaced only when its
+      blocks equal the package's blocks with the figures taken out (figures
+      into an untouched lesson); an edited lesson is left exactly as it is.
+    Everything lands in drafts - never in a live version. Returns
+    {pages, courses, lessons} made or touched, or None when the package is
+    unchanged since the last run."""
+    from models import KbCollection, KbTrainingPlan, NexusSetting
+    import kb_academy
+    import kb_access
+    import kb_core
+    from routers.kb_training import _draft_of, _norm_lessons, _norm_quiz
+
+    digest = kb_academy.digest(kb_academy.ROOT)
+    mark = db.get(NexusSetting, CONTENT_MARK)
+    if mark is not None and mark.value == digest:
+        return None
+    a = kb_academy.load(kb_academy.ROOT)
+    if kb_academy.problems(a):
+        return None
+    col = db.query(KbCollection).filter(KbCollection.name == COLLECTION).first()
+    if col is None:
+        return None   # no first run yet: apply_once will import everything
+    owner = owner_email(db)
+    owner_name = kb_access.display_name(db, owner)
+    pages_made, courses_made, courses_touched, lessons_touched = 0, 0, 0, 0
+    page_ids = {}
+    for p in a.pages.values():
+        d, made = _page(db, col, p, owner, owner_name)
+        pages_made += made
+        page_ids[p.slug] = d.id
+    db.flush()
+    plan = db.query(KbTrainingPlan).filter(KbTrainingPlan.name == (a.plan.get("name") or "")[:200]).first() if a.plan else None
+    plan_courses = a.plan.get("courses") or []
+    for spec in a.courses:
+        c, made = _course(db, spec, owner, owner_name, page_ids)
+        if made:
+            courses_made += 1
+            if plan is not None and spec.slug in plan_courses:
+                try:
+                    items = json.loads(plan.items or "[]")
+                except ValueError:
+                    items = []
+                if not any(isinstance(it, dict) and it.get("id") == c.id for it in items):
+                    n = plan_courses.index(spec.slug)
+                    items.append({"kind": "course", "id": c.id, "stage": ACADEMY_STAGE_OF[n] if n < len(ACADEMY_STAGE_OF) else -1})
+                    plan.items = json.dumps(items)
+                    plan.updated_at = kb_core.now()
+            continue
+        draft = _draft_of(c)
+        changed = False
+        if spec.teaches and not (c.teaches or "").strip():   # metadata, not content: the module tags land even on a course somebody saved
+            c.teaches = spec.teaches
+            draft.setdefault("teaches", spec.teaches)
+            changed = True
+        if _untouched(c) and all(L["type"] != "page" or L["page"] in page_ids for L in spec.lessons):
+            lessons = [{**L, "docId": page_ids[L["page"]]} if L["type"] == "page" else L for L in spec.lessons]
+            new_lessons = _norm_lessons(db, lessons)
+            if _no_qids(new_lessons) != _no_qids(draft.get("lessons") or []):   # question ids are minted per normalize
+                draft["lessons"] = new_lessons
+                draft["quiz"] = _norm_quiz(spec.quiz)
+                draft["description"], draft["overview"] = (spec.description or "")[:400], spec.overview or []
+                draft["est_minutes"] = int(spec.est_minutes or draft.get("est_minutes") or 15)
+                draft["teaches"] = spec.teaches or draft.get("teaches") or ""
+                lessons_touched += sum(1 for L in new_lessons if L["type"] == "text")
+                changed = True
+        else:
+            pkg = {L["title"]: L["blocks"] for L in spec.lessons if L["type"] == "text"}
+            for L in draft.get("lessons") or []:
+                if L.get("type") != "text" or L.get("title") not in pkg:
+                    continue
+                new = pkg[L["title"]]
+                if not any(b.get("type") == "figure" for b in new.get("content") or []):
+                    continue
+                if _without_figures(L.get("blocks") or {}) == _without_figures(new):
+                    L["blocks"] = new
+                    lessons_touched += 1
+                    changed = True
+        if changed:
+            c.draft = json.dumps(draft)
+            c.est_minutes = int(draft.get("est_minutes") or c.est_minutes or 15)
+            c.updated_at = kb_core.now()
+            courses_touched += 1
+    now = kb_core.now()
+    if mark is None:
+        db.add(NexusSetting(key=CONTENT_MARK, value=digest, updated_by="startup", updated_at=now))
+    else:
+        mark.value, mark.updated_by, mark.updated_at = digest, "startup", now
+    db.commit()
+    return {"pages": pages_made, "courses": courses_made + courses_touched, "lessons": lessons_touched}

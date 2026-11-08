@@ -85,9 +85,12 @@ Read it once now, then come back to it when a customer uses a word you do not kn
 | **Covered (canopy) space** | A roof on posts, open sides | Height and post limits; only at Temecula |
 | **Enclosed space** | A garage with a roll-up door | Door limits; only at Valley Center |
 | **Clear height** | The real measured height under a beam or door header | Post it; never guess |
-| **Back-in space** | The driver backs in to drive straight out | The norm |
-| **Pull-through space** | Drive in one end, out the other | Premium; Murrieta and Temecula |
-| **Angled space** | Set at an angle to the aisle | Easier backing |
+| **Drive-in (back-in) space** | A space open at one end only; in and out the same way. Cubby's name for the ordinary space | The norm; back a trailer in, tongue to the aisle |
+| **Pull-through space** | An aisle at each end; drive in one end, out the other | Premium; Murrieta and Temecula; the lane runs one way |
+| **Angled space** | Set at an angle to a one-way aisle | An easy turn from the right direction, a jackknife from the wrong one |
+| **End space, corner space** | The space against a fence at the end of a row; the space where two rows meet | One neighbor and easy to ask for; the hardest turn on the lot |
+| **Tandem space** | A double-length space, two vehicles nose to tail for one tenant | The front one moves for the back one |
+| **Rear overhang** | The body behind the rear wheels | Hangs past a wheel stop; counts in the length |
 | **Drive aisle** | The lane between rows | Must stay clear |
 | **Stacking lane** | Room outside the gate for a rig to wait | Keeps the street clear |
 | **Bollard (crash post)** | A post that protects a corner or canopy end | Note hits on walks |

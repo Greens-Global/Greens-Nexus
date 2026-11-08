@@ -188,3 +188,18 @@ export function applyLook(elements, look) {
     return { ...e, ...next, version: (Number(e.version) || 0) + 1, versionNonce: nonce(), updated: Date.now() };
   });
 }
+
+/** Present (Neil, 11/06/2026): one slide per frame, read like a page - rows
+ *  top to bottom (a frame starting within half the row's first frame's
+ *  height is on that row), each row left to right. No frames = one slide of
+ *  the whole board (null). */
+export function presentSlides(elements) {
+  const frames = (elements || []).filter((e) => e?.type === 'frame' && !e.isDeleted).sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  if (!frames.length) return [null];
+  const rows = [];
+  for (const f of frames) {
+    const row = rows[rows.length - 1];
+    if (row && f.y - row[0].y < Math.max(1, row[0].height) / 2) row.push(f); else rows.push([f]);
+  }
+  return rows.flatMap((r) => r.sort((a, b) => a.x - b.x));
+}

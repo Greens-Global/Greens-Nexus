@@ -66,7 +66,8 @@ describe('Ticket list - select all', () => {
     // in a bulk selection made from another queue.
     render(<TicketsView />);
     await screen.findByText('Printer jam');
-    fireEvent.click(screen.getByRole('button', { name: /^Done/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Other Queues/ }));   // Done sits under Other Queues (11/06/2026)
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Done/ }));
     expect(screen.queryByText('Printer jam')).toBeNull();
     fireEvent.click(screen.getByTitle('Select all'));
     expect(screen.getByText('1 selected')).toBeTruthy();
@@ -134,7 +135,8 @@ describe('Ticket list - saved views', () => {
     VIEWS = [{ id: 'v1', name: 'Facilities only', view: 'list', group: 'none', filters: { hrDeptFilter: 'd2' } }];
     render(<TicketsView />);
     await screen.findByText('Printer jam');
-    fireEvent.click(screen.getByRole('button', { name: 'Facilities only' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Other Queues/ }));   // saved views sit under Other Queues (11/06/2026)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Facilities only' }));
     await waitFor(() => expect(screen.queryByText('Printer jam')).toBeNull());
     expect(screen.getByText('Leaking sink')).toBeTruthy();
   });

@@ -28,15 +28,28 @@
 // Lazy: NotesPage imports this file with React.lazy; the engine's chunk is
 // fetched only when a board opens.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser } from 'lucide-react';
+import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, X, Presentation, ChevronLeft, ChevronRight, ChevronUp, Plus } from 'lucide-react';
 import './board.css';
 import { loadEngine, CAPTURE } from './engine';
 import BoardFallback, { EngineBoundary, BoardLoading } from './engine/fallback';
-import { parseScene, applyLook, lookDefaults, emptyScene, compact, sameScene, LOOKS, SCENE_MAX } from './scene';
+import { parseScene, applyLook, lookDefaults, emptyScene, compact, sameScene, presentSlides, LOOKS, SCENE_MAX } from './scene';
 import { uploadBoardFile, loadBoardFiles } from './files';
 import { remoteWins } from './boardSync';
 import { exportPng, exportSvg, exportThumb, copyPng, downloadBlob, downloadScene } from './exportBoard';
 import { saveDraft, loadDraft, clearDraft } from './draft';
+import MarkupBar from './MarkupBar';
+import DiagramSheet from './diagram/DiagramSheet';
+import { layout as layoutGraph, graphFromElements, bounds } from './diagram/graph';
+import { newStamp, prefixGraph, stampBoxes, stampOf, stampSelection, mergeBuilt, placeOrigin } from './diagram/place';
+import { loadGraph } from './diagram/sources';
+import RecordCardSheet from './diagram/RecordCardSheet';
+import { cardGraph, markCard, taskCards, refreshedCards } from './diagram/recordCards';
+import { openRecord } from '../recordLink';
+import { api as nexusApi } from '../../api';
+import {
+  DEFAULT_MARKUP, TOOL_KEYS, MARKUP_COLORS, MARKUP_SIZES, toolByKey, strokeStyle, toolFromEngine,
+  commentPin, pinMeasurer, nextCommentNumber, stageToBoard, restyle, removeSelected, PIN_MAX,
+} from './markupTools';
 import { dataUrlToFile } from '../../tasks/lib';
 import { exportFileName } from '../notesModel';
 import { dialog } from '../../ui/dialog';
@@ -57,6 +70,54 @@ const CANVAS_COLORS = [
 
 const elKey = (e) => `${e?.version || 0}:${e?.versionNonce ?? 0}`;
 const nonce = () => Math.floor(Math.random() * 0x7fffffff);
+
+// The markup bar's last ink, width and highlighter ink, per browser (a
+// convenience - never board data; the tool itself always starts at Select so
+// a board opened on a phone pans before it draws).
+const MARKUP_PREF = 'nx-board-markup';
+function readMarkupPref() {
+  const base = { ...DEFAULT_MARKUP, tool: 'select' };
+  try {
+    const p = JSON.parse(localStorage.getItem(MARKUP_PREF) || '{}');
+    const okColor = (k) => MARKUP_COLORS.some((c) => c.key === k);
+    return {
+      ...base,
+      color: okColor(p.color) ? p.color : base.color,
+      highlightColor: okColor(p.highlightColor) ? p.highlightColor : base.highlightColor,
+      size: MARKUP_SIZES.some((z) => z.key === p.size) ? p.size : base.size,
+    };
+  } catch { return base; }
+}
+function writeMarkupPref(m) {
+  try { localStorage.setItem(MARKUP_PREF, JSON.stringify({ color: m.color, highlightColor: m.highlightColor, size: m.size })); } catch { /* private window */ }
+}
+// Tools the ink and width do not apply to (they draw nothing, or a picture).
+const NO_INK = new Set(['select', 'hand', 'eraser', 'image', 'frame', 'laser']);
+const anySelected = (ids) => !!ids && Object.keys(ids).some((k) => ids[k]);
+
+// The + buttons on a selected box (board/diagram/): where the box sits on
+// the stage, or null when there is no single box to grow from.
+const GRIP_BOXES = new Set(['rectangle', 'diamond', 'ellipse']);
+const SIDE_WORD = { up: 'Above', right: 'to the Right', down: 'Below', left: 'to the Left' };
+function gripFor(elements, appState) {
+  const sel = appState?.selectedElementIds || {};
+  const ids = Object.keys(sel).filter((k) => sel[k]);
+  if (ids.length !== 1 || appState?.activeTool?.type !== 'selection' || appState?.editingTextElement
+    || appState?.selectedElementsAreBeingDragged || appState?.resizingElement || appState?.newElement) return null;
+  const el = (elements || []).find((e) => e.id === ids[0]);
+  if (!el || el.isDeleted || el.locked || !GRIP_BOXES.has(el.type) || el.customData?.nexusComment) return null;
+  const zoom = Number(appState?.zoom?.value) || 1;
+  return {
+    x: Math.round((el.x + (Number(appState.scrollX) || 0)) * zoom), y: Math.round((el.y + (Number(appState.scrollY) || 0)) * zoom),
+    w: Math.round(el.width * zoom), h: Math.round(el.height * zoom),
+  };
+}
+const sameGrip = (a, b) => (!a && !b) || (a && b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h);
+
+// Hide Tools (Neil, 11/06/2026): a computer's bar and zoom can fold away, per browser.
+const TOOLS_HIDDEN = 'nx-board-tools-hidden';
+const readToolsHidden = () => { try { return localStorage.getItem(TOOLS_HIDDEN) === '1'; } catch { return false; } };
+
 
 function readTheme() {
   if (typeof document === 'undefined') return 'light';
@@ -91,7 +152,7 @@ function useEngine() {
   return { engine, error, attempt, retry };
 }
 
-export default function Board({ note, isPhone = false, look: lookProp, onLook, onScene, onThumb, collab = null, onApi }) {
+export default function Board({ note, isPhone = false, look: lookProp, onLook, onScene, onThumb, collab = null, onApi, presentSignal = 0 }) {
   const canEdit = !!note?.canEdit;
   const theme = useAppTheme();
   const kbInset = useKeyboardInset(isPhone);
@@ -107,6 +168,26 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   const [notice, setNotice] = useState(null);     // { text, error, code }
   const [draftOffer, setDraftOffer] = useState(null);   // { scene, rev, at } from draft.js
   const stageRef = useRef(null);
+  // The markup bar (MarkupBar.jsx): an editor's, whenever the engine offers
+  // it, and the ONE tool bar - the engine's own strip is hidden (its other
+  // tools are under More Tools). On a phone it is all the chrome: the
+  // engine's properties panel opens above it from Style.
+  const markupApi = canEdit ? engine?.markup : null;
+  const [mk, setMk] = useState(readMarkupPref);
+  const mkRef = useRef(mk);
+  useEffect(() => { mkRef.current = mk; }, [mk]);
+  const [hasSelection, setHasSelection] = useState(false);
+  // Diagrams (board/diagram/): the sheet open, the + buttons' box, Refresh.
+  const diagramApi = canEdit ? engine?.diagram : null;
+  const [dgSheet, setDgSheet] = useState(null);     // 'text' | 'org' | 'workflow' | 'tasks' | 'record'
+  const [grip, setGrip] = useState(null);
+  const gripRef = useRef(null);
+  const [canRefresh, setCanRefresh] = useState(false);
+  const canRefreshRef = useRef(false);
+  const selRef = useRef(false);
+  const [phoneMore, setPhoneMore] = useState(false);
+  const [styleOpen, setStyleOpen] = useState(false);
+  const styleRef = useRef(false);
   // File meta the scene keeps (id -> {id, mimeType, url, created}); uploads add to it.
   const filesMeta = useRef({ ...initial.files });
   const uploading = useRef(new Set());
@@ -348,6 +429,19 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
 
   // The engine's live state after a change (the adapter's Canvas onChange).
   const onChange = useCallback(({ elements, appState, files }) => {
+    // The markup bar follows the engine: the tool it is really on (its own
+    // strip, a shortcut, text dropping back to Select) and whether anything
+    // is selected - state only when either moved.
+    const sel = anySelected(appState?.selectedElementIds);
+    if (sel !== selRef.current) { selRef.current = sel; setHasSelection(sel); }
+    const style = appState?.openMenu === 'shape';
+    if (style !== styleRef.current) { styleRef.current = style; setStyleOpen(style); }
+    const t = toolFromEngine(appState?.activeTool?.type, mkRef.current.tool);
+    if (t && t !== mkRef.current.tool) setMk((m) => ({ ...m, tool: t }));
+    const g = gripFor(elements, appState);
+    if (!sameGrip(g, gripRef.current)) { gripRef.current = g; setGrip(g); }
+    const st = sel ? stampOf(elements, appState?.selectedElementIds) : null;
+    if (!!st !== canRefreshRef.current) { canRefreshRef.current = !!st; setCanRefresh(!!st); }
     storeNewFiles(files, elements);
     // Into the shared document first (the others see it as it is drawn),
     // then the save timer.
@@ -375,6 +469,76 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   }, [api, onLook, scheduleSave]);
 
   const fit = useCallback(() => { api?.scrollToContent(undefined, { fitToContent: true, animate: true }); }, [api]);
+
+  // ---- Present ------------------------------------------------------------
+  // The board full screen with the tools away and a pill to step the slides;
+  // the canvas under it takes no pointer, so nothing is drawn by accident.
+  const rootRef = useRef(null);
+  const [present, setPresent] = useState(null);     // { slides, i, fs }
+  const presentRef = useRef(null);     // the same, read by the key and full screen listeners
+  const showSlide = useCallback((slide) => { api?.scrollToContent(slide || undefined, { fitToContent: true, animate: true }); }, [api]);
+  const startPresent = useCallback(() => {
+    if (!api || presentRef.current) return;
+    const slides = presentSlides(api.getSceneElementsIncludingDeleted());
+    let fs = false;
+    const el = rootRef.current;
+    if (el?.requestFullscreen && !document.fullscreenElement) {
+      fs = true;
+      try { el.requestFullscreen().catch(() => {}); } catch { /* refused: present in the page */ }
+    }
+    const p = { slides, i: 0, fs };
+    presentRef.current = p;
+    setPresent(p);
+    showSlide(slides[0]);
+  }, [api, showSlide]);
+  const stepSlide = useCallback((d) => {
+    const p = presentRef.current;
+    if (!p) return;
+    const i = Math.max(0, Math.min(p.slides.length - 1, p.i + d));
+    if (i === p.i) return;
+    presentRef.current = { ...p, i };
+    setPresent(presentRef.current);
+    showSlide(p.slides[i]);
+  }, [showSlide]);
+  const stopPresent = useCallback(() => {
+    const p = presentRef.current;
+    if (!p) return;
+    presentRef.current = null;
+    setPresent(null);
+    if (p.fs && document.fullscreenElement) { try { document.exitFullscreen().catch(() => {}); } catch { /* already out */ } }
+    fit();
+  }, [fit]);
+  // The caller's Present button bumps the signal; it is taken once the engine is up.
+  const seenSignal = useRef(presentSignal);
+  useEffect(() => {
+    if (!api || !presentSignal || presentSignal === seenSignal.current) return;
+    seenSignal.current = presentSignal;
+    startPresent();
+  }, [presentSignal, api, startPresent]);
+  useEffect(() => {
+    if (!present) return undefined;
+    const key = (e) => {
+      const k = e.key;
+      if (k === 'ArrowRight' || k === ' ' || k === 'PageDown') stepSlide(1);
+      else if (k === 'ArrowLeft' || k === 'PageUp') stepSlide(-1);
+      else if (k === 'Escape') stopPresent();
+      else return;
+      e.preventDefault(); e.stopPropagation();
+    };
+    // Esc in browser full screen leaves it with no keydown: that ends the show too.
+    const fsChange = () => { if (presentRef.current?.fs && !document.fullscreenElement) stopPresent(); };
+    window.addEventListener('keydown', key, true);
+    document.addEventListener('fullscreenchange', fsChange);
+    return () => { window.removeEventListener('keydown', key, true); document.removeEventListener('fullscreenchange', fsChange); };
+  }, [present, stepSlide, stopPresent]);
+
+  // ---- Hide Tools (a computer) ---------------------------------------------
+  const [toolsHiddenPref, setToolsHiddenPref] = useState(readToolsHidden);
+  const toolsHiddenHere = toolsHiddenPref && !isPhone;
+  const hideTools = useCallback((v) => {
+    setToolsHiddenPref(v);
+    try { localStorage.setItem(TOOLS_HIDDEN, v ? '1' : '0'); } catch { /* private window */ }
+  }, []);
   const toast = useCallback((message) => { try { api?.setToast({ message, duration: 2000 }); } catch { /* engine not ready */ } }, [api]);
   const doExportPng = useCallback(async () => { if (!api) return; downloadBlob(await exportPng(api), exportFileName(note, 'png')); }, [api, note]);
   const doExportSvg = useCallback(async () => { if (!api) return; downloadBlob(new Blob([await exportSvg(api)], { type: 'image/svg+xml' }), exportFileName(note, 'svg')); }, [api, note]);
@@ -399,6 +563,168 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     scheduleSave();
   }, [api, scheduleSave]);
 
+  // ---- The markup bar ---------------------------------------------------
+  const inkFor = (m, tool = m.tool) => (tool === 'highlight' ? m.highlightColor : m.color);
+  const chooseTool = useCallback((key) => {
+    if (!api || !markupApi || !TOOL_KEYS.includes(key)) return;
+    const m = { ...mkRef.current, tool: key };
+    mkRef.current = m;
+    setMk(m);
+    markupApi.setTool(api, toolByKey(key));
+    if (!NO_INK.has(key)) markupApi.setStyle(api, strokeStyle(key, inkFor(m, key), m.size));
+  }, [api, markupApi]);
+  // An ink or a width: the next stroke's, and - with Select on and something
+  // picked - the selection's too (one undo step, carried to the others).
+  const restyleSelection = useCallback((opts) => {
+    if (!api || mkRef.current.tool !== 'select' || !selRef.current) return;
+    const ids = api.getAppState()?.selectedElementIds;
+    const els = api.getSceneElementsIncludingDeleted();
+    const next = restyle(els, ids, opts);
+    if (next !== els) { api.updateScene({ elements: next, captureUpdate: CAPTURE.IMMEDIATELY }); scheduleSave(); }
+  }, [api, scheduleSave]);
+  const chooseColor = useCallback((key) => {
+    const cur = mkRef.current;
+    const m = cur.tool === 'highlight' ? { ...cur, highlightColor: key } : { ...cur, color: key };
+    mkRef.current = m; setMk(m); writeMarkupPref(m);
+    if (api && markupApi && !NO_INK.has(m.tool)) markupApi.setStyle(api, strokeStyle(m.tool, inkFor(m), m.size));
+    restyleSelection({ colorKey: key });
+  }, [api, markupApi, restyleSelection]);
+  const chooseSize = useCallback((key) => {
+    const m = { ...mkRef.current, size: key };
+    mkRef.current = m; setMk(m); writeMarkupPref(m);
+    if (api && markupApi && !NO_INK.has(m.tool)) markupApi.setStyle(api, strokeStyle(m.tool, inkFor(m), m.size));
+    restyleSelection({ sizeKey: key });
+  }, [api, markupApi, restyleSelection]);
+  const undo = useCallback(() => { markupApi?.undo(stageRef.current); }, [markupApi]);
+  const toggleStyle = useCallback(() => { if (api) markupApi?.toggleStyle?.(api); }, [api, markupApi]);
+  const redo = useCallback(() => { markupApi?.redo(stageRef.current); }, [markupApi]);
+  const deleteSelected = useCallback(() => {
+    if (!api) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    const next = removeSelected(els, api.getAppState()?.selectedElementIds);
+    if (next === els) return;
+    api.updateScene({ elements: next, appState: { selectedElementIds: {} }, captureUpdate: CAPTURE.IMMEDIATELY });
+    selRef.current = false; setHasSelection(false);
+    scheduleSave();
+  }, [api, scheduleSave]);
+  // Comment: the next tap on the stage drops a numbered pin there, with the
+  // words asked for first (a cancel places nothing); then back to Select.
+  const placeComment = useCallback(async (e) => {
+    if (!api || !markupApi) return;
+    const rect = stageRef.current?.getBoundingClientRect?.();
+    const at = stageToBoard(e, rect, api.getAppState());
+    const words = await dialog.prompt('What should change here?', {
+      title: 'Add Comment', confirmText: 'Add Comment', placeholder: 'Make this railing taller', multiline: true, required: true,
+    });
+    chooseTool('select');
+    const text = String(words || '').trim().slice(0, PIN_MAX);
+    if (!text) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    const pin = markupApi.prepare(commentPin({ x: at.x, y: at.y, text, number: nextCommentNumber(els), colorKey: mkRef.current.color, look: lookRef.current, measure: pinMeasurer(lookRef.current) }));
+    api.updateScene({ elements: [...els, ...pin], captureUpdate: CAPTURE.IMMEDIATELY });
+    scheduleSave();
+  }, [api, markupApi, chooseTool, scheduleSave]);
+
+  // ---- Diagrams ------------------------------------------------------------
+  // One diagram notice at a time; never over the board's too-large warning.
+  const flashTimer = useRef(0);
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
+  const flash = useCallback((text, error = false) => {
+    clearTimeout(flashTimer.current);
+    setNotice((n) => (n?.code === 'large' ? n : { text, error, code: 'diagram' }));
+    flashTimer.current = setTimeout(() => setNotice((n) => (n?.code === 'diagram' ? null : n)), error ? 5000 : 3500);
+  }, []);
+  // A new diagram lands centered on what the stage shows, selected.
+  const placeGraph = useCallback((graph, { dir = 'TB', source = '', ref = '' } = {}) => {
+    if (!api || !diagramApi || !graph?.nodes?.length) return;
+    const stamp = newStamp();
+    const g = prefixGraph(graph, stamp);
+    const r = stageRef.current?.getBoundingClientRect?.();
+    const center = stageToBoard({ clientX: (r?.left || 0) + (r?.width || 0) / 2, clientY: (r?.top || 0) + (r?.height || 0) / 2 }, r, api.getAppState());
+    const current = api.getSceneElementsIncludingDeleted();
+    const placed = layoutGraph(g, { dir, origin: placeOrigin(center, bounds(layoutGraph(g, { dir })), current) });
+    let built = diagramApi.build(placed, { look: lookRef.current });
+    if (source) built = stampBoxes(built, g.nodes.map((n) => n.id), { id: stamp, source, ref, dir });
+    const selected = Object.fromEntries(g.nodes.map((n) => [n.id, true]));
+    api.updateScene({ elements: [...current, ...built], appState: { selectedElementIds: selected }, captureUpdate: CAPTURE.IMMEDIATELY });
+    api.scrollToContent(built, { fitToContent: g.nodes.length > 1, animate: true });
+    scheduleSave();
+  }, [api, diagramApi, scheduleSave]);
+  // Tidy Up: the selected boxes (or the whole board) laid out again, sizes,
+  // colors and labels kept, as one change.
+  const tidy = useCallback((dir) => {
+    if (!api || !diagramApi) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    const { graph, replaced, origin } = graphFromElements(els, api.getAppState()?.selectedElementIds);
+    if (graph.nodes.length < 2) { flash('Nothing to tidy - select boxes joined by arrows, or nothing to tidy every diagram on the board.'); return; }
+    const built = diagramApi.build(layoutGraph(graph, { dir, origin }), { look: lookRef.current });
+    api.updateScene({ elements: mergeBuilt(els, built, replaced), captureUpdate: CAPTURE.IMMEDIATELY });
+    scheduleSave();
+  }, [api, diagramApi, flash, scheduleSave]);
+  // Refresh from Source: a data diagram drawn again from today's data, where it is.
+  const refreshDiagram = useCallback(async () => {
+    if (!api || !diagramApi) return;
+    const st = stampOf(api.getSceneElementsIncludingDeleted(), api.getAppState()?.selectedElementIds);
+    if (!st) return;
+    let graph;
+    try { graph = await loadGraph(st.source, st.ref, { fresh: true }); } catch { flash('The data did not load - the diagram is unchanged. Try again in a moment.', true); return; }
+    if (!graph?.nodes?.length) { flash('There is nothing to draw from this source now - the diagram is unchanged.'); return; }
+    const now = api.getSceneElementsIncludingDeleted();
+    const mine = stampSelection(now, st.id);
+    // Gone while the data loaded (deleted here or by someone else): nothing to
+    // redraw - and an empty selection would read as the whole board.
+    if (!Object.keys(mine).length) return;
+    const { replaced, origin } = graphFromElements(now, mine);
+    const g = prefixGraph(graph, st.id);
+    const built = stampBoxes(diagramApi.build(layoutGraph(g, { dir: st.dir || 'TB', origin }), { look: lookRef.current }), g.nodes.map((n) => n.id), st);
+    api.updateScene({ elements: mergeBuilt(now, built, replaced), captureUpdate: CAPTURE.IMMEDIATELY });
+    scheduleSave();
+    flash('Redrawn from today\'s data.');
+  }, [api, diagramApi, flash, scheduleSave]);
+  // Record Cards (11/07/2026, diagram/recordCards.js): a picked record lands
+  // as one box that opens it; a task card says Open / Done.
+  const placeRecord = useCallback(async (row) => {
+    if (!api || !diagramApi || !row) return;
+    const ref = `${row.kind === 'board' ? 'note' : row.kind}:${row.id}`;
+    const state = row.kind === 'task' ? (await nexusApi.taskStates([row.id]).catch(() => null))?.tasks?.[row.id] : null;
+    const stamp = newStamp();
+    const g = prefixGraph(cardGraph(row, state), stamp);
+    const r = stageRef.current?.getBoundingClientRect?.();
+    const center = stageToBoard({ clientX: (r?.left || 0) + (r?.width || 0) / 2, clientY: (r?.top || 0) + (r?.height || 0) / 2 }, r, api.getAppState());
+    const current = api.getSceneElementsIncludingDeleted();
+    const placed = layoutGraph(g, { origin: placeOrigin(center, bounds(layoutGraph(g)), current) });
+    const built = markCard(diagramApi.build(placed, { look: lookRef.current }), g.nodes[0].id, ref);
+    api.updateScene({ elements: [...current, ...built], appState: { selectedElementIds: { [g.nodes[0].id]: true } }, captureUpdate: CAPTURE.IMMEDIATELY });
+    api.scrollToContent(built, { fitToContent: false, animate: true });
+    scheduleSave();
+    flash('Added. Use the link button on the card to open it.');
+  }, [api, diagramApi, scheduleSave, flash]);
+  // An editor opening the board brings each task card's Open / Done line up
+  // to date - once per board open, as newer versions (they sync and save).
+  const cardsChecked = useRef(false);
+  useEffect(() => {
+    if (!api || !canEdit || cardsChecked.current) return;
+    cardsChecked.current = true;
+    const ids = [...new Set(taskCards(api.getSceneElementsIncludingDeleted()).map((c) => c.taskId))].slice(0, 50);
+    if (!ids.length) return;
+    nexusApi.taskStates(ids).then((res) => {
+      const changed = refreshedCards(api.getSceneElementsIncludingDeleted(), res?.tasks);
+      if (!changed.length) return;
+      const byId = new Map(changed.map((e) => [e.id, e]));
+      api.updateScene({ elements: api.getSceneElementsIncludingDeleted().map((e) => byId.get(e.id) || e), captureUpdate: CAPTURE.NEVER });
+      scheduleSave();
+    }).catch(() => {});
+  }, [api, canEdit, scheduleSave]);
+  const growBox = useCallback((side) => { diagramApi?.grow(stageRef.current, side); }, [diagramApi]);
+  const onDiagram = useCallback((key) => {
+    if (key.startsWith('shape:')) {
+      placeGraph({ nodes: [{ id: 'n1', label: '', shape: key.slice(6) }], edges: [] });
+      flash(isPhone ? 'Double-tap to type in it, or + to add the next box.' : 'Press Enter to type in it, or + to add the next box.');
+    } else if (key.startsWith('tidy:')) tidy(key.slice(5));
+    else if (key === 'refresh') refreshDiagram();
+    else setDgSheet(key);
+  }, [placeGraph, tidy, refreshDiagram, flash, isPhone]);
+
   const lookToggle = (
     <div className="nx-board-look" role="group" aria-label="Look">
       {LOOKS.map((k) => (
@@ -415,6 +741,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
       {canEdit && <Menu.Custom>{lookToggle}</Menu.Custom>}
       {canEdit && <Menu.Separator />}
       <Menu.Item icon={<Maximize2 size={14} />} onSelect={fit}>Fit to Screen</Menu.Item>
+      {!isPhone && <Menu.Item icon={<Presentation size={14} />} onSelect={startPresent}>Present</Menu.Item>}
       <Menu.Separator />
       <Menu.Item icon={<ImageIcon size={14} />} onSelect={doExportPng}>Export as PNG</Menu.Item>
       <Menu.Item icon={<Download size={14} />} onSelect={doExportSvg}>Export as SVG</Menu.Item>
@@ -436,8 +763,14 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     </Menu.Root>
   ) : null;
 
+  const showBar = !!(markupApi && api);
+  const barOnly = showBar && isPhone;
+  const toolsHidden = toolsHiddenHere && showBar;   // only an editor's bar folds away
+  const sheetRow = (Icon, label, onClick) => (
+    <button type="button" className="nx-mk-sheet-row" onClick={() => { setPhoneMore(false); onClick(); }}><Icon size={18} /> {label}</button>
+  );
   return (
-    <div className={`nx-board${isPhone ? ' is-phone' : ''}${canEdit ? '' : ' is-view'}`} data-look={look}
+    <div ref={rootRef} className={`nx-board${isPhone ? ' is-phone' : ''}${canEdit ? '' : ' is-view'}${showBar ? ' has-markup' : ''}${barOnly ? ' is-markup-only' : ''}${toolsHidden ? ' is-tools-hidden' : ''}${present ? ' is-presenting' : ''}`} data-look={look}
       style={kbInset ? { '--nx-kb-inset': `${kbInset}px` } : undefined} data-testid="nx-board">
       {draftOffer && canEdit && (
         <div className="nx-board-draft" role="status" aria-label="Unsaved drawing">
@@ -466,10 +799,81 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
                   onPointerUpdate={collab ? onPointerUpdate : undefined}
                   topRight={isPhone || !canEdit ? null : lookToggle}
                   menu={menu}
+                  onRecordOpen={openRecord}
                 />
               </EngineBoundary>
             )}
+        {showBar && mk.tool === 'comment' && (
+          <div className="nx-mk-place" data-testid="nx-markup-place" role="button" tabIndex={0} aria-label="Tap where the comment goes"
+            onClick={placeComment} onKeyDown={(e) => { if (e.key === 'Escape') chooseTool('select'); }}>
+            <span className="nx-mk-place-hint">Tap where the comment goes</span>
+          </div>
+        )}
+        {showBar && !toolsHidden && !present && (
+          <MarkupBar diagram={diagramApi ? { onAction: onDiagram, canTidy: true, canRefresh } : null} phone={isPhone} tool={mk.tool} colorKey={inkFor(mk)} sizeKey={mk.size} hasSelection={hasSelection}
+            onTool={chooseTool} onColor={chooseColor} onSize={chooseSize} onUndo={undo} onRedo={redo} onDelete={deleteSelected}
+            styleOpen={styleOpen} onStyle={isPhone ? toggleStyle : undefined}
+            onMore={isPhone ? () => setPhoneMore(true) : undefined} onHide={isPhone ? undefined : () => hideTools(true)} />
+        )}
+        {toolsHidden && !present && (
+          <button type="button" className="nx-board-show-tools" onClick={() => hideTools(false)}>
+            <ChevronUp size={15} aria-hidden="true" /> Show Tools
+          </button>
+        )}
+        {present && (<>
+          <div className="nx-present-shield" aria-hidden="true" />
+          <div className="nx-present-pill" role="toolbar" aria-label="Presenting">
+            <button type="button" className="nx-mk-btn" onClick={() => stepSlide(-1)} disabled={present.i === 0} aria-label="Previous Slide" title="Previous (Left Arrow)"><ChevronLeft size={18} /></button>
+            <span className="nx-present-count" aria-live="polite">{present.i + 1} of {present.slides.length}</span>
+            <button type="button" className="nx-mk-btn" onClick={() => stepSlide(1)} disabled={present.i >= present.slides.length - 1} aria-label="Next Slide" title="Next (Right Arrow)"><ChevronRight size={18} /></button>
+            <span className="nx-mk-sep" aria-hidden />
+            <button type="button" className="nx-present-exit" onClick={stopPresent} title="Exit (Esc)"><X size={15} aria-hidden="true" /> Exit</button>
+          </div>
+        </>)}
+        {showBar && diagramApi && grip && !toolsHidden && !present && (
+          <div className="nx-dg-grip" style={{ left: grip.x, top: grip.y, width: grip.w, height: grip.h }}>
+            {['up', 'right', 'down', 'left'].map((side) => (
+              <button key={side} type="button" className={`nx-dg-plus is-${side}`} data-side={side}
+                aria-label={`Add the Next Box ${SIDE_WORD[side]}`} title={isPhone ? 'Add the Next Box' : 'Add the Next Box (Ctrl + Arrow)'}
+                onPointerDown={(e) => e.stopPropagation()} onClick={() => growBox(side)}>
+                <Plus size={14} strokeWidth={2.5} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
+        {dgSheet === 'record' && diagramApi && (
+          <RecordCardSheet noteId={note?.id || ''} onClose={() => setDgSheet(null)}
+            onPick={(row) => { setDgSheet(null); placeRecord(row); }} />
+        )}
+        {dgSheet && dgSheet !== 'record' && diagramApi && (
+          <DiagramSheet mode={dgSheet} onClose={() => setDgSheet(null)}
+            onPlace={(graph, opts) => { setDgSheet(null); placeGraph(graph, opts); }} />
+        )}
         {notice && <div className={`nx-board-note${notice.error ? ' is-error' : ''}`} role="status">{notice.text}</div>}
+        {showBar && isPhone && phoneMore && (
+          <div className="nx-mk-sheet-wrap" onPointerDown={(e) => { if (e.target === e.currentTarget) setPhoneMore(false); }}>
+            <div className="nx-mk-sheet" role="dialog" aria-label="Board Options">
+              <div className="nx-mk-sheet-head">
+                <span>Board</span>
+                <button type="button" className="nx-mk-btn" onClick={() => setPhoneMore(false)} aria-label="Close"><X size={18} /></button>
+              </div>
+              <div className="nx-board-menu-kicker">Look</div>
+              {lookToggle}
+              {sheetRow(Maximize2, 'Fit to Screen', fit)}
+              {sheetRow(ImageIcon, 'Export as PNG', doExportPng)}
+              {sheetRow(Copy, 'Copy as Picture', doCopy)}
+              {sheetRow(FileJson, 'Download Board File', doDownload)}
+              <div className="nx-board-menu-kicker">Canvas Background</div>
+              <div className="nx-board-swatches" role="group" aria-label="Canvas Background">
+                {CANVAS_COLORS.map((c) => (
+                  <button key={c.color} type="button" className="nx-board-swatch" style={{ background: c.color }}
+                    aria-label={c.label} title={c.label} onClick={() => setBackground(c.color)} />
+                ))}
+              </div>
+              {sheetRow(Eraser, 'Clear Board', doClear)}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

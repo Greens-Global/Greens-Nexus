@@ -47,7 +47,7 @@ describe('The desk bar', () => {
     expect(tabs[0].textContent).toContain('Needs Reply');
     expect(tabs[1].textContent).toContain('Unassigned');
     expect(tabs[1].querySelector('.hdr-tab-badge--alarm')).toBeTruthy();
-    expect(tabs[tabs.length - 1].textContent).toContain('+ View');
+    expect(tabs[tabs.length - 1].textContent).toContain('Other Queues');   // the rest, in one dropdown (11/06/2026)
     expect(screen.getByRole('button', { name: /Create/ })).toBeTruthy();
   });
 });

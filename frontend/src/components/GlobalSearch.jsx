@@ -31,7 +31,8 @@ export default function GlobalSearch() {
   // Every opening starts clean.
   const openSheet = useCallback(() => { setQuery(''); setActiveIdx(0); setOpen(true); }, []);
   const close = useCallback(() => setOpen(false), []);
-  const pick = useCallback((row) => { setOpen(false); row.run?.(); }, []);
+  const { remember } = search;
+  const pick = useCallback((row) => { setOpen(false); remember(row); row.run?.(); }, [remember]);
   useEffect(() => {
     const onKey = (e) => {
       if (!isSearchShortcut(e)) return;
@@ -71,9 +72,10 @@ export default function GlobalSearch() {
             <X size={18} />
           </button>
         </div>
-        {query.trim()
+        {query.trim() || search.rows.length
           ? <SearchResults query={query} groups={search.groups} rows={search.rows} searching={search.searching}
-              activeIdx={idx} onActive={setActiveIdx} onPick={pick} listRef={listRef} />
+              activeIdx={idx} onActive={setActiveIdx} onPick={pick} listRef={listRef}
+              onToggleFavorite={search.toggleFavorite} isFavorite={search.isFavorite} />
           : <div className="gs-hint">{SEARCH_HINT}</div>}
       </div>
     </div>

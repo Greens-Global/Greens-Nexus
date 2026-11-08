@@ -36,6 +36,114 @@ You will hear these on every boat call.
 
 ## The Boat Types
 
+```figure
+{
+  "kind": "drawings",
+  "title": "What Each Boat Looks Like on Its Trailer",
+  "items": [
+    {
+      "draw": "boat-bass",
+      "label": "Bass boat",
+      "note": "low; a big outboard and a trolling motor on the bow"
+    },
+    {
+      "draw": "boat-pontoon",
+      "label": "Pontoon",
+      "note": "wide tubes and a deck; the bimini makes it tall"
+    },
+    {
+      "draw": "boat-wake",
+      "label": "Ski or wake boat",
+      "note": "the wake tower is the height problem, even folded"
+    },
+    {
+      "draw": "boat-bowrider",
+      "label": "Bowrider or deck boat",
+      "note": "the general family boat"
+    },
+    {
+      "draw": "boat-center-console",
+      "label": "Center console",
+      "note": "twin outboards off the back and a T-top"
+    },
+    {
+      "draw": "boat-cuddy",
+      "label": "Cuddy cabin or cruiser",
+      "note": "a small cabin makes it taller"
+    },
+    {
+      "draw": "boat-sailboat",
+      "label": "Trailerable sailboat",
+      "note": "the mast lies on the boat and can stick out past both ends"
+    },
+    {
+      "draw": "boat-jet-ski",
+      "label": "Jet skis",
+      "note": "often two on one trailer, 15 to 20 ft in all"
+    }
+  ],
+  "caption": "The trailer tongue, the motor's lower unit and a swim platform add several feet to the hull length."
+}
+```
+
+```figure
+{
+  "kind": "bars",
+  "title": "Typical Hull Lengths by Boat Type",
+  "unit": "ft",
+  "max": 45,
+  "items": [
+    {
+      "label": "Performance (go-fast)",
+      "low": 30,
+      "value": 45
+    },
+    {
+      "label": "Cuddy cabin or cruiser",
+      "low": 20,
+      "value": 35
+    },
+    {
+      "label": "Center console",
+      "low": 18,
+      "value": 30,
+      "text": "18 to 30 ft or more"
+    },
+    {
+      "label": "Pontoon",
+      "low": 18,
+      "value": 26
+    },
+    {
+      "label": "Bowrider or deck boat",
+      "low": 18,
+      "value": 26
+    },
+    {
+      "label": "Trailerable sailboat",
+      "low": 16,
+      "value": 26
+    },
+    {
+      "label": "Ski or wake boat",
+      "low": 20,
+      "value": 25
+    },
+    {
+      "label": "Bass boat",
+      "low": 17,
+      "value": 21
+    },
+    {
+      "label": "Jet ski (each)",
+      "low": 10,
+      "value": 13
+    }
+  ],
+  "caption": "Hull length (LOA) only. The trailer tongue, the motor and a swim platform add several feet to what sits in the space."
+}
+```
+
 Lengths are typical hull lengths; sources differ and models vary (as of 2026). The notes say what matters for storage.
 
 | Type | Typical hull length | What matters for storage |

@@ -25,7 +25,7 @@ HOURLY = {
                       seg("2026-10-05T20:25:00", "2026-10-05T23:45:00", 200, amount=73.33,
                           breaks=[{"start": "2026-10-05T21:00:00", "end": "2026-10-05T21:10:00", "min": 10,
                                    "startId": "b1", "endId": "b2"}])]},
-        {"date": "2026-10-12", "weekStart": "2026-10-11", "workedMin": 490, "rate": 22.0,
+        {"date": "2026-10-12", "weekStart": "2026-10-11", "workedMin": 490, "otMin": 10, "rate": 22.0,
          "segments": [seg("2026-10-12T15:50:00", "2026-10-12T19:50:00", 240, amount=88.0),
                       seg("2026-10-12T20:00:00", "2026-10-13T00:10:00", 250, ot=10, amount=93.5, in_id="edited",
                           note="Forgot to clock back in; Clock in time should be around 1 PM · payroll edit")]},
@@ -103,9 +103,9 @@ class Hourly(unittest.TestCase):
     def test_every_day_and_week_totals(self):
         self.assertIn("Sun 10/04", self.text)
         self.assertIn("Sat 10/17", self.text)
-        self.assertIn("Total hours clocked for week of 10/04 to 10/10: 7:45 · Overtime: 0:00 · Wage: $170.50",
-                      self.text)
-        self.assertIn("Total hours clocked for week of 10/11 to 10/17: 16:10", self.text)
+        # Neil, 11/06/2026: labels regular, values bold, "None" with no overtime.
+        self.assertIn("Week of 10/04 - 10/10 Total Hours: 7:45 Overtime: None Wages: $170.50", self.text)
+        self.assertIn("Week of 10/11 - 10/17 Total Hours: 16:10 Overtime: 0:10 Wages: $357.50", self.text)   # the days' overtime
 
     def test_break_row_under_its_shift(self):
         self.assertIn("20:25 21:00", self.text); self.assertIn("21:10 23:45", self.text)   # punch pairs (Oct 20)
@@ -140,13 +140,17 @@ class Hourly(unittest.TestCase):
         self.assertNotIn("Approval log", self.text)
 
     def test_header(self):
-        for s in ("Time Sheet", "Employee: Nimi Patel", "Company: Oversite Management, Inc",
-                  "Employee Code: GG-014", "Department: Operations - SCMC", "Pay Rate: $22.00/hr"):
+        # Neil, 11/06/2026 (option B): title left, pay period right, then one
+        # boxed row of labeled fields - and no Employee Code.
+        for s in ("Time Sheet", "PAY PERIOD", "10/04/2026 - 10/17/2026", "EMPLOYEE", "Nimi Patel",
+                  "COMPANY", "Oversite Management, Inc", "DEPARTMENT", "Operations - SCMC",
+                  "PAY TYPE", "Hourly (bi-weekly)", "PAY RATE", "$22.00/hr"):
             self.assertIn(s, self.text)
+        self.assertLess(self.text.index("PAY PERIOD"), self.text.index("Nimi Patel"))
         # Charmi, Oct 20: not "... for Greens Global", no email, no OT rule or
         # version, no approvals up top.
-        for s in ("Time Sheet Report", "nimi@x.com", "OT rule", "Version", "Dept:", "Code: GG"):
-            self.assertNotIn(s, self.text.replace("Employee Code: GG", ""))
+        for s in ("Time Sheet Report", "nimi@x.com", "OT rule", "Version", "Dept:", "Code", "GG-014"):
+            self.assertNotIn(s, self.text)
         self.assertLess(self.text.index("Wage"), self.text.index("Approved by manager"))
 
     def test_a_busy_card_still_ends_on_page_one(self):
@@ -180,7 +184,9 @@ class Hourly(unittest.TestCase):
         brk = next(i for i, r in enumerate(rows) if "Break" in getattr(r[0], "text", ""))
         self.assertEqual((rows[brk][1].style.alignment, rows[brk][2].style.alignment), (2, 2))
         self.assertIn("10 min", rows[brk][4].text)
-        week = next(i for i, r in enumerate(rows) if "Total hours clocked" in getattr(r[0], "text", ""))
+        week = next(i for i, r in enumerate(rows) if "Week of" in getattr(r[0], "text", ""))
+        self.assertIn("Total Hours: <b>", rows[week][0].text)    # the value bold, the label not
+        self.assertEqual({rows[0][c].style.alignment for c in range(len(rows[0]))}, {0})   # every header sits left (Neil, 11/06/2026)
         self.assertEqual(rows[week][0].style.alignment, 1)    # the week line is centered...
         self.assertIn(week, {c[1][1] for c in t._bkgrndcmds if c[3] == tp.WEEK})   # ...on the green tint
         self.assertEqual(tp.WEEK.hexval(), "0xe8f5ee")
@@ -229,6 +235,10 @@ class Fixed(unittest.TestCase):
             self.assertIn(s, text)
         self.assertNotIn("(9.00)", text)       # no decimal hours (Neil, 11/04/2026)
         self.assertNotIn("OT rule", text)
+
+    def test_the_summary_headers_sit_left(self):
+        rows = tp._summary_table([("TOTALS", "9:00", "$200.00")], False)._cellvalues
+        self.assertEqual([c.style.alignment for c in rows[0][1:]], [0, 0])   # Neil, 11/06/2026
 
 
 if __name__ == "__main__":

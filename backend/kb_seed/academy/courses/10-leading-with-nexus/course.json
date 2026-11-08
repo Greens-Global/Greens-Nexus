@@ -1,0 +1,1138 @@
+{
+ "slug": "leading-with-nexus",
+ "title": "Leading With Nexus",
+ "description": "For managers and above: how to run a team and a business on Nexus. The leader's day, approvals and the recommendation, shifts and the planner, Time Sheet review, the scorecard, the ticket desk, people from hiring to exits, training the team and keeping courses current, communicating, the money and property views, and access, settings and the record. Course 10 of the Academy.",
+ "overview": [
+  "The leader's day: decisions, the team's view, the Team widgets",
+  "Approvals: every kind, the recommendation, punch fixes, phones and delegates",
+  "Shifts and the planner: rules that warn, Share and Confirm, the day's notices",
+  "Time Sheet review: the attention strip, approve or send back, only the employee signs",
+  "Workforce Analytics and the scorecard",
+  "The ticket desk as a leader: queues, clocks, Preventive, what stays invisible",
+  "People: hiring, onboarding, probation, performance, exits",
+  "Training your team and keeping courses current",
+  "Communicating: announcements, Teams, Notes and Boards",
+  "Money and property views; access, settings and the record"
+ ],
+ "est_minutes": 150,
+ "delivery": "online",
+ "level": "advanced",
+ "tags": "leadership, managers, nexus, team",
+ "teaches": "Dashboard, Approvals, Team, Shift Planner, Time Sheet, Time Off, Workforce Analytics, Tickets, People, Hiring, Knowledge Base, Training, Announcements, Notes, Settings, Asset Management, Accounting",
+ "departments": "Operations",
+ "min_reading_minutes": 70,
+ "lessons": [
+  {
+   "file": "01-the-leaders-day-in-nexus.md"
+  },
+  {
+   "file": "02-approvals-deciding-well.md"
+  },
+  {
+   "file": "03-your-teams-time-shifts-and-the-planner.md"
+  },
+  {
+   "file": "04-reviewing-and-approving-time-sheets.md"
+  },
+  {
+   "checkpoint": "Checkpoint: Decisions and Time",
+   "questions": [
+    {
+     "type": "single",
+     "q": "What are the two things a leader looks at every morning?",
+     "options": [
+      "Email and Teams",
+      "Who is here, and what is waiting on you",
+      "The budget and the bell",
+      "Cubby and the gate"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Team Attendance and Time Exceptions; the Approvals tab and the bell.",
+     "lesson": "01-the-leaders-day-in-nexus.md"
+    },
+    {
+     "type": "single",
+     "q": "An approval given in the hallway is:",
+     "options": [
+      "An approval",
+      "Not an approval until it is in Nexus; the person is not told and no record stands",
+      "Fine for small things",
+      "Recorded automatically"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Decide in Nexus, every time.",
+     "lesson": "01-the-leaders-day-in-nexus.md"
+    },
+    {
+     "type": "single",
+     "q": "A time off request reads Check First. That means:",
+     "options": [
+      "Reject it",
+      "Nexus found a reason to look: coverage, notice, balance or the calendar; the decision is still yours",
+      "Approve it",
+      "HR must decide"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Nothing is approved or rejected by code.",
+     "lesson": "02-approvals-deciding-well.md"
+    },
+    {
+     "type": "single",
+     "q": "A punch fix asks for a 6:30 PM clock-out with the reason 'stayed late' and nothing else. What do you do?",
+     "options": [
+      "Approve; the person is honest",
+      "Send it back asking what kept them, such as a ticket number or their End of Day message",
+      "Edit the punch yourself",
+      "Ignore it"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "A punch fix changes a pay record; the standard is evidence.",
+     "lesson": "02-approvals-deciding-well.md"
+    },
+    {
+     "type": "single",
+     "q": "The schedule rules in the Shift Planner:",
+     "options": [
+      "Block a share that breaks them",
+      "Warn, never block; sharing past a warning needs a reason kept on the change log",
+      "Are off",
+      "Email HR"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "The reason is never shown to staff.",
+     "lesson": "03-your-teams-time-shifts-and-the-planner.md"
+    },
+    {
+     "type": "single",
+     "q": "Confirm on a shared schedule means:",
+     "options": [
+      "The person agrees to every shift forever",
+      "The person has seen it; a problem is a conversation or a shift request",
+      "The manager approved it",
+      "Nothing"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "The planner shows who has not confirmed; a nudge follows.",
+     "lesson": "03-your-teams-time-shifts-and-the-planner.md"
+    },
+    {
+     "type": "single",
+     "q": "A Time Sheet is signed by:",
+     "options": [
+      "The manager",
+      "The employee only; the manager's approval is a review",
+      "HR",
+      "Both"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "The PDF carries the approval log with the manager's name.",
+     "lesson": "04-reviewing-and-approving-time-sheets.md"
+    },
+    {
+     "type": "single",
+     "q": "Before approving a Time Sheet, decide the change requests first because:",
+     "options": [
+      "It is polite",
+      "An approved request changes the hours",
+      "Payroll requires it",
+      "They expire"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Then read the attention strip and the days.",
+     "lesson": "04-reviewing-and-approving-time-sheets.md"
+    }
+   ]
+  },
+  {
+   "file": "05-workforce-analytics-and-the-scorecard.md"
+  },
+  {
+   "file": "06-running-the-desk-tickets-as-a-leader.md"
+  },
+  {
+   "file": "07-people-hiring-onboarding-probation-and-exits.md"
+  },
+  {
+   "file": "08-training-your-team.md"
+  },
+  {
+   "file": "09-communicating-announcements-teams-notes-and-boards.md"
+  },
+  {
+   "checkpoint": "Checkpoint: The Desk, People and Training",
+   "questions": [
+    {
+     "type": "single",
+     "q": "Expected hours for a part-timer with no shared shift are:",
+     "options": [
+      "8 a day",
+      "No Schedule, never guessed",
+      "Zero",
+      "The team average"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Share their shifts, or accept that the scorecard cannot score them.",
+     "lesson": "05-workforce-analytics-and-the-scorecard.md"
+    },
+    {
+     "type": "single",
+     "q": "Which queue is worked first, every hour at the desk?",
+     "options": [
+      "Mine",
+      "Needs Reply",
+      "Done",
+      "All Open"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "The requester spoke last, or nobody has replied yet.",
+     "lesson": "06-running-the-desk-tickets-as-a-leader.md"
+    },
+    {
+     "type": "single",
+     "q": "A leader with the Tickets grant asks to see Ask HR tickets. The right answer is:",
+     "options": [
+      "Yes, with a reason",
+      "No; confidential HR tickets are visible to HR's audience only, by design",
+      "Yes, for their team",
+      "Only on a phone"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "The private channel for pay and policy questions without the manager in the thread.",
+     "lesson": "06-running-the-desk-tickets-as-a-leader.md"
+    },
+    {
+     "type": "single",
+     "q": "Who finalizes a probation decision?",
+     "options": [
+      "The manager",
+      "HR; the manager's Confirm, Extend or End is a recommendation",
+      "The employee",
+      "Nexus"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "End opens the Offboard flow, never a second path.",
+     "lesson": "07-people-hiring-onboarding-probation-and-exits.md"
+    },
+    {
+     "type": "single",
+     "q": "Which signs first on an HR document?",
+     "options": [
+      "The company",
+      "The employee, always; the company countersigns after",
+      "Whoever is available",
+      "HR"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "No pre-signed or countersigned document is ever sent out.",
+     "lesson": "07-people-hiring-onboarding-probation-and-exits.md"
+    },
+    {
+     "type": "single",
+     "q": "A training escalation reaching you means:",
+     "options": [
+      "The person failed",
+      "A course is still not done after its due date; a nudge to a conversation about what is in the way",
+      "Fire them",
+      "Nothing"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Usually time on the schedule or a locked quiz.",
+     "lesson": "08-training-your-team.md"
+    },
+    {
+     "type": "single",
+     "q": "A course flagged 'Nexus changed since this course was reviewed' asks the owner to:",
+     "options": [
+      "Delete it",
+      "Read the lessons that teach the changed module, then publish edits or Mark Reviewed",
+      "Reassign it",
+      "Ignore it"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Courses follow the product.",
+     "lesson": "08-training-your-team.md"
+    },
+    {
+     "type": "single",
+     "q": "Where do conversations happen at Greens?",
+     "options": [
+      "In a Nexus chat",
+      "On Microsoft Teams; decisions in Nexus",
+      "By text",
+      "In notes"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Nexus has no chat of its own, on purpose.",
+     "lesson": "09-communicating-announcements-teams-notes-and-boards.md"
+    }
+   ]
+  },
+  {
+   "file": "10-money-and-property-views-for-leaders.md"
+  },
+  {
+   "file": "11-access-settings-and-the-leaders-record.md"
+  },
+  {
+   "file": "12-words-to-know.md"
+  }
+ ],
+ "quiz": {
+  "passPct": 80,
+  "drawCount": 30,
+  "maxTries": 3,
+  "shuffle": true,
+  "questions": [
+   {
+    "type": "single",
+    "q": "The Team widgets on the Dashboard are found under:",
+    "options": [
+     "Live",
+     "Team, in Add Widget, for managers and above",
+     "Workday",
+     "Metrics"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Team Attendance, Team Approvals, Pending Approvals, Who Has What, Team Time, Ticket Queue, Time Exceptions, Out Today, Pending Purchases, My Team.",
+    "lesson": "01-the-leaders-day-in-nexus.md"
+   },
+   {
+    "type": "single",
+    "q": "A leader's Dashboard should be:",
+    "options": [
+     "The employee's Home",
+     "A control room built from the Team widgets, saved as the default",
+     "Empty",
+     "The bell only"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Build it once.",
+    "lesson": "01-the-leaders-day-in-nexus.md"
+   },
+   {
+    "type": "multi",
+    "q": "Which of these gains come with leading a team in Nexus? Pick all that apply.",
+    "options": [
+     "Decisions in Approvals and the bell",
+     "The team's view in Team > Shifts and the widgets",
+     "The manager's screens inside modules",
+     "Seeing everyone's pay"
+    ],
+    "answer": [
+     0,
+     1,
+     2
+    ],
+    "explanation": "Managers never see pay.",
+    "lesson": "01-the-leaders-day-in-nexus.md"
+   },
+   {
+    "type": "single",
+    "q": "Delegate My Approvals is set:",
+    "options": [
+     "After you are back",
+     "Before you are away, for the days you name",
+     "By HR",
+     "Never"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A team whose leader is away with no delegate has a week nobody can answer.",
+    "lesson": "02-approvals-deciding-well.md"
+   },
+   {
+    "type": "single",
+    "q": "On a phone, Approvals shows:",
+    "options": [
+     "A bulk approve button",
+     "One card at a time with two decisions; no bulk approve",
+     "A spreadsheet",
+     "Nothing"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Each decision is read before it is made.",
+    "lesson": "02-approvals-deciding-well.md"
+   },
+   {
+    "type": "single",
+    "q": "A no with no reason written is:",
+    "options": [
+     "Efficient",
+     "A decision that will not stand and a person who cannot ask for different days",
+     "Required",
+     "Private"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Say why.",
+    "lesson": "02-approvals-deciding-well.md"
+   },
+   {
+    "type": "multi",
+    "q": "Which approval kinds come to a site leader? Pick all that apply.",
+    "options": [
+     "Time off",
+     "Punch fixes",
+     "Time Sheets",
+     "Shift requests",
+     "Reimbursements",
+     "Setting the pay rate"
+    ],
+    "answer": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "explanation": "Pay is HR's.",
+    "lesson": "02-approvals-deciding-well.md"
+   },
+   {
+    "type": "single",
+    "q": "Fill Automatically:",
+    "options": [
+     "Hires people",
+     "Lays each person's usual hours onto the week, skipping holidays and approved time off, and says how many days it skipped",
+     "Approves time off",
+     "Shares the week"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Copy Week does the same for a past week.",
+    "lesson": "03-your-teams-time-shifts-and-the-planner.md"
+   },
+   {
+    "type": "single",
+    "q": "The no-show rollup is:",
+    "options": [
+     "One bell per person",
+     "One bell per team and day, resolved in place as people arrive",
+     "An email to HR",
+     "A pay deduction"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Call the person.",
+    "lesson": "03-your-teams-time-shifts-and-the-planner.md"
+   },
+   {
+    "type": "single",
+    "q": "Shift swaps and open shifts are:",
+    "options": [
+     "On everywhere",
+     "Off by default, switched on per company in Settings > Shifts & Scheduling",
+     "Only for managers",
+     "Always on for Construction"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The teammate accepts first; then the manager.",
+    "lesson": "03-your-teams-time-shifts-and-the-planner.md"
+   },
+   {
+    "type": "tf",
+    "q": "Managers see labor cost in the planner.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The planner shows hours; the labor budget is HR and above.",
+    "lesson": "03-your-teams-time-shifts-and-the-planner.md"
+   },
+   {
+    "type": "single",
+    "q": "Weather calls apply to:",
+    "options": [
+     "Every department",
+     "People in departments with Weather Calls on, Construction by default",
+     "Storage sites",
+     "Nobody"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A storage team's week is not cancelled by weather.",
+    "lesson": "03-your-teams-time-shifts-and-the-planner.md"
+   },
+   {
+    "type": "single",
+    "q": "The attention strip on a Time Sheet lists:",
+    "options": [
+     "The person's pay",
+     "What to look at before approving: missing punches, location words, break reports, empty scheduled days",
+     "The budget",
+     "Nothing"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Read it first.",
+    "lesson": "04-reviewing-and-approving-time-sheets.md"
+   },
+   {
+    "type": "single",
+    "q": "A missed-break report from an hourly California employee means:",
+    "options": [
+     "Reject the Time Sheet",
+     "Add the premium pay; the card goes back for signature",
+     "Ignore it",
+     "Call HR"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Never ask anyone to sign a statement that is not true.",
+    "lesson": "04-reviewing-and-approving-time-sheets.md"
+   },
+   {
+    "type": "multi",
+    "q": "Which reopens an approved Time Sheet? Pick all that apply.",
+    "options": [
+     "A punch fix request",
+     "A manager edit",
+     "The employee declining in Nexus Sign with a reason",
+     "The employee signing"
+    ],
+    "answer": [
+     0,
+     1,
+     2
+    ],
+    "explanation": "The envelope is voided and the period reopens to the manager.",
+    "lesson": "04-reviewing-and-approving-time-sheets.md"
+   },
+   {
+    "type": "single",
+    "q": "A Time Sheet nobody can sign (the person left) is finalized by:",
+    "options": [
+     "The manager",
+     "HR, with a reason",
+     "Nexus automatically",
+     "Nobody"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Never by hiding the signature step.",
+    "lesson": "04-reviewing-and-approving-time-sheets.md"
+   },
+   {
+    "type": "single",
+    "q": "Review every Time Sheet:",
+    "options": [
+     "At month end",
+     "The day after the period ends",
+     "When HR asks",
+     "Never"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Payroll waits with you.",
+    "lesson": "04-reviewing-and-approving-time-sheets.md"
+   },
+   {
+    "type": "single",
+    "q": "The Workforce Scorecard measures:",
+    "options": [
+     "Pay",
+     "Punched hours against expected hours, weekly",
+     "Sales",
+     "Tickets"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Attendance against expectation, not pay.",
+    "lesson": "05-workforce-analytics-and-the-scorecard.md"
+   },
+   {
+    "type": "single",
+    "q": "A Viewer of the Workforce Scorecard sees:",
+    "options": [
+     "The company",
+     "Direct reports",
+     "The reporting line",
+     "Nobody"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Editor the line; Full the company.",
+    "lesson": "05-workforce-analytics-and-the-scorecard.md"
+   },
+   {
+    "type": "single",
+    "q": "A whole day missing against a shared shift is usually:",
+    "options": [
+     "Theft",
+     "A no-show, a forgotten punch, or a shift that should have been changed",
+     "A holiday",
+     "Pay"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Check the no-show rollup and the person's messages.",
+    "lesson": "05-workforce-analytics-and-the-scorecard.md"
+   },
+   {
+    "type": "single",
+    "q": "The rule behind the analytics is:",
+    "options": [
+     "Your own judgment",
+     "The Workforce Analytics Policy under Settings, per company",
+     "HR's mood",
+     "Cubby"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Read it before you act on a number.",
+    "lesson": "05-workforce-analytics-and-the-scorecard.md"
+   },
+   {
+    "type": "single",
+    "q": "Which queues stand as tabs on the desk?",
+    "options": [
+     "All of them",
+     "Needs Reply, Unassigned, Mine, All Open",
+     "Done and Waiting",
+     "Preventive only"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The rest sit in Other Queues.",
+    "lesson": "06-running-the-desk-tickets-as-a-leader.md"
+   },
+   {
+    "type": "single",
+    "q": "The Next Clock is red when:",
+    "options": [
+     "Always",
+     "Overdue only",
+     "A vendor is involved",
+     "Never"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The one SLA wording on the list.",
+    "lesson": "06-running-the-desk-tickets-as-a-leader.md"
+   },
+   {
+    "type": "single",
+    "q": "Tickets should be assigned to:",
+    "options": [
+     "A team",
+     "A person, the day they arrive",
+     "Nobody",
+     "The vendor"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A ticket with a name has a clock that someone feels.",
+    "lesson": "06-running-the-desk-tickets-as-a-leader.md"
+   },
+   {
+    "type": "single",
+    "q": "The Preventive queue's count is:",
+    "options": [
+     "All preventive tickets",
+     "The overdue ones, in red when any",
+     "Closed ones",
+     "Vendors"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Zero overdue means the building is being kept.",
+    "lesson": "06-running-the-desk-tickets-as-a-leader.md"
+   },
+   {
+    "type": "single",
+    "q": "An Administrator sees tickets from:",
+    "options": [
+     "Their company only",
+     "Every company; the pickers stay walled",
+     "No company",
+     "Only Ask HR"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The one carve-out in the walls.",
+    "lesson": "06-running-the-desk-tickets-as-a-leader.md"
+   },
+   {
+    "type": "single",
+    "q": "A team member wants their job title corrected. They should:",
+    "options": [
+     "Ask their manager to change it",
+     "Open Ask HR, Profile Change",
+     "Edit it in Workday",
+     "Email Neil"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The record itself is HR's; Ask HR is the confidential channel.",
+    "lesson": "07-people-hiring-onboarding-probation-and-exits.md"
+   },
+   {
+    "type": "single",
+    "q": "My Numbers on the Performance tab are:",
+    "options": [
+     "Typed by the manager",
+     "Worked out by Nexus from what it already records; never time off, sick days, pay or HR requests",
+     "From Cubby",
+     "Optional"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Seen by the person, their managers and HR.",
+    "lesson": "07-people-hiring-onboarding-probation-and-exits.md"
+   },
+   {
+    "type": "single",
+    "q": "An exit starts:",
+    "options": [
+     "By telling the person",
+     "In the Offboard flow in People > Exits, by HR or from a probation End",
+     "By deleting their account",
+     "On Teams"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Nexus then clears shifts, access, equipment and the unsigned Time Sheet in order.",
+    "lesson": "07-people-hiring-onboarding-probation-and-exits.md"
+   },
+   {
+    "type": "tf",
+    "q": "Contractors and guests are tracked for probation.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Only new employees, by start date.",
+    "lesson": "07-people-hiring-onboarding-probation-and-exits.md"
+   },
+   {
+    "type": "single",
+    "q": "A role path is:",
+    "options": [
+     "A hallway",
+     "A learning path of kind role whose audience is job titles",
+     "A promotion",
+     "A checklist"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Department training targets departments the same way.",
+    "lesson": "08-training-your-team.md"
+   },
+   {
+    "type": "multi",
+    "q": "A course can reach a person by which ways? Pick all that apply.",
+    "options": [
+     "A rule or path",
+     "A hand assignment",
+     "Self-enrollment from the Catalog",
+     "A renewal",
+     "A tenant request"
+    ],
+    "answer": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "explanation": "Four ways.",
+    "lesson": "08-training-your-team.md"
+   },
+   {
+    "type": "single",
+    "q": "Before unlocking a locked quiz:",
+    "options": [
+     "Nothing",
+     "Talk with the person about what to reread; the report shows their misses",
+     "Reset their password",
+     "Reassign the course"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The hardest questions are the author's next edit too.",
+    "lesson": "08-training-your-team.md"
+   },
+   {
+    "type": "single",
+    "q": "In-person sign-off is given:",
+    "options": [
+     "On request",
+     "Only for work the trainer or manager saw",
+     "By email",
+     "By the learner"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Completed In Person.",
+    "lesson": "08-training-your-team.md"
+   },
+   {
+    "type": "single",
+    "q": "The Refresher is:",
+    "options": [
+     "A score the manager chases",
+     "Three questions a day from the courses a person passed, theirs alone",
+     "A quiz retake",
+     "A policy"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "What you will notice is a team that remembers.",
+    "lesson": "08-training-your-team.md"
+   },
+   {
+    "type": "single",
+    "q": "Learn This Screen in the Help panel offers:",
+    "options": [
+     "A tour",
+     "The course and lessons that teach the current screen",
+     "A ticket",
+     "A video"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The same teaches tag powers the review flag.",
+    "lesson": "08-training-your-team.md"
+   },
+   {
+    "type": "single",
+    "q": "Announcements show on a Dashboard through:",
+    "options": [
+     "Home by default",
+     "The Announcements widget, which must be added",
+     "The bell only",
+     "Teams"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Tell every new team member to add it.",
+    "lesson": "09-communicating-announcements-teams-notes-and-boards.md"
+   },
+   {
+    "type": "single",
+    "q": "Only who posts announcements?",
+    "options": [
+     "Anyone",
+     "Administrators; a leader asks or drafts for them",
+     "Managers",
+     "HR"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Audience, notify mode, Acknowledge.",
+    "lesson": "09-communicating-announcements-teams-notes-and-boards.md"
+   },
+   {
+    "type": "single",
+    "q": "A Board is:",
+    "options": [
+     "A separate module",
+     "A drawing in Notes: a lot layout, a marked-up photo, a plan",
+     "A chat",
+     "A report"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Mark Up any photo or PDF and attach it back to its ticket.",
+    "lesson": "09-communicating-announcements-teams-notes-and-boards.md"
+   },
+   {
+    "type": "single",
+    "q": "A problem written in a note:",
+    "options": [
+     "Is reported",
+     "Is a problem nobody else will read; it goes in a ticket or a form",
+     "Goes to HR",
+     "Is fine"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A note is never a report.",
+    "lesson": "09-communicating-announcements-teams-notes-and-boards.md"
+   },
+   {
+    "type": "single",
+    "q": "With one entity, Accounting shows a site leader:",
+    "options": [
+     "The Dashboard tabs",
+     "Their site's statements and reports with the drill-down",
+     "Payroll",
+     "Every site"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The Dashboard tabs are consolidated.",
+    "lesson": "10-money-and-property-views-for-leaders.md"
+   },
+   {
+    "type": "single",
+    "q": "Who sees a construction job's dollars?",
+    "options": [
+     "Everyone on the job",
+     "People with the cost view, the Accounting grant and entity access together",
+     "The superintendent always",
+     "Nobody"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Contract and change-order dollars follow the permission everywhere.",
+    "lesson": "10-money-and-property-views-for-leaders.md"
+   },
+   {
+    "type": "single",
+    "q": "Before approving a purchase request, check:",
+    "options": [
+     "The weather",
+     "Item Management for an existing one, the justification and the limits",
+     "The vendor's website",
+     "Nothing"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The company may already own it.",
+    "lesson": "10-money-and-property-views-for-leaders.md"
+   },
+   {
+    "type": "single",
+    "q": "Company on an asset is:",
+    "options": [
+     "A wall",
+     "A field; administrators see every company's assets, only assigning a company is limited",
+     "Hidden",
+     "A tier"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Neil, 11/03/2026.",
+    "lesson": "10-money-and-property-views-for-leaders.md"
+   },
+   {
+    "type": "tf",
+    "q": "An Administrator can see another company's people if asked nicely.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "An Administrator is always walled; only a Super Administrator or a global group crosses.",
+    "lesson": "11-access-settings-and-the-leaders-record.md"
+   },
+   {
+    "type": "single",
+    "q": "A tier is:",
+    "options": [
+     "A module",
+     "How much you may approve and how far your view reaches",
+     "A grant",
+     "A setting"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A grant is a module opened at a level.",
+    "lesson": "11-access-settings-and-the-leaders-record.md"
+   },
+   {
+    "type": "single",
+    "q": "A team member cannot see the ticket desk. The right fix is:",
+    "options": [
+     "Share your sign-in",
+     "Ask the administrator to add them to the Access Group, or raise a ticket for access",
+     "Give them your tier",
+     "Nothing"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A shared sign-in makes every punch and approval someone else's.",
+    "lesson": "11-access-settings-and-the-leaders-record.md"
+   },
+   {
+    "type": "single",
+    "q": "Every setting has:",
+    "options": [
+     "No scope",
+     "One scope: the organization, one company, or a default a company may override",
+     "Two owners",
+     "A price"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Administrators change; leaders ask.",
+    "lesson": "11-access-settings-and-the-leaders-record.md"
+   },
+   {
+    "type": "single",
+    "q": "The record Nexus keeps of a leader's decisions:",
+    "options": [
+     "Is surveillance",
+     "Is what lets a decision stand a year later and protects the leader who decides in Nexus",
+     "Is deleted monthly",
+     "Is optional"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Decide in Nexus, with the reason.",
+    "lesson": "11-access-settings-and-the-leaders-record.md"
+   },
+   {
+    "type": "single",
+    "q": "Under a person's name the screen shows:",
+    "options": [
+     "Their tier",
+     "Their job title; the tier is a small mark beside the name",
+     "Their pay",
+     "Their company"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A filled shield, an outline shield, a people glyph.",
+    "lesson": "11-access-settings-and-the-leaders-record.md"
+   },
+   {
+    "type": "single",
+    "q": "Which are the five Super Administrators set in 11/2026?",
+    "options": [
+     "Neil, Visesh, Charmi, Pranshu, Sagar",
+     "Every administrator",
+     "The site managers",
+     "HR"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Changed in Settings, never in code.",
+    "lesson": "11-access-settings-and-the-leaders-record.md"
+   },
+   {
+    "type": "single",
+    "q": "Needs Reply is decided by:",
+    "options": [
+     "The manager",
+     "The server, for every ticket",
+     "The vendor",
+     "The requester"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The requester spoke last, or nobody has replied yet.",
+    "lesson": "12-words-to-know.md"
+   },
+   {
+    "type": "single",
+    "q": "The attention strip belongs to:",
+    "options": [
+     "The planner",
+     "A Time Sheet under review",
+     "A ticket",
+     "A board"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "What to look at before approving.",
+    "lesson": "12-words-to-know.md"
+   },
+   {
+    "type": "single",
+    "q": "Ask HR is:",
+    "options": [
+     "A ticket queue leaders work",
+     "The confidential desk for pay and the record, never through the manager",
+     "A Teams chat",
+     "A note"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The one channel.",
+    "lesson": "12-words-to-know.md"
+   }
+  ]
+ }
+}

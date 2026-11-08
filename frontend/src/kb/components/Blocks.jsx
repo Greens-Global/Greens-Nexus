@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { AlertTriangle, Lightbulb, Info, ShieldAlert, Play, BookOpen, Camera, Paperclip, Download } from 'lucide-react';
 import { fileSize } from '../editor/extensions.jsx';
+import Figure from './Figure';
 import { goKb } from '../lib';
 
 function Marks({ node }) {
@@ -60,6 +61,7 @@ export default function Blocks({ doc, embeds = {}, onOpenPage, interactive = fal
       case 'listItem': return <li key={key}>{kids.map((c, i) => render(c, i, `${path}/${key}`))}</li>;
       case 'blockquote': return <blockquote key={key}>{kids.map((c, i) => render(c, i, `${path}/${key}`))}</blockquote>;
       case 'horizontalRule': return <hr key={key} />;
+      case 'figure': return <Figure key={key} kind={n.attrs?.kind} data={n.attrs?.data} />;
       case 'hardBreak': return <br key={key} />;
       case 'codeBlock': return <pre key={key}><code>{kids.map((c) => c.text || '').join('')}</code></pre>;
       case 'table': return (

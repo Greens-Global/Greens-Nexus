@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { StickyNote, ArrowRight, CornerDownLeft, Pin, PenTool } from 'lucide-react';
 import { api } from '../api';
 import { DashCard } from '../dashboard/widgets.jsx';
-import { LoadingState } from '../components/AsyncState';
+import { WidgetSkeleton } from '../dashboard/listParts.jsx';
 import { colorCss, localDay, noteTitle, editedLabel, isBoard } from './notesModel';
 import { newBoardFromAnywhere } from './newBoard';
 import './notes.css';
@@ -93,7 +93,7 @@ export default function NotesWidget({ config, saveConfig, canSaveConfig, phone }
         )}
         <div className="nt-w-list">
           {error && <div className="nt-empty" style={{ padding: 10 }}>{error} <button type="button" className="nt-tag" onClick={load}>Retry</button></div>}
-          {!list && !error && <LoadingState compact minHeight={60} />}
+          {!list && !error && <WidgetSkeleton />}
           {list && list.rows.length === 0 && <div className="nt-empty" style={{ padding: '10px 4px', textAlign: 'left' }}>No notes yet. Type above, or open Notes to start one.</div>}
           {list && list.rows.length > 0 && <div className="nt-w-label">{list.pinned ? 'Pinned' : 'Latest'}</div>}
           {list?.rows.map((n) => (

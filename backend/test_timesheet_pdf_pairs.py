@@ -56,7 +56,7 @@ class PdfPairs(ReviewCase):
         self.assertNotIn("3:30 6:30", flat)
         # The break between them is its own line (Neil, 11/04/2026).
         self.assertIn("Break 7:00 PM 7:30 PM 30 min", flat)
-        self.assertIn("Total hours clocked for week of", flat)
+        self.assertIn("Total Hours:", flat)
         self.assertIsNone(re.search(r"\(\d+\.\d\d\)", flat), flat)   # no decimal hours
 
 

@@ -84,7 +84,8 @@ beforeEach(() => {
   toastOk.mockReset(); toastErr.mockReset();
 });
 
-const saveButton = () => screen.getByRole('button', { name: 'Save' });
+// Right after a save the button reads Saved for a moment (ui/LoadingButton).
+const saveButton = () => screen.getByRole('button', { name: /^Saved?$/ });
 
 describe('Shift Settings', () => {
   it('saves a switch, the team time zone and the week start', async () => {
@@ -497,6 +498,8 @@ describe('Companies', () => {
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith({ earlyPunchAlertMin: 20 }, ''));
     fireEvent.change(mins, { target: { value: '999' } });
+    // The first save may still be settling on a loaded CI runner: click only once Save is live again.
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ earlyPunchAlertMin: 240 }, ''));
   });

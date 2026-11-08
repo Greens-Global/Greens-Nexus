@@ -19,7 +19,7 @@ import { PATH_TO_VIEW } from '../../lib/routes';
 import { AlertCircle, ArrowRight, CalendarCheck, CalendarClock, CheckSquare, ClipboardCheck, Clock, FileSignature, LifeBuoy, Package, Timer } from 'lucide-react';
 
 import { api } from '../../api';
-import { LoadingState } from '../../components/AsyncState';
+import { WidgetSkeleton } from '../listParts.jsx';
 import { formatDate } from '../../lib/datetime';
 import { pollWhileVisible } from '../../lib/pollWhileVisible';
 import { useIsMobile } from '../../lib/useIsMobile';
@@ -264,7 +264,7 @@ export default function MyDay({ phone }) {
   return (
     <DashCard title="Action Required" sub={sub}>
       {!data && !failed ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : failed && !data ? (
         <div role="alert" style={{ ...noteStyle, color: 'hsl(var(--color-red))' }}>Your day could not be loaded right now. It will retry shortly.</div>
       ) : n === 0 ? (

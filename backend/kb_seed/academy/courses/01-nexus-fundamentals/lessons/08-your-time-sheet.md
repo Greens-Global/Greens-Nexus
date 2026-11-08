@@ -17,6 +17,111 @@ Your Time Sheet is the record your pay is built from. Payroll pays the hours on 
 
 ## Reading Your Time Sheet
 
+```figure
+{
+  "kind": "screen",
+  "title": "A Week on the Time Sheet",
+  "device": "computer",
+  "module": "Workday",
+  "tabs": [
+    "Overview",
+    "Time Sheet",
+    "Time Off",
+    "Performance"
+  ],
+  "tab": "Time Sheet",
+  "actions": [
+    "◀  11/01 to 11/15  ▶"
+  ],
+  "parts": [
+    {
+      "kind": "table",
+      "columns": [
+        "Day",
+        "In",
+        "Out",
+        "Hours",
+        "Where"
+      ],
+      "rows": [
+        [
+          "Mon 11/02",
+          "8:02 AM",
+          "12:00 PM",
+          "3:58",
+          "Fairfield"
+        ],
+        [
+          "",
+          "Break",
+          "",
+          "0:30",
+          ""
+        ],
+        [
+          "",
+          "12:30 PM",
+          "4:45 PM",
+          "4:15",
+          "Fairfield"
+        ],
+        [
+          "Tue 11/03",
+          "7:58 AM",
+          "4:31 PM",
+          "8:33",
+          "Fairfield"
+        ],
+        [
+          "Wed 11/04",
+          "8:05 AM",
+          "Missing",
+          "",
+          "Approx. Location"
+        ],
+        [
+          "Thu 11/05",
+          "Sick",
+          "",
+          "8:00",
+          ""
+        ],
+        [
+          "Week",
+          "",
+          "",
+          "33:04",
+          ""
+        ]
+      ],
+      "n": 1
+    },
+    {
+      "kind": "card",
+      "title": "Change Requests This Period",
+      "rows": [
+        {
+          "label": "Wed 11/04 · clock-out 5:00 PM",
+          "value": "Not Yet Approved",
+          "tone": "warn",
+          "n": 2
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "A shift with a break is two punch pairs with the break on its own row; hours read as hours and minutes; each punch shows where it was made. The red Missing cell is a forgotten clock-out."
+    },
+    {
+      "n": 2,
+      "text": "Every request you sent this period, with its status. Click one to Cancel Request while it waits."
+    }
+  ]
+}
+```
+
 Open **Workday** and click the **Time Sheet** tab. You see the current pay period, day by day.
 
 - **Move between pay periods** with the arrows beside the dates, or click the dates to pick a recent period from the list (the current one is marked).
@@ -32,6 +137,51 @@ On a phone, each day is its own card.
 You cannot simply edit your own punches. Instead, you **ask for a change**, with a reason, and your approver (usually your manager) decides. Every original punch stays on record with who changed what. This protects you: nobody can quietly change your hours either.
 
 ### A Missing Clock-Out
+
+```figure
+{
+  "kind": "screen",
+  "title": "Request a Missing Punch",
+  "device": "card",
+  "parts": [
+    {
+      "kind": "dialog",
+      "title": "Request a Missing Punch",
+      "text": "Wed 11/04 · clocked in at 8:05 AM, no clock-out recorded.",
+      "fields": [
+        {
+          "label": "Clock-Out Time",
+          "value": "5:00 PM",
+          "n": 1
+        },
+        {
+          "label": "Reason",
+          "kind": "textarea",
+          "value": "Forgot to punch out, left at 5:00 PM after locking the gate.",
+          "n": 2
+        }
+      ],
+      "buttons": [
+        "Cancel",
+        {
+          "label": "Send to Approver",
+          "primary": true
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "The real time you stopped working, in your own time zone."
+    },
+    {
+      "n": 2,
+      "text": "Required. Write what happened and the real time, something your manager can check."
+    }
+  ]
+}
+```
 
 If you forgot to punch out, the day shows a red **Missing** cell, and on a phone the row offers **Add Clock-Out**.
 
@@ -65,6 +215,108 @@ Every request you send this period is listed under **Change Requests This Period
 You can also leave a note on a day for your manager with **Add Note**, for example to explain a long day.
 
 ## Approval and Signing
+
+```figure
+{
+  "kind": "screen",
+  "title": "Time Sheet Review & Signature",
+  "device": "computer",
+  "module": "Workday",
+  "tabs": [
+    "Overview",
+    "Time Sheet",
+    "Time Off",
+    "Performance"
+  ],
+  "tab": "Time Sheet",
+  "badge": 1,
+  "parts": [
+    {
+      "kind": "banner",
+      "tone": "warn",
+      "text": "Your Time Sheet for 10/16 to 10/31 is approved and waiting for your signature.",
+      "buttons": [
+        "Open"
+      ]
+    },
+    {
+      "kind": "card",
+      "title": "Time Sheet Review & Signature",
+      "note": "Time Sheets to Sign",
+      "rows": [
+        {
+          "label": "10/16 to 10/31 · 79:40 · approved by D. Reyes on 11/02/2026",
+          "value": "Approved",
+          "tone": "ok"
+        }
+      ],
+      "fields": [
+        {
+          "kind": "check",
+          "label": "I was provided every meal and rest break California law requires.",
+          "value": true,
+          "n": 1
+        }
+      ],
+      "buttons": [
+        {
+          "label": "Report a Missed Break",
+          "n": 2
+        },
+        {
+          "label": "Sign & Submit",
+          "primary": true,
+          "n": 3
+        }
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "n": 1,
+      "text": "Signing confirms the break statement. Never sign one that is not true."
+    },
+    {
+      "n": 2,
+      "text": "Hourly California staff: pick the days and Meal or Rest, then Send Back to Manager."
+    },
+    {
+      "n": 3,
+      "text": "Only you sign your Time Sheet. Your manager approves it and never signs it."
+    }
+  ]
+}
+```
+
+```figure
+{
+  "kind": "steps",
+  "title": "From the End of the Pay Period to Payroll",
+  "items": [
+    {
+      "label": "The pay period ends",
+      "note": "nothing to submit"
+    },
+    {
+      "label": "Your manager reviews",
+      "note": "Review & Approve, or Send Back with a note"
+    },
+    {
+      "label": "You get a bell and an email",
+      "note": "often a yellow priority bar too"
+    },
+    {
+      "label": "You sign",
+      "note": "Sign & Submit, in Nexus Sign"
+    },
+    {
+      "label": "The period is final",
+      "note": "the signed copy files to My Documents"
+    }
+  ],
+  "caption": "Only you sign your Time Sheet. Your manager approves it and never signs it."
+}
+```
 
 Here is the whole flow, start to finish:
 

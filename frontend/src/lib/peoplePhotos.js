@@ -9,6 +9,7 @@ import { api } from '../api';
 // set so avatars that mounted before the directory arrived re-render when it does.
 let _photoMap = null;
 let _photoPromise = null;
+let _photoFailed = false;
 const _photoSubs = new Set();
 
 function _load() {
@@ -18,9 +19,10 @@ function _load() {
   try { req = api.getPeopleDirectory(); } catch (e) { req = Promise.reject(e); }
   _photoPromise = Promise.resolve(req).then((rows) => {
     _photoMap = {};
+    _photoFailed = false;
     for (const r of rows || []) if (r.email) _photoMap[r.email.toLowerCase()] = r.photoUrl || '';
     _photoSubs.forEach((f) => f((x) => x + 1));
-  }).catch(() => { _photoMap = {}; });
+  }).catch(() => { _photoMap = {}; _photoFailed = true; });
   return _photoPromise;
 }
 
@@ -37,11 +39,29 @@ export function usePhotoMap() {
   return _photoMap || {};
 }
 
-// '' while the directory is still loading, and for anyone without a photo on
-// their HR record - every caller falls back to initials in that case.
+// The signed-in person's own photo (TopHeader, MobileMenu - the only callers).
+// The directory is the whole roster and takes a moment on every page load, so
+// the header used to show the initials first and the photo a beat later - on
+// every reload (11/05/2026: "switches between the photo and NK"). The last
+// photo the directory gave is remembered in this browser and shown until the
+// directory answers (or when it fails); '' = no photo, initials.
+const MEMO = 'nexus.ownPhoto.';
+function recall(key) {
+  try { return localStorage.getItem(MEMO + key) || ''; } catch { return ''; }
+}
 export function usePersonPhoto(email) {
   const photos = usePhotoMap();
-  return email ? (photos[email.toLowerCase()] || '') : '';
+  const key = (email || '').toLowerCase();
+  const known = !!_photoMap && !_photoFailed;
+  const photo = known ? (photos[key] || '') : '';
+  useEffect(() => {
+    if (!key || !known) return;
+    try {
+      if (photo) localStorage.setItem(MEMO + key, photo); else localStorage.removeItem(MEMO + key);
+    } catch { /* storage blocked - the initials show until the directory answers */ }
+  }, [key, known, photo]);
+  if (!key) return '';
+  return known ? photo : recall(key);
 }
 
 // Drop the cached directory and re-fetch, notifying every mounted avatar -

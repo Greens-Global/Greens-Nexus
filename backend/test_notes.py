@@ -200,7 +200,7 @@ class NotesTest(unittest.TestCase):
         self.client.put(f"/notes/{b['id']}/share", json={"email": AMY})
         self.as_(AMY)
         r = self.client.get(f"/notes?today={TODAY}").json()
-        self.assertEqual(r["counts"], {"all": 3, "pinned": 1, "today": 2, "shared": 1, "trash": 1})
+        self.assertEqual(r["counts"], {"all": 3, "pinned": 1, "today": 2, "shared": 1, "trash": 1, "boards": 0})
         self.assertEqual(r["tags"], ["Finance", "Q4"])
         self.assertEqual(a["tags"], ["Finance", "Q4"])
         titles = lambda q: sorted(n["title"] for n in self.client.get(f"/notes?{q}").json()["notes"])   # noqa: E731

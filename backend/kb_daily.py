@@ -83,6 +83,7 @@ def _assign_course(db, course: models.KbCourse, emp: models.NexusEmployee, *, du
     db.add(models.KbCourseAssignment(id=kb_core.new_id("asn"), course_id=course.id, user_email=email,
                                      user_name=(emp.display_name or f"{emp.first_name} {emp.last_name}").strip(),
                                      due_date=due, assigned_by=by, created_at=kb_core.now(), source=source, rule_id=rule_id, plan_id=plan_id))
+    db.flush()   # autoflush is off: a second path or rule in the same pass must see this row, or the course is assigned twice (11/07/2026)
     kb_core.notify(db, recipient=email, ntype="kb_course_assigned", title="Training Assigned",
                    body=f"{course.title}" + (f" - due {_us(due)}" if due else ""), ref_id=course.id, item_name=course.title,
                    sub=f"course:{course.id}", dedupe_today=True)
@@ -363,6 +364,7 @@ def run_owner_digests(db) -> int:
 
 # What each pass is called on Workflows > Automations (WP 4.1).
 PASS_LABELS = {"rules": "Assigned by rules", "renewals": "Renewals", "policy_envelopes": "Signing requests sent",
+               "currency": "Courses flagged for review",
                "learners": "Training reminders", "escalations": "Escalated to supervisors", "managers": "Manager digests", "owners": "Owner digests"}
 
 
@@ -425,6 +427,7 @@ def run_escalations(db) -> int:
 def run_daily() -> dict:
     """Every pass runs even when one before it fails; the run's counts and
     errors are kept for Workflows > Automations (job_switch.record_run)."""
+    import kb_currency
     import kb_policy_sign
     db = SessionLocal()
     out: dict = {}
@@ -432,7 +435,9 @@ def run_daily() -> dict:
     passes = [("rules", run_rules), ("renewals", run_renewals),
               # Policies signed through Nexus Sign: envelopes owed, in batches (an
               # envelope is the requirement itself, not a reminder, so it ignores the switch).
-              ("policy_envelopes", kb_policy_sign.run)]
+              ("policy_envelopes", kb_policy_sign.run),
+              # Keeps Up (11/07/2026): a course a What's New release touches is flagged for its owner.
+              ("currency", kb_currency.run)]
     if not job_switch.off("kb_daily"):   # Workflows > Automations switch: the reminders and digests only
         passes += [("learners", run_learner_reminders), ("escalations", run_escalations), ("managers", run_manager_digests), ("owners", run_owner_digests)]
     try:

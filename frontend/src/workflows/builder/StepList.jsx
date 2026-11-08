@@ -1,10 +1,10 @@
 // One lane of steps (Oct 2026): the root Do list, an If's Then / Otherwise,
 // an approval's branches, a For Each's body, the fault steps. Reorder by
-// grip drag (tickets/DragList) or Move Up / Move Down; Skip and Delete on
+// grip drag (ui/ReorderList) or Move Up / Move Down; Skip and Delete on
 // every step; Add Step at the end. Works on one array and hands back the
 // next one, so a lane nested in a step is just another StepList.
 import { useState } from 'react';
-import DragList from '../../tickets/DragList';
+import DragList from '../../ui/ReorderList';
 import { insertAt, moveAt, patchAt, removeAt, toggleAt } from '../lib/definition';
 import AddStepMenu from './AddStepMenu';
 import StepCard from './StepCard';

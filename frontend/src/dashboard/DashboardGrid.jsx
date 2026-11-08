@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { GripVertical, X, Settings2, ArrowUp, ArrowDown, Copy } from 'lucide-react';
 
 // A dependency-free drag + resize widget grid. 12 columns; each widget carries
@@ -36,6 +36,30 @@ export function stackRows(ordered, isCompact) {
   return rows;
 }
 
+// Content-fit tiles (11/05/2026). A list tile used to be a fixed box: a short
+// list left most of it empty (one ticket in a four-row tile) and a long one
+// scrolled inside it and cut its last row in half. A tile the catalog marks
+// `fit` is as tall as what it shows (at least FIT_MIN_PX; the widget caps its
+// own rows and links to its module for the rest), so the board is drawn from
+// measured heights: each tile sits under whatever is above it in its columns,
+// keeping any empty rows the layout left between them. `heightOf(it)` is the
+// tile's px height; returns { [id]: top px }. The saved layout is untouched.
+export const FIT_MIN_PX = 2 * ROW_H;
+export function fitTops(items, heightOf, rowH = ROW_H) {
+  const order = [...items].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  const placed = [];
+  const tops = {};
+  for (const it of order) {
+    let top = it.y * rowH;
+    const above = placed.filter(p => p.it.x < it.x + it.w && it.x < p.it.x + p.it.w && p.it.y + p.it.h <= it.y);
+    // The empty rows kept are those between it and the lowest-ending tile above.
+    if (above.length) top = Math.max(...above.map(p => p.top + p.h)) + (it.y - Math.max(...above.map(p => p.it.y + p.it.h))) * rowH;
+    tops[it.i] = top;
+    placed.push({ it, top, h: heightOf(it) });
+  }
+  return tops;
+}
+
 // `resolveLayout(nextLayout, draggedId)` is optional: pass it to have the
 // board settle collisions live (the other cards move out of the dragged one's
 // way while you drag, and the resolved board is what gets saved on drop).
@@ -52,10 +76,16 @@ export function stackRows(ordered, isCompact) {
 // `compactFor(it)` says which widgets pair up on a phone (see stackRows);
 // `onDuplicate(i)` adds a Duplicate control beside Configure in edit mode;
 // `emptyState` is what an empty board shows instead of a bare canvas.
-export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure, onDuplicate, limitsFor, resolveLayout, alwaysResizable, stacked = false, onMove, canConfigure, compactFor, rowsFor, emptyState = null }) {
+// `fitFor(it)` (11/05/2026) marks the content-fit tiles (see fitTops): sized
+// to what they show outside Customize and in the phone stack; in Customize
+// the board keeps its row grid so dragging and resizing snap as before.
+export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure, onDuplicate, limitsFor, resolveLayout, alwaysResizable, stacked = false, onMove, canConfigure, compactFor, rowsFor, fitFor, emptyState = null }) {
   const ref = useRef(null);
   const [width, setWidth] = useState(1000);
   const [drag, setDrag] = useState(null);   // live drag/resize session
+  // Measured px height of each content-fit tile on the desktop board, by id.
+  const [fitPx, setFitPx] = useState({});
+  const onFitHeight = useCallback((id, h) => setFitPx(prev => (prev[id] === h ? prev : { ...prev, [id]: h })), []);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -117,6 +147,7 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
   }
 
   const isCompact = (it) => !!compactFor?.(it);
+  const isFit = (it) => !!fitFor?.(it);
 
   // ── Mobile: single-column stack, ordered by row then column ──
   if (mobile) {
@@ -130,7 +161,12 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
       // gets at least 150px so a list never collapses to a sliver.
       // dash-stack-cell: a widget showing only its "not connected" line
       // ([data-widget-unavailable]) shrinks to it - style.css (Oct 17).
-      <div key={it.i} className="dash-stack-cell" style={{ height: (rowsFor?.(it) || it.h) * ROW_H, minHeight: isCompact(it) || rowsFor?.(it) ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
+      // A content-fit tile is as tall as its content (display grid stretches
+      // the card to the 150px floor when the content is shorter).
+      <div key={it.i} className={isFit(it) ? 'dash-stack-cell dash-fit' : 'dash-stack-cell'}
+        style={isFit(it)
+          ? { display: 'grid', minHeight: 150, marginTop: editing ? 16 : 0, minWidth: 0 }
+          : { height: (rowsFor?.(it) || it.h) * ROW_H, minHeight: isCompact(it) || rowsFor?.(it) ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
         <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure} onDuplicate={onDuplicate}
           renderWidget={renderWidget} startDrag={() => {}} draggable={false} canConfigure={canConfigure} stackedNow
           onMove={onMove} first={pos.get(it.i) === 0} last={pos.get(it.i) === ordered.length - 1} />
@@ -152,9 +188,17 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
   }
 
   // ── Desktop: absolute-positioned grid ──
+  // Outside Customize, content-fit tiles take their measured height (the
+  // layout height until the first measurement) and the board is laid out
+  // from those heights; in Customize every tile is its row-grid box.
+  const fitting = !editing && !drag && !!fitFor;
+  const fitNow = (it) => fitting && isFit(it);
+  const pxH = (it) => (fitNow(it) ? (fitPx[it.i] ?? it.h * ROW_H) : it.h * ROW_H);
+  const tops = fitting ? fitTops(eff, pxH) : null;
+  const boardH = tops ? eff.reduce((m, it) => Math.max(m, tops[it.i] + pxH(it)), ROW_H) : maxRow * ROW_H;
   return (
     <div ref={ref} className="dash-grid" style={{ position: 'relative', width: '100%',
-      height: maxRow * ROW_H, minHeight: '68vh',
+      height: boardH, minHeight: '68vh',
       transition: drag ? 'none' : 'height 0.15s',
       // Edit mode: a soft dot at every grid intersection reads as "snap points"
       // without the noisy full-height column lines.
@@ -175,18 +219,41 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
       {layout.length === 0 && emptyState && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>{emptyState}</div>
       )}
-      {eff.map(it => (
-        <div key={it.i} style={{
-          position: 'absolute', left: it.x * unitW, top: it.y * ROW_H,
-          width: it.w * unitW, height: it.h * ROW_H, padding: GAP / 2,
+      {eff.map(it => {
+        const style = {
+          position: 'absolute', left: it.x * unitW, top: tops ? tops[it.i] : it.y * ROW_H,
+          width: it.w * unitW, padding: GAP / 2,
           boxSizing: 'border-box', transition: drag?.i === it.i ? 'none' : 'left 0.15s, top 0.15s, width 0.15s, height 0.15s',
-          zIndex: drag?.i === it.i ? 10 : 1 }}>
+          zIndex: drag?.i === it.i ? 10 : 1,
+          ...(fitNow(it) ? { display: 'grid', minHeight: FIT_MIN_PX } : { height: it.h * ROW_H }) };
+        const card = (
           <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure} onDuplicate={onDuplicate}
             renderWidget={renderWidget} startDrag={startDrag} draggable alwaysResizable={alwaysResizable} canConfigure={canConfigure} />
-        </div>
-      ))}
+        );
+        // One cell type either way: entering Customize must not remount the
+        // widget (it would refetch and lose what it was showing).
+        return <GridCell key={it.i} id={it.i} onHeight={fitNow(it) ? onFitHeight : null} style={style}>{card}</GridCell>;
+      })}
     </div>
   );
+}
+
+// A cell on the desktop board. A content-fit one (`onHeight` set) reports its
+// rendered height (content, or the FIT_MIN_PX floor) so the grid can place
+// what sits below it.
+function GridCell({ id, onHeight, style, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !onHeight) return undefined;
+    const ro = new ResizeObserver(() => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h > 0) onHeight(id, h);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [id, onHeight]);
+  return <div ref={ref} className={onHeight ? 'dash-fit' : undefined} style={style}>{children}</div>;
 }
 
 const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 };

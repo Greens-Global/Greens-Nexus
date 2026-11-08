@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { orderNav } from './navOrder';
+import { orderNav, railSections, KICKERS } from './navOrder';
 import { useRole } from "../contexts/RoleContext";
 import { useIsMobile } from "../lib/useIsMobile";
 import SidebarClock from "./SidebarClock";
@@ -245,10 +245,6 @@ export const NAV = [
 ];
 
 
-// Desk rail group labels - purely presentational; one per divider slot,
-// mirroring the NAV grouping (my desk / work / modules / system).
-const KICKERS = ['My desk', 'Work', 'Modules', 'System'];
-
 // How many labels the unfolded rail numbers for its cascade (`--i`): the
 // "Nexus" name (0), a kicker at the top and after each divider that has one,
 // and every module label - the same walk the list below makes.
@@ -257,7 +253,7 @@ function cascadeCount(visible) {
   let group = 0;
   if (visible.length && !visible[0].divider) n += 1;
   for (const item of visible) {
-    if (item.divider) { group += 1; if (KICKERS[group]) n += 1; }
+    if (item.divider) { group += 1; if (item.kicker ?? KICKERS[group]) n += 1; }
     else n += 1;
   }
   return n;
@@ -373,7 +369,10 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   // list below. `cascadeRows` is how many labels get an `--i` (the "Nexus"
   // name at 0, then every kicker and module label): the beat lasts as long
   // as the last one's delay plus its 260ms slide, capped at 1.2s.
-  const visibleNav = orderNav(NAV).filter(item => !item.menuOnly && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
+  const shownNav = orderNav(NAV).filter(item => !item.menuOnly && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
+  // Modules split into Operations / Finance / Company (11/05/2026,
+  // navOrder.js railSections); the phone drawer draws the same groups.
+  const visibleNav = railSections(shownNav, KICKERS);
   const cascadeRows = cascadeCount(visibleNav);
   useEffect(() => {
     if (!opening) return undefined;
@@ -476,7 +475,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
         >
           {/* One chevron, turned by CSS when the rail is folded - it rotates
               with the width instead of swapping glyphs. */}
-          <ChevronLeft style={{ width: 13, height: 13 }} />
+          <ChevronLeft style={{ width: 14, height: 14 }} />
         </button>
         </NavTip>
 
@@ -525,7 +524,8 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
                   // Between groups the pill stands down: it would otherwise
                   // sit on the last row while the pointer is on a heading.
                   out.push(<li key={`d${i}`} className="nav-divider" role="separator" onPointerEnter={hoverOff} />);
-                  if (!collapsed && KICKERS[group]) out.push(<li key={`k${group}`} className="nav-kicker" role="presentation" onPointerEnter={hoverOff} style={{ '--i': ord++ }}>{KICKERS[group]}</li>);
+                  const kicker = item.kicker ?? KICKERS[group];
+                  if (!collapsed && kicker) out.push(<li key={`k${group}`} className="nav-kicker" role="presentation" onPointerEnter={hoverOff} style={{ '--i': ord++ }}>{kicker}</li>);
                   return;
                 }
                 out.push(renderItem(item, i, ord++));

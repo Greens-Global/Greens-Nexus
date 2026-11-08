@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Send, Pencil, ShieldOff, ShieldCheck, Trash2, Globe, MailPlus, KeyRound, Rocket, Copy, Check } from 'lucide-react';
+import { X, Send, Pencil, ShieldOff, ShieldCheck, Trash2, Globe, MailPlus, KeyRound, Rocket } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDate } from '../lib/datetime';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { COUNTRY_CODES, splitPhone, joinPhone } from '../lib/countryCodes';
 import { DateField, Modal } from '../tasks/components';
+import CopyButton from '../ui/CopyButton';
 
 // ── External users - invite modal + person-panel section (Aug 18 rework) ─────
 // Externals live in the Roles & Access PEOPLE tab like everyone else (Visesh:
@@ -273,12 +274,7 @@ export function useExternalActions({ onChanged, onRemoved, toastOk, toastErr }) 
 // Show-once dialog for a staged account's test sign-in code (it is hashed at
 // rest - closing this is the last time anyone can read it).
 export function TestCodeDialog({ ext, result, onClose }) {
-  const [copied, setCopied] = useState(false);
   if (!result) return null;
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(result.code); setCopied(true); setTimeout(() => setCopied(false), 1600); }
-    catch { /* clipboard unavailable - the code is on screen */ }
-  };
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1450, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }} onClick={onClose}>
       <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, border: '1px solid var(--line)', padding: 24, fontFamily: 'Inter,sans-serif' }} onClick={e => e.stopPropagation()}>
@@ -292,9 +288,7 @@ export function TestCodeDialog({ ext, result, onClose }) {
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, border: '1px dashed var(--line)', background: 'var(--mist)', marginBottom: 14 }}>
           <span style={{ flex: 1, fontSize: 24, fontWeight: 800, letterSpacing: 6, color: 'var(--ink)', fontFamily: 'ui-monospace,monospace' }}>{result.code}</span>
-          <button onClick={copy} title="Copy code" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: copied ? 'hsl(var(--color-green))' : 'var(--ink)', fontFamily: 'Inter,sans-serif' }}>
-            {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy'}
-          </button>
+          <CopyButton value={result.code} what="code" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }} />
         </div>
         <button className="primary-btn" onClick={onClose} style={{ width: '100%' }}>Done</button>
       </div>

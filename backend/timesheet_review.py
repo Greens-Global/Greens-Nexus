@@ -723,12 +723,16 @@ def _is_global_admin(db: Session, email: str) -> bool:
                                                       NexusRole.role == "owner").first() is not None
 
 
-def no_approver(db: Session) -> set:
-    """Active, time-tracked people with nobody to review their timesheet."""
+def no_approver(db: Session, among: set | None = None) -> set:
+    """Active, time-tracked people with nobody to review their timesheet -
+    only those in `among` when given (not_reviewed passes the people with
+    punches, so the per-person lookups skip everyone else)."""
     from routers.timeclock import is_time_tracking_exempt
     out = set()
     for e in db.query(NexusEmployee).filter(NexusEmployee.status.in_(("active", "onboarding"))).all():
         em = (e.work_email or "").lower()
+        if among is not None and em not in among:
+            continue
         if em and not manager_of(db, em) and not is_time_tracking_exempt(db, em):
             out.add(em)
     return out
@@ -811,6 +815,13 @@ LOOKBACK_PERIODS = 3
 REVIEW_LAUNCH = "2026-10-01"
 
 
+def _lookback_floor() -> str:
+    """The earliest day a period ending on or after REVIEW_LAUNCH can start
+    (a month at most, with margin) - read at call time like the launch."""
+    from datetime import timedelta
+    return (date.fromisoformat(REVIEW_LAUNCH) - timedelta(days=40)).isoformat()
+
+
 def closed_periods(db: Session, email: str, n: int | None = None) -> list:
     """The person's last `n` pay periods that are over (default
     LOOKBACK_PERIODS, read at call time), newest first."""
@@ -835,28 +846,39 @@ def not_reviewed(db: Session, reviewer: str) -> list:
     tc = _tc()
     from routers.timeclock import is_time_tracking_exempt
     me = (reviewer or "").lower()
+    # Two bulk reads stand in for three per-person-per-period queries (11/05/2026:
+    # ~20 queries a person, 10 s on dev and minutes on prod for a Super
+    # Administrator): the days each person punched, and the reviews already
+    # there. A period lists only with a punch inside it, and every period that
+    # can list ends on or after REVIEW_LAUNCH, so no punch before
+    # the floor can matter - a person with none since is skipped untouched.
+    floor = _lookback_floor()
+    punched: dict = {}
+    for em_, ld in (db.query(TimePunch.employee_email, TimePunch.local_date).distinct()
+                    .filter(TimePunch.voided == 0, TimePunch.local_date >= floor).all()):
+        punched.setdefault(em_, []).append(ld or "")
+    reviewed = {(r.employee_email, r.period_start) for r in
+                db.query(TimesheetReview.employee_email, TimesheetReview.period_start)
+                .filter(TimesheetReview.status != "unlocked", TimesheetReview.period_start >= floor).all()}
     people = set(backup_manager.managed_directly(db, me))
     if _is_global_admin(db, me):
-        people |= no_approver(db)
+        people |= no_approver(db, among=set(punched))
     # A live approver delegation naming `reviewer` brings the delegator's people.
     import approval_delegation
     people |= set(approval_delegation.delegated_people(db, me))
     out = []
-    for em in sorted(people - {me}):
+    for em in sorted((people & set(punched)) - {me}):
         emp = _employee(db, em)
         if not emp or (emp.status or "active") not in ("active", "onboarding") or is_time_tracking_exempt(db, em):
             continue
         for start, end, pay_type in closed_periods(db, em):
             if end < REVIEW_LAUNCH:
                 break
-            if db.query(TimesheetReview).filter(TimesheetReview.employee_email == em,
-                                                TimesheetReview.period_start == start,
-                                                TimesheetReview.status != "unlocked").first():
+            if (em, start) in reviewed:
+                continue
+            if not any(start <= ld <= end for ld in punched[em]):
                 continue
             if tc._finalized_row(db, em, start, end):
-                continue
-            if not (db.query(TimePunch).filter(TimePunch.employee_email == em, TimePunch.voided == 0,
-                                               TimePunch.local_date >= start, TimePunch.local_date <= end).first()):
                 continue
             card = card_for(db, em, start, end, pay_type)
             blocker = approve_blocker(db, em, start, end)

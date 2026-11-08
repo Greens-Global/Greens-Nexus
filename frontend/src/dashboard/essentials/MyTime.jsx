@@ -19,7 +19,7 @@
 // tile so both run the real flow. This file is the card around that hook.
 import { Clock, LogOut, Coffee, Play, ArrowRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
-import { LoadingState } from '../../components/AsyncState';
+import { WidgetSkeleton } from '../listParts.jsx';
 import ShiftTrack from '../../components/ShiftTrack';
 import { useIsMobile } from '../../lib/useIsMobile';
 import { DashCard, navigate } from '../widgets.jsx';
@@ -67,7 +67,7 @@ export default function MyTime({ phone }) {
     <DashCard title="My Time" sub={subtitle} onClick={go}
       action={<button type="button" style={{ ...linkBtn, whiteSpace: 'nowrap', minHeight: isMobile ? 44 : undefined }} onClick={(e) => { stop(e); go(); }}>Open Time Clock <ArrowRight size={12} /></button>}>
       {!status ? (
-        <LoadingState compact />
+        <WidgetSkeleton />
       ) : vm.exempt ? (
         <div style={{ ...noteStyle, padding: '6px 0', textAlign: 'left' }}>Time tracking is not required for your role.</div>
       ) : (

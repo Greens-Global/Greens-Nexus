@@ -118,8 +118,15 @@ ROUTES = {
     ("GET", "/kb/people"): "list",
     ("GET", "/kb/plans"): "list",
     ("POST", "/kb/plans"): "create",
+    ("GET", "/kb/plans/{pid}"): "wall",               # a learning path as a learner sees it (11/07/2026)
     ("PATCH", "/kb/plans/{pid}"): "wall",
     ("POST", "/kb/plans/{pid}/assign"): "wall",
+    ("POST", "/kb/plans/{pid}/enroll"): "wall",
+    ("GET", "/kb/catalog"): "list",                   # published courses and active paths the caller may see
+    ("GET", "/kb/learn"): "list",                     # Keeps Up (11/07/2026): the published courses that teach a module, walled like the list
+    ("POST", "/kb/courses/{cid}/reviewed"): "wall",   # the author stamps a course reviewed
+    ("GET", "/kb/refresher/today"): "own",            # Refresher: the caller's own due questions
+    ("POST", "/kb/refresher/answer"): "own",          # the caller's own answer; another person's item is 404
     ("GET", "/kb/print/{doc_id}"): "wall",
     ("POST", "/kb/quiz/{aid}/submit"): "wall",
     ("POST", "/kb/requests"): "create",
@@ -356,7 +363,7 @@ class KbAccessMatrixCase(unittest.TestCase):
             ("GET", "/kb/activity", None), ("GET", "/kb/pages", None), ("GET", "/kb/pages?q=Alpha", None),
             ("GET", "/kb/search?q=Alpha%20Secret", None), ("GET", "/kb/courses?all=true", None), ("GET", "/kb/plans", None),
             ("GET", "/kb/rules", None), ("GET", "/kb/health", None), ("GET", "/kb/home", None), ("GET", "/kb/me", None),
-            ("GET", "/kb/training/me", None), ("GET", "/kb/compliance?scope=company", None),
+            ("GET", "/kb/training/me", None), ("GET", "/kb/catalog", None), ("GET", "/kb/compliance?scope=company", None),
             ("GET", f"/kb/compliance?scope=direct&manager={AAUTH}", None), ("GET", "/kb/people", None),
             ("GET", f"/kb/collections/{self.ids['col']}", None),
             ("POST", "/kb/audience/preview", {"audience": {"everyone": True}}),

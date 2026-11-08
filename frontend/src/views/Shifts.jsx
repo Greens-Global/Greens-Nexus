@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarClock, CalendarDays, Contact, Handshake, ListChecks, MonitorDot, UserPlus } from 'lucide-react';
+import { CalendarClock, CalendarDays, Contact, ListChecks, MonitorDot, UserPlus } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import MyShifts from '../components/MyShifts';
@@ -7,7 +7,7 @@ import { SkeletonBlocks } from '../components/AsyncState';
 import ShiftSchedule from '../components/ShiftSchedule';
 import { hasUnsavedWork, askToLeave } from '../lib/dialogGuard';
 import { canOpenWorkforceAnalytics } from '../lib/workforceAccess';
-import PageTrail from '../components/PageTrail';
+import ModuleTabs, { ModuleActions } from '../components/ModuleTabs';
 
 // Team (Neil, Oct 13 2026; was Shifts, Sep 29): everything about the people
 // you work with. Contact (the Contact Directory, moved out of Support) and
@@ -48,14 +48,6 @@ const TABS = [
   ['role-checklists', 'Role Checklists', ListChecks, false],
   ['headcount', 'Headcount', UserPlus, false],
 ];
-const SUBTITLE = {
-  contact: 'Find and reach anyone in the company',
-  shifts: "Your group's week",
-  schedule: "Plan the team's shifts, then share them",
-  'role-checklists': "The extra onboarding, promotion, offboarding and leave steps your department's roles need",
-  headcount: 'Ask to hire, and approve the requests waiting on you',
-  analytics: 'Disclosed monitoring - coverage, activity, the weekly Scorecard, locations and company computers',
-};
 
 export default function Shifts({ activeSub, onSubChange }) {
   const role = useRole();
@@ -89,7 +81,6 @@ export default function Shifts({ activeSub, onSubChange }) {
   // Workforce Analytics reads the part after the colon as its own tab:
   // "analytics:scorecard" (the Monday email), "analytics:coverage" (alerts).
   const tab = tabs.some(([k]) => k === subKey) ? subKey : (tabs[0]?.[0] || '');
-  const tabTitle = tabs.find(([k]) => k === tab)?.[1] || 'Team';
   const focus = tab === 'schedule' && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? { date: focusDate, groupId: focusGroup, place: focusPlace } : null;
   // A publish or nudge bell's "mine:confirm:<publish id>" (Shifts Phase 3a)
   // is your OWN week, so App.jsx sends it to Workday's My Schedule (Oct 15).
@@ -116,40 +107,13 @@ export default function Shifts({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div className="view-header" style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
-          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Handshake size={19} />
-          </span>
-          <div className="view-title-group">
-            {/* TEAM over the tab you are on (the page trail, Neil, 11/04/2026). */}
-            <PageTrail title={tabTitle} />
-            <h2 style={{ fontFamily: 'var(--wk-font)' }}>{tabTitle}</h2>
-            <p>{SUBTITLE[tab]}</p>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, borderBottom: '1px solid var(--wk-line)', flexWrap: 'wrap' }}>
-      <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
-        {tabs.map(([key, label, Icon]) => {
-          const on = tab === key;
-          const badge = key === 'headcount' ? headcount.waiting : 0;
-          return (
-            <button key={key} type="button" role="tab" aria-selected={on} onClick={() => goTab(key)}
-              aria-label={badge ? `${label}, ${badge} waiting` : undefined}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 14px', border: 'none', background: 'none',
-                cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: on ? 700 : 600,
-                color: on ? 'var(--wk-brand)' : 'var(--muted)', whiteSpace: 'nowrap', marginBottom: -1,
-                borderBottom: on ? '2.5px solid var(--wk-brand)' : '2.5px solid transparent' }}>
-              <Icon size={15} /> {label}
-              {badge > 0 && <span style={{ fontSize: 10.5, fontWeight: 800, background: 'hsl(var(--color-red))', color: '#fff', borderRadius: 10, padding: '0 6px', minWidth: 18, textAlign: 'center' }}>{badge}</span>}
-            </button>
-          );
-        })}
-      </div>
-      {tab === 'contact' && <div ref={setToolSlot} style={{ marginLeft: 'auto', padding: '4px 0' }} />}
-      </div>
+      {/* No page title (Neil, 11/06/2026): the bar names the module and lights
+          the tab. The tabs ride the module bar (one page header, 11/05/2026); phones
+          keep the in-page strip. Contact's Manage / Export go to the bar's
+          right end. */}
+      <ModuleTabs tabs={tabs.map(([key, label, Icon]) => ({ key, label, Icon, badge: key === 'headcount' ? headcount.waiting : 0 }))}
+        active={tab} onChange={goTab} />
+      {tab === 'contact' && <ModuleActions><div ref={setToolSlot} /></ModuleActions>}
 
       {tab === 'contact' ? <Suspense fallback={<SkeletonBlocks count={4} height={96} />}><Directory embedded toolsTarget={toolSlot} /></Suspense>
         : tab === 'shifts' ? <MyShifts part="team" />

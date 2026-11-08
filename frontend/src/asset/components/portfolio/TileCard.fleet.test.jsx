@@ -94,4 +94,14 @@ describe('TileCard fleet face', () => {
     expect(container.querySelector('.fleet-card')).toBeNull();
     expect(screen.getByText('Owner')).toBeTruthy();
   });
+
+  // 11/05/2026: an asset with no figures hides its stats - never "- Acres" / "- NRSF".
+  it('hides a stat with no value on a property tile', () => {
+    const { rerender } = render(<TileCard pr={{ id: 'p2', name: 'Blank Lot', devStage: 'Stabilized' }} openProperty={() => {}} store={{}} />);
+    expect(screen.queryByText('Acres')).toBeNull();
+    expect(screen.queryByText('NRSF')).toBeNull();
+    rerender(<TileCard pr={{ id: 'p2', name: 'Blank Lot', acreage: '2.5', nrsf: '' }} openProperty={() => {}} store={{}} />);
+    expect(screen.getByText('Acres')).toBeTruthy();
+    expect(screen.queryByText('NRSF')).toBeNull();
+  });
 });

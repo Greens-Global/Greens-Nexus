@@ -30,7 +30,7 @@ import {
   FolderPlus, Check, RefreshCw, SlidersHorizontal, Save,
   MoreHorizontal, Copy, ArrowUp, ArrowDown,
 } from 'lucide-react';
-import PageTrail from '../components/PageTrail';
+import { ModuleActions } from '../components/ModuleTabs';
 
 // Mirrors the old start.greensglobal.com department dropdown (Neil, Aug 12) -
 // "Development" deliberately excluded per that ask. Admin-managed now (Aug
@@ -882,13 +882,10 @@ export default function ExternalLinks() {
 
   return (
     <div>
-      <div className="view-header links-dim">
-        <div className="view-title-group">
-          <PageTrail title="Links" />
-          <h2>Links</h2>
-          <p>Every tool the company runs on, one launchpad.</p>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      {/* No page title (Neil, 11/06/2026): the module bar names the module and
+          the lit Links tab; the view picker, Customize and Manage ride its right end. */}
+      <ModuleActions>
+        <div className="links-dim" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {/* View select + "..." menu trigger read as ONE joined control
               (Aug 14 - "i don't see the use of 3 dot button separately,
               incorporate them with... view selection") rather than two
@@ -957,7 +954,7 @@ export default function ExternalLinks() {
             </button>
           )}
         </div>
-      </div>
+      </ModuleActions>
 
       {banner && (
         <div style={{

@@ -24,7 +24,7 @@ import { api } from "../api";
 import { ensureStepUp, isStepUpRequired } from "../stepup/StepUp";
 import { dialog } from "../ui/dialog";
 import { SkeletonBlocks } from "../components/AsyncState";
-import ModuleTabs from "../components/ModuleTabs";
+import ModuleTabs, { ModuleActions } from "../components/ModuleTabs";
 import { useRole } from "../contexts/RoleContext";
 import { useNameResolver } from "../lib/useNameResolver";
 import { useIsMobile } from "../lib/useIsMobile";
@@ -43,7 +43,6 @@ import { CredentialForm, ImportWizard, ShareModal, RequestModal } from "./Creden
 import PersonalVault from "./PersonalVault";
 import { Pager } from "./vaultShared";
 import "./credvault.css";
-import PageTrail, { tabLabelOf } from '../components/PageTrail';
 
 const LOG_ACTIONS = ["All", "Revealed", "Copied", "Created", "Edited", "Shared", "Requested", "Denied", "Revoked", "Transferred", "Removed", "Recovered", "Imported", "Offboarded"];
 const TAB_KEYS = ["all", "mine", "shared", "favorites", "attention", "nobackup", "trash"];
@@ -366,17 +365,9 @@ export default function CredentialVaultApp({ activeSub }) {
 
   return (
     <div className="cv-root">
-      {/* ── page header (People grammar: module chip, title, one primary action) ── */}
-      <div className="view-header cv-view-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-          <span className="cv-module-chip"><KeyRound size={19} /></span>
-          <div className="view-title-group">
-            {/* The heading names the open tab; the trail above it names the module. */}
-            <PageTrail title={tabLabelOf(tabs, tab) || "Credentials"} />
-            <h2>{tabLabelOf(tabs, tab) || "Credentials"}</h2>
-            <p>Company logins, kept by their owners and opened by the people who need them</p>
-          </div>
-        </div>
+      {/* No page title (Neil, 11/06/2026): the module bar names the module and
+          lights the tab; the code chip and Add Credential ride the bar's right end. */}
+      <ModuleActions>
         <div className="cv-header-actions">
           {verified
             ? <span className="cv-chip tone-ok cv-chip-lg" title="Reveals and approvals inside this window do not ask for another code"><ShieldCheck size={13} /> {verifiedLabel(otp.until, now)}</span>
@@ -395,7 +386,7 @@ export default function CredentialVaultApp({ activeSub }) {
             </div>
           )}
         </div>
-      </div>
+      </ModuleActions>
 
       <ModuleTabs tabs={tabs} active={tab} onChange={setTab} />
 
@@ -441,11 +432,11 @@ export default function CredentialVaultApp({ activeSub }) {
             </label>
             {orgOpts.companies.length > 1 && (
               <select className="form-input cv-dir-select" value={fCompany} onChange={(e) => setFCompany(e.target.value)} aria-label="Company">
-                <option value="">All companies</option>{orgOpts.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <option value="">All Companies</option>{orgOpts.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             )}
             <select className="form-input cv-dir-select" value={fDept} onChange={(e) => setFDept(e.target.value)} aria-label="Department">
-              <option value="">All departments</option>{deptsInUse.map((d) => <option key={d} value={d}>{d}</option>)}
+              <option value="">All Departments</option>{deptsInUse.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
             <select className="form-input cv-dir-select" value={fType} onChange={(e) => setFType(e.target.value)} aria-label="Type">
               <option value="All">All types</option>{TYPES.map((t) => <option key={t}>{t}</option>)}

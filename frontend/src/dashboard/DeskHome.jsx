@@ -29,7 +29,7 @@ import { SessionChip } from './SessionChip';
 import { deriveMyTime } from './essentials/usePunchClock.jsx';
 import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
 import { formatDate, formatDayLong, formatTimeIn, formatWeekday, greetingFor } from '../lib/datetime';
-import { ModalLoading, LoadingState } from '../components/AsyncState';
+import { ModalLoading, LoadingState, CountSkeleton } from '../components/AsyncState';
 import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { MoreRow } from './listParts.jsx';
 import { useFavoriteLinks, openFavorite, FavoriteTileGrid } from './favoriteLinks.jsx';
@@ -91,13 +91,14 @@ const timeAgo = (ts) => {
 
 function Stat({ i, label, value, sub, tip, chip, Icon, onGo, hero }) {
   const n = useCountUp(value ?? 0);
+  const loaded = value != null;   // a placeholder until the count is in, never a 0
   return (
     <button className={`dk-stat dk-rise${hero ? ' dk-stat--hero' : ''}`} style={{ '--i': i }} onClick={onGo} title={tip}>
       <span className="dk-stat-top">
         <span className={`dk-chip dk-chip--${chip}`}><Icon /></span>
         <ArrowUpRight size={15} className="dk-stat-arrow" />
       </span>
-      <span className="dk-stat-num">{n}</span>
+      <span className="dk-stat-num">{loaded ? n : <CountSkeleton />}</span>
       <span className="dk-stat-label">{label}</span>
       <span className="dk-stat-sub">{sub}</span>
     </button>
@@ -228,13 +229,13 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
   // quietly. DeskGreeting reads the same shared time status for its own chip
   // (lib/useTimeStatus - one request for both, and for the floating timer).
   const { status } = useTimeStatus();
-  const [sigs, setSigs] = useState([]);
+  const [sigs, setSigs] = useState(null);   // null = not read yet
   const [teamKpis, setTeamKpis] = useState(null);
   // Which quick-action composer is open, if any. Null renders nothing and the
   // chunk is never fetched.
   const [composing, setComposing] = useState(null);
   useEffect(() => {
-    api.mySignatures().then(r => setSigs(Array.isArray(r) ? r : (r?.requests || r?.items || []))).catch(() => {});
+    api.mySignatures().then(r => setSigs(Array.isArray(r) ? r : (r?.requests || r?.items || []))).catch(() => setSigs([]));
     if (can('supervisor')) api.dashKpis('team').then(r => setTeamKpis(r?.kpis || null)).catch(() => {});
   }, [can]);
 
@@ -248,16 +249,16 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
   const unread = notifications.filter(n => !n.read && !n.closed);
   const allActionable = unread.filter(n => n.action && !n.actioned);
   const actionable = allActionable.slice(0, 6);
-  const pendingSigs = sigs.length;
+  const pendingSigs = sigs ? sigs.length : null;
   // Everything that needs you, not just the rows that fit: the count, the
   // summary sentence and the "+N more" row all say the real number.
-  const attentionTotal = pendingSigs + allActionable.length;
+  const attentionTotal = (pendingSigs || 0) + allActionable.length;
 
   // "Needs your attention": signatures first (hard blockers), then actionable
   // unread notifications.
   const queue = useMemo(() => {
     const rows = [];
-    sigs.slice(0, 3).forEach(s => rows.push({
+    (sigs || []).slice(0, 3).forEach(s => rows.push({
       key: `sig-${s.id ?? s.packet_id ?? Math.random()}`,
       pill: 'Sign', tone: 'green',
       title: s.title || s.name || s.document_title || 'Document awaiting your signature',
@@ -414,7 +415,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
               <span className="dk-chip dk-chip--red"><Ticket /></span> New Ticket
               <ChevronRight size={14} className="dk-key-arrow" />
             </button>
-            <div className="dk-hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to search everything</div>
+            <div className="dk-hint">Press <kbd>Ctrl</kbd>+<kbd>F</kbd> to search everything</div>
           </div>
 
           <FavoritesCard myEmail={myEmail} />

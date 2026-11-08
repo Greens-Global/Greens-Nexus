@@ -38,7 +38,7 @@ const inputStyle = { width: '100%', padding: '5px 9px', fontSize: '0.82rem' };
  * is responsible for mapping label -> the right storage location (top-level field vs. snapshot
  * value), same asymmetry as the read path above.
  */
-export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetail, onSaveContact, onOpenLead, onFlag, companies = [], canClearCompany = false }) {
+export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetail, onSaveContact, onOpenLead, onFlag, companies = [], canClearCompany = false, egnyteLocked = false }) {
   const flagMap = new Map((asset.reviewFlags || []).map((x) => [(x.g || '') + '~#~' + (x.f || ''), x.reason || '']));
   const isProperty = inferAssetKind(asset) === 'property';
   // Data Gaps chips name the completeness check, not always the row label.
@@ -157,7 +157,13 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
       </select>
     );
   })() : f.t === 'egnyte' ? (
-    <EgnyteFolderInput assetId={asset.id} value={draft[f.l] ?? ''} onChange={(v) => setField(f.l, v)} />
+    // Connecting is one time (Neil, 11/05/2026): a connected folder is read only below an Owner.
+    egnyteLocked ? (
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.45, wordBreak: 'break-word' }}>
+        {egnyteFolderOf(asset)}
+        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Connected - only an Asset Management Owner can change it.</div>
+      </div>
+    ) : <EgnyteFolderInput assetId={asset.id} value={draft[f.l] ?? ''} onChange={(v) => setField(f.l, v)} />
   ) : f.unitLabel ? (
     <div style={{ display: 'flex', gap: 6 }}>
       <input className="form-input" type="text" value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={{ ...inputStyle, flex: 1 }} />

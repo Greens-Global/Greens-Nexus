@@ -39,8 +39,8 @@ vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil
 vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel: vi.fn() }) }));
 // The engine, as a stub that lets a test drive the props the real one calls.
 vi.mock('./board/Board', () => ({
-  default: ({ note, isPhone, look, onLook, onScene, onThumb, onApi }) => (
-    <div data-testid="board-stub" data-look={look} data-phone={isPhone ? 'true' : 'false'} data-can-edit={note?.canEdit ? 'true' : 'false'}>
+  default: ({ note, isPhone, look, onLook, onScene, onThumb, onApi, presentSignal }) => (
+    <div data-testid="board-stub" data-look={look} data-phone={isPhone ? 'true' : 'false'} data-can-edit={note?.canEdit ? 'true' : 'false'} data-present={String(presentSignal || 0)}>
       <button type="button" onClick={() => onApi?.({ fake: true })}>stub-api</button>
       <button type="button" onClick={() => onScene?.(JSON.stringify({ type: 'nexus-board', version: 1, look, elements: [{ id: 'z', type: 'ellipse' }], appState: {}, files: {} }))}>stub-draw</button>
       <button type="button" onClick={() => onThumb?.(new Blob(['x'], { type: 'image/png' }))}>stub-thumb</button>
@@ -133,6 +133,41 @@ describe('Boards in the Notes list and bar', () => {
     expect(row.querySelector('.nt-row-thumb.is-empty')).toBeTruthy();
   });
 
+  it('the Boards tab lists the boards and, with nothing open, shows them as a grid of pictures', async () => {
+    apiMock.notesList.mockImplementation(async ({ view }) => ({
+      notes: view === 'boards' ? [board()] : [note(), board()], counts: { all: 2, boards: 1 }, tags: [],
+    }));
+    const onSubChange = vi.fn();
+    render(<NotesPage activeSub="notes" onSubChange={onSubChange} />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Boards/ }));
+    await waitFor(() => expect(apiMock.notesList).toHaveBeenCalledWith(expect.objectContaining({ view: 'boards' })));
+    const grid = await screen.findByRole('list', { name: 'Boards' });
+    fireEvent.click(within(grid).getByRole('listitem'));
+    expect(onSubChange).toHaveBeenCalledWith('notes:board_1');
+  });
+
+  it('a right-click on a row offers Duplicate, which copies the note and opens the copy', async () => {
+    apiMock.noteCreate.mockResolvedValue(note({ id: 'note_2', title: 'Budget Review (Copy)' }));
+    const onSubChange = vi.fn();
+    render(<NotesPage activeSub="notes" onSubChange={onSubChange} />);
+    const row = (await screen.findByText('Budget Review')).closest('button');
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 60 });
+    const menu = screen.getByRole('menu', { name: 'Note actions' });
+    expect(within(menu).getByRole('menuitem', { name: /Rename/ })).toBeTruthy();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Duplicate/ }));
+    await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'note', title: 'Budget Review (Copy)', body: '<p>Quarterly numbers</p>' })));
+    await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('notes:note_2'));
+    expect(screen.queryByRole('menu', { name: 'Note actions' })).toBeNull();
+  });
+
+  it('a note with two or more headings has an Outline that lists them', async () => {
+    apiMock.noteGet.mockResolvedValue(note({ body: '<h1>Plan</h1><p>x</p><h2>Budget</h2><h4>no</h4>' }));
+    render(<NotesPage activeSub="notes:note_1" onSubChange={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Outline' }));
+    const pop = screen.getByRole('menu', { name: 'Outline' });
+    expect(within(pop).getAllByRole('menuitem').map((b) => b.textContent)).toEqual(['Plan', 'Budget']);
+  });
+
   it('names an untitled board', () => {
     expect(noteTitle({ kind: 'board', title: '' })).toBe('Untitled Board');
     expect(noteTitle({ kind: 'note', title: '' })).toBe('Untitled Note');
@@ -157,6 +192,80 @@ describe('An open board', () => {
     expect(screen.getByLabelText('Board title')).toBeTruthy();
     expect(screen.getByText('1 shape')).toBeTruthy();   // the deleted one is not counted
     expect(document.querySelector('.nt-doc.is-board .nt-board')).toBeTruthy();
+  });
+
+  it('the list collapses to a rail and comes back, remembered in this browser (Neil, 11/06/2026)', async () => {
+    const { unmount } = render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse the list' }));
+    expect(document.querySelector('.nt-list')).toBeNull();
+    expect(localStorage.getItem('nx-notes-list-open')).toBe('0');
+    unmount();
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    expect(document.querySelector('.nt-list')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show the list' }));
+    expect(document.querySelector('.nt-list')).toBeTruthy();
+    expect(localStorage.getItem('nx-notes-list-open')).toBe('1');
+  });
+
+  it('full screen shows Back to Notes and a labeled Exit Full Screen, and either one leaves it', async () => {
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    expect(screen.queryByRole('button', { name: /Back to Notes/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Full Screen' }));
+    expect(document.querySelector('.nt-page.is-full')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Back to Notes/ }));
+    expect(document.querySelector('.nt-page.is-full')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Full Screen' }));
+    fireEvent.click(screen.getByRole('button', { name: /Exit Full Screen/ }));
+    expect(document.querySelector('.nt-page.is-full')).toBeNull();
+  });
+
+  it('Ctrl+\\ hides and shows the list', async () => {
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    fireEvent.keyDown(window, { key: '\\', ctrlKey: true });
+    expect(document.querySelector('.nt-list')).toBeNull();
+    fireEvent.keyDown(window, { key: '\\', ctrlKey: true });
+    expect(document.querySelector('.nt-list')).toBeTruthy();
+  });
+
+  it('Present hands the board a new signal each press', async () => {
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    const stub = await screen.findByTestId('board-stub');
+    expect(stub.getAttribute('data-present')).toBe('0');
+    fireEvent.click(screen.getByRole('button', { name: 'Present' }));
+    expect(screen.getByTestId('board-stub').getAttribute('data-present')).toBe('1');
+  });
+
+  it('Use as Template marks the board (owner only), and New Board lists it under Your Templates to start from', async () => {
+    apiMock.noteUpdate.mockImplementation(async (id, p) => board({ ...p, rev: 3, template: !!p.template }));
+    render(<NotesPage activeSub="notes:board_1" onSubChange={vi.fn()} />);
+    await screen.findByTestId('board-stub');
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Use as Template/ }));
+    await waitFor(() => expect(apiMock.noteUpdate).toHaveBeenCalledWith('board_1', expect.objectContaining({ template: true })));
+
+    apiMock.notesList.mockImplementation(async ({ view }) => (view === 'templates'
+      ? { notes: [board({ id: 'board_t', title: 'Site Walk', template: true })], counts: {}, tags: [] }
+      : { notes: [note(), board()], counts: {}, tags: [] }));
+    apiMock.noteGet.mockImplementation(async (id) => (id === 'board_t' ? board({ id: 'board_t', title: 'Site Walk' }) : board()));
+    apiMock.noteCreate.mockResolvedValue(board({ id: 'board_new', title: 'Site Walk' }));
+    fireEvent.click(screen.getByRole('button', { name: /New Board/ }));
+    const picker = await screen.findByRole('dialog', { name: 'New Board' });
+    fireEvent.click(await within(picker).findByRole('button', { name: /Site Walk - your template/ }));
+    await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'board', title: 'Site Walk', scene: SCENE })));
+  });
+
+  it('a board opened from a note\'s embed shows Back to that note', async () => {
+    sessionStorage.setItem('nx-board-back', JSON.stringify({ board: 'board_1', note: 'note_1' }));
+    const onSubChange = vi.fn();
+    render(<NotesPage activeSub="notes:board_1" onSubChange={onSubChange} />);
+    await screen.findByTestId('board-stub');
+    fireEvent.click(await screen.findByRole('button', { name: /Back to Budget Review/ }));
+    expect(onSubChange).toHaveBeenCalledWith('notes:note_1');
+    sessionStorage.clear();
   });
 
   it('a board shared to read opens the whiteboard in view mode', async () => {

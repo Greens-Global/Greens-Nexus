@@ -197,6 +197,15 @@ keep the diff minimal.
 - Cross-view navigation uses the `nexus:navigate` window event
   (`window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }))`).
 - Tab strips use the `.scroll-tabs` class (hidden scrollbars, mobile swipe).
+- **The module bar lives in the top header (Neil, 11/06/2026):** the module's
+  name (the page trail, with the pages above a record), its tabs and its
+  buttons (`<ModuleActions>`) - a page never repeats the module or tab name as
+  a title of its own, and a module with one tab shows no tabs.
+  Back is a small "← Operations" line OVER the module's name (`ModuleBar`'s
+  `back`), never a bare arrow beside it; inside a module it names the page
+  you came from (a tab, or a record's "Portfolio") - phones keep their arrow.
+  `scripts/check-module-headers.mjs` (in `npm run lint`) fails a new
+  `view-title-group`; record pages that name the record are on its list.
 - **Popups are sheets from the right** (Neil, 11/01/2026): on a desktop,
   every popup that is a record, a form or a workspace is a SHEET - docked to
   the right edge, the full height, rounded only where it meets the page -
@@ -384,7 +393,11 @@ keep the diff minimal.
   preventive schedule filed, its count the overdue ones in red when any),
   then the person's saved views, then Raised by Me, then "+ View")
   are filter presets over the tickets TasksContext holds, counted over the
-  WHOLE workspace (no count pill on Done, All Open or Raised by Me). The
+  WHOLE workspace (no count pill on Done, All Open or Raised by Me).
+  Only Needs Reply, Unassigned, Mine and All Open stand as tabs (Neil,
+  11/06/2026: the bar was "too cluttered"); the rest, in the order above,
+  sit in ONE "Other Queues" dropdown, and Save View is in the ... menu (no
+  "+ View" tab). Create is the last control in the toolbar. The
   server's `needsReply` flag on every `GET /task-tickets` row (`_needs_reply`
   in routers/tickets.py) decides Needs Reply; the client copy in queues.js
   is only a fallback for a row that arrived without the flag and must stay
@@ -430,6 +443,17 @@ keep the diff minimal.
   (`board/draft.js`, offered back on open with Restore / Discard, cleared
   when the save lands); `scene.js compact` runs before a save and a scene
   still over 2 MB is refused with a notice, never sent as a 413.
+  **The markup bar** (Neil, 11/06/2026, `board/MarkupBar.jsx`,
+  `board/markupTools.js`): an editor's short tool set (Select, Move Around,
+  Pen, Highlighter, Arrow, Box, Text, Comment, Eraser, six inks, three
+  widths) reaching the engine only through the adapter's `markup` member. A
+  Comment is a numbered pin made of ordinary board elements
+  (`customData.nexusComment`), so it saves, syncs and exports like any
+  shape. ONE tool bar, the best of both: the engine's own tool strip is
+  hidden everywhere and its other tools (ellipse, diamond, line, image,
+  frame, laser pointer) are under More Tools; a computer keeps the engine's
+  hints and properties panel, a phone opens that panel above the dock from
+  Style. Never bring back a second tool strip.
 - **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
   on the phone (`public/manifest.webmanifest`, `public/sw.js` - push plus the
   offline app shell, see Field offline below) and pushes the BELL: a Web Push
@@ -803,6 +827,30 @@ keep the diff minimal.
   (`_released`) exactly as an HR packet prints it, and a template live since
   before this is released as it stands on first use or first edit.
 
+- **Sheets and live editing (Neil, 11/05/2026, `routers/documents.py`
+  "Working together", `frontend/src/sheets/`, `frontend/src/docLive/`).** A
+  spreadsheet is a Document of kind `sheet` (content = the workbook snapshot,
+  `type: 'nexus-sheet'`) - folders, tags, the library, archive and versions
+  are a document's; no templates, merge fields, PDF / Word export or signing
+  (it downloads as .xlsx / .csv in the browser). The engine is ours
+  (`sheets/`, own formula engine, no new dependency); rows and columns have
+  stable ids and formulas are stored by those ids, so concurrent inserts and
+  deletes keep every formula pointing at the right cell. The owner (or an
+  administrator) shares with Nexus People, Can Edit / Can View
+  (`documents.shared_with`); a share opens the document wherever it sits; an
+  editor changes title and content only. Editors type together live over the
+  SAME encrypted Realtime transport Notes uses (`notes/collabTransport.js`,
+  key from `GET /documents/{id}/collab`, editors only, rotated when an editor
+  leaves) through ONE hook, `docLive/useLiveSession.js`; every live save
+  carries `ydoc` + `yepoch` + `rev` (409 merges and resends; a save outside
+  the session drops the state). Every editable draft document opens live in
+  the Document Builder (`LiveDocumentGate`; `docLive/docModel.js`: pages,
+  header and footer as Yjs fragments); remote typing is never saved, scanned
+  for {{tokens}} or tracked as a change by the receiver. A viewer, a final
+  document, a template or a failed session gets the builder as it was;
+  `VITE_DOCS_LIVE=off` + a redeploy turns live Docs off. Never add a second
+  live channel, a second sheet engine or a sheet store outside `documents`.
+
 - **PDF Tools (Neil, 11/02/2026, `frontend/public/pdf-editor-app/`,
   `views/PdfEditorModule.jsx`, `views/pdfTools/`, `routers/pdf_tools.py`).** A
   static engine in a same-origin iframe, under Documents > PDF Tools. The shell
@@ -873,6 +921,89 @@ keep the diff minimal.
   pass runs under the `kb_daily` Automations switch. A course's
   `default_due_days` only fills a hand assignment with no date picked.
   `test_kb_training_due.py` pins all of it.
+- **Learning paths and the catalog (Neil, 11/07/2026: "missing role based
+  paths and departmental trainings"):** a training plan IS a learning path
+  with a `kind` (onboarding | role | department | custom), ordered `stages`
+  (names; each item carries its `stage` index) and `open_enrollment`
+  (anyone may start it from the catalog - `POST /kb/plans/{id}/enroll`,
+  source `self`, no due date; a rule or hand assignment still sets one).
+  "Role path" = kind role with `audience.job_titles`; "department
+  training" = kind department with `audience.departments` - the audience IS
+  the targeting, never a second field. A course carries `level`
+  (foundations | core | advanced) and `tags`, part of the draft until
+  Publish, and shelves in the catalog by its first `departments` entry.
+  `GET /kb/catalog` is the ONE list (published courses, active paths,
+  `for_me` = the audience names the caller); grouping lives in
+  `frontend/src/kb/training/catalogModel.js`. Training's screens are My
+  Learning (`training`), Catalog (`catalog`), Compliance and, for authors,
+  Courses; a path is `path:<id>`; a course opens on its Course Home
+  (outline, what you learn) before the lessons. Manage > Learning Paths
+  (`manage/Plans.jsx`) suggests a path for every job title and department
+  in People that has none. The Academy plan is the onboarding path
+  (`kb_academy_seed.apply_paths_once`, four stages). The look (Neil,
+  11/07/2026: no "styling rectangles"): no tile grid, no stat boxes, no
+  colored side bars, no uppercase eyebrows - a shelf is a titled list, a
+  path carries its LADDER (`training/cards.jsx` `PathLadder`: one segment
+  per stage, filled as the stage is done, the live accent on the stage in
+  hand), a course or path opens on a title page (`kb-lead`), levels and
+  kinds are words. `kb_daily._assign_course` flushes after its insert so
+  two paths covering one course in a pass assign it once.
+- **Figures in pages and courses (Neil, 11/07/2026: "graphics and visual
+  elements, not just text"):** a `figure` block is a diagram drawn from
+  DATA - `kb_blocks.FIGURE_KINDS` steps | timeline | compare | sizes | bars
+  | stats | layout | cycle, drawn by `kb/components/Figure.jsx` - never an
+  image file: crisp at any width, theme-aware, no storage, no license.
+  Authors insert one from Add Block > Figure (the editor node keeps it and
+  edits its JSON in place); the Academy package writes one as a
+  ```` ```figure ```` fence (`kb_md`, rules in `kb_seed/academy/README.md`);
+  `kb_blocks._clean_figure` keeps only known keys, short strings and finite
+  numbers. A figure goes where it says something faster than prose (a
+  sequence, a ladder of days, things to scale, numbers side by side) and
+  its words pass the same content checks. `kb_academy_seed.apply_content_once`
+  (11/07/2026) runs whenever the package's digest changes
+  (`kb_academy.digest`, kept as the mark's value): a page or course the
+  package has and the database does not is created as a draft, the
+  package's lessons (new ones included) replace those of every imported
+  course nobody has saved since the first run (`_untouched`: `updated_at`
+  within a minute of `created_at`, never published), and only the figures
+  go into an unedited lesson of a course somebody saved - DRAFTS only.
+  SCREENS (Neil, 11/07/2026: "realistic screenshots, not real"): the
+  `screen` figure kind (`kb/components/Screen.jsx`) draws a Nexus screen
+  from data - device computer | phone | card, the module, tabs and header
+  buttons, parts in order (tiles, card, clock, table, form, list, banner,
+  dialog, sheet, bell, toast, text) and numbered callouts - in the app's
+  own vocabulary, fictional names only, never an image of a real screen.
+  The Nexus Fundamentals course teaches with 28 of them. The seventh
+  course, Property & Vendor Management for Storage Sites (managers; not on
+  the new-hire plan - `plan.json` lists a subsequence of `kb_academy.ORDER`),
+  reads Asset Management, Tickets and the vendor Compliance tab the same way.
+  KEEPS UP and the REFRESHER (Neil, 11/07/2026: "automatically stays current
+  as the modules evolve"; a billion-dollar program): a course carries
+  `teaches` (Nexus modules, matched to What's New entries' `module` through
+  `kb_currency.same_module`); the daily `kb_currency.run` flags a published
+  course (`review_flag`, one owner bell) when a Released entry about a taught
+  module is newer than `reviewed_at`; Publish and `POST
+  /kb/courses/{id}/reviewed` clear it; `GET /kb/learn?module=` feeds the Help
+  panel's Learn This Screen card. `kb_refresher` is spaced repetition:
+  `kb_refresher_items` (RLS on dev and prod) seeded from passed courses'
+  banks, three due questions a day (`/kb/refresher/today`, `/answer`),
+  the interval doubling to 60 days on a right answer and back to one on a
+  wrong one; never a score, never chased; the card is `training/Refresher.jsx`
+  on My Learning and the `refresher` Dashboard widget. Courses 8 to 10
+  (Fundamentals of Accounting, Intacct Fundamentals at Greens, Leading With
+  Nexus) are for managers; `departments` on a course.json shelves it.
+  Pull nothing from the web into a course: an outside
+  image has a license and teaches nothing about our sites. DRAWINGS (Neil,
+  11/07/2026: "a drawing of what they look like") are the one illustration
+  library: `kb/components/drawings.jsx`, line drawings by name on a 200 x
+  110 canvas in one style (ink line, soft body fill, green glass, one
+  accent), shown by the `drawing` and `drawings` figure kinds;
+  `kb_blocks.DRAWING_NAMES` is the same list (its test keeps them equal) and
+  the content test fails a name that does not exist. A new drawing goes in
+  both lists; never a second illustration path or an image file. The
+  library also holds the site itself (the fence, the gate, the buildings,
+  inside a unit, the roll-up door, the hasp, the cylinder core) and the
+  three shapes of space from above (drive-in, pull-through, angled).
 
 ## Asana — removed (Sep 2026)
 
@@ -1039,6 +1170,10 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   events, so a change-order threshold is an automation rule, never code.
   Vendors are Intacct's, through Accounting > Vendors & Customers - never a
   Construction vendor directory (Neil, 11/05/2026).
+  Meetings and Safety (Round Two item 10, no new tables): a meeting is a Note
+  with source kind `construction_job`, shared with the job's people; safety is
+  two Forms seeded once (`construction_safety.apply_once`) linked by
+  `linked_project_id`; `construction_safety.facts` is counts and dates only.
 - **Subs and their papers (Round Two item 7, 11/05/2026,
   `routers/construction_subs.py`, `vendor_compliance.py`):** a sub on a job
   is a `ConstructionJobLink` kind `sub` whose `ref_id` is the Intacct
@@ -1051,6 +1186,23 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   the one rule; `expiry_tick` (in `field_loop`) bells the managers at 30 /
   7 / 0 days once per paper and date. Never a second compliance store, no
   contact or payment details here, nothing written to Intacct.
+- **Drawings (Round Two item 9, 11/06/2026, `routers/construction_drawings.py`):**
+  a register only, no pins. A sheet's file is a `construction_media` row of kind
+  `drawing` (the one upload, `make_media`, the one Egnyte sweep, filed to
+  `<job folder>/Drawings`); a new revision of a sheet number marks the current
+  one Superseded (kept), bells the crew and managers once per sheet in place
+  and emits `drawing.revised`. Never hard-deleted.
+- **Commitments and lien waivers (Round Two item 8, 11/06/2026,
+  `construction_commitments`, `construction_money.commitments_view`):** a
+  subcontract or purchase order is one row per Intacct VENDORID on the job,
+  kept on the Money tab by the job's managers who may see its money. Billed
+  to Date is READ from the books (`/reports/buckets?by=vendor` on the job's
+  Project-Job, cost accounts only) and drills to the lines - never typed;
+  Committed = the live commitments, and the forecast adds only what is not
+  billed yet. A new amount needs a reason (activity row, before / after);
+  nothing is deleted (Void). Lien waivers are the vendor's own signed form,
+  attached as received (`waivers` on the row) - Nexus never writes waiver
+  wording (several states mandate statutory forms).
 
 ## Gotchas
 

@@ -18,6 +18,51 @@ The scripts in this lesson are assembled from the trade sources behind this cour
 
 ## The Nine Parts at a Glance
 
+```figure
+{
+  "kind": "steps",
+  "title": "The Nine Parts, in Order",
+  "items": [
+    {
+      "label": "Greeting",
+      "note": "property name, your name, an offer to help"
+    },
+    {
+      "label": "Why they called",
+      "note": "even a question about hours has a reason"
+    },
+    {
+      "label": "Discovery",
+      "note": "the four questions, plus climate, vehicles, contact details"
+    },
+    {
+      "label": "Recommend",
+      "note": "you pick the size and the unit, and say why"
+    },
+    {
+      "label": "Build value",
+      "note": "features tied to what they told you"
+    },
+    {
+      "label": "Price",
+      "note": "after value: rent, special, admin fee, protection, lock"
+    },
+    {
+      "label": "Close",
+      "note": "ask for the rental, the reservation or a set time"
+    },
+    {
+      "label": "Objections",
+      "note": "listen, find what is underneath, answer honestly"
+    },
+    {
+      "label": "Capture and follow up",
+      "note": "name, phone, email, move date; a set callback"
+    }
+  ]
+}
+```
+
 | # | Part | The point |
 |---|---|---|
 | 1 | Greeting | Property name, your name, an offer to help |

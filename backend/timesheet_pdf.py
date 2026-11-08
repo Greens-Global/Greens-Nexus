@@ -55,8 +55,8 @@ PURPLE = colors.HexColor("#6d28d9")
 _CELL = ParagraphStyle("cell", fontName="Helvetica", fontSize=7.5, leading=9, alignment=1, textColor=INK)
 _LEFT = ParagraphStyle("left", parent=_CELL, alignment=0)
 _RIGHT = ParagraphStyle("right", parent=_CELL, alignment=2)
-_HEAD = ParagraphStyle("head", parent=_CELL, fontName="Helvetica-Bold")
-_HEAD_R = ParagraphStyle("head_r", parent=_HEAD, alignment=2)
+# Every header sits left (Neil, 11/06/2026), on the grid and the summary alike.
+_HEAD = ParagraphStyle("head", parent=_CELL, fontName="Helvetica-Bold", alignment=0)
 
 # Page 1 holds the whole card (Charmi, Oct 20: "it should auto fit on one
 # page"). render steps down these (font size, leading, top / bottom cell
@@ -129,6 +129,12 @@ def _p(text: str, style=_CELL, color=None, bold=False, italic=False) -> Paragrap
     return Paragraph(s, _sz(style))
 
 
+def _rich(lead: str, *pairs) -> Paragraph:
+    """A plain lead, then "Label: <b>value</b>" pairs, three spaces apart."""
+    parts = [escape(lead)] + [f"{escape(k)}: <b>{escape(str(v))}</b>" for k, v in pairs]
+    return Paragraph("&nbsp;&nbsp;&nbsp;".join(parts), _sz(_CELL))
+
+
 def _reasons(seg: dict) -> list:
     """The human reasons on a shift's punches, each once (segReasons)."""
     out = []
@@ -147,8 +153,9 @@ class _Grid:
     """Rows and their TableStyle commands, built together."""
 
     def __init__(self, header: list, right: tuple = ()):
-        # `right`: the columns whose header sits right, over right-aligned figures.
-        self.rows = [[_p(h, _HEAD_R if c in right else _HEAD) for c, h in enumerate(header)]]
+        # Every header lines up the same way (Neil, 11/06/2026: no header sits
+        # right); `right` aligns only the figures under them.
+        self.rows = [[_p(h, _HEAD) for h in header]]
         self.cmds = [("BACKGROUND", (0, 0), (-1, 0), HEAD)]
         self.ncols = len(header)
 
@@ -271,13 +278,14 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
     week, wk_tot = None, {"min": 0, "ot": 0, "dt": 0, "wage": 0.0}
 
     def week_line():
-        # One centered full-width line (Neil, 11/04/2026): the week's hours,
-        # then its overtime and wage, on the brand's light green.
+        # One centered full-width line on the brand's light green (Neil,
+        # 11/06/2026): "Week of 10/18 - 10/24  Total Hours: 35:20  Overtime:
+        # None  Wages: $706.67" - labels regular, values bold.
         ws = date.fromisoformat(week)
         we = ws + timedelta(days=6)
-        ot = hm(wk_tot["ot"]) + (f" (incl. {hm(wk_tot['dt'])} double time)" if wk_tot["dt"] else "")
-        g.line(_p(f"Total hours clocked for week of {_mmdd(ws)} to {_mmdd(we)}: {hm(wk_tot['min'])}"
-                  f"   ·   Overtime: {ot}   ·   Wage: {money(wk_tot['wage'], cur)}", bold=True), WEEK)
+        ot = (hm(wk_tot["ot"]) + (f" (incl. {hm(wk_tot['dt'])} double time)" if wk_tot["dt"] else "")) if wk_tot["ot"] else "None"
+        g.line(_rich(f"Week of {_mmdd(ws)} - {_mmdd(we)}", ("Total Hours", hm(wk_tot["min"])),
+                     ("Overtime", ot), ("Wages", money(wk_tot["wage"], cur))), WEEK)
 
     for n in range((end - start).days + 1):
         ds = (start + timedelta(days=n)).isoformat()
@@ -642,10 +650,11 @@ def india_reconciliation(card: dict) -> list:
 
 
 def _summary_table(rows: list, fixed: bool) -> Table:
-    data = [[_p(""), _p("HOURS", bold=True), _p("AMOUNT" if fixed else "WAGE", bold=True)]]
-    data += [[_p(a, _RIGHT, bold=a.isupper()), _p(b, bold=a.isupper()), _p(c, bold=a.isupper())]
+    data = [[_p(""), _p("HOURS", _HEAD), _p("AMOUNT" if fixed else "WAGE", _HEAD)]]
+    data += [[_p(a, _RIGHT, bold=a.isupper()), _p(b, _LEFT, bold=a.isupper()), _p(c, _LEFT, bold=a.isupper())]
              for a, b, c in rows]
-    # Full width under the grid (Charmi, Oct 20), the figures centered.
+    # Full width under the grid (Charmi, Oct 20); the figures sit left under
+    # their left-set headers (Neil, 11/06/2026).
     t = Table(data, colWidths=[WIDTH - 240, 120, 120])
     cmds = [("GRID", (0, 0), (-1, -1), 0.4, LINE), ("BACKGROUND", (0, 0), (-1, 0), HEAD),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -761,6 +770,41 @@ def _signature_page(ctx: dict, spot: dict) -> list:
     return parts
 
 
+_TITLE = ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=17, leading=20, textColor=INK)
+_PERIOD = ParagraphStyle("period", parent=_TEXT, fontSize=12.5, leading=14, alignment=2)
+_FIELD = ParagraphStyle("field", parent=_TEXT, fontSize=9.5, leading=12)
+
+
+def _label(text: str) -> str:
+    return f'<font name="Helvetica-Bold" size="6.5" color="#6b6b75">{escape(text.upper())}</font>'
+
+
+def _title_row(title: str, period: str) -> Table:
+    """The title on the left, the pay period on the right, on one line."""
+    t = Table([[Paragraph(escape(title), _TITLE),
+                Paragraph(f"{_label('Pay Period')}<br/><b>{escape(period)}</b>", _PERIOD)]],
+              colWidths=[WIDTH * 0.6, WIDTH * 0.4])
+    t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                           ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0),
+                           ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+    return t
+
+
+def _header_fields(fields: list) -> Table:
+    """One boxed row of labeled fields: [(label, value, bold)]. Columns share
+    the width by how long their values are, so a long company name gets room."""
+    weights = [max(len(str(v)), len(lbl), 10) for lbl, v, _b in fields]
+    total = sum(weights)
+    cells = [Paragraph(f"{_label(lbl)}<br/>{'<b>' if b else ''}{escape(str(v))}{'</b>' if b else ''}", _FIELD)
+             for lbl, v, b in fields]
+    t = Table([cells], colWidths=[WIDTH * w / total for w in weights])
+    t.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.6, LINE), ("INNERGRID", (0, 0), (-1, -1), 0.6, LINE),
+                           ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                           ("RIGHTPADDING", (0, 0), (-1, -1), 7), ("TOPPADDING", (0, 0), (-1, -1), 4),
+                           ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
+    return t
+
+
 def render(card: dict, ctx: dict) -> tuple[bytes, dict]:
     """The Time Sheet PDF and where its signature goes: (bytes, spot), spot =
     {page, sign: [x, y, w, h], date: [x, y, w, h], history: {page, box}}.
@@ -771,38 +815,35 @@ def render(card: dict, ctx: dict) -> tuple[bytes, dict]:
     when, note}])."""
     fixed = ctx["pay_type"] == "fixed"
     cur = card.get("currency") or "USD"
-    head = ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=14, leading=17, alignment=1, textColor=INK)
     # The header is who and what period only (Charmi, Oct 20): no email, no OT
     # rule or version (HR's, not the employee's), and the approvals live on
     # page 2. "Time Sheet", not "... for Greens Global": not everyone is.
-    who = [f"<b>Employee:</b> {escape(ctx['name'])}"]
+    # Laid out as labeled fields under a title / pay period row (Neil,
+    # 11/06/2026, option B; no Employee Code).
+    who = [("Employee", ctx["name"], True)]
     if ctx.get("entity"):
-        who.append(f"<b>Company:</b> {escape(ctx['entity'])}")
-    if ctx.get("code"):
-        who.append(f"<b>Employee Code:</b> {escape(ctx['code'])}")
+        who.append(("Company", ctx["entity"], False))
     if ctx.get("dept"):
-        who.append(f"<b>Department:</b> {escape(ctx['dept'])}")
-    pay = [f"<b>Period:</b> {escape(ctx['period'])}", escape(ctx["kind"])]
-    if fixed:
-        pay.append(f"<b>Monthly Salary:</b> {money(card.get('monthlySalary'), cur)}")
-    else:
-        pay.append(f"<b>Pay Rate:</b> {money(card.get('rate'), cur)}/hr")
+        who.append(("Department", ctx["dept"], False))
+    pay = [("Pay Type", ctx["kind"], False),
+           ("Monthly Salary", money(card.get("monthlySalary"), cur), False) if fixed
+           else ("Pay Rate", f"{money(card.get('rate'), cur)}/hr", False)]
+    top = [_header_fields(who + pay)]
     splits = card.get("rateSplits") or []
     if len(splits) > 1:
         key = "monthlySalary" if fixed else "rate"
         unit = "/mo" if fixed else "/hr"
-        pay.append(" · ".join(
+        top += [Spacer(1, 3), Paragraph("Pay rate changed: " + " · ".join(
             (f"Through {ctx['us_date'](s.get('through'))}" if i == 0 else f"From {ctx['us_date'](s.get('from'))}")
-            + f" at {money(s.get(key), cur)}{unit}" for i, s in enumerate(splits)))
-    top = Paragraph(" &nbsp;|&nbsp; ".join(who) + "<br/>" + " &nbsp;|&nbsp; ".join(pay),
-                    ParagraphStyle("top", parent=_TEXT, fontSize=9, leading=12.5))
+            + f" at {money(s.get(key), cur)}{unit}" for i, s in enumerate(splits)),
+            ParagraphStyle("splits", parent=_TEXT, fontSize=8, textColor=DIM))]
     # Page 1 is the whole card down to Missing Punches on one page however many
     # punches it has (tighter rows first, a whole-page shrink only past the
     # last step); page 2 is the signature (Charmi, Oct 20).
     for lvl in range(len(_LEVELS)):
         token = _DENSITY.set(lvl)
         try:
-            page1 = [Paragraph("Time Sheet", head), Spacer(1, 6), top, Spacer(1, 8),
+            page1 = [_title_row("Time Sheet", ctx["period"]), Spacer(1, 6), *top, Spacer(1, 8),
                      fixed_rows(card, ctx) if fixed else hourly_rows(card, ctx), Spacer(1, 8),
                      _summary_table(fixed_summary(card) if fixed else hourly_summary(card, bool(ctx.get("paper_note"))), fixed)]
         finally:
@@ -811,11 +852,8 @@ def render(card: dict, ctx: dict) -> tuple[bytes, dict]:
             break
     spot = {}
     story = [KeepInFrame(WIDTH, HEIGHT, page1, mode="shrink"), PageBreak(),
-             Paragraph("Time Sheet - Signature And Approval", head), Spacer(1, 4),
-             Paragraph(" &nbsp;|&nbsp; ".join([f"<b>Employee:</b> {escape(ctx['name'])}"]
-                                              + ([f"<b>Company:</b> {escape(ctx['entity'])}"] if ctx.get("entity") else [])
-                                              + [f"<b>Period:</b> {escape(ctx['period'])}"]),
-                       ParagraphStyle("who2", parent=_TEXT, alignment=1)),
+             _title_row("Time Sheet - Signature And Approval", ctx["period"]), Spacer(1, 6),
+             _header_fields(who),
              *([Spacer(1, 4), Paragraph(escape(ctx["paper_note"]),
                                         ParagraphStyle("paper", parent=_TEXT, alignment=1, fontSize=8.5, textColor=DIM))]
                if ctx.get("paper_note") else []),

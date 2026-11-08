@@ -27,6 +27,53 @@ Height matters too. Most units have ceilings of roughly 8 to 10 feet, which is t
 
 ## The Size Guide
 
+```figure
+{
+  "kind": "sizes",
+  "title": "The Six Standard Sizes, to Scale",
+  "unit": "ft",
+  "items": [
+    {
+      "name": "5x5",
+      "w": 5,
+      "h": 5,
+      "note": "a hall closet"
+    },
+    {
+      "name": "5x10",
+      "w": 5,
+      "h": 10,
+      "note": "a walk-in closet"
+    },
+    {
+      "name": "10x10",
+      "w": 10,
+      "h": 10,
+      "note": "half a one-car garage; the most popular size"
+    },
+    {
+      "name": "10x15",
+      "w": 10,
+      "h": 15,
+      "note": "about two-thirds of a one-car garage"
+    },
+    {
+      "name": "10x20",
+      "w": 10,
+      "h": 20,
+      "note": "a one-car garage"
+    },
+    {
+      "name": "10x30",
+      "w": 10,
+      "h": 30,
+      "note": "a two-car garage"
+    }
+  ],
+  "caption": "Width is the door side; depth runs back from it. Square feet = width times depth."
+}
+```
+
 This is the guide to learn by heart. Capacities are approximate and assume reasonable packing (U-Haul, RentCafe and industry size guides).
 
 | Size | Square feet | About the size of | What typically fits |
@@ -67,6 +114,30 @@ Ask these questions in this order:
 
 ## Unit Types
 
+```figure
+{
+  "kind": "drawings",
+  "title": "Drive-Up, Interior, Climate-Controlled",
+  "items": [
+    {
+      "draw": "unit-drive-up",
+      "label": "Drive-up",
+      "note": "a roll-up door on a drive aisle; park in front of it"
+    },
+    {
+      "draw": "unit-interior",
+      "label": "Interior",
+      "note": "inside a building, down a hallway, sometimes by elevator"
+    },
+    {
+      "draw": "unit-climate",
+      "label": "Climate-controlled",
+      "note": "the temperature in the building is regulated"
+    }
+  ]
+}
+```
+
 Size is half the decision. Type is the other half.
 
 | Type | What it is | Good for | Watch for |
@@ -100,6 +171,30 @@ In multi-story buildings:
 This is a good tool for price-sensitive customers: "The same 10x10 on the second floor is less per month, and we have carts and an elevator."
 
 ## Parking Spaces
+
+```figure
+{
+  "kind": "drawings",
+  "title": "Three Kinds of Parking",
+  "items": [
+    {
+      "draw": "space-open",
+      "label": "Uncovered",
+      "note": "an open, marked space on a paved or gravel lot"
+    },
+    {
+      "draw": "space-covered",
+      "label": "Covered",
+      "note": "a canopy roof that shades the vehicle"
+    },
+    {
+      "draw": "space-enclosed",
+      "label": "Enclosed",
+      "note": "a garage-style unit with a door"
+    }
+  ]
+}
+```
 
 Greens rents 1,038 vehicle parking spaces across its five sites, with most at Temecula (481), Fairfield (303) and Murrieta (161) (From Greens' Cubby, 11/2026). Parking comes in three common kinds:
 

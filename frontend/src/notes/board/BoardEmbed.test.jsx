@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { generateHTML, generateJSON } from '@tiptap/core';
 
 vi.mock('../../lib/storageView', () => ({ isOwnImageUrl: (u) => /supabase\.co\/storage/.test(u || '') }));
-vi.mock('../newBoard', () => ({ openBoard: vi.fn() }));
+vi.mock('../newBoard', () => ({ openBoard: vi.fn(), noteInAddress: () => '' }));
 
 import { buildExtensions } from '../noteExtensions';
 

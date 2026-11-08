@@ -13,6 +13,9 @@
   ],
   "est_minutes": 120,
   "delivery": "online",
+  "level": "foundations",
+  "tags": "nexus, new hire, time clock",
+  "teaches": "Dashboard, Workday, Time Clock, Time Sheet, Time Off, Help Center, Tickets, Forms, Item Management, Team, Knowledge Base, Notes",
   "min_reading_minutes": 70,
   "lessons": [
     {

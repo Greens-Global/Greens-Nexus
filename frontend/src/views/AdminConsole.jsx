@@ -113,7 +113,6 @@ import PayrollExportCodes from '../components/PayrollExportCodes';
 import PayPremiums from '../components/PayPremiums';
 import IndiaContractorPolicySettings from '../components/IndiaContractorPolicySettings';
 import { SwitchRow, NumberBox } from '../components/settings/SettingsUI';
-import PageTrail from '../components/PageTrail';
 import { formatHMWords } from '../lib/hoursText';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
@@ -2003,8 +2002,11 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
       case 'company-list':
         return (
           <Group key={key} {...g} {...chrome}>
-            <CompanyPage entities={entities} refreshEntities={refreshEntities} onOpen={cid => nav({ subject: 'companies', group: '', company: cid })}
-              onDirtyChange={reporterFor(id)} toastOk={toastOk} toastErr={toastErr} />
+            {/* Not before the companies are in: an empty list there reads "No companies yet". */}
+            {entitiesState === 'loading' ? <SkeletonBlocks count={4} height={56} borderRadius={10} /> : (
+              <CompanyPage entities={entities} refreshEntities={refreshEntities} onOpen={cid => nav({ subject: 'companies', group: '', company: cid })}
+                onDirtyChange={reporterFor(id)} toastOk={toastOk} toastErr={toastErr} />
+            )}
           </Group>
         );
       case 'email-signature':      return <EmailSignatureSection key={key} chrome={chrome} company={company} toastOk={toastOk} toastErr={toastErr} />;
@@ -2325,7 +2327,7 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
 }
 
 const TOP_TABS = [
-  { key: 'settings', label: 'Settings', Icon: Settings2 },
+  { key: 'settings', label: 'General', Icon: Settings2 },   // not "Settings": the bar names the module (Neil, 11/06/2026)
   { key: 'tools',    label: 'Tools',    Icon: Wrench },
   { key: 'audit',    label: 'Logs',     Icon: Activity },
 ];
@@ -2423,22 +2425,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   // embedded panels (Pranshu, Sep 9).
   return (
     <div className="nx-settings" style={{ fontFamily: 'Inter, sans-serif' }}>
-      {/* Icon-chip page title (Work OS grammar), matching every other module's
-          .view-header instead of a bespoke h1 (Pranshu, Sep 12). */}
-      {/* On a desktop the header already names the page and carries its tabs (Oct 25). */}
-      <div className="view-header nx-set-pagehead" style={{ marginBottom: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Settings2 size={19} />
-          </span>
-          <div className="view-title-group">
-            <PageTrail title="Settings" />
-            <h2 style={{ fontFamily: 'var(--wk-font)' }}>Settings</h2>
-            <p>Configure Nexus for every company or for one, and manage who can access what.</p>
-          </div>
-        </div>
-      </div>
-
+      {/* No page title (Neil, 11/06/2026): the module bar names Settings and its tabs. */}
       {/* Tabs - desktop renders them centered in the top header; phones keep
           the in-page strip (ModuleTabs handles both) */}
       <ModuleTabs tabs={TOP_TABS} active={topTab} onChange={setTopTab} />

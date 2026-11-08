@@ -1583,6 +1583,24 @@ def _run_migrations():
             "ALTER TABLE workers_comp_rates ADD COLUMN description VARCHAR DEFAULT ''",
             # Workflow texts (11/05/2026) - see the Postgres list.
             "ALTER TABLE nexus_person_prefs ADD COLUMN workflow_sms INTEGER DEFAULT 1",
+            # Sheets and live editing (11/05/2026) - see the Postgres list.
+            "ALTER TABLE documents ADD COLUMN kind VARCHAR DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN shared_with TEXT DEFAULT '[]'",
+            "ALTER TABLE documents ADD COLUMN ydoc TEXT DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN yepoch VARCHAR DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN collab_key VARCHAR DEFAULT ''",
+            # Board templates (Neil 11/06/2026) - see the Postgres list.
+            "ALTER TABLE nexus_notes ADD COLUMN is_template BOOLEAN DEFAULT 0",
+            # Learning paths (Neil 11/07/2026) - see the Postgres list.
+            "ALTER TABLE kb_courses ADD COLUMN level VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN tags VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_training_plans ADD COLUMN kind VARCHAR DEFAULT 'custom'",
+            "ALTER TABLE kb_training_plans ADD COLUMN stages TEXT DEFAULT ''",
+            "ALTER TABLE kb_training_plans ADD COLUMN open_enrollment BOOLEAN DEFAULT 1",
+            # Keeps Up (Neil 11/07/2026) - see the Postgres list.
+            "ALTER TABLE kb_courses ADD COLUMN teaches VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN reviewed_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN review_flag TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3744,6 +3762,8 @@ def _run_migrations():
         "ALTER TABLE construction_closeout_records ENABLE ROW LEVEL SECURITY",
         # Subs and their papers (Round Two item 7, 11/05/2026): models.VendorCompliance.
         "ALTER TABLE vendor_compliance ENABLE ROW LEVEL SECURITY",
+        # Drawings, the current set (Round Two item 9, 11/06/2026): models.ConstructionDrawing.
+        "ALTER TABLE construction_drawings ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS group_ids VARCHAR DEFAULT ''",
         # A role's job description from Documents (Nov 4 2026): models.NexusGroup.jd_template_id.
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS jd_template_id VARCHAR DEFAULT ''",
@@ -3769,6 +3789,36 @@ def _run_migrations():
         # summary (11/05/2026, workflows/outbox.py) - a new table: explicit RLS.
         # models.WorkflowMessage.
         "ALTER TABLE workflow_messages ENABLE ROW LEVEL SECURITY",
+        # Sheets and live editing (Neil, 11/05/2026, routers/documents.py
+        # "Working together"): a sheet is a document of kind 'sheet'; shares
+        # and the live session's Yjs state, epoch and channel key.
+        # models.Document.
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS shared_with TEXT DEFAULT '[]'",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS ydoc TEXT DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS yepoch VARCHAR DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS collab_key VARCHAR DEFAULT ''",
+        # Commitments and lien waivers (Construction Round Two item 8, 11/06/2026): models.ConstructionCommitment.
+        "ALTER TABLE construction_commitments ENABLE ROW LEVEL SECURITY",
+        # Board templates (Neil, 11/06/2026): a board its owner starts new boards from. models.NexusNote.
+        "ALTER TABLE nexus_notes ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE",
+        # Learning paths (Neil, 11/07/2026): a course's level and tags in the
+        # catalog; a training plan is a path with a kind, stages and open
+        # enrollment. Existing tables, no new RLS. models.KbCourse / KbTrainingPlan.
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS level VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS tags VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_training_plans ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'custom'",
+        "ALTER TABLE kb_training_plans ADD COLUMN IF NOT EXISTS stages TEXT DEFAULT ''",
+        "ALTER TABLE kb_training_plans ADD COLUMN IF NOT EXISTS open_enrollment BOOLEAN DEFAULT TRUE",
+        # Keeps Up (Neil 11/07/2026): the modules a course teaches, when it was
+        # last reviewed, and the What's New entries that make it worth a look.
+        # models.KbCourse; kb_currency.py fills the flag.
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS teaches VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS reviewed_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS review_flag TEXT DEFAULT ''",
+        # Refresher (Neil 11/07/2026): spaced repetition - a new table, explicit
+        # RLS. models.KbRefresherItem.
+        "ALTER TABLE kb_refresher_items ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4206,11 +4256,33 @@ def _tier_seeds():
             db.rollback()
             print(f"[startup] tier words pass skipped: {e}")
         try:
+            import record_links   # [[ links written before the link table existed (11/07/2026)
+            res = record_links.backfill_once(db)
+            if res is not None:
+                print(f"[startup] record links backfilled: {res}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] record links backfill skipped: {e}")
+        try:
+            import construction_safety   # Toolbox Talk + Near Miss / Incident forms, seeded once (11/06/2026)
+            res = construction_safety.apply_once(db)
+            if res is not None:
+                print(f"[startup] safety forms seeded: {', '.join(res) or 'none (already there)'}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] safety forms seed skipped: {e}")
+        try:
             import kb_academy_seed   # Storage Academy, imported once as drafts (11/04/2026)
             res = kb_academy_seed.apply_once(db)
             if res:
                 print(f"[startup] storage academy imported - pages: {res['pages']}, courses: {res['courses']}, "
                       f"plan: {res['plan']}, owner: {res['owner']}")
+            res = kb_academy_seed.apply_paths_once(db)   # the Academy plan as the onboarding path, course levels and tags (11/07/2026)
+            if res:
+                print(f"[startup] learning paths seeded - plan: {res['plan'] or 'none'}, courses stamped: {res['courses']}")
+            res = kb_academy_seed.apply_content_once(db)   # the package's lessons into the courses nobody edited, figures into untouched lessons (11/07/2026)
+            if res:
+                print(f"[startup] academy content refreshed - pages: {res['pages']}, courses: {res['courses']}, lessons: {res['lessons']}")
         except Exception as e:
             db.rollback()
             print(f"[startup] storage academy import skipped: {e}")
@@ -5326,7 +5398,10 @@ if os.getenv("NEXUS_SENTRY_DSN"):
 
 # Gzip every response over ~1 KB. The item list is ~300 KB of JSON that compresses
 # to ~10% - the single biggest win for the slow Item Management load over the wire.
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# compresslevel 6, not Starlette's default 9 (11/05/2026): the compression runs
+# ON THE EVENT LOOP, and on an ~11 MB task list 9 took ~3x as long as 6 for
+# ~3% smaller output - time every other request on the worker waits.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 # ETag/304 revalidation + auth-failure throttling (see middleware_hardening.py).
 # Added after GZip so ETags hash the compressed bytes; CORS stays outermost.
 from middleware_hardening import ETagMiddleware, AuthFailureThrottle, RequestRateLimit  # noqa: E402
@@ -5362,6 +5437,11 @@ app.add_middleware(
 )
 # Oct 24 (Neil, item 13): a table's own Sync (fresh=1) reads past the accounting cache.
 app.add_middleware(accounting.AccountingFreshReads)
+# Server-Timing (app time, SQL time and statement count) on every answer and a
+# [slow] log line past 2 s (11/05/2026, request_timing.py). Outermost on purpose.
+import request_timing  # noqa: E402
+request_timing.wire(engine)
+app.add_middleware(request_timing.RequestTiming)
 
 
 @app.exception_handler(Exception)
@@ -5808,3 +5888,5 @@ from routers import construction_handover as construction_handover_router  # noq
 app.include_router(construction_handover_router.router)  # Construction: field tickets, change orders through Nexus Sign, closeout to Asset Management and Items (Neil, 11/03/2026, phase 3)
 from routers import construction_subs as construction_subs_router  # noqa: E402 - vendor_compliance: create_all + explicit RLS line
 app.include_router(construction_subs_router.router)  # Construction: subs on a job (Intacct vendors through Accounting) and their papers (Round Two item 7, 11/05/2026)
+from routers import construction_drawings as construction_drawings_router  # noqa: E402 - construction_drawings: create_all + explicit RLS line
+app.include_router(construction_drawings_router.router)  # Construction: the drawing register, current set and superseded revisions (Round Two item 9, 11/06/2026)

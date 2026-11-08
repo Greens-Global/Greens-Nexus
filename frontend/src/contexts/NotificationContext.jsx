@@ -46,6 +46,8 @@ export function NotificationProvider({ children }) {
   const myEmail      = (accounts[0]?.username ?? '').toLowerCase();
 
   const [notifications, setNotifications] = useState([]);
+  // False until the first fetch lands - count tiles show a placeholder, not 0.
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
   const [overdueAlerts, setOverdueAlerts] = useState([]);
   // Set when a toast/popup for an actionable notification is clicked - tells
   // the bell panel to open itself straight into that item's approval workflow
@@ -66,7 +68,7 @@ export function NotificationProvider({ children }) {
     if (!myEmail || fetchingRef.current) return;
     fetchingRef.current = true;
     api.getNotifications()
-      .then(rows => { setNotifications(rows.map(rowToNotif)); errCountRef.current = 0; })
+      .then(rows => { setNotifications(rows.map(rowToNotif)); setNotificationsLoaded(true); errCountRef.current = 0; })
       .catch(() => { errCountRef.current += 1; })
       .finally(() => { fetchingRef.current = false; });
   }, [myEmail]);
@@ -211,12 +213,13 @@ export function NotificationProvider({ children }) {
   const clearPendingApproval = useCallback(() => setPendingApprovalId(null), []);
   const openPanel = useCallback(() => setOpenPanelSignal(s => s + 1), []);
 
-  const unreadCount         = notifications.filter(n => !n.read && !n.actioned && !n.closed).length;
+  // The unread count is lib/notificationCounts.js (bellLists) - the bell's
+  // rule, read by every screen; never a second count here.
   const activeOverdueAlerts = overdueAlerts.filter(a => !a.dismissed);
 
   return (
     <NotificationCtx.Provider value={{
-      notifications, overdueAlerts, activeOverdueAlerts, unreadCount,
+      notifications, notificationsLoaded, overdueAlerts, activeOverdueAlerts,
       addNotification, markRead, markAllRead, dismiss, restore, clearRead, markActioned,
       sendOverdueAlert, dismissOverdueAlert,
       pendingApprovalId, openApproval, clearPendingApproval,

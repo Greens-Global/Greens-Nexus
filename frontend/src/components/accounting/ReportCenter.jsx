@@ -4,7 +4,7 @@ import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useNameResolver } from '../../lib/useNameResolver';
-import { control } from './reportControls';
+import { BarSearchSlot, control } from './reportControls';
 import { catalogue, standardEntries } from './reportCatalog';
 import { parkSavedReport } from './drill';
 
@@ -98,6 +98,7 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
               <Hammer size={14} /> New Custom Report
             </button>
           )}
+          <BarSearchSlot />
         </div>
       </div>
 
