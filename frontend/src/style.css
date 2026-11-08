@@ -9958,3 +9958,15 @@ a[data-type="recordLink"][data-ref]:hover { background: var(--wk-hover); }
 @media (max-width: 640px) {
   .pr-row { grid-template-columns: 1fr; gap: 2px; padding: 8px 0; }
 }
+
+/* ── Workday cleanup (Neil, 11/08/2026) ──
+   Less on Overview: the clock card, one row of action pills, then the cards.
+   A widget with nothing in it is ONE line - its title, the empty words in
+   muted 12.5px on the same line, its icon or button at the end - and the
+   year's time off is a figure on My Schedule's week line, not a tile. */
+.dash-card.wd-oneline { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 14px 16px; }
+.wd-oneline .dash-card-title { flex-shrink: 0; }
+.wd-oneline-text { flex: 1; min-width: 0; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.wd-trail-link { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: none; background: none; cursor: pointer; font: inherit; font-weight: 700; color: var(--ink);
+  text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; vertical-align: baseline; }
+.wd-trail-link:hover { text-decoration-color: var(--muted); }

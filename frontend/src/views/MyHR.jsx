@@ -1,16 +1,16 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { crisisCheck } from '../lib/crisisSupport';
 import {
-  User, Phone, Mail, Heart, Building2, CalendarDays, MapPin, Network,
-  FileText, Download, CalendarOff, Pencil, Check, X, BadgeCheck,
-  Clock, Banknote, MessageSquarePlus, Package, ArrowRight, Hourglass,
+  User, Phone, Mail, Heart, CalendarDays, Network, BadgeCheck,
+  FileText, Download, Pencil, Check, X,
+  Banknote, MessageSquarePlus, Package, ArrowRight,
   HardDrive, Folder, FolderOpen, ChevronRight, ChevronLeft, Eye,
   FileSignature, CircleHelp, MessageSquare, UserPen,
 } from 'lucide-react';
 import { api } from '../api';
-import { SkeletonBlocks, Spinner, LoadingState, CountSkeleton } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner, CountSkeleton } from '../components/AsyncState';
 import { formatDate, formatDateLong } from '../lib/datetime';
-import { approvedLeaveDays, fmtDays, tenureLabel, openShiftMinutes } from '../lib/workdayStats';
+import { approvedLeaveDays, fmtDays } from '../lib/workdayStats';
 import { fmtLeave } from '../components/LeaveBalances';
 import EgnytePreview from '../egnyte/EgnytePreview';
 import { canPreview } from '../egnyte/lib';
@@ -42,11 +42,13 @@ import MyWorkTile, { useMyMaintenanceWork } from '../maintenance/MyWorkTile';
 // the Time Clock is the first thing on this page - TimeClock.jsx owns the
 // punch state and hands the widget in as `clock` (a function of the first
 // name, for its greeting). The hours - today, this week, the pay period -
-// sit in that widget; the Hours tile and the My Hours chart below cover any
-// range you pick. Time-off
-// REQUESTING and its full history live on the Time Off tab; this screen shows
-// what is coming up with a link over. Paystubs are a folder inside My
+// sit in that widget. Time-off
+// REQUESTING and its full history live on the Time Off tab; the year's figure
+// is on My Schedule's week line. Paystubs are a folder inside My
 // Documents (Neil, Oct 1: "keep everything in my documents").
+// Cleanup (Neil, 11/08/2026 - the phone page was 2,297px tall): the Hours,
+// Time Off and Time With Us tiles and the profile card went; the actions are
+// one row of pills under the clock; an empty widget is one line.
 const STATUS_META = {
   pending:   { label: 'Pending',   bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   approved:  { label: 'Approved',  bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))' },
@@ -106,25 +108,7 @@ function writeAskSeen(m) {
   try { localStorage.setItem(ASK_SEEN_KEY, JSON.stringify(m)); } catch { /* storage unavailable - the dot just comes back */ }
 }
 
-// Same labels as the HR module's EMP_TYPES (HR.jsx) - not imported, that
-// chunk is far too big to pull into My HR. Raw "full_time" read "full time".
-const EMP_TYPE_LABEL = { full_time: 'Full-Time', part_time: 'Part-Time', contractor: 'Contractor', intern: 'Intern' };
-
 const fmtD = (iso) => formatDateLong(iso, '-');
-const hm = (min) => `${Math.floor((min || 0) / 60)}h ${String((min || 0) % 60).padStart(2, '0')}m`;
-
-// Hours range filter - start/end in local time, ISO date keys.
-const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-function rangeBounds(range) {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
-  if (range === 'week')     return { start: monday, end: today };
-  if (range === 'lastweek') { const s = new Date(monday); s.setDate(monday.getDate() - 7); const e = new Date(monday); e.setDate(monday.getDate() - 1); return { start: s, end: e }; }
-  if (range === 'month')    return { start: new Date(today.getFullYear(), today.getMonth(), 1), end: today };
-  if (range === '30d')      { const s = new Date(today); s.setDate(today.getDate() - 29); return { start: s, end: today }; }
-  const s = new Date(today); s.setDate(today.getDate() - 13); return { start: s, end: today };
-}
-
 
 function Row({ Icon, label, value }) {
   if (!value) return null;
@@ -137,30 +121,7 @@ function Row({ Icon, label, value }) {
   );
 }
 
-// Stat tile - the shared dk-stat anatomy (tinted icon chip, big tabular
-// numeral) so My HR reads like Home/People. `hero` = the one solid brand tile.
-// Stat tile - the shared dk-stat anatomy (tinted icon chip, big tabular
-// numeral) so My HR reads like Home/People. `hero` = the one solid brand tile.
-// With onClick it opens what it counts (the Time Sheet, Time Off, documents).
-function Stat({ label, value, hint, color, Icon, hero, title, onClick }) {
-  const cls = `dk-stat wd-stat${hero ? ' dk-stat--hero' : ''}`;
-  const body = (
-    <>
-      <span className={`dk-chip dk-chip--${color}`}><Icon /></span>
-      <span className="wd-stat-text">
-        <span className="dk-stat-num">{value}</span>
-        <span className="dk-stat-label">{label}</span>
-        <span className="dk-stat-sub">{hint}</span>
-      </span>
-      {onClick && <ArrowRight size={16} className="dk-stat-arrow" aria-hidden="true" />}
-    </>
-  );
-  return onClick
-    ? <button type="button" className={cls} title={title} onClick={onClick}>{body}</button>
-    : <div className={cls} style={{ cursor: 'default' }} title={title}>{body}</div>;
-}
-
-export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false, askFocus = null, leaveBalance = null, openForm = null }) {
+export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false, askFocus = null, leaveBalance = null, openForm = null }) {
   // A "confirm your schedule" bell or email (Shifts Phase 3a) lands here:
   // My Schedule shows that share's banner - bring the card into view.
   useEffect(() => {
@@ -255,11 +216,6 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [askPanel, letterOpen]);
-  const [sheet, setSheet] = useState(null);
-  // The Hours tile counts this week; the clock card above switches between
-  // Today / This Week / Pay Period.
-  const range = 'week';       // the Ask HR form opens on New Request
-
   const flash = (t, ok = true) => { setToast({ t, ok }); setTimeout(() => setToast(null), 4000); };
 
   useEffect(() => {
@@ -275,14 +231,6 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
       .catch(() => setAssets({ assignments: [], checkouts: [] }));
     api.myHrRequests().then(r => setAsks(Array.isArray(r) ? r : [])).catch(() => {});
     api.myhrEgnyteDocs().then(d => setEgnyteDocs(d?.available ? { rootFiles: d.rootFiles || [], folders: d.folders || [] } : null)).catch(() => {});
-  }, []);
-
-  // Hours follow the selected range.
-  const { start: rStart, end: rEnd } = rangeBounds(range);
-  useEffect(() => {
-    setSheet(null);
-    const { start, end } = rangeBounds(range);
-    api.timeMy(iso(start), iso(end)).then(setSheet).catch(() => setSheet({ days: {} }));
   }, []);
 
   const startEdit = () => {
@@ -465,24 +413,12 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
   const goInventory = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'checkouts' } }));
 
   // ── Derived stats ──
-  const dayEntries = Object.entries(sheet?.days || {});
-  const workedTotal = dayEntries.reduce((s, [, d]) => s + (d.workedMin || 0), 0);
-  const daysWorked = dayEntries.filter(([, d]) => (d.workedMin || 0) > 0).length;
-  // A shift still open right now is not in workedMin until its clock-out
-  // lands - add it live, or the tile reads 0h all day mid-shift. Only for
-  // ranges that end today ("Last week" is closed history).
-  const rangeEndsToday = iso(rEnd) === iso(new Date());
-  const openMin = sheet && rangeEndsToday ? openShiftMinutes(sheet.days) : 0;
-  const hoursTotal = workedTotal + openMin;
-  const todayKey = iso(new Date());
-  const daysWorkedLive = daysWorked + (openMin > 0 && !((sheet?.days?.[todayKey]?.workedMin || 0) > 0) ? 1 : 0);
   // Leave = approved WORKING days (Mon-Fri) inside this calendar year, a
   // partial day as its share of 8 hours (lib/workdayStats.js). The old count
   // added calendar days incl. weekends and whole days for 2-hour requests.
   const yr = new Date().getFullYear();
   const leaveDaysThisYear = Array.isArray(leave) ? approvedLeaveDays(leave, yr) : null;
   const leaveLabel = leave === null ? <CountSkeleton /> : leaveDaysThisYear == null ? '-' : `${fmtDays(leaveDaysThisYear)}d`;
-  const tenure = tenureLabel(profile?.startDate);
 
   const em = profile?.personal?.emergency || {};
   const initials = profile ? `${(profile.firstName || ' ')[0]}${(profile.lastName || ' ')[0]}`.trim().toUpperCase() : '';
@@ -498,30 +434,32 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
     </div>
   );
 
-  // What is coming up: pending or approved requests that have not ended yet,
-  // soonest first - the Time Off card's list (the full history is the tab).
+  // The status chip on an Earlier Request in the Ask HR panel (the pre-ticket
+  // requests; ticket rows use StatusLabel).
   const chip = (s) => { const m = STATUS_META[s] || STATUS_META.pending; return <span style={{ padding: '2px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: m.bg, color: m.fg, flexShrink: 0 }}>{m.label}</span>; };
   const pendingCount = Array.isArray(leave) ? leave.filter(r => r.status === 'pending').length : 0;
-  // The Time Off tile's sub line shows the paid-leave balance once HR has
-  // balances on (the Time Off tab's payload, handed in by TimeClock so both
-  // surfaces read the same numbers). A bucket outside the policy stays out.
+  // The paid-leave balance once HR has balances on (the Time Off tab's
+  // payload, handed in by TimeClock so both surfaces read the same numbers).
+  // A bucket outside the policy stays out.
   const balBits = leaveBalance?.live
     ? ['vacation', 'sick']
         .filter(k => leaveBalance[k] && leaveBalance[k].method !== 'none')
         .map(k => `${fmtLeave(leaveBalance[k].available, leaveBalance.policy)} ${k === 'sick' ? 'sick' : 'vacation'}`)
     : [];
-  const leaveHint = balBits.length
-    ? `${balBits.join(' · ')} left${pendingCount ? ` · ${pendingCount} pending` : ''}`
-    : pendingCount ? `Approved working days · ${pendingCount} pending` : `Approved working days in ${yr}`;
+  // The year's time off rides My Schedule's week line (Neil, 11/08/2026 - the
+  // Time Off This Year tile went): the figure opens the Time Off tab, the
+  // balance and the pending count follow it.
+  const timeOffTrail = (
+    <>
+      Time off this year:{' '}
+      <button type="button" className="wd-trail-link" onClick={onOpenTimeOff}
+        title={`Approved time off in ${yr}, counted in working days (Mon-Fri). A partial day counts as its share of an 8-hour day. Opens Time Off.`}>
+        {leaveLabel}
+      </button>
+      {balBits.length ? ` · ${balBits.join(' · ')} left` : ''}{pendingCount ? ` · ${pendingCount} pending` : ''}
+    </>
+  );
   const clockParts = typeof clock === 'function' ? clock() : null;
-  // Time-tracking exempt: Workday hands in what it already knows (the
-  // remembered answer, then /time/status), so the Hours tile never shows for
-  // a salaried person while /time/me is still on its way (Neil, 10/08).
-  const hoursExempt = clockParts?.exempt ?? !!sheet?.timeTrackingExempt;
-  // The tile reads the clock card's own week (Monday to Sunday, the running
-  // shift included) once /time/status is in, so the two say the same total;
-  // /time/me is the fallback when Overview renders without the clock.
-  const week = clockParts?.week || (sheet ? { min: hoursTotal, days: daysWorkedLive } : null);
   const myWork = useMyMaintenanceWork();
 
   return (
@@ -532,54 +470,24 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{toast.t}</div>
       )}
 
-      {/* Top of the page, in reading order (Oct 2, greeting dropped Oct 14):
-          the summary tiles, then the clock card. The clock never waits on the HR profile -
-          only the tiles do, and they hold their place with a skeleton. */}
-      {profile ? (
-        <>
-          {/* ── Stat tiles ── each opens what it counts. Hours hidden for
-              salaried/exempt people (Charmi, Aug 21). */}
-          {/* One row (Pranshu, Oct 15 2026): this week's hours, time off, time
-              with us, and Ask HR at the right edge. Today's shift left the hero
-              - your week is the My Schedule card below. */}
-          <div className={`wd-statgrid${hoursExempt ? ' wd-statgrid--nohours' : ''}`}
-            style={{ '--wd-n': 2 + (tenure ? 1 : 0) + (myWork.show ? 1 : 0) }}>
-            {!hoursExempt ? (
-              /* The hours open the Time Sheet. */
-              <div className="dk-stat dk-stat--hero wd-stat wd-hero" style={{ cursor: 'default' }}>
-                <button type="button" className="wd-hero-part" onClick={onOpenTimeSheet} disabled={!onOpenTimeSheet}
-                  title={`Your punched hours from ${formatDate(rStart)} to ${formatDate(rEnd)}, after breaks${openMin ? ', including the shift you are on now' : ''}. Opens your Time Sheet.`}>
-                  <span className="dk-chip dk-chip--blue"><Clock /></span>
-                  <span className="wd-stat-text">
-                    <span className="dk-stat-num">{week ? hm(week.min) : <CountSkeleton width="2.4em" />}</span>
-                    <span className="dk-stat-label">Hours · This Week</span>
-                    <span className="dk-stat-sub">{`${formatDate(rStart)} - ${formatDate(rEnd)}${week ? ` · ${week.days} day${week.days === 1 ? '' : 's'} worked` : ''}`}</span>
-                  </span>
-                </button>
-              </div>
-            ) : null}
-            <Stat label="Time Off This Year" value={leaveLabel}
-              hint={leaveHint}
-              title={`Approved time off in ${yr}, counted in working days (Mon-Fri). A partial day counts as its share of an 8-hour day.${balBits.length ? ' The line under it is the paid time off you have left.' : ''} Opens Time Off.`}
-              color="green" Icon={CalendarOff} onClick={onOpenTimeOff} />
-            {/* Only with a start date (11/05/2026): a tile reading "-" said nothing. */}
-            {tenure && (
-              <Stat label="Time With Us" value={tenure}
-                hint={`Since ${formatDate(profile.startDate)}`}
-                title="Counted from the start date on your HR record. If it is wrong, ask HR to correct it."
-                color="orange" Icon={Hourglass} />
-            )}
-            {/* My Tickets (Neil, 11/04/2026): a full tile beside Time With Us, left of the compact rows. Shows only when there is work. */}
+      {/* Top of the page: the clock card with its Today / This Week / Pay
+          Period summary, then the Workday actions - neither waits on the HR
+          profile. */}
+      {clockParts ? clockParts.card : clock}
+      {/* The actions (Neil, 11/08/2026): ONE row of pill tiles under the clock
+          card - My Tickets when there is work (first - Neil), Ask HR,
+          Reimbursements, Purchase Request, Fill a Form when there is one -
+          equal widths, 2 x 2 on a narrow window, a stack on a phone
+          (wd-actions in TimeClock.jsx's Workday styles). The Hours tile went
+          (the summary beside the punch card already says This Week), so did
+          Time Off This Year (on My Schedule's week line) and Time With Us
+          (now a line on Workday > Performance). */}
+      <div className="wd-actions">
+            {/* My Tickets (Neil, 11/04/2026): shows only when there is work - and always, at 0, for someone on a maintenance team. Leads the row (Neil, 11/08/2026). */}
             <MyWorkTile {...myWork} />
-            {/* Ask HR (Pranshu, Oct 15 2026): a button at the end of the row
-                instead of a card at the bottom. It opens the panel with New
-                Request and every request sent; a dot says HR did something
-                you have not looked at yet. */}
-            {/* Styled as the place to go (Pranshu, Oct 15 2026): a soft tint of
-                the hero's blue-to-green, a solid badge and an Ask a Question
-                pill - wd-askhr in TimeClock.jsx's Workday styles. */}
-            {/* Ask HR, Reimbursements and Purchase Request share the last cell as compact rows (Oct 18 / Oct 22 2026). */}
-            <div className="wd-actions">
+            {/* Ask HR (Pranshu, Oct 15 2026): a button, not a card at the
+                bottom. It opens the panel with New Request and every request
+                sent; a dot says HR did something you have not looked at yet. */}
             <button type="button" className="dk-stat wd-stat wd-askhr" onClick={openAskPanel}
               aria-label={askUnseen ? `Ask HR, ${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR`
                 : letterQueue ? `Ask HR, ${letterQueue} letter${letterQueue === 1 ? '' : 's'} to prepare` : 'Ask HR'}>
@@ -593,7 +501,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                   {askUnseen ? `${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR`
                     : letterQueue ? `${letterQueue} letter${letterQueue === 1 ? '' : 's'} to prepare`
                       : askOpenCount ? `${askOpenCount} open request${askOpenCount === 1 ? '' : 's'}`
-                        : letters.types.length ? 'Letters, documents, questions' : 'Documents, changes, questions'}
+                        : letters.types.length ? 'Letters and questions' : 'Documents and questions'}
                 </span>
               </span>
               <span className="wd-askhr-cta" aria-hidden="true">{askUnseen ? 'View' : letterQueue ? 'Review' : 'Ask a Question'} <ArrowRight size={13} /></span>
@@ -605,11 +513,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
             <PurchaseRequestTile onOpen={onOpenPurchase || (() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'purchase' } })))} />
             {/* Fill a Form (Forms & Checklists, Neil 11/02/2026): the forms this person may fill, in the fill sheet. Shows only when there is one. `openForm` is the "form:<id>" / "form:pick" deep link. */}
             <FormsTile autoOpen={openForm} flash={flash} />
-            </div>
-          </div>
-        </>
-      ) : !profErr && <SkeletonBlocks count={1} height={74} />}
-      {clockParts ? clockParts.card : clock}
+      </div>
       {/* No checklist steps on Workday (Oct 28 2026): an owner's steps are
           subtasks on their My Tasks. */}
       {/* No salary advance card on Workday (Neil, Oct 29 2026): an advance is
@@ -624,11 +528,15 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
         <>
           <div className="myhr-grid">
 
-            {/* ── Left rail: profile + equipment ── (minWidth 0: a long work
-                email must ellipsize, not widen the column past a phone) */}
+            {/* ── Left rail: contact, equipment, documents ── (minWidth 0: a long line
+                must wrap, not widen the column past a phone) */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+              {/* My Profile, compact (Neil, 11/08/2026, after seeing the
+                  cleanup): the header row, Reports to and Start date, then
+                  Contact & Emergency as the old card had it - the one thing
+                  edited here. No work email or employment rows. */}
               <div className="dash-card">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10 }}>
                   {profile.photoUrl
                     ? <img src={profile.photoUrl} alt="" style={{ width: 54, height: 54, borderRadius: '50%', objectFit: 'cover' }} />
                     : <div style={{ width: 54, height: 54, borderRadius: '50%', background: 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 18, color: 'var(--muted)' }}>{initials || <User size={22} />}</div>}
@@ -645,11 +553,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                 {/* No employee code here (Neil, Oct 1): it is only used for
                     Intacct reporting, so it stays in People for HR and
                     accounting and means nothing to the employee. */}
-                <Row Icon={Mail} label="Work email" value={profile.workEmail} />
-                <Row Icon={CalendarDays} label="Start date" value={fmtD(profile.startDate)} />
                 <Row Icon={Network} label="Reports to" value={profile.manager} />
-                <Row Icon={MapPin} label="Location" value={profile.location} />
-                <Row Icon={Building2} label="Employment" value={EMP_TYPE_LABEL[profile.employmentType] || (profile.employmentType || '').replace(/_/g, ' ')} />
+                <Row Icon={CalendarDays} label="Start date" value={formatDate(profile.startDate)} />
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0 2px' }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Contact & Emergency</span>
@@ -704,10 +609,18 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                   nothing at all until there is one. */}
               <MyMoreDetails />
 
-              {/* ── My Equipment ── */}
+              {/* ── My Equipment ── one line while nothing is checked out
+                  (Neil, 11/08/2026), the card as before once there is. */}
+              {!assets || assets.assignments.length + assets.checkouts.length === 0 ? (
+                <div className="dash-card wd-oneline">
+                  <span className="dash-card-title">My Equipment</span>
+                  <span className="wd-oneline-text">{assets ? 'Nothing checked out right now.' : <CountSkeleton />}</span>
+                  <Package size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                </div>
+              ) : (
               <div className="dash-card">
                 {cardHead('My Equipment', 'Assigned to you or checked out',
-                  assets && assets.assignments.length > 0 && assets.checkouts.length > 0 ? (
+                  assets.assignments.length > 0 && assets.checkouts.length > 0 ? (
                     <select className="form-input" value={assetFilter} onChange={e => setAssetFilter(e.target.value)} aria-label="Filter my equipment"
                       style={{ fontSize: 12, fontWeight: 600, padding: '5px 24px 5px 9px', height: 'auto' }}>
                       <option value="all">All</option>
@@ -715,11 +628,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                       <option value="checkouts">Checkouts</option>
                     </select>
                   ) : <Package size={15} style={{ color: 'var(--muted)' }} />)}
-                {!assets ? (
-                  <LoadingState compact />
-                ) : assets.assignments.length + assets.checkouts.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>Nothing checked out to you right now.</div>
-                ) : (
+                {(
                   <div>
                     {(assetFilter === 'checkouts' ? [] : assets.assignments).map((a, i) => (
                       <div key={`a${i}`} onClick={goInventory} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
@@ -739,34 +648,24 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                   </div>
                 )}
               </div>
-            </div>
-
-            {/* ── Main grid: My Schedule across the top, documents beside time
-                off, then Ask HR ── */}
-            <div className="myhr-main">
-              {/* My Schedule (Pranshu, Oct 15 2026): your own shifts, in
-                  Workday as Neil asked (Oct 13), as a full-width card - the
-                  week's day cards, a My Week | Team switch for your group's
-                  week, swap/offer requests and availability. Above Documents
-                  and Time Off, beside (never above) your details column, so
-                  the hero and the clock stay where they are. */}
-              <div className="dash-card myhr-span2" id="myhr-schedule" style={{ scrollMarginTop: 80 }}>
-                {cardHead('My Schedule', 'Your shifts this week, and your group\'s')}
-                <MyShifts embedded focusConfirm={focusConfirm} />
-              </div>
-
-              {/* Full width since the Time Off card went (Pranshu, 10/15): what
-                  is coming up shows on the hero's Time Off This Year tile and
-                  the Time Off tab. */}
-              <div className="dash-card myhr-span2">
+              )}
+              {/* My Documents (Neil, 11/08/2026): under My Equipment in this
+                  column, so My Schedule stands alone on the right. One line
+                  while there is no document. */}
+              {totalDocCount === 0 ? (
+                <div className="dash-card wd-oneline">
+                  <span className="dash-card-title">My Documents</span>
+                  <span className="wd-oneline-text">No documents yet.</span>
+                  <FileText size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                </div>
+              ) : (
+              <div className="dash-card">
                 {cardHead('My Documents', 'Signed copies, files HR filed for you and your paystubs',
                   totalDocCount > 3 ? (
                     <input className="form-input" placeholder="Search…" aria-label="Search my documents" value={docQuery} onChange={e => setDocQuery(e.target.value)}
                       style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
                   ) : <FileText size={15} style={{ color: 'var(--muted)' }} />)}
-                {totalDocCount === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents yet.</div>
-                ) : (() => {
+                {(() => {
                   const q = docQuery.trim().toLowerCase();
                   const searching = !!q;
                   const filtered = docSections
@@ -825,6 +724,21 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                   });
                 })()}
               </div>
+              )}
+            </div>
+
+            {/* ── Main column: My Schedule alone (11/08/2026) ── */}
+            <div className="myhr-main">
+              {/* My Schedule (Pranshu, Oct 15 2026): your own shifts, in
+                  Workday as Neil asked (Oct 13), as a full-width card - the
+                  week's day cards, a My Week | Team switch for your group's
+                  week, swap/offer requests and availability. Beside (never
+                  above) your details column, so the clock stays where it is. */}
+              <div className="dash-card myhr-span2" id="myhr-schedule" style={{ scrollMarginTop: 80 }}>
+                {cardHead('My Schedule', 'Your shifts this week, and your group\'s')}
+                <MyShifts embedded focusConfirm={focusConfirm} trail={timeOffTrail} />
+              </div>
+
               {previewFile && (
                 <EgnytePreview file={previewFile} onClose={() => setPreviewFile(null)}
                   fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />

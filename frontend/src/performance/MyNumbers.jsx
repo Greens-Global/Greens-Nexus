@@ -8,7 +8,25 @@ import { BarChart3 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { formatDate } from '../lib/datetime';
+import { tenureLabel } from '../lib/workdayStats';
+import { offlineRead } from '../lib/offline/read';
 import { PERIODS, card, cardHead, HD, muted } from './lib';
+
+// Time With Us (Neil, 11/08/2026: moved here from the Workday Overview tile):
+// one quiet line under My Numbers' head on the self view - "With us since
+// MM/DD/YYYY · 2.7y", from the start date on the person's HR record, the
+// same figure the tile showed. Nothing without a start date.
+function WithUs() {
+  const [since, setSince] = useState('');
+  useEffect(() => {
+    let live = true;
+    offlineRead('myhr:profile', () => api.myHrProfile()).then(p => { if (live) setSince(p?.startDate || ''); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const tenure = tenureLabel(since);
+  if (!tenure) return null;
+  return <div data-with-us style={{ ...muted, marginTop: -6, marginBottom: 10 }}>With us since {formatDate(since)} · {tenure}</div>;
+}
 
 export function Segmented({ value, onChange, options, label }) {
   return (
@@ -78,6 +96,7 @@ export default function MyNumbers({ email = '', start = '', end = '', title = 'M
         {span && <span style={{ ...muted, fontSize: 12 }}>{span}</span>}
         {!fixed && <span style={{ marginLeft: 'auto' }}><Segmented value={period} onChange={setPeriod} options={PERIODS} label="Period" /></span>}
       </div>
+      {!email && <WithUs />}
       {body}
     </section>
   );

@@ -541,7 +541,7 @@ export function PurchaseRequestTile({ onOpen }) {
   const myOpen = requisitions.filter(r => OPEN.includes(r.status) && isMine(r)).length;
   const waiting = toApprove + toFulfill;
   const sub = toApprove ? `${toApprove} to approve` : toFulfill ? `${toFulfill} to purchase`
-    : myOpen ? `${myOpen} in progress` : 'Things the company should buy';
+    : myOpen ? `${myOpen} in progress` : 'Things to buy';
   return (
     <button type="button" className="dk-stat wd-stat wd-askhr wd-purchase" onClick={onOpen}
       aria-label={waiting || myOpen ? `Purchase Request, ${sub}` : 'Purchase Request'}>
