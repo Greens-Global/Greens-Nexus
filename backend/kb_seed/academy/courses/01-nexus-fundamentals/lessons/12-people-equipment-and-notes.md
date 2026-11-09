@@ -1,271 +1,80 @@
 ---
 title: People, Equipment and Notes
 summary: Find and reach anyone with the Directory and Teams, borrow and return equipment in Item Management with the right photos, and keep private notes.
+teaches: Team, Item Management, Notes
 ---
 
-## What You'll Be Able to Do
-
-- Find a coworker in the Directory and reach them on Teams, by phone or by email.
-- Explain why Nexus has no chat of its own.
-- Borrow an item, take it, confirm you have it and return it, with the photos each step needs.
-- Accept equipment assigned to you, and report it dead or lost.
-- Keep notes in Nexus, share one, and know who can see them.
+Devon at Escondido needs a pressure washer for the dumpster pad on Saturday, has to ask the Fairfield site manager about a ladder, and wants to jot down a broken hinge before he forgets. Three tools: the Directory, Item Management and Notes. One of them is the wrong place for the hinge.
 
 ## The Directory
 
-```figure
-{
-  "kind": "screen",
-  "title": "A Directory Card",
-  "device": "computer",
-  "module": "Team",
-  "tabs": [
-    "Directory",
-    "Shifts"
-  ],
-  "tab": "Directory",
-  "actions": [
-    "Export PDF"
-  ],
-  "parts": [
-    {
-      "kind": "card",
-      "title": "Dana Reyes",
-      "note": "Site Manager · Temecula · Operations",
-      "rows": [
-        {
-          "label": "Work email",
-          "value": "d.reyes@example.com"
-        },
-        {
-          "label": "Office",
-          "value": "Temecula"
-        },
-        {
-          "label": "Reports to",
-          "value": "Regional Manager"
-        }
-      ],
-      "buttons": [
-        {
-          "label": "Chat",
-          "primary": true,
-          "n": 1
-        },
-        "Call",
-        "Video",
-        "Email",
-        "Save Contact",
-        "View on Chart"
-      ],
-      "n": 2
-    }
-  ],
-  "callouts": [
-    {
-      "n": 1,
-      "text": "Chat, Call and Video open Microsoft Teams. Nexus has no chat of its own."
-    },
-    {
-      "n": 2,
-      "text": "The job title under the name, never the tier; a small mark beside the name shows a Manager or an Administrator."
-    }
-  ]
-}
-```
+Open **Team** and click **Directory**. Everyone at Greens is there. Search by name, narrow by company or office, or filter with **My Team**, **Department Leads**, **Off Today** and **Pinned**. **Organizational Chart** and **Reporting Line** show who reports to whom.
 
-Open **Team** from the left menu and click **Directory**. Everyone at Greens is there.
+Click a person to open their card: their job title, office and manager, and the buttons **Chat**, **Call**, **Video** and **Email** (Teams and Outlook), **Save Contact** (to your phone) and **View on Chart**. All over Nexus, on a ticket or an approval, two small buttons sit beside a person: **Message on Teams** and **Call on Teams**.
 
-- **Search** by name.
-- Narrow the list with **All Companies** and **All Offices**.
-- Filter with **Everyone**, **My Team**, **Department Leads**, **Off Today** and **Pinned**.
-- Browse by **Departments**, **Reporting Line** or the **Organizational Chart**.
-- **Export PDF** makes a printable copy.
-
-Click a person to open their card. Under their name is their job title. The card offers:
-
-| Button | What it does |
-|---|---|
-| **Chat** | Opens a Teams chat with them. |
-| **Call** | Calls them. |
-| **Video** | Starts a Teams video call. |
-| **Email** | Starts an email. |
-| **Save Contact** | Saves them to your phone's contacts. |
-| **View on Chart** | Shows them on the organizational chart. |
-| **View Tasks** | Their tasks, if you use Tasks. |
-
-All over Nexus (on a ticket, an approval, your team list) you also see two small buttons beside a person: **Message on Teams** and **Call on Teams**. They open Teams straight to that person.
-
-### Why There Is No Chat in Nexus
-
-Greens talks on Microsoft Teams. Nexus deliberately has no chat of its own, so there is only one place to look for messages. When Nexus wants you to talk to someone, it sends you to Teams. Your Beginning of Day and End of Day messages also post to your team's Teams chat (the Punching In, Breaks and Punching Out lesson).
-
-> [!NOTE]
-> Some Directory cards may show a colored dot for Teams status (available, busy, away). It appears only when the company has switched that on. If you see "Teams status is off," that is normal.
+Greens talks on Microsoft Teams, and Nexus deliberately has **no chat of its own**, so there is one place to look for messages. Some cards show a Teams status dot only when the company has switched it on; no dot is normal.
 
 ## Item Management
 
-Open **Item Management** from the left menu. It tracks every physical company item: tools, keys, laptops, dollies, ladders, pressure washers. Everyone has two tabs:
+Open **Item Management** from the left menu. It tracks every physical company item: tools, keys, laptops, ladders, pressure washers. Everyone has **My Stuff** (what you have and what waits on you, most urgent first) and **Borrow** (pick what you need and send one request).
 
-| Tab | What it is for |
-|---|---|
-| **My Stuff** | What you have and what is waiting on you, most urgent first. |
-| **Borrow** | Pick what you need, choose a return date, and send one request. |
-
-Managers and allocators also see **Requests** and **Inventory**.
-
-There are two kinds of items:
-
-- **Borrowed items** (checkouts): you borrow them for a while and give them back.
-- **Assigned items:** given to you to keep for your job, such as a laptop or a set of keys.
+- **Borrowed items** you use for a while and give back.
+- **Assigned items** are given to you to keep for your job, such as a laptop or keys.
 
 ### Photos Are Evidence
 
-Every handover and return takes a photo. That photo is proof of the item's condition at that moment. If a tool was already cracked when you got it, the handover photo protects you. The steps that need a photo:
+The photo at each handover proves the item's condition at that moment. If a tool was already cracked when you got it, the handover photo protects you.
 
 | Step | Photo? |
 |---|---|
-| Taking a borrowed item (handover) | Yes |
-| Confirming you received a borrowed item | Yes |
+| Taking a borrowed item, or confirming you received it | Yes |
 | Returning a borrowed item | Yes, with its condition |
 | Accepting an assigned item | Optional |
 | Returning an assigned item | Yes |
 | Reporting an item lost | No |
 
-On a computer you can paste a photo with Ctrl+V. On a phone, use the camera.
-
-### Borrowing an Item
+### Borrow and Return
 
 ```figure
-{
-  "kind": "screen",
-  "title": "Item Management, My Stuff",
-  "device": "phone",
-  "module": "Item Management",
-  "sub": "Dashboard",
-  "parts": [
-    {
-      "kind": "list",
-      "title": "My Stuff",
-      "items": [
-        {
-          "label": "Pressure washer (PW-02)",
-          "note": "Approved - take it with a handover photo",
-          "badge": "Take It",
-          "tone": "ok",
-          "n": 1
-        },
-        {
-          "label": "Extension ladder 24 ft",
-          "note": "Handed over by R. Chen · confirm with your photo",
-          "badge": "Confirm Receipt",
-          "tone": "live",
-          "n": 2
-        },
-        {
-          "label": "Site keys, ring B",
-          "note": "Assigned to you · accept it to confirm you have it",
-          "badge": "Accept"
-        },
-        {
-          "label": "Dolly (DL-07)",
-          "note": "Due back 11/12/2026",
-          "badge": "Start Return",
-          "n": 3
-        }
-      ]
-    }
-  ],
-  "callouts": [
-    {
-      "n": 1,
-      "text": "You take it yourself, with a handover photo."
-    },
-    {
-      "n": 2,
-      "text": "Someone handed it over; you confirm with your own photo."
-    },
-    {
-      "n": 3,
-      "text": "Photo, Condition (Good or Damaged), Confirm Return. Extend asks for more time."
-    }
-  ]
-}
+{"kind": "screen", "title": "Item Management, My Stuff", "device": "phone", "module": "Item Management", "parts": [{"kind": "list", "title": "My Stuff", "items": [{"label": "Pressure washer (PW-02)", "note": "Approved: take it with a photo", "badge": "Take It", "n": 1}, {"label": "Ladder, 24 ft", "note": "Handed over by R. Chen", "badge": "Confirm Receipt", "n": 2}, {"label": "Site keys, ring B", "note": "Assigned to you", "badge": "Accept"}, {"label": "Dolly (DL-07)", "note": "Due back 11/12/2026", "badge": "Start Return", "n": 3}]}], "callouts": [{"n": 1, "text": "You take it, with a handover photo."}, {"n": 2, "text": "Someone handed it over; confirm with your photo."}, {"n": 3, "text": "Photo, condition, Confirm Return."}]}
 ```
 
-1. Open **Item Management** and click **Borrow** (or **Request an Item** in the + menu or Dashboard Quick Actions).
-2. Find the item and click **Add**. It shows **In Cart**.
-3. Open the cart. Answer **Who Is It For?** (Myself or Someone Else), **Why Do You Need It?**, set the **Return Dates**, and pick **Who Approves It?**.
-4. Click **Request 1 Item** (or Request 2 Items, and so on).
+1. Click **Borrow** (or **Request an Item** in the + menu), find the item and click **Add**.
+2. Open the cart: **Who Is It For?**, **Why Do You Need It?**, the **Return Dates** and **Who Approves It?**.
+3. Click **Request 1 Item** (or 2 Items, and so on).
 
-In **My Stuff**, the request reads "Waiting for approval." Then one of two things happens:
+Once it is approved, either click **Take It** and take the handover photo yourself, or, when an allocator hands it to you, click **Confirm Receipt** and take yours. The due date counts from the handover, not from your request.
 
-- **You take it yourself:** the row says "Approved - take it with a handover photo." Click **Take It** and take the photo.
-- **Someone hands it to you:** the allocator hands it over with a photo, and the row says they handed it over and asks you to confirm. Click **Confirm Receipt** and take your photo.
+To give it back, click **Start Return**, take a photo, pick the **Condition** (Good or Damaged) and click **Confirm Return**. Need longer? Click **Extend** before it is due.
 
-The due date counts from the handover, not from your request. You can **Cancel** a request until it is handed over.
-
-### Returning a Borrowed Item
-
-1. In **My Stuff**, click **Start Return** on the item.
-2. Take a photo, pick the **Condition** (Good or Damaged) and add notes if needed.
-3. Click **Confirm Return**.
-
-Need it longer? Click **Extend** to ask for more time before it is due.
-
-### Equipment Assigned to You
-
-When a manager assigns you an item to keep, you get a bell and the row in **My Stuff** says who assigned it to you and asks you to "accept it to confirm you have it."
-
-- Click **Accept**, then **It's With Me**. A photo is optional.
-- If it is not with you, click **Decline**.
-
-When you no longer need it, click **Start Return** and return it with a photo. From the **...** menu on the row you can also **Report Dead** (it stopped working) or **Report Lost** (no photo needed for lost).
+For an assigned item, you get a bell: click **Accept**, then **It's With Me**, or **Decline** if it is not with you. When you no longer need it, **Start Return** with a photo. The row's **...** menu has **Report Dead** and **Report Lost**.
 
 > [!WARNING]
-> Never leave an item "on paper" with you after you gave it back by hand. Until the return is confirmed in Nexus, it is still yours on the record. Always use Start Return.
+> An item handed back by hand is still yours on the record until the return is confirmed in Nexus. Always use Start Return.
 
 ## Notes
 
-Open **Dashboard** and click the **Notes** tab. Notes are your own working notes: a list of tenants to call back, gate issues to mention at the next meeting, a shift handoff.
+Open **Dashboard**, then **Notes**: your own working notes, such as tenants to call back or a shift handoff. The tabs are **All**, **Pinned**, **Today** (a daily scratchpad), **Shared** and **Trash**. **New Note** in the + menu opens a Quick Note from any screen (Ctrl+Alt+N on a computer).
 
-The tabs are **All**, **Pinned**, **Today** (your daily scratchpad), **Shared** and **Trash**.
-
-- **New Note** in the + menu opens a Quick Note from any screen. On a computer, Ctrl+Alt+N (Ctrl+Cmd+N on a Mac) does the same.
-- **New Board** starts a whiteboard you can draw on.
-- Notes save as you type. There is no Save button.
-- **Pin** keeps a note at the top and on your Dashboard.
-- **Share** gives a coworker access to one note.
-- **Make a Task** turns a line into a task, if you use Tasks.
-- You can record voice notes and dictate text instead of typing.
-
-### Who Can See a Note
-
-A note is **private to you** and the people you share it with. Nobody else can open it, not even a manager. Typing someone's name in a note does not notify them. If two people edit the same note at once and both save, Nexus asks you to choose **Keep Mine** or **Use Theirs**, so nobody's words are silently lost.
+Notes save as you type. **Pin** keeps one at the top, **Share** gives a coworker access to one note, and you can record voice notes or dictate. A note is **private** to you and the people you share it with, not even your manager can open it, and typing someone's name in a note notifies nobody.
 
 > [!TIP]
-> Notes are not a way to report something. A broken gate written in a note is a note nobody else will read. Use a ticket or a form for anything another person must act on.
+> A note is not a report. A broken gate written in a note is a note nobody else will read. Anything another person must act on is a ticket or a form.
 
-## A Greens Scenario
+## At Greens
 
-Devon at Escondido needs a pressure washer for the dumpster area. He opens **Item Management**, clicks **Borrow**, finds the pressure washer, clicks **Add**, opens the cart, writes "Clean dumpster pad Saturday," sets the return date to 11/16/2026 and clicks **Request 1 Item**. His manager approves it. The row says "Approved - take it with a handover photo," so he clicks **Take It** and photographs the washer. On Monday he clicks **Start Return**, photographs it, picks **Good** and clicks **Confirm Return**.
-
-While cleaning, he notices the dumpster gate hinge is broken. He jots it in his **Today** note, then realizes a note will not reach anyone, so he submits a ticket with a photo instead.
-
-He needs to ask the Fairfield site manager about borrowing a ladder. He opens **Team**, **Directory**, searches her name and clicks **Chat**, which opens Teams.
+Devon borrows the pressure washer, clicks **Take It** with a photo, and on Monday returns it with **Start Return**, **Good**, **Confirm Return**. He jots the broken dumpster gate hinge in his Today note, then realizes nobody will see it there and raises a ticket with a photo. For the ladder he searches the Fairfield manager in the Directory and clicks **Chat**, which opens Teams.
 
 ## Common Mistakes
 
 - **Skipping the handover photo.** It is your protection.
-- **Returning an item by hand without Start Return.** It stays on your record.
+- **Returning an item by hand without Start Return.**
 - **Looking for a chat inside Nexus.** Use Teams.
-- **Using a note to report a problem.** Use a ticket or a form.
-- **Thinking a mention in a note tells someone.** It does not.
+- **Reporting a problem in a note.**
 
 ## Key Points
 
-- **Team**, **Directory** finds anyone. **Chat**, **Call**, **Video** and **Email** reach them; **Message on Teams** and **Call on Teams** appear across Nexus. There is no chat inside Nexus.
-- Item Management: **My Stuff** and **Borrow** for everyone. Photos are required at handover, receipt and return; optional when accepting an assigned item; not needed for a lost item.
-- Borrow: **Add**, then the cart, then **Request 1 Item**. Then **Take It** or **Confirm Receipt**. Return with **Start Return** and **Confirm Return**. Due dates count from handover.
-- Assigned items: **Accept** with **It's With Me**; **Report Dead** or **Report Lost** from the row menu.
-- Notes are private to you and the people you share with, save as you type, and notify nobody.
+- **Team**, **Directory** finds anyone; **Chat**, **Call**, **Message on Teams** and **Call on Teams** open Teams. Nexus has no chat of its own.
+- Item Management: **Borrow**, then **Take It** or **Confirm Receipt**; return with **Start Return** and **Confirm Return**. Due dates count from the handover.
+- Photos at handover, receipt and return; optional when accepting an assigned item; none for a lost one.
+- Notes are private, save as you type and notify nobody.

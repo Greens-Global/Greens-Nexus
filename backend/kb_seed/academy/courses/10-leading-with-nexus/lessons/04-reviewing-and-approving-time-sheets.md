@@ -1,106 +1,70 @@
 ---
 title: Reviewing and Approving Time Sheets
-summary: What happens after a pay period ends, how to review a Time Sheet with the attention strip, Review & Approve and Send Back, why only the employee signs, missed-break reports and premium pay, what reopens an approved period, HR's corrections and the unsigned card, and the deadline that makes payroll on time.
+summary: What happens after a pay period ends, reviewing in People > Time, Review & Approve and Send Back, why only the employee signs, missed-break reports and premium pay, what reopens an approved period, and the deadline that keeps payroll on time.
+teaches: Time Sheet, People
 ---
 
-## What You'll Be Able to Do
-
-- Review a team member's Time Sheet from the attention strip to the last day and approve it or send it back with a note.
-- Explain the signing order: the manager approves, only the employee signs.
-- Handle a missed-break report and know what premium pay is.
-- Say what reopens an approved period and what HR may do at any point.
-- Keep the review on time so payroll is.
+The pay period ended Sunday. Monday morning Marco's Time Sheet is flagged: a Thursday with no clock-out, an Out of Location punch, and a missed meal break report. Every day it waits on Dana is a day Marco cannot sign and payroll cannot pay him.
 
 ## After the Period Ends
 
-A pay period ends; the next morning the Time Sheets of everyone you approve for wait for you, on the Dashboard's yellow bar and in Approvals. Nobody submits anything to you first (a person may **Send to Manager** early if they want you to look before the period ends, but that is optional). The flow:
+Nobody submits anything to you. Once the period is over, the Time Sheets of everyone you approve for wait in **People** > **Time** under **Time Sheets to Review**, and on your Dashboard's yellow bar. (A person may use Send to Manager to ask you to look early; it is optional.) Your own Workday > Time Sheet tab lists only the Time Sheets waiting on your own signature.
 
 ```figure
-{
-  "kind": "steps",
-  "title": "From the Period's End to Payroll",
-  "items": [
-    { "label": "The period ends", "note": "the Time Sheets come to you" },
-    { "label": "You review", "note": "the attention strip, every day, the requests" },
-    { "label": "Review & Approve, or Send Back", "note": "with a note that says what to fix" },
-    { "label": "The employee signs", "note": "in Nexus Sign; only they sign" },
-    { "label": "The period is final", "note": "payroll runs from it; the PDF carries the approval log" }
-  ],
-  "caption": "A manager approves and never signs. HR edits at any point without approval; the employee then signs the updated card."
-}
+{"kind": "steps", "title": "From the Period's End to Payroll", "items": [{"label": "The period ends", "note": "Time Sheets come to you"}, {"label": "You review", "note": "flags, every day, open requests"}, {"label": "Review & Approve or Send Back", "note": "a send-back carries a note"}, {"label": "The employee signs", "note": "in Nexus Sign; only they sign"}, {"label": "The period is final", "note": "payroll runs from it"}]}
 ```
 
-## Reviewing One
+## Reviewing
 
-```figure
-{
-  "kind": "screen",
-  "title": "Reviewing a Time Sheet",
-  "device": "computer",
-  "module": "Workday",
-  "sub": "Team",
-  "tabs": ["Overview", "Time Sheet", "Time Off", "Performance"],
-  "tab": "Time Sheet",
-  "actions": ["◀  Marco V. · 10/16 to 10/31  ▶"],
-  "parts": [
-    { "kind": "banner", "tone": "warn", "text": "Needs attention: Thu 10/22 has a clock-in and no clock-out · Wed 10/28 punched Out of Location · 1 missed-break report", "n": 1 },
-    { "kind": "table", "columns": ["Day", "In", "Out", "Hours", "Where"], "rows": [
-      ["Mon 10/19", "8:02 AM", "4:45 PM", "8:13", "Temecula"], ["Tue 10/20", "7:58 AM", "4:31 PM", "8:03", "Temecula"], ["Wed 10/21", "8:05 AM", "4:40 PM", "8:05", "Temecula"],
-      ["Thu 10/22", "8:00 AM", "Missing", "", "Temecula"], ["Fri 10/23", "Vacation", "", "8:00", ""], ["Wed 10/28", "8:10 AM", "4:50 PM", "8:10", "Out of Location"], ["Period", "", "", "79:40", ""]] },
-    { "kind": "card", "title": "Change Requests This Period", "rows": [{ "label": "Thu 10/22 · clock-out 5:00 PM · 'locked the gate at 5, see EOD'", "value": "Approve", "tone": "ok" }] },
-    { "kind": "card", "title": "Missed Break Report", "rows": [{ "label": "Tue 10/27 · Meal", "value": "Add premium pay", "tone": "warn", "n": 2 }] },
-    { "kind": "banner", "tone": "ok", "text": "", "buttons": [{ "label": "Send Back", "n": 3 }, { "label": "Review & Approve", "primary": true }, { "label": "Approve and Next" }] }
-  ],
-  "callouts": [{ "n": 1, "text": "The attention strip lists what to look at before you approve: missing punches, location words, break reports, days with nothing." }, { "n": 2, "text": "A missed meal or rest break on the California rule is paid as premium pay; add it, and the person signs the corrected card." }, { "n": 3, "text": "Send Back carries a note that says exactly what to fix. The bar at the foot keeps Review & Approve within reach, and Approve and Next steps to the next person." }]
-}
-```
+**Review All Clean** walks you through every Time Sheet with nothing flagged: look each one over, tick it, and **Approve Reviewed** approves only the ones you ticked. The flagged ones stay in the list with a note saying why.
 
-Open a person's Time Sheet for the period. The **attention strip** at the top lists what to look at: a missing clock-out, a punch marked Out of Location or Location Off, a missed-break report, a day with no time against a scheduled shift. Then read the days: hours and minutes, each punch with where it was made, breaks on their own rows, sick and vacation on theirs, the period's total.
+For a flagged one, click **Review** and read:
 
-Decide the **change requests** first (the previous lesson), because an approved request changes the hours. Then:
+- **The flags**: a missing clock-out, a punch marked Out of Location or Location Off, a missed-break report, a scheduled day with no time.
+- **The days**: hours and minutes, each punch with where it was made, breaks on their own rows, sick and vacation on theirs.
+- **The open change requests.** Decide these first: an approved request changes the hours, and approval waits until none are pending.
 
-- **Review & Approve** when the hours are right and complete. **Approve and Next** does the same and steps to the next person waiting.
-- **Send Back** with a note when something is missing or wrong: "Thursday is missing your 2:00 PM to 5:00 PM shift; please request it." The person fixes it (usually by a change request) and it comes back to you.
+Then:
 
-Back and forth is normal; one side edits at a time.
+- **Review & Approve** when the hours are right and complete. **Approve and Next** steps to the next person waiting.
+- **Send Back** with a note that says exactly what to fix: "Thursday is missing your 2:00 PM to 5:00 PM shift; please request it." It comes back to you when fixed. Back and forth is normal; one side edits at a time.
 
 ## Only the Employee Signs
 
-Your approval sends the period to the employee as a Nexus Sign envelope. **Only the employee signs.** Your approval is a review, not a signature, and the signed PDF carries the approval log with your name and the time. Nobody signs for anyone else, and no signing path exists around this one.
+Your approval sends the period to the employee in Nexus Sign. **Only the employee signs.** Your approval is a review, not a signature, and the signed PDF carries the approval history with your name and the time.
 
-The employee's signature also confirms the **meal and rest break statement**. An hourly employee on the California rule who missed a break clicks **Report a Missed Break** instead of signing, picks the days and Meal or Rest, and the report comes to you: you add the **premium pay** (an hour at the base rate for each day a required break was missed, as the company's rule sets it) and the card goes back for signature. Never ask anyone to sign a statement that is not true.
+Signing also confirms the **meal and rest break statement**. An hourly person on the California rule who missed a break clicks **Report a Missed Break** instead of signing, and the report comes to you. You add the **premium pay** for each day a required break was missed, as the company's pay rule sets it, and the corrected card goes back for their signature. Never ask anyone to sign a statement that is not true.
 
 ## What Reopens a Period
 
 | After approval | What happens |
 |---|---|
-| A punch fix request | The envelope is voided and the period reopens to you |
-| A manager edit | The same |
-| The employee declines in Nexus Sign with a reason | The same; read the reason, fix or approve, approve again |
-| **HR corrects it** | HR edits at any point without approval; the employee signs the updated card |
+| A punch fix request | The envelope is voided and the period reopens to you. |
+| You change hours you already approved | The same: you approve again. |
+| The employee declines in Nexus Sign with a reason | The same: read the reason, fix, approve again. |
+| **HR corrects it** | HR edits at any point without approval; the employee signs the updated card. |
 
-An employee who left, or who has not signed an approved card within the waiting period, is finalized by **HR** with a reason. Never by hiding the signature step, and never by a manager.
+A person who has left, or who has not signed an approved card within the waiting period, is finalized by **HR**, with a reason. Never by a manager and never by skipping the signature.
 
 ## The Deadline
 
-Payroll runs from signed, final Time Sheets. Every day a review waits is a day the employee cannot sign and payroll cannot run for them. The standard: **review every Time Sheet the day after the period ends**, send back what needs fixing the same day, and approve the fixes as they come in. The yellow bar will not let you forget; the point is not to need it.
+Payroll runs from signed, final Time Sheets. The standard: **review the day after the period ends**, send back what needs fixing the same day, and approve the fixes as they come in. The yellow bar will not let you forget; the point is not to need it.
 
-## A Greens Scenario
+## At Greens
 
-Dana opens Marco's Time Sheet on Monday. The strip shows a missing clock-out on Thursday, an Out of Location punch on the 28th, and a missed meal break on the 27th. The Thursday request is already in with a reason and his End of Day message; she approves it and the day fills. The 28th: he punched from the office computer, Approx. Location on the way in; the Out of Location was a phone punch from the far RV row, which the site's location circle does not quite reach. Not a problem; she notes it. The missed meal break: she adds the premium pay. Review & Approve. Marco signs by lunchtime, and payroll has his card.
+Dana opens Marco's flagged card. The Thursday clock-out request is already in, with his End of Day message as evidence; she approves it and the day fills. The Out of Location punch was a phone punch from the far RV row, at the edge of the site's location circle; she notes it and moves on. For the missed meal break she adds the premium pay. **Review & Approve.** Marco signs by lunchtime.
 
 ## Common Mistakes
 
-- **Approving without reading the attention strip.**
 - **Approving before deciding the change requests.** The hours change under you.
+- **Approving without reading the flags.**
 - **Asking someone to sign a break statement that is not true.**
-- **Editing a punch yourself after approval** without expecting the period to reopen.
 - **Reviewing late.** Payroll waits with you.
 
 ## Key Points
 
-- After the period ends the Time Sheets come to you; read the attention strip, decide the requests, then Review & Approve or Send Back with a note.
-- Only the employee signs; your approval is a review the PDF records.
-- A missed break on the California rule comes to you as a report; add the premium pay; the person signs the corrected card.
-- A punch fix, a manager edit or a decline reopens the period; HR corrects at any point; HR finalizes a card nobody can sign.
+- After the period ends, Time Sheets wait in People > Time, Time Sheets to Review. **Review All Clean** handles the unflagged ones.
+- Decide change requests first, then **Review & Approve** or **Send Back** with a note.
+- Only the employee signs; your approval is recorded on the PDF.
+- A missed-break report comes to you for premium pay. A punch fix, your own edit or a decline reopens the period.
 - Review the day after the period ends.

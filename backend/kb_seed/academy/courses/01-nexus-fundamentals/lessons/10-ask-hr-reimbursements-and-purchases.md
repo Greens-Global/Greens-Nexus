@@ -1,280 +1,80 @@
 ---
 title: Ask HR, Reimbursements and Purchases
 summary: Use the three Workday panels - Ask HR for confidential HR requests, Reimbursements to be paid back with receipts, and Purchase Request to ask the company to buy something.
+teaches: Workday, Reimbursements
 ---
 
-## What You'll Be Able to Do
+On a busy Saturday at Valley Center, Rosa runs out of receipt rolls. Her manager says buy them down the road and get paid back. The same week the site needs new padlocks for overlocks, and Rosa has a question about her benefits. Three different needs, three different panels on the same Workday row.
 
-- Send a confidential request to HR with **Ask HR**, and pick the right kind of request.
-- File a reimbursement with receipts (pasted with Ctrl+V or taken with your phone camera), follow it, and fix one that was sent back.
-- Ask the company to buy something with a **Purchase Request**.
-- Choose the right panel for a situation, and know when a ticket is the better choice.
+## Which Panel?
 
-## Three Panels, One Place
+On the **Workday** Overview, the action row under the Time Clock holds **Ask HR**, **Reimbursements** and **Purchase Request**. Each opens a wide panel from the right (a full-screen sheet on a phone). A click outside nudges the panel instead of closing it, so a draft is never lost; close with **Close**, **Cancel** or Escape.
 
-On the **Workday** Overview, at the right end of the tiles, are three compact rows: **Ask HR**, **Reimbursements** and **Purchase Request**. Each opens a wide panel that slides in from the right (on a phone, a full-screen sheet).
-
-These panels are whole workspaces with drafts in them, so a click outside does **not** close them. It nudges the panel and lights up its close button instead, so a half-written request is never lost by a stray click. Close one with **Close**, **Cancel** or the Escape key.
-
-Which one do you need?
-
-| Situation | Panel |
+| Situation | Where |
 |---|---|
 | A question about pay, benefits, leave or a policy | **Ask HR**, Question for HR |
-| Your name, job, department or bank details need changing | **Ask HR**, Profile Change |
-| You renewed an ID, visa or certificate HR keeps | **Ask HR**, Update a Document |
-| You need an employment verification letter | **Ask HR**, Request a Letter |
-| You paid for something the company should have paid for | **Reimbursements** |
-| The site needs something the company does not have yet | **Purchase Request** |
-| Something is broken (a light, a gate, a computer) | Not a panel: a ticket (the Getting Help: Tickets, Report a Problem and Forms lesson) |
-| You need a tool or item the company already owns | Not a panel: Item Management, Borrow (the People, Equipment and Notes lesson) |
+| Your name, job, department or bank details | **Ask HR**, Profile Change |
+| A renewed ID, visa or certificate | **Ask HR**, Update a Document |
+| An employment verification letter | **Ask HR**, Request a Letter |
+| You paid for something the company should have | **Reimbursements** |
+| The site needs something the company does not have | **Purchase Request** |
+| Something is broken | A ticket (Getting Help: Tickets and Forms) |
+| A tool the company already owns | Item Management, Borrow (People, Equipment and Notes) |
 
 ## Ask HR
 
-Ask HR is the confidential HR desk. A request you send is seen only by you, the people you add, and HR. Your manager does not see it unless you add them.
+Ask HR is the confidential HR desk. A request is seen only by you, the people you add and HR. Your manager does not see it unless you add them.
 
-### Sending a Request
+1. Click **Ask HR**, then **New Request**.
+2. Pick what you need: **Request a Letter** (when your company offers HR letters), **Update a Document**, **Profile Change**, **Question for HR** or **Something Else**.
+3. Describe it, attach anything that helps and click **Send to HR**.
 
-```figure
-{
-  "kind": "screen",
-  "title": "Ask HR, New Request",
-  "device": "computer",
-  "module": "Workday",
-  "tabs": [
-    "Overview",
-    "Time Sheet",
-    "Time Off",
-    "Performance"
-  ],
-  "tab": "Overview",
-  "parts": [
-    {
-      "kind": "tiles",
-      "items": [
-        {
-          "label": "Hours This Week",
-          "value": "31h 40m"
-        },
-        {
-          "label": "Time Off This Year",
-          "value": "4 days"
-        },
-        {
-          "label": "Ask HR",
-          "value": "•"
-        }
-      ]
-    },
-    {
-      "kind": "sheet",
-      "title": "Ask HR",
-      "text": "Confidential: seen only by you, the people you add, and HR.",
-      "fields": [
-        {
-          "label": "What Do You Need?",
-          "kind": "select",
-          "value": "Profile Change",
-          "n": 1
-        },
-        {
-          "label": "Describe It",
-          "kind": "textarea",
-          "value": "My last name is spelled with two Ns: Mannix, not Manix. It shows on my Time Sheet and my directory card."
-        },
-        {
-          "label": "Attachments",
-          "hint": "Attach anything that helps, or press Ctrl+V"
-        }
-      ],
-      "buttons": [
-        "Cancel",
-        {
-          "label": "Send to HR",
-          "primary": true,
-          "n": 2
-        }
-      ]
-    }
-  ],
-  "callouts": [
-    {
-      "n": 1,
-      "text": "Request a Letter, Update a Document, Profile Change, Question for HR, Something Else."
-    },
-    {
-      "n": 2,
-      "text": "A click outside the panel nudges it; Close, Cancel or Escape closes it."
-    }
-  ]
-}
-```
-
-1. Open **Workday** and click **Ask HR**.
-2. Click **New Request**.
-3. Pick what you need (the choices are in the table below).
-4. Describe what you need, attach anything that helps, and click **Send to HR**.
-
-| Choice | Use it for |
-|---|---|
-| **Request a Letter** | Employment verification, salary, visa and more (when your company offers HR letters). |
-| **Update a Document** | A renewed ID, visa or certificate. |
-| **Profile Change** | Name, job, department or bank details. |
-| **Question for HR** | Policies, pay, benefits or leave. |
-| **Something Else** | Anything else for HR. |
-
-Your requests are listed under **My Requests** with HR's answers and any letters HR sends you. When HR updates a request you have not looked at yet, a red dot appears on **Ask HR** and the request is marked **Updated by HR**.
+Your requests and HR's answers are under **My Requests**. A red dot on Ask HR means HR updated one you have not opened; it is marked **Updated by HR**.
 
 > [!TIP]
-> Do not put Social Security numbers, bank account numbers or medical details in a ticket, a text or a Teams message. If HR needs them, Ask HR is the private channel, and HR will tell you exactly what to send and how.
+> Never put a Social Security number, a bank account number or medical details in a ticket, a text or a Teams message. If HR needs them, Ask HR is the private channel and HR will tell you exactly what to send.
 
 ## Reimbursements
 
-When you pay for something on the company's behalf (supplies for the office, a meal on a work trip, a part for a repair your manager told you to buy), file a reimbursement to be paid back.
-
-### Filing One
-
-1. Open **Workday** and click **Reimbursements**.
-2. Click **New**.
-3. Under **What Kind of Expense?**, pick Travel, Meals, Supplies, Software, Equipment or Other. The form then asks the right questions for that kind: what it was, the amount paid, the date, the vendor or store, and the **Business Purpose** (why it was a company expense).
-4. Under **Who Approves It**, leave **My Manager** or pick someone else your manager named.
-5. Attach the receipts: photos or PDFs, or press **Ctrl+V** to paste a picture on a computer. On a phone, take a photo of the receipt with your camera.
-6. Click **Send for Approval**.
-
-No receipt yet? You can send it now and add the receipt later with **Add Receipt**. HR approves it once the receipt is attached.
-
-### What Happens Next
-
 ```figure
-{
-  "kind": "screen",
-  "title": "Reimbursements, My Requests",
-  "device": "computer",
-  "module": "Workday",
-  "tabs": [
-    "Overview",
-    "Time Sheet",
-    "Time Off",
-    "Performance"
-  ],
-  "tab": "Overview",
-  "parts": [
-    {
-      "kind": "sheet",
-      "title": "Reimbursements",
-      "items": [
-        {
-          "label": "Padlocks for overlocking · $64.18",
-          "note": "Supplies · 11/03/2026 · approver: My Manager",
-          "badge": "Waiting for Approval",
-          "tone": "warn"
-        },
-        {
-          "label": "Lunch, Temecula training day · $18.40",
-          "note": "Meals · 10/28/2026",
-          "badge": "Waiting for Receipt",
-          "tone": "warn",
-          "n": 1
-        },
-        {
-          "label": "Printer toner · $89.99",
-          "note": "Supplies · 10/14/2026",
-          "badge": "Paid",
-          "tone": "ok",
-          "n": 2
-        },
-        {
-          "label": "Mileage, bank run · $12.60",
-          "note": "Travel · 10/09/2026",
-          "badge": "Sent Back",
-          "tone": "bad",
-          "n": 3
-        }
-      ],
-      "buttons": [
-        {
-          "label": "New",
-          "primary": true
-        }
-      ]
-    }
-  ],
-  "callouts": [
-    {
-      "n": 1,
-      "text": "Approved, but HR needs the receipt: Add Receipt."
-    },
-    {
-      "n": 2,
-      "text": "Paid, with the date, method and a reference."
-    },
-    {
-      "n": 3,
-      "text": "Open it, read What to fix, then Fix and Resubmit."
-    }
-  ]
-}
+{"kind": "screen", "title": "Reimbursements, Your Claims", "device": "computer", "module": "Workday", "tabs": ["Overview", "Time Sheet", "Time Off", "Performance"], "tab": "Overview", "parts": [{"kind": "sheet", "title": "Reimbursements", "items": [{"label": "Receipt rolls · $38.40", "note": "Supplies · 11/07/2026", "badge": "Waiting for Approval"}, {"label": "Lunch, training day · $18.40", "note": "Meals", "badge": "Waiting for Receipt", "n": 1}, {"label": "Printer toner · $89.99", "note": "Supplies", "badge": "Paid", "tone": "ok"}, {"label": "Mileage, bank run · $12.60", "note": "Travel", "badge": "Sent Back", "tone": "warn", "n": 2}], "buttons": [{"label": "New", "primary": true}]}], "callouts": [{"n": 1, "text": "Approved; HR needs the receipt."}, {"n": 2, "text": "Read What to fix, then Fix and Resubmit."}]}
 ```
 
-| Status | Meaning |
-|---|---|
-| **Waiting for Approval** | With the approver you picked. |
-| **Waiting for Receipt** | Approved, but HR needs the receipt before it moves. |
-| **Approved - To Pay** | HR approved it; payment is next. |
-| **Paid** | HR marked it paid, with the date, method and a reference. |
-| **Sent Back** | Something needs fixing; the note says what. |
-| **Rejected** | Not approved; the note says why. |
+When you pay for something on the company's behalf, file it the same day while you have the receipt.
 
-If it comes back as **Sent Back**, open it, read **What to fix**, make the change and click **Fix and Resubmit**. You can cancel a claim you no longer want with **Cancel Request**. A claim is never deleted; rejected and canceled claims stay on the record.
+1. Click **Reimbursements**, then **New**.
+2. Under **What Kind of Expense?** pick Travel, Meals, Supplies, Software, Equipment or Other, then fill in what it was, the amount, the date, the store and the **Business Purpose**: why it was a company expense.
+3. Under **Who Approves It**, leave **My Manager** or pick the person your manager named.
+4. Attach the receipt: a photo or PDF, a picture pasted with Ctrl+V, or a phone camera shot.
+5. Click **Send for Approval**.
 
-> [!NOTE]
-> Receipts open only through a short private link, for you, your approver, their manager and HR. Nobody else can see them.
+No receipt yet? Send it anyway and use **Add Receipt** later; HR will not pay it without one. The claim then moves through **Waiting for Approval**, **Approved - To Pay** and **Paid** (with the date, method and a reference). **Sent Back** means something needs fixing: open it, read **What to fix**, change it and click **Fix and Resubmit**. **Rejected** comes with the reason. A claim is never deleted, and receipts open only for you, your approver, their manager and HR.
 
 ## Purchase Requests
 
-A purchase request asks the company to buy something it does not have yet: a new dolly for the office, replacement padlocks for overlocking, a second monitor.
+A purchase request asks the company to buy something it does not have yet: a dolly, padlocks for overlocking, a second monitor. Check Item Management first; if the company already owns it, borrow it.
 
-1. Open **Workday** and click **Purchase Request**.
-2. Click **New**. The **New Purchase Request** form opens.
-3. Fill in the fields in the table below.
-4. Click **Submit Request**.
+1. Click **Purchase Request**, then **New**. The **New Purchase Request** form opens.
+2. Fill in **Who Is This Request For?**, **What Do You Need?**, **Quantity**, **Department**, **Reason / Justification** (enough for the approver to say yes), **Who Should Approve This?** and, if you have one, a **Reference Link** to a product page or quote.
+3. Click **Submit Request**.
 
-| Field | What to enter |
-|---|---|
-| **Who Is This Request For?** | Yourself or someone else. |
-| **What Do You Need?** | Describe the item. |
-| **Quantity** | How many. |
-| **Department** | The department it is for. |
-| **Reason / Justification** | Enough detail for the approver to say yes: what it is for, why now. |
-| **Who Should Approve This?** | The manager who decides. |
-| **Reference Link** | Optional: a product page, quote or spec sheet. |
+It moves through **Pending Approval**, **Approved**, **Ordered** and **Fulfilled**, or **Rejected** with the reason. History on the request lists every step.
 
-It shows under **My Requests** as **Pending Approval**, then **Approved**, **Ordered** and **Fulfilled**, or **Rejected** with the reason. History on a request lists every step.
+## At Greens
 
-> [!TIP]
-> Check Item Management first. If the company already owns what you need (a ladder, a pressure washer), borrow it instead of asking to buy a new one.
-
-## A Greens Scenario
-
-Rosa, a site team member at Valley Center, runs out of printer paper and receipt rolls on a busy Saturday. Her manager tells her to buy them at the store down the road and get reimbursed. She pays $38.40, takes a photo of the receipt, and back at the office opens **Workday**, clicks **Reimbursements**, then **New**. She picks **Supplies**, enters what it was, the amount, the store and the purpose ("Office ran out of paper and receipt rolls on Saturday; manager approved by phone"), leaves **Who Approves It** as **My Manager**, attaches the photo, and clicks **Send for Approval**.
-
-On Monday it comes back **Sent Back**: the note says the receipt photo is blurry. She takes a clear photo, opens the claim and clicks **Fix and Resubmit**.
-
-That week, the site also needs two new cut-resistant padlocks for overlocks. Item Management has none to borrow, so Rosa files a **Purchase Request** with the quantity, a reference link and the reason.
+Rosa pays $38.40, photographs the receipt and files **Supplies** with the purpose "Office ran out of receipt rolls on Saturday; manager approved by phone." On Monday it is **Sent Back**: the photo is blurry. She takes a clear one and clicks **Fix and Resubmit**. Item Management has no padlocks to borrow, so she files a Purchase Request with the quantity, a link and the reason. Her benefits question goes to **Ask HR**, **Question for HR**.
 
 ## Common Mistakes
 
-- **Sending HR questions to your manager by text.** Use **Ask HR**; it is confidential and tracked.
-- **Putting sensitive numbers in tickets or chats.** Use Ask HR and follow HR's instructions.
-- **Filing a reimbursement with no business purpose.** Say why it was a company expense.
-- **Waiting weeks to file.** File it the same day while you have the receipt.
-- **Requesting a purchase the company already owns.** Check Item Management first.
-- **Using a panel for a broken gate or light.** That is a ticket.
+- **Texting HR questions to your manager.** Ask HR is confidential and tracked.
+- **No business purpose on a claim.**
+- **Waiting weeks to file.**
+- **Requesting a purchase the company already owns.**
+- **Using a panel for something broken.** That is a ticket.
 
 ## Key Points
 
-- Ask HR, Reimbursements and Purchase Request are panels on the Workday Overview. A click outside nudges them; close with Close, Cancel or Escape.
-- **Ask HR**, **New Request**: Request a Letter, Update a Document, Profile Change, Question for HR or Something Else, then **Send to HR**. It is confidential.
-- **Reimbursements**, **New**: pick the kind of expense, give the business purpose, pick who approves it, attach receipts (Ctrl+V or camera) and **Send for Approval**. Fix a sent back claim with **Fix and Resubmit**.
-- **Purchase Request**, **New**: what you need, quantity, reason, who should approve, optional reference link, then **Submit Request**.
-- Broken things are tickets; things the company owns are borrowed in Item Management.
+- Ask HR, Reimbursements and Purchase Request are panels on the Workday action row; close them with Close, Cancel or Escape.
+- **Ask HR**, **New Request**, pick the kind, **Send to HR**. It is confidential.
+- **Reimbursements**, **New**: kind, business purpose, approver, receipt, **Send for Approval**. **Fix and Resubmit** a claim sent back.
+- **Purchase Request**, **New**: what, how many, why, who approves, **Submit Request**.
