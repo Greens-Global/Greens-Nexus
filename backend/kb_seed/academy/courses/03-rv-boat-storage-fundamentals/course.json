@@ -1,1335 +1,1262 @@
 {
- "slug": "rv-boat-storage-fundamentals",
- "title": "RV & Boat Storage Fundamentals",
- "description": "Why vehicle owners need us and how big vehicles are at Greens, how to tell RV classes and boat types apart, open, covered and enclosed spaces at each Greens site, measuring so a vehicle fits the first time, the paperwork every vehicle needs, lot rules and risks, how vehicle and boat liens differ in California and Texas, and how to sell and keep vehicle tenants. Course 3 of the Greens Storage Academy.",
- "overview": [
-  "Why vehicle storage matters at Greens, with Greens' own numbers",
-  "RV classes and boat types, with real lengths and heights",
-  "Open, covered and enclosed spaces, and each Greens site's lot",
-  "Measuring for the right fit, with worked fit-checks",
-  "The paperwork every vehicle needs at move-in",
-  "Lot rules, risks and the site walk",
-  "Vehicle and boat liens in California and Texas, side by side",
-  "Selling, waitlists, upgrades and keeping vehicle tenants"
- ],
- "est_minutes": 180,
- "delivery": "online",
- "level": "core",
- "tags": "rv, boat, vehicle storage",
- "teaches": "Tickets, Forms",
- "min_reading_minutes": 100,
- "lessons": [
-  {
-   "file": "01-why-vehicle-storage-matters.md"
-  },
-  {
-   "file": "02-know-the-vehicles-rvs.md"
-  },
-  {
-   "file": "03-know-the-vehicles-boats-and-everything-else.md"
-  },
-  {
-   "checkpoint": "Checkpoint: Vehicles",
-   "questions": [
+  "slug": "rv-boat-storage-fundamentals",
+  "title": "RV & Boat Storage Fundamentals",
+  "description": "Why vehicle owners need us, how to tell RV classes and boat types apart, open, covered and enclosed spaces and the shape of a space, each Greens site's lot, measuring so a vehicle fits the first time, the paperwork every vehicle needs (including non-running and PNO vehicles), lot rules and the lot walk, the vehicle lien path, and how to sell and keep vehicle tenants. Course 3 of the Greens Storage Academy.",
+  "overview": [
+    "Why vehicle storage matters at Greens and who the customers are",
+    "RV classes and boat types, with real lengths and heights",
+    "Open, covered and enclosed spaces, drive-in and pull-through, and each Greens site's lot",
+    "Measuring and checking clearance so a vehicle fits the first time",
+    "The paperwork every vehicle needs, including non-running and PNO vehicles",
+    "Lot rules, blocks and chocks, and the lot walk",
+    "The vehicle and boat lien path from the 61st day",
+    "Selling, waitlists, upgrades and keeping vehicle tenants"
+  ],
+  "est_minutes": 140,
+  "delivery": "online",
+  "level": "core",
+  "tags": "rv, boat, vehicle storage",
+  "teaches": "Tickets, Forms",
+  "min_reading_minutes": 80,
+  "lessons": [
     {
-     "type": "single",
-     "q": "Which kind of towable RV is usually the tallest?",
-     "options": [
-      "Pop-up",
-      "Travel trailer",
-      "Fifth wheel",
-      "Teardrop"
-     ],
-     "answer": [
-      2
-     ],
-     "explanation": "Fifth wheels typically stand 12 to 13.5 ft, the tallest towable. Their raised front sits over a pickup bed, and the pin box overhang may not be in the brochure length.",
-     "lesson": "02-know-the-vehicles-rvs.md"
+      "file": "01-why-vehicle-storage-matters.md"
     },
     {
-     "type": "single",
-     "q": "A motorhome has a truck cab with a sleeping bunk built out over the cab. What class is it?",
-     "options": [
-      "Class A",
-      "Class B",
-      "Class C",
-      "Fifth wheel"
-     ],
-     "answer": [
-      2
-     ],
-     "explanation": "A Class C has a truck cab and an over-cab bunk. A Class A is bus-shaped, a Class B is a camper van, and a fifth wheel has no engine.",
-     "lesson": "02-know-the-vehicles-rvs.md"
+      "file": "02-know-the-vehicles-rvs.md"
     },
     {
-     "type": "single",
-     "q": "A customer has a 23 ft wake boat. The maker lists it at 31 ft on its trailer with the tongue out. What length do you plan the space for?",
-     "options": [
-      "23 ft",
-      "25 ft",
-      "31 ft plus a margin",
-      "Whatever the brochure says"
-     ],
-     "answer": [
-      2
-     ],
-     "explanation": "Storage length is the whole footprint on the trailer, tongue tip to the rearmost point. The 23 ft is hull length (LOA) only. Plan for 31 ft plus a margin of about 3 to 4 ft.",
-     "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
+      "file": "03-know-the-vehicles-boats-and-everything-else.md"
     },
     {
-     "type": "tf",
-     "q": "A boat's advertised length (LOA) includes its outboard motor and its trailer.",
-     "answer": [
-      1
-     ],
-     "explanation": "LOA runs bow to stern on the hull only. It leaves out the motor, swim platform, bow pulpit and trailer, which is why you measure tongue tip to the rearmost point.",
-     "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
+      "checkpoint": "Checkpoint: Vehicles",
+      "questions": [
+        {
+          "type": "single",
+          "q": "A caller says, \"It's a 28-foot travel trailer.\" What do you ask next?",
+          "options": [
+            "Is that the box, or hitch to bumper?",
+            "Great, so a 10x30 will work for you?",
+            "What year, make and color is it?",
+            "Would you like covered or open space?"
+          ],
+          "answer": [
+            0
+          ],
+          "explanation": "A travel trailer's stated length may leave out the 3 to 5 ft tongue and anything on the back. Quoting a 10x30 on the brochure number is the classic wrong fit.",
+          "lesson": "02-know-the-vehicles-rvs.md"
+        },
+        {
+          "type": "single",
+          "q": "A walk-in describes a motorhome with a truck cab and a sleeping bunk built out over the cab. What is it?",
+          "options": [
+            "A Class A coach",
+            "A Class C",
+            "A Class B camper van",
+            "A fifth wheel"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "A cab with a bunk over it is a Class C. A Class A has a flat bus front; a Class B looks like a van; a fifth wheel has no engine at all.",
+          "lesson": "02-know-the-vehicles-rvs.md"
+        },
+        {
+          "type": "single",
+          "q": "A customer wants covered space for a fifth wheel. Which height do you need from them?",
+          "options": [
+            "To the top of the air conditioner",
+            "To the roof line given in the brochure",
+            "To the top of the side windows",
+            "The height printed on the registration"
+          ],
+          "answer": [
+            0
+          ],
+          "explanation": "Under a roof, what hits the beam is the tallest thing on the roof: the air conditioner, antenna or dome. The brochure roof line is too low by 10 inches or more.",
+          "lesson": "02-know-the-vehicles-rvs.md"
+        },
+        {
+          "type": "single",
+          "q": "A caller wants a 20 ft space for a \"20 ft bass boat.\" On the trailer, tongue tip to the motor, it is 26 ft. What fits?",
+          "options": [
+            "A 10x20, as the caller asked",
+            "A space of 29 ft or more",
+            "A 10x25, close enough",
+            "A 10x24 with the tongue folded"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "Plan for the length on the trailer plus a 3 ft margin: 26 + 3 = 29 ft. The hull length (LOA) leaves out the tongue and the motor.",
+          "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
+        },
+        {
+          "type": "tf",
+          "q": "A boat's advertised length (LOA) includes its outboard motor and its trailer tongue.",
+          "answer": [
+            1
+          ],
+          "explanation": "LOA is the hull only, bow to stern. The tongue, the motor's lower unit and a swim platform add several feet, so you measure tongue tip to the rearmost point.",
+          "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
+        },
+        {
+          "type": "multi",
+          "q": "A wake boat owner wants a covered space. Which can change the boat's height on its trailer? Choose all that apply.",
+          "options": [
+            "The wake tower, even folded",
+            "A bimini left up",
+            "A fixed T-top",
+            "The swim platform"
+          ],
+          "answer": [
+            0,
+            1,
+            2
+          ],
+          "explanation": "Towers, biminis and T-tops all raise the height under a roof. A swim platform adds length at the stern, not height.",
+          "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
+        },
+        {
+          "type": "single",
+          "q": "A Class A arrives towing a small car behind it. How do you treat the car?",
+          "options": [
+            "Inside the coach's space",
+            "As a second vehicle",
+            "Parked in the aisle",
+            "It must leave the lot"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "A towed car (a toad) is a separate vehicle: it needs its own space and its own line on the lease, or it leaves with the owner. It never sits in the aisle.",
+          "lesson": "02-know-the-vehicles-rvs.md"
+        },
+        {
+          "type": "single",
+          "q": "A caller says, \"My HOA gave me ten days to move my trailer.\" What do you lead with?",
+          "options": [
+            "What the HOA rules say",
+            "The trailer's length",
+            "Our lowest open rate",
+            "How to dispute the letter"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "You never comment on HOA rules. Speed matters to this caller, so you start the fit check (length first) and find a space that fits before the deadline.",
+          "lesson": "01-why-vehicle-storage-matters.md"
+        },
+        {
+          "type": "single",
+          "q": "A customer stores two jet skis on one trailer. What goes on the lease?",
+          "options": [
+            "Only the trailer's plate number",
+            "The trailer and both jet skis",
+            "Only the two jet skis themselves",
+            "Nothing; they are small"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "A jet ski trailer is a trailer with its own registration, and each jet ski is registered craft. All three go on the lease with their numbers.",
+          "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
+        },
+        {
+          "type": "tf",
+          "q": "A tenant who asks to sleep one night in his stored RV before an early trip is told no.",
+          "answer": [
+            0
+          ],
+          "explanation": "Greens never allows living or sleeping in a stored vehicle, even for one night. A vehicle left after closing is locked in until the next business day.",
+          "lesson": "01-why-vehicle-storage-matters.md"
+        }
+      ]
     },
     {
-     "type": "multi",
-     "q": "Which of these can make an RV taller than its brochure roof height? Choose all that apply.",
-     "options": [
-      "Roof air conditioner",
-      "TV antenna or satellite dome",
-      "Solar panels",
-      "A spare tire on the rear bumper"
-     ],
-     "answer": [
-      0,
-      1,
-      2
-     ],
-     "explanation": "Measure to the top of the tallest thing on the roof: air conditioners (about 10 to 14 in each), antennas, domes and solar panels. A rear spare adds length, not height.",
-     "lesson": "02-know-the-vehicles-rvs.md"
+      "file": "05-our-spaces-open-covered-and-enclosed.md"
     },
     {
-     "type": "single",
-     "q": "Without an oversize permit, about how wide is the body of an RV or boat on the road at most?",
-     "options": [
-      "6 ft",
-      "8.5 ft (102 in)",
-      "10 ft",
-      "12 ft"
-     ],
-     "answer": [
-      1
-     ],
-     "explanation": "The usual road width limit is 102 inches, or 8.5 ft, at the body. Mirrors, awnings and slide-outs stick out further, so plan for them.",
-     "lesson": "02-know-the-vehicles-rvs.md"
+      "file": "05a-the-shape-of-a-space.md"
     },
     {
-     "type": "single",
-     "q": "A Class A arrives towing a small car. How do you treat the car?",
-     "options": [
-      "As part of the motorhome's space",
-      "As a separate vehicle that usually needs its own space or leaves with the owner",
-      "It can park in the aisle",
-      "It is not allowed on the lot"
-     ],
-     "answer": [
-      1
-     ],
-     "explanation": "A towed car (a toad) is a separate vehicle. It goes on the lease and in its own space, or it leaves with the owner.",
-     "lesson": "02-know-the-vehicles-rvs.md"
+      "page": "site-escondido",
+      "title": "Know Your Site: Escondido",
+      "summary": "Escondido's open lot by size, its storage units, amenities and access."
     },
     {
-     "type": "multi",
-     "q": "Which of these can change a boat's height on its trailer? Choose all that apply.",
-     "options": [
-      "A wake tower",
-      "A bimini top left up",
-      "A T-top",
-      "The swim platform"
-     ],
-     "answer": [
-      0,
-      1,
-      2
-     ],
-     "explanation": "Towers, biminis and T-tops raise height, and a bimini left up can push a pontoon over 13 ft. A swim platform adds length at the stern, not height.",
-     "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
+      "page": "site-fairfield",
+      "title": "Know Your Site: Fairfield",
+      "summary": "Fairfield's open gravel lot by size, from 12x20 to 12x48, its amenities and its gate."
+    },
+    {
+      "page": "site-murrieta",
+      "title": "Know Your Site: Murrieta",
+      "summary": "Murrieta's paved lot by size, its pull-through spaces, amenities and access."
+    },
+    {
+      "page": "site-temecula",
+      "title": "Know Your Site: Temecula",
+      "summary": "Temecula's lot by size and kind: open, covered and pull-through spaces, amenities and access."
+    },
+    {
+      "page": "site-valley-center",
+      "title": "Know Your Site: Valley Center",
+      "summary": "Valley Center's two enclosed vehicle garages, its storage units, amenities and access."
+    },
+    {
+      "file": "06-measuring-for-the-right-fit.md"
+    },
+    {
+      "checkpoint": "Checkpoint: Fit",
+      "questions": [
+        {
+          "type": "single",
+          "q": "A travel trailer's box is 28 ft. The tongue adds 4 ft and a bike rack adds 1 ft. What is its storage length before any margin?",
+          "options": [
+            "28 ft",
+            "32 ft",
+            "33 ft",
+            "36 ft"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "Storage length is hitch to bumper with everything on the back: 28 + 4 + 1 = 33 ft. Then add the 3 to 4 ft margin to pick the space.",
+          "lesson": "06-measuring-for-the-right-fit.md"
+        },
+        {
+          "type": "single",
+          "q": "At Fairfield a trailer measures 34 ft hitch to bumper. With a 3 ft margin, which size do you quote?",
+          "options": [
+            "12x26",
+            "12x32",
+            "12x48",
+            "Two 12x26s"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "34 + 3 = 37 ft. Fairfield's sizes jump from 32 ft to 48 ft, so the 12x32 is too short even before the margin and the 12x48 is the next size up.",
+          "lesson": "site-fairfield"
+        },
+        {
+          "type": "single",
+          "q": "A 36 ft Class A (with its ladder) wants a drive-in at Escondido. Which is the smallest space that fits with a 3 ft margin?",
+          "options": [
+            "12x35",
+            "12x38",
+            "12x40",
+            "12x50"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "36 + 3 = 39 ft, so the 12x38 is 1 ft short and the 12x40 is the smallest that fits. A 12x50 fits too but uses a long space a longer rig needs.",
+          "lesson": "06-measuring-for-the-right-fit.md"
+        },
+        {
+          "type": "single",
+          "q": "At Temecula a wake boat is 31 ft on its trailer. Covered sizes are 10x20, 11x30, 12x35, 12x40 and 12x50. Which is the smallest covered space that fits?",
+          "options": [
+            "11x30",
+            "12x35",
+            "12x40",
+            "12x50"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "31 + 3 = 34 ft, so the 11x30 is too short and the 12x35 is the smallest covered space that fits. Height is checked separately against the covered rows' clear height.",
+          "lesson": "site-temecula"
+        },
+        {
+          "type": "single",
+          "q": "A fifth wheel is 13 ft 6 in to the top of its air conditioners. No clear height is posted at the covered rows. What do you do?",
+          "options": [
+            "Let the tenant try it slowly",
+            "Get the clear height first",
+            "Assume canopies are 14 ft",
+            "Lower the tire pressure"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "Never guess and never let a tenant try it: the test is the damage. Your manager has the clear heights until the site profile is filled in; until you know, offer open space.",
+          "lesson": "06-measuring-for-the-right-fit.md"
+        },
+        {
+          "type": "single",
+          "q": "An enclosed garage door is sold as 14 ft high. What do you plan for?",
+          "options": [
+            "Exactly 14 ft of clearance",
+            "A measured opening below 14 ft",
+            "About 15 ft, with the frame",
+            "Height does not matter in a garage"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "A door sold as 14 ft may measure about 13 ft 8 in once hung, and a rain lip can take another inch. Measure the actual opening.",
+          "lesson": "05-our-spaces-open-covered-and-enclosed.md"
+        },
+        {
+          "type": "single",
+          "q": "A tenant backs a boat trailer into a drive-in space. Which way should it face?",
+          "options": [
+            "Tongue toward the aisle",
+            "Tongue toward the fence",
+            "Either way works",
+            "Sideways across the lines"
+          ],
+          "answer": [
+            0
+          ],
+          "explanation": "Tongue to the aisle means the tow vehicle backs to the coupler in the aisle and pulls straight out next time. Nosed in, every hook-up is a blind reverse out of a dead end.",
+          "lesson": "05a-the-shape-of-a-space.md"
+        },
+        {
+          "type": "single",
+          "q": "A Class A is backed in until its rear tires touch the wheel stop, with a fence 3 ft behind the stop. What is the risk?",
+          "options": [
+            "The front sits out in the drive aisle",
+            "The overhang reaches the fence",
+            "The tires lose pressure",
+            "The gate log misreads it"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "A wheel stop marks the tires, not the body. A Class A's rear overhang can be 8 to 12 ft, which reaches a fence 3 ft away.",
+          "lesson": "05a-the-shape-of-a-space.md"
+        },
+        {
+          "type": "single",
+          "q": "A customer at Murrieta hates backing and has a 42 ft fifth wheel. What do you check for first?",
+          "options": [
+            "An open 12x50 pull-through",
+            "A 10x35 drive-in near the office",
+            "A 12x33 drive-in",
+            "A covered space"
+          ],
+          "answer": [
+            0
+          ],
+          "explanation": "Murrieta's 12x50s are all pull-through: a 42 ft rig plus margin fits, and nobody backs more than a truck length. Murrieta has no covered spaces, and the others are too short.",
+          "lesson": "site-murrieta"
+        },
+        {
+          "type": "order",
+          "q": "Put the start of the fit-check conversation in order.",
+          "options": [
+            "What are you storing?",
+            "What is the overall length, hitch to bumper?",
+            "For covered: what is the height to the top?",
+            "Does it have slides, or does the tongue fold?",
+            "How do you usually park it?"
+          ],
+          "explanation": "Type first, then the length that decides the space, then height for a roof, then width and folding parts, then how they park, which tells you whether to offer a pull-through.",
+          "lesson": "06-measuring-for-the-right-fit.md"
+        }
+      ]
+    },
+    {
+      "file": "08-paperwork-and-move-in.md"
+    },
+    {
+      "file": "08a-vehicles-that-do-not-run-and-pno.md"
+    },
+    {
+      "page": "greens-vehicle-storage-rules",
+      "title": "Greens Vehicle Storage Rules",
+      "summary": "What Greens collects for every vehicle, the house rules, the fees that apply to vehicles, and how a vehicle lien differs."
+    },
+    {
+      "file": "09-lot-rules-and-risks.md"
+    },
+    {
+      "file": "10-walking-the-lot.md"
+    },
+    {
+      "file": "11-vehicle-and-boat-liens.md"
+    },
+    {
+      "file": "12-selling-vehicle-storage.md"
+    },
+    {
+      "file": "13-waitlists-and-upgrades.md"
+    },
+    {
+      "file": "14-on-one-page.md"
+    },
+    {
+      "page": "academy-glossary",
+      "title": "Words to Know",
+      "summary": "The RV, boat, lot and lien words of vehicle storage, in the Academy Glossary under RV and Boat Storage."
     }
-   ]
-  },
-  {
-   "file": "05-our-spaces-open-covered-and-enclosed.md"
-  },
-  {
-   "page": "site-escondido",
-   "title": "Know Your Site: Escondido",
-   "summary": "Escondido's open lot by size, its storage units, and the site notes your manager fills in."
-  },
-  {
-   "page": "site-fairfield",
-   "title": "Know Your Site: Fairfield",
-   "summary": "Fairfield's open gravel lot by size, from 12x20 to 12x48, and the site notes your manager fills in."
-  },
-  {
-   "page": "site-murrieta",
-   "title": "Know Your Site: Murrieta",
-   "summary": "Murrieta's paved lot by size, its pull-through spaces, and the site notes your manager fills in."
-  },
-  {
-   "page": "site-temecula",
-   "title": "Know Your Site: Temecula",
-   "summary": "Temecula's lot by size and kind, its covered and pull-through spaces, and the site notes your manager fills in."
-  },
-  {
-   "page": "site-valley-center",
-   "title": "Know Your Site: Valley Center",
-   "summary": "Valley Center's two enclosed vehicle garages, its storage units, and the site notes your manager fills in."
-  },
-  {
-   "file": "06-measuring-for-the-right-fit.md"
-  },
-  {
-   "checkpoint": "Checkpoint: Fit",
-   "questions": [
-    {
-     "type": "single",
-     "q": "A travel trailer's box is 28 ft. The tongue adds 4 ft and a bike rack on the back adds 1 ft. What is its storage length before any margin?",
-     "options": [
-      "28 ft",
-      "29 ft",
-      "32 ft",
-      "33 ft"
-     ],
-     "answer": [
-      3
-     ],
-     "explanation": "Measure coupler to the rearmost item: 28 + 4 + 1 = 33 ft. Then add the margin before you choose a space.",
-     "lesson": "06-measuring-for-the-right-fit.md"
-    },
-    {
-     "type": "single",
-     "q": "Fairfield's spaces are 12x20, 12x22, 12x26, 12x32 and 12x48. A trailer measures 34 ft hitch to bumper. With a 3 ft margin, which is the smallest that fits?",
-     "options": [
-      "12x26",
-      "12x32",
-      "12x48",
-      "None of them"
-     ],
-     "answer": [
-      2
-     ],
-     "explanation": "34 + 3 = 37 ft. The 12x32 is shorter than the trailer itself, so the next size up, the 12x48, is the fit (sizes From Greens' Cubby, 11/2026).",
-     "lesson": "06-measuring-for-the-right-fit.md"
-    },
-    {
-     "type": "single",
-     "q": "A fifth wheel measures 39 ft from the front of the pin box to the rear bumper. With a 3 ft margin, which is the smallest space that fits?",
-     "options": [
-      "12x38",
-      "12x40",
-      "12x42",
-      "12x50"
-     ],
-     "answer": [
-      2
-     ],
-     "explanation": "39 + 3 = 42 ft, so the 12x42 is the smallest that fits. A 12x40 would leave less than the margin.",
-     "lesson": "06-measuring-for-the-right-fit.md"
-    },
-    {
-     "type": "single",
-     "q": "An operator rule of thumb says a 38 ft RV needs at least what length of space?",
-     "options": [
-      "38 ft",
-      "40 ft",
-      "42 ft",
-      "50 ft"
-     ],
-     "answer": [
-      2
-     ],
-     "explanation": "Ladders, mirrors and bumpers add length, so a 38 ft RV needs at least a 42 ft space (Inside Self Storage, 2007). That is the 3 to 4 ft margin.",
-     "lesson": "06-measuring-for-the-right-fit.md"
-    },
-    {
-     "type": "single",
-     "q": "An enclosed door is sold as 14 ft high. What should you assume about its clearance?",
-     "options": [
-      "It is exactly 14 ft",
-      "It may really be about 13 ft 8 in, so measure it",
-      "It is about 15 ft",
-      "Height does not matter for doors"
-     ],
-     "answer": [
-      1
-     ],
-     "explanation": "A door sold as 14 ft may measure about 13 ft 8 in once hung, and a rain lip can cost another inch. Measure the real door and post the clear height.",
-     "lesson": "05-our-spaces-open-covered-and-enclosed.md"
-    },
-    {
-     "type": "single",
-     "q": "Temecula's covered sizes are 10x20, 11x30, 12x35, 12x40 and 12x50. A wake boat is 31 ft on its trailer. With a 3 ft margin, which is the smallest covered space that fits?",
-     "options": [
-      "10x20",
-      "11x30",
-      "12x35",
-      "12x50"
-     ],
-     "answer": [
-      2
-     ],
-     "explanation": "31 + 3 = 34 ft. The 11x30 is too short; the 12x35 is the smallest that fits, as long as the boat's height clears the posted clear height (sizes From Greens' Cubby, 11/2026).",
-     "lesson": "06-measuring-for-the-right-fit.md"
-    },
-    {
-     "type": "order",
-     "q": "Put the start of the fit-check conversation in order.",
-     "options": [
-      "What are you storing?",
-      "What is the overall length, hitch to bumper?",
-      "For covered or enclosed: what is the height to the top?",
-      "Does it have slides, or does the tongue fold?",
-      "Offer the right size and record it in Cubby"
-     ],
-     "answer": [],
-     "explanation": "Type first, then length, then height, then what changes the footprint, then the offer. Writing it in Cubby saves the next person from asking again.",
-     "lesson": "06-measuring-for-the-right-fit.md"
-    },
-    {
-     "type": "single",
-     "q": "For a covered or enclosed space, where do you measure a vehicle's height?",
-     "options": [
-      "Ground to the roof line",
-      "Ground to the highest point, such as the air conditioner, antenna or tower",
-      "Top of the tires to the roof",
-      "Whatever the registration says"
-     ],
-     "answer": [
-      1
-     ],
-     "explanation": "Measure from the ground to the highest point with everything lowered: air conditioner shroud, antenna, tower, bimini, T-top or mast step.",
-     "lesson": "06-measuring-for-the-right-fit.md"
-    },
-    {
-     "type": "single",
-     "q": "A tenant is backing a travel trailer into a drive-in space. Which way should it face when it is parked?",
-     "options": [
-      "Tongue toward the dead end, so the back of the trailer is easy to reach",
-      "Tongue toward the aisle, so the tow vehicle backs to the coupler and pulls straight out next time",
-      "It makes no difference",
-      "Sideways, to save room"
-     ],
-     "answer": [
-      1
-     ],
-     "explanation": "A backed-in trailer leaves its coupler at the open end. Next time the truck backs a few feet to it and pulls straight out; nosed in, the owner hooks up in the corner and backs the whole rig out blind.",
-     "lesson": "05-our-spaces-open-covered-and-enclosed.md"
-    },
-    {
-     "type": "single",
-     "q": "What makes a pull-through space different from a drive-in space?",
-     "options": [
-      "It is always covered",
-      "It is open at both ends, with an aisle at each, so the rig drives in one end and out the other",
-      "It is wider",
-      "It is only for motorhomes"
-     ],
-     "answer": [
-      1
-     ],
-     "explanation": "A drive-in is open at one end only; a pull-through has an aisle at each end and nobody backs more than a truck length. It uses two aisle frontages, which is why it is the premium space.",
-     "lesson": "05-our-spaces-open-covered-and-enclosed.md"
-    }
-   ]
-  },
-  {
-   "file": "08-paperwork-and-move-in.md"
-  },
-  {
-   "page": "greens-vehicle-storage-rules",
-   "title": "Greens Vehicle Storage Rules",
-   "summary": "What Greens collects for every vehicle, the house rules, the fees that apply to vehicles, and how a vehicle lien differs, with numbers from Greens' Cubby."
-  },
-  {
-   "file": "09-lot-rules-and-risks.md"
-  },
-  {
-   "file": "10-walking-the-lot.md"
-  },
-  {
-   "file": "11-vehicle-and-boat-liens.md"
-  },
-  {
-   "file": "12-selling-vehicle-storage.md"
-  },
-  {
-   "file": "13-waitlists-and-upgrades.md"
-  },
-  {
-   "file": "14-words-to-know.md"
+  ],
+  "quiz": {
+    "passPct": 80,
+    "drawCount": 20,
+    "maxTries": 3,
+    "shuffle": true,
+    "questions": [
+      {
+        "type": "single",
+        "q": "A walk-in at Fairfield asks why he should pay for gravel when the street is free. What do you do first?",
+        "options": [
+          "Quote the city code on street parking",
+          "Ask what happens with it today",
+          "Offer the lowest rate right away",
+          "Explain the lien process"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Find the reason they cannot park at home: here a neighbor complaint and a stolen battery. That tells you to lead with the gate and the walks. Never quote city code.",
+        "lesson": "01-why-vehicle-storage-matters.md"
+      },
+      {
+        "type": "single",
+        "q": "A caller at Valley Center wants to store a 30 ft boat. What do you do?",
+        "options": [
+          "Put the boat on Valley Center's waitlist only",
+          "Check Escondido and Temecula in Cubby",
+          "Offer a large storage unit for it",
+          "Tell them Greens has no boat storage"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Valley Center has almost no vehicle space. Knowing which sister site can fit a caller, and checking it in Cubby first, keeps the customer with Greens.",
+        "lesson": "01-why-vehicle-storage-matters.md"
+      },
+      {
+        "type": "single",
+        "q": "A caller says, \"I have a 36-foot fifth wheel.\" Which number might be missing from that length?",
+        "options": [
+          "The pin box overhang",
+          "The width of the tires",
+          "The length of the awning",
+          "The fresh water tank capacity"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "A fifth wheel's 3 to 5 ft pin box overhang may not be in the stated length. Measure from the front of the nose or pin box to the rear bumper.",
+        "lesson": "02-know-the-vehicles-rvs.md"
+      },
+      {
+        "type": "single",
+        "q": "At Murrieta, a fifth wheel measures 39 ft with its pin box. Which spaces do you look at?",
+        "options": [
+          "A 10x35 or a 12x33",
+          "The 12x45s or the 12x50s",
+          "Any of the 10x30 drive-ins",
+          "Two 10x24s side by side in a row"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "39 + 3 = 42 ft. Murrieta's 10 ft wide spaces stop at 35 ft; the 12x45 drive-ins and the 12x50 pull-throughs are long enough.",
+        "lesson": "02-know-the-vehicles-rvs.md"
+      },
+      {
+        "type": "single",
+        "q": "A caller asks for a space for a truck camper they want to leave on its jacks off the truck. What is Greens' rule?",
+        "options": [
+          "Never allowed at any site",
+          "Only with your manager's OK",
+          "Allowed if the jacks have pads",
+          "Allowed at Fairfield only"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Greens Vehicle Storage Rules: a truck camper stored off the truck on its jacks needs the manager's OK. Ask the length with and without the truck.",
+        "lesson": "02-know-the-vehicles-rvs.md"
+      },
+      {
+        "type": "single",
+        "q": "A 22 ft sailboat is 30 ft on its trailer, and the mast sticks 3 ft past the stern. With a 3 ft margin, what length do you need?",
+        "options": [
+          "30 ft",
+          "33 ft",
+          "36 ft",
+          "39 ft"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "The mast overhang counts: 30 + 3 = 33 ft in the space, plus a 3 ft margin = 36 ft. At Escondido a 12x38 fits.",
+        "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
+      },
+      {
+        "type": "single",
+        "q": "A customer brings a boat on its trailer. Which registrations do you need?",
+        "options": [
+          "The boat's, then the trailer's later",
+          "The boat's and the trailer's",
+          "The trailer's plate only",
+          "Only the boat's, if it is new"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A boat and its trailer are registered separately, and both go on the lease. One registration is not enough for either to go in.",
+        "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
+      },
+      {
+        "type": "tf",
+        "q": "A swing (folding) trailer tongue can shorten a boat's storage length by a few feet.",
+        "answer": [
+          0
+        ],
+        "explanation": "Some makers list a towing length and a storage length. Folding the tongue can save a few feet, which can be the difference between two space sizes.",
+        "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
+      },
+      {
+        "type": "single",
+        "q": "Under a canopy, where is the clear height measured?",
+        "options": [
+          "To the roof sheet overhead",
+          "To the lowest beam",
+          "To the top of the end posts",
+          "It is always 14 ft"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Clear height is to the lowest point a rig must pass under: the beam, not the roof sheet. That beam is what tears off an air conditioner.",
+        "lesson": "05-our-spaces-open-covered-and-enclosed.md"
+      },
+      {
+        "type": "single",
+        "q": "A customer at Escondido wants covered space for a fifth wheel. What do you tell them?",
+        "options": [
+          "Escondido has a few covered rows",
+          "Covered is only at Temecula",
+          "Covered is at every Greens site",
+          "Covered is at Murrieta"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Temecula has the only covered spaces at Greens. Offer open space at Escondido now, or check Temecula's covered spaces and waitlist.",
+        "lesson": "05-our-spaces-open-covered-and-enclosed.md"
+      },
+      {
+        "type": "tf",
+        "q": "A covered space keeps blowing rain and dust off a vehicle.",
+        "answer": [
+          1
+        ],
+        "explanation": "A canopy is a roof with open sides. It blocks sun, UV and hail, but blowing rain, dust and low afternoon sun still reach the vehicle. Sell it honestly.",
+        "lesson": "05-our-spaces-open-covered-and-enclosed.md"
+      },
+      {
+        "type": "single",
+        "q": "Why are pull-through spaces scarce and priced above drive-ins?",
+        "options": [
+          "Each uses two aisle frontages",
+          "Every one of them comes with a canopy",
+          "Cubby limits how many exist",
+          "They are only for motorhomes"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "A pull-through needs an aisle at each end, so a lot gives up spaces to make one. That convenience (no backing) is why it costs more.",
+        "lesson": "05a-the-shape-of-a-space.md"
+      },
+      {
+        "type": "single",
+        "q": "A tenant enters an angled row against its arrows. What happens?",
+        "options": [
+          "Nothing; either direction works the same",
+          "Each turn becomes a jackknife",
+          "The spaces get narrower",
+          "The gate code stops working"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "An angled space is a gentle curve only from the right direction. Against the arrows every space is a jackknife turn; faded arrows are worth a same-day report.",
+        "lesson": "05a-the-shape-of-a-space.md"
+      },
+      {
+        "type": "single",
+        "q": "A long rig with a nervous driver has no pull-through open. What do you offer?",
+        "options": [
+          "The corner space where rows meet",
+          "An end space on a wide aisle",
+          "Any space near the office",
+          "A space two sizes too short"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "An end space has one neighbor and an easier turn. A corner space is the hardest turn on the lot. Add the pull-through waitlist too.",
+        "lesson": "05a-the-shape-of-a-space.md"
+      },
+      {
+        "type": "single",
+        "q": "Which best describes Fairfield's parking?",
+        "options": [
+          "Paved, with covered rows at the back",
+          "All open gravel, 12 ft wide",
+          "Mostly pull-throughs",
+          "Enclosed garages and gravel"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Fairfield is all open gravel, every space 12 ft wide, 20 to 48 ft deep, with no covered or enclosed vehicle space.",
+        "lesson": "site-fairfield"
+      },
+      {
+        "type": "single",
+        "q": "A tenant at Fairfield says his gate code failed last night. Where can you check what happened?",
+        "options": [
+          "The gate's entries in Cubby",
+          "Only the camera footage",
+          "Nowhere; ask the tenant",
+          "The Nexus Report a Problem log"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "Fairfield's gate reports to Cubby: allowed entries, refused codes and after-hours attempts. That makes it the one gate log you can check yourself.",
+        "lesson": "site-fairfield"
+      },
+      {
+        "type": "single",
+        "q": "A Murrieta tenant has a 37 ft trailer and wants a 12 ft wide drive-in. Which size fits with a margin?",
+        "options": [
+          "12x33 pull-through",
+          "12x45",
+          "12x30",
+          "10x35 drive-in"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "37 + 3 = 40 ft. Murrieta's 12x45s are drive-ins long enough; the 12x30 and 12x33 are too short, and the 10x35 is too short and narrow.",
+        "lesson": "site-murrieta"
+      },
+      {
+        "type": "single",
+        "q": "A Murrieta customer is billed monthly under a \"Dump Station Agreement\" with no size. What is it?",
+        "options": [
+          "A small storage unit",
+          "Monthly dump station use",
+          "A reserved RV space",
+          "A late fee by another name"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Murrieta's Dump Station Agreement entries in Cubby are not storage: they bill a customer for monthly use of the site's dump station.",
+        "lesson": "site-murrieta"
+      },
+      {
+        "type": "single",
+        "q": "Every other Greens lot is full for a 40 ft rig. Which site most often has a long open space?",
+        "options": [
+          "Valley Center",
+          "Temecula",
+          "Escondido",
+          "Fairfield's 12x32s"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Temecula has the most open spaces 40 ft and longer at Greens, most of them 11x40, and is the usual backup for big rigs.",
+        "lesson": "site-temecula"
+      },
+      {
+        "type": "single",
+        "q": "A caller at Escondido asks to park a car in one of the big 15 ft wide storage units. What do you say?",
+        "options": [
+          "Yes, the big units fit cars well",
+          "Not offered for vehicles",
+          "Yes, at the unit rate",
+          "Only with a deposit"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The large units are not set up for vehicles in Cubby, so you never offer one for a vehicle. Offer an open space; your manager has whether that will change.",
+        "lesson": "site-escondido"
+      },
+      {
+        "type": "single",
+        "q": "A collector wants an enclosed garage for a classic car. Where at Greens is enclosed vehicle space?",
+        "options": [
+          "Valley Center's garages",
+          "Temecula's covered rows",
+          "Escondido's big 15 ft units",
+          "Murrieta's pull-through spaces"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "Valley Center's two 12x38 garages are Greens' only enclosed vehicle spaces, and they are usually leased: take a full waitlist entry and offer open space meanwhile.",
+        "lesson": "site-valley-center"
+      },
+      {
+        "type": "tf",
+        "q": "A rig that fits a garage door advertised as 14 ft tall is sure to clear the opening.",
+        "answer": [
+          1
+        ],
+        "explanation": "A door is smaller once hung, and a rain lip takes more. The rig must fit the measured opening; your manager has it until the site profile is filled in.",
+        "lesson": "site-valley-center"
+      },
+      {
+        "type": "single",
+        "q": "A \"26 ft Class C\" at Murrieta is 28 ft with its ladder and rack. Is a 10x30 right?",
+        "options": [
+          "Yes, it is 2 ft longer than the rig",
+          "No, it needs 31 ft or more",
+          "Yes, if it parks nose in",
+          "No, it needs a 12x50"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "28 + 3 = 31 ft, so the 10x30 is too tight. A 12x33 or 10x35, if open, fits without wasting a 50 ft space.",
+        "lesson": "06-measuring-for-the-right-fit.md"
+      },
+      {
+        "type": "single",
+        "q": "A 36 ft boat is 41 ft on its trailer. Can it go in a Valley Center 12x38 garage?",
+        "options": [
+          "Yes, if the door is tall enough",
+          "No, it is too long",
+          "Yes, with the tongue in the aisle",
+          "Only if the bow overhangs"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "41 ft on the trailer is longer than the 38 ft garage before any margin. Length rules out the space whatever the door height.",
+        "lesson": "06-measuring-for-the-right-fit.md"
+      },
+      {
+        "type": "single",
+        "q": "Which clear height decides whether a rig can reach a covered space?",
+        "options": [
+          "The beam over the space itself",
+          "The lowest point on the path",
+          "The posted gate height",
+          "The tallest canopy beam"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Check the whole route: the gate, any overhead structure and the beam over the space. The lowest point on the path is the one that counts.",
+        "lesson": "06-measuring-for-the-right-fit.md"
+      },
+      {
+        "type": "tf",
+        "q": "When the tape on move-in day differs from the phone call, you keep the caller's numbers in Cubby.",
+        "answer": [
+          1
+        ],
+        "explanation": "The tape on move-in day is the record. Update Cubby with the measured length and height so the next person never has to ask again.",
+        "lesson": "06-measuring-for-the-right-fit.md"
+      },
+      {
+        "type": "single",
+        "q": "The VIN on a customer's insurance card does not match the registration. What do you do?",
+        "options": [
+          "Finish, then fix it later",
+          "Hold until they match",
+          "Use the insurance VIN",
+          "Note it and move on"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A mismatch is a stop: nothing goes in until the numbers match on every document. Often the customer swapped vehicles and never updated the policy.",
+        "lesson": "08-paperwork-and-move-in.md"
+      },
+      {
+        "type": "single",
+        "q": "A tenant asks who pays if his RV is damaged on the lot. What is true?",
+        "options": [
+          "The tenant protection plan",
+          "His own vehicle insurance",
+          "Greens' property policy",
+          "The tenant next to him"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The tenant's own vehicle insurance covers the vehicle. Greens' property insurance does not, and the protection plan does not cover vehicles. Never say \"you're covered here.\"",
+        "lesson": "08-paperwork-and-move-in.md"
+      },
+      {
+        "type": "single",
+        "q": "A tenant's car is on Planned Non-Operation. He plans to tow it out on Saturday. What do you tell him?",
+        "options": [
+          "Towing is fine without plates",
+          "Renew the registration first",
+          "Only Greens can tow it out",
+          "Leave the sticker as it is"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "PNO means the vehicle is not driven, towed, stored or parked on a public road. Before it leaves on one, even on a tow truck, the owner registers it again with the DMV.",
+        "lesson": "08a-vehicles-that-do-not-run-and-pno.md"
+      },
+      {
+        "type": "single",
+        "q": "A customer wants to store a car on Planned Non-Operation. What do you ask for?",
+        "options": [
+          "Nothing beyond the usual photo ID",
+          "DMV proof PNO is on file",
+          "A letter from the HOA",
+          "A mechanic's inspection"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Ask for proof from the DMV that PNO is on file in the tenant's name, plus ID and insurance; note PNO and the year in Cubby. It needs your manager's OK.",
+        "lesson": "08a-vehicles-that-do-not-run-and-pno.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which photos belong in a vehicle move-in set? Choose all that apply.",
+        "options": [
+          "All four sides of the vehicle",
+          "Close-ups of existing damage",
+          "The plate and the VIN or HIN",
+          "The space, before and after",
+          "Inside the tenant's cabinets"
+        ],
+        "answer": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "explanation": "Photos are the baseline for any later talk about damage, leaks or abandonment. You do not search or photograph inside a tenant's vehicle.",
+        "lesson": "08-paperwork-and-move-in.md"
+      },
+      {
+        "type": "single",
+        "q": "Someone not on the lease arrives to drive a tenant's RV out. What do you do?",
+        "options": [
+          "Let them go if they know the gate code",
+          "Stop and check with your manager",
+          "Confirm the tenant's name",
+          "Drive it out for them"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Only authorized drivers listed on the lease take a vehicle out. Stop, check with your manager, and never confirm to the visitor that anyone is a tenant.",
+        "lesson": "08-paperwork-and-move-in.md"
+      },
+      {
+        "type": "single",
+        "q": "A tenant asks if he may keep a full gas can in his trailer for the generator. What is Greens' rule?",
+        "options": [
+          "Yes, one can per space is allowed",
+          "No full fuel containers",
+          "Yes, in a sealed box",
+          "Only at Valley Center"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "No gasoline, diesel or propane containers unless empty and disconnected, and tanks under 1/4 full. A generator also needs written permission.",
+        "lesson": "greens-vehicle-storage-rules"
+      },
+      {
+        "type": "single",
+        "q": "A tenant takes his RV out for a week and parks his car in the space meanwhile. What is the rule?",
+        "options": [
+          "Fine, as long as the RV is away",
+          "Only the leased vehicle parks",
+          "Fine if the car is smaller",
+          "Fine for under a month at a time"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Only the vehicle on the lease holds the space, and the tenant tells the office if it will be away more than 24 hours.",
+        "lesson": "greens-vehicle-storage-rules"
+      },
+      {
+        "type": "tf",
+        "q": "A tenant may change a flat tire on his trailer in his space.",
+        "answer": [
+          0
+        ],
+        "explanation": "Work that makes a vehicle road-ready, such as a tire or battery change, is allowed. Repairs, fluid changes and major mechanical work are not.",
+        "lesson": "greens-vehicle-storage-rules"
+      },
+      {
+        "type": "single",
+        "q": "On a walk you smell gas near a motorhome. What do you do first?",
+        "options": [
+          "Shut off the tank yourself",
+          "Leave and call 911",
+          "Text the tenant a photo",
+          "Finish the row, then report"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Gas or smoke: leave the area and call 911 first, then tell your manager. Never shut off a tenant's propane or move their vehicle yourself.",
+        "lesson": "09-lot-rules-and-risks.md"
+      },
+      {
+        "type": "single",
+        "q": "A tenant is changing his oil in his space. Which sentence works best?",
+        "options": [
+          "\"Rules are rules, so stop right now.\"",
+          "\"The runoff hits the storm drain.\"",
+          "\"Do it after closing time.\"",
+          "\"Use a bigger drain pan.\""
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Lead with the reason, not the rule: oil and coolant end up in the storm drain. Then suggest a shop, note it in Cubby and tell your manager.",
+        "lesson": "09-lot-rules-and-risks.md"
+      },
+      {
+        "type": "single",
+        "q": "After rain at Fairfield, a trailer has rolled off one chock and rests on a neighbor's bumper. What do you do?",
+        "options": [
+          "Push it back into its own space gently",
+          "Clear people, photograph, call",
+          "Chock it again yourself",
+          "Leave a note on the trailer"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "You never chock, block or move a tenant's vehicle. Keep people clear, photograph both, call both tenants and tell your manager.",
+        "lesson": "09-lot-rules-and-risks.md"
+      },
+      {
+        "type": "single",
+        "q": "Which may a tenant leave in the space with a parked trailer?",
+        "options": [
+          "A spare set of tires for the trailer",
+          "The blocks and chocks under it",
+          "A loading ramp",
+          "A stack of extra lumber"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Trailers sit on wood blocks with the wheels chocked and a hitch lock on. Spare tires, ramps and loose lumber are items beside the vehicle, which are not allowed.",
+        "lesson": "09-lot-rules-and-risks.md"
+      },
+      {
+        "type": "single",
+        "q": "A car has expired tags by eight months and its Cubby note says PNO. What does that tell you?",
+        "options": [
+          "It is abandoned, so start a vehicle lien",
+          "The sticker alone is not a sign",
+          "It must leave the lot today",
+          "Call a tow company now"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A PNO vehicle's sticker looks expired by design. Expired tags are an abandonment sign only with other signs, such as flats, no visits and a late account.",
+        "lesson": "08a-vehicles-that-do-not-run-and-pno.md"
+      },
+      {
+        "type": "single",
+        "q": "You find a car with no lease parked in an empty space. What do you do?",
+        "options": [
+          "Have it towed tonight",
+          "Photograph, check Cubby, tell your manager",
+          "Boot it until someone calls the office about it",
+          "Start a vehicle lien"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A vehicle with no lease is not a lien case, and you never tow, boot or tag on your own. Photograph it, check Cubby, and tell your manager.",
+        "lesson": "09-lot-rules-and-risks.md"
+      },
+      {
+        "type": "single",
+        "q": "On your walk the gate closes before long rigs clear it. Where does that go?",
+        "options": [
+          "A note on a tenant's lease",
+          "Report a Problem in Nexus",
+          "A text to the tenant",
+          "Nowhere until it breaks"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Site problems go through Nexus: scan the site's QR tag and use Report a Problem (or file a ticket), where maintenance sees it with the photo, place and time.",
+        "lesson": "10-walking-the-lot.md"
+      },
+      {
+        "type": "single",
+        "q": "Your manager wants each lot walk recorded. Where do you fill it in?",
+        "options": [
+          "In the Cubby lease notes",
+          "Fill a Form in Nexus",
+          "A paper sheet in the office",
+          "An email to your manager"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The walk goes on the form your manager picks in Workday's Fill a Form (Inspection or Vehicle Check). It works with no signal and keeps the photos with the place and time.",
+        "lesson": "10-walking-the-lot.md"
+      },
+      {
+        "type": "order",
+        "q": "Put the damage incident steps in order.",
+        "options": [
+          "Make sure everyone is safe; 911 if needed",
+          "Photograph everything",
+          "Get names and insurance information",
+          "File the Incident Report the same day",
+          "Tell your manager"
+        ],
+        "explanation": "Safety first, then evidence while it is fresh, then the people and their insurers, then the report the same day, then your manager, who decides about Greens' insurer.",
+        "lesson": "10-walking-the-lot.md"
+      },
+      {
+        "type": "single",
+        "q": "A tenant clips a bollard and asks, \"You'll cover this, right?\" What do you say?",
+        "options": [
+          "\"Yes, it's our post, so we'll pay.\"",
+          "\"I'm passing it to my manager.\"",
+          "\"No, that's on you.\"",
+          "\"Let's split it.\""
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Never admit fault or promise payment, either way. Document everything and pass it on; your manager and the insurers decide.",
+        "lesson": "10-walking-the-lot.md"
+      },
+      {
+        "type": "tf",
+        "q": "A finding on a lot walk with no photo is hard to prove in a later dispute.",
+        "answer": [
+          0
+        ],
+        "explanation": "Every exception gets a dated photo and a note. A problem with no photo did not happen, as far as a later dispute is concerned.",
+        "lesson": "10-walking-the-lot.md"
+      },
+      {
+        "type": "single",
+        "q": "A coworker suggests adding a defaulted car to next week's unit auction. What is right?",
+        "options": [
+          "Fine, as long as the car still runs",
+          "Vehicles never go to that auction",
+          "Fine after the 61st day",
+          "Only with the tenant's OK"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A titled vehicle or boat never goes through the unit auction: a buyer could not register it, and the lender was never told. Tell your manager.",
+        "lesson": "11-vehicle-and-boat-liens.md"
+      },
+      {
+        "type": "single",
+        "q": "Cubby raises \"61st - Vehicle Lien Filing/Tow Notice\" on a trailer. What do you do?",
+        "options": [
+          "Call a tow company to come out today",
+          "Gather the file and photos",
+          "Mail the tow notice",
+          "Wait for the tenant"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The task goes to your manager. You gather the lease, VIN, plate, lienholders and insurance, and photograph the trailer's condition now.",
+        "lesson": "11-vehicle-and-boat-liens.md"
+      },
+      {
+        "type": "single",
+        "q": "Under California law, when may a defaulted trailer be towed instead of sold?",
+        "options": [
+          "From the 11th day late",
+          "After 60 days unpaid, with notice",
+          "Only after a court order",
+          "Whenever the manager decides it should go"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Rent 60 days unpaid, the preliminary lien notice sent, and at least 10 days' notice by first-class mail with a certificate of mailing naming the tow company.",
+        "lesson": "11-vehicle-and-boat-liens.md"
+      },
+      {
+        "type": "single",
+        "q": "A tenant 50 days behind says, \"Just keep the boat, I'm done.\" What do you do?",
+        "options": [
+          "Treat it as a signed release from the tenant",
+          "Write it down, tell your manager",
+          "Start the boat's sale",
+          "Move the boat to the back"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "\"Keep it\" is never permission. Write down exactly what was said and when, and pass it to your manager.",
+        "lesson": "11-vehicle-and-boat-liens.md"
+      },
+      {
+        "type": "tf",
+        "q": "In Texas, a defaulted vehicle may be towed to a licensed vehicle storage facility only if the written lease authorizes towing.",
+        "answer": [
+          0
+        ],
+        "explanation": "Texas also requires no payment by the 14th day after notice and the facility's written agreement; the lien then ends. Greens' Texas sites are run by CubeSmart.",
+        "lesson": "11-vehicle-and-boat-liens.md"
+      },
+      {
+        "type": "single",
+        "q": "A caller asks the monthly price of a 12x32 at Fairfield. Where does the rate you quote come from?",
+        "options": [
+          "The Site Profile page",
+          "Cubby, today",
+          "Last month's quote",
+          "A competitor's site"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Quote today's rate from Cubby, never from a page or memory. Specials and increases change rates.",
+        "lesson": "12-selling-vehicle-storage.md"
+      },
+      {
+        "type": "single",
+        "q": "A caller says the place down the road is $40 cheaper. What do you do?",
+        "options": [
+          "Say they are unsafe",
+          "Ask what they get there",
+          "Match the price right now",
+          "End the call politely and move on"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Ask about aisles, hours, surface and amenities, then show what Greens offers. Never criticize a competitor.",
+        "lesson": "12-selling-vehicle-storage.md"
+      },
+      {
+        "type": "tf",
+        "q": "A caller asks if Greens covers damage to his RV; you may tell him the site's insurance covers vehicles on the lot.",
+        "answer": [
+          1
+        ],
+        "explanation": "The tenant's own vehicle insurance covers the vehicle, and Greens needs proof of it at move-in. Never say \"we're insured\" or \"you're covered here.\"",
+        "lesson": "12-selling-vehicle-storage.md"
+      },
+      {
+        "type": "single",
+        "q": "A caller says, \"My battery was stolen in my driveway.\" What do you lead with?",
+        "options": [
+          "The lowest open rate",
+          "Security on site",
+          "Covered space",
+          "The pull-through waitlist"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Listen for the trigger. A theft means security is the sale: the gate code, lighting and the walks. Never promise nothing will happen.",
+        "lesson": "12-selling-vehicle-storage.md"
+      },
+      {
+        "type": "single",
+        "q": "A customer wants covered space at Temecula and none is open. What keeps the customer?",
+        "options": [
+          "Ask them to call back later",
+          "Open space now, then the waitlist",
+          "Park under a canopy in the drive aisle",
+          "Refer them to a competitor"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Open now, covered later: rent an open space that fits today, add them to the covered waitlist with length and height, and upgrade with a transfer when one opens.",
+        "lesson": "13-waitlists-and-upgrades.md"
+      },
+      {
+        "type": "multi",
+        "q": "Which belong in a vehicle waitlist entry so you can make an offer that fits? Choose all that apply.",
+        "options": [
+          "Length hitch to bumper",
+          "Height to the highest point",
+          "The product wanted",
+          "The tenant's credit score"
+        ],
+        "answer": [
+          0,
+          1,
+          2
+        ],
+        "explanation": "A waitlist entry needs the fit details (type, length, height, product, sites) so you can call and say \"I have your space\" without a second fit check.",
+        "lesson": "13-waitlists-and-upgrades.md"
+      },
+      {
+        "type": "single",
+        "q": "A snowbird will be gone November to March and wants to cancel. What do you say?",
+        "options": [
+          "The space is held for her free of charge",
+          "It may not be there in March",
+          "She may not cancel",
+          "She owes a leaving fee"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The rental is month to month, so she may leave, but the space may be leased when she returns. Offer the waitlist for her return date and let her decide.",
+        "lesson": "13-waitlists-and-upgrades.md"
+      },
+      {
+        "type": "single",
+        "q": "On move-in day the tape shows the trailer is 2 ft longer than the caller said. What does the job aid say to do?",
+        "options": [
+          "Ignore it, as long as it still fits",
+          "Update the length in Cubby",
+          "Charge a measuring fee",
+          "Cancel the move-in"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The last fit-check step is to write the real measurements in Cubby and tape on move-in day. If it still fits with the margin, nothing else changes.",
+        "lesson": "14-on-one-page.md"
+      },
+      {
+        "type": "single",
+        "q": "A customer says his motorhome will have a \"toad\" with it. What is that?",
+        "options": [
+          "A tongue jack",
+          "A towed car",
+          "A small boat",
+          "A dump hose"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A toad (or dinghy) is a car towed behind a motorhome. It is a separate vehicle and usually needs its own space.",
+        "lesson": "academy-glossary"
+      }
+    ]
   }
- ],
- "quiz": {
-  "passPct": 80,
-  "drawCount": 32,
-  "maxTries": 3,
-  "shuffle": true,
-  "questions": [
-   {
-    "type": "single",
-    "q": "About how many of Greens' 2,042 active leases store a vehicle?",
-    "options": [
-     "About 75",
-     "About 300",
-     "759",
-     "1,500"
-    ],
-    "answer": [
-     2
-    ],
-    "explanation": "759 of 2,042 active leases store a vehicle, more than one in three (From Greens' Cubby, 11/2026).",
-    "lesson": "01-why-vehicle-storage-matters.md"
-   },
-   {
-    "type": "single",
-    "q": "Which Greens site is the biggest vehicle lot?",
-    "options": [
-     "Escondido",
-     "Valley Center",
-     "Temecula",
-     "Fairfield"
-    ],
-    "answer": [
-     2
-    ],
-    "explanation": "Temecula has 481 parking spaces, the most at Greens, and the only covered spaces (From Greens' Cubby, 11/2026).",
-    "lesson": "01-why-vehicle-storage-matters.md"
-   },
-   {
-    "type": "single",
-    "q": "A caller says their HOA sent a letter about their RV and asks what the rules are. What do you say?",
-    "options": [
-     "Read them the city code",
-     "Tell them HOAs cannot do that",
-     "Many cities and HOAs limit driveway parking; check with yours. Then help with the space.",
-     "Tell them they will be fined"
-    ],
-    "answer": [
-     2
-    ],
-    "explanation": "Staff never quote city code or HOA rules. Acknowledge, tell them to check with their HOA or city, then move to fit and paperwork.",
-    "lesson": "01-why-vehicle-storage-matters.md"
-   },
-   {
-    "type": "single",
-    "q": "According to the 2025 RV Owner Demographic Profile (Go RVing and RVIA), how many U.S. households own an RV?",
-    "options": [
-     "2.5 million",
-     "8.1 million",
-     "11.2 million",
-     "25 million"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "8.1 million households (2025). The 11.2 million figure is from a 2021 study with a different method, and RVIA says the two cannot be compared.",
-    "lesson": "01-why-vehicle-storage-matters.md"
-   },
-   {
-    "type": "single",
-    "q": "A caller asks whether they can stay overnight in their RV on the lot. Where do you find Greens' answer?",
-    "options": [
-     "Say yes if they are quiet",
-     "Greens Vehicle Storage Rules, or ask your manager",
-     "Make up a rule that sounds fair",
-     "The city code"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Living or sleeping in a stored vehicle is against common industry rules, but Greens' own rule lives on Greens Vehicle Storage Rules. Check it or ask your manager; never invent a house rule.",
-    "lesson": "01-why-vehicle-storage-matters.md"
-   },
-   {
-    "type": "single",
-    "q": "What is a Class B?",
-    "options": [
-     "A bus-shaped motorhome",
-     "A camper van",
-     "A folding tent trailer",
-     "A trailer that hitches in a pickup bed"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A Class B is a camper van on a van chassis, about 17 to 24 ft. High-roof vans run about 9.5 to 10 ft tall.",
-    "lesson": "02-know-the-vehicles-rvs.md"
-   },
-   {
-    "type": "single",
-    "q": "How do you measure a fifth wheel's storage length?",
-    "options": [
-     "Hull length",
-     "Front of the nose or pin box to the rear bumper",
-     "Front axle to rear axle",
-     "The brochure length"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Measure from the front of the nose or pin box to the rear bumper and anything on it. The pin box overhang (3 to 5 ft) is often not in the brochure.",
-    "lesson": "02-know-the-vehicles-rvs.md"
-   },
-   {
-    "type": "single",
-    "q": "A caller says, \"It's a 28-foot travel trailer.\" What is your best follow-up?",
-    "options": [
-     "\"Great, a 10x30 then.\"",
-     "\"Is that the box or hitch to bumper, and is anything on the back?\"",
-     "\"How old is it?\"",
-     "\"What color is it?\""
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The advertised length may or may not include the tongue, and racks or spares add more. Ask for hitch to bumper.",
-    "lesson": "02-know-the-vehicles-rvs.md"
-   },
-   {
-    "type": "single",
-    "q": "A customer's 16 ft boat measured 22 ft on its trailer. What explains most of the difference?",
-    "options": [
-     "The beam",
-     "A 6 ft (72 in) trailer tongue",
-     "The bilge",
-     "The registration sticker"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The trailer tongue alone added 6 ft. A boat's hull length leaves out the tongue, the motor and the swim platform.",
-    "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
-   },
-   {
-    "type": "single",
-    "q": "What does a swing (folding) trailer tongue do for storage?",
-    "options": [
-     "Raises the boat",
-     "Shortens the storage length by a few feet",
-     "Locks the trailer",
-     "Nothing"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A folding tongue shortens the footprint. The Arc Sport example drops from 31 ft to 28 ft 2 in with the tongue folded.",
-    "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
-   },
-   {
-    "type": "single",
-    "q": "Which part of a trailerable sailboat often sticks out past the bow or stern while stored?",
-    "options": [
-     "The keel",
-     "The mast",
-     "The bilge plug",
-     "The bunks"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The mast is laid down on the boat for towing and storage and can overhang the bow or stern. Measure to its end.",
-    "lesson": "03-know-the-vehicles-boats-and-everything-else.md"
-   },
-   {
-    "type": "single",
-    "q": "Under a canopy, where is a covered space's clear height measured?",
-    "options": [
-     "To the roof sheet",
-     "To the lowest point, usually the beam",
-     "To the top of the posts",
-     "It is always 14 ft"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Clear height is to the lowest point under the roof, usually a beam. A rig too tall loses its air conditioner or antenna on it.",
-    "lesson": "05-our-spaces-open-covered-and-enclosed.md"
-   },
-   {
-    "type": "single",
-    "q": "Which Greens site has covered vehicle spaces?",
-    "options": [
-     "Fairfield",
-     "Murrieta",
-     "Temecula",
-     "Escondido"
-    ],
-    "answer": [
-     2
-    ],
-    "explanation": "Temecula's 27 covered spaces are the only covered vehicle spaces at Greens (From Greens' Cubby, 11/2026).",
-    "lesson": "05-our-spaces-open-covered-and-enclosed.md"
-   },
-   {
-    "type": "single",
-    "q": "What is a pull-through space?",
-    "options": [
-     "A space you back into",
-     "A space you drive into from one end and out of the other",
-     "A space inside a building",
-     "A space for motorcycles"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A pull-through lets a rig drive in one end and out the other with no backing. It is the easiest to use and sold at a premium.",
-    "lesson": "05-our-spaces-open-covered-and-enclosed.md"
-   },
-   {
-    "type": "single",
-    "q": "What kind of parking does Fairfield have?",
-    "options": [
-     "Covered and paved",
-     "All open gravel, 12 ft wide",
-     "Enclosed garages",
-     "Mostly pull-through and paved"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "All 303 Fairfield spaces are open gravel, 12 ft wide, from 12x20 to 12x48 (From Greens' Cubby, 11/2026).",
-    "lesson": "site-fairfield"
-   },
-   {
-    "type": "single",
-    "q": "How many pull-through spaces does Murrieta have?",
-    "options": [
-     "None",
-     "8",
-     "36",
-     "161"
-    ],
-    "answer": [
-     2
-    ],
-    "explanation": "Murrieta has 36 pull-through spaces (18 at 12x33 and 18 at 12x50) on an all-paved lot of 161 (From Greens' Cubby, 11/2026).",
-    "lesson": "site-murrieta"
-   },
-   {
-    "type": "single",
-    "q": "Which Greens site has the most parking spaces 40 ft and longer?",
-    "options": [
-     "Escondido",
-     "Fairfield",
-     "Murrieta",
-     "Temecula"
-    ],
-    "answer": [
-     3
-    ],
-    "explanation": "Temecula has 147 spaces 40 ft and longer, more than any other Greens site (From Greens' Cubby, 11/2026).",
-    "lesson": "site-temecula"
-   },
-   {
-    "type": "single",
-    "q": "How many covered parking spaces does Escondido have?",
-    "options": [
-     "None; all 90 spaces are open",
-     "12",
-     "27",
-     "90"
-    ],
-    "answer": [
-     0
-    ],
-    "explanation": "Every Escondido parking space is open: 80 gravel and 10 paved (From Greens' Cubby, 11/2026).",
-    "lesson": "site-escondido"
-   },
-   {
-    "type": "single",
-    "q": "What vehicle spaces does Valley Center have?",
-    "options": [
-     "None",
-     "Three: two 12x38 enclosed garages and one open 11x35",
-     "About 90 open spaces",
-     "27 covered spaces"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Valley Center has three vehicle spaces: two enclosed 12x38 garages, the only enclosed vehicle spaces at Greens, and one open 11x35 (From Greens' Cubby, 11/2026).",
-    "lesson": "site-valley-center"
-   },
-   {
-    "type": "single",
-    "q": "About how much margin do you add to a vehicle's measured length?",
-    "options": [
-     "None",
-     "About 3 to 4 ft",
-     "About 10 ft",
-     "Double the length"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Add about 3 to 4 ft for walking room and a safety margin. Your manager may set a different margin for your site.",
-    "lesson": "06-measuring-for-the-right-fit.md"
-   },
-   {
-    "type": "single",
-    "q": "A Class A is 36 ft bumper to bumper, plus a 1 ft ladder and a 2 ft bike rack. With a 3 ft margin, which space is the smallest that fits?",
-    "options": [
-     "12x33",
-     "12x40",
-     "12x45",
-     "12x50"
-    ],
-    "answer": [
-     2
-    ],
-    "explanation": "36 + 1 + 2 = 39 ft, plus 3 ft = 42 ft. A 12x40 is too short; the 12x45 is the smallest that fits.",
-    "lesson": "06-measuring-for-the-right-fit.md"
-   },
-   {
-    "type": "single",
-    "q": "Where should the measured clear height be posted?",
-    "options": [
-     "Only in the office",
-     "At every covered row and enclosed door, where the driver sees it before pulling in",
-     "On the website only",
-     "Nowhere; tell customers by phone"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A posted clear height at every covered row and enclosed door prevents most roof damage and gives tenants a number to check every time.",
-    "lesson": "06-measuring-for-the-right-fit.md"
-   },
-   {
-    "type": "single",
-    "q": "A customer stores a pontoon on its trailer. Which registrations do you need?",
-    "options": [
-     "The boat's only",
-     "The trailer's only",
-     "Both the boat's and the trailer's",
-     "Neither"
-    ],
-    "answer": [
-     2
-    ],
-    "explanation": "A boat and its trailer are registered separately. Collect current registration for both, in the tenant's name.",
-    "lesson": "08-paperwork-and-move-in.md"
-   },
-   {
-    "type": "single",
-    "q": "The VIN on a customer's insurance card does not match the registration. What do you do?",
-    "options": [
-     "Complete the move-in and fix it later",
-     "Stop: do not complete the move-in until it matches, and ask your manager",
-     "Use the insurance VIN",
-     "Ignore it"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The VIN or HIN must match on every document. A mismatch is a stop sign until it is resolved.",
-    "lesson": "08-paperwork-and-move-in.md"
-   },
-   {
-    "type": "single",
-    "q": "Why do you record the title holder and lienholder at move-in?",
-    "options": [
-     "For marketing",
-     "Vehicle lien steps must reach them, and a lender's lien usually ranks ahead of the storage lien",
-     "To run a credit check",
-     "It is optional"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Both California and Texas vehicle lien steps require notice to the owners and lienholders on record. Getting the names at signing is far easier than later.",
-    "lesson": "08-paperwork-and-move-in.md"
-   },
-   {
-    "type": "multi",
-    "q": "Which photos belong in a vehicle move-in set? Choose all that apply.",
-    "options": [
-     "All four sides of the vehicle",
-     "Close-ups of existing damage",
-     "The plate and the VIN or HIN",
-     "The empty space and the vehicle in it",
-     "The inside of the tenant's cabinets"
-    ],
-    "answer": [
-     0,
-     1,
-     2,
-     3
-    ],
-    "explanation": "Photos of all sides, damage, plate and VIN or HIN, and the space are the baseline for any later dispute. You never search inside a tenant's vehicle.",
-    "lesson": "08-paperwork-and-move-in.md"
-   },
-   {
-    "type": "single",
-    "q": "At a Texas site, what must exist for TPWD's lien foreclosure process to work on a boat?",
-    "options": [
-     "A verbal agreement",
-     "A written, signed rental agreement containing the self-service storage lien",
-     "A police report",
-     "Nothing extra"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "TPWD form PWD 309B requires a written, signed rental agreement containing the lien. Never let a vehicle in at a Texas site before the lease is signed.",
-    "lesson": "08-paperwork-and-move-in.md"
-   },
-   {
-    "type": "single",
-    "q": "A tenant asks who pays if their RV is damaged on the lot. What is true?",
-    "options": [
-     "Greens' property insurance",
-     "The tenant's own vehicle insurance",
-     "The protection plan",
-     "Nobody"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The tenant's own insurance covers their vehicle. Greens' insurance does not, and protection plans usually exclude vehicles; only one Greens vehicle lease is on a plan (From Greens' Cubby, 11/2026).",
-    "lesson": "08-paperwork-and-move-in.md"
-   },
-   {
-    "type": "single",
-    "q": "What is Greens' Vehicle Lien Fee in California?",
-    "options": [
-     "$25.00",
-     "$95.00",
-     "$100.00",
-     "$350.00"
-    ],
-    "answer": [
-     3
-    ],
-    "explanation": "The Vehicle Lien Fee is $350.00, applied with the 61st day vehicle task (From Greens' Cubby, 11/2026).",
-    "lesson": "greens-vehicle-storage-rules"
-   },
-   {
-    "type": "single",
-    "q": "What is the Administration Fee on a Greens vehicle move-in in California?",
-    "options": [
-     "$10.00",
-     "$25.00",
-     "$35.00",
-     "$75.00"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The Administration Fee is $25.00 at all five sites (From Greens' Cubby, 11/2026). The $10.00 fee is the mailbox one.",
-    "lesson": "greens-vehicle-storage-rules"
-   },
-   {
-    "type": "single",
-    "q": "Why is washing a vehicle in its space not allowed?",
-    "options": [
-     "It wastes time",
-     "Soap, oil and grime run into storm drains",
-     "It scratches the paint",
-     "Water is expensive"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Wash water carries soap, oil and grime into storm drains. Washing belongs only in a wash bay, where a site has one.",
-    "lesson": "09-lot-rules-and-risks.md"
-   },
-   {
-    "type": "single",
-    "q": "What is the common propane rule for a stored RV?",
-    "options": [
-     "Tanks full and valves open",
-     "Valves closed at the source whenever stored",
-     "Propane is removed by staff",
-     "No rule"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Propane valves are closed at the source whenever the RV is stored; some facilities require tanks disconnected or empty.",
-    "lesson": "09-lot-rules-and-risks.md"
-   },
-   {
-    "type": "single",
-    "q": "On a walk you smell gas near a motorhome. What do you do first?",
-    "options": [
-     "Shut off the tank yourself",
-     "Leave the area and call 911",
-     "Text the tenant",
-     "Finish the walk"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Gas, smoke or fuel: leave the area and call 911 first, then tell your manager. Never handle a tenant's propane yourself.",
-    "lesson": "09-lot-rules-and-risks.md"
-   },
-   {
-    "type": "single",
-    "q": "Which is an early warning sign that a vehicle may be abandoned?",
-    "options": [
-     "A new cover",
-     "Registration tags expired by months",
-     "A clean windshield",
-     "A locked hitch"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Expired tags, flat tires, a cover gone and no visits are early signs of abandonment. Note expired tags on every walk.",
-    "lesson": "09-lot-rules-and-risks.md"
-   },
-   {
-    "type": "single",
-    "q": "You find a car with no lease parked in an empty space. What do you do?",
-    "options": [
-     "Have it towed",
-     "Photograph it, check Cubby and tell your manager",
-     "Put a boot on it",
-     "Start a lien"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A vehicle with no lease is not a lien case. Photograph it, check Cubby, and tell your manager. Never tow, boot or move it yourself.",
-    "lesson": "09-lot-rules-and-risks.md"
-   },
-   {
-    "type": "single",
-    "q": "What does every exception on a lot walk need?",
-    "options": [
-     "A verbal mention to a coworker",
-     "A dated photo and a note",
-     "A fee",
-     "Nothing if it is small"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A dated photo and a note: in Cubby for a tenant's vehicle or account, in Nexus for the site. A problem with no photo did not happen in a later dispute.",
-    "lesson": "10-walking-the-lot.md"
-   },
-   {
-    "type": "single",
-    "q": "The gate is closing on long rigs before they clear. Where do you report it?",
-    "options": [
-     "Nowhere",
-     "In Nexus: Report a Problem at the site's QR tag, or a ticket",
-     "On the tenant's lease",
-     "By email to the tenant"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Site problems go to Nexus: Report a Problem or a ticket, with a photo. Tenant and account issues go on the lease in Cubby.",
-    "lesson": "10-walking-the-lot.md"
-   },
-   {
-    "type": "order",
-    "q": "Put the damage incident steps in order.",
-    "options": [
-     "Make sure everyone is safe; call 911 if needed",
-     "Photograph everything",
-     "Get names and insurance information",
-     "Write the incident report the same day",
-     "Tell your manager"
-    ],
-    "answer": [],
-    "explanation": "Safety first, then photos, then names and insurance, then the report the same day and your manager, who decides about the insurer. Never admit fault.",
-    "lesson": "10-walking-the-lot.md"
-   },
-   {
-    "type": "single",
-    "q": "A tenant backs into a bollard and asks, \"You'll cover this, right?\" What do you say?",
-    "options": [
-     "\"Yes, it's our post.\"",
-     "\"I'm documenting everything and passing it to my manager.\"",
-     "\"No, it's your fault.\"",
-     "\"Let's split it.\""
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Never admit fault or promise payment. Document it, report it the same day and pass it to your manager.",
-    "lesson": "10-walking-the-lot.md"
-   },
-   {
-    "type": "single",
-    "q": "Hail hits a Texas site in the afternoon. What do you do?",
-    "options": [
-     "Wait for tenants to call",
-     "Walk the lot, photograph damage, and report to your manager without saying who is responsible",
-     "Tell tenants Greens will pay",
-     "Close the gate"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Walk after every weather event, photograph damage to vehicles and the canopy, and report it. Do not admit fault.",
-    "lesson": "10-walking-the-lot.md"
-   },
-   {
-    "type": "single",
-    "q": "In California, under Bus. & Prof. Code 21702.5, how is a storage lien on a registered vehicle enforced?",
-    "options": [
-     "Through the normal unit auction",
-     "Under Civil Code 3071, the DMV lien sale process",
-     "By the police",
-     "Under Harbors and Navigation Code 503"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "21702.5 sends vehicles to Civil Code 3071 (the DMV lien sale) and vessels to Harbors and Navigation Code 503, never the unit sale steps. Training only, not legal advice.",
-    "lesson": "11-vehicle-and-boat-liens.md"
-   },
-   {
-    "type": "single",
-    "q": "In California, which law governs the lien sale of a vessel stored at a self-storage facility?",
-    "options": [
-     "Civil Code 3072",
-     "Harbors and Navigation Code 503",
-     "Texas Property Code 59.0445",
-     "The unit auction rules"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Vessels go through the Boaters Lien Law, Harbors and Navigation Code 503, with DMV authorization for a vessel worth more than $1,500. Training only, not legal advice.",
-    "lesson": "11-vehicle-and-boat-liens.md"
-   },
-   {
-    "type": "tf",
-    "q": "For a vehicle stored at a self-storage facility in California, the DMV's short process for vehicles worth $4,000 or less (Civil Code 3072) can be used.",
-    "answer": [
-     1
-    ],
-    "explanation": "California DMV says a vehicle at a self-service storage facility is sold under Civil Code 3071 whatever its value; the 3072 short process cannot be used. Training only, not legal advice.",
-    "lesson": "11-vehicle-and-boat-liens.md"
-   },
-   {
-    "type": "single",
-    "q": "Under 21702.5, a California storage lien on a vehicle may not include charges accruing more than how long after it attaches?",
-    "options": [
-     "14 days",
-     "30 days",
-     "60 days",
-     "1 year"
-    ],
-    "answer": [
-     2
-    ],
-    "explanation": "The lien may not include rent or other charges accruing more than 60 days after it attaches. Training only, not legal advice.",
-    "lesson": "11-vehicle-and-boat-liens.md"
-   },
-   {
-    "type": "single",
-    "q": "Under 21702.5, when may a California facility owner have a defaulted vehicle towed instead of holding a lien sale?",
-    "options": [
-     "Any time after the 1st late day",
-     "Once rent is 60 days unpaid, the preliminary lien notice was sent, and at least 10 days' mailed notice names the tow company",
-     "Only with a court order",
-     "Never"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Rent 60 days unpaid, the preliminary notice sent, and at least 10 days' notice by first-class mail with a certificate of mailing naming the tow company. Your manager decides, never you.",
-    "lesson": "11-vehicle-and-boat-liens.md"
-   },
-   {
-    "type": "single",
-    "q": "Under Texas Property Code 59.0445, by when must a facility notify the owner and every recorded lienholder of a titled vehicle or boat?",
-    "options": [
-     "Within 30 days after taking possession",
-     "Within 1 year",
-     "Only after the sale",
-     "Never; only the tenant is notified"
-    ],
-    "answer": [
-     0
-    ],
-    "explanation": "Within 30 days after taking possession, with the charges and that it may be sold if not paid before the 31st day. Training only, not legal advice.",
-    "lesson": "11-vehicle-and-boat-liens.md"
-   },
-   {
-    "type": "multi",
-    "q": "Under the Texas towing option (SB 1181, since 09/01/2021), which must ALL be true before a defaulted vehicle is towed? Choose all that apply.",
-    "options": [
-     "The written rental agreement expressly authorizes towing",
-     "The tenant did not pay by the 14th day after the lien notice was delivered",
-     "A licensed vehicle storage facility agrees in writing to accept it",
-     "A court has ordered the tow"
-    ],
-    "answer": [
-     0,
-     1,
-     2
-    ],
-    "explanation": "All three are required: towing authorized in the lease, no payment by the 14th day after notice, and a VSF's written agreement. No court order is needed. Training only, not legal advice.",
-    "lesson": "11-vehicle-and-boat-liens.md"
-   },
-   {
-    "type": "single",
-    "q": "In Texas, what happens to the storage lien once a defaulted vehicle is towed to a vehicle storage facility under the towing option?",
-    "options": [
-     "It doubles",
-     "It ends, so the unpaid rent is not recovered from the vehicle",
-     "It moves to the tow company",
-     "Nothing changes"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Under Property Code 59.053, the storage lien is extinguished once the vehicle is towed. Training only, not legal advice.",
-    "lesson": "11-vehicle-and-boat-liens.md"
-   },
-   {
-    "type": "single",
-    "q": "What Cubby task does a Greens vehicle account reach on day 61 of delinquency?",
-    "options": [
-     "6th - Call Past Due Tenants",
-     "35th - CA Lien Notice",
-     "61st - Vehicle Lien Filing/Tow Notice",
-     "62nd - Publish 2nd Lien Sale Ad"
-    ],
-    "answer": [
-     2
-    ],
-    "explanation": "Day 61 raises \"61st - Vehicle Lien Filing/Tow Notice\" with a $350.00 Vehicle Lien Fee (From Greens' Cubby, 11/2026). It goes to your manager.",
-    "lesson": "11-vehicle-and-boat-liens.md"
-   },
-   {
-    "type": "single",
-    "q": "A coworker suggests adding a defaulted car to next week's unit auction. What is right?",
-    "options": [
-     "Do it; it saves time",
-     "A titled vehicle never goes to the unit auction; tell your manager",
-     "Only if it runs",
-     "Only in Texas"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Titled vehicles and boats follow the state vehicle or vessel lien process, never the unit auction. Training only, not legal advice. When in doubt, stop and ask your manager.",
-    "lesson": "11-vehicle-and-boat-liens.md"
-   },
-   {
-    "type": "single",
-    "q": "A caller asks the monthly price of a 12x32 space at Fairfield. Where do you get the rate you quote?",
-    "options": [
-     "From memory",
-     "From the Site Profile page",
-     "From Cubby's current rate for that space",
-     "From a competitor's website"
-    ],
-    "answer": [
-     2
-    ],
-    "explanation": "Rates change. The Site Profile and lesson figures are a snapshot from 11/2026; always quote today's rate from Cubby.",
-    "lesson": "12-selling-vehicle-storage.md"
-   },
-   {
-    "type": "single",
-    "q": "A caller asks, \"Is it secure?\" What is the best answer?",
-    "options": [
-     "\"Nothing will ever happen to it.\"",
-     "Describe what is real: the gate code, cameras where the site has them, lighting and lot walks; insurance is still required",
-     "\"We're responsible for it.\"",
-     "\"You don't need insurance here.\""
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Describe real security measures and never promise nothing will happen. The tenant's own insurance is still required.",
-    "lesson": "12-selling-vehicle-storage.md"
-   },
-   {
-    "type": "single",
-    "q": "A caller says the place down the road is cheaper. What do you do?",
-    "options": [
-     "Say the competitor is unsafe",
-     "Ask what they get there (aisles, hours, surface, amenities) and show what Greens offers, never criticizing the competitor",
-     "Match any price",
-     "End the call"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Compare what they get, not just the price, and never disparage a competitor.",
-    "lesson": "12-selling-vehicle-storage.md"
-   },
-   {
-    "type": "single",
-    "q": "A customer asks whether their 13 ft 6 in fifth wheel fits under your covered spaces. What do you do?",
-    "options": [
-     "Say yes; canopies are 14 ft",
-     "Never guess: check the posted clear height, and offer open space now if it is not clearly enough",
-     "Say no to be safe",
-     "Tell them to try it"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Never guess a height. Check the measured, posted clear height; if it is not clearly enough, offer an open space now and the waitlist.",
-    "lesson": "12-selling-vehicle-storage.md"
-   },
-   {
-    "type": "single",
-    "q": "A customer wants covered space and none is open. What path keeps the customer?",
-    "options": [
-     "Tell them to call back in six months",
-     "Rent an open space that fits now, add them to the covered waitlist, and upgrade them when one opens",
-     "Put them under a canopy in the aisle",
-     "Send them to a competitor"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Open now, covered later keeps the customer on the lot and raises revenue at the upgrade. Re-check the fit when you upgrade.",
-    "lesson": "13-waitlists-and-upgrades.md"
-   },
-   {
-    "type": "multi",
-    "q": "Which details belong in a vehicle waitlist entry so you can make an offer that fits? Choose all that apply.",
-    "options": [
-     "Length hitch to bumper",
-     "Height to the highest point",
-     "The product wanted (covered, enclosed, pull-through, size)",
-     "The tenant's favorite color"
-    ],
-    "answer": [
-     0,
-     1,
-     2
-    ],
-    "explanation": "Capture the fit details with the contact: type, length, height, product and acceptable sites, so you can say \"I have your space\" without a second fit-check.",
-    "lesson": "13-waitlists-and-upgrades.md"
-   },
-   {
-    "type": "single",
-    "q": "A tenant plans to cancel for the winter and come back in spring. What do you tell them?",
-    "options": [
-     "Their space is held for free",
-     "The rental is month to month, so they may leave, but the space may not be there when they return; offer the waitlist",
-     "They cannot cancel",
-     "They must pay a fee to leave"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Be honest: the space may be gone, especially a long, covered or pull-through one. Offer to note their return date for the waitlist.",
-    "lesson": "13-waitlists-and-upgrades.md"
-   },
-   {
-    "type": "single",
-    "q": "What is a toad?",
-    "options": [
-     "A small boat",
-     "A car towed behind a motorhome",
-     "A tongue jack",
-     "A dump station"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A toad (or dinghy) is a car towed behind a motorhome. It is a separate vehicle and usually needs its own space.",
-    "lesson": "14-words-to-know.md"
-   },
-   {
-    "type": "single",
-    "q": "On a California title, who is the legal owner when there is a loan?",
-    "options": [
-     "The tenant",
-     "The lender",
-     "The DMV",
-     "Greens"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The legal owner is the lender; the registered owner is the person who uses it. Both must be reached in the vehicle lien process.",
-    "lesson": "14-words-to-know.md"
-   },
-   {
-    "type": "single",
-    "q": "Why do staff never move a tenant's vehicle?",
-    "options": [
-     "It takes too long",
-     "Handling it means taking on care, custody and control, with liability and insurance Greens would need",
-     "Vehicles are too heavy",
-     "Only managers have licenses"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "An operator who parks or moves vehicles takes on care, custody and control of them and needs matching insurance. The tenant moves it, or your manager decides.",
-    "lesson": "14-words-to-know.md"
-   },
-   {
-    "type": "single",
-    "q": "Cubby names a pricing group \"12' x 32' Parking - Gravel, Drive-In.\" What does Drive-In tell you about the space?",
-    "options": [
-     "It is a pull-through",
-     "It is open at one end only; a vehicle goes in and comes out the same way",
-     "It is enclosed",
-     "It is reserved for cars"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Drive-in is the ordinary one-end space, the same shape the Site Profile pages call back-in (drive-in).",
-    "lesson": "05-our-spaces-open-covered-and-enclosed.md"
-   },
-   {
-    "type": "single",
-    "q": "A Class A motorhome is backed into a drive-in space until its rear tires touch the wheel stop. A chain-link fence stands 3 ft behind the stop. What is the risk?",
-    "options": [
-     "None; the wheel stop is the end of the space",
-     "The rear overhang behind the wheels can be 8 to 12 ft and may hit the fence",
-     "The front will stick into the aisle",
-     "The tires will go flat"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A wheel stop marks where the tires stop, not where the vehicle ends. The body behind the rear wheels hangs past it.",
-    "lesson": "05-our-spaces-open-covered-and-enclosed.md"
-   },
-   {
-    "type": "single",
-    "q": "A tenant enters an angled row against its arrow. What happens?",
-    "options": [
-     "Nothing; angled spaces work from either direction",
-     "Every space becomes a jackknife turn instead of a gentle curve",
-     "The gate will not let him out",
-     "The spaces are too narrow from that side"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Angled spaces are built for one direction of travel. From the wrong one the turn is a sharp reverse. Faded arrows on an angled row are a same-day report.",
-    "lesson": "05-our-spaces-open-covered-and-enclosed.md"
-   },
-   {
-    "type": "single",
-    "q": "Why are pull-through spaces scarce and priced above other spaces?",
-    "options": [
-     "They need a canopy",
-     "Each one uses two aisle frontages, so a lot gives up spaces to make one, and the no-backing convenience is what big-rig owners pay for",
-     "They are longer than every other space",
-     "Cubby limits how many a site can have"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A pull-through needs an aisle at each end. Murrieta's run $249 to $279 against its typical $184 (From Greens' Cubby, 11/2026).",
-    "lesson": "05-our-spaces-open-covered-and-enclosed.md"
-   }
-  ]
- }
 }

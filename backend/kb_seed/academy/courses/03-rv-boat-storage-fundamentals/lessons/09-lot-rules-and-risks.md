@@ -1,113 +1,88 @@
 ---
 title: Lot Rules and Risks
-summary: The house rules every vehicle lot needs and why - no living, no repairs, propane closed, batteries, no extra fuel - and the risks staff watch for, from leaks and fire to rodents, tires, theft and abandoned vehicles.
+summary: Greens' lot rules and the reason behind each one - no living, no repairs, fuel and propane, generators, blocks and chocks - and the risks staff watch for, from leaks and fire to rodents, tires, theft and abandoned vehicles.
 ---
 
-## What You'll Be Able to Do
+## The Moment
 
-- Explain the common vehicle lot rules and the reason behind each one.
-- Find Greens' own rule for each on the Greens Vehicle Storage Rules page.
-- Recognize the main risks on a vehicle lot: leaks, fire, rodents, tires, sun, wind, hail, collisions, theft, water and abandonment.
-- Say what you do when you find each one.
-- Talk to a tenant about a rule without arguing.
+Saturday morning at Temecula, a tenant is lying under his motorhome with a drain pan, changing the oil. He is friendly and nearly done. You have one sentence to get him to stop without a fight, and it works far better if it starts with the reason than with the rule.
 
-## Rules Exist for a Reason
+## Greens' Rules and Why
 
-Every rule on a vehicle lot exists because someone, somewhere, got hurt, caused a fire, polluted a storm drain or damaged a neighbor's rig. When you know the reason, you can explain a rule to a tenant in one sentence, and they are far more likely to follow it.
+Greens' rules are on Greens Vehicle Storage Rules. The reasons are what you say out loud.
 
-The rules below are common across the industry. Greens' own rule for each one is set by Greens and written on the **Greens Vehicle Storage Rules** page. Where Greens' rule is still being written, ask your manager.
-
-## The Common Rules
-
-| Rule | Why it exists |
+| Greens' rule | Why |
 |---|---|
-| **No living or sleeping in vehicles.** No overnight stays, no "camping" hookups. | A storage facility is not a residence or a campground. Living on site is a fire, health and safety risk for everyone on the lot. |
-| **No maintenance, repairs, fluid changes or bodywork on site.** Light prep (loading, checking tires, swapping a battery) is usually fine. | Oil, coolant and fuel end up on the ground and in storm drains. Repairs create fire risk and abandoned parts. |
-| **No washing in the space.** Only in a wash bay, where a site has one. | Soap, oil and grime run into storm drains. |
-| **No dumping tanks** except at an approved dump station. | Gray and black water is a health hazard and an environmental violation. |
-| **Propane closed.** Tank valves closed at the source whenever stored. Some facilities require tanks disconnected or empty. | Leaking propane is a fire and explosion risk. Enclosed spaces may have stricter fire-code rules. |
-| **No extra fuel or hazardous materials.** No spare fuel cans, loose propane cylinders, fireworks or chemicals. | Fire risk, and the lease should restrict hazardous fluids and gases (Inside Self Storage, 2009). |
-| **No generators running.** | Fire, fumes and noise. |
-| **No unapproved cords or chargers.** Batteries disconnected or on approved power only. | Heaters and chargers plugged in without approved power are a fire hazard and a liability (Good Sam). |
-| **Drip pans** under engines and generators where required. | Catches leaks before they stain the lot or reach the drain (Inside Self Storage, 2009). |
-| **Slides in, awnings in, jacks on pads.** | Slides and awnings block neighbors and catch wind; jacks sink into hot pavement. |
-| **Covers tied down.** | A loose cover becomes a sail in the wind and damages neighbors. |
-| **Only the rented vehicle in the space.** Nothing beside or under it: no extra trailers, tires, furniture or canopies. | Spaces are sized for one vehicle, and loose items block aisles and hide hazards. |
-| **Speed limit, traffic flow, spotter when backing.** | Long rigs cannot see behind them. |
+| **No living, sleeping or staying overnight.** A vehicle left after closing is locked in until the next business day | A lot is not a campground. Living on site is a fire, health and safety risk for everyone |
+| **No repairs or fluid changes.** Only what makes it road-ready, such as a tire or battery change | Oil, coolant and fuel end up on the ground and in the storm drain |
+| **No washing by the tenant.** An approved mobile detailer may wash on site | Soap and grime run into the storm drain |
+| **Tanks emptied only at a dump station,** where the site has one | Gray and black water is a health hazard |
+| **Fuel tanks under 1/4 full. No gasoline, diesel or propane containers** unless empty and disconnected. No paint, chemicals or hazardous waste | Fuel and propane turn a small fire into a lot fire |
+| **No generators or other power sources** without written permission | Fire, fumes and noise |
+| **Slides in, awnings closed** | They block neighbors and catch wind |
+| **Only the vehicle on the lease in the space.** Nothing stored beside or under it | Spaces are sized for one vehicle; loose items block aisles and hide hazards |
+| **Trailers: a hitch lock, on wood blocks, wheels chocked** | Below |
 
 > [!SAFETY]
-> Smell gas, smoke or fuel? Leave the area and call 911 first. Then tell your manager. Never try to shut off a tenant's propane or move their vehicle yourself.
+> Smell gas, smoke or fuel? Leave the area and call 911 first, then tell your manager. Never shut off a tenant's propane or move their vehicle yourself.
+
+### Blocks and Chocks
+
+A parked trailer sits on its tongue jack and its tires. Greens asks that trailers sit on **wood blocks with the wheels chocked** and a hitch lock on.
+
+- **Chocks** are wedges against the tires. They stop a trailer from rolling when someone bumps it, the ground shifts or a jack sinks. A rolling trailer on a sloped row hits whatever is below it.
+- **Blocks** under the tongue jack and stabilizer jacks spread the weight, so the jack does not sink into hot pavement or wet gravel and tip the trailer forward.
+- **What tenants may leave:** the blocks, pads and chocks the vehicle is sitting on, and the hitch lock. **What they may not:** spare tires, ramps, loose lumber, a stack of extra blocks, or anything else beside the vehicle.
+- **Stabilizer jacks steady; they do not lift.** A trailer propped up on its stabilizers with the wheels off the ground is unsafe. Note it and tell your manager.
+- **You never chock, block or jack a tenant's vehicle.** If one has rolled, is leaning or has sunk, keep people clear, photograph it, call the tenant and tell your manager.
 
 ### How to Talk About a Rule
 
-Lead with the reason, not the rule:
+Lead with the reason: "We can't allow oil changes here; the runoff goes straight into the storm drain." "Please tie the cover down. The wind picks them up and they hit the rigs next door." If a tenant pushes back, do not argue. Say you will pass it to your manager, note it in Cubby, and follow up.
 
-- "We ask everyone to close propane valves when they leave, because a leak in a full lot is everybody's problem."
-- "We can't allow oil changes here; the runoff goes straight into the storm drain."
-- "Please tie the cover down. The wind here picks them up and they hit the rigs next door."
+## Risks You Watch For
 
-If a tenant pushes back, do not argue. Tell them you will pass it to your manager, write it in Cubby, and follow up.
+| Risk | What you do |
+|---|---|
+| **Leaks:** oil, coolant, fuel, tank water | Absorbent down, photograph, call the tenant, note it in Cubby |
+| **Fire:** chargers, cords, chewed wiring, propane, lithium batteries | No unapproved cords. Smoke or smell: 911 first |
+| **Rodents:** they chew wiring and nest in engine bays | Tell tenants to remove food and check their rig often |
+| **Tires:** they lose pressure, crack in the sun, go flat | Note flats and low tires; tell the tenant |
+| **Sun, wind, rain** | Sell covered space honestly; walk after weather (see Walking the Lot) |
+| **Collisions:** posts, buildings, neighbors | Incident steps in Walking the Lot; the tenant's insurer handles their vehicle |
+| **Theft:** catalytic converters, batteries, solar panels, outboards, whole trailers | Report anything suspicious; hitch locks help |
+| **Water:** roof leaks, rain in boats | Note open hatches, full bilges, sagging tarps |
+| **Abandonment** | Early outreach, then the vehicle lien path |
 
-## The Risks Staff Watch For
+## Abandoned or Unauthorized
 
-| Risk | Why it matters | What you do |
-|---|---|---|
-| **Fluid leaks**: oil, coolant, transmission fluid, fuel, hydraulic fluid, tank water | Cleanup cost, pollution, neighbor damage. Antifreeze is poisonous to animals. | Put down absorbent, photograph it, notify the tenant, note it in Cubby. |
-| **Fire**: batteries, chargers, chewed wiring, propane, solar systems, lithium battery packs | A fire spreads fast across a lot of RVs. | No unauthorized cords. Smoke or smell: 911 first. |
-| **Rodents**: mice and rats | They chew wiring (fire risk) and nest in engine bays and compartments. A gap the size of a dime is enough. | Pest control around the perimeter; tell tenants to remove food and check their rig once or twice a month (RV Travel, Good Sam). |
-| **Tires** | They lose pressure in storage; heat and sun crack them; a flat leaves a vehicle stuck. | Note flats and low tires on walks; tell the tenant. Good Sam suggests storing about 10% over normal pressure. |
-| **Sun and heat** | Damage roofs, seals, covers and tires. Covered spaces still get low-angle afternoon sun. | Sell covered and enclosed honestly as protection. |
-| **Wind** | Lifts covers and awnings and can tear canopy roofing. | Walk the lot after a wind event; tell tenants about loose covers. |
-| **Hail** (a Texas site especially) | Dents and cracks roofs and fiberglass. | Walk and photograph after a storm. Do not admit fault; report to your manager. |
-| **Collisions** | Tenants back into posts, buildings and neighbors. | Incident report with photos (next lesson). The tenant's insurance handles their vehicle. |
-| **Theft**: catalytic converters, batteries, solar panels, generators, outboard motors, whole trailers | Losses for tenants and doubts about the site. | Gate logs, cameras, report anything suspicious. Hitch locks help on trailers. |
-| **Water and mold** | Roof leaks in RVs; rainwater in boats breeds mosquitoes. | Note open hatches, full bilges and tarps sagging with water. |
-| **Abandonment** | The rent stops but the rig stays: dead tags, flat tires. | Early outreach, then the vehicle lien process (a later lesson). |
+Two problems look alike on a walk:
 
-## Abandoned and Unauthorized Vehicles
-
-Two different problems look alike on a walk:
-
-- **A tenant's vehicle in default.** The tenant has a lease and stopped paying, or the rig shows signs of being abandoned: expired tags, flat tires, a cover rotting away, no visits. This follows the collections ladder and, if it goes that far, the vehicle lien process (the Vehicle and Boat Liens lesson).
-- **A vehicle with no lease.** Someone left a car or trailer in an empty space, or a tenant's second vehicle is parked where it does not belong. This is not a lien case. Photograph it, check Cubby, and tell your manager. A "Collection Fee - Unauthorized Use of Space" of $83.00 appears once in Temecula's Cubby records (From Greens' Cubby, 11/2026); ask your manager whether and when it applies.
+- **A tenant's vehicle in default or abandoned:** expired tags by months (unless the Cubby note says PNO), flat tires, jacks sunk deep, a rotting cover, no visits, an account going late. That follows the collections ladder and, if it goes that far, the vehicle lien path.
+- **A vehicle with no lease:** someone parked in an empty space, or a tenant's second vehicle where it does not belong. Not a lien case. Photograph it, check Cubby and tell your manager.
 
 > [!WARNING]
-> Never tow, move, lock or tag a vehicle on your own. Towing from private property and enforcing a lien both have legal rules. Training only, not legal advice. When in doubt, stop and ask your manager.
+> Never tow, move, lock or tag a vehicle on your own. Towing from private property and enforcing a lien both have legal rules. When in doubt, stop and ask your manager.
 
-### Warning Signs of Abandonment
+You do not search tenants' vehicles. If you see or smell something hazardous in a toy hauler or cargo trailer from the outside, photograph what is visible and tell your manager.
 
-- Registration tags expired by months (check the month and year on the sticker)
-- Flat tires, jacks sunk deep
-- A cover that has blown off and was never replaced
-- Gate log shows no visits for a long time (Fairfield's gate reports to Cubby; ask your manager how to check other sites)
-- Mail or notices returned
-- The account going late
+## At Greens
 
-Expired tags are an early warning. Note them on every walk.
+**Temecula.** The oil change: you give the storm drain reason, ask him to stop, suggest a nearby shop, note it in Cubby and tell your manager.
 
-## Hazards in a Toy Hauler or Cargo Trailer
+**Valley Center.** A tenant wants a spare can of gas in his garage "for the generator." The answer is no: no fuel containers unless empty and disconnected, and no generator without written permission.
 
-A toy hauler or cargo trailer can hide fuel cans, propane cylinders and tools. You do not search tenants' vehicles. If you see or smell something hazardous from the outside, note it, photograph what is visible, and tell your manager.
+**Fairfield.** A trailer has rolled off one chock after rain and rests against the next rig's bumper. You keep people clear, photograph both, call both tenants and tell your manager. You do not push it back.
 
-## Greens Scenarios
+## Common Mistakes
 
-**Temecula.** On a Saturday you find a tenant changing his oil in his space. You explain the storm drain reason, ask him to stop, and offer the name of a nearby shop. You note it in Cubby and tell your manager.
-
-**Fairfield.** After a windy night, two covers have blown off and one is wrapped around a neighbor's ladder. You photograph both, call both tenants, and log it.
-
-**Murrieta.** You notice a dark stain spreading under a motorhome. You put down absorbent, photograph it, and call the tenant to say their rig is leaking.
-
-**Escondido.** At closing time you notice lights on inside a trailer. The next morning you tell your manager, who handles it. You do not knock on the door at night alone.
-
-**Valley Center.** A customer asks to keep a spare can of gas in his enclosed garage "for the generator." You explain that extra fuel is a common industry restriction because of fire risk, check Greens Vehicle Storage Rules, and ask your manager before you give him an answer.
-
-**A Texas site.** After a spring hailstorm, you walk the lot, photograph damage to vehicles and the canopy, and report it to your manager without telling any tenant who is responsible.
+- **Stating the rule without the reason.** It starts the argument.
+- **Fixing it yourself:** shutting a valve, chocking a wheel, unplugging a cord.
+- **Calling every expired sticker abandonment.** Check for PNO and the account first.
 
 ## Key Points
 
-- Every lot rule has a reason; explain the reason, not just the rule.
-- Common rules: no living or sleeping, no repairs or fluid changes, no washing or dumping outside approved spots, propane closed, no extra fuel, no unapproved power, covers tied down, only the rented vehicle in the space.
-- Greens' own rules are on the Greens Vehicle Storage Rules page.
-- Watch for leaks, fire risks, rodents, tires, sun, wind, hail, collisions, theft, water and abandonment.
-- Smoke or gas: 911 first. Never move, tow or lock a vehicle yourself.
-- Expired tags and flat tires are early signs of abandonment.
+- Every rule has a reason; lead with it.
+- No living, no repairs, no washing, no fuel containers, no generators without permission.
+- Trailers sit on blocks, chocked, with a hitch lock; nothing else beside the vehicle.
+- Gas or smoke: 911 first. Never move, tow, lock or chock a vehicle yourself.
