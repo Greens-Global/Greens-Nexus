@@ -1,73 +1,57 @@
 ---
 title: Greens Tenant Protection
-summary: Greens' protection plan levels and prices from Cubby, the own-policy option, and how to offer protection at every move-in.
+summary: How Cubby records protection on a lease, Greens' plan levels, who uses what, the Cubby tasks that keep protection current, and how to offer it at every move-in.
 page_type: policy
 tags: protection, coverage, move-in, greens-policy
 ---
 
-## Why It Matters
+## How Cubby Records It
 
-Greens' property insurance does not cover a tenant's belongings. Many customers believe "the facility is insured." It is not insured for their things. Every move-in leaves with protection: Greens' plan or the tenant's own policy. Cubby calls this **Coverage** and records one of three choices on each lease.
+Greens' property insurance does not cover a tenant's belongings, so every move-in leaves with protection: Greens' plan or the tenant's own policy. Cubby calls this **Coverage** and records one of three choices on each lease. The lesson Tenant Protection and Insurance teaches why; this page is the reference.
 
-| Cubby choice | What it means | California | Texas |
-|---|---|---|---|
-| Greens' plan (ORGANISATION) | The tenant buys a Greens protection level each month | 961 active leases (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Own policy (PRIVATE_POLICY) | The tenant shows proof of their own insurance: policy number and expiration date | 1,078 active leases (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| None | Protection waived | 3 active leases (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
+| Cubby choice | What it means |
+|---|---|
+| Greens' plan (shown in Cubby as ORGANISATION, Cubby's own spelling) | The tenant buys a Greens protection level each month |
+| Own policy (PRIVATE_POLICY) | The tenant shows proof of their own insurance: policy number and expiration date |
+| None | Protection waived |
 
 ## Plan Levels and Prices
 
-| Protection level | Monthly price in California | Texas |
-|---|---|---|
-| $2,500 | $9.00 or $14.00 (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| $5,000 | $20.00 or $25.00 (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
+Greens' plan has two levels: **$2,500** and **$5,000** of protection. Each has two prices in Cubby: today's price for a new tenant, and a lower price kept on older leases brought over from the previous system. Both are on **Greens by the Numbers**. Quote today's price to every new customer, quote what Cubby shows to an existing tenant, and never change a lease's price on your own.
 
-Two prices are in use for each level. The higher one is today's price: greensstorage.com offers the Protection Plan at $14 or $25 a month by coverage level (From greensstorage.com, 11/2026), and 60 of the 61 plan leases started in Cubby since 09/14/2026 pay $14.00 or $25.00. The $9.00 and $20.00 prices sit on older leases brought over from the previous system (532 of them) (From Greens' Cubby, 11/2026). Quote $14.00 or $25.00 to a new customer and never change an existing lease's price on your own.
-
-> [!NOTE]
-> **Pending:** confirm that $9.00 and $20.00 are kept prices for older leases, and whether they ever move to today's price. Owner: Operations Manager. Check with the plan provider's agreement and Greens' pricing decision.
-
-Cubby stores only the level and the price, not the plan's name or provider (From Greens' Cubby, 11/2026), and greensstorage.com calls it the "Protection Plan" without naming the provider (From greensstorage.com, 11/2026).
-
-> [!NOTE]
-> **Pending:** the plan's official name and the provider or claims administrator. Owner: Operations Manager. Read it from Greens' protection plan addendum or the provider agreement.
-
-The plan prorates at move-in like rent. On a move-in on 11/18, a $14.00 plan adds about $6.07 for the rest of November (check against a real Preview Charges in Cubby).
+The plan prorates at move-in like rent: a move-in late in the month pays only for the days left. greensstorage.com calls it the "Protection Plan." Its provider, claim steps and exclusions are in the plan document the tenant receives; until they are listed here, your manager has them.
 
 ## Who Uses What
 
-| Site | Mostly | California | Texas |
-|---|---|---|---|
-| Escondido, Valley Center | Greens' plan on storage units | 573 and 368 plan leases (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Fairfield, Murrieta, Temecula | Own policy on vehicle spaces | 212, 154 and 339 own-policy leases, nearly all vehicles (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
+| Sites | Mostly |
+|---|---|
+| Escondido, Valley Center | Greens' plan on storage units |
+| Fairfield, Murrieta, Temecula | The tenant's own policy, nearly all on vehicles |
 
-Vehicles, RVs and boats carry the owner's own vehicle insurance. Only one vehicle lease is on a Greens plan (From Greens' Cubby, 11/2026).
+Vehicles, RVs and boats carry the owner's own vehicle or boat insurance; record the policy number and expiration date.
 
-## What the Plan Does Not Cover
+## Keeping It Current
 
-> [!NOTE]
-> **Pending:** the plan's exclusions. Owner: Operations Manager. The provider is not named in any public Greens source or in Cubby, so its public terms could not be read. Once the provider is known, list its exclusions here from the plan document, labeled with the provider's name.
-
-Until then, tell the tenant that every plan has exclusions, that the plan document they receive at move-in lists them, and that the claims administrator decides every claim.
-
-> [!NOTE]
-> **Pending:** claim steps and the claim phone number. Owner: Operations Manager. Take them from the plan document or the provider's claim form.
+- **Remind Tenant of POI Obligation:** Cubby raises it when proof of insurance is missing or expired. Call for the current policy number and expiration date.
+- **Enroll Tenant in Protection Plan:** Cubby raises it when the tenant's own policy has lapsed. Call and offer Greens' plan.
 
 ## How to Offer It
 
 1. Ask: "Do you have insurance that covers your things in storage?"
-2. If yes, enter the policy number and expiration date in Cubby. Cubby raises a "Remind Tenant of POI Obligation" task when proof is missing or expired.
-3. If no, offer the $2,500 and $5,000 levels and the monthly price.
-4. If the tenant's own policy lapses, Cubby raises "Enroll Tenant in Protection Plan." Call the tenant and offer the plan.
+2. If yes, enter the policy number and expiration date in Cubby.
+3. If no, offer the $2,500 and $5,000 levels at today's price.
+4. Record the choice on the lease.
+
+Every plan has exclusions, listed in the plan document; the claims administrator decides every claim. Never describe an exclusion you have not read.
 
 > [!WARNING]
 > Training only, not legal advice. When in doubt, stop and ask your manager.
 
-California's Supreme Court held in 2018 (Heckart v. A-1 Self Storage) that a protection plan is not insurance. Never call Greens' plan "insurance" unless it is one, never promise that a loss is covered (the claims administrator decides), and record the tenant's choice in the agreement. Which product Greens sells in Texas: Set when the Texas sites join Cubby. Until then, ask your Area Manager.
+California's Supreme Court has held that a protection plan is not insurance (Heckart v. A-1 Self Storage). Never call Greens' plan "insurance," never promise that a loss is covered, and record the tenant's choice in the agreement. Greens' Texas stores are run by CubeSmart, on CubeSmart's own protection terms.
 
 ## Key Points
 
 - Every lease has protection: Greens' plan or the tenant's own policy.
-- $2,500 of protection costs $14.00 a month and $5,000 costs $25.00 for a new customer; older leases may pay $9.00 or $20.00 (From Greens' Cubby and greensstorage.com, 11/2026).
+- Two levels, $2,500 and $5,000; new tenants pay today's price (Greens by the Numbers).
 - Vehicle tenants almost always carry their own policy; record its number and expiration date.
 - Never promise a claim will be paid.
