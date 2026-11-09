@@ -8,6 +8,17 @@ describe('place', () => {
     expect(g.edges[0]).toMatchObject({ from: 'dgX:n1', to: 'dgX:n2' });
   });
 
+  it('prefixes groups, their parents and members with the same stamp (Refresh redraws them in place)', () => {
+    const g = prefixGraph({ nodes: [{ id: 'n1' }], edges: [], groups: [{ id: 'g1', parent: '', members: ['n1'] }, { id: 'g2', parent: 'g1', members: [] }] }, 'dgX');
+    expect(g.groups).toEqual([{ id: 'dgX:g1', parent: '', members: ['dgX:n1'] }, { id: 'dgX:g2', parent: 'dgX:g1', members: [] }]);
+    expect(prefixGraph({ nodes: [], edges: [] }, 'dgX').groups).toEqual([]);
+  });
+
+  it('keeps the org chart\'s Group By Company on the stamp', () => {
+    const els = stampBoxes([{ id: 'a' }], ['a'], { id: 's1', source: 'org', ref: '', dir: 'TB', group: 'company' });
+    expect(stampOf(els, { a: true })).toEqual({ id: 's1', source: 'org', ref: '', dir: 'TB', group: 'company' });
+  });
+
   it('stamps boxes and finds the stamp from a selection', () => {
     const els = stampBoxes([{ id: 'a' }, { id: 'b', customData: { keep: 1 } }, { id: 'c' }], ['a', 'b'], { id: 's1', source: 'org', ref: 'x' });
     expect(els[1].customData).toEqual({ keep: 1, nexusDiagram: { id: 's1', source: 'org', ref: 'x' } });
