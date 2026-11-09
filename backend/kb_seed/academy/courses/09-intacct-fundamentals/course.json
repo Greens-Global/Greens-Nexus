@@ -1,25 +1,26 @@
 {
  "slug": "intacct-fundamentals",
  "title": "Intacct Fundamentals at Greens",
- "description": "How Greens' ledger in Sage Intacct reaches you through Nexus Accounting, and nothing else: one ledger and two doors, entities and child codes, dimensions, journals and books, the reports and the drill-down, vendors and customers and their papers, MRI, MRE and loans, Ask My Accountant and the audit pages, the dashboard, the close and the tools. Course 9 of the Academy.",
+ "description": "How Greens' ledger in Sage Intacct reaches you through Nexus Accounting: one ledger and two doors, entities, dimensions, journals and books, the reports and the drill-down, vendor and customer records, how Cubby money reaches the books, MRI, MRE and loans, AMA and the audit pages, the Dashboard and the close.",
  "overview": [
-  "One ledger, two doors: Intacct, the accounting app and Nexus Accounting",
-  "Entities, sub-entities and child codes, consolidation and entity access",
-  "Dimensions: one account read by site, vendor, department or job",
-  "Journals and books, statistical journals, the Books picker",
-  "Report Center, the drill-down, Report Builder and Packages",
-  "Vendors and customers, requests and the Compliance tab, leasing tenants",
-  "MRI, MRE, Loans with planning and stress, management fees",
-  "Ask My Accountant, the reclass push, Manual Journal Entries, payroll pages",
-  "The Dashboard tabs, the Close tab, Budget, Allocations and Import Hub"
+  "One ledger, two doors: Intacct and Nexus Accounting",
+  "Entities, sub-entities and entity access",
+  "Dimensions: one account read by site, vendor or job",
+  "Journals and books",
+  "The reports and the drill-down",
+  "Vendor and customer records and change requests",
+  "How Cubby money reaches the books",
+  "MRI, MRE, loans and management fees",
+  "AMA, the reclass and the audit pages",
+  "The Dashboard, the close, reconciliations and the tools"
  ],
- "est_minutes": 120,
+ "est_minutes": 80,
  "delivery": "online",
  "level": "core",
  "tags": "intacct, accounting, finance, managers",
- "teaches": "Accounting",
+ "teaches": "Accounting, Operations",
  "departments": "Accounting",
- "min_reading_minutes": 45,
+ "min_reading_minutes": 37,
  "lessons": [
   {
    "file": "01-one-ledger-two-doors.md"
@@ -41,122 +42,118 @@
    "questions": [
     {
      "type": "single",
-     "q": "Where do Greens' books live?",
+     "q": "Your report is missing a line you know was posted, and Sync did not bring it. What next?",
      "options": [
-      "In Nexus",
-      "In Sage Intacct; Nexus reads a mirror of the ledger",
-      "In Cubby",
-      "In a spreadsheet"
+      "Ask Accounting about it",
+      "Type the line in yourself",
+      "Run the report on Cash",
+      "Change the entity picker"
      ],
      "answer": [
-      1
+      0
      ],
-     "explanation": "One ledger. Nexus never writes to Intacct and never keeps a second set of books.",
+     "explanation": "After Sync, a missing line is Accounting's question. Nothing is typed into Nexus, and switching the book or entity hides the problem rather than solving it.",
+     "lesson": "01-one-ledger-two-doors.md"
+    },
+    {
+     "type": "tf",
+     "q": "When a Nexus Accounting screen changes a loan's planning, it is changing a Nexus record beside the ledger, not the ledger.",
+     "options": [
+      "True",
+      "False"
+     ],
+     "answer": [
+      0
+     ],
+     "explanation": "True. Loan planning, vendor papers and MRI or MRE expectations are Nexus's own records. The ledger itself is only changed in Intacct.",
      "lesson": "01-one-ledger-two-doors.md"
     },
     {
      "type": "single",
-     "q": "A site manager has the Accounting grant and one entity. Which does she see?",
+     "q": "You are limited to Temecula, entity 15001. Can you read lines coded 15001-1?",
      "options": [
-      "The Dashboard tabs",
-      "Her site's statements and reports",
-      "Every site's statements",
-      "Payroll"
+      "Yes, a parent brings its children",
+      "No, only the exact code is allowed",
+      "Only after Accounting approves",
+      "Only on the Dashboard"
      ],
      "answer": [
-      1
+      0
      ],
-     "explanation": "The grant opens the module; the entity list says what she reads. The Dashboard tabs are consolidated and need All Entities.",
-     "lesson": "01-one-ledger-two-doors.md"
-    },
-    {
-     "type": "single",
-     "q": "What is 15001-1?",
-     "options": [
-      "A vendor code",
-      "A sub-entity under entity 15001",
-      "A journal",
-      "An account"
-     ],
-     "answer": [
-      1
-     ],
-     "explanation": "A child code carries its parent's code with a suffix; the parent brings its children.",
+     "explanation": "15001-1 is a sub-entity of 15001. Access to a parent includes its children, so the lines are yours to read.",
      "lesson": "02-entities-and-the-company-tree.md"
     },
     {
      "type": "single",
-     "q": "One repairs account can be read by site because:",
+     "q": "Your Spend by Vendor total for the year is far above your property's budget. What do you check first?",
      "options": [
-      "There is a repairs account per site",
-      "Every ledger line carries dimensions, such as the entity, and reports filter by them",
-      "Accounting re-keys it",
-      "It cannot"
+      "That one entity is picked",
+      "That Cash is picked",
+      "The vendor's Compliance tab",
+      "The Close checklist"
      ],
      "answer": [
-      1
+      0
      ],
-     "explanation": "Dimensions tag every line: entity, department, vendor, customer, employee, Project-Job, item, journal.",
+     "explanation": "A whole-company total compared to one property's budget always looks too big. Pick your entity first; the book does not change which properties are in it.",
      "lesson": "03-dimensions-reading-one-account-many-ways.md"
     },
     {
      "type": "single",
-     "q": "A statistical journal:",
+     "q": "Which journal carries vendor bills and their payments?",
      "options": [
-      "Adds square feet into the money total",
-      "Carries quantities and never adds into a money total",
-      "Is the payroll journal",
-      "Is a book"
+      "Payables (APJ)",
+      "Payroll, by pay period",
+      "Statistical",
+      "User Defined"
+     ],
+     "answer": [
+      0
+     ],
+     "explanation": "Vendor bills and payments come through payables, APJ. Payroll carries wages; a statistical journal carries quantities, not dollars.",
+     "lesson": "04-journals-and-books.md"
+    },
+    {
+     "type": "tf",
+     "q": "A user-defined book's entries flow into the accrual statements.",
+     "options": [
+      "True",
+      "False"
      ],
      "answer": [
       1
      ],
-     "explanation": "It lets a report divide dollars by a quantity without changing a dollar.",
+     "explanation": "False. A user-defined book is accrual plus its own journals, and those entries stay in that book. They never leak into the accrual statements.",
      "lesson": "04-journals-and-books.md"
     },
     {
      "type": "single",
-     "q": "Reading a report on Both means:",
+     "q": "On a screen outside Reports, a figure opens its lines in a side panel. How do you get the full grid?",
      "options": [
-      "A book of its own",
-      "Accrual and cash side by side, two reads of the ledger",
-      "Two entities",
-      "Two periods"
+      "Open in Reports",
+      "Memorize",
+      "Sync",
+      "Export as a PDF file"
      ],
      "answer": [
-      1
+      0
      ],
-     "explanation": "The quickest way to see whether a month's gap between profit and cash is receivables, payables or a capital spend.",
-     "lesson": "04-journals-and-books.md"
-    },
-    {
-     "type": "single",
-     "q": "What does a posted figure on any Nexus Accounting report do when clicked?",
-     "options": [
-      "Nothing",
-      "Opens its General Ledger lines, each of which opens its entry",
-      "Edits the amount",
-      "Emails Accounting"
-     ],
-     "answer": [
-      1
-     ],
-     "explanation": "The drill-down rule, everywhere; only a worked-out figure such as a budget stays plain.",
+     "explanation": "Open in Reports takes the lines to the full General Ledger grid. Memorize keeps a report view; Sync re-reads a table; Export makes a file.",
      "lesson": "05-the-reports-and-the-drill-down.md"
     },
     {
      "type": "single",
-     "q": "A memorized report with a named period such as Last Quarter:",
+     "q": "You need every transaction on one bank account for October. Where is that report?",
      "options": [
-      "Must be rebuilt each quarter",
-      "Moves with the calendar, so it is right next quarter untouched",
-      "Expires",
-      "Shows only one entity"
+      "Reports > Banking & Credit Cards",
+      "Records > General Ledger Accounts",
+      "Tools > Import Hub > Bank",
+      "Financing > Loans > Stress Test"
      ],
      "answer": [
-      1
+      0
      ],
-     "explanation": "That is also why a lender's Package builds itself.",
+     "explanation": "Bank Activity and Credit Card Activity sit under Reports > Banking & Credit Cards. Import Hub builds files for Intacct; it does not show the account's activity.",
      "lesson": "05-the-reports-and-the-drill-down.md"
     }
    ]
@@ -165,110 +162,111 @@
    "file": "06-vendors-customers-and-their-records.md"
   },
   {
-   "file": "07-the-recurring-picture-mri-mre-loans-and-fees.md"
+   "file": "07-how-cubby-money-reaches-the-books.md"
   },
   {
-   "file": "08-ask-my-accountant-and-the-audit-pages.md"
+   "file": "08-the-recurring-picture-mri-mre-loans-and-fees.md"
   },
   {
-   "file": "09-the-dashboard-the-close-and-the-tools.md"
+   "file": "09-ask-my-accountant-and-the-audit-pages.md"
   },
   {
-   "checkpoint": "Checkpoint: Records, Questions and the Close",
+   "file": "10-the-dashboard-the-close-and-the-tools.md"
+  },
+  {
+   "checkpoint": "Checkpoint: Records, Cubby Money and the Close",
    "questions": [
     {
      "type": "single",
-     "q": "A new vendor requested in Nexus reads what until the record exists in the ledger?",
+     "q": "Who approves a change request on a vendor record?",
      "options": [
-      "Active",
-      "Pending Approval, then Approved, Awaiting Intacct",
-      "Paid",
-      "Expired"
+      "A manager or Full-level holder",
+      "The vendor, from an emailed link",
+      "Anyone at Viewer level on the grant",
+      "Cubby's billing team at the site"
      ],
      "answer": [
-      1
+      0
      ],
-     "explanation": "No invoice is paid to a name that is only a request.",
+     "explanation": "A manager holding the Accounting grant, or someone at its Full level, decides it from Requests. Viewers can read but not decide, and vendors never approve their own record.",
      "lesson": "06-vendors-customers-and-their-records.md"
     },
     {
      "type": "single",
-     "q": "Which tab on a vendor record is Nexus's own, not Intacct's?",
+     "q": "Asset Management lists a pest vendor under the property's Records > Vendors. Is that the record Accounting pays?",
      "options": [
-      "Details",
-      "Compliance",
-      "The vendor code",
-      "The terms"
+      "No, Accounting pays the Intacct vendor",
+      "Yes, both lists are the same record in Intacct",
+      "Yes, as soon as its COI date is current",
+      "No, Cubby pays site vendors"
      ],
      "answer": [
-      1
+      0
      ],
-     "explanation": "Details are the ledger's; Compliance holds the insurance certificate, workers comp, license and W-9.",
+     "explanation": "The property's list is who services it, with contact and COI dates. The paying record is the Intacct vendor under Accounting > Records > Vendors.",
      "lesson": "06-vendors-customers-and-their-records.md"
     },
     {
      "type": "single",
-     "q": "Rent received on a lease in MRI comes from:",
+     "q": "Where does a storage tenant's own ledger - charges, payments, balance - live?",
      "options": [
-      "A payment someone keys in",
-      "What posted to the lease's income accounts for that customer in that month",
-      "Cubby",
-      "The budget"
+      "In Cubby",
+      "In Intacct",
+      "In MRI",
+      "In Records > Customers"
      ],
      "answer": [
-      1
+      0
      ],
-     "explanation": "A leasing tenant is an Intacct customer; nobody keys a lease payment into Nexus.",
-     "lesson": "07-the-recurring-picture-mri-mre-loans-and-fees.md"
-    },
-    {
-     "type": "single",
-     "q": "A loan payment belongs in:",
-     "options": [
-      "MRE",
-      "Loans",
-      "MRI",
-      "Allocations"
-     ],
-     "answer": [
-      1
-     ],
-     "explanation": "Debt service is Loans, with amortization, planning and stress.",
-     "lesson": "07-the-recurring-picture-mri-mre-loans-and-fees.md"
-    },
-    {
-     "type": "single",
-     "q": "Who may push a GL reclass to the ledger?",
-     "options": [
-      "Anyone with the grant",
-      "The bookkeeper only, previewed first",
-      "The site manager",
-      "Neil"
-     ],
-     "answer": [
-      1
-     ],
-     "explanation": "Anyone may ask; only the bookkeeper pushes. Neil's decision, 10/22/2026.",
-     "lesson": "08-ask-my-accountant-and-the-audit-pages.md"
-    },
-    {
-     "type": "single",
-     "q": "The Manual Journal Entries page lists:",
-     "options": [
-      "Every entry in the ledger",
-      "Only the entries a person keyed or changed by hand, with who did it",
-      "Bank feed entries",
-      "Budgets"
-     ],
-     "answer": [
-      1
-     ],
-     "explanation": "The audit page for segregation of duties.",
-     "lesson": "08-ask-my-accountant-and-the-audit-pages.md"
+     "explanation": "Tenants are billed and pay in Cubby. Intacct sees the money when it reaches the bank; only commercial lease tenants are Intacct customers.",
+     "lesson": "07-how-cubby-money-reaches-the-books.md"
     },
     {
      "type": "tf",
-     "q": "Managers see pay on the Payroll & People reports.",
+     "q": "One bank deposit from the card processor can hold many tenants' payments from more than one day.",
+     "options": [
+      "True",
+      "False"
+     ],
+     "answer": [
+      0
+     ],
+     "explanation": "True. Card and ACH payments are paid out in batches. Merchant Services Disbursements lists each batch and the payments inside it.",
+     "lesson": "07-how-cubby-money-reaches-the-books.md"
+    },
+    {
+     "type": "single",
+     "q": "Where is the actual on an MRI line taken from?",
+     "options": [
+      "What posted to its income accounts",
+      "What the property manager types in each month",
+      "The tenant's Cubby balance",
+      "The budget for that month"
+     ],
+     "answer": [
+      0
+     ],
+     "explanation": "MRI reads what posted to the line's income accounts for that customer. Only the expectation is kept in Nexus; nobody keys the actual.",
+     "lesson": "08-the-recurring-picture-mri-mre-loans-and-fees.md"
+    },
+    {
+     "type": "single",
+     "q": "You want to see only the questions you asked on AMA. Which filter?",
+     "options": [
+      "Asked By Me",
+      "Assigned To Me",
+      "Awaiting Bookkeeper",
+      "Resolved"
+     ],
+     "answer": [
+      0
+     ],
+     "explanation": "Asked By Me shows your questions. Assigned To Me is for the accountant answering; Awaiting Bookkeeper is reclasses waiting for review.",
+     "lesson": "09-ask-my-accountant-and-the-audit-pages.md"
+    },
+    {
+     "type": "tf",
+     "q": "Nexus's Tools pages have a Post button the accounting team uses to post files to Intacct.",
      "options": [
       "True",
       "False"
@@ -276,39 +274,74 @@
      "answer": [
       1
      ],
-     "explanation": "Managers never see pay; the payroll pages open for the accounting team and the payroll step-up.",
-     "lesson": "08-ask-my-accountant-and-the-audit-pages.md"
+     "explanation": "False. Allocations and Import Hub prepare, preview and export files. The accounting team imports and posts them in Intacct.",
+     "lesson": "10-the-dashboard-the-close-and-the-tools.md"
     },
     {
      "type": "single",
-     "q": "What does Import Hub do with a bank statement?",
+     "q": "Which Dashboard pages need All Entities to open?",
      "options": [
-      "Posts it to the ledger",
-      "Turns it into an Intacct import template the accounting team posts",
-      "Emails it to the bank",
-      "Deletes it"
+      "Every Dashboard page",
+      "Only the Close page",
+      "Only Cash and Performance",
+      "None; one entity is enough"
      ],
      "answer": [
-      1
+      0
      ],
-     "explanation": "Nexus prepares, previews and exports; the accounting team posts.",
-     "lesson": "09-the-dashboard-the-close-and-the-tools.md"
+     "explanation": "Overview, Cash, Performance and Close all show the whole company added up, so all four need All Entities.",
+     "lesson": "10-the-dashboard-the-close-and-the-tools.md"
     }
    ]
   },
   {
-   "file": "10-words-to-know.md"
+   "page": "academy-glossary",
+   "title": "Words to Know",
+   "summary": "The Intacct and Nexus Accounting words of this course, in the Academy glossary."
+  },
+  {
+   "file": "11-on-one-page.md"
   }
  ],
  "quiz": {
   "passPct": 80,
-  "drawCount": 30,
+  "drawCount": 20,
   "maxTries": 3,
   "shuffle": true,
   "questions": [
    {
+    "type": "single",
+    "q": "A vendor payment is posted to the wrong property on your report. Where do you start the fix?",
+    "options": [
+     "Edit the amount on the report in Nexus",
+     "Ask on the line through AMA",
+     "Re-key the payment on the Cash page",
+     "Change it on the vendor's Details tab"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Nexus never changes the ledger by typing. Ask on the line; the answer and the fix come back there. Editing a vendor's details files a request about the vendor, not the payment.",
+    "lesson": "01-one-ledger-two-doors.md"
+   },
+   {
+    "type": "single",
+    "q": "A bill Accounting posted in Intacct an hour ago is not on your Income Statement. What do you do first?",
+    "options": [
+     "Press Sync on the report",
+     "Email the vendor for a copy of the bill",
+     "Type the bill into the report yourself",
+     "Assume it was never posted and wait a month"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Sync reads the report's table again from the ledger. If the line is still missing, ask Accounting. Nothing is ever typed into a report.",
+    "lesson": "01-one-ledger-two-doors.md"
+   },
+   {
     "type": "tf",
-    "q": "Nexus Accounting writes to Intacct when a manager edits a figure.",
+    "q": "A property manager with the Accounting grant and one entity can open the Dashboard's Overview page.",
     "options": [
      "True",
      "False"
@@ -316,545 +349,72 @@
     "answer": [
      1
     ],
-    "explanation": "Nothing in Nexus is typed into the ledger. A change is asked for through Ask My Accountant.",
+    "explanation": "False. Every Dashboard page shows the whole company added up, so it opens only for people with All Entities.",
     "lesson": "01-one-ledger-two-doors.md"
    },
    {
     "type": "single",
-    "q": "Personal financial statements open for:",
+    "q": "A new manager should read only Murrieta's books. Where is that set?",
     "options": [
-     "Anyone with the Accounting grant",
-     "Owners and the PFS grant only",
-     "Administrators",
-     "Managers"
+     "Accounting > Tools > Access",
+     "Records > Entities in Nexus",
+     "The entity picker on each report",
+     "Her profile's Appearance settings"
     ],
     "answer": [
-     1
+     0
     ],
-    "explanation": "Whatever a person's tier.",
+    "explanation": "Entity access is set under Tools > Access at the Full level. The entity picker only chooses among what she may already read.",
     "lesson": "01-one-ledger-two-doors.md"
    },
    {
     "type": "single",
-    "q": "The Greens Accounting app is:",
+    "q": "A coworker asks where Greens' books really live. What do you tell them?",
     "options": [
-     "A second ledger",
-     "The standalone app, built to look like Intacct, where the accounting team works in the ledger",
-     "Cubby",
-     "The dashboard"
+     "In Sage Intacct",
+     "In Nexus Accounting",
+     "In Cubby's ledger",
+     "In the Budget page"
     ],
     "answer": [
-     1
+     0
     ],
-    "explanation": "Reached from Nexus with Launch.",
-    "lesson": "01-one-ledger-two-doors.md"
-   },
-   {
-    "type": "multi",
-    "q": "Which groups does the Accounting module have? Pick all that apply.",
-    "options": [
-     "Dashboard",
-     "Reports",
-     "Financing",
-     "Records",
-     "Tools",
-     "Payroll Entry"
-    ],
-    "answer": [
-     0,
-     1,
-     2,
-     3,
-     4
-    ],
-    "explanation": "Five groups; there is no entry screen in Nexus.",
+    "explanation": "Intacct is the ledger and the source of truth. Nexus Accounting reads a copy; Cubby holds tenants' own ledgers.",
     "lesson": "01-one-ledger-two-doors.md"
    },
    {
     "type": "single",
-    "q": "Family and personal entities are:",
+    "q": "A line on Temecula's report carries code 15001-1, and the property is 15001. What is it?",
     "options": [
-     "In a separate ledger",
-     "In the same ledger as the companies, read by the few the Access page names",
-     "Not in Intacct",
-     "Public"
+     "Another company's line",
+     "Part of the same property",
+     "A Construction job's code",
+     "A typing error in Intacct"
     ],
     "answer": [
      1
     ],
-    "explanation": "That is why entity access exists.",
+    "explanation": "A suffix marks a sub-entity: part of the parent kept on its own books. A Construction job is tagged by Project-Job, not by an entity code.",
     "lesson": "02-entities-and-the-company-tree.md"
    },
    {
     "type": "single",
-    "q": "A report run consolidated shows:",
+    "q": "Your property report shows revenue three times what you expected. What do you check first?",
     "options": [
-     "One entity",
-     "Every entity the person may read, added up with intercompany removed",
-     "The budget",
-     "Only cash"
+     "The entity picker",
+     "The vendor's papers",
+     "The Close checklist",
+     "Last year's budget"
     ],
     "answer": [
-     1
+     0
     ],
-    "explanation": "The Dashboard tabs are consolidated views.",
+    "explanation": "A report read for several entities, or all of them, adds them up. Check that only your property is picked.",
     "lesson": "02-entities-and-the-company-tree.md"
-   },
-   {
-    "type": "single",
-    "q": "Entities are created:",
-    "options": [
-     "In Nexus, Records > Entities",
-     "In Intacct by the accounting team; Nexus lists them",
-     "By site managers",
-     "In Cubby"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The Entities page is a reference, never an editor.",
-    "lesson": "02-entities-and-the-company-tree.md"
-   },
-   {
-    "type": "single",
-    "q": "Which dimension carries a construction job's costs?",
-    "options": [
-     "Department",
-     "Project-Job",
-     "Item",
-     "Customer"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Everything a job cost, however many vendors.",
-    "lesson": "03-dimensions-reading-one-account-many-ways.md"
-   },
-   {
-    "type": "single",
-    "q": "A gate repair billed with no ticket number is coded:",
-    "options": [
-     "Perfectly",
-     "To the account the invoice suggests and the entity the vendor usually serves, right most of the time",
-     "To suspense always",
-     "To the owner"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The tenth time it lands on the wrong site.",
-    "lesson": "03-dimensions-reading-one-account-many-ways.md"
-   },
-   {
-    "type": "single",
-    "q": "Buckets groups an account's lines by:",
-    "options": [
-     "Date only",
-     "One dimension: vendor, customer, department, Project-Job, item or entity",
-     "Alphabet",
-     "Nothing"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Repairs by vendor; payroll by department; cost by job.",
-    "lesson": "03-dimensions-reading-one-account-many-ways.md"
-   },
-   {
-    "type": "single",
-    "q": "Which journal carries vendor invoices and payments?",
-    "options": [
-     "ARJ",
-     "APJ",
-     "PRJ",
-     "GJ"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Accounts payable.",
-    "lesson": "04-journals-and-books.md"
-   },
-   {
-    "type": "single",
-    "q": "A user-defined book is:",
-    "options": [
-     "Cash",
-     "Accrual plus that book's own journals, kept for a purpose",
-     "A spreadsheet",
-     "The budget"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Named by the accounting team; travels by its key.",
-    "lesson": "04-journals-and-books.md"
-   },
-   {
-    "type": "single",
-    "q": "Which book do Greens' statements use by default?",
-    "options": [
-     "Cash",
-     "Accrual",
-     "Fair market",
-     "Tax"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Accrual tells the truth about a month; cash is read beside it.",
-    "lesson": "04-journals-and-books.md"
-   },
-   {
-    "type": "single",
-    "q": "Row groups in Report Builder:",
-    "options": [
-     "Delete accounts",
-     "Gather several accounts under one named total",
-     "Change the ledger",
-     "Are entities"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A nonstandard report is built by the person who knows the mapping, never in code.",
-    "lesson": "05-the-reports-and-the-drill-down.md"
-   },
-   {
-    "type": "single",
-    "q": "A published Report Builder report is seen by:",
-    "options": [
-     "Everyone at once",
-     "Its author until it is shared with everyone",
-     "Only Accounting",
-     "Nobody"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Save keeps a draft; Publish marks it; Share With Everyone opens it to the grant holders.",
-    "lesson": "05-the-reports-and-the-drill-down.md"
-   },
-   {
-    "type": "single",
-    "q": "Report columns in Nexus Accounting:",
-    "options": [
-     "Are fixed",
-     "Resize and keep each person's widths",
-     "Reset daily",
-     "Cannot be read"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The house rule for every report.",
-    "lesson": "05-the-reports-and-the-drill-down.md"
-   },
-   {
-    "type": "single",
-    "q": "A Package is:",
-    "options": [
-     "A shipment",
-     "A lender's set of memorized reports built to one PDF",
-     "A vendor record",
-     "A journal"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Named periods make it right next quarter untouched.",
-    "lesson": "05-the-reports-and-the-drill-down.md"
    },
    {
     "type": "tf",
-    "q": "Most Greens tenants are Intacct customers.",
-    "options": [
-     "True",
-     "False"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Most tenants live in Cubby; a leasing tenant is the exception.",
-    "lesson": "06-vendors-customers-and-their-records.md"
-   },
-   {
-    "type": "single",
-    "q": "Which page is the chart of accounts as the ledger holds it?",
-    "options": [
-     "Entities",
-     "General Ledger Accounts",
-     "Journals",
-     "Buckets"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Number, name, kind, active, and the lines posted for the period.",
-    "lesson": "06-vendors-customers-and-their-records.md"
-   },
-   {
-    "type": "single",
-    "q": "A vendor's Ledger Lines tab shows:",
-    "options": [
-     "Only this year",
-     "Every line posted to that vendor across the entities you may read, each opening its entry",
-     "The budget",
-     "Its emails"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The same drill-down, gathered for one vendor.",
-    "lesson": "06-vendors-customers-and-their-records.md"
-   },
-   {
-    "type": "single",
-    "q": "MRE stands for:",
-    "options": [
-     "Monthly Revenue Estimate",
-     "Monthly Recurring Expenses",
-     "Manual Reclass Entry",
-     "Mid-Range Entity"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A vendor paid on a schedule from the same accounts, expected beside actual.",
-    "lesson": "07-the-recurring-picture-mri-mre-loans-and-fees.md"
-   },
-   {
-    "type": "single",
-    "q": "A lease whose tenant leaves is:",
-    "options": [
-     "Deleted",
-     "Overwritten with the new tenant",
-     "Ended, and the new tenant is a new line",
-     "Archived in Cubby"
-    ],
-    "answer": [
-     2
-    ],
-    "explanation": "The history stands.",
-    "lesson": "07-the-recurring-picture-mri-mre-loans-and-fees.md"
-   },
-   {
-    "type": "single",
-    "q": "What does Stress on a loan show?",
-    "options": [
-     "The lender's mood",
-     "What a higher rate does to the payment and the debt service coverage",
-     "The budget",
-     "The rent"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Worked out from the terms, never posted.",
-    "lesson": "07-the-recurring-picture-mri-mre-loans-and-fees.md"
-   },
-   {
-    "type": "single",
-    "q": "A management fee on a site's income statement is:",
-    "options": [
-     "A vendor's invoice",
-     "What the operating company charges a property entity for running it",
-     "Rent",
-     "A tax"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Management Fees holds the agreements.",
-    "lesson": "07-the-recurring-picture-mri-mre-loans-and-fees.md"
-   },
-   {
-    "type": "single",
-    "q": "Ask My Accountant lines show the Other Side, which is:",
-    "options": [
-     "The tenant",
-     "The account the money came from or went to, read from the entry",
-     "The bank",
-     "The budget"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "So the question can be answered without a second click.",
-    "lesson": "08-ask-my-accountant-and-the-audit-pages.md"
-   },
-   {
-    "type": "single",
-    "q": "A question about a ledger line is best asked:",
-    "options": [
-     "By email",
-     "On the line, so the answer and the fix live together",
-     "On Teams",
-     "In a note"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Open to Answered to Resolved, on the line.",
-    "lesson": "08-ask-my-accountant-and-the-audit-pages.md"
-   },
-   {
-    "type": "single",
-    "q": "Profitability compares:",
-    "options": [
-     "Vendors",
-     "Entities on revenue, operating expenses, NOI and margin",
-     "People",
-     "Months only"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The four ratios for every site at once.",
-    "lesson": "08-ask-my-accountant-and-the-audit-pages.md"
-   },
-   {
-    "type": "single",
-    "q": "Allocations spreads wages by:",
-    "options": [
-     "Headcount",
-     "Each person's hours by work site from the Time Clock",
-     "Revenue",
-     "Square feet"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "One more reason the Time Sheet is signed, approved and right.",
-    "lesson": "08-ask-my-accountant-and-the-audit-pages.md"
-   },
-   {
-    "type": "single",
-    "q": "The Dashboard's figures are:",
-    "options": [
-     "Computed in Nexus",
-     "Read from the accounting app's dashboard, never computed or typed in Nexus",
-     "Typed by Charmi",
-     "Estimates"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Anything written from the dashboard carries the writer's name.",
-    "lesson": "09-the-dashboard-the-close-and-the-tools.md"
-   },
-   {
-    "type": "multi",
-    "q": "What does a site owe the close? Pick all that apply.",
-    "options": [
-     "Tickets resolved for a clean cut-off",
-     "Invoices with their ticket numbers",
-     "Waivers and refunds with reasons",
-     "Same-day answers to variance questions",
-     "A spreadsheet of the month"
-    ],
-    "answer": [
-     0,
-     1,
-     2,
-     3
-    ],
-    "explanation": "Four things, in order of how often they slow a close down.",
-    "lesson": "09-the-dashboard-the-close-and-the-tools.md"
-   },
-   {
-    "type": "single",
-    "q": "The budget column on the Budget page:",
-    "options": [
-     "Drills down like actuals",
-     "Does not drill, because a budget is worked out, not posted",
-     "Is editable",
-     "Is cash"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The actual column drills.",
-    "lesson": "09-the-dashboard-the-close-and-the-tools.md"
-   },
-   {
-    "type": "single",
-    "q": "The pattern of every Tools page is:",
-    "options": [
-     "Nexus posts to the ledger",
-     "Nexus prepares, previews and exports; the accounting team posts",
-     "The site posts",
-     "Nothing happens"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The one-door rule, kept.",
-    "lesson": "09-the-dashboard-the-close-and-the-tools.md"
-   },
-   {
-    "type": "single",
-    "q": "Consolidated means:",
-    "options": [
-     "One entity",
-     "Everything the person may read, added up with intercompany removed",
-     "The cash book",
-     "A sub-entity"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "The Dashboard tabs; a report with no entity chosen.",
-    "lesson": "10-words-to-know.md"
-   },
-   {
-    "type": "single",
-    "q": "Debt service coverage is:",
-    "options": [
-     "Rent divided by units",
-     "NOI divided by debt service",
-     "Cash divided by loans",
-     "Revenue divided by payroll"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "What the lender watches; Loans > Stress.",
-    "lesson": "10-words-to-know.md"
-   },
-   {
-    "type": "single",
-    "q": "A GL Reclass is:",
-    "options": [
-     "A new account",
-     "A request to move a line to another account, pushed only by the bookkeeper",
-     "A refund",
-     "A report"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Ask My Accountant.",
-    "lesson": "10-words-to-know.md"
-   },
-   {
-    "type": "single",
-    "q": "Entity access takes effect:",
-    "options": [
-     "Next month",
-     "On the person's next click",
-     "After a restart",
-     "Never"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Reports, search, drill-downs and journal entries all stop at the list.",
-    "lesson": "01-one-ledger-two-doors.md"
-   },
-   {
-    "type": "tf",
-    "q": "A parent entity report includes its sub-entities.",
+    "q": "Running a report for a parent entity also brings in its sub-entities.",
     "options": [
      "True",
      "False"
@@ -862,149 +422,725 @@
     "answer": [
      0
     ],
-    "explanation": "A parent brings its children; filter to the child for the finer cut.",
+    "explanation": "True. A parent brings its children, and a person limited to the parent reads the children too.",
     "lesson": "02-entities-and-the-company-tree.md"
    },
    {
-    "type": "multi",
-    "q": "Which filters appear on every report page? Pick all that apply.",
+    "type": "single",
+    "q": "A property wants its covered rows kept on their own books as a sub-entity. How does that happen?",
     "options": [
-     "Entities",
-     "Departments",
-     "Vendors and customers",
-     "Project-Job",
-     "Journals",
-     "Weather"
+     "Add a row on Records > Entities",
+     "Accounting sets it up in Intacct",
+     "Type the new code on the next ticket",
+     "Create it from the entity picker"
     ],
     "answer": [
-     0,
-     1,
-     2,
-     3,
-     4
+     1
     ],
-    "explanation": "Every Intacct dimension as a filter.",
+    "explanation": "Entities are made in Intacct by the accounting team. Records > Entities in Nexus is a reference list; it edits nothing.",
+    "lesson": "02-entities-and-the-company-tree.md"
+   },
+   {
+    "type": "single",
+    "q": "A Project-Job code appears on a canopy invoice line. What does it tell you?",
+    "options": [
+     "Which property entity paid the bill",
+     "The Construction job it belongs to",
+     "Which bank account it cleared from",
+     "Which person keyed it into Intacct"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Project-Job is the dimension that tags a Construction job's lines. The entity is a separate tag; a Project-Job is never an entity.",
+    "lesson": "02-entities-and-the-company-tree.md"
+   },
+   {
+    "type": "single",
+    "q": "The construction manager wants every cost on the canopy job, across all vendors. What is fastest?",
+    "options": [
+     "A new GL account opened just for the job",
+     "Income Statement by Job, on its code",
+     "Spend by Vendor across every entity",
+     "A statement requested from each vendor"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Every line on the job carries its Project-Job code, so Income Statement by Job reads it in one step. A new account is never needed to slice by job.",
     "lesson": "03-dimensions-reading-one-account-many-ways.md"
    },
    {
     "type": "single",
-    "q": "The Trial Balance shows:",
+    "q": "An invoice arrives with no ticket number and no property named. What is the risk?",
     "options": [
-     "Only revenue",
-     "Every account's debit or credit balance",
-     "Only cash",
-     "Vendors"
+     "It is paid twice by mistake",
+     "It may be coded to the wrong site",
+     "It posts to a statistical journal only",
+     "Intacct refuses to accept it"
     ],
     "answer": [
      1
     ],
-    "explanation": "Where the accounting team starts the close.",
-    "lesson": "05-the-reports-and-the-drill-down.md"
+    "explanation": "The bookkeeper codes from what the site sent. With nothing to go on, the entity is a guess, and the cost can surprise another property's report.",
+    "lesson": "03-dimensions-reading-one-account-many-ways.md"
    },
    {
     "type": "single",
-    "q": "A statistical journal's lines appear in a report:",
+    "q": "You want what one gate vendor was paid at your property this year. Which report?",
     "options": [
-     "Inside the money totals",
-     "Beside the money, on their own",
-     "Not at all",
-     "As dollars"
+     "Spend by Vendor",
+     "Statement of Cash Flows",
+     "Trial Balance",
+     "Balance Sheet"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Spend by Vendor groups spending by vendor; pick your entity and the period. The vendor's Ledger Lines tab is the other way in.",
+    "lesson": "03-dimensions-reading-one-account-many-ways.md"
+   },
+   {
+    "type": "tf",
+    "q": "To read repairs by property, Intacct needs a separate repairs account for every property.",
+    "options": [
+     "True",
+     "False"
     ],
     "answer": [
      1
     ],
-    "explanation": "Intacct's rule, kept exactly.",
+    "explanation": "False. Intacct keeps one repairs account and tags each line with its entity, so a filter reads it by property.",
+    "lesson": "03-dimensions-reading-one-account-many-ways.md"
+   },
+   {
+    "type": "single",
+    "q": "A manager asks Accounting for a new 'Gate Repairs Murrieta' account. What is the better answer?",
+    "options": [
+     "Open it, then copy last year's lines",
+     "Filter the repairs account by entity",
+     "Keep a spreadsheet beside the ledger instead",
+     "Code gate repairs to utilities"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Dimensions already tag every repairs line with its entity. A filter answers the question without changing the chart of accounts.",
+    "lesson": "03-dimensions-reading-one-account-many-ways.md"
+   },
+   {
+    "type": "single",
+    "q": "Two October reports for one property disagree, and one was read on Cash. Why might they differ?",
+    "options": [
+     "Cash leaves every vendor bill out of the month",
+     "Accrual counts rent when earned, Cash when paid",
+     "Accrual ignores card payments taken at the counter",
+     "One of the two reports has a typing error in it"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "October rent paid in early November is October on Accrual and November on Cash. Read both on the same book and they agree.",
     "lesson": "04-journals-and-books.md"
    },
    {
     "type": "single",
-    "q": "Who requests a new vendor in Nexus?",
+    "q": "A total on a report looks like it added hours to dollars. Which rule was broken?",
     "options": [
-     "Only Accounting",
-     "A site that needs one, with the papers; Accounting approves",
-     "Intacct",
-     "The vendor"
+     "Hours never add into money totals",
+     "Payroll never posts in October",
+     "User-defined books are always hidden",
+     "Cash and Accrual cannot be compared"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Hours are a statistical journal, and a statistical journal never adds into a money total. That is a question for Accounting.",
+    "lesson": "04-journals-and-books.md"
+   },
+   {
+    "type": "tf",
+    "q": "The Book picker's Accrual and Cash choice shows the two side by side as two columns.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "True. It is two reads of the same ledger, not a third book with entries of its own.",
+    "lesson": "04-journals-and-books.md"
+   },
+   {
+    "type": "single",
+    "q": "You want only what posted through payroll last month. What do you use?",
+    "options": [
+     "Filter by the payroll journal",
+     "The Cash book on the Balance Sheet",
+     "Records > Customers, sorted by date",
+     "The Budget page for the month"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "The journal filter, or Records > Journals, shows what came through one journal. No account answers that question on its own.",
+    "lesson": "04-journals-and-books.md"
+   },
+   {
+    "type": "single",
+    "q": "Unless you pick another, which book do Greens' statements use?",
+    "options": [
+     "Accrual",
+     "Cash",
+     "Fair market",
+     "Statistical"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Accrual is the default book and the one Greens reports on. Cash answers where money moved; a user-defined book has its own purpose.",
+    "lesson": "04-journals-and-books.md"
+   },
+   {
+    "type": "single",
+    "q": "Repairs read $21,120 against a $14,000 budget. What is your first move?",
+    "options": [
+     "Click the figure to open its lines",
+     "Email Accounting a screenshot of it",
+     "Wait for next month's statement",
+     "Raise next year's repairs budget"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Every posted figure opens its General Ledger lines, and each line opens its entry. The answer is usually two clicks away.",
+    "lesson": "05-the-reports-and-the-drill-down.md"
+   },
+   {
+    "type": "single",
+    "q": "You open a journal entry from a ledger line and need more room to read it. What do you click?",
+    "options": [
+     "Open Full",
+     "Memorize View",
+     "Export to Excel",
+     "Sync Ledger"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Open Full spreads the side panel over the screen; Side Panel brings it back beside the list.",
+    "lesson": "05-the-reports-and-the-drill-down.md"
+   },
+   {
+    "type": "single",
+    "q": "You built a report in Report Builder and clicked Publish. Who can see it?",
+    "options": [
+     "Only you, until you share it",
+     "Everyone with the Accounting grant",
+     "Every manager at your property",
+     "Only Accounting's Full level"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Publish finishes the report but keeps it yours. Share With Everyone is the step that shows it to others.",
+    "lesson": "05-the-reports-and-the-drill-down.md"
+   },
+   {
+    "type": "single",
+    "q": "A lender wants the same four statements for a property every quarter. What saves the most time?",
+    "options": [
+     "A Package, built to PDF",
+     "A new spreadsheet each quarter",
+     "Email Accounting each quarter",
+     "Screenshots of each report"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "A Package keeps the set of memorized reports under one name; Build PDF reads each fresh and returns one PDF.",
+    "lesson": "05-the-reports-and-the-drill-down.md"
+   },
+   {
+    "type": "tf",
+    "q": "On Budget vs. Actual, the budget figures open ledger lines when clicked.",
+    "options": [
+     "True",
+     "False"
     ],
     "answer": [
      1
     ],
-    "explanation": "Collect the papers before the first visit.",
+    "explanation": "False. A budget is worked out, not posted, so it stays plain. The actual figures beside it drill down.",
+    "lesson": "05-the-reports-and-the-drill-down.md"
+   },
+   {
+    "type": "single",
+    "q": "You set up This Month vs. Last Month for your property and want it the same way next month. What do you click?",
+    "options": [
+     "Memorize",
+     "Publish",
+     "Sync",
+     "Open Full"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Memorize keeps the view; a named period moves with the calendar. Publish belongs to Report Builder.",
+    "lesson": "05-the-reports-and-the-drill-down.md"
+   },
+   {
+    "type": "single",
+    "q": "You click the question mark at the end of a ledger line. What happens?",
+    "options": [
+     "You ask My Accountant about it",
+     "The line is deleted from the report",
+     "The entry is pushed to Intacct",
+     "The amount becomes editable"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "The question mark opens Ask My Accountant for that line. Nothing in Nexus deletes, edits or pushes a line from a report.",
+    "lesson": "05-the-reports-and-the-drill-down.md"
+   },
+   {
+    "type": "single",
+    "q": "You edit a vendor's address in Nexus. What happens in Intacct right away?",
+    "options": [
+     "Nothing; a change request is filed",
+     "Intacct's record updates the same second",
+     "The vendor is marked inactive until checked",
+     "The vendor is emailed to confirm the change"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "An edit files a change request with the fields that differ. Intacct changes only when Accounting keys the approved change.",
     "lesson": "06-vendors-customers-and-their-records.md"
    },
    {
     "type": "single",
-    "q": "An MRE line with no actual for two months usually means:",
+    "q": "A vendor change reads Approved - Awaiting Intacct. What does that mean?",
     "options": [
-     "Nothing",
-     "A contract that lapsed, or a vendor that stopped billing; a manager's question",
-     "A bank error",
-     "A new entity"
+     "Approved, not yet keyed into Intacct",
+     "Declined and waiting for a new request",
+     "Approved and already paid out",
+     "Waiting for the vendor to sign"
     ],
     "answer": [
-     1
+     0
     ],
-    "explanation": "The expectation beside the ledger is what noticed.",
-    "lesson": "07-the-recurring-picture-mri-mre-loans-and-fees.md"
-   },
-   {
-    "type": "single",
-    "q": "Manual Journal Entries marks a system entry a person later changed as:",
-    "options": [
-     "Deleted",
-     "Changed by a Person",
-     "Posted",
-     "Reversed"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "It counts too.",
-    "lesson": "08-ask-my-accountant-and-the-audit-pages.md"
-   },
-   {
-    "type": "single",
-    "q": "The Close tab lives under:",
-    "options": [
-     "Reports",
-     "Dashboard",
-     "Tools",
-     "Records"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "Overview, Cash, Performance, Close.",
-    "lesson": "09-the-dashboard-the-close-and-the-tools.md"
-   },
-   {
-    "type": "single",
-    "q": "Days to close is shortened most by:",
-    "options": [
-     "More accountants",
-     "The site's clean tickets, numbered invoices, reasoned waivers and same-day answers",
-     "A faster computer",
-     "Fewer tenants"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "A site that does those four closes its month in a day of the team's time.",
-    "lesson": "09-the-dashboard-the-close-and-the-tools.md"
-   },
-   {
-    "type": "single",
-    "q": "The Compliance tab's state word Expired means:",
-    "options": [
-     "The vendor is deleted",
-     "The vendor does no work on site until the new paper is filed",
-     "A discount",
-     "Nothing"
-    ],
-    "answer": [
-     1
-    ],
-    "explanation": "One rule, read on the vendor record and the construction Subs tab alike.",
+    "explanation": "It was approved and shows the new values, but checks still use Intacct's old ones until Accounting keys it in and it reads In Intacct.",
     "lesson": "06-vendors-customers-and-their-records.md"
+   },
+   {
+    "type": "single",
+    "q": "A roofer the ledger has never paid is booked for next week. What should happen first?",
+    "options": [
+     "Accounting sets them up from their papers",
+     "Let them work now and sort out billing later",
+     "Pay the roofer on a card, then tell Accounting",
+     "Add them to the property's vendor list only"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "A new vendor is set up in Intacct by Accounting. Send the license, insurance, workers comp and W-9 before the visit; no invoice is paid to a name the ledger lacks.",
+    "lesson": "06-vendors-customers-and-their-records.md"
+   },
+   {
+    "type": "single",
+    "q": "Before a vendor's visit, where do you check that their insurance certificate is current?",
+    "options": [
+     "The vendor's Compliance tab",
+     "The vendor's Ledger Lines tab",
+     "The vendor's Change History",
+     "Report Center"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Compliance holds the insurance, workers comp and license dates and the W-9, with one state word such as Expiring Soon or Expired.",
+    "lesson": "06-vendors-customers-and-their-records.md"
+   },
+   {
+    "type": "tf",
+    "q": "A commercial lease tenant is set up as an Intacct customer.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "True. Most storage tenants live only in Cubby, but a commercial lease tenant is an Intacct customer, and MRI reads their rent from the ledger.",
+    "lesson": "06-vendors-customers-and-their-records.md"
+   },
+   {
+    "type": "single",
+    "q": "A vendor record shows Changed In Intacct. What should you do before acting on it?",
+    "options": [
+     "Check what Intacct now holds",
+     "Approve the old request a second time",
+     "Delete the vendor and start over",
+     "Ignore it, because it clears by itself"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Intacct now holds a value different from what was approved. Look at the record before relying on either value.",
+    "lesson": "06-vendors-customers-and-their-records.md"
+   },
+   {
+    "type": "single",
+    "q": "Cubby shows $18,240 in card payments this week, but the bank shows three deposits on different days. Why?",
+    "options": [
+     "Card money arrives in batches",
+     "Cubby double counts card payments",
+     "The bank holds deposits for a month",
+     "Tenants paid the wrong property"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "The processor pays card and ACH money out in batches, so deposits do not line up one for one with payments or days.",
+    "lesson": "07-how-cubby-money-reaches-the-books.md"
+   },
+   {
+    "type": "single",
+    "q": "Which report ties each bank deposit to the card and ACH payments inside it?",
+    "options": [
+     "Merchant Services Disbursements",
+     "General Ledger (Accrual) for the month",
+     "Aged Receivables by facility",
+     "Spend by Vendor on Accounting"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Merchant Services Disbursements, under Operations > Reports, lists each payout batch and the payments in it.",
+    "lesson": "07-how-cubby-money-reaches-the-books.md"
+   },
+   {
+    "type": "single",
+    "q": "A colleague asks which tenants are more than 90 days behind. Where do you look?",
+    "options": [
+     "Aged Receivables in Operations",
+     "Records > Customers in Accounting",
+     "The Trial Balance for the property",
+     "MRI under Audit & Insights"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Tenant balances live in Cubby; Aged Receivables splits them into 30, 60, 90 and 120-day buckets. Most tenants are not Intacct customers.",
+    "lesson": "07-how-cubby-money-reaches-the-books.md"
+   },
+   {
+    "type": "tf",
+    "q": "Import Hub's Bank Statement to Intacct posts the deposits straight into the ledger.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "False. It builds an Intacct import file. The accounting team imports and posts it in Intacct.",
+    "lesson": "07-how-cubby-money-reaches-the-books.md"
+   },
+   {
+    "type": "single",
+    "q": "The bank is $65 below Cubby's card total for the week. Where do you look first?",
+    "options": [
+     "Receipts Summary, for refunds",
+     "Budget vs. Actual for the month",
+     "Records > Vendors for the bank",
+     "Loan Planning for the property"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Receipts Summary counts failed and refunded payments, which explain a deposit lower than the day's takings.",
+    "lesson": "07-how-cubby-money-reaches-the-books.md"
+   },
+   {
+    "type": "single",
+    "q": "Fairfield's pest control line in MRE reads Missed for two months. What does it most likely mean?",
+    "options": [
+     "The contract lapsed or billing stopped",
+     "The vendor was paid twice in one month",
+     "The budget was set much too high",
+     "The entity was renamed in Intacct"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Missed means nothing posted when something should have. Call the vendor before it becomes a service gap or a surprise bill.",
+    "lesson": "08-the-recurring-picture-mri-mre-loans-and-fees.md"
+   },
+   {
+    "type": "single",
+    "q": "A commercial tenant's lease ends and a new tenant moves in. What happens in MRI?",
+    "options": [
+     "End the old line; add a new one",
+     "Overwrite the tenant's name",
+     "Delete the line and its history",
+     "Change the old line's amounts"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "A lease is ended, never overwritten, so its history stands. The new tenant is a new line.",
+    "lesson": "08-the-recurring-picture-mri-mre-loans-and-fees.md"
+   },
+   {
+    "type": "single",
+    "q": "An MRE line reads Over three months running. What should a manager suspect?",
+    "options": [
+     "The vendor's price went up",
+     "The contract lapsed last quarter",
+     "A payment was missed entirely",
+     "The loan's interest rate changed"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Over means more posted than expected. A lapsed contract or a missed payment shows as Missed, not Over.",
+    "lesson": "08-the-recurring-picture-mri-mre-loans-and-fees.md"
+   },
+   {
+    "type": "tf",
+    "q": "A monthly mortgage payment belongs on Financing > Loans, not in MRE.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "True. Debt service is Loans, which reads its payments from the ledger. MRE is vendors paid on a schedule.",
+    "lesson": "08-the-recurring-picture-mri-mre-loans-and-fees.md"
+   },
+   {
+    "type": "single",
+    "q": "A lender asks how a rate rise would hit a property's loan payment and DSCR. Where do you look?",
+    "options": [
+     "Stress Test",
+     "MRE",
+     "Spend by Vendor",
+     "Import Hub"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Stress Test, under Financing > Loans, shows what a higher rate does to each loan or across the portfolio.",
+    "lesson": "08-the-recurring-picture-mri-mre-loans-and-fees.md"
+   },
+   {
+    "type": "single",
+    "q": "A property's Income Statement shows a management fee. What is it?",
+    "options": [
+     "What the operator charges to run it",
+     "A late fee charged to the property's tenants",
+     "The bank's monthly charge on the account",
+     "A markup on vendor service calls"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "A management fee is what the operating company charges a property entity for running it, set by the agreement on Management Fees.",
+    "lesson": "08-the-recurring-picture-mri-mre-loans-and-fees.md"
+   },
+   {
+    "type": "single",
+    "q": "You sent a reclass with Pick GL. What does the line read until the bookkeeper acts?",
+    "options": [
+     "Awaiting Bookkeeper",
+     "Resolved",
+     "Approved - Awaiting Intacct",
+     "Pending Approval"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Send To Bookkeeper puts the line in Awaiting Bookkeeper. Pending Approval and Awaiting Intacct are vendor change request words.",
+    "lesson": "09-ask-my-accountant-and-the-audit-pages.md"
+   },
+   {
+    "type": "single",
+    "q": "Who can push a reclass into Intacct?",
+    "options": [
+     "Only a bookkeeper",
+     "Any manager holding the grant",
+     "Whoever asked the question",
+     "Anyone at the Viewer level"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Anyone may ask and send a reclass; only a bookkeeper previews it and uses Approve & Push To Intacct.",
+    "lesson": "09-ask-my-accountant-and-the-audit-pages.md"
+   },
+   {
+    "type": "tf",
+    "q": "Preview Change shows the line's account before and after, and the amounts never change.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "True. Preview Change reads the original entry and shows exactly what moves: the line, its account and vendor or customer. Amounts stay as they are.",
+    "lesson": "09-ask-my-accountant-and-the-audit-pages.md"
+   },
+   {
+    "type": "single",
+    "q": "Manual Journal Entries shows many entries for one month. What is the right reading?",
+    "options": [
+     "Worth a question, not proof of error",
+     "Proof that the month is full of errors",
+     "A fault in the bank feed rules",
+     "A sign that payroll ran twice"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "The page lists hand-keyed and hand-changed entries so each can be seen. Most are right; a long list is a reason to ask.",
+    "lesson": "09-ask-my-accountant-and-the-audit-pages.md"
+   },
+   {
+    "type": "single",
+    "q": "A manager wants wages per employee from Compensation. What does that page require?",
+    "options": [
+     "The Accounting grant's Full level",
+     "Viewer level on any one entity",
+     "A manager role in any Nexus module",
+     "The PFS grant, held by owners"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Compensation and Payroll Summary open only at the Full level, and Compensation asks you to confirm it is you. Managers never see pay there.",
+    "lesson": "09-ask-my-accountant-and-the-audit-pages.md"
+   },
+   {
+    "type": "single",
+    "q": "On AMA, which column tells you the bank or card the money came from?",
+    "options": [
+     "Other Side",
+     "Notes",
+     "Description",
+     "GL Reclass"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Other Side lists every account on the other side of the entry, so most questions are answered without a second click.",
+    "lesson": "09-ask-my-accountant-and-the-audit-pages.md"
+   },
+   {
+    "type": "single",
+    "q": "You want to know whether the operating bank account is reconciled for October. Where do you look?",
+    "options": [
+     "Account Reconciliations on Close",
+     "Records > Journals, the bank journal",
+     "Report Builder with a bank filter",
+     "MRE under Audit & Insights"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Dashboard > Close lists every bank, card, mortgage, credit line and brokerage account with its reconciliation status.",
+    "lesson": "10-the-dashboard-the-close-and-the-tools.md"
+   },
+   {
+    "type": "single",
+    "q": "Who does the bank reconciliation itself?",
+    "options": [
+     "Accounting, in Intacct",
+     "Each site manager in Nexus",
+     "Cubby, automatically",
+     "The bank, on its statement"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Accounting reconciles in Intacct. Nexus shows the status and opens each account's Bank Activity.",
+    "lesson": "10-the-dashboard-the-close-and-the-tools.md"
+   },
+   {
+    "type": "tf",
+    "q": "Allocations posts the month's payroll split straight to Intacct.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "False. A kept run downloads as an Intacct CSV or Excel file; the accounting team posts it.",
+    "lesson": "10-the-dashboard-the-close-and-the-tools.md"
+   },
+   {
+    "type": "single",
+    "q": "On the fifth, Accounting asks about a $40,000 movement on your property. When should you answer?",
+    "options": [
+     "The same day",
+     "At next month's close",
+     "After the audit",
+     "When the budget resets"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "The close waits on variance answers. A same-day answer lets the line move to Answered and then Reviewed.",
+    "lesson": "10-the-dashboard-the-close-and-the-tools.md"
+   },
+   {
+    "type": "single",
+    "q": "You start next year's budget for one property. Which is a real starting point on the Budget page?",
+    "options": [
+     "Copy From Last Year's Actuals",
+     "Copy From Cubby's Rent Roll Report",
+     "Import From the Bank Feed",
+     "Copy From the Trial Balance"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "The Budget page starts from Copy From Last Year's Actuals or Copy From Intacct Budget, then is edited in place.",
+    "lesson": "10-the-dashboard-the-close-and-the-tools.md"
+   },
+   {
+    "type": "tf",
+    "q": "The Close page lists bank, credit card, mortgage, credit line and brokerage accounts with their reconciliation status.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "True. That is the Account Reconciliations card; click an account to open its activity already filtered.",
+    "lesson": "10-the-dashboard-the-close-and-the-tools.md"
+   },
+   {
+    "type": "single",
+    "q": "A number on a report surprises you. What is the first step the job aid gives?",
+    "options": [
+     "Click it and read the lines",
+     "Rebuild it in a spreadsheet first",
+     "Ask the vendor for a copy",
+     "Wait for the next close"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Every posted figure clicks through to its lines and entries. Start there before asking anyone.",
+    "lesson": "11-on-one-page.md"
    }
   ]
  }
