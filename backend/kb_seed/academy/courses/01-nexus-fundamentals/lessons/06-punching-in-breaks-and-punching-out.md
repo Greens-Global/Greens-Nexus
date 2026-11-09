@@ -36,15 +36,7 @@ If you already sent your message another way, tick "I already sent my login (BOD
 
 ## Location at the Punch
 
-Nexus checks where you are **at the moment of the punch only**. It never tracks you between punches, and a punch never waits for your location or is blocked by it. Your Time Sheet shows one of these for each punch:
-
-| Shows | Meaning |
-|---|---|
-| The site name | Made at one of your company's locations. |
-| **Out of Location** | Made away from every company location; flagged for review. |
-| **Approx. Location** | The device gave only a rough location (common on a computer). |
-| **Location Off** | Location was turned off. |
-| **No Location** | No location came through. |
+Nexus checks where you are **at the moment of the punch only**. It never tracks you between punches, and a punch never waits for your location or is blocked by it. Your Time Sheet shows the site name for a punch made at one of your company's locations, or **Out of Location**, **Approx. Location** (common on a computer), **Location Off** or **No Location**.
 
 If you clock in with location off, a red **Needs Attention** bar offers **Turn On** (adds your location to that clock-in) and **Skip** (keeps it as Location Off and lets your manager know). Punch from your phone, on site, with location allowed, and nobody has to ask you about it later.
 
@@ -73,11 +65,11 @@ After a long stretch on the clock an amber banner asks whether you are still wor
 {"kind": "screen", "title": "Your Punch Did Not Record", "device": "phone", "module": "Workday", "parts": [{"kind": "dialog", "title": "Your Punch Did Not Record", "text": "No signal. Your punch out is saved on this phone at 4:45 PM, the time you pressed it. Nexus keeps trying.", "buttons": [{"label": "Retry Now", "n": 1}, {"label": "OK, Keep Trying", "primary": true, "n": 2}]}], "callouts": [{"n": 1, "text": "Once you have signal."}, {"n": 2, "text": "Walk on. Never punch again."}]}
 ```
 
-If the phone saved your punch but could not reach Nexus, this box says so. The punch goes in at the time you pressed the button, not when it finally gets through. Tap **OK, Keep Trying**, or **Retry Now** once you have signal. A red line on the clock reminds you the punch is still sending and says "Don't punch out to fix it." If the box says nothing was saved, retry from a phone with signal, or ask for the punch from your Time Sheet.
+The punch goes in at the time you pressed the button, not when it finally gets through. Tap **OK, Keep Trying**, or **Retry Now** once you have signal; a red line on the clock shows it is still sending. If the box says nothing was saved, retry from a phone with signal, or ask for the punch from your Time Sheet.
 
 ## The Meal and Rest Break Statement
 
-There is no break question at clock-in. When you sign your Time Sheet, the signing screen carries the statement "I was provided every meal and rest break California law requires," and signing confirms it. Hourly staff on the California rule who missed a break click **Report a Missed Break** instead of signing, pick the days and Meal or Rest, and click **Send Back to Manager**; the manager adds the premium pay and it comes back to sign. Anyone else whose statement is not true for them does not sign: tell your manager, and if it is still not true, decline in Nexus Sign with a reason. Never sign a statement that is not true.
+There is no break question at clock-in. Signing your Time Sheet confirms the statement "I was provided every meal and rest break California law requires." Hourly staff on the California rule who missed a break click **Report a Missed Break** instead of signing, pick the days and Meal or Rest, and send it back; the manager adds the premium pay and it comes back to sign. Anyone else for whom it is not true tells their manager, or declines in Nexus Sign with a reason. Never sign a statement that is not true.
 
 ## At Greens
 
@@ -92,9 +84,7 @@ Sam taps **Not Yet** at 7:45 AM, opens up, and punches in at 8:00 AM with "Openi
 
 ## Key Points
 
-- Only the valid buttons show: **Punch In**, **Start Break**, **End Break**, **Punch Out**.
-- Most roles write a short message at each punch; tick the box if you already sent it.
+- Only the valid buttons show, and most roles write a short message at each punch.
 - Location is checked only at the punch and never blocks it.
 - **Not Yet** unless your manager asked you to start early.
 - **Fix My Punch Out** fixes a forgotten punch out. A punch saved on the phone sends itself at the time you pressed.
-- Signing confirms the meal and rest break statement; **Report a Missed Break** when a break was missed.
