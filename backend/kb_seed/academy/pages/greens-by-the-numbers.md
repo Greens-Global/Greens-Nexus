@@ -36,7 +36,7 @@ Cubby counts mailboxes as units, so a Cubby total of "enclosed units" that inclu
 | Valley Center | 568 (465) | 3 (3) | 279 (43) |
 | **All five** | **1,331 (1,194)** | **1,038 (777)** | **356 (71)** |
 
-Storage units plus mailboxes make 1,687, the figure Cubby shows as enclosed units. Valley Center's three vehicle spaces are two enclosed garages and one open space; its site page also counts a fourth lease that stores a vehicle.
+Of the active leases, 759 store a vehicle. Storage units plus mailboxes make 1,687, the figure Cubby shows as enclosed units. Valley Center's three vehicle spaces are two enclosed garages and one open space; its site page also counts a fourth lease that stores a vehicle.
 
 ## Length of Stay
 
@@ -64,10 +64,28 @@ The older prices sit only on leases brought over from Greens' previous system. Q
 | CA Preliminary Lien Notice | $25.00 | Day 15 of the ladder |
 | CA Lien Notice | $35.00 | Day 35 |
 | Vehicle Lien Fee | $350.00 | Day 61, vehicles, boats and trailers |
-| Advertising Fee | $120.00 | The lien sale ad |
+| Advertising Fee | $95.00 to $120.00 (as Cubby shows on the lease) | The lien sale ad |
 | Lien Processing Fee | $100.00 | The sale step |
 | Auction Fee | $95.00 | The sale step |
 | Lock Removal/Inventory Fee | $75.00 | When a lock is removed and the unit inventoried |
+| Non-Operational Vehicle Deposit | $350.00 | Once, Murrieta only, for a vehicle that does not run |
+| Murrieta Dump Station Agreement | $39.50 | Murrieta, a lease with a dump station agreement |
+
+## Typical Vehicle Street Rates
+
+Today's monthly price for a new vehicle customer, typical rate first, then the range across space sizes. Cubby has the price for each space.
+
+| Site | Typical | Range |
+|---|---|---|
+| Fairfield | $104 | $94 to $154 |
+| Temecula | $164 (covered typically $229) | $69 to $319 |
+| Murrieta | $184 (pull-throughs $249 to $279) | $134 to $300 |
+| Escondido | $279 | $159 to $379 |
+| Valley Center | $289 enclosed garage, $149 open space | |
+
+## Proration
+
+Rent and the protection plan are both prorated from move-in day to the end of the month; every lease then bills on the 1st.
 
 Every fee, with what to tell a customer, is on Greens Fees and Charges.
 
