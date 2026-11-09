@@ -49,7 +49,7 @@
      "q": "A tenant who moved in on 11/18 asks why her first payment was so much smaller than her rent. What do you tell her?",
      "options": [
       "She got a first-month discount for new tenants",
-      "Rent is due on the 1st, so it was shortened",
+      "Rent is due on the 1st, so her first month was prorated",
       "The first payment was a deposit and rent comes later",
       "Her rent will be due on the 18th of every month"
      ],
@@ -107,7 +107,7 @@
      "q": "Your site has nothing open in the size a walk-in needs. What do you do in Cubby?",
      "options": [
       "Offer an unrentable unit at a lower rate",
-      "Check nearby Greens sites for that size",
+      "Check nearby Greens sites",
       "Tell her to call back next month",
       "Rent her a smaller unit without asking"
      ],
@@ -122,7 +122,7 @@
      "q": "A caller says he found Greens by searching online and will visit Saturday. What do you save before you hang up?",
      "options": [
       "A lead with source Other and no follow-up task",
-      "A lead, source Search engine, and a task",
+      "A lead, source Search engine, and a follow-up task",
       "A reservation with a reservation fee",
       "Nothing until he actually comes in"
      ],
@@ -138,7 +138,7 @@
      "options": [
       "Run the card again right away to be safe",
       "Hand over the code and finish up",
-      "Wait, check again, ask your manager",
+      "Wait, recheck, ask your manager",
       "Take the same amount in cash too"
      ],
      "answer": [
@@ -167,7 +167,7 @@
       "The lease agreement signed",
       "Her photo ID checked and approved",
       "The vehicle plate, state and type entered",
-      "A security deposit taken",
+      "A refundable security deposit taken at signing",
       "A reservation fee charged"
      ],
      "answer": [
@@ -392,7 +392,7 @@
       "Overlock it, since Cubby listed it",
       "Skip it and tell your manager",
       "Overlock it and remove it tomorrow",
-      "Change the tenant's gate code"
+      "Change the tenant's gate code instead"
      ],
      "answer": [
       1
@@ -433,7 +433,7 @@
      "q": "A tenant in the lien process pays all the rent but none of the lien fees. Where does that leave the lien?",
      "options": [
       "It stops, because rent is paid",
-      "It goes on until fees are paid too",
+      "It goes on until the posted fees are paid too",
       "It pauses for thirty days",
       "It ends after a manager waives rent"
      ],
@@ -523,7 +523,7 @@
     "q": "A coworker offers to sign you in with her account so you can waive a fee your role cannot. What do you do?",
     "options": [
      "Accept, since it is only one fee",
-     "Ask your manager instead",
+     "Ask your manager to handle it instead",
      "Use her sign-in and note it",
      "Waive it from the phone app"
     ],
@@ -566,7 +566,7 @@
     "q": "A tenant with two leases calls to pay. What do you confirm before you take the money?",
     "options": [
      "Only the tenant's name",
-     "The person and which lease",
+     "The person, and which lease the money is for",
      "Only the last four of the card",
      "The site's opening hours"
     ],
@@ -580,7 +580,7 @@
     "type": "single",
     "q": "A pricing group in your search says No availability. What does that tell you?",
     "options": [
-     "Nothing of that type is open now",
+     "Every unit in that group is leased or unrentable",
      "The rate has not been set yet",
      "The units are all reserved for staff",
      "Cubby is still loading the units"
@@ -669,7 +669,7 @@
     "q": "The card for a move-in is declined. The customer asks for her gate code anyway. What do you say?",
     "options": [
      "Here it is; pay tomorrow",
-     "Let's try another card first",
+     "Let's try another card or another method first",
      "I'll text it once you get home",
      "You can use the master code today"
     ],
@@ -730,7 +730,7 @@
     "options": [
      "Nothing changes",
      "The charges it paid reopen",
-     "Cubby waives the rent for the month",
+     "Cubby waives the month",
      "The lease is closed"
     ],
     "answer": [
@@ -847,7 +847,7 @@
      "That her rent was raised",
      "The discount lines that ended",
      "A late fee from January",
-     "A rate increase on her unit this month"
+     "A rate increase on her unit"
     ],
     "answer": [
      1
@@ -919,7 +919,7 @@
     "type": "single",
     "q": "A tenant emails his full card number and asks you to run it. What do you do?",
     "options": [
-     "Run it, then file the email in the lease",
+     "Run it, then file the email",
      "Delete it; take the card by phone",
      "Forward it to your manager",
      "Copy it into a lease note"
@@ -935,7 +935,7 @@
     "q": "Two leases belong to one tenant who wants to pay both from his phone. What do you send?",
     "options": [
      "One payment link covering both",
-     "Two separate invoices sent by mail",
+     "Two invoices by mail",
      "His card details for checking",
      "A reservation for each lease"
     ],
@@ -979,7 +979,7 @@
     "options": [
      "Refund the second payment",
      "Waive this month's rent",
-     "Give a credit for next month",
+     "Credit next month",
      "Write off the balance"
     ],
     "answer": [
@@ -1024,7 +1024,7 @@
     "options": [
      "Nothing; Cubby handles it",
      "Empty, clean, no tenant lock left",
-     "That AutoPay is still turned on for it",
+     "That AutoPay is still on for it",
      "That its gate code is enabled"
     ],
     "answer": [
@@ -1054,7 +1054,7 @@
     "options": [
      "Complete the move-out anyway",
      "Call, note it, don't complete it",
-     "Cut the lock and empty the unit for rent",
+     "Cut the lock and empty the unit",
      "Turn the gate code back on"
     ],
     "answer": [
@@ -1213,7 +1213,7 @@
     "type": "single",
     "q": "Which of these belongs in a Cubby note?",
     "options": [
-     "The tenant's full card number for AutoPay",
+     "The tenant's full card number",
      "Called 11/06, will pay by 11/08",
      "The tenant's gate code",
      "Your opinion of the tenant"
@@ -1258,7 +1258,7 @@
     "options": [
      "Edit a payment to match",
      "Recount, check, tell your manager",
-     "Leave it for the morning shift to sort out",
+     "Leave it for the morning shift",
      "Add $20.00 from petty cash"
     ],
     "answer": [

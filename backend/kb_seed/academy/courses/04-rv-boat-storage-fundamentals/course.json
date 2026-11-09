@@ -38,7 +38,7 @@
             "Is that the box, or hitch to bumper?",
             "Great, so a 10x30 will work for you?",
             "What year, make and color is it?",
-            "Would you like covered or open space?"
+            "Covered or open space?"
           ],
           "answer": [
             0
@@ -67,7 +67,7 @@
           "options": [
             "To the top of the air conditioner",
             "To the roof line given in the brochure",
-            "To the top of the side windows",
+            "To the top of the tallest side window",
             "The height printed on the registration"
           ],
           "answer": [
@@ -82,7 +82,7 @@
           "options": [
             "A 10x20, as the caller asked",
             "A space of 29 ft or more",
-            "A 10x25, close enough",
+            "A 10x25, which is close enough",
             "A 10x24 with the tongue folded"
           ],
           "answer": [
@@ -122,7 +122,7 @@
           "q": "A Class A arrives towing a small car behind it. How do you treat the car?",
           "options": [
             "Inside the coach's space",
-            "As a second vehicle",
+            "As a second vehicle, usually a second space",
             "Parked in the aisle",
             "It must leave the lot"
           ],
@@ -138,7 +138,7 @@
           "options": [
             "What the HOA rules say",
             "The trailer's length",
-            "Our lowest open rate",
+            "Our lowest open rate today",
             "How to dispute the letter"
           ],
           "answer": [
@@ -151,9 +151,9 @@
           "type": "single",
           "q": "A customer stores two jet skis on one trailer. What goes on the lease?",
           "options": [
-            "Only the trailer's plate number",
+            "Only the trailer's plate",
             "The trailer and both jet skis",
-            "Only the two jet skis themselves",
+            "Only the two jet skis",
             "Nothing; they are small"
           ],
           "answer": [
@@ -274,7 +274,7 @@
           "type": "single",
           "q": "A fifth wheel is 13 ft 6 in to the top of its air conditioners. No clear height is posted at the covered rows. What do you do?",
           "options": [
-            "Let the tenant try it slowly",
+            "Let the tenant try it",
             "Get the clear height first",
             "Assume canopies are 14 ft",
             "Lower the tire pressure"
@@ -292,7 +292,7 @@
             "Exactly 14 ft of clearance",
             "A measured opening below 14 ft",
             "About 15 ft, with the frame",
-            "Height does not matter in a garage"
+            "Height does not matter"
           ],
           "answer": [
             1
@@ -319,7 +319,7 @@
           "type": "single",
           "q": "A Class A is backed in until its rear tires touch the wheel stop, with a fence 3 ft behind the stop. What is the risk?",
           "options": [
-            "The front sits out in the drive aisle",
+            "The front sits in the aisle",
             "The overhang reaches the fence",
             "The tires lose pressure",
             "The gate log misreads it"
@@ -405,9 +405,9 @@
         "type": "single",
         "q": "A walk-in at Fairfield asks why he should pay for gravel when the street is free. What do you do first?",
         "options": [
-          "Quote the city code on street parking",
+          "Quote the city parking code",
           "Ask what happens with it today",
-          "Offer the lowest rate right away",
+          "Offer the lowest rate",
           "Explain the lien process"
         ],
         "answer": [
@@ -450,7 +450,7 @@
         "type": "single",
         "q": "At Murrieta, a fifth wheel measures 39 ft with its pin box. Which spaces do you look at?",
         "options": [
-          "A 10x35 or a 12x33",
+          "A 10x35 or a 12x33 drive-in",
           "The 12x45s or the 12x50s",
           "Any of the 10x30 drive-ins",
           "Two 10x24s side by side in a row"
@@ -522,7 +522,7 @@
           "To the roof sheet overhead",
           "To the lowest beam",
           "To the top of the end posts",
-          "It is always 14 ft"
+          "Canopies are always 14 ft"
         ],
         "answer": [
           1
@@ -537,7 +537,7 @@
           "Escondido has a few covered rows",
           "Covered is only at Temecula",
           "Covered is at every Greens site",
-          "Covered is at Murrieta"
+          "Murrieta has covered rows too"
         ],
         "answer": [
           1
@@ -559,7 +559,7 @@
         "q": "Why are pull-through spaces scarce and priced above drive-ins?",
         "options": [
           "Each uses two aisle frontages",
-          "Every one of them comes with a canopy",
+          "Each has a canopy",
           "Cubby limits how many exist",
           "They are only for motorhomes"
         ],
@@ -588,7 +588,7 @@
         "type": "single",
         "q": "A long rig with a nervous driver has no pull-through open. What do you offer?",
         "options": [
-          "The corner space where rows meet",
+          "The corner space",
           "An end space on a wide aisle",
           "Any space near the office",
           "A space two sizes too short"
@@ -621,7 +621,7 @@
           "The gate's entries in Cubby",
           "Only the camera footage",
           "Nowhere; ask the tenant",
-          "The Nexus Report a Problem log"
+          "Nexus Report a Problem"
         ],
         "answer": [
           0
@@ -635,7 +635,7 @@
         "options": [
           "12x33 pull-through",
           "12x45",
-          "12x30",
+          "12x30 drive-in",
           "10x35 drive-in"
         ],
         "answer": [
@@ -651,7 +651,7 @@
           "A small storage unit",
           "Monthly dump station use",
           "A reserved RV space",
-          "A late fee by another name"
+          "A renamed late fee"
         ],
         "answer": [
           1
@@ -693,7 +693,7 @@
         "type": "single",
         "q": "A collector wants an enclosed garage for a classic car. Where at Greens is enclosed vehicle space?",
         "options": [
-          "Valley Center's garages",
+          "Valley Center's enclosed garages",
           "Temecula's covered rows",
           "Escondido's big 15 ft units",
           "Murrieta's pull-through spaces"
@@ -802,7 +802,7 @@
         "q": "A tenant's car is on Planned Non-Operation. He plans to tow it out on Saturday. What do you tell him?",
         "options": [
           "Towing is fine without plates",
-          "Renew the registration first",
+          "Renew the registration before towing it",
           "Only Greens can tow it out",
           "Leave the sticker as it is"
         ],
@@ -835,7 +835,7 @@
           "Close-ups of existing damage",
           "The plate and the VIN or HIN",
           "The space, before and after",
-          "Inside the tenant's cabinets"
+          "Inside the tenant's cabinets and drawers"
         ],
         "answer": [
           0,
@@ -880,10 +880,10 @@
         "type": "single",
         "q": "A tenant takes his RV out for a week and parks his car in the space meanwhile. What is the rule?",
         "options": [
-          "Fine, as long as the RV is away",
+          "Fine while the RV is away",
           "Only the leased vehicle parks",
           "Fine if the car is smaller",
-          "Fine for under a month at a time"
+          "Fine for under a month"
         ],
         "answer": [
           1
@@ -1061,7 +1061,7 @@
         "type": "single",
         "q": "A coworker suggests adding a defaulted car to next week's unit auction. What is right?",
         "options": [
-          "Fine, as long as the car still runs",
+          "Fine if the car still runs",
           "Vehicles never go to that auction",
           "Fine after the 61st day",
           "Only with the tenant's OK"
@@ -1171,7 +1171,7 @@
         "options": [
           "The lowest open rate",
           "Security on site",
-          "Covered space",
+          "Covered space for it",
           "The pull-through waitlist"
         ],
         "answer": [
@@ -1186,7 +1186,7 @@
         "options": [
           "Ask them to call back later",
           "Open space now, then the waitlist",
-          "Park under a canopy in the drive aisle",
+          "Park under a canopy in the aisle",
           "Refer them to a competitor"
         ],
         "answer": [
@@ -1249,7 +1249,7 @@
           "A tongue jack",
           "A towed car",
           "A small boat",
-          "A dump hose"
+          "A sewer dump hose"
         ],
         "answer": [
           1

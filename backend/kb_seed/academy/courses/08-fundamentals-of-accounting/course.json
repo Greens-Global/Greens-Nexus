@@ -46,7 +46,7 @@
           "q": "Your area manager asks whether Temecula made money in October. Which statement do you open?",
           "options": [
             "The balance sheet as of 10/31",
-            "The income statement",
+            "The income statement, which covers a period",
             "The cash flow statement for October",
             "Aged Receivables"
           ],
@@ -62,7 +62,7 @@
           "options": [
             "November rental income",
             "A receivable from the tenant",
-            "Prepaid rent, a liability",
+            "Prepaid rent, a liability until 12/01",
             "December rental income, booked now"
           ],
           "answer": [
@@ -75,10 +75,10 @@
           "type": "single",
           "q": "A new tenant hands over a $100 security deposit with the first month's rent. What is the $100 to the company?",
           "options": [
-            "Revenue for the month",
+            "Revenue for the move-in month",
             "A liability, owed back",
             "An asset the tenant owns",
-            "A reduction of rent"
+            "A reduction of first month's rent"
           ],
           "answer": [
             1
@@ -91,7 +91,7 @@
           "q": "You open a ledger line: Repairs debited $640, Accounts Payable credited $640. What happened?",
           "options": [
             "The vendor was paid $640",
-            "Work was done; the bill is unpaid",
+            "Work was done and the company owes the vendor; the bill is unpaid",
             "A $640 refund to a tenant",
             "Cash came in from a vendor for a refund"
           ],
@@ -121,7 +121,7 @@
           "q": "A repair is done in October and paid in November. On the accrual books, which month carries the expense?",
           "options": [
             "November, when it is paid",
-            "October, when the work was done",
+            "October, when the work was done, paid or not",
             "Half in each month",
             "Whichever month the bill is dated"
           ],
@@ -136,7 +136,7 @@
           "q": "It is month end. Which of these are adjusting entries? Pick all that apply.",
           "options": [
             "Earning down prepaid rent",
-            "A tenant's card payment",
+            "A tenant's card payment taken at the desk",
             "Accruing an unbilled utility bill",
             "The allowance for doubtful accounts",
             "Depreciation"
@@ -191,7 +191,7 @@
           "q": "Valley Center is full, yet rental income dipped. The lines show two free first months on new garages. Which rent figure fell?",
           "options": [
             "Gross potential rent",
-            "Billed rent",
+            "Billed rent for the month",
             "Earned rent",
             "Collected rent only"
           ],
@@ -208,7 +208,7 @@
             "$1,500 of other income",
             "$1,200 to the balance; $300 held for the tenant",
             "$1,200 of rent income and $300 of fees",
-            "$300 profit, and $1,200 credited to the allowance"
+            "$300 profit; $1,200 to the allowance"
           ],
           "answer": [
             1
@@ -281,7 +281,7 @@
           "q": "Accounting emails: an invoice for 'gate repair, Temecula' cannot be matched. What fixes it fastest?",
           "options": [
             "Pay it from the site",
-            "Send them the ticket number",
+            "Send them the ticket number so they can match it to the quote",
             "Ask the vendor to resend it",
             "Approve it in your reply to Accounting"
           ],
@@ -362,7 +362,7 @@
         "type": "single",
         "q": "A manager doubts the repairs figure on her site's Income Statement in Nexus. What is the quickest way to check it?",
         "options": [
-          "Click it to see its lines",
+          "Click it to see the ledger lines behind it",
           "Ask Accounting for a spreadsheet",
           "Compare it with last year",
           "Rebuild it from tickets"
@@ -407,10 +407,10 @@
         "type": "single",
         "q": "The office buys $40 of printer paper on the card. Which kind of account does it hit?",
         "options": [
-          "An asset",
+          "An asset account",
           "An expense",
           "A liability",
-          "Equity"
+          "Owner's equity"
         ],
         "answer": [
           1
@@ -468,7 +468,7 @@
         "q": "Wages are worked in the last week of October and paid on 11/07. What is recorded in October?",
         "options": [
           "Nothing until payday",
-          "Wages expense and accrued payroll",
+          "Wages expense and a credit to accrued payroll",
           "A prepaid wages asset for November",
           "Cash out on 10/31"
         ],
@@ -495,7 +495,7 @@
         "type": "single",
         "q": "Under the cash basis, a gate repair done in October and paid in November counts in which month?",
         "options": [
-          "October",
+          "October only",
           "November",
           "Both, half each",
           "Neither month"
@@ -543,7 +543,7 @@
           "Timing; it will reverse",
           "Real; it will not reverse",
           "A coding error",
-          "A cut-off problem in the October close"
+          "A cut-off error"
         ],
         "answer": [
           1
@@ -586,7 +586,7 @@
         "q": "An admin fee is charged at a move-in on 11/14. When is it earned?",
         "options": [
           "On 11/14, at move-in",
-          "Over the lease term",
+          "Over the whole lease term",
           "On the 1st of the next month",
           "When the tenant moves out"
         ],
@@ -618,7 +618,7 @@
           "Normal lag after the 1st",
           "The lien process has stalled",
           "Autopay has failed",
-          "A coding error in Intacct for the site"
+          "A coding error in Intacct"
         ],
         "answer": [
           1
@@ -666,8 +666,8 @@
         "options": [
           "Accounting's estimate",
           "The site's habits",
-          "The auditor",
-          "Cubby's settings"
+          "The outside auditor",
+          "Cubby's billing settings"
         ],
         "answer": [
           1
@@ -695,7 +695,7 @@
           "Capital, depreciated",
           "A repair expense",
           "Construction in progress",
-          "A prepaid asset"
+          "A prepaid asset for the year"
         ],
         "answer": [
           1
@@ -739,7 +739,7 @@
         "options": [
           "Nothing until it is rebuilt",
           "Its book value is written off",
-          "Its full original cost is expensed now",
+          "Its full cost is expensed",
           "It keeps depreciating"
         ],
         "answer": [
@@ -754,7 +754,7 @@
         "options": [
           "Nothing; totals still match",
           "Fairfield's report shows the cost",
-          "The vendor is paid twice for the same job",
+          "The vendor is paid twice",
           "The card is locked"
         ],
         "answer": [
@@ -787,7 +787,7 @@
         "q": "The gate vendor offers a discount if you pay their invoice on your card today. What do you do?",
         "options": [
           "Pay it; it saves money",
-          "Send it through payables",
+          "Send it to payables",
           "Pay half on the card",
           "Pay it, then tell Accounting"
         ],
@@ -834,7 +834,7 @@
           "It is not due yet",
           "It is stuck on a match or approval",
           "Payments run yearly",
-          "Net 30 means 30 business days, not calendar days"
+          "Net 30 means business days"
         ],
         "answer": [
           1
@@ -921,7 +921,7 @@
         "options": [
           "Account Reconciliations, on Close",
           "Aged Receivables",
-          "Records > Entities, under each property",
+          "Records > Entities",
           "The Budget page"
         ],
         "answer": [
@@ -1054,7 +1054,7 @@
         "options": [
           "Unfavorable",
           "Favorable",
-          "Timing",
+          "A timing difference",
           "A control failure"
         ],
         "answer": [
@@ -1069,7 +1069,7 @@
         "options": [
           "Re-add every invoice that month",
           "Follow its trail to the ticket and photo",
-          "Call the vendor to confirm the price they charged",
+          "Call the vendor to confirm the price",
           "Recode it"
         ],
         "answer": [
@@ -1128,7 +1128,7 @@
           "A memo: what it is and which property",
           "Paying the tax on your card",
           "Nothing; online is tax free",
-          "Emailing the seller's full TIN to Accounting"
+          "Emailing the seller's TIN"
         ],
         "answer": [
           0

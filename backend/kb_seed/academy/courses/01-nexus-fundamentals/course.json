@@ -104,7 +104,7 @@
             "Close the browser tab",
             "Lock the screen and leave it signed in",
             "Turn on Dark Mode for the next person",
-            "Sign Out from your profile menu"
+            "Sign Out from your profile menu, which clears your data saved on it"
           ],
           "answer": [
             3
@@ -162,7 +162,7 @@
             "Turn on Dark Mode under Appearance",
             "Ask HR to switch push on for your account",
             "Sign in with Partner Sign-In instead",
-            "Install from Safari, open the icon"
+            "Install from Safari (Share, Add to Home Screen), then open the icon"
           ],
           "answer": [
             3
@@ -226,7 +226,7 @@
           "q": "A banner on My Schedule asks you to confirm next week's new schedule. Wednesday does not work for you. What do you do?",
           "options": [
             "Request the day off as Sick",
-            "Confirm it, then talk to your manager",
+            "Confirm it, then talk to your manager about Wednesday",
             "Leave it unconfirmed until it changes",
             "Swap the shift with a teammate by text"
           ],
@@ -242,7 +242,7 @@
           "options": [
             "Ask HR to punch the hours in for you",
             "Punch in and out now for eight hours",
-            "Add it: Add on the day, Type Vacation",
+            "Add it: Add on the day, Type Vacation, so the hours are paid",
             "Wait; approved time off appears by itself"
           ],
           "answer": [
@@ -288,7 +288,7 @@
             "Nothing; it is nearly done",
             "A reply from you",
             "A part from a vendor",
-            "Approval from HR"
+            "Approval from your HR team"
           ],
           "answer": [
             1
@@ -316,7 +316,7 @@
             "Click Try Again right away while it is fresh",
             "Ask your manager to mark the course passed",
             "Skip it and start the next course",
-            "Reread the lessons it lists, then Try Again"
+            "Reread the lessons listed under Reread these, then Try Again"
           ],
           "answer": [
             3
@@ -371,7 +371,7 @@
         "q": "Two Employees at Murrieta have different menus: one sees Tasks and one does not. Why?",
         "options": [
           "One works more hours each week than the other",
-          "One holds a grant the other does not",
+          "One holds a grant, from a job role or an Access Group, the other does not",
           "One signed in with Partner Sign-In",
           "One has not finished their training yet"
         ],
@@ -429,7 +429,7 @@
         "q": "Weeks after your first sign-in, the policy notice appears again. Why?",
         "options": [
           "Your manager changed your tier",
-          "The company published new policies",
+          "The company published a new version of its policies",
           "Your account was reset by IT overnight",
           "You signed in from a different phone today"
         ],
@@ -458,7 +458,7 @@
         "type": "single",
         "q": "Push to This Device is on, but a company-wide broadcast never reaches your phone. Why?",
         "options": [
-          "Your phone is too old",
+          "Your phone is too old for push",
           "Push is off for your site",
           "You need to reinstall Nexus",
           "Broadcasts never push"
@@ -504,7 +504,7 @@
           "Your bell is set to Mark All Read",
           "Announcements post only on Teams",
           "You never added the Announcements widget",
-          "Announcements only reach managers and their backups"
+          "Announcements reach only managers"
         ],
         "answer": [
           2
@@ -621,7 +621,7 @@
         "options": [
           "Your location was turned off",
           "The punch did not record",
-          "A computer gives only a rough location",
+          "A computer gives only a rough location, so no site name shows",
           "You were away from every company location"
         ],
         "answer": [
@@ -663,7 +663,7 @@
         "q": "You are hourly at a California site and missed a meal break on Tuesday. The signing screen shows the break statement. What do you do?",
         "options": [
           "Decline the whole Time Sheet in Nexus Sign",
-          "Report a Missed Break instead of signing",
+          "Report a Missed Break for Tuesday instead of signing",
           "Sign it; the break is too small to matter",
           "Sign it and email HR afterward"
         ],
@@ -695,7 +695,7 @@
           "Sign it and fix Thursday next period",
           "Sign it; your manager will catch it",
           "Punch in and out for those hours now",
-          "Decline in Nexus Sign with a reason"
+          "Decline in Nexus Sign and say Thursday is missing"
         ],
         "answer": [
           3
@@ -766,7 +766,7 @@
         "q": "A teammate agreed to swap Saturday with you, and the request reads Waiting On Manager. Which shift do you work?",
         "options": [
           "Your original shift",
-          "The swapped shift",
+          "The swapped Saturday shift",
           "Neither until it clears",
           "Whichever you prefer"
         ],
@@ -823,7 +823,7 @@
         "type": "single",
         "q": "Your reimbursement comes back Sent Back. What do you do?",
         "options": [
-          "Read What to fix, then Fix and Resubmit",
+          "Read What to fix, then Fix and Resubmit the same claim",
           "File a brand new claim with the same receipt",
           "Ask HR to approve it anyway",
           "Cancel it and pay it yourself"
@@ -913,7 +913,7 @@
         "options": [
           "Take a screenshot and email it",
           "Delete it and use paper",
-          "Nothing; it sends when signal returns",
+          "Nothing; it sends itself when signal returns, or tap Sync Now",
           "Fill it again at the office so it is not lost"
         ],
         "answer": [
@@ -944,7 +944,7 @@
           "Microsoft Teams",
           "A Nexus chat window",
           "Your Outlook inbox",
-          "A Notes page"
+          "A shared Notes page"
         ],
         "answer": [
           0
@@ -1000,7 +1000,7 @@
         "q": "You used all three tries on a final quiz. Who can unlock another round?",
         "options": [
           "Your manager",
-          "Any coworker",
+          "Any coworker on your team",
           "Nobody at all",
           "The Help Center"
         ],
@@ -1015,7 +1015,7 @@
         "q": "A policy you signed last month gets a typo fix. Must you sign it again?",
         "options": [
           "Only if your manager asks",
-          "No; only a real change asks again",
+          "No; only a new version that changes the policy asks again",
           "Yes; every edit needs a new signature",
           "Yes, within 30 days"
         ],
