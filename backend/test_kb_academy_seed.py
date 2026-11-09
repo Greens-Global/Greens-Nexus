@@ -396,3 +396,31 @@ def test_previous_package_match(tmp_path, monkeypatch):
     assert not s._matches_previous_package("Course A", {"lessons": [{"type": "text", "blocks": blocks}, {"type": "text", "blocks": edited}]})
     assert not s._matches_previous_package("Course B", {"lessons": [{"type": "text", "blocks": blocks}]})
     assert not s._matches_previous_package("Course A", {"lessons": []})
+
+
+def test_academy_path_takes_the_package_audience_and_order_without_undoing_a_person(_package):
+    db = _package
+    res = kb_academy_seed.apply_once(db)
+    plan = db.get(models.KbTrainingPlan, res["plan"])
+    plan.audience = ""
+    items = json.loads(plan.items)
+    items[0], items[1] = items[1], items[0]   # an old package order
+    plan.items = json.dumps(items)
+    db.commit()
+    p = kb_academy.ROOT / "plan.json"
+    cfg = json.loads(p.read_text())
+    p.write_text(json.dumps(dict(cfg, audience={"departments": ["Operations"]})))
+    kb_academy_seed.apply_content_once(db)
+    plan = db.get(models.KbTrainingPlan, plan.id)
+    assert json.loads(plan.audience)["departments"] == ["Operations"]
+    assert [i["id"] for i in json.loads(plan.items)] == [i["id"] for i in items[1::-1] + items[2:]]
+    # a person's audience and a person's course list are left exactly as they are
+    plan.audience = json.dumps({"departments": ["Construction"]})
+    mine = json.loads(plan.items)[:-1]
+    mine[0], mine[1] = mine[1], mine[0]
+    plan.items = json.dumps(mine)
+    db.commit()
+    p.write_text(json.dumps(dict(cfg, audience={"departments": ["Operations"]}, description="changed")))
+    kb_academy_seed.apply_content_once(db)
+    plan = db.get(models.KbTrainingPlan, plan.id)
+    assert json.loads(plan.audience)["departments"] == ["Construction"] and json.loads(plan.items) == mine

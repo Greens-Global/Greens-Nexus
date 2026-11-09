@@ -163,13 +163,50 @@ def apply_once(db: Session) -> dict | None:
     if plan is None:
         plan = KbTrainingPlan(id=kb_core.new_id("plan"), name=a.plan["name"][:200], description=(a.plan.get("description") or "")[:500],
                               items=json.dumps([{"kind": "course", "id": i, "stage": ACADEMY_STAGE_OF[n] if n < len(ACADEMY_STAGE_OF) else -1} for n, i in enumerate(course_ids)]),
-                              due_days=30, due_date="", audience="", active=False, created_by=owner, created_at=kb_core.now(), updated_at=kb_core.now(),
+                              due_days=30, due_date="", audience=_plan_audience(a.plan), active=False, created_by=owner, created_at=kb_core.now(), updated_at=kb_core.now(),
                               kind="onboarding", stages=json.dumps(ACADEMY_STAGES), open_enrollment=True)
         db.add(plan)
     now = kb_core.now()
     db.add(NexusSetting(key=MARK, value=now, updated_by="startup", updated_at=now))
     db.commit()
     return {"collection": col.id, "pages": pages_made, "courses": courses_made, "plan": plan.id, "owner": owner}
+
+
+def _plan_audience(plan: dict) -> str:
+    """The Academy path is for Operations (Neil, 11/09/2026: Cubby and site
+    work are not for everyone on the team); '' when the package names none."""
+    import kb_audience
+    a = plan.get("audience") or {}
+    return kb_audience.dumps(a) if a else ""
+
+
+def _sync_plan(db: Session, a, by_slug: dict) -> bool:
+    """Keep the Academy path in step with the package without undoing a
+    person's choices: a blank audience takes the package's, and when the
+    path still holds exactly the package's courses they follow its order
+    (stages too). Returns whether it changed."""
+    from models import KbTrainingPlan
+    import kb_core
+    plan = db.query(KbTrainingPlan).filter(KbTrainingPlan.name == (a.plan.get("name") or "")[:200]).first() if a.plan else None
+    if plan is None:
+        return False
+    changed = False
+    want = _plan_audience(a.plan)
+    if want and not (plan.audience or "").strip("{} "):
+        plan.audience, changed = want, True
+    ids = [by_slug[s] for s in a.plan.get("courses") or [] if s in by_slug]
+    try:
+        items = json.loads(plan.items or "[]")
+    except ValueError:
+        return changed
+    have = [it.get("id") for it in items if isinstance(it, dict) and it.get("kind") == "course"]
+    if len(items) == len(ids) and sorted(have) == sorted(ids) and have != ids:
+        plan.items = json.dumps([{"kind": "course", "id": i, "stage": ACADEMY_STAGE_OF[n] if n < len(ACADEMY_STAGE_OF) else -1}
+                                 for n, i in enumerate(ids)])
+        changed = True
+    if changed:
+        plan.updated_at = kb_core.now()
+    return changed
 
 
 def apply_paths_once(db: Session) -> dict | None:
@@ -335,8 +372,10 @@ def apply_content_once(db: Session) -> dict | None:
     db.flush()
     plan = db.query(KbTrainingPlan).filter(KbTrainingPlan.name == (a.plan.get("name") or "")[:200]).first() if a.plan else None
     plan_courses = a.plan.get("courses") or []
+    slug_ids = {}
     for spec in a.courses:
         c, made = _course(db, spec, owner, owner_name, page_ids)
+        slug_ids[spec.slug] = c.id
         if made:
             courses_made += 1
             if plan is not None and spec.slug in plan_courses:
@@ -390,6 +429,7 @@ def apply_content_once(db: Session) -> dict | None:
                 c.est_minutes = int(draft.get("est_minutes") or c.est_minutes or 15)
             c.updated_at = kb_core.now()
             courses_touched += 1
+    _sync_plan(db, a, slug_ids)
     now = kb_core.now()
     if mark is None:
         db.add(NexusSetting(key=CONTENT_MARK, value=digest, updated_by="startup", updated_at=now))

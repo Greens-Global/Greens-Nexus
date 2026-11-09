@@ -1,6 +1,6 @@
 {
   "name": "New Hire: Facility Team",
-  "description": "The six courses every new facility hire completes, in order.",
+  "description": "The facility courses every new Operations hire completes, in order. Nexus Fundamentals is the one course for everyone; the rest are for the people who run the sites.",
   "due_days": 30,
   "courses": [
     "nexus-fundamentals",
@@ -9,5 +9,10 @@
     "rv-boat-storage-fundamentals",
     "customer-service-sales-fundamentals",
     "hands-on-check"
-  ]
+  ],
+  "audience": {
+    "departments": [
+      "Operations"
+    ]
+  }
 }
