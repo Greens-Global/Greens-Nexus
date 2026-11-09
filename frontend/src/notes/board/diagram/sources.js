@@ -191,8 +191,12 @@ export function propertyGraph(ws, propertyId) {
   const add = (gid, label, glyph, items) => {
     if (!items.length) return;
     const g = { id: gid, label, glyph, parent: 'site', members: [] };
+    const seen = new Set();
     for (const it of items.slice(0, 40)) {
-      const id = `${gid}:${nodes.length + 1}`;
+      // The record's own id, so Refresh keeps each box on the same record.
+      let id = `${gid}:${it.key}`;
+      for (let k = 2; seen.has(id); k += 1) id = `${gid}:${it.key}~${k}`;
+      seen.add(id);
       nodes.push({ id, label: it.label.slice(0, 120), shape: 'step', glyph: it.glyph });
       g.members.push(id);
     }
@@ -200,13 +204,13 @@ export function propertyGraph(ws, propertyId) {
   };
   const equipment = [
     ...(ws?.properties || []).filter((a) => !a.deleted && a.id !== p.id && kindOf(a) !== 'property' && (String(a.parentId || '') === pid || sameAddress(a.address, p.address)))
-      .map((a) => ({ label: two(a.name, [a.make, a.model].filter(Boolean).join(' ')), glyph: kindOf(a) === 'vehicle' ? 'truck' : pick(EQUIPMENT_ICONS, `${a.equipType} ${a.name}`, 'wrench') })),
+      .map((a) => ({ key: `a${a.id}`, label: two(a.name, [a.make, a.model].filter(Boolean).join(' ')), glyph: kindOf(a) === 'vehicle' ? 'truck' : pick(EQUIPMENT_ICONS, `${a.equipType} ${a.name}`, 'wrench') })),
     ...[...new Set(rows('warranties').map((w) => String(w.scope || '').trim()).filter(Boolean))]
-      .map((s) => ({ label: s, glyph: pick(EQUIPMENT_ICONS, s, 'wrench') })),
+      .map((s) => ({ key: `w${s.toLowerCase()}`, label: s, glyph: pick(EQUIPMENT_ICONS, s, 'wrench') })),
   ];
   add('equipment', 'Equipment', 'wrench', equipment.filter((e) => e.label));
-  add('utilities', 'Utilities', 'zap', rows('utilities').map((u) => ({ label: two(u.service, u.provider) || 'Utility', glyph: pick(UTILITY_ICONS, u.service, 'plug') })));
-  add('vendors', 'Vendors', 'briefcase', rows('vendors').map((v) => ({ label: two(v.company, v.category) || 'Vendor', glyph: pick(VENDOR_ICONS, `${v.category} ${v.company}`, 'briefcase') })));
+  add('utilities', 'Utilities', 'zap', rows('utilities').map((u, i) => ({ key: u.id != null ? `r${u.id}` : `n${i}`, label: two(u.service, u.provider) || 'Utility', glyph: pick(UTILITY_ICONS, u.service, 'plug') })));
+  add('vendors', 'Vendors', 'briefcase', rows('vendors').map((v, i) => ({ key: v.id != null ? `r${v.id}` : `n${i}`, label: two(v.company, v.category) || 'Vendor', glyph: pick(VENDOR_ICONS, `${v.category} ${v.company}`, 'briefcase') })));
   if (!nodes.length) return { nodes: [], edges: [], groups: [] };
   return { nodes, edges: [], groups };
 }

@@ -674,8 +674,11 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     // Gone while the data loaded (deleted here or by someone else): nothing to
     // redraw - and an empty selection would read as the whole board.
     if (!Object.keys(mine).length) return;
-    const { replaced, origin } = graphFromElements(now, mine);
-    const g = prefixGraph(graph, st.id);
+    const { graph: was, replaced, origin } = graphFromElements(now, mine);
+    // A group renamed on the board keeps the name it was given there.
+    const named = new Map(was.groups.filter((x) => x.named).map((x) => [x.id, x.label]));
+    const fresh = prefixGraph(graph, st.id);
+    const g = { ...fresh, groups: (fresh.groups || []).map((x) => (named.has(x.id) ? { ...x, label: named.get(x.id), named: true } : x)) };
     const built = stampBoxes(diagramApi.build(layoutGraph(g, { dir: st.dir || 'TB', origin }), { look: lookRef.current }), g.nodes.map((n) => n.id), st);
     api.updateScene({ elements: mergeBuilt(now, built, replaced), captureUpdate: CAPTURE.IMMEDIATELY });
     scheduleSave();

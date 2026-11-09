@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseText, readNode, layout, graphFromElements, bounds, STARTERS, edgeRoute, edgePorts, obstacles, nodeSize, glyphBox } from './graph';
+import { parseText, readNode, layout, graphFromElements, bounds, STARTERS, edgeRoute, edgePorts, obstacles, nodeSize, glyphBox, routeAll, bestRoute } from './graph';
 
 const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
@@ -158,6 +158,24 @@ describe('groups, arrow kinds and icons (11/08/2026)', () => {
     const starts = placed.edges.slice(0, 3).map((e, i) => edgeRoute(at.get(e.from), at.get(e.to), placed, 0, ports[i])[0][0]);
     expect(new Set(starts).size).toBe(3);
   });
+  it('routes the whole diagram at once exactly as one arrow at a time', () => {
+    for (const dir of ['TB', 'LR']) {
+      const placed = layout(parseText(`${SITE}\nOffice -> Cameras\nDrive-Up Units -> Office`), { dir });
+      const at = new Map(placed.nodes.map((n) => [n.id, n]));
+      const ports = edgePorts(placed);
+      expect(routeAll(placed, 6)).toEqual(placed.edges.map((e, i) => edgeRoute(at.get(e.from), at.get(e.to), placed, 6, ports[i])));
+    }
+  });
+  it('when every way round crosses something, takes the one through the fewest', () => {
+    const wall = (x) => ({ x, y: 0, w: 10, h: 100 });
+    const obs = [wall(20), wall(40), wall(60)];
+    const through3 = [[0, 50], [100, 50]];
+    const through1 = [[0, 50], [30, 50], [30, 200]];
+    const through2 = [[0, 50], [50, 50], [50, 200]];
+    expect(bestRoute([through3, through1, through2], obs)).toBe(through1);
+    const clear = [[0, 150], [100, 150]];
+    expect(bestRoute([through3, clear], obs)).toBe(clear);
+  });
   it('makes a box with a glyph taller, its glyph above the words', () => {
     expect(nodeSize('Gate', 'step', 'lock').h).toBeGreaterThan(nodeSize('Gate').h);
     const gb = glyphBox({ x: 0, y: 0, w: 140, h: 90, shape: 'step', glyph: 'lock' });
@@ -215,6 +233,36 @@ describe('graphFromElements', () => {
     expect(graphFromElements(grouped).graph.nodes.map((n) => n.id).sort()).toEqual(['a', 'b', 'c']);
     expect(graphFromElements(grouped, { 'I:box': true }).graph.nodes.length).toBe(3);
     expect(layout(graph).groups.map((g) => g.id)).toEqual(['G', 'I']);
+  });
+  const site = () => [
+    { id: 'G:box', type: 'rectangle', x: 0, y: 0, width: 400, height: 300, groupIds: ['G'], customData: { nexusGroup: { gid: 'G', label: 'Site', glyph: 'building', parent: '' } } },
+    { id: 'G:label', type: 'text', x: 34, y: 10, text: 'Site', groupIds: ['G'], customData: { nexusGroupLabel: 'G', nexusGlyph: 'building' } },
+    { id: 'G:glyph:0', type: 'line', x: 12, y: 11, groupIds: ['G'], customData: { nexusGlyphOf: 'G' } },
+    { id: 'a', type: 'rectangle', x: 30, y: 70, width: 140, height: 64, groupIds: ['G'] },
+    { id: 'b', type: 'rectangle', x: 30, y: 200, width: 140, height: 64, groupIds: ['G', 'mine'] },
+    { id: 'x', type: 'arrow', startBinding: { elementId: 'a' }, endBinding: { elementId: 'b' }, groupIds: ['G'] },
+  ];
+  const without = (list, ...ids) => list.map((e) => (ids.includes(e.id) ? { ...e, isDeleted: true } : e));
+  const relabel = (list, text) => list.map((e) => (e.id === 'G:label' ? { ...e, text, originalText: text } : e));
+  it('keeps a group renamed on the board (its label text wins over the name saved on the box)', () => {
+    const { graph } = graphFromElements(relabel(site(), 'Escondido North'));
+    expect(graph.groups).toEqual([{ id: 'G', label: 'Escondido North', glyph: 'building', parent: '', members: ['a', 'b'], named: true }]);
+    expect(graphFromElements(site()).graph.groups[0].named).toBeUndefined();
+    expect(layout(graph).groups[0]).toMatchObject({ label: 'Escondido North', named: true });
+  });
+  it('draws a group again from its label when only its box was deleted, so nothing typed is lost', () => {
+    const { graph, replaced, origin } = graphFromElements(without(relabel(site(), 'North'), 'G:box'));
+    expect(graph.groups).toEqual([{ id: 'G', label: 'North', glyph: 'building', parent: '', members: ['a', 'b'], named: true }]);
+    for (const id of ['G:label', 'G:glyph:0']) expect(replaced.has(id)).toBe(true);
+    expect(origin).toEqual({ x: 0, y: 0 });
+  });
+  it('clears what is left of a group whose box and label were deleted: its icon goes, its id leaves the boxes', () => {
+    const { graph, replaced } = graphFromElements(without(site(), 'G:box', 'G:label'));
+    expect(graph.groups).toEqual([]);
+    expect(replaced.has('G:glyph:0')).toBe(true);
+    expect(graph.nodes.find((n) => n.id === 'a').style.groupIds).toEqual([]);
+    expect(graph.nodes.find((n) => n.id === 'b').style.groupIds).toEqual(['mine']);
+    expect(graph.edges[0].style.groupIds).toEqual([]);
   });
   it('with nothing selected, leaves loose boxes (markup round a picture) where they are', () => {
     const loose = [...els, { id: 'mark', type: 'rectangle', x: 900, y: 900, width: 50, height: 50 }];

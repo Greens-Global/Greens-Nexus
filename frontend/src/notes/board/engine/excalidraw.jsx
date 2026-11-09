@@ -17,7 +17,7 @@ import {
 import '@excalidraw/excalidraw/index.css';
 import { CAPTURE } from './index';
 import { buildScene, lookDefaults, NEXUS_INK } from '../scene';
-import { SHAPE_STYLE, EDGE_STYLE, GROUP_STYLE, GROUP_LABEL, MARKS, edgeRoute, edgePorts, glyphBox } from '../diagram/graph';
+import { SHAPE_STYLE, EDGE_STYLE, GROUP_STYLE, GROUP_LABEL, MARKS, routeAll, glyphBox } from '../diagram/graph';
 import { glyphShapes } from '../diagram/glyphs';
 import { reconcile as mergeElements } from '../boardSync';
 
@@ -219,7 +219,7 @@ export const markup = {
  *    inside it and clips what it holds. Selecting a member selects the whole
  *    group, so it moves as one; an inner group carries both ids.
  *  - every arrow is an ELBOW arrow (`elbowed`), tied to its two boxes with
- *    fixed points on their sides: the first route is graph.js `edgeRoute`
+ *    fixed points on their sides: the first route is graph.js `routeAll`
  *    (right angles round every box and group label), and when a box moves
  *    the engine routes it again from the same sides. A label on an arrow is
  *    the engine's bound text, which cuts the line round it (the halo).
@@ -247,7 +247,6 @@ function glyphSkeleton(shapes, { owner, groupIds, frameId }) {
 export const diagram = {
   build(placed, { look = 'clean' } = {}) {
     const d = lookDefaults(look);
-    const at = new Map(placed.nodes.map((n) => [n.id, n]));
     const groups = placed.groups || [];
     // A node's engine groups: its glyph's, then its group's and that group's parent.
     const chain = new Map();
@@ -261,7 +260,7 @@ export const diagram = {
         type: 'rectangle', id: `${g.id}:box`, x: g.x, y: g.y, width: g.w, height: g.h,
         strokeColor: st.stroke, backgroundColor: st.fill, fillStyle: 'solid', strokeWidth: 1,
         roughness: d.currentItemRoughness, roundness: { type: 3, value: 8 }, groupIds: ids,
-        customData: { [MARKS.group]: { gid: g.id, label: g.label, glyph: g.glyph || '', parent: g.parent || '' } },
+        customData: { [MARKS.group]: { gid: g.id, label: g.label, glyph: g.glyph || '', parent: g.parent || '', ...(g.named ? { named: true } : {}) } },
       });
       if (g.glyph) {
         skeleton.push(...glyphSkeleton(glyphShapes(g.glyph, { x: lx, y: ly + 1, w: GROUP_LABEL.glyph, h: GROUP_LABEL.glyph, ink: st.ink }), { owner: g.id, groupIds: ids }));
@@ -269,7 +268,8 @@ export const diagram = {
       skeleton.push({
         type: 'text', id: `${g.id}:label`, x: lx + (g.glyph ? GROUP_LABEL.glyph + 6 : 0), y: ly, text: g.label,
         fontSize: GROUP_LABEL.size, fontFamily: d.currentItemFontFamily, strokeColor: st.ink, groupIds: ids,
-        customData: { [MARKS.groupLabel]: g.id },
+        // the glyph rides on the label too: a group whose box was deleted is drawn again from it
+        customData: { [MARKS.groupLabel]: g.id, ...(g.glyph ? { nexusGlyph: g.glyph } : {}) },
       });
     }
     for (const n of placed.nodes) {
@@ -295,12 +295,10 @@ export const diagram = {
         skeleton.push(...glyphSkeleton(glyphShapes(n.glyph, { ...glyphBox(n), ink: textColor || NEXUS_INK }), { owner: n.id, groupIds, frameId: box.frameId }));
       }
     }
-    const ports = edgePorts(placed);
+    const routes = routeAll(placed, 6);
     placed.edges.forEach((e, i) => {
-      const a = at.get(e.from);
-      const b = at.get(e.to);
-      if (!a || !b) return;
-      const route = edgeRoute(a, b, placed, 6, ports[i]);
+      const route = routes[i];
+      if (!route) return;
       const [x0, y0] = route[0];
       const points = route.map(([x, y]) => [x - x0, y - y0]);
       const kind = EDGE_STYLE[e.kind] ? e.kind : 'normal';

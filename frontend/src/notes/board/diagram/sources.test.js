@@ -73,8 +73,8 @@ describe('Systems maps (11/08/2026)', () => {
       { id: 'e2', kind: 'equipment', name: 'Elsewhere', address: '9 Other Rd' },
     ],
     warranties: [{ propertyId: 'p1', scope: 'HVAC Units' }, { propertyId: 'p1', scope: 'HVAC Units' }, { propertyId: 'p9', scope: 'Not Here' }],
-    utilities: [{ propertyId: 'p1', service: 'Electric', provider: 'SDG&E' }, { propertyId: 'p1', service: 'Water', provider: 'City', deleted: true }],
-    vendors: [{ propertyId: 'p1', company: 'Bug Busters', category: 'Pest Control' }],
+    utilities: [{ id: 'u1', propertyId: 'p1', service: 'Electric', provider: 'SDG&E' }, { id: 'u2', propertyId: 'p1', service: 'Water', provider: 'City', deleted: true }],
+    vendors: [{ id: 'd1', propertyId: 'p1', company: 'Bug Busters', category: 'Pest Control' }],
   };
   it('draws one property as a group, its equipment, utilities and vendors in groups inside it', () => {
     const g = propertyGraph(ws, 'p1');
@@ -89,6 +89,14 @@ describe('Systems maps (11/08/2026)', () => {
     const placed = layout(g);
     expect(placed.groups[0].label).toBe('Escondido');
     expect(placed.groups.slice(1).every((x) => x.parent === 'site')).toBe(true);
+  });
+  it('keys each box by its record, so Refresh keeps a box on the same record when one before it goes', () => {
+    const ids = (w) => Object.fromEntries(propertyGraph(w, 'p1').nodes.map((n) => [n.label.split('\n')[0], n.id]));
+    const before = ids(ws);
+    expect(before).toMatchObject({ 'Gate Operator': 'equipment:ae1', 'Truck 4': 'equipment:av1', 'HVAC Units': 'equipment:whvac units', Electric: 'utilities:ru1', 'Bug Busters': 'vendors:rd1' });
+    const after = ids({ ...ws, properties: ws.properties.filter((a) => a.id !== 'e1') });
+    expect(after['Truck 4']).toBe(before['Truck 4']);
+    expect(after['HVAC Units']).toBe(before['HVAC Units']);
   });
   it('draws nothing for a property it was not sent, or one in the Trash', () => {
     expect(propertyGraph(ws, 'p2').nodes).toEqual([]);

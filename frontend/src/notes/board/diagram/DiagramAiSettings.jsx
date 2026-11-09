@@ -7,9 +7,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../api';
 import { SwitchRow } from '../../../components/settings/SettingsUI';
 import { SkeletonBlocks } from '../../../components/AsyncState';
-
-/** Why From a Sentence is off - the same words the server answers with. */
-export const AI_OFF_NOTE = 'Turned off. A Super Administrator (Neil or Visesh) must enable AI for Nexus and connect an AI service first.';
+import { AI_OFF_NOTE } from './aiNote';
 
 export default function DiagramAiSettings({ toastOk, toastErr }) {
   const [cfg, setCfg] = useState(null);

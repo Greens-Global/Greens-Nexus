@@ -17,11 +17,11 @@ import { btn } from '../../../tasks/theme';
 import { api } from '../../../api';
 import { useRole } from '../../../contexts/RoleContext';
 import {
-  parseText, layout, bounds, edgeRoute, edgePorts, routeMid, glyphBox, STARTERS, SHAPE_STYLE, EDGE_STYLE, GROUP_STYLE, GROUP_LABEL,
+  parseText, layout, bounds, routeAll, routeMid, glyphBox, STARTERS, SHAPE_STYLE, EDGE_STYLE, GROUP_STYLE, GROUP_LABEL,
 } from './graph';
 import { GlyphSvg } from './glyphs';
 import { SOURCES, sourceOptions, loadGraph } from './sources';
-import { AI_OFF_NOTE } from './DiagramAiSettings';
+import { AI_OFF_NOTE } from './aiNote';
 
 const DIRS = [{ key: 'TB', label: 'Top to Bottom' }, { key: 'LR', label: 'Left to Right' }];
 const TEXT_HINT = [
@@ -31,13 +31,11 @@ const TEXT_HINT = [
   'Indent a line under a step to hang it from that one.',
 ].join('\n');
 
-function Preview({ placed }) {
+function Preview({ placed, routes }) {
   const b = bounds(placed);
   if (!placed?.nodes?.length) return <div className="nx-dg-empty">The diagram shows here as you type.</div>;
-  const at = new Map(placed.nodes.map((n) => [n.id, n]));
   const pad = 16;
   const kinds = Object.keys(EDGE_STYLE);
-  const ports = edgePorts(placed);
   return (
     <svg className="nx-dg-svg" viewBox={`${b.x - pad} ${b.y - pad} ${b.w + pad * 2} ${b.h + pad * 2}`} role="img" aria-label="Diagram preview">
       <defs>
@@ -59,9 +57,8 @@ function Preview({ placed }) {
         );
       })}
       {placed.edges.map((e, i) => {
-        const a = at.get(e.from); const c = at.get(e.to);
-        if (!a || !c) return null;
-        const pts = edgeRoute(a, c, placed, 2, ports[i]);
+        const pts = routes?.[i];
+        if (!pts) return null;
         const k = EDGE_STYLE[e.kind] ? e.kind : 'normal';
         const [mx, my] = routeMid(pts);
         return (
@@ -100,15 +97,16 @@ function SentenceBox({ onWritten }) {
   const [sentence, setSentence] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [tries, setTries] = useState(0);
   useEffect(() => {
     let on = true;
     api.getDiagramAiSettings()
       .then((r) => { if (on) setState(r || {}); })
       .catch(() => { if (on) setState({ error: true }); });
     return () => { on = false; };
-  }, []);
+  }, [tries]);
   const ready = !!(state?.aiAvailable && state?.diagramAiEnabled);
-  const note = state == null ? '' : ready ? '' : AI_OFF_NOTE;
+  const note = state == null || state.error || ready ? '' : AI_OFF_NOTE;
   const write = () => {
     if (!ready || !sentence.trim()) return;
     setBusy(true); setErr('');
@@ -126,7 +124,13 @@ function SentenceBox({ onWritten }) {
       {busy ? 'Writing...' : 'Write the Diagram'}
     </button>
     {note && <p id="nx-dg-ai-note" className="nx-dg-hint nx-dg-ai-off">{note}</p>}
-    {!note && <p className="nx-dg-hint">Nexus writes the diagram as text first, in the box under Type It, so you can check it before anything goes on the board.</p>}
+    {state?.error && (
+      <p className="nx-dg-error" role="alert">
+        Whether this is on did not load.{' '}
+        <button type="button" style={btn('ghost')} onClick={() => { setState(null); setTries((t) => t + 1); }}>Retry</button>
+      </p>
+    )}
+    {!note && !state?.error && <p className="nx-dg-hint">Nexus writes the diagram as text first, in the box under Type It, so you can check it before anything goes on the board.</p>}
     {err && <p className="nx-dg-error" role="alert">{err}</p>}
   </>);
 }
@@ -177,6 +181,7 @@ export default function DiagramSheet({ mode = 'text', initialRef = '', onPlace, 
 
   const graph = useMemo(() => (isText ? parseText(text) : data?.key === key ? data.graph : null), [isText, text, data, key]);
   const placed = useMemo(() => (graph ? layout(graph, { dir }) : null), [graph, dir]);
+  const routes = useMemo(() => (placed ? routeAll(placed, 2) : null), [placed]);
   const count = graph?.nodes?.length || 0;
   const loading = !isText && !(optError && !nexusMap) && (needsRef && !ref ? options == null : data?.key !== key);
   const title = isText ? 'Diagram from Text' : SOURCES[mode]?.label || 'Diagram';
@@ -261,7 +266,7 @@ export default function DiagramSheet({ mode = 'text', initialRef = '', onPlace, 
         <div className="nx-dg-preview nx-fill">
           {loading ? <div className="nx-dg-empty">Loading...</div>
             : empty ? <div className="nx-dg-empty">{empty}</div>
-              : <Preview placed={placed} />}
+              : <Preview placed={placed} routes={routes} />}
         </div>
       </div>
     </Modal>

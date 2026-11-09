@@ -316,7 +316,7 @@ function layoutGroups(graph, groupList, { dir = 'TB', origin = { x: 0, y: 0 } } 
   const groups = order.slice().reverse()   // outer first: they are drawn behind the inner ones
     .filter((g) => abs.has(gkey(g.id)))
     .map((g) => ({
-      id: g.id, label: g.label, glyph: g.glyph || '', parent: parentOf.get(g.id),
+      id: g.id, label: g.label, glyph: g.glyph || '', parent: parentOf.get(g.id), ...(g.named ? { named: true } : {}),
       members: (g.members || []).filter((m) => groupOf.get(m) === g.id),
       ...abs.get(gkey(g.id)), ...size.get(gkey(g.id)),
     }));
@@ -464,27 +464,65 @@ function gridLayout(nodes, origin, dir) {
 
 const CLEAR = 8;   // how far an arrow keeps from a box it passes
 
-const hits = (pts, rects) => {
-  for (let i = 0; i + 1 < pts.length; i += 1) {
-    const [x1, y1] = pts[i]; const [x2, y2] = pts[i + 1];
-    const lx = Math.min(x1, x2); const hx = Math.max(x1, x2); const ly = Math.min(y1, y2); const hy = Math.max(y1, y2);
-    for (const r of rects) if (lx < r.x + r.w && hx > r.x && ly < r.y + r.h && hy > r.y) return true;
+/** How many of `rects` a route runs through (0 = a clean way round),
+ *  counting no further than `stopAt`. */
+export function crossings(pts, rects, stopAt = Infinity) {
+  let n = 0;
+  for (const r of rects) {
+    for (let i = 0; i + 1 < pts.length; i += 1) {
+      const [x1, y1] = pts[i]; const [x2, y2] = pts[i + 1];
+      if (Math.min(x1, x2) < r.x + r.w && Math.max(x1, x2) > r.x && Math.min(y1, y2) < r.y + r.h && Math.max(y1, y2) > r.y) { n += 1; break; }
+    }
+    if (n >= stopAt) break;
   }
-  return false;
-};
+  return n;
+}
+/** The first clean route of `tries`, else the one through the fewest things. */
+export function bestRoute(tries, obs) {
+  let best = tries[0]; let fewest = Infinity;
+  for (const p of tries) {
+    const n = crossings(p, obs, fewest);
+    if (n === 0) return p;
+    if (n < fewest) { best = p; fewest = n; }
+  }
+  return best;
+}
 const flip = (r) => ({ x: r.y, y: r.x, w: r.h, h: r.w });
 
-/** The obstacles an arrow must miss: every box but its own two, every
- *  group's label row, and every group holding neither end (the arrow goes
- *  round it rather than through it). */
-export function obstacles(placed, except = []) {
-  const skip = new Set(except);
-  const boxes = (placed?.nodes || []).filter((n) => !skip.has(n.id)).map((n) => ({ x: n.x - CLEAR, y: n.y - CLEAR, w: n.w + 2 * CLEAR, h: n.h + 2 * CLEAR }));
+/** What the arrows of one placed diagram may have to miss, worked out once:
+ *  each box with its clearance, each group's label row, and each group's
+ *  wall with the boxes it holds (an arrow goes round a group holding
+ *  neither of its ends rather than through it). */
+function obstacleSet(placed) {
   const groups = placed?.groups || [];
-  const holds = (g) => (g.members || []).some((m) => skip.has(m)) || groups.some((k) => k.parent === g.id && (k.members || []).some((m) => skip.has(m)));
-  const labels = groups.map((g) => ({ x: g.x + GROUP_LABEL.dx - 4, y: g.y + GROUP_LABEL.dy - 4, w: groupLabelWidth(g) - GROUP_LABEL.dx, h: GROUP_LABEL.size + 12 }));
-  const walls = except.length ? groups.filter((g) => !holds(g)).map((g) => ({ x: g.x - 4, y: g.y - 4, w: g.w + 8, h: g.h + 8 })) : [];
-  return [...boxes, ...labels, ...walls];
+  return {
+    boxes: (placed?.nodes || []).map((n) => ({ id: n.id, r: { x: n.x - CLEAR, y: n.y - CLEAR, w: n.w + 2 * CLEAR, h: n.h + 2 * CLEAR } })),
+    labels: groups.map((g) => ({ x: g.x + GROUP_LABEL.dx - 4, y: g.y + GROUP_LABEL.dy - 4, w: groupLabelWidth(g) - GROUP_LABEL.dx, h: GROUP_LABEL.size + 12 })),
+    walls: groups.map((g) => ({
+      holds: new Set([...(g.members || []), ...groups.filter((k) => k.parent === g.id).flatMap((k) => k.members || [])]),
+      r: { x: g.x - 4, y: g.y - 4, w: g.w + 8, h: g.h + 8 },
+    })),
+  };
+}
+function obstaclesFor(set, except) {
+  return [
+    ...set.boxes.filter((b) => !except.includes(b.id)).map((b) => b.r),
+    ...set.labels,
+    ...(except.length ? set.walls.filter((w) => !except.some((id) => w.holds.has(id))).map((w) => w.r) : []),
+  ];
+}
+
+/** The obstacles an arrow must miss: every box but its own two, every
+ *  group's label row, and every group holding neither end. */
+export function obstacles(placed, except = []) {
+  return obstaclesFor(obstacleSet(placed), except);
+}
+
+function routeWith(a, c, obs, lr, gap, port) {
+  const T = lr ? flip : (r) => r;
+  const pts = routeTB(T(a), T(c), lr ? obs.map(flip) : obs, gap, port?.from ?? 0.5, port?.to ?? 0.5, port?.bend);
+  const clean = pts.filter((p, i) => i === 0 || p[0] !== pts[i - 1][0] || p[1] !== pts[i - 1][1]);
+  return lr ? clean.map(([x, y]) => [y, x]) : clean;
 }
 
 /** The way an arrow goes from box `a` to box `c`: a list of [x, y] points,
@@ -492,13 +530,21 @@ export function obstacles(placed, except = []) {
  *  ({ from, to }, 0..1 along the side, edgePorts) keeps two arrows leaving
  *  one side from starting on top of each other. */
 export function edgeRoute(a, c, placed = null, gap = 0, port = null) {
+  return routeWith(a, c, obstacles(placed, [a.id, c.id]), placed?.dir === 'LR', gap, port);
+}
+
+/** Every arrow's route at once (the board build and the preview): the
+ *  obstacles and the ports are worked out once for the whole diagram. One
+ *  route per edge of `placed.edges`, null where an end is missing. */
+export function routeAll(placed, gap = 0) {
+  const set = obstacleSet(placed);
+  const at = new Map((placed?.nodes || []).map((n) => [n.id, n]));
+  const ports = edgePorts(placed);
   const lr = placed?.dir === 'LR';
-  const T = lr ? flip : (r) => r;
-  const A = T(a); const C = T(c);
-  const obs = obstacles(placed, [a.id, c.id]).map(T);
-  const pts = routeTB(A, C, obs, gap, port?.from ?? 0.5, port?.to ?? 0.5, port?.bend);
-  const clean = pts.filter((p, i) => i === 0 || p[0] !== pts[i - 1][0] || p[1] !== pts[i - 1][1]);
-  return lr ? clean.map(([x, y]) => [y, x]) : clean;
+  return (placed?.edges || []).map((e, i) => {
+    const a = at.get(e.from); const c = at.get(e.to);
+    return a && c ? routeWith(a, c, obstaclesFor(set, [a.id, c.id]), lr, gap, ports[i]) : null;
+  });
 }
 
 /** Where each arrow leaves and meets its boxes along the flow: arrows that
@@ -569,20 +615,17 @@ function routeTB(a, c, obs, gap, pa = 0.5, pc = 0.5, bend = undefined) {
       const side = lx > c.x + c.w / 2 ? c.x + c.w + gap : c.x - gap;
       tries.push([[ax, aBottom], [ax, y1], [lx, y1], [lx, cy], [side, cy]]);
     }
-    for (const p of tries) if (!hits(p, obs)) return p;
-    return tries[1];
+    return bestRoute(tries, obs);
   }
   // Against the flow (a loop back up) or side by side: out one side, round, into the same side.
   const ay = a.y + a.h / 2; const cy = c.y + c.h / 2;
   const right = Math.max(a.x + a.w, c.x + c.w); const leftEdge = Math.min(a.x, c.x);
   for (let k = 1; k <= 8; k += 1) {
     const rx = right + 24 * k; const lx = leftEdge - 24 * k;
-    const r = [[a.x + a.w + gap, ay], [rx, ay], [rx, cy], [c.x + c.w + gap, cy]];
-    if (!hits(r, obs)) return r;
-    const l = [[a.x - gap, ay], [lx, ay], [lx, cy], [c.x - gap, cy]];
-    if (!hits(l, obs)) return l;
+    tries.push([[a.x + a.w + gap, ay], [rx, ay], [rx, cy], [c.x + c.w + gap, cy]]);
+    tries.push([[a.x - gap, ay], [lx, ay], [lx, cy], [c.x - gap, cy]]);
   }
-  return [[a.x + a.w + gap, ay], [right + 24, ay], [right + 24, cy], [c.x + c.w + gap, cy]];
+  return bestRoute(tries, obs);
 }
 
 /** Lanes beside the obstacles, nearest `near` first. */
@@ -629,9 +672,38 @@ export function graphFromElements(elements, selectedIds = {}) {
   const anySelected = Object.values(selectedIds || {}).some(Boolean);
   const labelOf = new Map();   // container id -> its bound text element
   for (const e of live) if (e.type === 'text' && e.containerId) labelOf.set(e.containerId, e);
-  // The group boxes the builder drew: { gid, label, glyph, parent } on the box.
-  const containers = live.filter((e) => e.type === 'rectangle' && e.customData?.[MARKS.group]?.gid);
-  const groupInfo = new Map(containers.map((e) => [e.customData[MARKS.group].gid, { ...e.customData[MARKS.group], box: e }]));
+  // The builder's groups: the box it drew ({ gid, label, glyph, parent } on
+  // it) and the label over it. The words on the board win, so a group renamed
+  // there keeps its name (`named`); a group whose box was deleted but whose
+  // label still says something is drawn again - nothing typed is lost.
+  const groupInfo = new Map();
+  for (const e of live) {
+    const d = e.type === 'rectangle' ? e.customData?.[MARKS.group] : null;
+    if (d?.gid) groupInfo.set(d.gid, { ...d, box: e });
+  }
+  for (const t of live) {
+    const gid = t.type === 'text' ? t.customData?.[MARKS.groupLabel] : '';
+    if (!gid) continue;
+    const said = t.originalText ?? t.text;
+    const info = groupInfo.get(gid);
+    if (info) {
+      info.labelEl = t;
+      if (said != null && said !== info.label) { info.label = said; info.named = true; }
+    } else if (String(said || '').trim()) {
+      groupInfo.set(gid, { gid, label: said, glyph: t.customData.nexusGlyph || '', parent: (t.groupIds || [])[1] || '', named: true, box: null, labelEl: t });
+    }
+  }
+  // What is left of a group that is gone (its box and its words deleted): an
+  // icon or an empty label. Those pieces are removed, and their group id is
+  // dropped from the boxes this rebuilds (a box left out keeps it - harmless,
+  // it reads as a group of the person's own).
+  const liveIds = new Set(live.map((e) => e.id));
+  const orphans = live.filter((e) => {
+    const of = e.customData?.[MARKS.groupLabel] || e.customData?.[MARKS.glyphOf];
+    return of && !groupInfo.has(of) && !liveIds.has(of);
+  });
+  const orphanGids = new Set(orphans.map((e) => e.customData[MARKS.groupLabel] || e.customData[MARKS.glyphOf]));
+  const builderGroup = (g) => groupInfo.has(g) || orphanGids.has(g);
   const eligible = new Map(live.filter((e) => BOX[e.type] && !e.locked && !e.customData?.nexusComment && !e.customData?.[MARKS.group] && !e.customData?.[MARKS.glyphOf]).map((e) => [e.id, e]));
   const tied = live.filter((e) => e.type === 'arrow' && !e.locked
     && eligible.has(e.startBinding?.elementId) && eligible.has(e.endBinding?.elementId)
@@ -646,7 +718,7 @@ export function graphFromElements(elements, selectedIds = {}) {
   const picked = new Set(anySelected
     ? [...eligible.keys()].filter((id) => selectedIds[id])
     : [...tied.flatMap((a) => [a.startBinding.elementId, a.endBinding.elementId]), ...[...membersOf.values()].flat()]);
-  if (anySelected) for (const [gid, info] of groupInfo) if (selectedIds[info.box.id]) for (const id of membersOf.get(info.parent || gid) || []) picked.add(id);
+  if (anySelected) for (const [gid, info] of groupInfo) if ((info.box && selectedIds[info.box.id]) || (info.labelEl && selectedIds[info.labelEl.id])) for (const id of membersOf.get(info.parent || gid) || []) picked.add(id);
   for (let grew = true; grew;) {
     grew = false;
     for (const a of tied) {
@@ -666,58 +738,48 @@ export function graphFromElements(elements, selectedIds = {}) {
     // The builder's own groups are drawn again from `groups`; a box keeps any group of its own.
     const chain = chainOf(b);
     chain.forEach((g) => usedGroups.add(g));
-    if (style.groupIds) style.groupIds = style.groupIds.filter((g) => !groupInfo.has(g) && g !== `${b.id}:glyph`);
+    if (style.groupIds) style.groupIds = style.groupIds.filter((g) => !builderGroup(g) && g !== `${b.id}:glyph`);
     const t = labelOf.get(b.id);
     if (t) { style.fontSize = t.fontSize; style.fontFamily = t.fontFamily; style.textColor = t.strokeColor; style.textAlign = t.textAlign; style.verticalAlign = t.verticalAlign; }
     const n = { id: b.id, label: t?.originalText ?? t?.text ?? '', shape: BOX[b.type], w: b.width, h: b.height, style, version: b.version };
     if (b.customData?.nexusGlyph) n.glyph = b.customData.nexusGlyph;
     return n;
   });
-  const groups = [...usedGroups].map((gid) => {
+  const groupOut = (gid, parent, members) => {
     const info = groupInfo.get(gid);
-    return { id: gid, label: info.label || '', glyph: info.glyph || '', parent: info.parent && groupInfo.has(info.parent) ? info.parent : '', members: boxes.filter((b) => chainOf(b)[0] === gid).map((b) => b.id) };
+    return { id: gid, label: info.label || '', glyph: info.glyph || '', parent, members, ...(info.named ? { named: true } : {}) };
+  };
+  const groups = [...usedGroups].map((gid) => {
+    const p = groupInfo.get(gid).parent;
+    return groupOut(gid, p && groupInfo.has(p) ? p : '', boxes.filter((b) => chainOf(b)[0] === gid).map((b) => b.id));
   });
   for (const g of groups) if (g.parent) usedGroups.add(g.parent);
-  for (const gid of usedGroups) if (!groups.some((g) => g.id === gid)) {
-    const info = groupInfo.get(gid);
-    groups.push({ id: gid, label: info.label || '', glyph: info.glyph || '', parent: '', members: [] });
-  }
+  for (const gid of usedGroups) if (!groups.some((g) => g.id === gid)) groups.push(groupOut(gid, '', []));
   const edges = arrows.map((a) => {
     const t = labelOf.get(a.id);
     const style = {};
     for (const k of ['strokeColor', 'strokeWidth', 'strokeStyle', 'roughness', 'opacity', 'frameId', 'groupIds']) if (a[k] !== undefined) style[k] = a[k];
-    if (style.groupIds) style.groupIds = style.groupIds.filter((g) => !groupInfo.has(g));
+    if (style.groupIds) style.groupIds = style.groupIds.filter((g) => !builderGroup(g));
     const e = { from: a.startBinding.elementId, to: a.endBinding.elementId, label: t?.originalText ?? t?.text ?? '', style };
     if (a.customData?.[MARKS.edge] && a.customData[MARKS.edge] !== 'normal') e.kind = a.customData[MARKS.edge];
     return e;
   });
   // What the rebuild replaces: the boxes (kept ids), their labels and glyphs,
-  // the arrows and theirs, and the group boxes with their labels and glyphs.
-  const replaced = new Set([...boxes.map((b) => b.id), ...arrows.map((a) => a.id), ...[...usedGroups].map((g) => groupInfo.get(g).box.id)]);
+  // the arrows and theirs, the group boxes with their labels and glyphs, and
+  // the pieces of groups that are gone.
+  const replaced = new Set([...boxes.map((b) => b.id), ...arrows.map((a) => a.id), ...[...usedGroups].map((g) => groupInfo.get(g).box?.id).filter(Boolean), ...orphans.map((e) => e.id)]);
   for (const id of [...replaced]) { const t = labelOf.get(id); if (t) replaced.add(t.id); }
   for (const e of live) {
     const owner = e.customData?.[MARKS.glyphOf] || e.customData?.[MARKS.groupLabel];
     if (owner && (replaced.has(owner) || usedGroups.has(owner))) replaced.add(e.id);
   }
-  const framed = [...boxes, ...[...usedGroups].map((g) => groupInfo.get(g).box)];
+  // A group drawn again from its label alone sits where that label puts it.
+  const frameOf = (info) => info.box || { x: info.labelEl.x - GROUP_LABEL.dx - (info.glyph ? GROUP_LABEL.glyph + 6 : 0), y: info.labelEl.y - GROUP_LABEL.dy };
+  const framed = [...boxes, ...[...usedGroups].map((g) => frameOf(groupInfo.get(g)))];
   const origin = framed.length
     ? { x: Math.min(...framed.map((b) => b.x)), y: Math.min(...framed.map((b) => b.y)) }
     : { x: 0, y: 0 };
   return { graph: { nodes, edges, groups }, replaced, origin };
-}
-
-/** Where an arrow between two placed boxes starts and ends: edge to edge
- *  along the flow (out the bottom, in the top - or right / left), `gap` clear
- *  of each box; an arrow going back up the flow leaves the top instead.
- *  Every shape here touches its box at the side midpoints, so the ends sit
- *  on the outline whatever the shape. */
-export function edgePoints(a, c, dir = 'TB', gap = 0) {
-  const ac = { x: a.x + a.w / 2, y: a.y + a.h / 2 };
-  const cc = { x: c.x + c.w / 2, y: c.y + c.h / 2 };
-  if (dir === 'LR') {
-    return c.x >= a.x + a.w ? [a.x + a.w + gap, ac.y, c.x - gap, cc.y] : [a.x - gap, ac.y, c.x + c.w + gap, cc.y];
-  }
-  return c.y >= a.y + a.h ? [ac.x, a.y + a.h + gap, cc.x, c.y - gap] : [ac.x, a.y - gap, cc.x, c.y + c.h + gap];
 }
 
 /** The bounds of a placed graph - where to put it, how big the preview is. */

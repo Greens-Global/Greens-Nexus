@@ -100,6 +100,19 @@ describe('DiagramSheet', () => {
     expect(screen.getByRole('button', { name: 'Place on Board' }).disabled).toBe(true);
   });
 
+  it('says the setting did not load (not that AI is off) and offers Retry', async () => {
+    api.getDiagramAiSettings.mockImplementationOnce(async () => { throw new Error('offline'); });
+    render(<DiagramSheet mode="text" onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'From a Sentence' }));
+    await waitFor(() => expect(screen.getByText(/did not load/)).toBeTruthy());
+    expect(screen.queryByText(/must enable AI for Nexus/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Write the Diagram' }).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByText(/must enable AI for Nexus/)).toBeTruthy());
+    expect(screen.queryByText(/did not load/)).toBeNull();
+    expect(api.getDiagramAiSettings).toHaveBeenCalledTimes(2);
+  });
+
   it('when AI is on and switched on, writes the text into the box for review first', async () => {
     aiState.settings = { diagramAiEnabled: true, aiAvailable: true };
     render(<DiagramSheet mode="text" onClose={() => {}} />);
