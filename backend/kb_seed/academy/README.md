@@ -67,4 +67,4 @@ A `lesson` that names nothing in the course fails the content test.
 
 ## Copy rules
 American English, Title Case titles, no em or en dashes, no ISO dates, say
-"Time Sheet", name the source of every Greens number.
+"Time Sheet". A Greens number lives on the Greens by the Numbers page (`pages/greens-by-the-numbers.md`) with one dated source line; a lesson links there rather than repeating the number with a citation. Words go in `pages/academy-glossary.md`.
