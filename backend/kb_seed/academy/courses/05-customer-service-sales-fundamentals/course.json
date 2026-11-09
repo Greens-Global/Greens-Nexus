@@ -16,7 +16,7 @@
   "delivery": "online",
   "level": "core",
   "tags": "customer service, sales, phone",
-  "min_reading_minutes": 95,
+  "min_reading_minutes": 90,
   "lessons": [
     {
       "file": "01-who-walks-through-our-door.md"

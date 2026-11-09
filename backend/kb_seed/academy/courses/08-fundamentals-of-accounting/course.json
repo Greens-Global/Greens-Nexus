@@ -24,7 +24,7 @@
   "tags": "accounting, finance, managers, intacct",
   "teaches": "Accounting, Operations",
   "departments": "Accounting",
-  "min_reading_minutes": 53,
+  "min_reading_minutes": 50,
   "lessons": [
     {
       "file": "01-why-the-numbers-matter.md"

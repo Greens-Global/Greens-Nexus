@@ -20,7 +20,7 @@
  "tags": "intacct, accounting, finance, managers",
  "teaches": "Accounting, Operations",
  "departments": "Accounting",
- "min_reading_minutes": 37,
+ "min_reading_minutes": 35,
  "lessons": [
   {
    "file": "01-one-ledger-two-doors.md"
