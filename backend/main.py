@@ -1604,6 +1604,9 @@ def _run_migrations():
             "ALTER TABLE kb_courses ADD COLUMN teaches VARCHAR DEFAULT ''",
             "ALTER TABLE kb_courses ADD COLUMN reviewed_at VARCHAR DEFAULT ''",
             "ALTER TABLE kb_courses ADD COLUMN review_flag TEXT DEFAULT ''",
+            # Kudos thanks (Neil, 11/08/2026): the value tag and the recipient's first look. models.PerfKudos.
+            "ALTER TABLE hr_perf_kudos ADD COLUMN value VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_kudos ADD COLUMN seen_at VARCHAR DEFAULT ''",
             # Automatic scheduling + project health (Neil 11/08/2026) - see the Postgres list.
             "ALTER TABLE tasks ADD COLUMN schedule_mode VARCHAR DEFAULT 'manual'",
             "ALTER TABLE tasks ADD COLUMN dependency_lags JSON DEFAULT '{}'",
@@ -3831,6 +3834,11 @@ def _run_migrations():
         # Refresher (Neil 11/07/2026): spaced repetition - a new table, explicit
         # RLS. models.KbRefresherItem.
         "ALTER TABLE kb_refresher_items ENABLE ROW LEVEL SECURITY",
+        # Kudos thanks (Neil, 11/08/2026): the value tag and the recipient's first
+        # look; one new table - explicit RLS. models.PerfKudos / PerfKudosThanks.
+        "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS value VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS seen_at VARCHAR DEFAULT ''",
+        "ALTER TABLE perf_kudos_thanks ENABLE ROW LEVEL SECURITY",
         # Automatic scheduling (Neil, 11/08/2026): a task's mode and its lags
         # per predecessor - every existing task stays manual. models.Task,
         # task_schedule.py.
