@@ -1,73 +1,71 @@
 ---
 title: Vendors, Customers and Their Records
-summary: The Records group - vendors and customers as Intacct holds them, what Nexus adds (requests, ledger lines, change history, compliance), how a new vendor is requested and approved, why a leasing tenant is an Intacct customer, and the General Ledger Accounts and Journals pages.
+summary: The Records menu - vendors and customers as Intacct holds them, the four tabs of a vendor record, how a change to a record is requested and approved and waits as Approved - Awaiting Intacct, why a commercial lease tenant is an Intacct customer, and the chart of accounts and journals pages.
+teaches: Accounting
 ---
 
-## What You'll Be Able to Do
-
-- Open a vendor's record and read its details, its ledger lines, its change history and its papers.
-- Request a new vendor and follow it to Approved, Awaiting Intacct.
-- Explain why a leasing tenant is an Intacct customer and what that means for rent received.
-- Use the General Ledger Accounts and Journals pages as references.
+A gate vendor calls Temecula: they moved, and their checks are going to the old address. The manager opens the vendor in Nexus, sees the old address on the Details tab, and changes it. The vendor's record in Intacct does not change. Not yet. This lesson is what happens instead, and why.
 
 ## Vendors
 
-**Records > Vendors** lists every vendor in the ledger the person may read, with the accounting team's own fields beside Intacct's. A vendor record opens beside the list with four tabs:
-
-```figure
-{
-  "kind": "screen",
-  "title": "A Vendor Record",
-  "device": "computer",
-  "module": "Accounting",
-  "sub": "Vendors & Customers",
-  "tabs": ["Dashboard", "Reports", "Financing", "Records", "Tools"],
-  "tab": "Records",
-  "parts": [
-    { "kind": "list", "title": "Vendors", "items": [{ "label": "Precision Gate Co.", "note": "V-00418 · gate and access control · Temecula, Murrieta", "badge": "Active", "tone": "ok" }, { "label": "Inland Door Service", "note": "V-00392 · roll-up doors", "badge": "Active", "tone": "ok" }, { "label": "Summit Roofing (request)", "note": "requested by D. Reyes 11/06/2026", "badge": "Pending Approval", "tone": "warn", "n": 1 }] },
-    { "kind": "sheet", "title": "Precision Gate Co.", "text": "Details · Ledger Lines · Change History · Compliance",
-      "items": [{ "label": "Details", "note": "V-00418 · category: Repairs and Maintenance · terms Net 30 · 1099: yes" }, { "label": "Ledger Lines", "note": "every line posted to this vendor, across the entities you may read, drilling to each entry", "n": 2 }, { "label": "Change History", "note": "who changed what on this record, when" }, { "label": "Compliance", "note": "insurance certificate 12/14/2026 · workers comp 03/01/2027 · license C-61 · W-9 on file", "badge": "Expiring Soon", "tone": "warn", "n": 3 }] }
-  ],
-  "callouts": [{ "n": 1, "text": "A new vendor is requested here and waits for the accounting team: Pending Approval, then Approved, Awaiting Intacct until the record exists in the ledger." }, { "n": 2, "text": "The same ledger lines a report drills to, gathered for one vendor." }, { "n": 3, "text": "The papers the Property & Vendor Management course taught; one row per vendor, read here and on a construction job's Subs tab alike." }]
-}
-```
+**Accounting > Records > Vendors** lists every vendor in the ledger, number first. Click a row and the record opens beside the list with four tabs:
 
 | Tab | What it holds |
 |---|---|
-| **Details** | Intacct's record: code, name, category, terms, 1099 status, the accounting team's notes |
+| **Details** | Intacct's record in four groups: Basic Details (name, status), Contact, Address, Billing (terms, the last four of the tax ID) |
 | **Ledger Lines** | Every line posted to this vendor across the entities you may read; each opens its entry |
-| **Change History** | Who changed what on the record and when |
-| **Compliance** | The insurance certificate, workers comp and license expiries and the W-9; the one state word (Expiring Soon, Expired, No Insurance On File) |
+| **Change History** | Every change requested in Nexus, who decided it and when |
+| **Compliance** | The insurance certificate, workers comp and license expiry dates and the W-9, with one state word: Papers Current, Expiring Soon, Expired or No Insurance On File |
 
-Nothing on the Details tab is edited in Nexus; it is Intacct's. Compliance and the notes are Nexus's own, kept beside the ledger.
+Inactive vendors are hidden until **Customize > Show Inactive**.
 
-### Requesting a Vendor
+This is the vendor Accounting **pays**. Asset Management also has a **Records > Vendors** list on each property: that one is the property's own list of who services it (contact, contract dates, COI expiration). It is useful on site; it is not the paying record.
 
-A site that needs a vendor the ledger does not have asks for one under **Requests**: the name, the trade, the contact and the papers. The request reads **Pending Approval** until the accounting team approves it, then **Approved, Awaiting Intacct** until the record exists in the ledger, and then the vendor is a vendor. No invoice is paid to a name that is only a request, which is why the Vendors lesson in the Property & Vendor Management course said to collect the papers before the first visit.
+## Changing a Record
+
+Intacct stays the source of truth, one way. So editing a vendor in Nexus does not change the vendor. It files a **change request** with only the fields that differ, and the record walks through these words:
+
+```figure
+{
+  "kind": "steps",
+  "title": "A Change Request",
+  "items": [
+    { "label": "Pending Approval", "note": "filed; the approvers get a bell" },
+    { "label": "Approved - Awaiting Intacct", "note": "the record shows the new values with an Awaiting Intacct badge" },
+    { "label": "In Intacct", "note": "Accounting keyed it into Intacct" }
+  ]
+}
+```
+
+- **Pending Approval**: a manager with the Accounting grant, or someone at its Full level, approves or declines it from the **Requests** section. The person who asked gets a bell either way.
+- **Approved - Awaiting Intacct**: the record shows the new values with an **Awaiting Intacct** badge until Accounting keys them into Intacct.
+- **In Intacct** once it is keyed. **Changed In Intacct** means Intacct holds a value different from what was approved, so look before acting. **Declined** carries the decider's note.
+
+A **brand-new vendor** is set up in Intacct by your Accounting team. Send them the vendor's papers (license, insurance naming Greens, workers comp, W-9) before the first visit; no invoice is paid to a name the ledger does not have.
 
 ## Customers
 
-**Records > Customers** is the mirror: the customers the ledger bills through receivables. At Greens most tenants are not Intacct customers at all; their rent is billed and collected in Cubby and reaches the ledger as deposits. The exception is **leasing**: a commercial tenant on a lease is an Intacct customer, invoiced through receivables, and the Leasing records under MRI (the Recurring Picture lesson) read rent received as what posted to the lease's income accounts for that customer in that month. Nobody keys a lease payment into Nexus; the ledger says what arrived.
+**Records > Customers** works the same way, with Details, Ledger Lines and Change History. Most tenants are not Intacct customers at all: their rent is billed and taken in Cubby and reaches the books through the bank. The exception is a **commercial lease**: that tenant is an Intacct customer, and MRI reads rent received as what posted to the lease's income accounts for that customer in that month (see the lesson The Recurring Picture: MRI, MRE, Loans and Fees). Nobody keys a lease payment into Nexus.
 
-## General Ledger Accounts and Journals
+## Accounts and Journals
 
-Two more reference pages under Records:
+- **General Ledger Accounts** is the chart of accounts as the ledger holds it: search it, Show Inactive, export it.
+- **Journals** opens each journal's lines for a period (see the lesson Journals and Books).
 
-- **General Ledger Accounts** is the chart of accounts as the ledger holds it: number, name, kind, whether it is active, and the lines posted to it for the period you pick. When the Fundamentals of Accounting course said "learn Greens' chart," this is where it is read.
-- **Journals** lists the journals (the Journals and Books lesson), and each one opens to its entries for a period, so "what posted through payroll last month" is one click.
+## At Greens
 
-## A Greens Scenario
-
-Dana at Temecula needs a roofer the ledger has never paid. She collects the license, the certificate naming Greens, the workers comp and the W-9, and files the request under Records > Vendors with the trade and the contact. Two days later it reads Approved, Awaiting Intacct; the next morning Summit Roofing is a vendor with a code, its Compliance tab shows the papers she filed, and the roofer's first invoice can be matched and paid.
+Back to the moved vendor. The manager's edit reads Pending Approval; that afternoon an approver approves it and the record shows the new address with Awaiting Intacct. The next morning Accounting keys it, the badge clears, and the next check goes to the right place.
 
 ## Common Mistakes
 
-- **Letting a vendor work before it is a vendor.** A request is not a record.
-- **Trying to edit Intacct's fields in Nexus.** Details are the ledger's.
-- **Keying a lease payment.** Rent received is read from the ledger, never typed.
+- **Assuming an edit changed Intacct.** It filed a request.
+- **Paying attention only to Approved.** Awaiting Intacct means checks still use the old values until it clears.
+- **Letting a new vendor work before Accounting sets it up.**
+- **Treating a property's Asset Management vendor list as the paying record.**
 
 ## Key Points
 
-- A vendor record has Details (Intacct's), Ledger Lines, Change History and Compliance (Nexus's); a new vendor is requested, approved, then created in Intacct.
-- Most tenants live in Cubby; a leasing tenant is an Intacct customer and rent received is what posted.
-- General Ledger Accounts and Journals are reference pages: the chart as the ledger holds it, and each journal's entries.
+- A vendor record: Details, Ledger Lines, Change History, Compliance.
+- An edit is a request: Pending Approval, then Approved - Awaiting Intacct, then In Intacct.
+- A new vendor is set up in Intacct by Accounting, papers first.
+- Most tenants live in Cubby; a commercial lease tenant is an Intacct customer.

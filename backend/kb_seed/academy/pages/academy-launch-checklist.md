@@ -7,19 +7,20 @@ tags: academy, launch, checklist, pending
 
 ## How to Use This Page
 
-Every item below is also a Pending note on the page or lesson it names. When an item is done, update that page in Nexus, delete its Pending note, and strike the row here. The courses stay drafts until the Launch Steps at the end are done. Written 11/05/2026.
+Since 11/08/2026 learners never see a Pending note: a missing fact shows as one plain line ("Your manager has this until...") on the page or lesson named here. When an item is done, write the fact into that page in Nexus, remove the plain line, and strike the row here. The courses stay drafts until the Launch Steps at the end are done. Written 11/05/2026, updated 11/08/2026.
 
 Content edits after an environment's first import are made in Nexus, not in the repository: the repository is only the seed.
 
 ## Counsel Review Before Publish
 
-Owner: Operations Manager / a Super Administrator to arrange. Each of these carries a Pending note at its top. The day-11 gate code change and the day-20 overlock are taught as what Cubby does today, under review with counsel; counsel's answer may change Cubby's settings as well as the copy.
+Owner: Operations Manager / a Super Administrator to arrange. Each of these still needs counsel's review before it is published. The day-11 gate code change and the day-20 overlock are taught as what Cubby does today, under review with counsel; counsel's answer may change Cubby's settings as well as the copy.
 
 | Lesson or page | Where |
 |---|---|
 | Self-Storage Fundamentals > Access, Locks and Security | Top of the lesson |
 | Self-Storage Fundamentals > Delinquency and the Lien Process | Top of the lesson |
 | Self-Storage Fundamentals > Privacy and Compliance | Top of the lesson |
+| Self-Storage Fundamentals > Lien Law: California and Texas | The whole lesson |
 | RV & Boat Storage Fundamentals > Vehicle and Boat Liens | Top of the lesson |
 | Customer Service & Sales Fundamentals > Collections With Respect | Top of the lesson |
 | Greens Delinquency Timeline | Top of the page |
@@ -28,6 +29,7 @@ Owner: Operations Manager / a Super Administrator to arrange. Each of these carr
 | Greens Vehicle Storage Rules | Top of the page |
 | Cubby How-To: Start a Lien | Top of the page |
 | Cubby How-To: Overlock and Lockout | Top of the page |
+| Cubby How-To: Gate Code | The whole page |
 | Cubby How-To: Gate Code | Top of the page |
 
 ## Policies and Site Details
@@ -77,10 +79,25 @@ The DRAFT rows were written from no Greens source and stay drafts until the owne
 | Whether Valley Center has a dump station and power in the enclosed garages | Operations Manager | Site Profile: Valley Center, Amenities |
 | Turning room in front of the enclosed garages at Valley Center | Operations Manager | Site Profile: Valley Center, Gate and Access Notes |
 | A staff summary of San Diego County rules on parking RVs and boats at home in unincorporated areas | Operations Manager | Site Profile: Valley Center, Local Parking Rules |
+| Why Cubby shows four vehicle leases on Valley Center's three spaces | Operations Manager | Site Profile: Valley Center |
+| When Temecula's "Collection Fee - Unauthorized Use of Space" ($83.00) applies | Operations Manager | Site Profile: Temecula |
+| What the Murrieta Dump Station Agreement ($39.50) covers | Operations Manager | Greens by the Numbers, Fees |
+| Fairfield's busy season, for the RV & Boat welcome lesson | Operations Manager | RV & Boat Storage Fundamentals > Why Vehicle Storage Matters |
+| Greens' notice rules for a rent increase | Operations Manager | Customer Service & Sales Fundamentals > Why Did My Rent Go Up? |
+| Mailbox move-in steps (USPS CMRA form, ID) and whether Greens is a CMRA | Operations Manager | Self-Storage Fundamentals, mailboxes |
+| Auction buyer terms (removal time, cleanup deposit) | Operations Manager | Self-Storage Fundamentals > Auction Day |
+| The Texas late-fee cap note | Operations Manager | Greens Fees and Charges |
+| Greens' card-by-phone rules: whether staff take a card by phone at all, a call-back rule, what to do with a card number that arrives by email, whether staff remove saved cards | Operations Manager | Cubby How-To: Take a Payment |
+| How long a reservation is held, the move-out notice period and last-month charge, and who starts liens at each site | Operations Manager | Cubby How-To: Leads and Reservations, Move-Out, Start a Lien |
+| How Cubby prorates a transfer month, and what the 50% promotion does to the first prorated days | Operations Manager | Cubby How-To: Transfer; Cubby Fundamentals ledger examples |
+| Whether Cubby's "View nearby facilities" lists only Greens sites | Operations Manager | Cubby How-To: Find an Open Unit |
+| A vendor-visit Form for each site (none exists yet) | Operations Manager | Property & Vendor Management > A Vendor on Site |
+| Greens' payment-run schedule, and the 1099, sales and use tax and property tax deadlines | Accounting (Charmi) | Fundamentals of Accounting > Payables, Cards and the Bank; What Accounting Needs From You |
+| The month-end close calendar | Accounting (Charmi) | Intacct Fundamentals > the Dashboard and Close lesson |
 
 ## Cubby Screenshots
 
-Owner: Operations Manager. Take each from Greens' Cubby with test or blurred tenant data, then replace the Pending note on the page with the picture.
+Owner: Operations Manager. Take each from Greens' Cubby with test or blurred tenant data and add it to the page. Since 11/08/2026 the pages name Cubby's buttons where Cubby's help center (help.cubbystorage.com) gives them; these steps are still written by action, with no button name, until a screenshot or Cubby's sign-in-only articles confirm it: start a payment on a lease, create a payment link, waive a charge, give a credit, refund a payment, start a unit transfer, schedule and complete a move-out, record an overlock removed, start a lien on Collections, add or end a delinquency exemption, pin a note, archive or reopen a task, cancel a reservation, switch site at sign-in and what search finds, the walkthrough steps.
 
 | Page | Screenshots needed |
 |---|---|
@@ -103,19 +120,36 @@ Owner: Operations Manager. Take each from Greens' Cubby with test or blurred ten
 
 | Item | Owner | Where |
 |---|---|---|
-| Re-run the Cubby numbers after more billing cycles (the 11/05/2026 re-check fell before the 11/11/2026 late-fee night, so it adds no new cycle) and update any figure that moves | Operations Manager | The research file docs/superpowers/specs/academy-research/cubby-numbers.md, then every page that cites "From Greens' Cubby, 11/2026" |
+| Re-run the Cubby numbers after more billing cycles (the 11/05/2026 re-check fell before the 11/11/2026 late-fee night, so it adds no new cycle) and update any figure that moves | Operations Manager | Greens by the Numbers (every Greens number now lives there; lessons link it) |
+| Average stay of tenants who have moved out, once Cubby holds a year of move-outs (it has them only since 09/2026) | Operations Manager | Greens by the Numbers |
 | Vehicle type is blank on 696 of 759 vehicle leases in Cubby; fill it at move-in and when you touch a lease | Area Managers | Cubby, each vehicle lease |
-| Texas values: every "Set when the Texas sites join Cubby" cell | Operations Manager | Greens Policies pages and the California / Texas tables in the courses |
+| Texas: the Texas stores (Austin, Sachse, Georgetown) are run by CubeSmart on CubeSmart's own system; the courses keep Texas law and say so. Revisit if Greens ever runs a Texas store itself | Operations Manager | Greens Policies pages, Lien Law: California and Texas |
 | Texas staff sign a California break statement | Operations Manager with HR | Nexus Time Clock settings for the Texas companies |
 
 ## Launch Steps
 
 | Step | Owner | Where |
 |---|---|---|
-| Publish each of the six courses (Nexus Fundamentals, Self-Storage Fundamentals, RV & Boat Storage Fundamentals, Cubby Fundamentals, Customer Service & Sales Fundamentals, Hands-On Check) once its Pending items are closed | Operations Manager | Knowledge Base > Training |
+| Publish each of the six courses (Nexus Fundamentals, Self-Storage Fundamentals, Cubby Fundamentals, RV & Boat Storage Fundamentals, Customer Service & Sales Fundamentals, Hands-On Check) once its items here are closed. A course already published (Nexus Fundamentals on dev) takes the 11/08/2026 rewrite into its draft only: review it and Publish again | Operations Manager | Knowledge Base > Training |
+| Where the New Hire: Facility Team path already exists, set its audience to the Operations department before switching it on (a new environment gets it from the import; an existing path is never re-targeted by code, because an active path assigns itself to everyone its audience covers). The import puts Cubby Fundamentals third only where nobody reordered the path. Nexus Fundamentals is the one course for everyone: assign it to other teams with an assignment rule | Operations Manager | Knowledge Base > Training > Manage > Learning Paths |
 | Set the New Hire: Facility Team plan's one fixed due date for existing staff (new hires keep 30 days from their start) | Operations Manager | Knowledge Base > Training > the plan |
 | Switch the New Hire: Facility Team plan on | Operations Manager | Knowledge Base > Training > the plan |
 | Before the prod release, check prod for an existing course or plan with any of the same titles; title matching for courses and the plan is global | The person releasing to prod (a Super Administrator) | Prod Knowledge Base > Training |
+
+## Decisions to Confirm (11/08/2026 rewrite)
+
+The rewrite chose these so the courses teach one answer. Each owner confirms or changes it.
+
+| Decision | Owner | Where |
+|---|---|---|
+| Lien sale proceeds are not revenue: they pay down the balance owed, and any surplus is held for the tenant | Accounting (Charmi) | Fundamentals of Accounting |
+| Asset Management's Vendors list is the property's own list of who services it; the vendor Accounting pays lives in Intacct, and a new vendor is set up there by Accounting (Nexus takes change requests on an existing vendor only) | Neil | Property & Vendor Management, Intacct Fundamentals |
+| Every waiver and refund goes through the manager until Greens sets its limits | Operations Manager | Greens Waivers, Credits and Refunds |
+| A vehicle on Planned Non-Operation needs the manager's OK and the DMV's proof it is on file | Operations Manager | RV & Boat Storage Fundamentals > Vehicles That Do Not Run, and PNO |
+| Tenants may leave only the blocks, pads and chocks the vehicle sits on and a hitch lock; tanks are emptied only at a site's dump station | Operations Manager | Greens Vehicle Storage Rules |
+| The four former DRAFT vehicle rules are taught as rules | Operations Manager | Greens Vehicle Storage Rules |
+| The gate lockout happens "on its day" (linked to the timeline) rather than naming the 11th | Operations Manager | Cubby How-To: Gate Code |
+| Managers do not see pay or bank details for their reports | Neil / HR | Leading With Nexus > People: Hiring, Onboarding, Probation and Exits |
 
 ## Key Points
 

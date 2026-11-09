@@ -46,7 +46,7 @@ CASES = {
     "order one item": (lambda c: c["quiz"]["questions"][0].update(type="order", options=["A"], answer=[]), "normalizer"),
     "checkpoint over 10": (lambda c: c["lessons"][2].update(questions=[_q(i) for i in range(11)]), "more than 10"),
     "bank too small": (lambda c: c["quiz"].update(questions=[_q(i) for i in range(44)]), "needs 45"),
-    "draw too low": (lambda c: c["quiz"].update(drawCount=24), "drawCount"),
+    "draw too low": (lambda c: c["quiz"].update(drawCount=14), "drawCount"),
     "draw too high": (lambda c: c["quiz"].update(drawCount=41), "drawCount"),
     "photo": (lambda c: c["quiz"]["questions"][0].update(type="photo", options=[], answer=[]), "photo"),
     "short digit": (lambda c: c["quiz"]["questions"][0].update(type="short", options=[], answer=[], keywords=["30 days"]), "digit"),
@@ -110,7 +110,7 @@ def test_load_errors_become_problems(tmp_path):
     pkg = _pkg(tmp_path)
     (pkg / "courses" / "01-nexus-fundamentals" / "lessons" / "01.md").unlink()
     (pkg / "courses" / "02-self-storage-fundamentals" / "course.json").write_text("{not json")
-    (pkg / "courses" / "03-rv-boat-storage-fundamentals" / "course.json").write_text("{}")
+    (pkg / "courses" / "04-rv-boat-storage-fundamentals" / "course.json").write_text("{}")
     probs = kb_academy.problems(kb_academy.load(pkg))
     assert sum("cannot load" in p for p in probs) == 3, probs
 
@@ -126,7 +126,7 @@ def test_est_minutes_pinned(tmp_path):
     c = json.loads(p.read_text())
     c["est_minutes"] = 60
     p.write_text(json.dumps(c))
-    _has(kb_academy.problems(kb_academy.load(pkg)), "est_minutes 60 must be 120")
+    _has(kb_academy.problems(kb_academy.load(pkg)), "est_minutes 60 must be 100")
 
 
 def test_tf_options(tmp_path):
@@ -158,6 +158,18 @@ def test_question_lesson_links_lesson_id(tmp_path):
     a = kb_academy.load(_pkg(tmp_path, tag))
     assert kb_academy.problems(a) == []
     c = a.courses[0]
-    assert [L["_id"] for L in c.lessons] == [f"l_{c.slug}_01", f"l_{c.slug}_02", f"l_{c.slug}_03"]
+    assert [L["_id"] for L in c.lessons] == [f"l_{c.slug}_01", f"l_{c.slug}_gate-codes", f"l_{c.slug}_checkpoint-one"]   # by name, not position
     assert c.quiz["questions"][0]["lessonId"] == c.lessons[0]["_id"]
     assert c.lessons[2]["questions"][0]["lessonId"] == c.lessons[1]["_id"]
+
+
+def test_lesson_ids_stay_put_when_a_lesson_is_inserted(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    first = kb_academy.load(_pkg(tmp_path / "a")).courses[0]
+    moved = kb_academy.load(_pkg(tmp_path / "b", lambda c: c["lessons"].insert(0, {"checkpoint": "Warm Up", "questions": [_q(9)]}))).courses[0]
+    assert [L["_id"] for L in moved.lessons][1:] == [L["_id"] for L in first.lessons]   # a learner's ticks still name the same lessons
+
+
+def test_two_lessons_with_one_id_are_a_problem(tmp_path):
+    _has(_probs(tmp_path, lambda c: c["lessons"].append({"checkpoint": "Checkpoint: One", "questions": [_q(3)]})), "two lessons share the id")

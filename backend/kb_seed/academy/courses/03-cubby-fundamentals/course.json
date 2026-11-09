@@ -1,0 +1,1328 @@
+{
+ "slug": "cubby-fundamentals",
+ "title": "Cubby Fundamentals",
+ "description": "Cubby, the software Greens runs its storage sites on: where things live, finding an open unit, leads, reservations and move-ins, how a tenant ledger works with worked examples, taking payments and cards by phone, waives, credits and refunds, transfers and move-outs, overlocks, liens and exemptions, gate codes, notes and tasks, and the open and close routine with its reports.",
+ "overview": [
+  "What Cubby is, the words it uses, and first-of-month billing with jump day 26",
+  "Finding your way around and finding an open unit by size",
+  "Leads, reservations and the move-in, in order",
+  "How a ledger works, the paid-through date and days past due, with worked examples",
+  "Taking payments safely, AutoPay and the failed AutoPay call",
+  "Waives, credits, refunds, transfers and move-outs",
+  "Overlocks, liens and exemptions as Cubby shows them",
+  "Gate codes, notes, tasks, the open and close, and a one-page job aid"
+ ],
+ "est_minutes": 150,
+ "delivery": "online",
+ "level": "core",
+ "tags": "cubby, software, payments",
+ "min_reading_minutes": 80,
+ "lessons": [
+  {
+   "file": "01-meet-cubby.md"
+  },
+  {
+   "page": "cubby-finding-your-way-around",
+   "title": "Finding Your Way Around",
+   "summary": "The Home page counts, the site map, the lease page, search and the shared task list."
+  },
+  {
+   "page": "cubby-find-an-open-unit",
+   "title": "Finding an Open Unit",
+   "summary": "Searching pricing groups by size and availability, the sitemap, and nearby sites when yours is full."
+  },
+  {
+   "page": "cubby-reservation",
+   "title": "Leads and Reservations",
+   "summary": "Lead sources and statuses, holding a unit with a reservation, and follow-up tasks."
+  },
+  {
+   "page": "cubby-move-in",
+   "title": "The Move-In",
+   "summary": "The move-in from unit to payment, coverage, documents, gate code and notes."
+  },
+  {
+   "checkpoint": "Checkpoint: Getting a Tenant In",
+   "questions": [
+    {
+     "type": "single",
+     "q": "A tenant who moved in on 11/18 asks why her first payment was so much smaller than her rent. What do you tell her?",
+     "options": [
+      "She got a first-month discount for new tenants",
+      "Rent is due on the 1st, so her first month was prorated",
+      "The first payment was a deposit and rent comes later",
+      "Her rent will be due on the 18th of every month"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Greens bills on the 1st. A mid-month move-in pays only the days left in the month. It is proration, not a discount, and there is no deposit on new move-ins.",
+     "lesson": "01-meet-cubby.md"
+    },
+    {
+     "type": "single",
+     "q": "A customer rents a $120.00 unit with no protection plan on 11/27. What does he pay at move-in, with the $25.00 Administration Fee?",
+     "options": [
+      "$41.00",
+      "$161.00",
+      "$145.00",
+      "$136.00"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "11/27 is on or after jump day 26: 4 days of November (120 x 4 / 30 = $16.00) plus all of December ($120.00) plus $25.00 = $161.00. $41.00 forgets December.",
+     "lesson": "01-meet-cubby.md"
+    },
+    {
+     "type": "tf",
+     "q": "You see a unit with nobody renting it on the sitemap. It is always available to rent.",
+     "options": [
+      "True",
+      "False"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "False. Vacant means not leased AND rentable. An empty unit can be marked unrentable, for repairs or cleaning, and cannot be rented until that is cleared.",
+     "lesson": "cubby-finding-your-way-around"
+    },
+    {
+     "type": "single",
+     "q": "A caller needs a covered space for a 28 ft trailer. What is the fastest way to find one in Cubby?",
+     "options": [
+      "Walk the lot and look for empty covered spaces",
+      "Filter pricing groups by size and covered",
+      "Open last month's Rent Roll and look for vacancies",
+      "Ask the caller to search the website instead"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Filter the pricing groups by size and features with Pricing group is Available on. A walk or an old report misses what was rented this morning.",
+     "lesson": "cubby-find-an-open-unit"
+    },
+    {
+     "type": "single",
+     "q": "Your site has nothing open in the size a walk-in needs. What do you do in Cubby?",
+     "options": [
+      "Offer an unrentable unit at a lower rate",
+      "Check nearby Greens sites",
+      "Tell her to call back next month",
+      "Rent her a smaller unit without asking"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "View nearby facilities shows the same size at other Greens sites. If nothing fits, save a lead. Never offer an unrentable unit.",
+     "lesson": "cubby-find-an-open-unit"
+    },
+    {
+     "type": "single",
+     "q": "A caller says he found Greens by searching online and will visit Saturday. What do you save before you hang up?",
+     "options": [
+      "A lead with source Other and no follow-up task",
+      "A lead, source Search engine, and a follow-up task",
+      "A reservation with a reservation fee",
+      "Nothing until he actually comes in"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Every caller who does not rent today is a lead with the real source, and every promised follow-up is a task. Greens charges no reservation fee.",
+     "lesson": "cubby-reservation"
+    },
+    {
+     "type": "single",
+     "q": "During a move-in the card payment shows pending. What do you do?",
+     "options": [
+      "Run the card again right away to be safe",
+      "Hand over the code and finish up",
+      "Wait, recheck, ask your manager",
+      "Take the same amount in cash too"
+     ],
+     "answer": [
+      2
+     ],
+     "explanation": "A pending payment has an unknown outcome. Running it again can charge twice; no gate code or lock until it shows succeeded.",
+     "lesson": "cubby-move-in"
+    },
+    {
+     "type": "tf",
+     "q": "On a move-in, Cubby prorates the protection plan the same way it prorates rent.",
+     "options": [
+      "True",
+      "False"
+     ],
+     "answer": [
+      0
+     ],
+     "explanation": "True. Greens' ledgers show protection prorated by days used over days in the month, just like rent, so a mid-month move-in pays a partial protection line.",
+     "lesson": "cubby-move-in"
+    },
+    {
+     "type": "multi",
+     "q": "A walk-in is finishing her move-in for an RV space. Which must be done before she leaves?",
+     "options": [
+      "The lease agreement signed",
+      "Her photo ID checked and approved",
+      "The vehicle plate, state and type entered",
+      "A refundable security deposit taken at signing",
+      "A reservation fee charged"
+     ],
+     "answer": [
+      0,
+      1,
+      2
+     ],
+     "explanation": "Nothing leaves the counter Incomplete: signed lease, ID, vehicle details and proof of insurance. New move-ins pay no deposit and Greens charges no reservation fee.",
+     "lesson": "cubby-move-in"
+    }
+   ]
+  },
+  {
+   "file": "06-how-a-ledger-works.md"
+  },
+  {
+   "file": "06a-paid-through-and-days-past-due.md"
+  },
+  {
+   "file": "07-ledger-worked-examples.md"
+  },
+  {
+   "file": "07a-ledger-worked-examples-payments.md"
+  },
+  {
+   "checkpoint": "Checkpoint: Read the Ledger",
+   "questions": [
+    {
+     "type": "single",
+     "q": "Rent is $120.00. A tenant moves in on 11/21 (November has 30 days). What is the prorated rent?",
+     "options": [
+      "$36.00",
+      "$40.00",
+      "$44.00",
+      "$120.00"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "11/21 through 11/30 is 10 days, counting both. 120.00 x 10 / 30 = $40.00. $36.00 counts only 9 days.",
+     "lesson": "07-ledger-worked-examples.md"
+    },
+    {
+     "type": "single",
+     "q": "Rent is $120.00, no plan, move-in 11/28. What is due at move-in, with the $25.00 Administration Fee?",
+     "options": [
+      "$37.00",
+      "$157.00",
+      "$145.00",
+      "$132.00"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "On or after jump day 26: 3 days of November ($12.00) plus December ($120.00) plus $25.00 = $157.00. $37.00 forgets December.",
+     "lesson": "07-ledger-worked-examples.md"
+    },
+    {
+     "type": "single",
+     "q": "A tenant takes a $14.00 protection plan and moves in on 11/18. What is the prorated protection line?",
+     "options": [
+      "$6.07",
+      "$14.00",
+      "$7.00",
+      "$5.60"
+     ],
+     "answer": [
+      0
+     ],
+     "explanation": "11/18 through 11/30 is 13 days. 14.00 x 13 / 30 = 6.066..., rounded to $6.07. Protection is prorated like rent.",
+     "lesson": "07-ledger-worked-examples.md"
+    },
+    {
+     "type": "single",
+     "q": "December rent of $150.00 and protection of $14.00 posted on 12/01. On 12/04 the tenant pays $100.00. How much rent is still open?",
+     "options": [
+      "$64.00",
+      "$50.00",
+      "$0.00",
+      "$36.00"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Charges posted together are paid rent first. $100.00 goes to rent, leaving $50.00 of rent plus all $14.00 of protection open.",
+     "lesson": "06a-paid-through-and-days-past-due.md"
+    },
+    {
+     "type": "single",
+     "q": "A lease is paid through 10/31. Today is 11/16. How many days past due is it?",
+     "options": [
+      "14",
+      "15",
+      "16",
+      "46"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Days past due = today minus the paid-through date, minus 1. 11/16 minus 10/31 is 16; minus 1 = 15.",
+     "lesson": "06a-paid-through-and-days-past-due.md"
+    },
+    {
+     "type": "single",
+     "q": "Today is 12/10. A November rent posted on 11/01 is still open. Where does Aged Receivables put it?",
+     "options": [
+      "9 days, 0-30",
+      "39 days, 30-60",
+      "39 days, 0-30",
+      "69 days, 60-90"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "11/01 to 12/01 is 30 days, plus 9 to 12/10 = 39 days: the 30-60 bucket.",
+     "lesson": "06a-paid-through-and-days-past-due.md"
+    },
+    {
+     "type": "single",
+     "q": "Rent $95.00 plus a $14.00 plan. Paid through 11/30, the tenant pays $327.00 on 11/20. What prepaid is left after the 01/01 charges post?",
+     "options": [
+      "$0.00",
+      "$109.00",
+      "$218.00",
+      "$327.00"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "All $327.00 becomes prepaid. Each month uses $109.00: $218.00 after 12/01, $109.00 after 01/01. Paid-through is then 01/31.",
+     "lesson": "07a-ledger-worked-examples-payments.md"
+    },
+    {
+     "type": "single",
+     "q": "A balance of $172.50 includes a $22.50 CA Late Fee. You waive the fee. What is the balance now?",
+     "options": [
+      "$172.50",
+      "$150.00",
+      "$127.50",
+      "$195.00"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "A waive cancels that one charge now: 172.50 - 22.50 = $150.00. A credit would have left today's balance unchanged.",
+     "lesson": "06-how-a-ledger-works.md"
+    },
+    {
+     "type": "single",
+     "q": "Rent is $160.00 and the tenant has a 5% discount program. What is the net due for the month?",
+     "options": [
+      "$8.00",
+      "$152.00",
+      "$155.00",
+      "$160.00"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "The rent posts at $160.00 and the discount posts as its own line of $8.00. Net: $152.00.",
+     "lesson": "06-how-a-ledger-works.md"
+    },
+    {
+     "type": "single",
+     "q": "A tenant's $129.00 rent payment is refunded, and the rent charge is not waived. What does the tenant owe afterward?",
+     "options": [
+      "$129.00",
+      "$0.00",
+      "$258.00",
+      "$64.50"
+     ],
+     "answer": [
+      0
+     ],
+     "explanation": "A refund reopens the charge it paid. Without a waive of the rent, the $129.00 is owed again.",
+     "lesson": "06-how-a-ledger-works.md"
+    }
+   ]
+  },
+  {
+   "page": "cubby-take-a-payment",
+   "title": "Taking Payments and AutoPay",
+   "summary": "Counter payments, cards by phone, AutoPay, the failed AutoPay call on the 2nd, payment links and payment statuses."
+  },
+  {
+   "page": "cubby-waive-or-credit",
+   "title": "Waives, Credits and Refunds",
+   "summary": "When to waive, credit or refund, the permissions behind each, and the reason every waive needs."
+  },
+  {
+   "page": "cubby-transfer",
+   "title": "Transfers",
+   "summary": "Moving a tenant to another unit: what a transfer does to the leases and the balance."
+  },
+  {
+   "page": "cubby-move-out",
+   "title": "Move-Outs",
+   "summary": "Scheduling and completing a move-out, settling the balance, and getting the unit back on the market."
+  },
+  {
+   "page": "cubby-overlock-and-lockout",
+   "title": "Delinquency in Cubby: Overlock and Lockout",
+   "summary": "Where Cubby shows the gate lockout and overlocks, and how to apply, remove and record an overlock."
+  },
+  {
+   "page": "cubby-start-lien",
+   "title": "Delinquency in Cubby: Starting a Lien",
+   "summary": "Where liens live in Cubby, the checks before a lien, lien and auction statuses, and the vehicle path."
+  },
+  {
+   "page": "cubby-delinquency-exemption",
+   "title": "Delinquency in Cubby: Exemptions",
+   "summary": "Bankruptcy, deceased, military service and payment arrangement exemptions, and what they pause."
+  },
+  {
+   "checkpoint": "Checkpoint: Collections in Cubby",
+   "questions": [
+    {
+     "type": "single",
+     "q": "Cubby lists a unit as needing an overlock, but the lease shows a Payment Arrangement exemption. What do you do?",
+     "options": [
+      "Overlock it, since Cubby listed it",
+      "Skip it and tell your manager",
+      "Overlock it and remove it tomorrow",
+      "Change the tenant's gate code instead"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Never overlock a unit with an exemption. Skip it and tell your manager that Cubby still flagged it.",
+     "lesson": "cubby-overlock-and-lockout"
+    },
+    {
+     "type": "tf",
+     "q": "A delinquency exemption also stops rent from posting on the 1st.",
+     "options": [
+      "True",
+      "False"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "False. An exemption pauses chosen collection steps (late fees, overlock, lien eligibility, collection messages). Rent still posts.",
+     "lesson": "cubby-delinquency-exemption"
+    },
+    {
+     "type": "single",
+     "q": "Before starting a lien, you see a note that the tenant mentioned being deployed. What now?",
+     "options": [
+      "Start the lien; deployment is private",
+      "Stop and tell your manager today",
+      "Start it and add a note about it",
+      "Send the notice by text instead"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "A tenant on active duty, or within 90 days after it, may not have a lien enforced without a court order. Stop and escalate.",
+     "lesson": "cubby-start-lien"
+    },
+    {
+     "type": "single",
+     "q": "A tenant in the lien process pays all the rent but none of the lien fees. Where does that leave the lien?",
+     "options": [
+      "It stops, because rent is paid",
+      "It goes on until the posted fees are paid too",
+      "It pauses for thirty days",
+      "It ends after a manager waives rent"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "Only payment in full, including posted fees, stops the lien. Tell your manager the same day when a lien tenant pays in full.",
+     "lesson": "cubby-start-lien"
+    },
+    {
+     "type": "single",
+     "q": "You called a tenant for the 6th's past-due task and got voicemail. What do you do with the task?",
+     "options": [
+      "Archive it, since nobody answered",
+      "Complete it with a note",
+      "Leave it open for tomorrow's shift",
+      "Delete it and make a new one"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "A call with no answer is a call made. Complete it with a note: no answer, voicemail left, payment link sent. Archived means not done.",
+     "lesson": "cubby-complete-a-task"
+    },
+    {
+     "type": "tf",
+     "q": "It is fine to leave a tenant's new gate code in a voicemail if they asked for a call back.",
+     "options": [
+      "True",
+      "False"
+     ],
+     "answer": [
+      1
+     ],
+     "explanation": "False. Give a code in person or on the phone after confirming who you are speaking with, never in a voicemail or a text.",
+     "lesson": "cubby-gate-code"
+    }
+   ]
+  },
+  {
+   "page": "cubby-gate-code",
+   "title": "Gate Codes",
+   "summary": "Setting and changing gate codes, the lockout and payment, move-out, and the access log."
+  },
+  {
+   "page": "cubby-notes",
+   "title": "Notes",
+   "summary": "Where notes go, pinned notes, and what makes a good note."
+  },
+  {
+   "page": "cubby-complete-a-task",
+   "title": "Tasks",
+   "summary": "Working the shared task list: workflow tasks, completing versus archiving, and your own reminders."
+  },
+  {
+   "page": "cubby-open-and-close-reports",
+   "title": "Open and Close and Reports",
+   "summary": "The open and close routine and the Rent Roll, Aged Receivables, General Ledger and Merchant Services Disbursements reports."
+  },
+  {
+   "file": "20-cubby-on-one-page.md"
+  }
+ ],
+ "quiz": {
+  "passPct": 80,
+  "drawCount": 20,
+  "maxTries": 3,
+  "shuffle": true,
+  "questions": [
+   {
+    "type": "single",
+    "q": "A tenant says, \"Someone changed my gate code, I never asked.\" Where do you look first?",
+    "options": [
+     "The lease's Activity record",
+     "The Rent roll report",
+     "The notes on the pricing group",
+     "Last month's Tasks tab"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Every change on a lease is in its Activity record, with who did it and when, or that Cubby did it by itself.",
+    "lesson": "01-meet-cubby.md"
+   },
+   {
+    "type": "single",
+    "q": "A coworker offers to sign you in with her account so you can waive a fee your role cannot. What do you do?",
+    "options": [
+     "Accept, since it is only one fee",
+     "Ask your manager to handle it instead",
+     "Use her sign-in and note it",
+     "Waive it from the phone app"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Every action carries the name of whoever is signed in. A missing button is usually your role; ask your manager.",
+    "lesson": "01-meet-cubby.md"
+   },
+   {
+    "type": "tf",
+    "q": "A tenant at a Greens site who moves in on the 26th pays for the rest of this month plus all of next month at move-in.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "True. Jump day is 26, so a move-in on or after the 26th also pays the next full month, and the first regular bill is the 1st of the month after next.",
+    "lesson": "01-meet-cubby.md"
+   },
+   {
+    "type": "single",
+    "q": "It is the start of your shift. Where do you see today's tasks, move-ins, move-outs and new online rentals together?",
+    "options": [
+     "The Home tab",
+     "The Reports page",
+     "The sitemap",
+     "The Gate Access page"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "The Home tab is where every shift starts: what needs someone today.",
+    "lesson": "cubby-finding-your-way-around"
+   },
+   {
+    "type": "single",
+    "q": "A tenant with two leases calls to pay. What do you confirm before you take the money?",
+    "options": [
+     "Only the tenant's name",
+     "The person, and which lease the money is for",
+     "Only the last four of the card",
+     "The site's opening hours"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "One contact can hold several leases, at more than one site. Confirm the person and the lease before you change anything.",
+    "lesson": "cubby-finding-your-way-around"
+   },
+   {
+    "type": "single",
+    "q": "A pricing group in your search says No availability. What does that tell you?",
+    "options": [
+     "Every unit in that group is leased or unrentable",
+     "The rate has not been set yet",
+     "The units are all reserved for staff",
+     "Cubby is still loading the units"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "No availability means every unit in that pricing group is leased or unrentable right now.",
+    "lesson": "cubby-find-an-open-unit"
+   },
+   {
+    "type": "tf",
+    "q": "When you search for a unit, you pick the pricing group first and then the exact unit.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "True. Cubby sells by pricing group (size and kind with one rate); you choose the group, then the unit, and check it on the sitemap.",
+    "lesson": "cubby-find-an-open-unit"
+   },
+   {
+    "type": "single",
+    "q": "A caller is a current tenant asking about a second unit. Cubby shows Active lead found. What do you choose?",
+    "options": [
+     "Create new lead",
+     "Continue lead",
+     "Convert to rental",
+     "Send quote"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Continue the existing lead rather than making a duplicate contact or lead.",
+    "lesson": "cubby-reservation"
+   },
+   {
+    "type": "single",
+    "q": "A customer with a reservation for 12/01 calls to cancel. What do you do?",
+    "options": [
+     "Leave it open in case he changes his mind",
+     "Cancel it and note the reason",
+     "Convert it so the unit stays held",
+     "Charge the reservation fee"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Cancel it so the unit goes back on the market, with a note. Greens charges no reservation fee.",
+    "lesson": "cubby-reservation"
+   },
+   {
+    "type": "single",
+    "q": "Which lead status does Cubby set by itself, not you?",
+    "options": [
+     "On hold",
+     "Converted",
+     "Unqualified",
+     "In progress, hot"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "You set New, In progress, On hold and Unqualified. Cubby sets Reservation and Converted when those happen.",
+    "lesson": "cubby-reservation"
+   },
+   {
+    "type": "single",
+    "q": "A customer storing a boat is on the Configure move-in screen. What must you tick?",
+    "options": [
+     "Waive Move-in fee",
+     "Tenant is storing a vehicle",
+     "Custom rate for the vehicle space",
+     "Waive Security Deposit"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Tick Tenant is storing a vehicle for every vehicle, boat or trailer. Leave the waive boxes alone unless your manager approved it.",
+    "lesson": "cubby-move-in"
+   },
+   {
+    "type": "single",
+    "q": "The card for a move-in is declined. The customer asks for her gate code anyway. What do you say?",
+    "options": [
+     "Here it is; pay tomorrow",
+     "Let's try another card or another method first",
+     "I'll text it once you get home",
+     "You can use the master code today"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "No gate code or lock until the payment succeeds. Ask for another card or method.",
+    "lesson": "cubby-move-in"
+   },
+   {
+    "type": "single",
+    "q": "A tenant has her own insurance. What do you enter on the coverage step?",
+    "options": [
+     "The Greens plan at the lowest level",
+     "Her policy number and expiration",
+     "No coverage, since she is insured",
+     "Nothing until she brings a copy"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "For the tenant's own policy, enter the policy number and a future expiration date, and collect proof of insurance.",
+    "lesson": "cubby-move-in"
+   },
+   {
+    "type": "single",
+    "q": "A tenant says, \"I paid by card on the 3rd,\" but the ledger shows no payment that day. What is the most likely reason?",
+    "options": [
+     "The card was declined",
+     "Cubby lost the payment",
+     "It was applied to next month",
+     "It was turned into a credit"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "A declined card posts nothing to the ledger. Check with the tenant and offer another method or a payment link.",
+    "lesson": "06-how-a-ledger-works.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant was charged a late fee that should not have posted. Which tool takes it off today's balance?",
+    "options": [
+     "A credit",
+     "A waive",
+     "A refund",
+     "A transfer"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A waive cancels that one charge now. A credit waits for the next bill, and a refund sends money back.",
+    "lesson": "06-how-a-ledger-works.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant's bank payment from last week comes back returned. What happens to the ledger?",
+    "options": [
+     "Nothing changes",
+     "The charges it paid reopen",
+     "Cubby waives the month",
+     "The lease is closed"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A returned bank payment is marked failed, which reopens the charges it had paid. Call the tenant; the balance is owed again.",
+    "lesson": "06-how-a-ledger-works.md"
+   },
+   {
+    "type": "tf",
+    "q": "Giving a tenant a credit lowers the balance they owe today.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "False. A credit waits on the lease and is used on the next recurring charges. A waive is what lowers today's balance.",
+    "lesson": "06-how-a-ledger-works.md"
+   },
+   {
+    "type": "single",
+    "q": "A lease is paid through 09/30. Today is 11/04. How many days past due is it?",
+    "options": [
+     "34",
+     "35",
+     "4",
+     "65"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "11/04 minus 09/30 is 35 days; minus 1 = 34.",
+    "lesson": "06a-paid-through-and-days-past-due.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant owes $129.00 rent and $14.00 protection, both posted on the 1st, and pays $129.00 on the 5th. What is still open?",
+    "options": [
+     "$14.00 of protection",
+     "$129.00 of rent",
+     "Nothing; the month is paid",
+     "$14.00 of rent"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Posted together, rent is paid before protection. The $129.00 pays the rent; the protection stays open, so the month is not fully paid.",
+    "lesson": "06a-paid-through-and-days-past-due.md"
+   },
+   {
+    "type": "single",
+    "q": "It is the 11th and a tenant still owes part of this month's rent. What does Cubby post overnight?",
+    "options": [
+     "CA Late Fee",
+     "CA Lien Notice",
+     "Administration Fee",
+     "Advertising Fee"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "CA Late Fee posts by itself on the 11th. CA Preliminary Lien Notice follows on the 15th.",
+    "lesson": "06a-paid-through-and-days-past-due.md"
+   },
+   {
+    "type": "tf",
+    "q": "A tenant who pays three months ahead is shown paid through the end of the third month right away.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "False. Prepaid money moves the paid-through date one month at a time, as each month's charges post and are paid from it.",
+    "lesson": "06a-paid-through-and-days-past-due.md"
+   },
+   {
+    "type": "single",
+    "q": "Rent is $150.00 with a $14.00 plan. Move-in is 11/18. What is due, with the $25.00 Administration Fee?",
+    "options": [
+     "$96.07",
+     "$90.00",
+     "$189.00",
+     "$71.07"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "13 days: rent $65.00 plus protection $6.07 (14 x 13 / 30) plus $25.00 = $96.07. $90.00 leaves out the protection.",
+    "lesson": "07-ledger-worked-examples.md"
+   },
+   {
+    "type": "single",
+    "q": "Rent is $90.00, no plan, move-in 11/26. What is the rent part of the move-in total?",
+    "options": [
+     "$15.00",
+     "$105.00",
+     "$90.00",
+     "$130.00"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "11/26 is on jump day: 5 days of November (90 x 5 / 30 = $15.00) plus December ($90.00) = $105.00 of rent.",
+    "lesson": "07-ledger-worked-examples.md"
+   },
+   {
+    "type": "single",
+    "q": "In February a tenant asks why her bill doubled. She moved in with a two-month 50% off promotion. What do you show her?",
+    "options": [
+     "That her rent was raised",
+     "The discount lines that ended",
+     "A late fee from January",
+     "A rate increase on her unit"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "The rent never changed on the ledger; the discount was its own line for two months, then ended.",
+    "lesson": "07-ledger-worked-examples.md"
+   },
+   {
+    "type": "single",
+    "q": "Rent is $180.00, paid through 11/30. On 11/15 the tenant pays $540.00. What does the ledger show on 11/16?",
+    "options": [
+     "Paid through 02/28",
+     "Paid through 11/30, $540.00 prepaid",
+     "Paid through 12/31, $360.00 prepaid",
+     "A $540.00 credit"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Nothing is open on 11/15, so all of it becomes prepaid and the paid-through date stays 11/30 until December's rent posts.",
+    "lesson": "07a-ledger-worked-examples-payments.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant owes October rent $130.00, a $20.00 late fee, a $25.00 notice fee and November rent $130.00. She pays $175.00. What is still open?",
+    "options": [
+     "November rent, $130.00",
+     "October rent, $130.00",
+     "The two fees, $45.00",
+     "Nothing; the payment cleared it"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Payments go to the oldest charges first: October rent, then the late fee, then the notice fee. November rent stays open.",
+    "lesson": "07a-ledger-worked-examples-payments.md"
+   },
+   {
+    "type": "single",
+    "q": "Rent $120.00 and a $14.00 plan post on 12/01. The tenant pays $100.00 on 12/03. What do you tell her is still open?",
+    "options": [
+     "$34.00",
+     "$20.00",
+     "$14.00",
+     "$0.00"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Rent is paid first: $20.00 of rent and $14.00 of protection are open, $34.00 in all, and the late fee posts on the 11th if unpaid.",
+    "lesson": "07a-ledger-worked-examples-payments.md"
+   },
+   {
+    "type": "single",
+    "q": "A tenant wants to read you her card number over the phone while you are busy with a walk-in. What do you do?",
+    "options": [
+     "Write it down and enter it later",
+     "Call back or send a payment link",
+     "Ask her to email it to the site",
+     "Have her repeat it to the walk-in"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A card goes straight into Cubby, never written down or sent by email. If you cannot enter it now, call back or send a link.",
+    "lesson": "cubby-take-a-payment"
+   },
+   {
+    "type": "single",
+    "q": "A tenant emails his full card number and asks you to run it. What do you do?",
+    "options": [
+     "Run it, then file the email",
+     "Delete it; take the card by phone",
+     "Forward it to your manager",
+     "Copy it into a lease note"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Never accept a card by email. Delete it, tell him it was deleted, and take the card by phone or send a payment link.",
+    "lesson": "cubby-take-a-payment"
+   },
+   {
+    "type": "single",
+    "q": "Two leases belong to one tenant who wants to pay both from his phone. What do you send?",
+    "options": [
+     "One payment link covering both",
+     "Two invoices by mail",
+     "His card details for checking",
+     "A reservation for each lease"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "One payment link can cover several leases for the same tenant. Check the contact details first.",
+    "lesson": "cubby-take-a-payment"
+   },
+   {
+    "type": "tf",
+    "q": "A tenant who pays most of her balance stops the late fee from posting on the 11th.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "False. Only payment in full stops the steps. Tell her what is still open and what posts on the 11th.",
+    "lesson": "cubby-take-a-payment"
+   },
+   {
+    "type": "single",
+    "q": "A first-time late tenant asks you to remove the late fee. It is inside your limit. What reason do you write?",
+    "options": [
+     "Customer asked to have it removed",
+     "First late payment, goodwill",
+     "Fee",
+     "Manager said so"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Every waive needs a real reason someone can read later. \"Customer asked\" is not a reason.",
+    "lesson": "cubby-waive-or-credit"
+   },
+   {
+    "type": "single",
+    "q": "A tenant was charged twice for the same month by card. Which tool fixes it?",
+    "options": [
+     "Refund the second payment",
+     "Waive this month's rent",
+     "Credit next month",
+     "Write off the balance"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "A double payment is refunded. Nothing was charged in error, so there is nothing to waive.",
+    "lesson": "cubby-waive-or-credit"
+   },
+   {
+    "type": "single",
+    "q": "A late fee is above your waive limit and the tenant asks for it off. What do you say?",
+    "options": [
+     "Sure, it's gone",
+     "Let me check and call you back",
+     "We never waive fees",
+     "Pay half and I'll waive the rest"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Never promise a waive you may not give. Ask your manager and call back the same day.",
+    "lesson": "cubby-waive-or-credit"
+   },
+   {
+    "type": "single",
+    "q": "A tenant wants to move from an open space to a covered one at the same site. How do you do it?",
+    "options": [
+     "Move out, then a new rental",
+     "A unit transfer",
+     "A second lease kept with the first",
+     "Change the unit on the old lease"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A unit transfer ends the old lease, starts a new one and moves the balance across. A move-out plus a new rental breaks the history and leaves the balance behind.",
+    "lesson": "cubby-transfer"
+   },
+   {
+    "type": "single",
+    "q": "After a unit transfer, what do you check on the old unit?",
+    "options": [
+     "Nothing; Cubby handles it",
+     "Empty, clean, no tenant lock left",
+     "That AutoPay is still on for it",
+     "That its gate code is enabled"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Walk it: clean and empty stays rentable; a lock left on or a dirty unit gets fixed or marked unrentable.",
+    "lesson": "cubby-transfer"
+   },
+   {
+    "type": "single",
+    "q": "A tenant tells you she is leaving on 01/31. What do you do in Cubby today?",
+    "options": [
+     "Make a Move TNT Out task only",
+     "Schedule it on the lease",
+     "Turn off AutoPay and nothing else",
+     "Complete the move-out now"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Schedule it on the lease with the date, notice date, reason and time window, so AutoPay and the reports are right. A task alone is only a reminder.",
+    "lesson": "cubby-move-out"
+   },
+   {
+    "type": "single",
+    "q": "On the move-out day the unit is still full and the tenant has not come in. What do you do?",
+    "options": [
+     "Complete the move-out anyway",
+     "Call, note it, don't complete it",
+     "Cut the lock and empty the unit",
+     "Turn the gate code back on"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A full unit means the tenant's things are still there and rent continues. Call, note it, and ask your manager before anything else.",
+    "lesson": "cubby-move-out"
+   },
+   {
+    "type": "tf",
+    "q": "After a move-out, a small leftover balance can simply be left on the closed lease.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "False. A balance is paid, waived with a reason, refunded or written off by a manager. Each leaves a clear line on the ledger.",
+    "lesson": "cubby-move-out"
+   },
+   {
+    "type": "single",
+    "q": "A tenant whose unit is overlocked pays in full at 2:00 PM. When does the overlock come off?",
+    "options": [
+     "The same day",
+     "On the 1st of next month",
+     "After the next walkthrough",
+     "When the lien is canceled"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Remove it the same day, record it removed, and make sure the gate code works. A paying tenant does not wait.",
+    "lesson": "cubby-overlock-and-lockout"
+   },
+   {
+    "type": "tf",
+    "q": "Cubby changes a late tenant's gate code by itself; you do not need to do anything to lock them out at the gate.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "True. Cubby changes the code and sends a gate access notice. Your job is making sure they get a working code once they pay in full.",
+    "lesson": "cubby-overlock-and-lockout"
+   },
+   {
+    "type": "single",
+    "q": "A lease is on the list ready for a lien, but its lease agreement was never signed. What do you do?",
+    "options": [
+     "Start the lien; the list is final",
+     "Tell your manager first",
+     "Ask the tenant to sign by text",
+     "Start it and fix the paperwork later"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "An unsigned lease weakens Greens' position. Tell your manager before a lien starts.",
+    "lesson": "cubby-start-lien"
+   },
+   {
+    "type": "single",
+    "q": "A stored trailer's owner is 61 days late. Which path does it follow?",
+    "options": [
+     "The normal unit auction",
+     "The vehicle lien path",
+     "A move-out with Auction",
+     "A write-off by the manager"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Vehicles, boats and trailers are never sold through the normal unit auction; the 61st task starts the vehicle path, which your manager runs.",
+    "lesson": "cubby-start-lien"
+   },
+   {
+    "type": "single",
+    "q": "Your manager agrees a payment plan with two payments ending 11/30. What end date do you give the exemption?",
+    "options": [
+     "No end date",
+     "12/01, after the last payment",
+     "11/15, the date of the first payment",
+     "One year from today"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Every exemption needs an end date; for a payment arrangement, the day after the last agreed payment. Set a task for the day before it.",
+    "lesson": "cubby-delinquency-exemption"
+   },
+   {
+    "type": "single",
+    "q": "A tenant's daughter tells you he has died. Which step is yours?",
+    "options": [
+     "Add a Deceased exemption yourself",
+     "Tell your manager the same day",
+     "Start the lien to protect Greens",
+     "Close the lease and the account"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Exemptions are a manager decision. Note the call and tell your manager, who decides what to pause.",
+    "lesson": "cubby-delinquency-exemption"
+   },
+   {
+    "type": "single",
+    "q": "A Fairfield tenant's attempts show Unknown user in the access log. What is the likely cause?",
+    "options": [
+     "The gate is outside hours",
+     "His code is not current",
+     "He used a master code",
+     "The gate let him in"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Unknown user means the code is not a current tenant code: an old or mistyped code, or one Cubby changed because the account is late.",
+    "lesson": "cubby-gate-code"
+   },
+   {
+    "type": "single",
+    "q": "A tenant completes her move-out. What happens to her gate code?",
+    "options": [
+     "It stays on for a month",
+     "You turn it off",
+     "It moves to the next tenant",
+     "You give it to her family"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Turn the code off at move-out, or check it already is.",
+    "lesson": "cubby-gate-code"
+   },
+   {
+    "type": "single",
+    "q": "A tenant's son, not authorized for access, calls asking for the gate code. Where does the answer come from?",
+    "options": [
+     "The pinned note on his contact",
+     "The Rent roll",
+     "The pricing group",
+     "The Merchant Services Disbursements report"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "The pinned note shows what every staff member must know before acting, such as who may access the unit.",
+    "lesson": "cubby-notes"
+   },
+   {
+    "type": "single",
+    "q": "Which of these belongs in a Cubby note?",
+    "options": [
+     "The tenant's full card number",
+     "Called 11/06, will pay by 11/08",
+     "The tenant's gate code",
+     "Your opinion of the tenant"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "A good note says what happened, what was agreed and by when. Card numbers, gate codes and opinions never go in a note.",
+    "lesson": "cubby-notes"
+   },
+   {
+    "type": "single",
+    "q": "A \"6th - Call Past Due Tenants\" task is open, but the tenant paid through the portal last night. What do you do?",
+    "options": [
+     "Call him to confirm the payment went through",
+     "Complete it, noting he paid",
+     "Archive it as not needed",
+     "Leave it for tomorrow"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Check the lease before every call. He paid, so complete the task with a note saying so.",
+    "lesson": "cubby-complete-a-task"
+   },
+   {
+    "type": "tf",
+    "q": "Archiving a task records that the work was done.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "False. Archived means dismissed, not done. Use Complete, with a note, for work you did.",
+    "lesson": "cubby-complete-a-task"
+   },
+   {
+    "type": "single",
+    "q": "At close, the drawer is $20.00 short of Cubby's cash payments. What do you do?",
+    "options": [
+     "Edit a payment to match",
+     "Recount, check, tell your manager",
+     "Leave it for the morning shift",
+     "Add $20.00 from petty cash"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Never change a payment to make the drawer match. Recount, look for a payment on the wrong lease or a check entered as cash, and tell your manager.",
+    "lesson": "cubby-open-and-close-reports"
+   },
+   {
+    "type": "single",
+    "q": "Your manager wants to see which tenants have charges more than 30 days old. Which report?",
+    "options": [
+     "Rent roll",
+     "Aged Receivables",
+     "Merchant Services Disbursements",
+     "Management summary"
+    ],
+    "answer": [
+     1
+    ],
+    "explanation": "Aged Receivables sorts each open charge by age into buckets: 0-30, 30-60 and older.",
+    "lesson": "cubby-open-and-close-reports"
+   },
+   {
+    "type": "tf",
+    "q": "The Rent roll is the list to walk the site against.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "True. Every leased unit should have a tenant and rent; every vacant unit should be rentable or carry a reason.",
+    "lesson": "cubby-open-and-close-reports"
+   },
+   {
+    "type": "single",
+    "q": "Using the job aid, what do you check before you run a payment a second time?",
+    "options": [
+     "That it is not pending",
+     "That it is under $100.00",
+     "That the tenant is on AutoPay",
+     "That it is before the 11th"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "Never run a pending payment twice: it can charge the tenant twice.",
+    "lesson": "20-cubby-on-one-page.md"
+   },
+   {
+    "type": "tf",
+    "q": "A tenant surprised by a small first bill should be told everyone pays on the 1st and the first month was shortened.",
+    "options": [
+     "True",
+     "False"
+    ],
+    "answer": [
+     0
+    ],
+    "explanation": "True. First-of-month billing shortens the first month to match; it is not a discount.",
+    "lesson": "20-cubby-on-one-page.md"
+   }
+  ]
+ }
+}

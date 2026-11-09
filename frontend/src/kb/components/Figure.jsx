@@ -153,7 +153,7 @@ function Cycle({ d }) {
   const R = 34;   // percent of the box: a node half its width wide still sits inside the box
   const pos = (i) => { const a = (-Math.PI / 2) + (2 * Math.PI * i) / n; return { x: 50 + R * Math.cos(a), y: 50 + R * Math.sin(a) }; };
   return (
-    <div className="kb-fig-cycle">
+    <div className="kb-fig-cycle" style={{ width: `min(100%, ${300 + 30 * n}px)` }}>   {/* more stops, a wider ring: nodes never touch */}
       <svg viewBox="0 0 100 100" aria-hidden="true">
         <defs><marker id="kb-fig-head" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" /></marker></defs>
         {items.map((_, i) => {

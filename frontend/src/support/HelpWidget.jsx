@@ -88,7 +88,8 @@ function LearnThisScreen({ module, onClose }) {
           <button type="button" className="hw-link" onClick={() => go(`course:${c.id}`)} style={{ textAlign: 'left', background: 'none', border: 0, padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
             <b>{c.title}</b>{c.done ? <span className="hw-card-sub"> · completed</span> : c.started ? <span className="hw-card-sub"> · in progress</span> : <span className="hw-card-sub"> · about {c.est_minutes} min</span>}
           </button>
-          {c.lessons.length > 0 && <span className="hw-card-sub">{c.lessons.map((L) => L.title).join(' · ')}</span>}
+          {/* each lesson that teaches this screen opens on itself (course:<id>~<lesson id>) */}
+          {c.lessons.length > 0 && <span className="hw-card-sub">{c.lessons.map((L, i) => <span key={L.id}>{i > 0 && ' · '}<button type="button" className="hw-link" onClick={() => go(`course:${c.id}~${L.id}`)} style={{ background: 'none', border: 0, padding: 0, font: 'inherit', color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 2, cursor: 'pointer' }}>{L.title}</button></span>)}</span>}
         </div>
       ))}
     </div>

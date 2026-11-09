@@ -1,97 +1,90 @@
 ---
 title: The Reports and the Drill-Down
-summary: Report Center and memorized reports, the financial statements as Nexus shows them, Buckets and Budget, the Report Builder for a report of your own, Packages for lenders, and the one rule on every screen - every figure opens its lines and every line opens its entry.
+summary: Where the statements live in the Reports menu, how every posted figure opens its ledger lines and every line opens its entry, Memorize for a view you keep, Report Builder for a report of your own, and Packages for a lender.
+teaches: Accounting
 ---
 
-## What You'll Be Able to Do
+Repairs on your property's Income Statement read $21,120 for October, and the budget said $14,000. You could email Accounting and wait. Or you could click the number. In Nexus every posted figure opens the lines behind it, and every line opens the entry. This lesson is that path.
 
-- Find a statement in Report Center and read it for your entity, period and book.
-- Drill from any figure to its ledger lines and on to the journal entry.
-- Build a report of your own in Report Builder, with row groups and a comparison, and share it.
-- Explain what a Package is and why a lender's quarter builds itself.
+## Where the Statements Are
 
-## Report Center
+Open **Reports**. Each group opens to the side:
 
-**Reports > Report Center** is the shelf: the standard financial statements and every **memorized report** (a saved definition: which report, which filters, which period words, which book) anyone with the grant has shared. A memorized report with a named period ("Last Quarter", "This Year") moves with the calendar, so the same report is right next month without being touched.
-
-| Report | What it shows |
+| Group | What is in it |
 |---|---|
-| **Income Statement** | Revenue, expenses, NOI and net income for the period, by entity or consolidated; a Comparison view against the prior period or year |
-| **Balance Sheet** | Assets, liabilities and equity at the period's end |
-| **Trial Balance** | Every account's debit or credit balance; where the accounting team starts the close |
-| **Cash Position** | Each bank account's balance and the period's movement |
-| **Buckets** | An account group's lines grouped by a dimension (the Dimensions lesson) |
-| **Budget** | Budget beside actual by account, with variance in dollars and percent |
+| **Report Center** | Every report in one list, Report Builder, Packages |
+| **Financial** | Balance Sheet, Trial Balance, the Income Statement views, General Ledger, Spend by Vendor, Statement of Cash Flows, Cash Position |
+| **Banking & Credit Cards** | Credit Card Activity, Bank Activity |
+| **Budget** | Budget, Budget vs. Actual YTD and MTD |
+| **Payroll & People** | Compensation, Payroll Summary |
+| **Audit & Insights** | Flux Analysis, MRE, MRI, AMA, Manual Journal Entries, Profitability |
+| **Tax** | Schedule C (Draft) |
+
+The **Income Statement** opens as T12 (the last 12 full months), YTD vs. Prior Year, This Month vs. Last Month, or by Customer, Job or Department. Above every statement sits the same row: the period, the entities, Columns, the Book and Filters.
 
 ## The Drill-Down
 
 ```figure
 {
-  "kind": "steps",
-  "title": "From a Figure to the Entry Behind It",
-  "items": [
-    { "label": "The figure", "note": "Repairs and Maintenance, $21,120, on the Income Statement" },
-    { "label": "Its lines", "note": "the General Ledger lines: Doc, Memo, Entity, Vendor, Department, Debit, Credit, Balance" },
-    { "label": "One line", "note": "APJ, 11/05, Precision Gate Co., #4830 gate operator service, $640.00" },
-    { "label": "The entry", "note": "both sides of the journal entry, the attachment, the ticket number in the memo" },
-    { "label": "Ask about it", "note": "a question on the line goes to Ask My Accountant" }
+  "kind": "screen",
+  "title": "From a Figure to Its Entry",
+  "device": "computer",
+  "module": "Accounting",
+  "sub": "Income Statement",
+  "tabs": ["Dashboard", "Reports", "Financing", "Records", "Tools"],
+  "tab": "Reports",
+  "actions": ["Filters", "Memorize", "Export"],
+  "parts": [
+    { "kind": "table", "title": "This Month vs. Last Month", "columns": ["Account", "Oct", "Sep"], "rows": [
+      ["Rental Income", "$168,400", "$165,100"], ["Repairs", "$21,120", "$9,860"], ["Utilities", "$6,310", "$6,020"]], "n": 1 },
+    { "kind": "table", "title": "Repairs, Oct", "columns": ["Date", "Entry", "Doc No", "Vendor", "Description", "Debit", "Balance"], "rows": [
+      ["10/05/2026", "APJ-3112", "4830", "Ridgeline Gate", "Gate operator", "$640.00", "$640.00"],
+      ["10/19/2026", "APJ-3157", "R-221", "Summit Roofing", "Roof patch", "$11,900.00", "$12,540.00"]], "n": 2 },
+    { "kind": "sheet", "title": "10/19/2026 · APJ", "text": "Both sides of the entry", "items": [
+      { "label": "Repairs, Roofing", "note": "Debit $11,900.00 · Temecula · Summit Roofing", "n": 3 },
+      { "label": "Accounts Payable", "note": "Credit $11,900.00" }], "buttons": ["Open Full", { "label": "Ask", "n": 4 }] }
   ],
-  "caption": "The house rule from the Accounting module's design: every posted figure opens its lines; every line opens its transaction. Only a figure that is worked out rather than posted (a variance, a percent, a budget) stays plain."
+  "callouts": [
+    { "n": 1, "text": "Click a posted figure." },
+    { "n": 2, "text": "Its General Ledger lines open, with a running balance and totals." },
+    { "n": 3, "text": "A line opens its journal entry beside the list: account, debit, credit, location, memo, vendor." },
+    { "n": 4, "text": "The question mark at a line's end asks My Accountant about it." }
+  ]
 }
 ```
 
-Click any posted figure and the **ledger lines** behind it open: the same columns Intacct's General Ledger shows (document, memo or description, entity, vendor, customer, item, employee, department, debit, credit and a running balance), with totals. Click a line and the **journal entry** opens in a side panel, both sides of it, with Open Full for the whole record. From a line you can also **ask a question**, which lands in Ask My Accountant for the bookkeeper (a later lesson).
+1. Click any posted figure. Its **General Ledger lines** open: Date, Entry, Doc No, Account, Description, Entity, Vendor, Customer, Department, Debit, Credit and, on a drill-down, a running **Balance**, with totals.
+2. Click a line's entry. The **journal entry** opens in a side panel, both sides of it: Account, Debit, Credit, Department, Location, Memo, Vendor, Project-Job and more. **Open Full** spreads it over the screen.
+3. The **question mark** at a line's end asks My Accountant about it (see the lesson Ask My Accountant and the Audit Pages).
 
-Every report column takes a resizer and keeps the width you set, per person, so the grid you arranged is the grid you come back to.
+On screens outside Reports a figure opens its lines in a side panel instead, with **Open in Reports** for the full grid. Every report column takes a resizer and keeps your width.
+
+Only a figure that is worked out rather than posted (a variance, a percent, a budget) stays plain. Everything posted is clickable.
+
+## Keeping a View: Memorize
+
+Set a statement the way you want it and click **Memorize**. A memorized view with a named period ("Last Month", "Year to Date") moves with the calendar, so next month it is right without touching it. **Export** sends a report to Excel, CSV, PDF, email or Files.
 
 ## Report Builder
 
-```figure
-{
-  "kind": "screen",
-  "title": "Report Builder",
-  "device": "computer",
-  "module": "Accounting",
-  "sub": "Report Center",
-  "tabs": ["Dashboard", "Reports", "Financing", "Records", "Tools"],
-  "tab": "Reports",
-  "actions": ["Run", "Save", { "label": "Publish", "primary": true }],
-  "parts": [
-    { "kind": "form", "title": "Site Operating Report", "fields": [
-      { "label": "Accounts", "value": "4010 to 4290 Revenue; 5010 to 6990 Operating Expenses" },
-      { "label": "Entities", "kind": "select", "value": "Temecula, Murrieta, Fairfield" },
-      { "label": "Other Dimensions", "value": "Department: Operations", "hint": "vendor, customer, employee, Project-Job, item, journal" },
-      { "label": "Period", "kind": "select", "value": "Last Month" },
-      { "label": "Book", "kind": "select", "value": "Accrual" },
-      { "label": "Compare", "kind": "select", "value": "vs Prior Year, with Variance $ and %", "n": 1 }
-    ] },
-    { "kind": "table", "title": "Row Groups", "columns": ["Group", "Accounts"], "rows": [["Rental Income", "4010, 4020, 4030"], ["Fees and Other", "4210 to 4290"], ["Repairs and Maintenance", "6210 to 6290"], ["Utilities", "6310 to 6340"]], "n": 2 }
-  ],
-  "callouts": [{ "n": 1, "text": "Compare adds the prior period or prior year beside this one, with the variance in dollars and percent." }, { "n": 2, "text": "Named row groups gather accounts under one total, so a nonstandard report is built by the person who knows the mapping, never in code." }]
-}
-```
-
-**Report Builder** makes a report of your own: pick the accounts, the entities and any other dimension, the period and the book, **Run**, then **Save** it under a name or **Publish** it. Named **row groups** gather accounts under one total ("Rental Income" over three accounts), which is how a report with lines the standard statements do not have (a lender's covenant schedule, a tax schedule) is built by the person who knows the mapping. **Compare** adds the prior period or the prior year with the variance in dollars and percent.
-
-A saved report is yours; a published one is marked published and can be **shared with everyone** who has the grant. Either way it reads fresh from the ledger every time, over the entities the reader may see: a person limited to one site builds and reads over that site only.
+**Report Center > Report Builder** makes a report of your own: pick GL accounts, entities, Filters, the period, Columns and the Book, add named **Row Groups** (several accounts under one total), and **Run**. **Compare** adds vs Prior Period or vs Prior Year with Variance $ and Variance %. **Save** keeps a draft; **Publish** finishes it, but only you see it until **Share With Everyone**. A report always reads over the reader's own entities.
 
 ## Packages
 
-A lender asks for the same set of statements every quarter for every property with a loan. A **Package** is that set, kept under a name: the memorized reports it contains, in order. **Build PDF** reads each one fresh and hands back one document: a cover with the contents, then every statement. Because the reports inside carry named periods, the same package is right next quarter untouched. The Loans lesson comes back to this.
+A lender wants the same statements for a property every quarter. A **Package** is that set of memorized reports under one name. **Build PDF** reads each one fresh and returns one PDF.
 
-## A Greens Scenario
+## At Greens
 
-The owner asks for a one-page operating comparison of the three California vehicle lots, this year against last. The accounting lead opens Report Builder: revenue and operating expense accounts, the three entities, row groups for Rental Income, Fees, Repairs, Utilities and Payroll, Compare vs Prior Year, Accrual. Run, Save as "Vehicle Lots Operating Comparison", Publish, Share With Everyone. Next month the owner opens it from Report Center and it has moved to the new month on its own.
+Back to $21,120. You click it: two lines, a $640 gate service and an $11,900 roof patch. The roof line's entry shows ticket R-221 in the memo. It was a real repair, budgeted as capital next year. You add a note for the variance review instead of a week of email.
 
 ## Common Mistakes
 
 - **Arguing with a figure instead of clicking it.**
-- **A spreadsheet rebuilt every month** that a memorized report with a named period would replace.
-- **Reading a Package once and then rebuilding it by hand** next quarter.
+- **Rebuilding a spreadsheet every month** that a memorized view would keep.
+- **Thinking Publish shares a report.** Only Share With Everyone does.
 
 ## Key Points
 
-- Report Center holds the statements and every shared memorized report; named periods move with the calendar.
-- Every posted figure opens its General Ledger lines; every line opens its entry; columns keep your widths.
-- Report Builder: accounts, entities, dimensions, period, book, row groups, compare; save, publish, share; always read over the reader's entities.
-- A Package is a lender's set of statements that builds itself each quarter.
+- Reports groups: Report Center, Financial, Banking & Credit Cards, Budget, Payroll & People, Audit & Insights.
+- A posted figure opens its General Ledger lines; a line opens its entry; Open Full widens it; the question mark asks.
+- Memorize keeps a view; Report Builder builds one; Packages build a lender's PDF.

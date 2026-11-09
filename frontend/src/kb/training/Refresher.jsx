@@ -4,8 +4,8 @@
 // GET /kb/refresher/today, POST /kb/refresher/answer). A right answer says
 // so and moves on; a wrong one shows the explanation and the right answer.
 // Nothing here changes a score or a certificate. Shown at the top of My
-// Learning and as the Dashboard's Refresher widget; it renders nothing at
-// all when there is nothing due, so it never nags.
+// Learning and as the Dashboard's Refresher widget; with nothing due it is
+// one quiet line (what it is and when it starts), so it never nags.
 import { useEffect, useState } from 'react';
 import { Brain, Check, X, Flame } from 'lucide-react';
 import { api } from '../../api';
@@ -69,10 +69,12 @@ export default function Refresher({ compact = false }) {
     return () => { live = false; };
   }, []);
   if (!data || !data.items?.length) {
-    if (compact && data && data.total > 0) {
-      return <div className="kb-refresher kb-card soft"><div className="kb-refresher-head"><Brain size={16} /><b>Refresher</b></div><div className="kb-meta">Nothing due today. {data.streak > 0 ? `${plural(data.streak, 'day')} in a row.` : 'Questions from the courses you passed come back here on their own schedule.'}</div></div>;
-    }
-    return null;
+    if (!data) return null;
+    // A new learner sees what it is and when it starts (11/08/2026); one quiet line, never a nag.
+    const line = data.total > 0
+      ? `Nothing due today. ${data.streak > 0 ? `${plural(data.streak, 'day')} in a row.` : 'Questions from the courses you passed come back here on their own schedule.'}`
+      : 'Starts the day after you pass your first course: up to three of its questions a day, each one coming back less often as you get it right. It never changes a score.';
+    return <div className={`kb-refresher kb-card soft${compact ? ' compact' : ''}`}><div className="kb-refresher-head"><Brain size={16} /><b>Refresher</b></div><div className="kb-meta">{line}</div></div>;
   }
   const finished = done >= data.items.length;
   return (

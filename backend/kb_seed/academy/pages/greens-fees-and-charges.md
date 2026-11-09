@@ -1,88 +1,70 @@
 ---
 title: Greens Fees and Charges
-summary: Every fee Greens charges in California, with its amount from Greens' Cubby, and what to tell a customer about each one.
+summary: Every fee Greens charges at its California sites, what each one is for, when it posts, and what to tell a customer about it.
 page_type: policy
 tags: fees, billing, cubby-filled, greens-policy
 ---
 
 ## How to Read This Page
 
-Every amount on this page comes from Greens' own Cubby records (From Greens' Cubby, 11/2026). Cubby posts most of these charges by itself; you post the rest only when the step really happened. Never quote a fee that is not on this page or in the customer's rental agreement.
+This page says what each charge is, when it posts and what to say about it. The amounts are on **Greens by the Numbers**. Cubby posts most charges by itself; you post the rest only when the step really happened. Never quote a fee that is not on these pages or in the customer's rental agreement. Greens' Texas stores are run by CubeSmart, on CubeSmart's own fees.
 
-> [!NOTE]
-> The California column is what Greens' five California sites (Escondido, Fairfield, Murrieta, Temecula, Valley Center) charge today. The Texas sites are not in Cubby yet.
+## At Move-In
 
-## Move-In Charges
+| Charge | What it is |
+|---|---|
+| Administration Fee | One time, at move-in, for a storage unit or a vehicle space. Sets up the account |
+| Mailbox Administration Fee | The mailbox version of the admin fee, once, at a mailbox move-in |
+| First rent | Prorated from the move-in day to the end of the month. From the 26th on, the whole next month is added too |
+| Security deposit | None on new move-ins. Some leases brought over at Fairfield carry one |
+| Reservation fee | None |
 
-| Charge | California | Texas |
-|---|---|---|
-| Administration Fee (storage units and parking spaces) | $25.00, once, at move-in (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Mailbox Administration Fee | $10.00, once, at move-in (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Security deposit | None on new move-ins. Only some leases brought over from the old system at Fairfield carry one (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Reservation fee | None charged (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| First rent | Prorated to the end of the month; from the 26th on, the next full month is added too (jump day 26, From Greens' Cubby, 11/2026; check against a real Preview Charges) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
+## Every Month
 
-## Monthly Charges
-
-| Charge | California | Texas |
-|---|---|---|
-| Rent | Due on the 1st of every month at every site (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Protection plan | $9.00 or $14.00 a month for $2,500 of protection; $20.00 or $25.00 a month for $5,000 (From Greens' Cubby, 11/2026). See Greens Tenant Protection | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Commercial Water Fee | $45.00 a month, only on leases that use water (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Business Class Package Fee (mailbox) | $15.00 a month (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| First Class Package Fee (mailbox) | $25.00 a month (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
+| Charge | What it is |
+|---|---|
+| Rent | Due on the 1st at every site |
+| Protection plan | The tenant's chosen level, if they are on Greens' plan (Greens Tenant Protection) |
+| Commercial Water Fee | Only on leases that use water |
+| Mailbox package plans | Business Class or First Class, for mailbox customers who take packages |
 
 ## Late Fees
 
-Cubby posts the late fee by itself at 12:00 AM on the 11th, after rent has gone 10 full days unpaid (From Greens' Cubby, 11/2026). You never type a late fee by hand.
+Cubby posts the late fee by itself at 12:00 AM on the 11th, after rent has gone 10 full days unpaid. You never type a late fee by hand. The amount depends on the monthly rent and equals California's legal maximum; mailboxes and commercial leases have their own amounts.
 
-| Monthly rent | California late fee | Texas |
-|---|---|---|
-| $60 or less | $10.00 (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Over $60 and under $100 | $15.00 (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| $100 or more | The greater of $20.00 or 15% of monthly rent (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Mailbox | $2.50 (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Commercial lease | 10% of monthly rent (one case seen, From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
+**Example:** a Temecula RV space at $180 a month is unpaid on the 11th. 15% of $180 is $27.00, more than $20.00, so Cubby posts $27.00. A $75 Escondido unit gets $15.00.
 
-**Example:** a Temecula RV space at $180 a month is unpaid on the 11th. 15% of $180 is $27.00, which is more than $20.00, so Cubby posts a $27.00 late fee. A $75 Escondido unit gets $15.00.
+California law (Bus. & Prof. Code 21713.5) allows a late fee only after rent is 10 days past due, only if the rental agreement states it, only once per missed payment, and caps it by the rent. Texas chapter 59 sets no cap.
 
 > [!WARNING]
 > Training only, not legal advice. When in doubt, stop and ask your manager.
 
-California law (Bus. & Prof. Code 21713.5) allows a late fee only after rent is 10 days past due, only if the rental agreement states it, only once per missed payment, and caps it at the amounts in the table above. Greens' late fee is set at that cap. Texas: no cap was found in ch. 59 (as of 2026); confirm with your Area Manager.
-
 ## Collections and Lien Fees
 
-These post only when the step really happens (From Greens' Cubby, 11/2026). The timing is on Greens Delinquency Timeline.
+These post only when the step really happens; the days are on Greens Delinquency Timeline.
 
-| Fee | California | Texas |
-|---|---|---|
-| CA Preliminary Lien Notice | $25.00 | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| CA Lien Notice | $35.00 | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Vehicle Lien Fee (vehicles, boats, trailers) | $350.00 | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Lien Processing Fee | $100.00 | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Advertising Fee (lien sale ad) | $120.00 ($95.00 also seen at Escondido) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Auction Fee | $95.00 | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Lock Removal/Inventory Fee | $75.00 | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
+| Fee | When it posts |
+|---|---|
+| CA Preliminary Lien Notice | When the preliminary lien notice goes out |
+| CA Lien Notice | When the lien notice goes out |
+| Vehicle Lien Fee | When the vehicle lien filing or tow notice step starts, for vehicles, boats and trailers |
+| Advertising Fee | When the lien sale ad is published |
+| Lien Processing Fee, Auction Fee | At the sale step |
+| Lock Removal/Inventory Fee | When a tenant's lock is removed and the unit inventoried, including a lost-key core change where it applies |
 
 ## Other Charges Seen
 
-| Charge | California | Texas |
-|---|---|---|
-| Background Check Fee | $35.00 (Escondido, From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Mailbox Key | $20.00 (Escondido, From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Non-Operational Vehicle Deposit | $350.00 (Murrieta, From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Failed payment (NSF) fee | None charged (From Greens' Cubby, 11/2026) | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
+A Background Check Fee and a Mailbox Key charge at Escondido, and a Non-Operational Vehicle Deposit at Murrieta, appear on some leases. Ask your manager before you post one. Greens charges no fee for a failed payment.
 
 ## What to Say
 
-- "The admin fee is a one-time $25 charge to set up your account. You will not see it again."
-- "Rent is due on the 1st. If it is still unpaid after the 10th, a late fee posts on the 11th, and your rental agreement shows the amount."
-- If a customer asks why a fee is on their ledger and it is not on this page, do not guess. Open the ledger with your manager.
+- "The admin fee is a one-time charge to set up your account. You won't see it again."
+- "Rent is due on the 1st. If it's still unpaid after the 10th, a late fee posts on the 11th, and your rental agreement shows the amount."
+- A charge on a ledger that is not on this page: do not guess. Open the ledger with your manager.
 
 ## Key Points
 
-- Admin fee $25.00; mailbox admin fee $10.00; no deposit and no reservation fee on new move-ins.
+- One admin fee at move-in; no deposit and no reservation fee on new move-ins.
 - Rent is due on the 1st; the late fee posts on the 11th at the legal maximum for the rent.
-- Lien and auction fees post only when the step happens; never add one early.
-- Every number here is From Greens' Cubby, 11/2026. Texas numbers come when the Texas sites join Cubby.
+- Lien and sale fees post only when the step happens; never add one early.
+- Amounts live on Greens by the Numbers.

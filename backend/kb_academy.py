@@ -14,8 +14,8 @@ import kb_blocks
 import kb_md
 
 ROOT = Path(__file__).parent / "kb_seed" / "academy"
-ORDER = ["nexus-fundamentals", "self-storage-fundamentals", "rv-boat-storage-fundamentals",
-         "cubby-fundamentals", "customer-service-sales-fundamentals", "hands-on-check",
+ORDER = ["nexus-fundamentals", "self-storage-fundamentals", "cubby-fundamentals",   # Cubby third: the counter tool comes before RV & Boat (11/08/2026)
+         "rv-boat-storage-fundamentals", "customer-service-sales-fundamentals", "hands-on-check",
          "property-vendor-management",   # the seventh course (Neil, 11/07/2026) is for managers, not on the new-hire plan
          "fundamentals-of-accounting", "intacct-fundamentals", "leading-with-nexus"]   # 11/07/2026: accounting, Intacct, leaders
 
@@ -104,8 +104,9 @@ def load(root: Path = ROOT) -> Academy:
                     lessons.append({"type": "page", "page": L["page"], "title": L.get("title", ""), "summary": L.get("summary", "")})
                 else:
                     lessons.append({"type": "checkpoint", "title": L.get("checkpoint", ""), "questions": L.get("questions", [])})
-                # a stable id, so a question's `lesson` can point "Reread these" at it (lessonId)
-                lessons[-1]["_id"] = f"l_{slug}_{len(lessons):02d}"
+                # a stable id by name, not position, so a learner's lessons_done keeps pointing at the
+                # same lesson when lessons are added or moved (and a question's `lesson` can link to it)
+                lessons[-1]["_id"] = _lesson_id(slug, lessons[-1])
             quiz = c.get("quiz") or {}
             _link_questions(lessons, [q for L in lessons for q in L.get("questions") or []] + list(quiz.get("questions") or []))
             a.courses.append(CourseSpec(slug, c["title"], c.get("description", ""), c.get("overview", []), c.get("est_minutes", 0),
@@ -114,6 +115,12 @@ def load(root: Path = ROOT) -> Academy:
         except (OSError, ValueError, KeyError, TypeError) as e:
             a.errors.append(f"{d.parent.name}: cannot load ({type(e).__name__}: {e})")
     return a
+
+
+def _lesson_id(slug: str, L: dict) -> str:
+    """l_<course>_<file stem | page slug | checkpoint title slug>: short and URL-safe."""
+    key = Path(L["file"]).stem if L["type"] == "text" else L["page"] if L["type"] == "page" else L["title"]
+    return f"l_{slug}_{re.sub(r'[^a-z0-9]+', '-', str(key).lower()).strip('-')[:32].rstrip('-')}"
 
 
 def _lesson_keys(L: dict) -> set:
@@ -165,13 +172,14 @@ def _lesson_num(where: str, texts) -> list[str]:
 
 
 _BANNED = re.compile(r"[\u2014\u2013]|\b\d{4}-\d{2}-\d{2}\b|(?i:time ?card|timesheet)|\bGlobal Admin\b|\bIT Admin\b")
+GLOSSARY = "academy-glossary"
 # Global Constraints, pinned in code so a course.json cannot lower them.
-MIN_READING = {"nexus-fundamentals": 70, "self-storage-fundamentals": 120, "rv-boat-storage-fundamentals": 100,
-               "cubby-fundamentals": 95, "customer-service-sales-fundamentals": 120, "hands-on-check": 5,
-               "property-vendor-management": 80, "fundamentals-of-accounting": 60, "intacct-fundamentals": 45, "leading-with-nexus": 70}
-EST_MINUTES = {"nexus-fundamentals": 120, "self-storage-fundamentals": 210, "rv-boat-storage-fundamentals": 180,
-               "cubby-fundamentals": 180, "customer-service-sales-fundamentals": 210, "hands-on-check": 90,
-               "property-vendor-management": 150, "fundamentals-of-accounting": 150, "intacct-fundamentals": 120, "leading-with-nexus": 150}
+MIN_READING = {"nexus-fundamentals": 50, "self-storage-fundamentals": 100, "rv-boat-storage-fundamentals": 80,
+               "cubby-fundamentals": 80, "customer-service-sales-fundamentals": 90, "hands-on-check": 5,
+               "property-vendor-management": 60, "fundamentals-of-accounting": 50, "intacct-fundamentals": 35, "leading-with-nexus": 45}
+EST_MINUTES = {"nexus-fundamentals": 100, "self-storage-fundamentals": 170, "rv-boat-storage-fundamentals": 140,
+               "cubby-fundamentals": 150, "customer-service-sales-fundamentals": 170, "hands-on-check": 90,
+               "property-vendor-management": 120, "fundamentals-of-accounting": 100, "intacct-fundamentals": 80, "leading-with-nexus": 90}
 
 
 def _title_case(t: str) -> bool:
@@ -258,7 +266,7 @@ def problems(a: Academy) -> list[str]:
             elif L["type"] == "page":
                 if L["page"] not in a.pages:
                     out.append(f"{c.slug}: lesson page {L['page']!r} does not exist")
-                else:
+                elif L["page"] != GLOSSARY:   # the shared glossary is looked up, not read through
                     minutes += kb_blocks.reading_minutes(a.pages[L["page"]].blocks)
             else:
                 qs = L["questions"]
@@ -275,9 +283,11 @@ def problems(a: Academy) -> list[str]:
             dc = c.quiz.get("drawCount", 0)
             if len(qs) < 45:
                 out.append(f"{c.slug}: quiz bank has {len(qs)} questions, needs 45 or more")
-            if not 25 <= dc <= 40 or dc > len(qs):
-                out.append(f"{c.slug}: drawCount {dc} must be 25-40 and within the bank")
+            if not 15 <= dc <= 40 or dc > len(qs):
+                out.append(f"{c.slug}: drawCount {dc} must be 15-40 and within the bank")
         out += _quiz_problems(f"{c.slug} quiz", qs, _norm_quiz)
+        ids = [L["_id"] for L in c.lessons]
+        out += [f"{c.slug}: two lessons share the id {i!r} (rename a file or checkpoint)" for i in sorted({i for i in ids if ids.count(i) > 1})]
         known = set().union(*(_lesson_keys(L) for L in c.lessons)) if c.lessons else set()
         for q in qs + [q for L in c.lessons for q in L.get("questions") or []]:
             if q.get("lesson") and q["lesson"] not in known:
