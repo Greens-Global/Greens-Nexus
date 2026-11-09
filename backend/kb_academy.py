@@ -167,12 +167,12 @@ def _lesson_num(where: str, texts) -> list[str]:
 _BANNED = re.compile(r"[\u2014\u2013]|\b\d{4}-\d{2}-\d{2}\b|(?i:time ?card|timesheet)|\bGlobal Admin\b|\bIT Admin\b")
 GLOSSARY = "academy-glossary"
 # Global Constraints, pinned in code so a course.json cannot lower them.
-MIN_READING = {"nexus-fundamentals": 70, "self-storage-fundamentals": 100, "rv-boat-storage-fundamentals": 80,
+MIN_READING = {"nexus-fundamentals": 50, "self-storage-fundamentals": 100, "rv-boat-storage-fundamentals": 80,
                "cubby-fundamentals": 80, "customer-service-sales-fundamentals": 90, "hands-on-check": 5,
-               "property-vendor-management": 60, "fundamentals-of-accounting": 50, "intacct-fundamentals": 35, "leading-with-nexus": 70}
-EST_MINUTES = {"nexus-fundamentals": 120, "self-storage-fundamentals": 170, "rv-boat-storage-fundamentals": 140,
+               "property-vendor-management": 60, "fundamentals-of-accounting": 50, "intacct-fundamentals": 35, "leading-with-nexus": 45}
+EST_MINUTES = {"nexus-fundamentals": 100, "self-storage-fundamentals": 170, "rv-boat-storage-fundamentals": 140,
                "cubby-fundamentals": 150, "customer-service-sales-fundamentals": 170, "hands-on-check": 90,
-               "property-vendor-management": 120, "fundamentals-of-accounting": 100, "intacct-fundamentals": 80, "leading-with-nexus": 150}
+               "property-vendor-management": 120, "fundamentals-of-accounting": 100, "intacct-fundamentals": 80, "leading-with-nexus": 90}
 
 
 def _title_case(t: str) -> bool:

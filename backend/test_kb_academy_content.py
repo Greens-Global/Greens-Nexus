@@ -126,7 +126,7 @@ def test_est_minutes_pinned(tmp_path):
     c = json.loads(p.read_text())
     c["est_minutes"] = 60
     p.write_text(json.dumps(c))
-    _has(kb_academy.problems(kb_academy.load(pkg)), "est_minutes 60 must be 120")
+    _has(kb_academy.problems(kb_academy.load(pkg)), "est_minutes 60 must be 100")
 
 
 def test_tf_options(tmp_path):

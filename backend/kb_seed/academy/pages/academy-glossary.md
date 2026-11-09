@@ -193,6 +193,39 @@ Look a word up under its subject. Each word appears once, under the subject wher
 - **Third party**: Anyone who is not the tenant or a verified authorized person; gets a name and a number only.
 - **Web lead**: A rental, reservation, abandoned or failed checkout, or contact form that came in online.
 
+## Nexus
+
+- **Announcements widget**: The only place announcements show on the Dashboard; add it on day one.
+- **Ask HR**: The confidential desk for pay, profile changes and HR questions.
+- **Bell**: Your notices; Clear All moves them to Closed, kept for 30 days.
+- **Checkpoint**: Practice questions inside a course; they never use a quiz try.
+- **Confirm (schedule)**: Telling your manager you have seen a shared schedule.
+- **Documents to Sign**: The card at the top of Workday when something waits for your signature.
+- **Early Clock-In**: The prompt when you punch in well before a shift (Not Yet or Clock In Anyway).
+- **Fix My Punch Out**: The button on a Missing shift that opens a punch fix request.
+- **Form**: A field form (inspection, incident report, checklist) filled from Fill a Form.
+- **Grant**: A module opened to a person at a level, given through an Access Group.
+- **Help Center**: Where anyone raises and follows tickets.
+- **Keep this confidential**: The Ask HR option that limits a request to HR.
+- **Module**: One area of Nexus in the left menu, such as Workday or Tickets.
+- **Nexus**: Greens' company portal for time, pay records, HR requests, tickets, forms and training.
+- **Note**: A private page, shared only with the people you choose; never a report.
+- **Out of Location / Location Off**: Words on a punch made away from the site or with location off; recorded, never blocked.
+- **Punch In / Punch Out**: Start and end of your worked time on the Time Clock.
+- **Purchase Request**: Asking the company to buy something, with a justification.
+- **Read and Sign**: A policy you must read and sign; a real change asks again.
+- **Reimbursement**: Getting paid back for a company expense, with a receipt.
+- **Report a Problem**: The fast way to file a ticket about a place or a piece of equipment.
+- **Saved on This Phone**: A punch made with no signal, kept and sent when signal returns, at the time you pressed it.
+- **Send Request**: The button that sends a missing-punch request to your approver.
+- **Sign & Submit**: Signing your approved Time Sheet in Nexus Sign.
+- **Take It / Confirm Receipt / Start Return**: The steps of borrowing and returning equipment in Item Management.
+- **Team Sign-In**: The shared-computer sign-in; always Sign Out when you leave.
+- **Tier**: How far a person's view and approvals reach (Employee to Super Administrator).
+- **Usual Hours**: Your standing schedule, used when no shift is shared.
+- **Workday**: Your home base - Time Clock, Time Sheet, Time Off, Ask HR, My Schedule, My Documents.
+- **Yellow priority bar**: The strip at the top of a screen naming something waiting on you.
+
 ## Property and Vendors
 
 - **Additional insured**: A party named on another's policy so it can claim on it directly.
@@ -248,7 +281,6 @@ Look a word up under its subject. Each word appears once, under the subject wher
 - **Project-Job**: The Intacct code a Construction job's costs post to.
 - **Property insurance**: Greens' coverage for damage to the buildings and lot.
 - **Purchase order (PO)**: A written order for goods or work at an agreed price.
-- **Purchase request**: A Workday request for the company to buy something, approved by the manager it names.
 - **Purlin**: A roof beam that carries a canopy's panels.
 - **Quote**: A written price against a written scope.
 - **Records > Vendors (Asset Management)**: The property's own list of who services it, with contact, contract dates and COI expiration.
@@ -376,3 +408,55 @@ Look a word up under its subject. Each word appears once, under the subject wher
 - **Sub-entity (child code)**: Part of an entity kept on its own books under the parent's code with a suffix, such as 15001-1; read with its parent.
 - **Sync**: The button on a report that reads its table again from the ledger.
 - **User-defined book**: Accrual plus that book's own journals, kept for one purpose.
+
+## Leading
+
+- **Acknowledge**: A required "I have read it" on an announcement; the poster sees who has not.
+- **Announcement**: The company's word to staff, with an audience, a notify mode and optional Acknowledge.
+- **Approvals**: The Dashboard tab that gathers every decision waiting on you, counted in one place so the badge and the list agree.
+- **Audit log**: The record of sensitive changes, with a name and a time.
+- **Board**: A drawing inside Notes; Mark Up attaches a marked-up photo back to its ticket.
+- **Company wall**: Each company's people, departments, approvers and settings kept to itself; an Administrator is always walled.
+- **Compliance (Manage)**: Your team's training status; act on Overdue and Locked.
+- **Confidential HR ticket**: An Ask HR ticket, visible only to HR's audience, never to the requester's manager.
+- **Confirm / Nudge**: A person's "I have seen it" on a shared schedule; the manager nudges those who have not.
+- **Delegate My Approvals**: Handing your approvals to a colleague for the days of your approved time off; set at the bottom of Workday > Time Off.
+- **Early punch**: A clock-in well before the shift; recorded, never blocked, one grouped bell.
+- **Escalation**: A course still not done after its due date, raised to the manager once and then weekly.
+- **Expected hours**: Published shift, else the usual-hours preset, else the standard day for full-time staff; No Schedule is never guessed.
+- **Grant / Access Group**: A module opened at a level (Viewer, Editor, Full); the group that carries it.
+- **Hardest Questions**: The questions people miss most, on a course's report.
+- **Learn This Screen**: The Help panel card that offers the course for the current screen.
+- **Learning path**: Onboarding, role, department or custom; stages of courses and policies.
+- **Message on Teams / Call on Teams**: The two buttons beside every person; Nexus has no chat of its own.
+- **Missed-break report / premium pay**: A California-rule hourly person's report instead of signing; the pay the manager adds for a missed required break.
+- **My Team (Performance)**: Workday > Performance > My Team, a manager's view of their people's numbers, goals, reviews and 1:1s.
+- **Needs Attention / Data Gaps**: The Asset Management Overview cards for what is due or warning, and what the record is missing.
+- **Needs Reply**: The requester spoke last, or nobody has replied; decided by the server.
+- **Next Clock**: The one deadline wording on a ticket row (first reply, update or resolution due), red only when overdue.
+- **No-Show bell**: One bell per team and day for people not clocked in after the alert window; resolves as they arrive.
+- **Offboard flow**: The one way an exit runs, through HR.
+- **On Time, Late, Left Early, No-Show, Excused**: How a day's punches matched the shift; facts, never a pay change.
+- **Onboarding checklist**: A new hire's steps by role; each step reaches its owner as a task.
+- **Only the employee signs**: A Time Sheet's one signer is the employee; the manager's approval is recorded on the PDF.
+- **Open shift**: A shift with no one on it yet, where the company allows them.
+- **Preventive queue**: Tickets filed by preventive maintenance schedules; its count is the overdue ones.
+- **Probation**: A window from the start date; a manager's Confirm, Extend or End is a recommendation HR finalizes.
+- **Punch fix**: A request to change a punch, with a reason; decided on evidence, never edited by the manager directly.
+- **Queue**: A filter preset over the tickets, counted over the whole workspace.
+- **Recommendation**: Recommended: Approve or Check First on a time off request, with reasons; advice only, nothing approves by itself.
+- **Refresher**: Three questions a day from courses a person passed; never a score.
+- **Review & Approve, Send Back, Approve and Next**: The Time Sheet decisions; a send-back carries a note.
+- **Review All Clean / Approve Reviewed**: Review the unflagged Time Sheets and approve only the ones you ticked.
+- **Save & Share**: Publishing the week; each person is belled and asked to Confirm.
+- **Scope (Settings)**: Every setting belongs to the organization, one company, or is a default a company may override.
+- **Shift Planner**: The Team tab where managers build and share the week (Fill Automatically, Copy Week, Save & Share).
+- **Shift rules**: Rest, days in a row, daily and weekly overtime, week caps; they warn and never block; sharing past one asks for a reason only managers see.
+- **Shift type**: A shift's hours, unpaid break and grace minutes.
+- **Sign Off a Person**: Recording an in-person completion for work you saw.
+- **Signing order**: The company never signs an HR document before the employee.
+- **Teaches / Mark Reviewed**: The modules a course teaches; the owner's confirmation after a review flag.
+- **Time Sheets to Review**: The list in People > Time of Time Sheets waiting on your review after the period ends.
+- **Unlock**: Another quiz round for a locked person, by their manager, the course owner or the Knowledge Base manager.
+- **Waiting for Vendor**: A ticket status that carries the vendor's name and promised date.
+- **Workforce Scorecard**: Weekly punched hours against expected hours, under Team > Workforce Analytics, by grant.

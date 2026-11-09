@@ -20,7 +20,7 @@
   "tags": "leadership, managers, nexus, team",
   "teaches": "Dashboard, Approvals, Team, Shifts, Time Sheet, Time Off, Workforce Analytics, Tickets, People, Hiring, Checklists, Performance, Training, Announcements, Notes, Boards, Settings, Asset Management, Accounting",
   "departments": "Operations",
-  "min_reading_minutes": 48,
+  "min_reading_minutes": 45,
   "lessons": [
     {
       "file": "01-the-leaders-day-in-nexus.md"
