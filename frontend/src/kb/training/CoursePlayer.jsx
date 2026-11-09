@@ -326,8 +326,8 @@ export default function CoursePlayer({ id, me, lesson: startLesson = '' }) {
                 const nxt = course.lessons[idx + 1];
                 const nextTitle = nxt ? nxt.title : course.delivery === 'in_person' ? 'In-Person Sign-Off' : course.quiz.question_count ? 'Final Quiz' : '';
                 const goNext = () => setCur(nxt ? nxt._id : course.my_status === 'Completed' ? 'done' : afterLessons(course));
-                // A checkpoint has inputs: its bar stays in the flow, so the iOS keyboard strip never covers it.
-                const sticky = phone && L.type !== 'checkpoint';
+                // A checkpoint keeps the full bar under its questions.
+                const compact = phone && L.type !== 'checkpoint';   // a phone: Next title and Complete and Continue on one row
                 return (
                 <div key={L._id} className="kb-lesson-wrap">
                   <article className="kb-card kb-article kb-lesson-article">
@@ -345,7 +345,7 @@ export default function CoursePlayer({ id, me, lesson: startLesson = '' }) {
                     {L.type === 'page' && L.page?.doc_id && <div className="kb-meta" style={{ marginTop: 12 }}><a href="#p" onClick={(e) => { e.preventDefault(); goKb('page', L.page.doc_id); }}>Open this page in the Library</a></div>}
                   </article>
                   {/* the lesson's end pulls forward: what comes next, by name, with the one button (11/08/2026) */}
-                  <nav className={`kb-lesson-nav${sticky ? ' sticky' : ''}`} aria-label="Lesson">
+                  <nav className={`kb-lesson-nav${compact ? ' compact' : ''}`} aria-label="Lesson">
                     {nextTitle && <div className="kb-up-next"><span className="kb-meta">Next:</span> <b>{nextTitle}</b>{nxt && nxt.type !== 'checkpoint' ? <span className="kb-meta"> · {plural(nxt.reading_minutes, 'minute')}</span> : null}</div>}
                     <div className="kb-lesson-nav-row">
                       <button type="button" className="kb-btn" onClick={() => setCur(idx > 0 ? course.lessons[idx - 1]._id : 'home')}><ChevronLeft />{idx > 0 ? 'Previous' : 'Course Home'}</button>

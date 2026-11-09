@@ -1,6 +1,6 @@
 // Render-smoke for the lesson player on a phone (11/08/2026): the lesson reads
 // first under a "Lesson N of M" strip, the list folds out of the strip, and
-// the Next bar sticks to the bottom.
+// Next and Complete and Continue share one row.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
@@ -29,12 +29,12 @@ const { ToastProvider } = await import('../components/Toast');
 afterEach(cleanup);
 
 describe('lesson player on a phone', () => {
-  it('opens on the next lesson under its strip, body first, list folded, Next bar sticky', async () => {
+  it('opens on the next lesson under its strip, body first, list folded, Next row compact', async () => {
     render(<ToastProvider><CoursePlayer id="crs_1" me={{}} /></ToastProvider>);
     expect((await screen.findByRole('button', { name: /Lesson 2 of 3/ })).getAttribute('aria-expanded')).toBe('false');
     expect(screen.getByText('Signing in body.')).toBeTruthy();
     expect(document.querySelector('#kb-lesson-list')).toBeNull();   // the list waits behind the strip
-    expect(document.querySelector('.kb-lesson-nav.sticky')).toBeTruthy();
+    expect(document.querySelector('.kb-lesson-nav.compact')).toBeTruthy();
     expect(screen.getByText('Punching In', { exact: false })).toBeTruthy();   // "Next: Punching In"
     fireEvent.click(screen.getByRole('button', { name: /Lesson 2 of 3/ }));
     expect(document.querySelector('#kb-lesson-list')).toBeTruthy();
