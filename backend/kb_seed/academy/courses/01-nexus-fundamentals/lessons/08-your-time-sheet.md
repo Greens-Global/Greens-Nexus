@@ -4,16 +4,16 @@ summary: Read your Time Sheet, ask for a missing punch or a break fix with a rea
 teaches: Time Sheet
 ---
 
-Tuesday morning at Temecula, Ana opens her Time Sheet and sees a red **Missing** cell on Monday: she helped a tenant with a stuck RV at closing and walked out without punching. Fixed today, it takes a minute. Found three weeks from now, nobody remembers the time.
+Tuesday morning in the accounting office, Ana, who is hourly, opens her Time Sheet and sees a red **Missing** cell on Monday: she stayed late to finish a month-end report and walked out without punching. Fixed today, it takes a minute. Found three weeks from now, nobody remembers the time.
 
 ## Why It Matters
 
-Your Time Sheet is the record your pay is built from, and your signature says its hours are right. Check it at least once a week, not just on signing day.
+If you are hourly, your Time Sheet is the record your pay is built from, and your signature says its hours are right. Check it at least once a week, not just on signing day.
 
 ## Reading It
 
 ```figure
-{"kind": "screen", "title": "A Week on the Time Sheet", "device": "computer", "module": "Workday", "tabs": ["Overview", "Time Sheet", "Time Off", "Performance"], "tab": "Time Sheet", "parts": [{"kind": "table", "columns": ["Day", "In", "Out", "Hours", "Where"], "rows": [["Mon 11/02", "8:02 AM", "12:00 PM", "3:58", "Fairfield"], ["", "Break", "", "0:30", ""], ["", "12:30 PM", "4:45 PM", "4:15", "Fairfield"], ["Tue 11/03", "8:05 AM", "Missing", "", "Fairfield"], ["Thu 11/05", "Sick", "", "8:00", ""]], "n": 1}, {"kind": "card", "title": "Change Requests This Period", "rows": [{"label": "Tue 11/03 · clock-out 5:00 PM", "value": "Not Yet Approved"}], "n": 2}], "callouts": [{"n": 1, "text": "A break splits a shift into two pairs. Missing is a forgotten punch."}, {"n": 2, "text": "Your requests and their status."}]}
+{"kind": "screen", "title": "A Week on the Time Sheet", "device": "computer", "module": "Workday", "tabs": ["Overview", "Time Sheet", "Time Off", "Performance"], "tab": "Time Sheet", "parts": [{"kind": "table", "columns": ["Day", "In", "Out", "Hours", "Where"], "rows": [["Mon 11/02", "8:02 AM", "12:00 PM", "3:58", "Main Office"], ["", "Break", "", "0:30", ""], ["", "12:30 PM", "4:45 PM", "4:15", "Main Office"], ["Tue 11/03", "8:05 AM", "Missing", "", "Main Office"], ["Thu 11/05", "Sick", "", "8:00", ""]], "n": 1}, {"kind": "card", "title": "Change Requests This Period", "rows": [{"label": "Tue 11/03 · clock-out 5:00 PM", "value": "Not Yet Approved"}], "n": 2}], "callouts": [{"n": 1, "text": "A break splits a shift into two pairs. Missing is a forgotten punch."}, {"n": 2, "text": "Your requests and their status."}]}
 ```
 
 Open **Workday**, then the **Time Sheet** tab. You see the current pay period, day by day. Move between periods with the arrows beside the dates, or click the dates to pick one.
@@ -21,24 +21,22 @@ Open **Workday**, then the **Time Sheet** tab. You see the current pay period, d
 - **A shift with a break** shows as two punch pairs with the break on its own row between them.
 - **Sick, vacation and personal hours** show on their own lines.
 - **Hours read as hours and minutes**: 8:15 means eight hours fifteen minutes. Nexus never shows decimal hours.
-- **Each punch shows where it was made**: the site name, Out of Location, Approx. Location, Location Off or No Location.
-
-On a phone, each day is its own card.
+- **Each punch shows where it was made** (Punching In, Breaks and Punching Out lists the words).
 
 ## Asking for a Change
 
-You cannot edit your own punches. You **ask for a change** with a reason, and your approver, usually your manager, decides. Every original punch stays on record with who changed what, so nobody can quietly change your hours either.
+You cannot edit your own punches. You **ask for a change** with a reason, and your approver, usually your manager, decides. Every original punch stays on record, so nobody can quietly change your hours either.
 
 **A missing clock-out:** click the red **Missing** cell (on a phone, **Add Clock-Out**). The **Request a Missing Punch** box opens. Enter the real time you stopped working, write a reason, and click **Send Request**. The day shows **Not Yet Approved** until your approver decides.
 
-**A break problem:** click the break line (on a phone, **Fix Break**), enter the right time and a reason, and send it. You can also ask to remove a break that should not be there.
+**A break problem:** click the break line (on a phone, **Fix Break**), enter the right time and a reason, and send it.
 
-**Time that is not there at all:** click **Add** on the day, pick the **Type** (Regular, Break, Sick, Vacation or Personal), set the start and end, give a reason, and tick **Clock In**, **Clock Out** or both. Still at work and only missing today's clock-in? Ask for just the clock-in; once approved you are clocked in and punch out as usual. Days still ahead have no Add.
+**Time that is not there at all:** click **Add** on the day, pick the **Type** (Regular, Break, Sick, Vacation or Personal), set the start and end, give a reason, and tick **Clock In**, **Clock Out** or both. Days still ahead have no Add.
 
 > [!TIP]
 > Write a reason your manager can check. "Forgot" is not enough. "Forgot to punch in, opened the office at 8:00 AM, see my Beginning of Day message" is.
 
-Times you enter are in your own time zone. Every request this period is listed under **Change Requests This Period** with its status; click a waiting one and choose **Cancel Request** to take it back. **Add Note** leaves a note on a day for your manager.
+Every request this period is listed under **Change Requests This Period** with its status; click a waiting one and choose **Cancel Request** to take it back. **Add Note** leaves a note on a day for your manager.
 
 ## Approval and Signing
 
@@ -46,7 +44,7 @@ Times you enter are in your own time zone. Every request this period is listed u
 {"kind": "steps", "title": "From the End of the Pay Period to Payroll", "items": [{"label": "The period ends", "note": "nothing to submit"}, {"label": "Your manager reviews", "note": "Review & Approve, or Send Back with a note"}, {"label": "You are told", "note": "a bell, an email, often the yellow bar"}, {"label": "You sign", "note": "Sign & Submit, in Nexus Sign"}, {"label": "The period is final", "note": "the signed copy files to My Documents"}]}
 ```
 
-1. **The period ends.** You do not submit anything. (**Send to Manager** asks your manager to look early; it is optional.)
+1. **The period ends.** You do not submit anything.
 2. **Your manager reviews** and clicks **Review & Approve**, or **Send Back** with a note. If it comes back, fix what the note says, usually with a change request.
 3. **You get a bell and an email**, often a yellow bar too.
 4. **You sign.** At the top of the Time Sheet tab, **Time Sheet Review & Signature** lists any period waiting on you. Check the hours, click **Sign & Submit** and sign in Nexus Sign.
@@ -65,11 +63,10 @@ An approved time off request does **not** put hours on your Time Sheet. To be pa
 
 ## At Greens
 
-Ana clicks **Missing**, enters 5:20 PM, writes "Helped tenant in RV row 3 at close, left 5:20 PM" and clicks **Send Request**. Her manager approves it that afternoon. At the end of the period she checks every day before signing, spots that Friday's break shows 30 minutes too long, and declines with "Friday break ended at 12:30 PM, not 1:00 PM." Her manager fixes it and approves again, and she clicks **Sign & Submit**.
+Ana clicks **Missing**, enters 6:20 PM, writes "Stayed to finish the month-end report, left 6:20 PM" and clicks **Send Request**. Her manager approves it that afternoon. At the end of the period she checks every day before signing, spots that Friday's break shows 30 minutes too long, and declines with "Friday break ended at 12:30 PM, not 1:00 PM." Her manager fixes it and approves again, and she clicks **Sign & Submit**.
 
 ## Common Mistakes
 
-- **Checking only on signing day.** Check weekly.
 - **Punching again to fix a missing punch.** Ask for the change.
 - **A reason with no detail.** Give the real times and what happened.
 - **Expecting approved time off to appear.** Add it as Sick or Vacation.

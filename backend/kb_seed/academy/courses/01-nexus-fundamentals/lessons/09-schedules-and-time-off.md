@@ -4,7 +4,7 @@ summary: Read and confirm your schedule, use shift requests when your company al
 teaches: Time Off, Shifts
 ---
 
-Sunday night, Jordan's phone buzzes: next week's schedule was shared, and he now opens on Wednesday instead of closing. He also has a dentist appointment on 11/20/2026 from 1:00 PM to 3:00 PM. Two minutes in Workday covers both, and keeps a record a text never would.
+Sunday night, Jordan, who works the front desk at a storage site, gets a buzz: next week's schedule was shared, and he now works the morning on Wednesday instead of the afternoon. He also has a dentist appointment on 11/20/2026 from 1:00 PM to 3:00 PM. Two minutes in Workday covers both, and keeps a record a text never would.
 
 ## Your Schedule
 
@@ -20,7 +20,7 @@ Your week is on the **Workday** Overview under **My Schedule**: a line that sums
 
 The **My Week | Team** switch shows your group's whole week; the same view is **Team**, **Shifts**. You can look but not change anything. Your manager builds the schedule in the Shift Planner.
 
-Your schedule is also how Nexus knows when you are expected, which is why Late and No-Show notices exist. One more reason to punch every shift.
+Your schedule is also how Nexus knows when you are expected, which is why Late and No-Show notices exist. Salaried staff may have no shifts at all; the time off part of this lesson is for everyone.
 
 ### Confirm a New Schedule
 
@@ -55,7 +55,7 @@ Two rules surprise new hourly team members:
 
 ## At Greens
 
-Jordan clicks **Confirm** on the new week. For the dentist he picks **Medical Appointment**, sets 11/20/2026, turns **All day** off, sets 1:00 PM to 3:00 PM and clicks **Request**. It comes back Approved. After the appointment he adds the two hours on his Time Sheet so they are paid. A coworker asks to swap Saturday, but there is no Request button at his site, so he asks his manager.
+Jordan clicks **Confirm** on the new week. For the dentist he picks **Medical Appointment**, sets 11/20/2026, turns **All day** off, sets 1:00 PM to 3:00 PM and clicks **Request**. It comes back Approved. After the appointment he adds the two hours on his Time Sheet so they are paid. A coworker asks to swap Saturday, but there is no Request button under his shifts, so he asks his manager.
 
 ## Common Mistakes
 

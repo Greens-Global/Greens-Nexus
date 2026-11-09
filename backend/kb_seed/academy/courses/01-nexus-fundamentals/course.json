@@ -1,11 +1,11 @@
 {
   "slug": "nexus-fundamentals",
   "title": "Nexus Fundamentals",
-  "description": "Every new hire takes it: sign in and set up your phone, punch in and fix a missed punch, sign your Time Sheet, request time off and HR help, report problems with tickets and forms, and take your training. The first course of the Greens Storage Academy.",
+  "description": "Every Greens employee takes it, whatever team you are on: find your way around Nexus and set it up on your phone, punch in and sign your Time Sheet if you are hourly, request time off and HR help, report problems with tickets and forms, and take the training assigned to your role.",
   "overview": [
-    "Sign in, find your way around and set up Nexus on your phone",
-    "Punch in, take breaks, punch out and fix a missed punch",
-    "Read and sign your Time Sheet",
+    "Find your way around Nexus and set it up on your phone",
+    "If you are hourly: punch in, take breaks, punch out and fix a missed punch",
+    "If you are hourly: read and sign your Time Sheet",
     "Confirm your schedule and request time off",
     "Use Ask HR, Reimbursements and Purchase Requests",
     "Get help with tickets, Report a Problem and forms",
@@ -14,15 +14,15 @@
   "est_minutes": 100,
   "delivery": "online",
   "level": "foundations",
-  "tags": "nexus, new hire, time clock",
+  "tags": "nexus, new hire, every employee",
   "teaches": "Dashboard, Workday, Time Clock, Time Sheet, Time Off, Shifts, Team, Reimbursements, Help Center, Tickets, Forms, Item Management, Notes, Knowledge Base, Sidebar",
-  "min_reading_minutes": 54,
+  "min_reading_minutes": 52,
   "lessons": [
     {
       "file": "01-welcome-to-nexus.md"
     },
     {
-      "file": "02-signing-in-and-getting-around.md"
+      "file": "02-getting-around.md"
     },
     {
       "file": "03-nexus-on-your-phone.md"
@@ -41,7 +41,7 @@
       "questions": [
         {
           "type": "single",
-          "q": "You reach Escondido 25 minutes before your shift and tap Punch In. Early Clock-In appears, and nobody asked you to start early. What do you tap?",
+          "q": "You reach the office 25 minutes before your shift and tap Punch In. Early Clock-In appears, and nobody asked you to start early. What do you tap?",
           "options": [
             "Clock In Anyway",
             "Punch Out",
@@ -84,7 +84,7 @@
         },
         {
           "type": "single",
-          "q": "At 4:45 PM in the back RV row you tap Punch Out and see Your Punch Did Not Record: saved on this phone. What now?",
+          "q": "At 4:45 PM at the back of a job site you tap Punch Out and see Your Punch Did Not Record: saved on this phone. What now?",
           "options": [
             "Punch in and out again at the office",
             "Ask your manager to delete the shift",
@@ -99,22 +99,22 @@
         },
         {
           "type": "single",
-          "q": "You finish a shift on the shared office computer at Valley Center. What is the last thing you do in Nexus?",
+          "q": "You are on the Time Sheet tab and want to start a new note without leaving the page. Where do you go?",
           "options": [
-            "Close the browser tab",
-            "Lock the screen and leave it signed in",
-            "Turn on Dark Mode for the next person",
-            "Sign Out from your profile menu, which clears your data saved on it"
+            "The Dashboard, then the Notes tab",
+            "The +, then New Note",
+            "Your profile menu, then Profile",
+            "Help Center, then Documentation"
           ],
           "answer": [
-            3
+            1
           ],
-          "explanation": "Sign Out ends your session and clears the copy of your data saved on that computer. A closed tab or a locked screen can leave the next person acting as you.",
-          "lesson": "02-signing-in-and-getting-around.md"
+          "explanation": "The + in the header starts common things, such as a New Note, a New Ticket or Request an Item, from any screen. The Notes tab works too, but you leave the page you are on to get there.",
+          "lesson": "02-getting-around.md"
         },
         {
           "type": "single",
-          "q": "A coworker says to check Tickets for the gate repair, but Tickets is not in your menu. What does that mean?",
+          "q": "A coworker says to check Tickets for the printer repair, but Tickets is not in your menu. What does that mean?",
           "options": [
             "You do not have that module's grant",
             "Your sign-in did not finish loading",
@@ -161,7 +161,7 @@
           "options": [
             "Turn on Dark Mode under Appearance",
             "Ask HR to switch push on for your account",
-            "Sign in with Partner Sign-In instead",
+            "Turn off Navigation Motion first",
             "Install from Safari (Share, Add to Home Screen), then open the icon"
           ],
           "answer": [
@@ -268,7 +268,7 @@
         },
         {
           "type": "single",
-          "q": "The site needs two padlocks for overlocks, and Item Management has none to borrow. What do you file?",
+          "q": "You need a second monitor for design work, and Item Management has none to borrow. What do you file?",
           "options": [
             "A Purchase Request",
             "A Reimbursement",
@@ -293,7 +293,7 @@
           "answer": [
             1
           ],
-          "explanation": "Waiting for User means the team is stuck until you answer. Waiting for Vendor is the status for an outside company.",
+          "explanation": "Waiting for User means the team is stuck until you answer, so reply in the ticket's thread. It does not mean the work is nearly done.",
           "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
         },
         {
@@ -338,17 +338,17 @@
     "questions": [
       {
         "type": "single",
-        "q": "At Temecula a tenant asks whether their unit is paid up. Where do you look?",
+        "q": "A new coworker in HR sees they are an Employee in Nexus and worries it means their job matters less. What does a tier actually set?",
         "options": [
-          "Nexus Workday",
-          "Nexus Help Center",
-          "The Nexus Dashboard",
-          "Cubby"
+          "Their pay grade and their seniority",
+          "How far their view reaches and what they can approve",
+          "How important their job is to the company",
+          "Which office or site they work from"
         ],
         "answer": [
-          3
+          1
         ],
-        "explanation": "Tenants, units and payments live in Cubby. Nexus is for your own work: time, requests, help and training.",
+        "explanation": "A tier sets what you can approve and how far your view reaches. It says nothing about how important your job is: most people at Greens are Employees, and Nexus simply shows them their own work.",
         "lesson": "01-welcome-to-nexus.md"
       },
       {
@@ -368,11 +368,11 @@
       },
       {
         "type": "single",
-        "q": "Two Employees at Murrieta have different menus: one sees Tasks and one does not. Why?",
+        "q": "Two Employees in the accounting office have different menus: one sees Tasks and one does not. Why?",
         "options": [
           "One works more hours each week than the other",
           "One holds a grant, from a job role or an Access Group, the other does not",
-          "One signed in with Partner Sign-In",
+          "One uses a phone and one a computer",
           "One has not finished their training yet"
         ],
         "answer": [
@@ -407,7 +407,7 @@
           3
         ],
         "explanation": "Search Nexus (Ctrl+K or /) finds people from anywhere and opens their contact card.",
-        "lesson": "02-signing-in-and-getting-around.md"
+        "lesson": "02-getting-around.md"
       },
       {
         "type": "single",
@@ -422,22 +422,22 @@
           0
         ],
         "explanation": "Every screen has a tour under the ? Help panel. Help with This Page opens the written guide for the same screen.",
-        "lesson": "02-signing-in-and-getting-around.md"
+        "lesson": "02-getting-around.md"
       },
       {
         "type": "single",
-        "q": "Weeks after your first sign-in, the policy notice appears again. Why?",
+        "q": "You are deep inside a module and want your Dashboard back. What gets you there in one click from anywhere?",
         "options": [
-          "Your manager changed your tier",
-          "The company published a new version of its policies",
-          "Your account was reset by IT overnight",
-          "You signed in from a different phone today"
+          "The N at the top of the left menu",
+          "Your profile menu, then Profile",
+          "The bell, then Mark All Read",
+          "The ?, then What's New"
         ],
         "answer": [
-          1
+          0
         ],
-        "explanation": "The notice returns each time the company publishes a new version of its policies. Read it, tick the box and Accept & Continue.",
-        "lesson": "02-signing-in-and-getting-around.md"
+        "explanation": "The N at the top of the left menu goes back to the Dashboard from any screen. The profile menu holds your own settings, and the bell and the Help panel do not change modules.",
+        "lesson": "02-getting-around.md"
       },
       {
         "type": "single",
@@ -499,7 +499,7 @@
       },
       {
         "type": "single",
-        "q": "A coworker read about new gate hours in an announcement; you never saw it. Why might that be?",
+        "q": "A coworker read about the new holiday schedule in an announcement; you never saw it. Why might that be?",
         "options": [
           "Your bell is set to Mark All Read",
           "Announcements post only on Teams",
@@ -660,7 +660,7 @@
       },
       {
         "type": "single",
-        "q": "You are hourly at a California site and missed a meal break on Tuesday. The signing screen shows the break statement. What do you do?",
+        "q": "You are hourly in California and missed a meal break on Tuesday. The signing screen shows the break statement. What do you do?",
         "options": [
           "Decline the whole Time Sheet in Nexus Sign",
           "Report a Missed Break for Tuesday instead of signing",
@@ -864,7 +864,7 @@
       },
       {
         "type": "single",
-        "q": "The front office light and the gate keypad both fail on the same morning. How many tickets do you raise?",
+        "q": "Your laptop will not charge and the office printer jams, both on the same morning. How many tickets do you raise?",
         "options": [
           "One, listing both problems",
           "One, to your manager",
@@ -879,7 +879,7 @@
       },
       {
         "type": "single",
-        "q": "Your ticket shows Resolved, but the gate still sticks. What do you click?",
+        "q": "Your ticket shows Resolved, but the printer still jams. What do you click?",
         "options": [
           "Reopen, and say why",
           "Confirm Resolution",
@@ -894,11 +894,11 @@
       },
       {
         "type": "single",
-        "q": "You scan the QR tag on Building C and Open Tickets already lists the same door. What does that tell you?",
+        "q": "You scan the QR tag on a company truck and Open Tickets already lists its flat tire. What does that tell you?",
         "options": [
           "The tag is broken and needs replacing",
           "Someone already reported it",
-          "The door has been fixed",
+          "The tire has been fixed",
           "You lack access to the place"
         ],
         "answer": [
@@ -909,7 +909,7 @@
       },
       {
         "type": "single",
-        "q": "You filled the site inspection at the back fence with no signal, and it shows Saved on This Phone. What next?",
+        "q": "You filled a vehicle check at a remote job site with no signal, and it shows Saved on This Phone. What next?",
         "options": [
           "Take a screenshot and email it",
           "Delete it and use paper",
@@ -939,7 +939,7 @@
       },
       {
         "type": "single",
-        "q": "You open the Fairfield site manager's Directory card and click Chat. Where does it take you?",
+        "q": "You open a payroll specialist's Directory card and click Chat. Where does it take you?",
         "options": [
           "Microsoft Teams",
           "A Nexus chat window",
@@ -954,7 +954,7 @@
       },
       {
         "type": "single",
-        "q": "When does a borrowed pressure washer's due date start counting?",
+        "q": "When does a borrowed laser level's due date start counting?",
         "options": [
           "From Monday",
           "From the handover",
@@ -1027,22 +1027,22 @@
       },
       {
         "type": "single",
-        "q": "Your training plan's courses are due within how many days of your start date?",
+        "q": "Your manager asks which of your assigned courses are still open and when each is due. Where do you look?",
         "options": [
-          "60",
-          "90",
-          "30",
-          "7"
+          "The Catalog, under Training",
+          "My Learning, under Training",
+          "Workday, under Performance",
+          "The bell, under Closed"
         ],
         "answer": [
-          2
+          1
         ],
-        "explanation": "New facility hires have 30 days from their start date to finish the plan. Due dates show on My Learning.",
+        "explanation": "My Learning lists your to-do training in one list, overdue first, then due soonest. The Catalog lists every course you could take, not the ones assigned to you.",
         "lesson": "13-training-and-policies.md"
       },
       {
         "type": "single",
-        "q": "It is your first day. Which of these is on the first-day list?",
+        "q": "It is your first week. Which of these is on the first-week list?",
         "options": [
           "Build your own Dashboard view",
           "Turn on Dark Mode",
@@ -1057,7 +1057,7 @@
       },
       {
         "type": "single",
-        "q": "You find a cracked fence post on your lot walk. Which habit applies?",
+        "q": "The office kitchen sink is leaking when you arrive. Which habit applies?",
         "options": [
           "A ticket with a photo",
           "A note in Today",
