@@ -1,104 +1,82 @@
 ---
-title: Cubby How-To: Gate Code
-summary: Setting and changing a tenant's gate access code in Cubby, what happens to the code when a tenant falls behind or moves out, and how to read the gate access log at Fairfield.
+title: "Cubby How-To: Gate Code"
+summary: Setting and changing a tenant's gate access code in Cubby, what happens to the code when a tenant falls behind or moves out, and how to read the gate access log.
 page_type: how_to
 tags: cubby, cubby-how-to, gate, access
 ---
 
-> [!NOTE]
-> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
-
-## What You'll Be Able to Do
-
-- Find a tenant's gate access code on the lease and see whether it is enabled.
-- Set a code at move-in and change it when a tenant asks.
-- Explain what happens to the code when a tenant is late and when they pay.
-- Turn a code off at move-out.
-- Read the gate access log at Fairfield and tell a tenant why the gate refused them.
+At 7:40 AM a Fairfield tenant calls from the gate: "My code doesn't work." In two minutes you can tell him why, fix it if it is yours to fix, and watch it work, because the code, the setting and the log are all on his lease.
 
 ## Before You Start
 
-- Each lease carries an **access code** and a setting for whether it is **enabled**.
-- Cubby connects to gate systems from several makers. **Only Fairfield's gate reports its events into Cubby** today (From Greens' Cubby, 11/2026). At Escondido, Murrieta, Temecula and Valley Center, your manager will show you how the code reaches the gate and how to check it.
-- A gate code is a key to the site. Give it only to the tenant, or to someone the tenant has authorized on the lease, after confirming who you are speaking with.
-- Gate hours for each site are on Greens Site Hours and Access.
-- Where a button's exact name is not given, the button name in Greens' Cubby is on the screenshot.
+- Each lease carries a **gate access code** and a setting for whether it is **enabled**. The **Gate Access** page lists every tenant's code; it needs the "Can use gate access page" permission.
+- Only Fairfield's gate reports its entries into Cubby today. At the other sites your manager shows you how to test a code at the keypad.
+- A gate code is a key to the site. Give it only to the tenant, or someone the tenant authorized on the lease, after confirming who you are speaking with.
+- Gate hours are on Greens Site Hours and Access.
 
 ## When a Code Changes
 
-Codes change often: Cubby recorded 411 code changes across Greens in 30 days (From Greens' Cubby, 11/2026).
-
-| When | Who changes it | What happens |
+| When | Who | What happens |
 |---|---|---|
-| Move-in | You | Set the tenant's code and check it is enabled |
-| The tenant asks for a new code | You | Change it, after confirming who you are speaking with |
-| 12:00 AM on the 11th, if unpaid | **Cubby, by itself** | Cubby changes the delinquent tenant's code when the late fee posts, so it stops working at the gate (From Greens' Cubby, 11/2026) |
-| The tenant pays in full | Check it | Make sure the tenant has a working code before they leave |
+| Move-in | You | Set the code and check it is enabled. A future-dated move-in stays disabled until its day; an online renter gets a code once the lease is signed |
+| The tenant asks | You | Change it after confirming who you are speaking with |
+| The tenant falls behind | **Cubby, by itself** | Cubby changes the code so it stops working at the gate, and sends a gate access notice; the day is on Greens Delinquency Timeline |
+| The tenant pays in full | You check | They leave with a working code |
 | Move-out | You | Turn the code off |
 
 > [!NOTE]
-> The day-11 gate code change is what Cubby does today and is under review with counsel. Staff follow Cubby, never explain or defend the timing to a tenant as the law, and send a tenant who disputes it to the manager.
+> The lockout timing is what Cubby does today. Never explain or defend it to a tenant as the law; send a tenant who disputes it to your manager.
 
 ## Steps: Set or Change a Code
 
-1. Confirm you are speaking with the tenant or an authorized person.
-2. Open the lease and find the access code (the button name in Greens' Cubby is on the screenshot).
-3. Enter the new code, or let Cubby suggest one if it does.
-4. Check the code is **enabled**.
-5. Save.
-6. Tell the tenant the code in person or by phone. Do not leave a code in a voicemail.
-7. At Fairfield, ask the tenant to try it and check the access log. At the other sites, test it at the keypad or as your manager shows you.
-8. Add a note: "Code changed at tenant's request, 11/12/2026."
+```figure
+{"kind": "steps", "title": "A Code Change", "items": [{"label": "Confirm who is calling"}, {"label": "Open the lease's gate code"}, {"label": "New code, enabled"}, {"label": "Tell them in person or by phone", "note": "never in a voicemail"}, {"label": "Test it"}, {"label": "Note it"}]}
+```
 
-> [!NOTE]
-> **Pending:** screenshot of the access code on a lease from Greens' Cubby. Owner: Operations Manager.
+1. Confirm you are speaking with the tenant or an authorized person.
+2. Open the lease (or the Gate Access page) and find the access code.
+3. Enter the new code and check it is **enabled**. Save.
+4. Tell the tenant in person or on the phone. Never leave a code in a voicemail or a text.
+5. Test it: where the gate reports to Cubby, ask them to try it and watch the access log; elsewhere, at the keypad or as your manager shows you.
+6. Note it: "Code changed at tenant's request, 11/12/2026."
 
 ## Steps: After a Late Tenant Pays
 
 1. Take the payment in full (Cubby How-To: Take a Payment).
-2. Open the lease and look at the access code. Check it is enabled and that the tenant knows it.
-3. If the tenant does not have a working code, set one as above.
-4. If there is an overlock, it comes off too (Cubby How-To: Overlock and Lockout).
+2. Open the access code: enabled, and the tenant knows it. If not, set one as above.
+3. Any overlock comes off too (Cubby How-To: Overlock and Lockout).
 
 ## Steps: At Move-Out
 
-1. When you complete the move-out, open the lease's access code.
-2. Turn it off, or check it is already off.
-3. At Fairfield, you can check the access log later for any attempt with that code.
+When you complete the move-out, turn the code off, or check it already is.
 
-## The Access Log at Fairfield
+## The Access Log
 
-Fairfield's gate (its device is named "Entrance") reports every attempt to Cubby. Each entry has a result:
+A gate that reports to Cubby logs every attempt with a result:
 
 | Result | Meaning | What to tell the tenant |
 |---|---|---|
 | **Allowed** | The code worked | Nothing to fix |
-| **Master code** | A staff or master code was used | Staff entry |
-| **Unknown user** | The code is not a current tenant code | Check they are typing their current code. If they were late, they may need to pay and get a working code |
-| **Outside of hours** | A valid code, outside the gate's hours | Tell them the gate hours (Greens Site Hours and Access) |
+| **Master code** | A staff code was used | Staff entry |
+| **Unknown user** | Not a current tenant code | Check they are typing their current code; a late tenant may need to pay first |
+| **Outside of hours** | A valid code outside gate hours | Tell them the gate hours |
 
-In 90 days to 11/2026 Fairfield's gate logged 816 allowed entries, 56 master code entries, 138 unknown codes and 10 outside-of-hours refusals (From Greens' Cubby, 11/2026).
+## At Greens
 
-> [!NOTE]
-> **Pending:** screenshot of Fairfield's access log from Greens' Cubby. Owner: Operations Manager.
-
-## Example
-
-**Fairfield, the 12th, 7:40 AM.** A tenant calls from the gate: "My code doesn't work." You confirm who he is, open his lease and the access log: his last two tries show Unknown User. His October rent of a made-up $104.00 is unpaid, and the $20.00 late fee posted at 12:00 AM on the 11th (the greater of $20.00 or 15% of $104.00, which is $15.60), when Cubby changed his code. You tell him calmly that his account is past due, that the balance is $124.00, and that you can take a payment by phone or send a payment link. He pays $124.00 by card. You check his lease shows a working, enabled code, tell him the code, and ask him to try again. The access log shows Allowed.
+**Fairfield, the 12th.** The caller from the opening: his last two tries show Unknown user. His rent of a made-up $104.00 is unpaid and the $20.00 CA Late Fee posted on the 11th, when Cubby changed his code. You tell him calmly the balance is $124.00 and take it by card. You check his code is enabled, tell him it, and watch the log show Allowed.
 
 ## Common Mistakes
 
-1. **Giving a code to someone not on the lease** without the tenant's authorization.
+1. **Giving a code to someone not on the lease.**
 2. **Leaving a code in a voicemail or text.**
-3. **Forgetting to give a paying tenant a working code** after a lockout.
+3. **Forgetting a working code** for a tenant who just paid.
 4. **Leaving a code on after move-out.**
-5. **Arguing about the lockout timing** with a tenant. Send disputes to your manager.
-6. **Assuming every site's gate reports to Cubby.** Only Fairfield does today.
+5. **Arguing about the lockout timing.** Send disputes to your manager.
 
 ## Key Points
 
 - Every lease has an access code and an enabled setting.
-- Cubby changes a delinquent tenant's code at 12:00 AM on the 11th (From Greens' Cubby, 11/2026); after they pay in full, make sure they have a working code.
+- Cubby changes a late tenant's code by itself; after payment in full, make sure they have a working one.
 - Turn the code off at move-out.
-- Only Fairfield's gate reports into Cubby; its log shows Allowed, Master Code, Unknown User and Outside of Hours.
+- A reporting gate's log shows Allowed, Master code, Unknown user and Outside of hours.
 - Confirm who you are speaking with before you give or change a code.

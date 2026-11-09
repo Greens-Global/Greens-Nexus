@@ -1,138 +1,93 @@
 ---
-title: Cubby How-To: Take a Payment
-summary: Taking card, cash and check payments at the counter, turning autopay on and off, working the failed autopay calls on the 2nd, sending payment links, and what pending, declined, failed and disputed payments mean.
+title: "Cubby How-To: Take a Payment"
+summary: Taking card, cash and check payments, taking a card by phone safely, AutoPay, the failed AutoPay call on the 2nd, payment links, and what pending, declined, failed and disputed payments mean.
 page_type: how_to
 tags: cubby, cubby-how-to, payments, autopay
 ---
 
-## What You'll Be Able to Do
-
-- Take a payment at the counter by card, cash or check, on the right lease.
-- Tell the tenant exactly what the payment pays, oldest charge first.
-- Turn autopay on or change the saved card.
-- Work the "2nd - Call Failed Autopay Tenants" task.
-- Send a payment link by text or email, for one lease or several.
-- Know what to do when a payment is pending, declined, failed or disputed.
+It is the 2nd at Fairfield, and the Tasks tab shows eight "2nd - Call Failed Autopay Tenants." The first tenant's card expired; he wants to read you the new one over the phone. Done right, he is paid in two minutes and his card number is written nowhere.
 
 ## Before You Start
 
 - Check you are on the **right lease**. One tenant can have several.
-- Look at the ledger first: what is open, and the paid-through date.
-- Cash and checks go into the drawer and are counted at close against what Cubby shows (Cubby How-To: Open and Close Reports).
-- Where a button's exact name is not given, the button name in Greens' Cubby is on the screenshot.
-
-## How Greens' Tenants Pay
-
-In the 180 days to 11/2026, Greens' approved payments came in like this (From Greens' Cubby, 11/2026):
-
-| Channel | About how many |
-|---|---|
-| Autopay | 2,400 |
-| Tenant portal | 540 |
-| At the counter by card | 490 |
-| At the counter in cash | 81 |
-| At the counter by check | 39 |
-| Website and phone keypad | a few |
-
-In the same window about 285 autopay charges were declined. Those declines are what the 2nd-of-the-month calls are for.
+- Look at the ledger: what is open and the paid-through date.
+- Cash and checks go in the drawer and are counted at close against Cubby (Cubby How-To: Open and Close Reports).
 
 ## Payment Statuses
 
 | Status | Meaning | What you do |
 |---|---|---|
-| **Succeeded / Approved** | The money is in | Nothing more |
-| **Declined** | The card or bank said no. Nothing posts to the ledger | Ask for another card or method |
-| **Pending** | The outcome is unknown | **Do not run it again.** Wait and check; ask your manager if it stays pending |
-| **Failed / Error** | It did not go through | Try again only after you understand why |
-| **Refunded** | Money was sent back | See Cubby How-To: Waive or Credit |
+| **Succeeded** | The money is in | Nothing more |
+| **Declined** | The card or bank said no; nothing posts | Ask for another card or method |
+| **Pending** | Outcome unknown | **Do not run it again.** Check later; ask your manager if it stays pending |
+| **Failed** | It did not go through, or a bank payment came back | A returned bank payment reopens the charges it paid: call the tenant |
 | **Disputed** | The tenant's bank opened a chargeback | Tell your manager the same day |
-| **Direct debit return** | A bank payment came back after it looked paid. Cubby reopens the charges it paid | Call the tenant; the balance is owed again |
 
 ## Steps: Take a Payment at the Counter
 
+```figure
+{"kind": "steps", "title": "Every Payment", "items": [{"label": "Right tenant, right lease", "note": "say the unit number out loud"}, {"label": "Read the balance", "note": "what it is made of"}, {"label": "Enter amount and method"}, {"label": "Wait for succeeded"}, {"label": "Check the ledger", "note": "balance as expected"}, {"label": "Receipt and gate code", "note": "if they were locked out"}]}
+```
+
 1. Find the tenant and open the lease.
-2. Tell the tenant the balance and what it is made of.
-3. Start a payment (the button name in Greens' Cubby is on the screenshot).
-4. Enter the amount. To stop the delinquency steps, it must be the **full** balance.
-5. Choose the method, as in the table below.
-6. Confirm the payment shows on the ledger and the balance is what you expected.
-7. Offer a receipt.
-8. If the tenant was locked out for nonpayment, check that their gate code works again and that any overlock is set to come off (Cubby How-To: Overlock and Lockout).
+2. Tell them the balance and what it is made of.
+3. Start a payment on the lease and enter the amount. To stop the collection steps it must be the **full** balance; a partial payment needs the "Can take partial payments" permission.
+4. Choose the method: **card** (run it and wait for succeeded), **cash** (enter the amount received, count change back, cash in the drawer) or **check** (enter it as a check, check in the drawer).
+5. Confirm the payment shows on the ledger and the balance is what you expected. Offer a receipt.
+6. If the tenant was locked out, make sure they leave with a working gate code and that any overlock comes off (Cubby How-To: Overlock and Lockout).
 
-> [!NOTE]
-> **Pending:** screenshot of taking a payment on a lease from Greens' Cubby. Owner: Operations Manager.
+A payment pays the **oldest charge first**, rent before protection when they posted together; money paid when nothing is owed becomes prepaid. See Paid-Through Date and Days Past Due.
 
-| Method | What you do |
-|---|---|
-| **Card** | Run it and wait for Succeeded |
-| **Cash** | Enter the amount received and count change back. Put the cash in the drawer |
-| **Check** | Enter it as a check payment. Put the check in the drawer |
+## Taking a Card by Phone
 
-### What a Payment Pays
+A card number is the tenant's money. Treat it that way every time.
 
-Cubby applies money to the **oldest charge first**. Charges that posted at the same time are paid in this order: prepaid, deposit, rent, state tax, local tax, insurance. So if December rent and protection are both open and the tenant pays less than the total, the rent is paid first. Money paid when nothing is owed becomes **prepaid** and is used when the next charges post.
+1. **Enter it straight into Cubby** as the tenant reads it. Never write it on paper, a sticky note, a notepad app or a task, even "just for a second."
+2. **Do not repeat it aloud** where anyone else can hear: other customers, a speakerphone, an open office door. Confirm only the last four digits.
+3. **Never ask for a card by email or text**, and never accept one sent that way. If a tenant emails a card number, do not use it: tell them the email was deleted, delete it, and take the card by phone or send a payment link.
+4. **Never put a card number, expiration date or security code in a note**, a screenshot or a message to a coworker.
+5. If you cannot enter it right now, **call back** or send a payment link. Never take it down to enter later.
 
-> [!WARNING]
-> A partial payment does not stop late fees or lien notices. Tell the tenant the full amount, and what happens if it is not paid. The day-by-day steps are on Greens Delinquency Timeline.
+A card used for a payment is saved to the tenant's account. If they asked you not to keep it, remove it afterward from the **Payments** tab: **Payment methods**, then **Manage payment methods**, then **Remove**.
 
-## Steps: Turn Autopay On or Change the Card
+## Steps: AutoPay On, Off or a New Card
 
-1. Open the lease and find autopay.
-2. To turn it on, choose the saved card or bank account, or add a new one. Cubby saves a new card only after a charge on it succeeds.
-3. To change the card, add the new one and set it as the autopay method.
-4. Check the card's **expiration date**. An expired card makes autopay fail.
-5. Add a note: "Autopay moved to new card at tenant's request."
+1. To turn it on, open the lease and choose **Rental actions**, then **Set up AutoPay**, with the saved card or bank account or a new one.
+2. To change the card, add the new one under **Payment methods** (**Add a method**) and set it for AutoPay. Removing a card also turns off AutoPay on every rental that used it.
+3. Check the card's **expiration date**; an expired card makes AutoPay fail.
+4. Note it: "AutoPay moved to new card at tenant's request."
 
-> [!NOTE]
-> **Pending:** screenshot of the autopay setting on a lease from Greens' Cubby. Owner: Operations Manager.
+## Steps: The Failed AutoPay Call (the 2nd)
 
-## Steps: The Failed Autopay Call (the 2nd)
+On the 2nd, a workflow makes "2nd - Call Failed Autopay Tenants" for every AutoPay declined on the 1st (with versions for mailbox and waste dump customers).
 
-On the 2nd, Cubby's workflow creates the task **"2nd - Call Failed Autopay Tenants"** for every tenant whose autopay was declined on the 1st, and versions for mailbox customers and waste dump users (From Greens' Cubby, 11/2026).
+1. Open the task and the lease. Check the card's expiration and whether they paid overnight.
+2. Call, kind and direct: "Your autopay for this month didn't go through, and I wanted to help you sort it before any late fee."
+3. Offer the easy path: a new card now, a new AutoPay card, or a payment link.
+4. Complete the task with a note: reached or not, what was promised, by when.
 
-1. Open the task and the lease.
-2. Check why it failed if Cubby shows a reason, and the card's expiration date.
-3. Call the tenant. Be kind and direct: "Hi, this is Sam at Greens. Your autopay for this month didn't go through, and I wanted to help you sort it before any late fee."
-4. Offer the easy path: take the payment now on a new card, update the autopay card, or send a payment link.
-5. Note the call: reached or not, what was promised, by when.
-6. Complete the task with that note.
-
-If the balance is still unpaid on the 6th, Cubby raises **"6th - Call Past Due Tenants."** On the 11th the late fee posts (From Greens' Cubby, 11/2026).
+Still unpaid on the 6th, Cubby makes "6th - Call Past Due Tenants." The days after that are on Greens Delinquency Timeline.
 
 ## Steps: Send a Payment Link
 
-A payment link is a link texted or emailed to the tenant so they can pay from their phone. One link can cover **several leases** for the same tenant.
+A payment link lets the tenant pay from their phone; one link can cover **several leases** for the same tenant.
 
-1. Open the tenant's lease or contact.
-2. Create a payment link (the button name in Greens' Cubby is on the screenshot).
-3. Choose the lease or leases it covers.
-4. Send it by text or email to the contact details on file. Check they are current first.
-5. Note that you sent it, and set a task to check tomorrow if it is not paid.
+1. From the tenant's lease or contact, create a payment link and choose the leases it covers.
+2. Check the phone or email on file is current, then send it by text or email.
+3. Note that you sent it, and set a task to check tomorrow.
 
-> [!NOTE]
-> **Pending:** screenshot of creating a payment link from Greens' Cubby. Owner: Operations Manager.
-
-## The Tenant Portal
-
-Tenants can also pay themselves in the self-service tenant portal, which signs them in without a password. If a tenant asks how to pay online, point them to the portal or send a payment link.
-
-## Example
-
-**Fairfield, the 2nd.** The task list shows eight failed autopay calls. The first tenant's card expired in October. You call; he gives you a new card over the phone. You add it, set it as the autopay card, and take this month's $104.00 (a made-up rent). It succeeds. You complete the task with the note "Card expired; new card on autopay; paid in full." The second tenant does not answer, so you leave a voicemail, send a payment link by text, note both and complete the task. She pays from the link that afternoon, and Cubby closes the charge.
+Tenants can also pay in the tenant portal.
 
 ## Common Mistakes
 
-1. **Running a pending payment again.** It can charge twice.
-2. **Taking a payment on the wrong lease.** Check the unit number out loud.
-3. **Telling a tenant a partial payment "stops" the late fee.**
-4. **Not checking the card expiration** when autopay fails.
-5. **Leaving cash or checks out of Cubby.** Every payment you take is entered when you take it.
-6. **Not noting the call.** The next person will call again.
+1. **Writing a card number down**, or reading it back in full.
+2. **Running a pending payment again.**
+3. **Paying the wrong lease.** Say the unit number out loud.
+4. **Telling a tenant a partial payment stops the late fee.**
 
 ## Key Points
 
-- Payments go to the oldest charge first; a partial payment does not stop the steps.
-- A declined card posts nothing; a pending payment must never be run again.
-- Autopay saves a card only after a charge succeeds; check expiration dates.
-- The 2nd-of-the-month task is the most valuable call you make.
-- Payment links can cover several leases and are sent to the contact details on file.
+- A declined card posts nothing; a pending payment is never run twice.
+- A card by phone goes straight into Cubby: never written, never repeated aloud, never by email or text.
+- Payments pay the oldest charge first; only the full balance stops the steps.
+- The 2nd's failed AutoPay call is the most valuable call you make.
