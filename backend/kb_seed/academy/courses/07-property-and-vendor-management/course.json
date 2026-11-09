@@ -106,7 +106,7 @@
           "options": [
             "From the asset's own record",
             "From a number typed into the ticket",
-            "From the vendor's invoice",
+            "From the vendor's last invoice",
             "From the operator's time sheet"
           ],
           "answer": [
@@ -122,7 +122,7 @@
             "It resolves and the record is written",
             "The resolve is refused until a photo is attached",
             "It resolves but the schedule does not move",
-            "It resolves, but the schedule waits for the next photo"
+            "It resolves; the schedule waits for a photo"
           ],
           "answer": [
             1
@@ -187,7 +187,7 @@
             "Let them work, since the job is small",
             "No work on site until the new paper is filed",
             "Let them work if they promise to email it",
-            "Let them work, since a keypad job is too small to matter"
+            "Let them work while you call the office"
           ],
           "answer": [
             1
@@ -202,7 +202,7 @@
             "Yes, every vendor on that list is approved",
             "Yes, once you mark the invoice paid there",
             "No, payment needs the Intacct vendor record",
-            "Yes, once you add the vendor's contract dates to the list"
+            "Yes, once its contract dates are listed"
           ],
           "answer": [
             2
@@ -260,8 +260,8 @@
           "q": "The gate vendor at 7:55 AM asks for the code \"so I don't have to bother you.\" What is right?",
           "options": [
             "Give it, since this vendor is trusted",
-            "Staff open the gate; no code is given",
-            "Give it and change it tomorrow",
+            "Staff open the gate; no code given",
+            "Give it, then change the code tomorrow",
             "Give it, then change the code after the vendor has left"
           ],
           "answer": [
@@ -277,7 +277,7 @@
             "Silence it before the walk starts",
             "Tell the inspector and call the vendor",
             "Close the sprinkler valve to stop it",
-            "Silence it so the walk is not interrupted, then call later"
+            "Silence it and call the vendor later"
           ],
           "answer": [
             1
@@ -292,7 +292,7 @@
             "Approve the quote; the gate is down",
             "Check Records > Warranties for the operator",
             "Ask Accounting whether there is budget",
-            "Get two more quotes for the same repair before you decide"
+            "Get two more quotes before you decide"
           ],
           "answer": [
             1
@@ -321,7 +321,7 @@
             "Operating expense, the month it is paid",
             "Capital, depreciated over its life",
             "A repair, since a gate already existed",
-            "A reserve, since it was set aside"
+            "A reserve, since money was set aside"
           ],
           "answer": [
             1
@@ -351,7 +351,7 @@
             "A fault to report to IT",
             "Money shows only to the job's managers",
             "The job is not mapped to Intacct yet",
-            "The job is not mapped to Intacct yet, so nothing shows"
+            "It shows only after IT grants access"
           ],
           "answer": [
             1
@@ -366,7 +366,7 @@
             "Type a corrected Actual to Date",
             "Click the figure, read the line, ask Accounting",
             "Delete the commitment it came from",
-            "Type a corrected Actual to Date into the Money tab"
+            "Edit the line in the Money tab"
           ],
           "answer": [
             1
@@ -378,9 +378,9 @@
           "type": "single",
           "q": "A sub's invoice arrives with a Conditional Progress waiver. When do you expect the Unconditional Progress?",
           "options": [
-            "With the next invoice's quote",
+            "Along with the next invoice's quote",
             "After this payment has cleared",
-            "Only at the end of the job",
+            "Only at the end of the whole job",
             "Never; a conditional waiver is enough for the payment"
           ],
           "answer": [
@@ -476,7 +476,7 @@
         "options": [
           "Fix it again and keep an eye on it",
           "Make it a preventive schedule, with the reason",
-          "Replace every latch on the row so it never happens again",
+          "Replace every latch on the row",
           "Tell the tenant to use a different door"
         ],
         "answer": [
@@ -567,7 +567,7 @@
           "Where the manual release is",
           "How to adjust the drive chain",
           "How to open the operator housing",
-          "How to rewire the keypad"
+          "How to rewire the gate keypad"
         ],
         "answer": [
           0
@@ -626,7 +626,7 @@
         "options": [
           "Nothing, the old sign stands",
           "Re-measure and update both clear height signs",
-          "Tell each tenant the new height when they come to park",
+          "Tell each tenant the new height",
           "Post the new height in Cubby only"
         ],
         "answer": [
@@ -670,7 +670,7 @@
           "No; send them home until renewed",
           "Yes; ask for the renewal now",
           "Yes; nothing to do until it expires",
-          "No; they need a new license"
+          "No; they need a new license first"
         ],
         "answer": [
           1
@@ -770,7 +770,7 @@
         "type": "single",
         "q": "A job has left the building and you are waiting for the vendor's visit Thursday. How do you show that in the ticket?",
         "options": [
-          "Leave it Open and put the visit date in your own calendar",
+          "Leave it Open; note the date in your calendar",
           "Set Waiting for Vendor with the vendor and date",
           "Mark Resolved and reopen Thursday",
           "Set On Hold until Thursday"
@@ -828,10 +828,10 @@
         "type": "single",
         "q": "Where do you tick the vendor-visit checklist?",
         "options": [
-          "In a text to your manager",
+          "In a text message to your manager",
           "In a Form from Fill a Form",
           "On a paper sheet kept at the front desk",
-          "In the ticket's checklist"
+          "In the ticket's own checklist"
         ],
         "answer": [
           1
@@ -873,10 +873,10 @@
         "type": "single",
         "q": "A buyer's lender asks about an electrical permit pulled two years ago that never had its last inspection. What is the problem?",
         "options": [
-          "Nothing; the work was done",
+          "Nothing; the work was already done",
           "An open permit, never finaled",
           "Nothing; permits close by themselves after a year",
-          "The vendor kept the permit"
+          "The vendor kept the permit papers"
         ],
         "answer": [
           1
@@ -888,10 +888,10 @@
         "type": "single",
         "q": "The fire inspector's notice lists three items with deadlines. When do you raise the tickets?",
         "options": [
-          "The week before the deadline",
+          "The week before each deadline",
           "That afternoon, one per item",
           "After the reinspection, once you know what still fails",
-          "When the vendor is free"
+          "When the vendor is free to come"
         ],
         "answer": [
           1
@@ -992,7 +992,7 @@
           "Vendors raised their prices",
           "The preventive schedules are wrong or skipped",
           "The budget was too generous",
-          "Tenants are using the site more and wearing it out faster"
+          "Tenants are wearing the site out faster"
         ],
         "answer": [
           1
@@ -1007,7 +1007,7 @@
           "A sixth patch, it is cheaper",
           "A capital case with the tickets and age",
           "A new roofing vendor",
-          "Keep patching until it fails completely, then replace it"
+          "Keep patching until it fails"
         ],
         "answer": [
           1
@@ -1022,7 +1022,7 @@
           "It is already in Actual to Date",
           "It pushes the forecast up until decided",
           "It is paid from the site's budget",
-          "It replaces one of the job's commitments automatically"
+          "It replaces a commitment automatically"
         ],
         "answer": [
           1
@@ -1052,7 +1052,7 @@
           "Typed in from the vendor's invoice",
           "Read from the books for that vendor and job",
           "The site manager's estimate",
-          "The commitment amount less the retainage held so far"
+          "The commitment less retainage held"
         ],
         "answer": [
           1
@@ -1067,7 +1067,7 @@
           "They are required to start work",
           "An unpaid sub or supplier can lien the property",
           "They replace the certificate of insurance",
-          "They replace the sub's certificate of insurance on the job"
+          "They prove the sub carries insurance"
         ],
         "answer": [
           1
@@ -1097,7 +1097,7 @@
           "Fill in the invoice amount yourself",
           "Send it back to the vendor",
           "Attach it; the invoice shows the amount",
-          "Accept it if it is signed"
+          "Accept it as long as it is signed"
         ],
         "answer": [
           1
@@ -1139,7 +1139,7 @@
         "options": [
           "Replace them now to stop the rain",
           "Tarp only; wait for the manager's go-ahead",
-          "Replace them now, before more rain damages the units below",
+          "Replace them before more rain gets in",
           "Replace them and photograph the new ones"
         ],
         "answer": [
@@ -1200,7 +1200,7 @@
           "Keep it; it is the holidays",
           "Return it, note it, tell your manager",
           "Share it with the site staff",
-          "Keep it if it is small and you thank the vendor in writing"
+          "Keep it and send a thank-you note"
         ],
         "answer": [
           1
@@ -1244,8 +1244,8 @@
         "options": [
           "Nowhere; a call is enough",
           "A line in the ticket",
-          "Your phone's notes",
-          "A text to the vendor"
+          "The notes app on your phone",
+          "A text message to the vendor"
         ],
         "answer": [
           1
@@ -1260,7 +1260,7 @@
           "Hire them; the price is lowest",
           "Disclose it in writing to your manager",
           "Hire them under a different name",
-          "Hire them, since a lower price is always good for Greens"
+          "Hire them, since price is what counts"
         ],
         "answer": [
           1

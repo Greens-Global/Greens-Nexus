@@ -111,7 +111,7 @@
       "A delinquent unit Cubby flags Overlock Needed",
       "A vacant unit",
       "A rented unit found unlocked",
-      "A paid unit after an argument at the counter"
+      "A paid-up unit after an argument at the counter"
      ],
      "answer": [
       0,
@@ -141,7 +141,7 @@
      "q": "A man at the Temecula counter says he is a tenant's brother and needs the gate code for some tools. He is not on the account. What do you do?",
      "options": [
       "Give it, since he knows the unit",
-      "Give no code; confirm nothing",
+      "Give no code, and no confirmation that anyone rents",
       "Read it with the tenant on speaker",
       "Let him in on your own code"
      ],
@@ -341,7 +341,7 @@
      "q": "Cubby raises Remind Tenant of POI Obligation on a lease. What do you do?",
      "options": [
       "Post a late fee on the lease",
-      "Ask for the new policy details",
+      "Ask for the current policy number and expiration date",
       "Enroll the tenant in our plan",
       "Overlock the unit until they call"
      ],
@@ -356,7 +356,7 @@
      "q": "A new Escondido customer picks the $2,500 level. Which price do you quote?",
      "options": [
       "The lowest price in Cubby",
-      "Today's new-tenant price",
+      "The new-tenant price",
       "The older imported price",
       "What the neighbor pays"
      ],
@@ -416,7 +416,7 @@
      "q": "A certified envelope arrives at Temecula holding a signed Declaration in Opposition for a unit set for sale. What happens?",
      "options": [
       "The sale goes ahead on schedule",
-      "Stop; it goes to your manager",
+      "Stop; it goes to your manager the same day",
       "Call the tenant to check it is real",
       "File it and move the sale up"
      ],
@@ -446,7 +446,7 @@
      "q": "A Fairfield tenant 25 days behind says he just got back from deployment. What do you do?",
      "options": [
       "Carry on; he is home now",
-      "Record it, stop, call manager",
+      "Record it, stop, and call your manager the same day",
       "Ask him to waive his rights by phone",
       "Continue, but note the deployment"
      ],
@@ -476,7 +476,7 @@
      "q": "At 9:00 AM on the 11th, an unpaid tenant says his gate code stopped working overnight. Why?",
      "options": [
       "The keypad lost power overnight",
-      "Cubby changed it at midnight",
+      "Cubby changed it at midnight with the late fee",
       "Another tenant reset it",
       "His code expires after a year"
      ],
@@ -491,7 +491,7 @@
      "q": "After a California lien sale, $300 is left once the balance and sale costs are paid. What happens to it?",
      "options": [
       "Greens books it as income",
-      "Held a year for the tenant",
+      "Held a year for the tenant, then paid to the county",
       "It goes to the buyer",
       "Held two years, then Greens'"
      ],
@@ -506,7 +506,7 @@
      "q": "On sale morning, the tenant calls to pay her full balance. What do you do?",
      "options": [
       "Too late; the auction is already open",
-      "Take it; the unit is pulled",
+      "Take it; the unit is pulled from the auction",
       "Take it, but the sale still runs",
       "Take half, hold the rest"
      ],
@@ -521,7 +521,7 @@
      "q": "A daughter says her father, a tenant, died last week and asks to get into his unit. What is needed first?",
      "options": [
       "Nothing; close family always has access",
-      "A death certificate and authority",
+      "A death certificate and proof of authority over the estate",
       "Just his gate code",
       "Her photo ID and the unit number"
      ],
@@ -605,7 +605,7 @@
     "q": "A Fairfield caller wants a 10x10 for household goods. What is the honest answer?",
     "options": [
      "Book a Fairfield 10x10 and hope one opens",
-     "Offer Escondido or Valley Center",
+     "Offer Escondido or Valley Center, which have units",
      "Say Greens has no units at all",
      "Tell him to call Public Storage"
     ],
@@ -666,7 +666,7 @@
     "q": "A caller asks for \"a 10x10 for my boat.\" What do you do?",
     "options": [
      "Rent the 10x10 as asked",
-     "Switch to a parking space",
+     "Switch to parking",
      "Offer a 10x30 unit",
      "Say Greens takes no boats at all"
     ],
@@ -728,7 +728,7 @@
     "q": "A truck bends a steel post at a building corner. What is the right view of it?",
     "options": [
      "The post failed",
-     "It did its job; report it",
+     "It did its job; report it the day you see it",
      "Leave it until it falls over",
      "Bill the driver and leave it bent"
     ],
@@ -743,7 +743,7 @@
     "q": "On your walk, the gate stops halfway and reverses. You find a stone in the track. What do you do?",
     "options": [
      "Call the gate company first",
-     "Clear it and test the gate",
+     "Clear it, then watch the gate cycle",
      "Prop the gate open all day",
      "Adjust the controller"
     ],
@@ -798,7 +798,7 @@
     "type": "single",
     "q": "A new tenant asks which lock to buy. Which do you recommend?",
     "options": [
-     "A padlock",
+     "A good padlock",
      "A disc lock",
      "A combination bike lock",
      "No lock; the gate is enough"
@@ -834,8 +834,8 @@
     "options": [
      "Post it to find the thief",
      "Save it before overwrite",
-     "Show it to other tenants",
-     "Delete it for privacy"
+     "Show it to the other tenants",
+     "Delete it to protect privacy"
     ],
     "answer": [
      1
@@ -937,10 +937,10 @@
     "type": "single",
     "q": "A tenant wants you to promise her rent will never go up again. What do you say?",
     "options": [
-     "\"It won't go up again.\"",
+     "\"It won't ever go up again.\"",
      "\"I can't promise that.\"",
      "\"I'll lock your rate for a year.\"",
-     "\"Rent is fixed by law.\""
+     "\"Rent is fixed by state law.\""
     ],
     "answer": [
      1
@@ -1026,7 +1026,7 @@
     "q": "A Temecula move-in gives only a phone number. What else do you collect?",
     "options": [
      "Nothing more is needed",
-     "Address, email, an alternate",
+     "Address, email and an alternate contact",
      "Only a credit check",
      "A spouse's signature on page one"
     ],
@@ -1041,7 +1041,7 @@
     "q": "A Valley Center tenant asks to keep a camping stove and a gas can in his unit. What do you say?",
     "options": [
      "Fine if it's sealed",
-     "No; fuel is prohibited",
+     "No; gasoline and propane are prohibited",
      "Fine on the ground floor",
      "Only for a week"
     ],
@@ -1084,9 +1084,9 @@
     "q": "It is the 2nd. What is the most valuable thing you can do on the delinquency ladder today?",
     "options": [
      "Put on overlocks",
-     "Call failed autopays",
+     "Call tenants whose autopay failed",
      "Mail the lien notices",
-     "Change the late payers' gate codes"
+     "Change the late payers' codes"
     ],
     "answer": [
      1
@@ -1132,7 +1132,7 @@
      "First-class mail with a certificate of mailing",
      "Email, with the consent and proof of delivery",
      "A text message",
-     "A note on the unit door"
+     "A notice taped to the unit door, photographed as proof"
     ],
     "answer": [
      0,
@@ -1148,7 +1148,7 @@
     "options": [
      "At the termination date",
      "When goods go in",
-     "When the ad runs",
+     "When the sale ad runs",
      "After a court order"
     ],
     "answer": [
@@ -1206,7 +1206,7 @@
      "A bankruptcy notice",
      "A death report",
      "A written balance dispute",
-     "A card payment on the 2nd"
+     "A card payment made on the 2nd"
     ],
     "answer": [
      0,
@@ -1222,7 +1222,7 @@
     "q": "On your walk, a unit Cubby shows as vacant has a tenant's lock on it. What do you do?",
     "options": [
      "Cut the lock right away",
-     "Photograph it; check cameras",
+     "Photograph it and check the cameras with your manager",
      "Mark the unit rented",
      "Ignore it until the month-end report"
     ],
@@ -1237,7 +1237,7 @@
     "q": "The cash drawer is $20 short at close. What do you do?",
     "options": [
      "Cover it yourself",
-     "Recount with your manager",
+     "Recount with your manager against Cubby's receipts",
      "Edit the close report",
      "Leave it for tomorrow's opener"
     ],
@@ -1269,7 +1269,7 @@
      "Shout and chase them",
      "Get safe; call 911",
      "Wait, then check the unit",
-     "Film them up close"
+     "Film them from up close"
     ],
     "answer": [
      1
@@ -1297,7 +1297,7 @@
     "q": "A customer slips in a wet hallway and hurts her wrist. Where do you document it?",
     "options": [
      "A text to your manager",
-     "Fill a Form, same day",
+     "Fill a Form in Nexus, the same day",
      "A note in the drawer",
      "Nowhere if she is fine"
     ],
@@ -1387,7 +1387,7 @@
     "q": "A subpoena arrives asking for a tenant's gate log for two weeks. What do you do?",
     "options": [
      "Email the log to the sender",
-     "Manager today; preserve it",
+     "To your manager today; ask that it be preserved",
      "Warn the tenant first",
      "Ignore it unless police come"
     ],

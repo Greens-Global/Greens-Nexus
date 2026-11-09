@@ -73,7 +73,7 @@
      "q": "You are limited to Temecula, entity 15001. Can you read lines coded 15001-1?",
      "options": [
       "Yes, a parent brings its children",
-      "No, only the exact code is allowed",
+      "No, only the exact code",
       "Only after Accounting approves",
       "Only on the Dashboard"
      ],
@@ -196,8 +196,8 @@
      "q": "Asset Management lists a pest vendor under the property's Records > Vendors. Is that the record Accounting pays?",
      "options": [
       "No, Accounting pays the Intacct vendor",
-      "Yes, both lists are the same record in Intacct",
-      "Yes, as soon as its COI date is current",
+      "Yes, both lists are one record",
+      "Yes, once its COI is current",
       "No, Cubby pays site vendors"
      ],
      "answer": [
@@ -445,7 +445,7 @@
     "q": "A Project-Job code appears on a canopy invoice line. What does it tell you?",
     "options": [
      "Which property entity paid the bill",
-     "The Construction job it belongs to",
+     "The Construction job the line belongs to",
      "Which bank account it cleared from",
      "Which person keyed it into Intacct"
     ],
@@ -476,7 +476,7 @@
     "options": [
      "It is paid twice by mistake",
      "It may be coded to the wrong site",
-     "It posts to a statistical journal only",
+     "It posts as statistical only",
      "Intacct refuses to accept it"
     ],
     "answer": [
@@ -517,9 +517,9 @@
     "type": "single",
     "q": "A manager asks Accounting for a new 'Gate Repairs Murrieta' account. What is the better answer?",
     "options": [
-     "Open it, then copy last year's lines",
+     "Open it and copy last year's lines",
      "Filter the repairs account by entity",
-     "Keep a spreadsheet beside the ledger instead",
+     "Keep a side spreadsheet",
      "Code gate repairs to utilities"
     ],
     "answer": [
@@ -534,8 +534,8 @@
     "options": [
      "Cash leaves every vendor bill out of the month",
      "Accrual counts rent when earned, Cash when paid",
-     "Accrual ignores card payments taken at the counter",
-     "One of the two reports has a typing error in it"
+     "Accrual ignores counter card payments",
+     "One report has a typing error"
     ],
     "answer": [
      1
@@ -549,8 +549,8 @@
     "options": [
      "Hours never add into money totals",
      "Payroll never posts in October",
-     "User-defined books are always hidden",
-     "Cash and Accrual cannot be compared"
+     "User-defined books stay hidden",
+     "Cash and Accrual cannot mix"
     ],
     "answer": [
      0
@@ -606,7 +606,7 @@
     "q": "Repairs read $21,120 against a $14,000 budget. What is your first move?",
     "options": [
      "Click the figure to open its lines",
-     "Email Accounting a screenshot of it",
+     "Email Accounting a screenshot",
      "Wait for next month's statement",
      "Raise next year's repairs budget"
     ],
@@ -694,8 +694,8 @@
     "q": "You click the question mark at the end of a ledger line. What happens?",
     "options": [
      "You ask My Accountant about it",
-     "The line is deleted from the report",
-     "The entry is pushed to Intacct",
+     "The line is deleted",
+     "The entry goes to Intacct",
      "The amount becomes editable"
     ],
     "answer": [
@@ -724,7 +724,7 @@
     "q": "A vendor change reads Approved - Awaiting Intacct. What does that mean?",
     "options": [
      "Approved, not yet keyed into Intacct",
-     "Declined and waiting for a new request",
+     "Declined; a new request is needed",
      "Approved and already paid out",
      "Waiting for the vendor to sign"
     ],
@@ -812,7 +812,7 @@
     "q": "Which report ties each bank deposit to the card and ACH payments inside it?",
     "options": [
      "Merchant Services Disbursements",
-     "General Ledger (Accrual) for the month",
+     "General Ledger (Accrual)",
      "Aged Receivables by facility",
      "Spend by Vendor on Accounting"
     ],
@@ -870,7 +870,7 @@
     "q": "Fairfield's pest control line in MRE reads Missed for two months. What does it most likely mean?",
     "options": [
      "The contract lapsed or billing stopped",
-     "The vendor was paid twice in one month",
+     "The vendor was paid twice",
      "The budget was set much too high",
      "The entity was renamed in Intacct"
     ],
@@ -943,8 +943,8 @@
     "q": "A property's Income Statement shows a management fee. What is it?",
     "options": [
      "What the operator charges to run it",
-     "A late fee charged to the property's tenants",
-     "The bank's monthly charge on the account",
+     "A late fee charged to tenants",
+     "The bank's monthly account fee",
      "A markup on vendor service calls"
     ],
     "answer": [
@@ -1001,7 +1001,7 @@
     "q": "Manual Journal Entries shows many entries for one month. What is the right reading?",
     "options": [
      "Worth a question, not proof of error",
-     "Proof that the month is full of errors",
+     "Proof the month is full of errors",
      "A fault in the bank feed rules",
      "A sign that payroll ran twice"
     ],
@@ -1046,8 +1046,8 @@
     "q": "You want to know whether the operating bank account is reconciled for October. Where do you look?",
     "options": [
      "Account Reconciliations on Close",
-     "Records > Journals, the bank journal",
-     "Report Builder with a bank filter",
+     "Records > Journals",
+     "Report Builder, bank filter",
      "MRE under Audit & Insights"
     ],
     "answer": [

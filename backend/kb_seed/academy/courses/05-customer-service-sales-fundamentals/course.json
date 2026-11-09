@@ -89,7 +89,7 @@
           "q": "A first-time renter asks which size she should get. What is your next step?",
           "options": [
             "Ask what size she thinks she needs today",
-            "Ask what she is storing, then recommend",
+            "Ask what she is storing, then recommend a size and say why",
             "Send her the size chart and let her choose",
             "Quote the smallest unit so the price looks good"
           ],
@@ -103,7 +103,7 @@
           "type": "single",
           "q": "A Valley Center caller is storing a one-bedroom apartment. What do you ask about climate control?",
           "options": [
-            "Whether any of it minds the heat",
+            "Whether any of it minds heat, like wood furniture, photos or electronics",
             "Nothing; recommend climate control for everyone",
             "Nothing; climate control is only for businesses",
             "Whether she will pay extra for climate control today"
@@ -264,7 +264,7 @@
           "q": "A caller says the place down the road is $20 a month cheaper. What do you do first?",
           "options": [
             "Match the price on the spot to win the rental",
-            "Acknowledge it and compare total cost",
+            "Acknowledge it, then compare total cost: when the special ends, fees, protection",
             "Mention the problems you have heard about that site",
             "Tell her the other price is probably not real"
           ],
@@ -341,7 +341,7 @@
             "Give the balance, since they are married",
             "Say you can only discuss it with the tenant",
             "Give the balance but not the unit number",
-            "Email the balance to him so it is in writing"
+            "Email him the balance so it is in writing"
           ],
           "answer": [
             1
@@ -370,7 +370,7 @@
           "options": [
             "\"I'll get it reversed for you today\"",
             "\"I'll ask my manager; call you by 4:00 PM\"",
-            "\"Nothing can be done about it at all, sorry\"",
+            "\"Nothing can be done about it, sorry\"",
             "\"It won't go up again, I promise you that\""
           ],
           "answer": [
@@ -414,7 +414,7 @@
           "q": "A tenant behind on rent can pay half today. What do you tell him before he pays?",
           "options": [
             "Half stops the ladder for a month",
-            "Half does not stop the ladder",
+            "Half does not stop the ladder; Cubby pays the oldest charge first",
             "Half resets every date on the ladder",
             "Half is enough to close the account"
           ],
@@ -429,7 +429,7 @@
           "q": "A coworker says, \"Tell him we're selling Monday,\" but the sale is weeks away. What do you tell the tenant?",
           "options": [
             "\"We are selling your things on Monday\"",
-            "The real next step and its date",
+            "The real next step and its date from the timeline",
             "\"Very soon, but I can't say exactly when\"",
             "\"The system has set the sale for Monday\""
           ],
@@ -478,7 +478,7 @@
         "q": "A Fairfield caller says, \"I've got a 30-foot travel trailer and the HOA is on me.\" What builds trust fastest?",
         "options": [
           "Quote the cheapest space you have right now",
-          "Ask the length with the tongue and how often it moves",
+          "Ask the overall length with the tongue and how often it moves",
           "Tell him the gate and office hours for the week",
           "Ask whether the HOA has sent him a written notice yet"
         ],
@@ -566,8 +566,8 @@
         "options": [
           "Your number and nothing else, to keep it short",
           "Name, site, the space and price, number, when you'll call",
-          "A reminder that prices may go up soon, to create urgency",
-          "Every special running this month, so she can compare them"
+          "A reminder that prices may go up, to create urgency",
+          "Every special running this month, so she can compare"
         ],
         "answer": [
           1
@@ -623,7 +623,7 @@
         "q": "A caller likes the unit but is not ready to rent today. Which close fits?",
         "options": [
           "\"Come by anytime you like this week.\"",
-          "\"I can reserve it now at no charge.\"",
+          "\"I can reserve it now at no charge so it's held for you.\"",
           "\"Let me know if you have any questions.\"",
           "\"Give us a call back whenever you're ready.\""
         ],
@@ -670,7 +670,7 @@
         "q": "A caller wants a 5x10 for a couch, a bed, a table and about 40 boxes. What do you do?",
         "options": [
           "Rent her the 5x10, since she asked for it",
-          "Say it won't fit and recommend a 10x15",
+          "Say it won't fit, recommend a 10x15 and place her things in it out loud",
           "Suggest she rent two 5x10 units side by side",
           "Ask her to measure every piece and call back later"
         ],
@@ -685,7 +685,7 @@
         "q": "You are torn between two sizes for a customer who needs her files every week. What do you do?",
         "options": [
           "Pick the smaller one to save her money",
-          "Go up a size and say why",
+          "Go up a size and say why: a walkway, so she is not unstacking for one box",
           "Let her pick, so it is her decision",
           "Pick whichever one is cheaper today"
         ],
@@ -700,7 +700,7 @@
         "q": "A Temecula contractor mentions a couple of gas cans for his generator. What do you say?",
         "options": [
           "\"Just keep them near the door\"",
-          "\"We can't store fuel, sorry\"",
+          "\"We can't take anything flammable, like gas cans or propane\"",
           "\"Fine, as long as they are sealed\"",
           "\"Only inside a climate-controlled unit\""
         ],
@@ -807,7 +807,7 @@
         "q": "Karen moves in tomorrow at Escondido. What do you do today?",
         "options": [
           "Nothing; she already has the date",
-          "Call to confirm her arrival time",
+          "Call to confirm her arrival time and remind her to bring photo ID and her card",
           "Email her the whole rental agreement",
           "Release the unit unless she has prepaid"
         ],
@@ -926,7 +926,7 @@
         "options": [
           "Tell her the website must be out of date",
           "Check Cubby and honor that price if it shows",
-          "Give her the lower rate, whatever Cubby says",
+          "Give her that rate, whatever Cubby says",
           "Tell her to go rent online to get that rate"
         ],
         "answer": [
@@ -1118,9 +1118,9 @@
         "q": "Which mean you stop collecting and call your manager the same day? Pick all that apply.",
         "options": [
           "The tenant is on active military duty",
-          "A bankruptcy notice arrives",
+          "A bankruptcy notice comes in",
           "The tenant mentions a lawyer",
-          "The tenant asks for a payment link"
+          "The tenant asks you for a payment link"
         ],
         "answer": [
           0,
@@ -1148,7 +1148,7 @@
         "q": "A tenant's autopay card was declined on the 1st. What kind of call is the first one?",
         "options": [
           "A lien warning call",
-          "A service call",
+          "A service call to help them update the card",
           "A final collection call",
           "A move-out save call"
         ],
@@ -1178,7 +1178,7 @@
         "q": "A caller who forgot her gate code wants it read over the phone. What do you do first?",
         "options": [
           "Read it to her quickly",
-          "Verify who she is",
+          "Verify who she is; a gate code is a password",
           "Text it to whatever number she gives",
           "Tell her to wait for the office to open"
         ],
@@ -1193,7 +1193,7 @@
         "q": "A Fairfield tenant reports a cut lock and asks to see the camera footage. What do you say?",
         "options": [
           "\"Sure, come look at it with me now\"",
-          "It is kept for the police",
+          "It is kept for the police under Greens' rules, not shown to tenants",
           "\"We don't keep any camera footage\"",
           "\"Only if you pay the footage fee\""
         ],

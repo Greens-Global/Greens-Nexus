@@ -42,8 +42,8 @@
           "q": "You are a new manager and your Dashboard still shows only your own Home widgets. Where do you find the team ones?",
           "options": [
             "Workday, then the My Team tab at the top",
-            "Settings, Branding & Email",
-            "Ask HR, Profile Change",
+            "Settings > People & Access > Roles",
+            "Ask HR, then a Profile Change request",
             "Customize, Add Widget, Team"
           ],
           "answer": [
@@ -72,7 +72,7 @@
           "q": "A time off request reads Check First. What does that mean?",
           "options": [
             "It approves itself tomorrow",
-            "Look at the reasons, then decide",
+            "Read the reasons it gives in plain words, then decide",
             "Nexus has already rejected the request",
             "HR must approve it before you can"
           ],
@@ -86,7 +86,7 @@
           "type": "single",
           "q": "You leave for a week of approved vacation tomorrow. What do you set today?",
           "options": [
-            "A Board for the team",
+            "A shared Board for the team",
             "Copy Week in the planner",
             "Delegate My Approvals",
             "An out-of-office note in Teams"
@@ -132,7 +132,7 @@
             "The premium pay",
             "The request",
             "Review & Approve",
-            "Send Back"
+            "Send Back with a note"
           ],
           "answer": [
             1
@@ -266,7 +266,7 @@
           "q": "Priya's probation is ending and she has done well. What do you click?",
           "options": [
             "Extend",
-            "Confirm",
+            "Confirm, as a recommendation",
             "End",
             "Offboard"
           ],
@@ -298,7 +298,7 @@
             "Any site manager",
             "HR only",
             "The Help Center",
-            "An administrator"
+            "An administrator, from New Announcement"
           ],
           "answer": [
             3
@@ -378,7 +378,7 @@
         "options": [
           "Pending Purchases",
           "My Ticket Queue",
-          "Team Clocked-In",
+          "Team Clocked-In, in the Team category",
           "Who Has What"
         ],
         "answer": [
@@ -394,7 +394,7 @@
           "Approve it now to save everyone time",
           "Reject it with no note",
           "Change the punch to 5:30 PM yourself",
-          "Send it back asking what kept him"
+          "Send it back asking what kept him until 6:30 PM"
         ],
         "answer": [
           3
@@ -538,7 +538,7 @@
         "q": "A teammate punches in 40 minutes early without being asked. What does Nexus do?",
         "options": [
           "Sends HR an alert",
-          "Records it and sends one grouped bell",
+          "Records it, never blocks it, and sends one grouped bell per team and day",
           "Blocks the punch until the shift starts",
           "Docks the minutes"
         ],
@@ -612,7 +612,7 @@
         "options": [
           "Add the hours yourself",
           "Ask HR to finalize",
-          "Send Back with a note",
+          "Send Back with a note saying what to fix",
           "Approve and fix it later"
         ],
         "answer": [
@@ -686,7 +686,7 @@
           "Editor",
           "Full",
           "Owner",
-          "Viewer"
+          "Viewer, the usual level"
         ],
         "answer": [
           3
@@ -699,8 +699,8 @@
         "q": "A teammate had approved time off Wednesday. How does the scorecard treat that day?",
         "options": [
           "Excused",
-          "Absent",
-          "Short",
+          "Absent for the day",
+          "Short on hours",
           "Late, then excused by HR"
         ],
         "answer": [
@@ -744,7 +744,7 @@
           "Your own judgment as their manager",
           "The Monday email",
           "The Catalog",
-          "The company's policy in Settings"
+          "The company's policy in Settings > Workforce Analytics"
         ],
         "answer": [
           3
@@ -814,7 +814,7 @@
         "type": "single",
         "q": "Where are Due Soon and Waiting on the desk?",
         "options": [
-          "Under Other Queues",
+          "In the Other Queues dropdown",
           "As tabs beside Mine",
           "In Settings",
           "In Help Center"
@@ -887,7 +887,7 @@
         "type": "single",
         "q": "A teammate is leaving. How does the exit start?",
         "options": [
-          "You tell them on Teams",
+          "You tell them in a Teams message",
           "Through HR's Offboard flow",
           "You end their access yourself",
           "You delete their future shifts in the planner"
@@ -935,7 +935,7 @@
           "Hardest Questions",
           "Learning Paths",
           "Mark Reviewed",
-          "Learn This Screen"
+          "Refresher"
         ],
         "answer": [
           0
@@ -992,7 +992,7 @@
         "options": [
           "Acknowledge",
           "Bell and Email",
-          "Scheduled",
+          "Scheduled for Monday",
           "A work site audience"
         ],
         "answer": [
@@ -1036,7 +1036,7 @@
           "A Note with the photo",
           "A Teams message",
           "A form",
-          "Mark Up, to a Board"
+          "Mark Up, then attach it back to its ticket"
         ],
         "answer": [
           3
@@ -1063,7 +1063,7 @@
         "type": "single",
         "q": "Which Asset Management card shows what the property's record is missing?",
         "options": [
-          "Timeline",
+          "The Timeline",
           "Data Gaps",
           "Needs Attention",
           "Recent Activity"
@@ -1122,7 +1122,7 @@
         "q": "A new teammate cannot see the ticket desk. What is usually missing?",
         "options": [
           "A shift",
-          "A grant",
+          "A grant for the desk",
           "A tier",
           "A password"
         ],
@@ -1154,7 +1154,7 @@
           "Share your sign-in for a day",
           "Give them your tier",
           "Use Team Sign-In for them",
-          "Request access; no sharing"
+          "Request access from your administrator; never share a sign-in"
         ],
         "answer": [
           3
@@ -1180,7 +1180,7 @@
         "q": "Which of these is on the leader's every-week list?",
         "options": [
           "Build a Board",
-          "Read the scorecard with the schedule",
+          "Read the Workforce Scorecard with the schedule beside it",
           "Review every Time Sheet the team signed",
           "Set Delegate My Approvals"
         ],
