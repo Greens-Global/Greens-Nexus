@@ -1307,13 +1307,11 @@
         "lesson": "16-practice-sales-scenarios.md"
       },
       {
-        "type": "single",
-        "q": "You play the customer in practice. The staff member never asks what you are storing. What do you do?",
+        "type": "tf",
+        "q": "You play the customer in practice. If the staff member never asks what you are storing, you should tell them anyway.",
         "options": [
-          "Tell them anyway to keep it moving",
-          "Hold it back",
-          "Stop the scenario and restart it",
-          "Score the call a pass"
+          "True",
+          "False"
         ],
         "answer": [
           1
