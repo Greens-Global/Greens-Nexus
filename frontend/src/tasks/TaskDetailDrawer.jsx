@@ -187,6 +187,23 @@ function DependencyPickerBody({ candidates, onPick }) {
     </div>
   );
 }
+// A lag in working days (automatic scheduling): typed, saved on Enter or blur,
+// a non-number puts the saved value back.
+function LagBox({ value, onCommit, label }) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => { setText(String(value)); }, [value]);
+  const commit = () => {
+    const n = parseInt(text, 10);
+    if (Number.isNaN(n)) { setText(String(value)); return; }
+    onCommit(Math.max(-365, Math.min(365, n)));
+  };
+  return (
+    <input type="number" step={1} min={-365} max={365} value={text} aria-label={label}
+      onChange={(e) => setText(e.target.value)} onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
+      style={{ ...inputStyle, width: 54, padding: '3px 6px', fontSize: 12, textAlign: 'right' }} />
+  );
+}
 function MenuItem({ icon, onClick, danger, children }) {
   // Highlight comes from .nx-menu-row (style.css), not a useState mirror of the
   // pointer: this rendered the whole drawer on every mouse move across a menu,
@@ -462,6 +479,29 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const setDependencyType = (depId, type) => {
     patch({ dependencyTypes: { ...(task.dependencyTypes || {}), [depId]: type } });
   };
+  // Automatic scheduling (Neil, 11/08/2026): the lag after each predecessor
+  // (working days, negative = overlap) and the task's mode. Switching to
+  // Automatic asks first when the server says dates will move.
+  const setLag = (depId, days) => {
+    const lags = { ...(task.dependencyLags || {}) };
+    if (days) lags[depId] = days; else delete lags[depId];
+    if ((task.dependencyLags || {})[depId] === lags[depId]) return;
+    patch({ dependencyLags: lags });
+  };
+  const setScheduleMode = async (mode) => {
+    if (mode === (task.scheduleMode || 'manual')) return;
+    if (mode === 'auto') {
+      let moved = [];
+      try { moved = (await api.previewTaskSchedule(task.id, { schedule_mode: 'auto' }))?.moved || []; } catch { /* the save itself will say */ }
+      if (moved.length) {
+        const ok = await dialog.confirm(
+          `Nexus will set this task's dates from its predecessors / subtasks. ${moved.length} task${moved.length === 1 ? '' : 's'} may move.`,
+          { title: 'Automatic Scheduling', confirmText: 'Switch' });
+        if (!ok) return;
+      }
+    }
+    patch({ scheduleMode: mode });
+  };
 
   const TABS = [
     ['overview', 'Overview'], ['comments', 'Comments'], ['activity', 'Activity'],
@@ -477,7 +517,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
       case 'overview': return (
         <OverviewTab
           task={task} patch={patch} readOnly={!canEdit} canComment={canComment} canEditProject={canEditProject} canEditTask={canEditTask} people={people} projectName={projectName} teamName={teamName} teams={teams} projects={projects}
-          blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
+          blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency} setLag={setLag} setScheduleMode={setScheduleMode}
           setDependencyType={setDependencyType}
           subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={openSub} onMoveSub={setMoving}
           nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
@@ -1349,7 +1389,7 @@ function ProjectsField({ task, projects, teams, myEmail, projectName, patch }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, readOnly = false, canComment = true, canEditProject = true, canEditTask = null, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, onMoveSub = null, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket, onLeaveForJob }) {
+function OverviewTab({ task, patch, readOnly = false, canComment = true, canEditProject = true, canEditTask = null, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, setLag = null, setScheduleMode = null, subtasks, createTask, updateTask, onOpenSub, onMoveSub = null, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket, onLeaveForJob }) {
   const isMobile = useIsMobile();
   // Whether the folding sections below have anything in them.
   const hasApproval = !!task.approvalStatus && task.approvalStatus !== 'none';
@@ -1593,6 +1633,14 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
                   {b.title}{b.dueOn ? ` · ${fmtDate(b.dueOn)}` : ''}
                   <button onClick={() => removeDependency(b.id)} aria-label={`Remove dependency on ${b.title}`} title="Remove Dependency" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
                 </span>
+                {setLag && (
+                  <label title="Working days between this task finishing and yours starting - negative overlaps them (automatic scheduling)"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: NX.dim }}>
+                    Lag
+                    <LagBox value={(task.dependencyLags || {})[b.id] || 0} onCommit={(n) => setLag(b.id, n)} label={`Lag after ${b.title}`} />
+                    d
+                  </label>
+                )}
               </div>
             );
           })}
@@ -1601,6 +1649,24 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
           </Pop>
         </div>
       </Row>
+
+      {/* Automatic scheduling (Neil, 11/08/2026): Manual, or the dates follow
+          the predecessors above (and the subtasks) - task_schedule.py. */}
+      {setScheduleMode && (
+        <Row label="Scheduling">
+          <select aria-label="Scheduling" value={task.scheduleMode || 'manual'} onChange={(e) => setScheduleMode(e.target.value)}
+            style={{ ...inputStyle, width: 'auto', padding: '5px 8px', fontSize: 13 }}>
+            <option value="manual">Manual</option>
+            <option value="auto" disabled={!blockedBy.length && !(task.subtaskIds || []).length}
+              title={!blockedBy.length && !(task.subtaskIds || []).length ? 'Add a dependency or a subtask first - there is nothing to follow' : undefined}>
+              Automatic (follows its predecessors)
+            </option>
+          </select>
+          {(task.scheduleMode || 'manual') === 'auto' && (
+            <span style={{ fontSize: 12, color: NX.faint }}>Its start follows its predecessors; drag the end of its bar to change its length.</span>
+          )}
+        </Row>
+      )}
       </FieldsLock>
       {readOnly && <DueNegotiation task={task} />}
 

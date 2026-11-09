@@ -83,6 +83,13 @@ def clean_project_icon(v) -> str:
     return v if _ICON_KEY.match(v) else ""
 
 
+# Project health (Neil, 11/08/2026). The column's older values (the computed
+# in_progress / completed the list derives, legacy seeds) stay readable; only
+# a NEW status must be one of these.
+PROJECT_STATUSES = ("not_started", "on_track", "at_risk", "off_track", "finished",
+                    "in_progress", "completed")
+
+
 def project_to_dict(p: models.TaskProject) -> dict:
     color_rules = _color_rules_of(p)
     return {
@@ -93,6 +100,11 @@ def project_to_dict(p: models.TaskProject) -> dict:
         "hrDepartmentId": _nz(p.hr_department_id), "hrDepartmentName": _nz(p.hr_department_name),
         "accessLevel": p.access_level or "org",
         "status": p.status or "not_started", "startOn": _nz(p.start_on), "dueOn": _nz(p.due_on),
+        # Project health (Neil, 11/08/2026): the chip shows only once
+        # statusSetAt is set - a never-set project shows nothing.
+        "statusNote": getattr(p, "status_note", "") or "",
+        "statusSetBy": _nz(getattr(p, "status_set_by", "")),
+        "statusSetAt": _nz(getattr(p, "status_set_at", "")),
         "archived": bool(p.archived), "activityIds": p.activity_ids or [],
         "customFieldValues": p.custom_field_values or {},
         "timeTracking": p.time_tracking or "",
@@ -240,6 +252,9 @@ class ProjectBody(BaseModel):
     portfolio_id: Optional[str] = ""
     access_level: Optional[str] = None
     status: Optional[str] = "not_started"
+    # Project health (Neil, 11/08/2026): the one-line "why" beside a status
+    # set from the Projects list - see models.TaskProject.status_note.
+    status_note: Optional[str] = None
     start_on: Optional[str] = ""
     due_on: Optional[str] = ""
     archived: Optional[bool] = None
@@ -592,9 +607,22 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
     # not "Editor" (which only covers the tasks inside it). Curating the
     # project's shared dashboard charts is editor work, like the tasks.
     data = body.model_dump(exclude_unset=True, exclude={"id"})
-    require_project_access(db, user, p, "editor" if set(data) <= {"shared_charts"} else "owner")
+    # Reporting the project's health (status + its note, Neil 11/08/2026) is
+    # editor work like the shared charts; everything else stays the owner's.
+    editor_only = set(data) <= {"shared_charts"} or set(data) <= {"status", "status_note"}
+    require_project_access(db, user, p, "editor" if editor_only else "owner")
     if "portfolio_id" in data:
         _require_portfolio_wall(db, user, data["portfolio_id"])
+    if "status" in data and (data["status"] or "not_started") != (p.status or "not_started"):
+        # A REAL change only, both sides read as the screen reads them ('' /
+        # None = not_started, so the Edit form saving a legacy row stamps
+        # nothing): a new status is one of the known words, and who said so
+        # and when is the chip's title.
+        if data["status"] not in PROJECT_STATUSES:
+            raise HTTPException(422, f"Unknown project status {data['status']!r}.")
+        p.status_set_by, p.status_set_at = (user["email"] or "").lower(), now_iso()
+    if "status_note" in data:
+        data["status_note"] = str(data["status_note"] or "").strip()[:300]
     for k, v in data.items():
         if k == "default_view":
             v = clean_default_view(v)
@@ -3104,3 +3132,143 @@ def decide_team_approval(team_id: str, body: TeamApprovalBody,
     db.commit()
     db.refresh(t)
     return team_to_dict(t)
+
+
+# ── Schedule baselines (Neil, 11/08/2026) ────────────────────────────────────
+# A baseline is the project's schedule frozen on a day: every task in the
+# project, subtasks included, with its dates and assignee
+# (models.TaskProjectBaseline). The Timeline draws each baselined bar as a
+# ghost under the current one and says how far its due date slipped, in the
+# project company's working days (task_schedule.Calendar). Read and taken by
+# the roles that read and change the project's tasks (viewer / editor),
+# deleted by its owner.
+MAX_BASELINES = 20
+
+
+class BaselineBody(BaseModel):
+    name: Optional[str] = ""
+
+
+def _baseline_project(db: Session, user: dict, project_id: str, min_role: str) -> models.TaskProject:
+    p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
+    if not p:
+        raise HTTPException(404, "Project not found")
+    require_project_access(db, user, p, min_role)
+    return p
+
+
+def _baseline_rows(db: Session, p: models.TaskProject) -> list:
+    """The project's live tasks, the FULL project: its own rows and every
+    subtask under them, each once. A baseline is the project's record, so
+    it is taken over all of it (the taker is an editor); who may read which
+    row is decided when it is read back (_readable)."""
+    from routers.tasks import _live_descendants   # lazy, like this file's other routers.tasks imports
+    rows = db.query(models.Task).filter(models.Task.project_id == p.id).all()
+    rows = rows + _live_descendants(db, [r.id for r in rows])
+    return list({t.id: t for t in rows}.values())
+
+
+def _readable(db: Session, user: dict, rows: list) -> set:
+    """The ids among `rows` the reader may see: the company wall, then the
+    task list's own visibility rule."""
+    from routers.task_util import task_visible_to
+    return {t.id for t in wall_tasks(db, user, rows) if task_visible_to(db, user, t)}
+
+
+def _snap(t: models.Task) -> dict:
+    return {"id": t.id, "title": t.title or "", "start": t.start_on or "", "due": (t.due_on or "")[:10],
+            "assignee": _nz(t.assignee_email)}
+
+
+def _iso_day(s):
+    try:
+        return date.fromisoformat((s or "")[:10])
+    except ValueError:
+        return None
+
+
+def baseline_to_dict(b: models.TaskProjectBaseline) -> dict:
+    return {"id": b.id, "projectId": b.project_id, "name": b.name or "", "takenAt": b.taken_at or "",
+            "takenBy": _nz(b.taken_by), "count": len(b.snapshot or [])}
+
+
+@router.get("/task-projects/{project_id}/baselines")
+def list_baselines(project_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _baseline_project(db, user, project_id, "viewer")
+    rows = (db.query(models.TaskProjectBaseline).filter(models.TaskProjectBaseline.project_id == project_id)
+            .order_by(models.TaskProjectBaseline.taken_at.desc()).all())
+    return [baseline_to_dict(b) for b in rows]
+
+
+@router.post("/task-projects/{project_id}/baselines", status_code=201)
+def take_baseline(project_id: str, body: BaselineBody, user: dict = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    p = _baseline_project(db, user, project_id, "editor")
+    if db.query(models.TaskProjectBaseline).filter(models.TaskProjectBaseline.project_id == p.id).count() >= MAX_BASELINES:
+        raise HTTPException(422, f"A project keeps at most {MAX_BASELINES} baselines - delete one first.")
+    import task_due
+    now = now_iso()
+    b = models.TaskProjectBaseline(
+        id=gen_id(), project_id=p.id, company_id=p.company_id or "",
+        name=(body.name or "").strip()[:80] or f"Baseline {task_due.us_date(now)}",
+        taken_at=now, taken_by=(user["email"] or "").lower(),
+        snapshot=[_snap(t) for t in _baseline_rows(db, p)])
+    db.add(b)
+    db.commit()
+    return baseline_to_dict(b)
+
+
+@router.get("/task-projects/{project_id}/baselines/{baseline_id}/diff")
+def baseline_diff(project_id: str, baseline_id: str, user: dict = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    """The project now against the baseline: added, removed, moved (with the
+    due date's slip in working days - positive = later) and how many stayed.
+    Both sides are cut to what the READER may see before they are compared,
+    so a task they cannot see is never listed - not as added, not as removed,
+    not by title; a baselined task that is gone from the project is checked
+    on its trashed row, and one no row is left for is dropped."""
+    import task_schedule
+    p = _baseline_project(db, user, project_id, "viewer")
+    b = (db.query(models.TaskProjectBaseline)
+         .filter(models.TaskProjectBaseline.id == baseline_id, models.TaskProjectBaseline.project_id == p.id).first())
+    if not b:
+        raise HTTPException(404, "Baseline not found")
+    live = _baseline_rows(db, p)
+    snap_all = {s["id"]: s for s in (b.snapshot or []) if isinstance(s, dict) and s.get("id")}
+    gone_ids = [i for i in snap_all if i not in {t.id for t in live}]
+    gone = (db.query(models.Task).execution_options(include_deleted=True).filter(models.Task.id.in_(gone_ids)).all()
+            if gone_ids else [])
+    readable = _readable(db, user, live + gone)
+    current = {t.id: _snap(t) for t in live if t.id in readable}
+    snap = {i: s for i, s in snap_all.items() if i in readable}
+    cal = task_schedule.calendar_for(db, p)
+    moved, unchanged = [], 0
+    for i, s in snap.items():
+        c = current.get(i)
+        if c is None:
+            continue
+        if (s.get("start") or "", s.get("due") or "") == (c["start"], c["due"]):
+            unchanged += 1
+            continue
+        d0, d1 = _iso_day(s.get("due")), _iso_day(c["due"])
+        moved.append({"id": i, "title": c["title"], "from": {"start": s.get("start") or "", "due": s.get("due") or ""},
+                      "to": {"start": c["start"], "due": c["due"]},
+                      "slipDays": cal.between(d0, d1) if d0 and d1 else None})
+    by_start = lambda r: (r.get("start") or r.get("due") or "", r.get("title") or "")   # noqa: E731
+    return {**baseline_to_dict(b), "snapshot": list(snap.values()),
+            "added": sorted((current[i] for i in current if i not in snap), key=by_start),
+            "removed": sorted((snap[i] for i in snap if i not in current), key=by_start),
+            "moved": moved, "unchanged": unchanged}
+
+
+@router.delete("/task-projects/{project_id}/baselines/{baseline_id}")
+def delete_baseline(project_id: str, baseline_id: str, user: dict = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    p = _baseline_project(db, user, project_id, "owner")
+    n = (db.query(models.TaskProjectBaseline)
+         .filter(models.TaskProjectBaseline.id == baseline_id, models.TaskProjectBaseline.project_id == p.id)
+         .delete(synchronize_session=False))
+    if not n:
+        raise HTTPException(404, "Baseline not found")
+    db.commit()
+    return {"ok": True}

@@ -15,6 +15,7 @@ import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from '.
 import ProjectIcon from './ProjectIcon';
 import { projectLook } from './projectLook';
 import ProgressTrack, { countTrackState } from '../ui/ProgressTrack';
+import { ProjectStatusChip, useProjectStatusEditor } from './projectStatus';
 
 // Columns in grid order, with the sort key each header drives. A portfolio's
 // name is elastic; the rollup columns are fixed until someone drags one.
@@ -576,6 +577,8 @@ function MoveSelectionBar({ count, portfolios, busy, onClear, onMove }) {
 // shift everyone's saved layout for a control that only shows on child rows.
 function ProjectRows({ cols, projects, statsFor, empty, selected, onToggle, onOpen, startBand = 0 }) {
   const isMobile = useIsMobile();
+  // Project health (Neil, 11/08/2026): the chip beside the overdue count, editors change it here too.
+  const health = useProjectStatusEditor();
   if (projects.length === 0) {
     return (
       <div style={{ background: NX.surface2, borderTop: `1px solid ${NX.border2}` }}>
@@ -616,7 +619,8 @@ function ProjectRows({ cols, projects, statsFor, empty, selected, onToggle, onOp
             </div>
               ),
               projects: (
-            <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <ProjectStatusChip project={p} nameOf={health.nameOf} size="sm" onSave={health.canSet(p) ? health.save : null} />
               {pr.overdue > 0 && <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 'fit-content', fontSize: 11, fontWeight: 600, color: NX.red }}><AlertTriangle size={11} />{pr.overdue} overdue</span>}
             </div>
               ),

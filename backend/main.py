@@ -1607,6 +1607,12 @@ def _run_migrations():
             # Kudos thanks (Neil, 11/08/2026): the value tag and the recipient's first look. models.PerfKudos.
             "ALTER TABLE hr_perf_kudos ADD COLUMN value VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_kudos ADD COLUMN seen_at VARCHAR DEFAULT ''",
+            # Automatic scheduling + project health (Neil 11/08/2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN schedule_mode VARCHAR DEFAULT 'manual'",
+            "ALTER TABLE tasks ADD COLUMN dependency_lags JSON DEFAULT '{}'",
+            "ALTER TABLE task_projects ADD COLUMN status_note VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects ADD COLUMN status_set_by VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects ADD COLUMN status_set_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3833,6 +3839,19 @@ def _run_migrations():
         "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS value VARCHAR DEFAULT ''",
         "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE perf_kudos_thanks ENABLE ROW LEVEL SECURITY",
+        # Automatic scheduling (Neil, 11/08/2026): a task's mode and its lags
+        # per predecessor - every existing task stays manual. models.Task,
+        # task_schedule.py.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS schedule_mode VARCHAR DEFAULT 'manual'",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS dependency_lags JSON DEFAULT '{}'",
+        # Project health (Neil, 11/08/2026): who set a project's status, when
+        # and why. models.TaskProject.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS status_note VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS status_set_by VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS status_set_at VARCHAR DEFAULT ''",
+        # Schedule baselines (Neil, 11/08/2026): a new table, explicit RLS.
+        # models.TaskProjectBaseline.
+        "ALTER TABLE task_project_baselines ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
