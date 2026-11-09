@@ -325,9 +325,11 @@ def _norm_lessons(db: Session, lessons: list, user: Optional[dict] = None) -> li
     return out[:60]
 
 
-def _quiz_public(q: dict) -> dict:
-    return {"pass_pct": q.get("passPct", 80), "draw": q.get("drawCount") or 0, "max_tries": q.get("maxTries") or 3,
-            "question_count": len(q.get("questions") or [])}
+def _quiz_public(s: dict) -> dict:
+    """The quiz as learners see it, from kb_core.course_settings (snake_case keys -
+    reading the stored camelCase here showed every final as 'all N questions')."""
+    return {"pass_pct": s["pass_pct"], "draw": min(s["draw"], len(s["questions"])), "max_tries": s["max_tries"],
+            "question_count": len(s["questions"])}
 
 
 def _course_card(db: Session, c: models.KbCourse, email: str) -> dict:
