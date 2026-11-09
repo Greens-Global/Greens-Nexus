@@ -2016,9 +2016,16 @@ def learn_this_screen(module: str = "", user: dict = Depends(get_current_user), 
         lessons = [{"id": L["_id"], "title": L["title"]} for L in kb_core.lessons_of(c)
                    if L.get("type") == "text" and any(kb_currency.same_module(t, module) for t in L.get("teaches") or [])]
         prog = kb_core.progress_of(db, c, email)
-        out.append({"id": c.id, "title": c.title, "code": c.course_code or "", "est_minutes": c.est_minutes or 15,
-                    "done": bool(prog and prog.passed), "started": bool(prog and prog.started_at), "lessons": lessons[:4]})
-    return {"module": module, "courses": out[:4]}
+        done, started = bool(prog and prog.passed), bool(prog and prog.started_at)
+        n_teaches = len([t for t in (c.teaches or "").split(",") if t.strip()])
+        # The right course first (11/08/2026): one whose lessons teach this screen, then
+        # yours (assigned or started), then the more basic, then the more focused one.
+        rank = (done, not lessons, not (started or _assignment(db, c, email)),
+                COURSE_LEVELS.index(c.level) if (c.level or "") in COURSE_LEVELS[1:] else 9, n_teaches)
+        out.append((rank, {"id": c.id, "title": c.title, "code": c.course_code or "", "est_minutes": c.est_minutes or 15,
+                           "done": done, "started": started, "lessons": lessons[:4]}))
+    out.sort(key=lambda r: r[0])
+    return {"module": module, "courses": [r[1] for r in out[:4]]}
 
 
 # ----------------------------------------------------------------- Refresher (Neil, 11/07/2026)

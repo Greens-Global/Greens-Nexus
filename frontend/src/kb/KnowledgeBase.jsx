@@ -50,6 +50,12 @@ export default function KnowledgeBase({ activeSub, onSubChange }) {
     return () => window.removeEventListener('nexus:kb-open', onOpen);
   }, [onSubChange]);
 
+  // The page trail over the module reads in words here, not capitals (11/08/2026; kb.css "html.nx-kb").
+  useEffect(() => {
+    document.documentElement.classList.add('nx-kb');
+    return () => document.documentElement.classList.remove('nx-kb');
+  }, []);
+
   const tab = TAB_OF[route.screen] || 'library';
   const tabs = TABS.filter((t) => t.key !== 'manage' || me?.can_author).map((t) => ({
     ...t,
@@ -73,7 +79,11 @@ export default function KnowledgeBase({ activeSub, onSubChange }) {
     case 'training-compliance': screen = <MyTraining me={me} seg="compliance" />; break;
     case 'catalog': screen = <MyTraining me={me} seg="catalog" />; break;         // paths by role and department (11/07/2026)
     case 'path': screen = <PathView id={route.id} me={me} />; break;
-    case 'course': screen = <CoursePlayer id={route.id} me={me} />; break;
+    case 'course': {   // course:<id> or course:<id>~<lesson id> (Learn This Screen opens the lesson)
+      const [cid, lid = ''] = String(route.id || '').split('~');
+      screen = <CoursePlayer key={cid} id={cid} lesson={lid} me={me} />;
+      break;
+    }
     case 'builder': screen = <CourseBuilder key={route.id || 'new'} id={route.id || 'new'} me={me} />; break;
     case 'health': screen = <Health me={me} />; break;
     case 'compliance': screen = <Compliance me={me} />; break;

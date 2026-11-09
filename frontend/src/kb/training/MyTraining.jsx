@@ -21,7 +21,7 @@ import MyCompliance from './MyCompliance';
 import Catalog from './Catalog';
 import ProgressTrack from '../../ui/ProgressTrack';
 import { PathRow, LevelChip } from './cards';
-import { shelfOf, courseAction } from './catalogModel';
+import { shelfOf, courseAction, isStarted, itemFraction, pathOrder, blurb } from './catalogModel';
 import Refresher from './Refresher';
 
 // The track's state for one course card: red while it is overdue (or an
@@ -41,14 +41,14 @@ export function CourseRow({ c, onOpen }) {
       <div className="kb-todo-text">
         <div className="kb-prow-title">{c.title}</div>
         <div className="kb-meta kb-crow-facts">
-          {c.my_status === 'In Progress' || c.days_overdue ? <ProgressTrack size="sm" value={(c.my_pct || 0) / 100} state={courseTrackState(c)} label={`${c.title} progress`} valueText={`${c.my_pct || 0}% done`} style={{ width: 96 }} /> : null}
-          {(c.my_status === 'In Progress' || c.days_overdue) ? <span>{c.my_pct}% done</span> : null}
+          {isStarted(c) ? <ProgressTrack size="sm" value={(c.my_pct || 0) / 100} state={courseTrackState(c)} label={`${c.title} progress`} valueText={`${c.my_pct || 0}% done`} style={{ width: 96 }} /> : null}
+          {isStarted(c) ? <span>{c.my_pct}% done</span> : null}
           <span>about {minutesText(c.est_minutes) || plural(c.est_minutes, 'minute')}</span>
           {c.source === 'plan' && <span>part of a path</span>}
         </div>
       </div>
       <span className="kb-todo-due">{c.days_overdue ? <b style={{ color: '#dc2626' }}>{plural(c.days_overdue, 'day')} overdue</b> : c.due_date ? `Due ${fmtDate(c.due_date)}` : <span className="kb-meta">No due date</span>}</span>
-      <button type="button" className={`kb-btn sm${c.days_overdue ? ' pri' : ''}`} onClick={(e) => { e.stopPropagation(); open(); }}>{c.my_status === 'Not Started' ? 'Start' : c.my_status === 'Completed' ? 'Open' : 'Continue'}</button>
+      <button type="button" className={`kb-btn sm${c.days_overdue ? ' pri' : ''}`} onClick={(e) => { e.stopPropagation(); open(); }}>{courseAction(c)}</button>
     </div>
   );
 }
@@ -70,26 +70,39 @@ function PolicyRow({ t }) {
 
 // Everything a person still owes, as one list: courses assigned to them
 // (plan courses included), and policies to sign. Overdue first (most overdue
-// on top), then the soonest due date, then anything with no date; a course
-// already started sits above one not started at the same due date.
+// on top), then the soonest due date, then the order your paths take them
+// (catalogModel.pathOrder), then a course already started above one not
+// started, then anything with no date.
 export function todoList(data) {
   const rows = [];
+  const order = pathOrder(data.plans);
   for (const c of data.due || []) {
     if (c.my_status === 'Completed') continue;
-    rows.push({ kind: 'course', id: c.id, title: c.title, item: c, overdue: c.days_overdue || 0, due: c.due_date || '', started: c.my_status === 'In Progress' });
+    rows.push({ kind: 'course', id: c.id, title: c.title, item: c, overdue: c.days_overdue || 0, due: c.due_date || '', started: isStarted(c), at: order.get(c.id) ?? 1e9 });
   }
   for (const p of data.policies || []) {
     if (p.signed) continue;
-    rows.push({ kind: 'policy', id: p.id, title: p.title, item: p, overdue: p.overdue_days || 0, due: p.due || '', started: false });
+    rows.push({ kind: 'policy', id: p.id, title: p.title, item: p, overdue: p.overdue_days || 0, due: p.due || '', started: false, at: 1e9 });
   }
-  return rows.sort((a, b) => (b.overdue - a.overdue) || ((a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0) || (b.started - a.started) || a.title.localeCompare(b.title));
+  return rows.sort((a, b) => (b.overdue - a.overdue) || ((a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0) || (a.at - b.at) || (b.started - a.started) || a.title.localeCompare(b.title));
+}
+
+// How much of everything owed is done, 0..100, from the same numbers as each
+// row: a started course counts by its own percent (so it never reads 0%
+// while the course above it reads 13%).
+export function todoPct(data, todo) {
+  const doneCount = (data.stats?.completed || 0) + (data.policies || []).filter((p) => p.signed).length;
+  const total = todo.length + doneCount;
+  if (!total) return 100;
+  const open = todo.reduce((n, t) => n + (t.kind === 'course' ? itemFraction(t.item) : 0), 0);
+  return Math.round((100 * (doneCount + open)) / total);
 }
 
 // What the "continue" block shows: the course furthest along that is not
 // done, else the first course on the to-do list.
 export function continueCourse(data) {
   const open = (data?.due || []).filter((c) => c.my_status !== 'Completed');
-  const started = open.filter((c) => c.my_status === 'In Progress' || c.my_pct > 0).sort((a, b) => (b.days_overdue - a.days_overdue) || (b.my_pct - a.my_pct));
+  const started = open.filter(isStarted).sort((a, b) => (b.days_overdue - a.days_overdue) || (b.my_pct - a.my_pct));
   if (started.length) return started[0];
   const todo = todoList(data).find((t) => t.kind === 'course');
   return todo ? todo.item : null;
@@ -108,7 +121,7 @@ export function standingLine(data, todo) {
 }
 
 function Continue({ c }) {
-  const started = c.my_status === 'In Progress' || c.my_pct > 0;
+  const started = isStarted(c);
   const left = Math.max(0, Math.round((c.est_minutes || 0) * (1 - (c.my_pct || 0) / 100)));
   const shelf = shelfOf(c);
   return (
@@ -116,7 +129,7 @@ function Continue({ c }) {
       <div className="kb-continue-text">
         <div className="kb-kicker">{started ? 'Continue Where You Left Off' : 'Up Next'}</div>
         <h2 className="kb-continue-title">{c.title}</h2>
-        {c.description && <div className="kb-prow-desc kb-clamp2" style={{ maxWidth: 640 }}>{c.description}</div>}
+        {c.description && <div className="kb-prow-desc" style={{ maxWidth: 640 }}>{blurb(c.description)}</div>}
         <div className="kb-meta kb-crow-facts" style={{ marginTop: 8 }}>
           <LevelChip level={c.level} />
           {shelf !== 'General' && <span>{shelf}</span>}
@@ -193,8 +206,7 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
         <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
           {data && (() => {
             const todo = todoList(data);
-            const total = todo.length + (data.stats?.completed || 0) + (data.policies || []).filter((p) => p.signed).length;
-            const pct = total ? Math.round(100 * (total - todo.length) / total) : 100;
+            const pct = todoPct(data, todo);
             const next = continueCourse(data);
             const plans = data.plans || [];
             return (

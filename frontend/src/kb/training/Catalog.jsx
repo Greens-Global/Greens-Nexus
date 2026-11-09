@@ -11,21 +11,11 @@ import AsyncSection from '../../components/AsyncState';
 import { errText } from '../components/Toast';
 import { goKb, plural, PATH_KINDS, LEVELS } from '../lib';
 import { CatalogCourseRow, PathRow } from './cards';
-import { filterCourses, filterPaths, pathsForMe, shelveCourses, GENERAL } from './catalogModel';
+import { filterCourses, filterPaths, pathsForMe, shelveCourses, pathOrder, GENERAL } from './catalogModel';
 
 const SHOW = [['all', 'Everything'], ['todo', 'Assigned to Me'], ['not_started', 'Not Started'], ['done', 'Completed']];
 const KIND_TITLES = { onboarding: 'Onboarding', role: 'Paths by Role', department: 'Department Training', custom: 'More Paths' };
 
-function Select({ value, onChange, options, label }) {
-  return (
-    <label className="kb-filter">
-      <span>{label}</span>
-      <select className="kb-select" value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
-        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-      </select>
-    </label>
-  );
-}
 
 function Shelf({ title, sub, count, children }) {
   return (
@@ -44,16 +34,18 @@ export default function Catalog({ me, initialQuery = '' }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [q, setQ] = useState(initialQuery);
-  const [dept, setDept] = useState('');
-  const [level, setLevel] = useState('');
+  // One filter row (11/08/2026): the search, Show as a segment, and ONE select for a department or a level.
+  const [narrow, setNarrow] = useState('');   // '' | 'd:<department>' | 'l:<level>'
   const [show, setShow] = useState('all');
+  const dept = narrow.startsWith('d:') ? narrow.slice(2) : '';
+  const level = narrow.startsWith('l:') ? narrow.slice(2) : '';
   const load = () => { setErr(''); api.kbCatalog().then(setData).catch((e) => setErr(errText(e))); };
   useEffect(() => { load(); }, []);
 
   const courses = useMemo(() => filterCourses(data?.courses, { q, department: dept, level, show }), [data, q, dept, level, show]);
   const paths = useMemo(() => filterPaths(data?.paths, { q }), [data, q]);
-  const shelves = useMemo(() => shelveCourses(courses, data?.me?.department), [courses, data]);
-  const filtering = !!(q || dept || level || show !== 'all');
+  const shelves = useMemo(() => shelveCourses(courses, data?.me?.department, pathOrder(data?.paths)), [courses, data]);
+  const filtering = !!(q || narrow || show !== 'all');
   const pathsShown = !dept && !level && show === 'all';
   const forMe = pathsShown ? pathsForMe(paths) : [];
   const byKind = pathsShown ? Object.keys(PATH_KINDS).map((k) => ({ kind: k, paths: paths.filter((p) => p.kind === k && !forMe.includes(p)) })).filter((g) => g.paths.length) : [];
@@ -72,9 +64,14 @@ export default function Catalog({ me, initialQuery = '' }) {
               {q && <button type="button" className="kb-btn sm ghost" onClick={() => setQ('')}>Clear</button>}
             </div>
             <div className="kb-filters">
-              {depts.length > 1 && <Select label="Department" value={dept} onChange={setDept} options={[['', 'All'], ...depts.map((d) => [d, d])]} />}
-              <Select label="Level" value={level} onChange={setLevel} options={[['', 'Any'], ...Object.values(LEVELS).map((l) => [l.key, l.label])]} />
-              <Select label="Show" value={show} onChange={setShow} options={SHOW} />
+              <div className="kb-seg" role="group" aria-label="Show">
+                {SHOW.map(([v, l]) => <button key={v} type="button" aria-pressed={show === v} className={show === v ? 'on' : ''} onClick={() => setShow(v)}>{l}</button>)}
+              </div>
+              <select className="kb-select kb-filter-one" value={narrow} onChange={(e) => setNarrow(e.target.value)} aria-label="Department or level">
+                <option value="">Every Department and Level</option>
+                {depts.length > 1 && <optgroup label="Department">{depts.map((d) => <option key={d} value={`d:${d}`}>{d === GENERAL ? 'For Everyone' : d}</option>)}</optgroup>}
+                <optgroup label="Level">{Object.values(LEVELS).map((l) => <option key={l.key} value={`l:${l.key}`}>{l.label}</option>)}</optgroup>
+              </select>
             </div>
             {me?.can_author && <span className="kb-catalog-actions"><button type="button" className="kb-btn" onClick={() => goKb('plans')}>Learning Paths</button><button type="button" className="kb-btn pri" onClick={() => goKb('builder', 'new')}><Plus />New Course</button></span>}
           </div>
@@ -98,7 +95,7 @@ export default function Catalog({ me, initialQuery = '' }) {
             <div className="kb-empty-state"><GraduationCap size={26} /><div className="kb-empty-title">Nothing Is Published Yet</div><div className="kb-meta">Courses and paths show up here as soon as an author publishes them.</div></div>
           )}
           {nothing && filtering && (
-            <div className="kb-empty-state"><Compass size={24} /><div className="kb-empty-title">Nothing Matches</div><div className="kb-meta">Try another word, or clear the filters.</div><button type="button" className="kb-btn sm" style={{ marginTop: 10 }} onClick={() => { setQ(''); setDept(''); setLevel(''); setShow('all'); }}>Clear Filters</button></div>
+            <div className="kb-empty-state"><Compass size={24} /><div className="kb-empty-title">Nothing Matches</div><div className="kb-meta">Try another word, or clear the filters.</div><button type="button" className="kb-btn sm" style={{ marginTop: 10 }} onClick={() => { setQ(''); setNarrow(''); setShow('all'); }}>Clear Filters</button></div>
           )}
         </div>
       )}

@@ -46,7 +46,8 @@ describe('Training > Catalog', () => {
   it('narrows to a level and finds nothing with a stray word', async () => {
     render(<ToastProvider><Catalog me={{ can_author: false }} /></ToastProvider>);
     await screen.findByText('For You');
-    fireEvent.change(screen.getByLabelText('Level'), { target: { value: 'advanced' } });
+    expect(screen.getAllByRole('combobox').length).toBe(1);   // one filter row: one select (11/08/2026)
+    fireEvent.change(screen.getByLabelText('Department or level'), { target: { value: 'l:advanced' } });
     expect(screen.getByText('Month-End Close')).toBeTruthy();
     expect(screen.queryByText('Cubby Fundamentals')).toBeNull();
     fireEvent.change(screen.getByLabelText('Search the catalog'), { target: { value: 'zebra' } });
