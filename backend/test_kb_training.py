@@ -169,6 +169,8 @@ class KbTrainingCase(unittest.TestCase):
         quiz = dict(QUIZ, drawCount=3)
         cid = self._course(title="Draw", quiz=quiz)
         self._as(LRN)
+        q = self.client.get(f"/kb/courses/{cid}").json()["quiz"]   # the screen says "3 of 5", not "5 questions"
+        self.assertEqual((q["draw"], q["question_count"], q["max_tries"]), (3, 5, 2))
         self.client.post(f"/kb/courses/{cid}/lessons/l1/done")
         start = self.client.post(f"/kb/courses/{cid}/quiz/start").json()
         self.assertEqual(len(start["questions"]), 3)

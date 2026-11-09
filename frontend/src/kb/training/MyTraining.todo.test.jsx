@@ -2,7 +2,7 @@
 // then the soonest due date, policies to sign in the same list, nothing
 // completed in it.
 import { describe, it, expect } from 'vitest';
-import { todoList } from './MyTraining';
+import { todoList, todoPct } from './MyTraining';
 
 const data = {
   due: [
@@ -28,6 +28,16 @@ describe('todoList', () => {
     const ids = todoList(data).map((t) => t.id);
     expect(ids).not.toContain('c-done');
     expect(ids).not.toContain('p-signed');
+  });
+  it('orders courses with the same due date the way their path takes them', () => {
+    const d = { due: [
+      { id: 'cubby', title: 'Cubby Fundamentals', my_status: 'Not Started', due_date: '2026-12-08', days_overdue: 0 },
+      { id: 'nf', title: 'Nexus Fundamentals', my_status: 'In Progress', my_pct: 13, due_date: '2026-12-08', days_overdue: 0 },
+      { id: 'ss', title: 'Self-Storage Fundamentals', my_status: 'Not Started', due_date: '2026-12-08', days_overdue: 0 },
+    ], policies: [], plans: [{ stages: ['Week 1', 'Week 2'], items: [
+      { kind: 'course', id: 'cubby', stage: 1 }, { kind: 'course', id: 'nf', stage: 0 }, { kind: 'course', id: 'ss', stage: 0 }] }] };
+    expect(todoList(d).map((t) => t.id)).toEqual(['nf', 'ss', 'cubby']);
+    expect(todoPct({ ...d, stats: { completed: 1 } }, todoList(d))).toBe(28);   // (1 done + 0.13) of 4, never 25% beside a course at 13%
   });
   it('is empty when nothing is owed', () => {
     expect(todoList({ due: [], policies: [], stats: { completed: 0 } })).toEqual([]);

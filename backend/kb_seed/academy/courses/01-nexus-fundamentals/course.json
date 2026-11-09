@@ -1,28 +1,28 @@
 {
   "slug": "nexus-fundamentals",
   "title": "Nexus Fundamentals",
-  "description": "Every new hire takes it: sign in and set up your phone, punch in and fix a missed punch, sign your Time Sheet, request time off and HR help, report problems with tickets and forms, and take training. Course 1 of the Greens Storage Academy.",
+  "description": "Every Greens employee takes it, whatever team you are on: find your way around Nexus and set it up on your phone, punch in and sign your Time Sheet if you are hourly, request time off and HR help, report problems with tickets and forms, and take the training assigned to your role.",
   "overview": [
-    "Sign in, find your way around and set up Nexus on your phone",
-    "Punch in, take breaks, punch out and fix a missed punch",
-    "Read and sign your Time Sheet",
+    "Find your way around Nexus and set it up on your phone",
+    "If you are hourly: punch in, take breaks, punch out and fix a missed punch",
+    "If you are hourly: read and sign your Time Sheet",
     "Confirm your schedule and request time off",
     "Use Ask HR, Reimbursements and Purchase Requests",
     "Get help with tickets, Report a Problem and forms",
     "Find people, borrow equipment, keep notes and take your training"
   ],
-  "est_minutes": 120,
+  "est_minutes": 100,
   "delivery": "online",
   "level": "foundations",
-  "tags": "nexus, new hire, time clock",
-  "teaches": "Dashboard, Workday, Time Clock, Time Sheet, Time Off, Help Center, Tickets, Forms, Item Management, Team, Knowledge Base, Notes",
-  "min_reading_minutes": 70,
+  "tags": "nexus, new hire, every employee",
+  "teaches": "Dashboard, Workday, Time Clock, Time Sheet, Time Off, Shifts, Team, Reimbursements, Help Center, Tickets, Forms, Item Management, Notes, Knowledge Base, Sidebar",
+  "min_reading_minutes": 52,
   "lessons": [
     {
       "file": "01-welcome-to-nexus.md"
     },
     {
-      "file": "02-signing-in-and-getting-around.md"
+      "file": "02-getting-around.md"
     },
     {
       "file": "03-nexus-on-your-phone.md"
@@ -41,37 +41,110 @@
       "questions": [
         {
           "type": "single",
-          "q": "You arrive at Escondido 25 minutes before your shift and tap Punch In. Nexus shows Early Clock-In. Your manager did not ask you to start early. What do you tap?",
+          "q": "You reach the office 25 minutes before your shift and tap Punch In. Early Clock-In appears, and nobody asked you to start early. What do you tap?",
           "options": [
             "Clock In Anyway",
-            "Not Yet",
             "Punch Out",
-            "Start Break"
+            "Start Break",
+            "Not Yet"
           ],
           "answer": [
-            1
+            3
           ],
-          "explanation": "Choose Not Yet and punch in closer to your start time. Clock In Anyway records the punch and your manager is told about early punches; only start early when your manager asked you to.",
+          "explanation": "Not Yet cancels; punch in at your start time. Clock In Anyway records the punch and your manager is told, so use it only when your manager asked you to start early.",
           "lesson": "06-punching-in-breaks-and-punching-out.md"
         },
         {
           "type": "single",
-          "q": "You forgot to punch out yesterday. This morning the Time Clock shows a red bar about a clock-in that was never closed. What is the right fix?",
+          "q": "You forgot to punch out yesterday. This morning a red bar says yesterday's shift is Missing. What do you do?",
           "options": [
-            "Punch in and then punch out right away to close the shift",
-            "Tap Fix My Punch Out and ask for the real clock-out time with a reason",
-            "Ignore it; payroll fixes it at the end of the period",
-            "Ask a coworker to punch you out"
+            "Tap Fix My Punch Out and ask for the real time",
+            "Punch in, then punch out right away to close it",
+            "Leave it; payroll fixes it at the end of the period",
+            "Ask a coworker to punch you out from their phone"
           ],
           "answer": [
-            1
+            0
           ],
-          "explanation": "Fix My Punch Out takes you to your Time Sheet to request the real clock-out time with a reason; your approver decides. Punching again creates a second, wrong shift.",
+          "explanation": "Fix My Punch Out takes you to your Time Sheet to ask for the real clock-out time with a reason. Punching in and out now creates a second, wrong shift.",
           "lesson": "06-punching-in-breaks-and-punching-out.md"
         },
         {
           "type": "tf",
-          "q": "If your phone's location is turned off, Nexus refuses your punch until you turn it on.",
+          "q": "Your phone's location is turned off when you tap Punch In. Nexus still records the punch.",
+          "options": [
+            "True",
+            "False"
+          ],
+          "answer": [
+            0
+          ],
+          "explanation": "True. A punch never waits for location and is never blocked by it. It is recorded as Location Off, and a Needs Attention bar offers Turn On or Skip.",
+          "lesson": "06-punching-in-breaks-and-punching-out.md"
+        },
+        {
+          "type": "single",
+          "q": "At 4:45 PM at the back of a job site you tap Punch Out and see Your Punch Did Not Record: saved on this phone. What now?",
+          "options": [
+            "Punch in and out again at the office",
+            "Ask your manager to delete the shift",
+            "Tap OK, Keep Trying and walk on",
+            "Tap Punch Out again until it works"
+          ],
+          "answer": [
+            2
+          ],
+          "explanation": "The punch is saved at 4:45 PM, the time you pressed it, and sends itself when signal returns. Punching again would create a wrong punch.",
+          "lesson": "06-punching-in-breaks-and-punching-out.md"
+        },
+        {
+          "type": "single",
+          "q": "You are on the Time Sheet tab and want to start a new note without leaving the page. Where do you go?",
+          "options": [
+            "The Dashboard, then the Notes tab",
+            "The +, then New Note",
+            "Your profile menu, then Profile",
+            "Help Center, then Documentation"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "The + in the header starts common things, such as a New Note, a New Ticket or Request an Item, from any screen. The Notes tab works too, but you leave the page you are on to get there.",
+          "lesson": "02-getting-around.md"
+        },
+        {
+          "type": "single",
+          "q": "A coworker says to check Tickets for the printer repair, but Tickets is not in your menu. What does that mean?",
+          "options": [
+            "You do not have that module's grant",
+            "Your sign-in did not finish loading",
+            "Your tier is too low to raise tickets",
+            "Tickets was removed from Nexus"
+          ],
+          "answer": [
+            0
+          ],
+          "explanation": "The desk side of Tickets is a grant. Without it you still raise and follow tickets in Help Center, which everyone has.",
+          "lesson": "01-welcome-to-nexus.md"
+        },
+        {
+          "type": "single",
+          "q": "You clicked Clear All in the bell and now need a ticket reply you cleared. Where is it?",
+          "options": [
+            "In the yellow priority bar at the top of the screen",
+            "Under Closed in the bell",
+            "It is gone for good",
+            "In your Teams chat"
+          ],
+          "answer": [
+            1
+          ],
+          "explanation": "Clear All moves updates to Closed, where they stay for 30 days and can be restored. Nothing you clear is gone right away.",
+          "lesson": "04-your-dashboard-and-the-bell.md"
+        },
+        {
+          "type": "tf",
+          "q": "You can change your own bank details by clicking Edit under Contact & Emergency.",
           "options": [
             "True",
             "False"
@@ -79,84 +152,23 @@
           "answer": [
             1
           ],
-          "explanation": "A punch never waits for your location and is never blocked by it. A clock-in with location off shows Location Off, and a Needs Attention bar offers Turn On or Skip.",
-          "lesson": "06-punching-in-breaks-and-punching-out.md"
+          "explanation": "False. Contact & Emergency covers your personal email, phone and emergency contact. Bank details, name, job and department go through Ask HR, Profile Change.",
+          "lesson": "05-workday-your-home-base.md"
         },
         {
           "type": "single",
-          "q": "At the back of the Temecula lot you tap Punch Out with no signal. A box says Your Punch Did Not Record and that the punch is saved on this device. What should you do?",
+          "q": "Push to This Device will not turn on. You opened Nexus in Chrome on your iPhone. What fixes it?",
           "options": [
-            "Punch out again until it works",
-            "Nothing more: tap OK, Keep Trying or Retry Now once you have signal",
-            "Punch in and out again at the office",
-            "Delete the app and reinstall it"
+            "Turn on Dark Mode under Appearance",
+            "Ask HR to switch push on for your account",
+            "Turn off Navigation Motion first",
+            "Install from Safari (Share, Add to Home Screen), then open the icon"
           ],
           "answer": [
-            1
+            3
           ],
-          "explanation": "A punch saved on the device keeps trying on its own and goes in at the time you pressed the button. Do not punch again to fix it; that would create a wrong punch.",
-          "lesson": "06-punching-in-breaks-and-punching-out.md"
-        },
-        {
-          "type": "order",
-          "q": "Put the steps for taking a lunch break in order.",
-          "options": [
-            "Tap Start Break",
-            "Type a short reason in the Going on break box",
-            "Tap Start break & notify",
-            "Tap End Break when you are back",
-            "Tap End break & notify"
-          ],
-          "answer": [],
-          "explanation": "Start Break opens the Going on break box, which needs a reason, then Start break & notify. When you return, End Break opens Resuming work and End break & notify puts you back on the clock.",
-          "lesson": "06-punching-in-breaks-and-punching-out.md"
-        },
-        {
-          "type": "single",
-          "q": "You punch in from the office computer instead of your phone. What will your Time Sheet most likely show for that punch?",
-          "options": [
-            "The exact unit number you were standing at",
-            "Approx. Location",
-            "Nothing at all",
-            "A blocked punch"
-          ],
-          "answer": [
-            1
-          ],
-          "explanation": "A computer usually gives only a rough location, so the punch shows Approx. Location. Punch from your phone on site for a precise location that shows the site name.",
-          "lesson": "06-punching-in-breaks-and-punching-out.md"
-        },
-        {
-          "type": "multi",
-          "q": "Which statements about the Beginning of Day message are true? Pick all that apply.",
-          "options": [
-            "It posts to your team's Teams chat as you, marked Sent by Nexus",
-            "If you already sent it another way, you can tick I already sent my login (BOD) message",
-            "Some field roles skip the message boxes entirely",
-            "It is sent only to HR and nobody else sees it"
-          ],
-          "answer": [
-            0,
-            1,
-            2
-          ],
-          "explanation": "The message posts to your team chat as you. The tick box skips posting again, and some roles are set up with no boxes at all. It is not a private message to HR.",
-          "lesson": "06-punching-in-breaks-and-punching-out.md"
-        },
-        {
-          "type": "single",
-          "q": "You get a Still on Break? notice in your bell. What does it most likely mean?",
-          "options": [
-            "Your manager wants you to take a longer break",
-            "You started a break a long time ago and probably forgot to tap End Break",
-            "Your break was approved",
-            "Your Time Sheet was signed"
-          ],
-          "answer": [
-            1
-          ],
-          "explanation": "Still on Break? comes when a break stays open for a long time (60 minutes by default). Tap End Break now, and if the time is wrong, fix it on your Time Sheet.",
-          "lesson": "06-punching-in-breaks-and-punching-out.md"
+          "explanation": "An iPhone installs Nexus only from Safari (Share, Add to Home Screen), and push works only in the installed app.",
+          "lesson": "03-nexus-on-your-phone.md"
         }
       ]
     },
@@ -183,452 +195,195 @@
       "questions": [
         {
           "type": "single",
-          "q": "You forgot to punch out yesterday at Murrieta. Today your Time Sheet shows a red Missing cell. What do you do?",
+          "q": "Tuesday, your Time Sheet shows Missing for Monday's clock-out. You left at 5:20 PM. What do you send?",
           "options": [
-            "Punch out now so the shift closes",
-            "Click Missing, enter the real time you left, give a reason and send the request",
-            "Leave it; it fixes itself",
-            "Text your manager the time"
+            "A new punch in and out now, to close Monday",
+            "A Teams message to your manager with the time",
+            "Nothing; your manager fills it in at review",
+            "A request for 5:20 PM with a reason"
+          ],
+          "answer": [
+            3
+          ],
+          "explanation": "Click Missing and send a request with the real time and what happened. Your manager decides; a new punch would add a wrong shift.",
+          "lesson": "08-your-time-sheet.md"
+        },
+        {
+          "type": "tf",
+          "q": "Your manager approved your Time Sheet, so that approval also counts as its signature.",
+          "options": [
+            "True",
+            "False"
           ],
           "answer": [
             1
           ],
-          "explanation": "Click the red Missing cell to open Request a Missing Punch, enter the real time and a reason. It shows Not Yet Approved until your approver decides.",
+          "explanation": "False. Your manager approves and never signs. Only you sign your Time Sheet, with Sign & Submit in Nexus Sign.",
           "lesson": "08-your-time-sheet.md"
         },
         {
           "type": "single",
-          "q": "A coworker says to check the Tickets module, but you do not see Tickets in your left menu. What is going on?",
+          "q": "A banner on My Schedule asks you to confirm next week's new schedule. Wednesday does not work for you. What do you do?",
           "options": [
-            "Nexus is broken; restart your phone",
-            "You have not been granted that module; use Help Center or ask your manager for access",
-            "Your account was disabled",
-            "Tickets only shows on weekends"
+            "Request the day off as Sick",
+            "Confirm it, then talk to your manager about Wednesday",
+            "Leave it unconfirmed until it changes",
+            "Swap the shift with a teammate by text"
           ],
           "answer": [
             1
           ],
-          "explanation": "Menus differ because grants open modules on top of your tier. Everyone can raise and follow tickets from Help Center; ask your manager if you need the desk module.",
-          "lesson": "01-welcome-to-nexus.md"
-        },
-        {
-          "type": "single",
-          "q": "The keypad on gate 2 at Fairfield stops responding. What is the best way to report it?",
-          "options": [
-            "Write it in your Today note",
-            "Text the site manager",
-            "Submit a Ticket in Help Center with a clear title, a photo and the right priority",
-            "Post it in the Directory"
-          ],
-          "answer": [
-            2
-          ],
-          "explanation": "A ticket reaches the right team, is tracked and shows its status. A clear title like Gate 2 keypad not responding and a photo save a trip and a call.",
-          "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
-        },
-        {
-          "type": "single",
-          "q": "You have a dentist appointment next Thursday from 1:00 PM to 3:00 PM. How do you ask for the time?",
-          "options": [
-            "Workday > Time Off > Request Time Off, reason Medical Appointment, All day off, set the times, then Request",
-            "Tell a coworker to cover",
-            "Punch out at 1:00 PM without asking",
-            "Send an Ask HR request"
-          ],
-          "answer": [
-            0
-          ],
-          "explanation": "Request Time Off with the Medical Appointment reason and All day turned off for part of a day. Your manager decides and you get a bell.",
+          "explanation": "Confirm means I have seen it. Then raise the problem with your manager. An unconfirmed schedule just shows your manager you never looked.",
           "lesson": "09-schedules-and-time-off.md"
         },
         {
           "type": "single",
-          "q": "Your vacation day last Monday was approved, but your Time Sheet shows no hours that day. What do you do?",
+          "q": "Your vacation day on 12/04/2026 was approved. On 12/05 your Time Sheet shows nothing for 12/04. What do you do?",
           "options": [
-            "Nothing; vacation is never paid",
-            "Click Add on Monday, pick the Type Vacation, set the hours and send it",
-            "Request the time off again",
-            "Punch in and out on Monday"
+            "Ask HR to punch the hours in for you",
+            "Punch in and out now for eight hours",
+            "Add it: Add on the day, Type Vacation, so the hours are paid",
+            "Wait; approved time off appears by itself"
           ],
           "answer": [
-            1
+            2
           ],
-          "explanation": "Approved time off is not punched in for you. Add it on your Time Sheet with the Type Vacation (or Sick) so it is paid.",
-          "lesson": "08-your-time-sheet.md"
+          "explanation": "Approved time off is not added for you. Click Add on the day and pick Vacation so the hours are paid.",
+          "lesson": "09-schedules-and-time-off.md"
         },
         {
           "type": "single",
-          "q": "You opened a new bank account and need your pay to go there. What do you do?",
-          "options": [
-            "Edit the bank details yourself under Contact & Emergency",
-            "Open Ask HR, New Request, Profile Change, and click Send to HR",
-            "Submit a ticket to IT",
-            "Tell your manager by text"
-          ],
-          "answer": [
-            1
-          ],
-          "explanation": "Name, job, department and bank details change through Ask HR, Profile Change. Ask HR is confidential, and HR will tell you what to send.",
-          "lesson": "10-ask-hr-reimbursements-and-purchases.md"
-        },
-        {
-          "type": "single",
-          "q": "Your manager asked you to buy receipt paper with your own money at Valley Center. How do you get paid back?",
+          "q": "Your manager told you to buy printer paper with your own card. Where do you file it?",
           "options": [
             "Purchase Request",
-            "Reimbursements: New, Supplies, the business purpose, the receipt photo, then Send for Approval",
-            "Ask HR, Question for HR",
-            "Put the receipt in a note"
+            "Ask HR, Something Else",
+            "A ticket to Facilities",
+            "Reimbursements"
           ],
           "answer": [
-            1
+            3
           ],
-          "explanation": "Reimbursements pays you back for company expenses you paid yourself. Attach the receipt and say why it was a company expense.",
+          "explanation": "You already paid, so you file a reimbursement with the receipt and the business purpose. A purchase request is for something the company has not bought yet.",
           "lesson": "10-ask-hr-reimbursements-and-purchases.md"
         },
         {
           "type": "single",
-          "q": "You fill the site inspection form at the back of the lot with no signal and tap Send. It shows Saved on This Phone. What next?",
+          "q": "You need a second monitor for design work, and Item Management has none to borrow. What do you file?",
           "options": [
-            "Fill the form again at the office",
-            "Nothing; it sends itself when signal returns, or tap Sync Now on the bar",
-            "Email the form to your manager",
-            "Delete it and start over"
+            "A Purchase Request",
+            "A Reimbursement",
+            "An Ask HR request",
+            "A ticket to the IT department"
+          ],
+          "answer": [
+            0
+          ],
+          "explanation": "A purchase request asks the company to buy something it does not own. A reimbursement is only for something you already paid for.",
+          "lesson": "10-ask-hr-reimbursements-and-purchases.md"
+        },
+        {
+          "type": "single",
+          "q": "Your ticket about a dead light says Waiting for User. What does the team need?",
+          "options": [
+            "Nothing; it is nearly done",
+            "A reply from you",
+            "A part from a vendor",
+            "Approval from your HR team"
           ],
           "answer": [
             1
           ],
-          "explanation": "Entries saved on the phone send themselves when signal comes back, and the same entry sent twice is still one entry. Do not refill it.",
+          "explanation": "Waiting for User means the team is stuck until you answer, so reply in the ticket's thread. It does not mean the work is nearly done.",
           "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
         },
         {
-          "type": "single",
-          "q": "Your Time Sheet was approved, but you notice Thursday is missing a 2:00 PM to 5:00 PM shift you worked. What do you do?",
+          "type": "tf",
+          "q": "A borrowed dolly you handed back by hand stays on your record until the return is confirmed in Nexus.",
           "options": [
-            "Sign it anyway and fix it next period",
-            "Decline in Nexus Sign with a reason, or ask for a punch fix on Thursday",
-            "Ask a coworker to sign it for you",
-            "Punch in and out now for three hours"
+            "True",
+            "False"
           ],
           "answer": [
-            1
+            0
           ],
-          "explanation": "Either a punch fix request or declining in Nexus Sign with a reason sends it back to your manager. Never sign hours you know are wrong.",
-          "lesson": "08-your-time-sheet.md"
+          "explanation": "True. Until Start Return and Confirm Return are done, with a photo, the item is still yours on the record.",
+          "lesson": "12-people-equipment-and-notes.md"
         },
         {
           "type": "single",
-          "q": "You borrowed a ladder from Item Management and are done with it. How do you return it?",
+          "q": "You scored 76% on the final quiz and have two tries left. What is the best next step?",
           "options": [
-            "Leave it in the office",
-            "In My Stuff, click Start Return, take a photo, pick the Condition, then Confirm Return",
-            "Report it lost",
-            "Tell the allocator by text"
+            "Click Try Again right away while it is fresh",
+            "Ask your manager to mark the course passed",
+            "Skip it and start the next course",
+            "Reread the lessons listed under Reread these, then Try Again"
           ],
           "answer": [
-            1
+            3
           ],
-          "explanation": "Start Return with a photo and the condition is the return. Until it is confirmed in Nexus, the ladder is still yours on the record.",
-          "lesson": "12-people-equipment-and-notes.md"
+          "explanation": "The next try draws different questions, so rereading the lessons under Reread these before you try again is what moves the score.",
+          "lesson": "13-training-and-policies.md"
         }
       ]
+    },
+    {
+      "file": "14-on-one-page.md"
     }
   ],
   "quiz": {
     "passPct": 80,
-    "drawCount": 25,
+    "drawCount": 20,
     "maxTries": 3,
     "shuffle": true,
     "questions": [
       {
         "type": "single",
-        "q": "Which question is answered in Nexus rather than in Cubby?",
+        "q": "A new coworker in HR sees they are an Employee in Nexus and worries it means their job matters less. What does a tier actually set?",
         "options": [
-          "Is unit 214 paid up?",
-          "What is a new tenant's gate code?",
-          "How many hours did I work this week?",
-          "Which units are vacant?"
+          "Their pay grade and their seniority",
+          "How far their view reaches and what they can approve",
+          "How important their job is to the company",
+          "Which office or site they work from"
         ],
         "answer": [
-          2
+          1
         ],
-        "explanation": "Your own hours live in your Time Sheet in Nexus. Tenant, unit, payment and gate code questions are Cubby.",
-        "lesson": "01-welcome-to-nexus.md"
-      },
-      {
-        "type": "order",
-        "q": "Put the five Nexus tiers in order from level 1 to level 5.",
-        "options": [
-          "Employee",
-          "Supervisor",
-          "Manager",
-          "Administrator",
-          "Super Administrator"
-        ],
-        "answer": [],
-        "explanation": "The tiers run Employee (1), Supervisor (2), Manager (3), Administrator (4) and Super Administrator (5).",
+        "explanation": "A tier sets what you can approve and how far your view reaches. It says nothing about how important your job is: most people at Greens are Employees, and Nexus simply shows them their own work.",
         "lesson": "01-welcome-to-nexus.md"
       },
       {
         "type": "single",
-        "q": "Beside a person's name you see an outline shield. What does it mean?",
+        "q": "You see an outline shield beside the name of the person who approves your Time Sheet. What does it tell you?",
         "options": [
-          "They are a Super Administrator",
           "They are an Administrator",
-          "They are a Manager",
-          "They are new"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "An outline shield marks an Administrator, a filled shield a Super Administrator, and a small people icon a Manager. Under the name Nexus shows the job title.",
-        "lesson": "01-welcome-to-nexus.md"
-      },
-      {
-        "type": "tf",
-        "q": "Two Employees at the same site always see exactly the same left menu.",
-        "options": [
-          "True",
-          "False"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Grants from a job role or Access Groups open extra modules on top of the tier, so two Employees can see different menus.",
-        "lesson": "01-welcome-to-nexus.md"
-      },
-      {
-        "type": "single",
-        "q": "Which sign-in button does a Greens employee use?",
-        "options": [
-          "Partner Sign-In",
-          "Team Sign-In",
-          "Send Code",
-          "Verify and Sign In"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Greens employees use Team Sign-In with their Microsoft work account. Partner Sign-In is for outside partners and sends a code by email.",
-        "lesson": "02-signing-in-and-getting-around.md"
-      },
-      {
-        "type": "single",
-        "q": "After a few weeks, the policy notice appears again when you sign in. Why?",
-        "options": [
-          "Your account is locked",
-          "The company published a new version of its policies",
-          "You signed in from a new phone",
-          "Your manager changed your tier"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "The policy notice comes back each time a new version is published. Read it, tick the box and click Accept & Continue.",
-        "lesson": "02-signing-in-and-getting-around.md"
-      },
-      {
-        "type": "single",
-        "q": "What is the fastest way to open Search Nexus from anywhere on a computer?",
-        "options": [
-          "Ctrl+K (Cmd+K on a Mac) or the / key",
-          "Ctrl+P",
-          "Double-click the bell",
-          "F5"
+          "They are a Super Administrator",
+          "They are your direct manager",
+          "They are on shift right now"
         ],
         "answer": [
           0
         ],
-        "explanation": "Ctrl+K, Cmd+K on a Mac, or the / key jumps to Search Nexus on any screen.",
-        "lesson": "02-signing-in-and-getting-around.md"
-      },
-      {
-        "type": "multi",
-        "q": "Which of these are in the header across the top of Nexus? Pick all that apply.",
-        "options": [
-          "Search Nexus",
-          "The + Create menu",
-          "The bell",
-          "A chat window"
-        ],
-        "answer": [
-          0,
-          1,
-          2
-        ],
-        "explanation": "The header holds Search Nexus, the + menu, the bell, the ? Help panel and your profile menu. Nexus has no chat of its own; people talk on Teams.",
-        "lesson": "02-signing-in-and-getting-around.md"
+        "explanation": "An outline shield marks an Administrator. A filled shield is a Super Administrator, and a small people icon a Manager.",
+        "lesson": "01-welcome-to-nexus.md"
       },
       {
         "type": "single",
-        "q": "You used the shared office computer at Valley Center. What should you do at the end of your shift?",
+        "q": "Two Employees in the accounting office have different menus: one sees Tasks and one does not. Why?",
         "options": [
-          "Close the browser tab only",
-          "Click your initials, then Sign Out",
-          "Turn off the monitor",
-          "Nothing"
+          "One works more hours each week than the other",
+          "One holds a grant, from a job role or an Access Group, the other does not",
+          "One uses a phone and one a computer",
+          "One has not finished their training yet"
         ],
         "answer": [
           1
         ],
-        "explanation": "Sign Out stops the next person from acting as you and clears the offline copy of your data on that device.",
-        "lesson": "02-signing-in-and-getting-around.md"
-      },
-      {
-        "type": "single",
-        "q": "How do you install Nexus on an iPhone?",
-        "options": [
-          "Tap Install in Chrome",
-          "In Safari, tap Share, then Add to Home Screen",
-          "Download it from the App Store",
-          "It cannot be installed"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "iPhones install web apps only from Safari: Share, then Add to Home Screen. Then open Nexus from the new icon.",
-        "lesson": "03-nexus-on-your-phone.md"
-      },
-      {
-        "type": "single",
-        "q": "Where do you turn on Push to This Device?",
-        "options": [
-          "Settings > Branding",
-          "Profile > Phone Notifications",
-          "Help Center",
-          "Item Management"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Profile > Phone Notifications has Install Nexus and Push to This Device.",
-        "lesson": "03-nexus-on-your-phone.md"
-      },
-      {
-        "type": "single",
-        "q": "Push to This Device says: Not available in this browser. On an iPhone, install Nexus first and open it from the home screen. What do you do?",
-        "options": [
-          "Nothing can be done",
-          "Install Nexus from Safari and open it from the home screen icon, then turn push on",
-          "Use Partner Sign-In",
-          "Ask for a new phone"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "On an iPhone, push only works in the installed app. Install it from Safari, open it from the icon, and turn the switch on.",
-        "lesson": "03-nexus-on-your-phone.md"
-      },
-      {
-        "type": "single",
-        "q": "Company announcements are not showing on your Dashboard Home. Why?",
-        "options": [
-          "Announcements are emailed only",
-          "Announcements reach the Dashboard only through the Announcements widget, which is not on Home by default",
-          "Only managers can read announcements",
-          "Announcements are in Cubby"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Add it with Customize, Add Widget, Announcements, then Save and Done. Acknowledge a post that asks you to.",
-        "lesson": "04-your-dashboard-and-the-bell.md"
-      },
-      {
-        "type": "single",
-        "q": "You clicked Clear All in the bell by mistake. Can you get a notice back?",
-        "options": [
-          "No, it is deleted",
-          "Yes, cleared notices stay under Closed for 30 days",
-          "Only an administrator can restore it",
-          "Only on a computer"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Clearing moves notices to Closed, where they stay for 30 days and can be restored.",
-        "lesson": "04-your-dashboard-and-the-bell.md"
-      },
-      {
-        "type": "single",
-        "q": "A yellow bar appears across the top of every screen. What is it?",
-        "options": [
-          "An advertisement",
-          "A priority notice for something that needs you now, such as a Time Sheet to sign",
-          "A weather alert only",
-          "A sign you are offline"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "The yellow priority bar is for must-act items. Open goes to the item, and acting on it clears the bar.",
-        "lesson": "04-your-dashboard-and-the-bell.md"
-      },
-      {
-        "type": "single",
-        "q": "Which Dashboard tile counts documents waiting for your signature?",
-        "options": [
-          "Open Tasks",
-          "Checked-Out Items",
-          "My Equipment",
-          "Signatures Needed"
-        ],
-        "answer": [
-          3
-        ],
-        "explanation": "Signatures Needed counts documents awaiting your signature. A document waiting on you can hold up your onboarding or your pay.",
-        "lesson": "04-your-dashboard-and-the-bell.md"
-      },
-      {
-        "type": "multi",
-        "q": "Which are tabs in Workday? Pick all that apply.",
-        "options": [
-          "Overview",
-          "Time Sheet",
-          "Time Off",
-          "Inventory"
-        ],
-        "answer": [
-          0,
-          1,
-          2
-        ],
-        "explanation": "Workday has Overview, Time Sheet, Time Off and Performance. Inventory is an Item Management tab for managers.",
-        "lesson": "05-workday-your-home-base.md"
-      },
-      {
-        "type": "single",
-        "q": "Your emergency contact changed. How do you update it?",
-        "options": [
-          "Ask HR, Profile Change",
-          "Workday Overview, Contact & Emergency, Edit, then Save",
-          "Submit a ticket",
-          "Tell your manager"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "You edit your own personal email, phone and emergency contact under Contact & Emergency. Name, job, department and bank changes go through Ask HR.",
-        "lesson": "05-workday-your-home-base.md"
-      },
-      {
-        "type": "single",
-        "q": "Where are your paystubs and signed copies of documents?",
-        "options": [
-          "In Cubby",
-          "In My Documents on the Workday Overview",
-          "In Notes",
-          "In the bell"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "My Documents holds signed copies, files HR filed for you, and your paystubs, in folders.",
-        "lesson": "05-workday-your-home-base.md"
+        "explanation": "Grants from a job role or an Access Group open extra modules on top of the tier, so menus differ between people of the same tier.",
+        "lesson": "01-welcome-to-nexus.md"
       },
       {
         "type": "tf",
-        "q": "In an HR document such as a hiring packet form, the company signs before you do.",
+        "q": "Under a person's name, Nexus shows their tier, such as Manager or Administrator.",
         "options": [
           "True",
           "False"
@@ -636,380 +391,394 @@
         "answer": [
           1
         ],
-        "explanation": "You always sign first. The company never signs before the employee; any company signature is added after yours.",
+        "explanation": "False. Nexus shows the job title under a name. The tier is only a small mark beside the name, and Employees and Supervisors have none.",
+        "lesson": "01-welcome-to-nexus.md"
+      },
+      {
+        "type": "single",
+        "q": "You need a coworker's phone number fast. What is quickest from any screen?",
+        "options": [
+          "Open Settings and find People & Access",
+          "Scroll the left menu down to Team, then Directory",
+          "Ask in the Teams chat for it",
+          "Press Ctrl+K and type their name"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "Search Nexus (Ctrl+K or /) finds people from anywhere and opens their contact card.",
+        "lesson": "02-getting-around.md"
+      },
+      {
+        "type": "single",
+        "q": "A screen in Nexus is new to you. Where is a guided walk-through of it?",
+        "options": [
+          "? Help, then Take the Tour",
+          "The profile menu, then Legal",
+          "Help Center, then Submit a Ticket",
+          "Search Nexus for the word tour"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "Every screen has a tour under the ? Help panel. Help with This Page opens the written guide for the same screen.",
+        "lesson": "02-getting-around.md"
+      },
+      {
+        "type": "single",
+        "q": "You are deep inside a module and want your Dashboard back. What gets you there in one click from anywhere?",
+        "options": [
+          "The N at the top of the left menu",
+          "Your profile menu, then Profile",
+          "The bell, then Mark All Read",
+          "The ?, then What's New"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "The N at the top of the left menu goes back to the Dashboard from any screen. The profile menu holds your own settings, and the bell and the Help panel do not change modules.",
+        "lesson": "02-getting-around.md"
+      },
+      {
+        "type": "single",
+        "q": "On your iPhone, where do you install Nexus from?",
+        "options": [
+          "The App Store, search Nexus",
+          "Teams, then the Nexus tab",
+          "Safari, Share, Add to Home Screen",
+          "Chrome, then Profile, then the Install button"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "An iPhone installs web apps only from Safari, by hand. The Install button in Profile is for Android in Chrome or Edge.",
+        "lesson": "03-nexus-on-your-phone.md"
+      },
+      {
+        "type": "single",
+        "q": "Push to This Device is on, but a company-wide broadcast never reaches your phone. Why?",
+        "options": [
+          "Your phone is too old for push",
+          "Push is off for your site",
+          "You need to reinstall Nexus",
+          "Broadcasts never push"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "Push carries the notices in your own bell. Company-wide broadcasts never push, so nothing is wrong with your setup.",
+        "lesson": "03-nexus-on-your-phone.md"
+      },
+      {
+        "type": "tf",
+        "q": "A form you send with no signal is saved on your phone and sends itself when signal returns.",
+        "options": [
+          "True",
+          "False"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "True. It shows Saved on This Phone and sends itself. Sending the same entry twice never creates two, so never redo it.",
+        "lesson": "03-nexus-on-your-phone.md"
+      },
+      {
+        "type": "single",
+        "q": "Your Dashboard shows Signatures Needed: 1. What is waiting?",
+        "options": [
+          "A shift for you to confirm this week",
+          "A document for you to sign",
+          "A ticket for you to answer",
+          "An item for you to return"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Signatures Needed counts documents waiting for your signature, such as an HR form or a Time Sheet. Click the tile to open it.",
+        "lesson": "04-your-dashboard-and-the-bell.md"
+      },
+      {
+        "type": "single",
+        "q": "A coworker read about the new holiday schedule in an announcement; you never saw it. Why might that be?",
+        "options": [
+          "Your bell is set to Mark All Read",
+          "Announcements post only on Teams",
+          "You never added the Announcements widget",
+          "Announcements reach only managers"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "Announcements reach your Dashboard only through the Announcements widget, which is not on Home by default. Add it with Customize, Add Widget.",
+        "lesson": "04-your-dashboard-and-the-bell.md"
+      },
+      {
+        "type": "single",
+        "q": "A yellow bar across the top says your Time Sheet is waiting for your signature. What do you do?",
+        "options": [
+          "Clear it from the bell",
+          "Wait for the reminder email",
+          "Dismiss it until payday comes around",
+          "Click Open and act on it"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "The yellow priority bar means something is held up by you. Open goes straight to the item, and acting on it clears the bar.",
+        "lesson": "04-your-dashboard-and-the-bell.md"
+      },
+      {
+        "type": "single",
+        "q": "You click Mark All Read in the bell. What changes?",
+        "options": [
+          "The red count clears; nothing is removed",
+          "Every notice moves to Closed for 30 days",
+          "Every notice is deleted",
+          "Your toasts stop for the day"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "Mark All Read only clears the count. Clear All is the one that moves updates to Closed for 30 days.",
+        "lesson": "04-your-dashboard-and-the-bell.md"
+      },
+      {
+        "type": "single",
+        "q": "Your last name is misspelled on your record. How do you get it fixed?",
+        "options": [
+          "Submit a ticket to IT",
+          "Ask HR, Profile Change",
+          "Edit under Contact & Emergency",
+          "Tell your manager on Teams"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Your name, job, department and bank details are part of your HR record, so HR changes them through Ask HR, Profile Change.",
         "lesson": "05-workday-your-home-base.md"
       },
       {
         "type": "single",
-        "q": "Which buttons does the Time Clock show while you are on a break?",
+        "q": "HR sends your hiring packet forms. Where do they wait for your signature?",
         "options": [
-          "Punch In",
-          "End Break only",
-          "Start Break and Punch Out",
-          "All four"
+          "Your Notes tab",
+          "The Approvals tab, under Team Approvals",
+          "Documents to Sign, on Workday",
+          "The Time Sheet tab, under Sign & Submit"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "Nexus Sign documents wait at the top of the Workday Overview under Documents to Sign. Time Sheets are the exception: they are signed on the Time Sheet tab.",
+        "lesson": "05-workday-your-home-base.md"
+      },
+      {
+        "type": "single",
+        "q": "A landlord wants to see a paystub. Where are your paystubs?",
+        "options": [
+          "A paystubs screen under People",
+          "Ask HR, then Something Else",
+          "The Time Sheet tab",
+          "My Documents, on Workday"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "Paystubs are a folder in My Documents. For proof of employment, Ask HR, Request a Letter is better than a paystub.",
+        "lesson": "05-workday-your-home-base.md"
+      },
+      {
+        "type": "tf",
+        "q": "Clicking outside the Ask HR panel closes it and keeps your draft.",
+        "options": [
+          "True",
+          "False"
         ],
         "answer": [
           1
         ],
-        "explanation": "The clock only shows valid buttons. On a break, End Break puts you back on the clock.",
+        "explanation": "False. A click outside does not close the panel: it nudges it and lights up its close button. Close it with Close, Cancel or Escape.",
+        "lesson": "05-workday-your-home-base.md"
+      },
+      {
+        "type": "single",
+        "q": "You tap Start Break. What does the Going on break box need from you?",
+        "options": [
+          "Nothing; it is optional",
+          "A short reason, such as Lunch",
+          "Your manager's approval",
+          "Your location turned on and a photo of the site"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The break reason is required and posts to your team's Teams chat. The Resuming work note at End Break is the optional one.",
         "lesson": "06-punching-in-breaks-and-punching-out.md"
       },
       {
         "type": "single",
-        "q": "Your Time Sheet shows Out of Location for a punch. What does it mean?",
+        "q": "You punched in from the office computer. Your Time Sheet shows Approx. Location. Why?",
         "options": [
-          "You punched at a company site",
-          "The punch was made away from every company location and is flagged for review",
           "Your location was turned off",
-          "The punch failed"
+          "The punch did not record",
+          "A computer gives only a rough location, so no site name shows",
+          "You were away from every company location"
         ],
         "answer": [
-          1
+          2
         ],
-        "explanation": "Out of Location means the punch was away from all company locations. Location is checked only at the punch, never between punches.",
+        "explanation": "A computer usually gives only a rough location. Punch from your phone on site for a precise one that shows the site name.",
         "lesson": "06-punching-in-breaks-and-punching-out.md"
       },
       {
         "type": "single",
-        "q": "You have been clocked in for 11 hours and an amber banner asks if you are still working. You are. What do you tap?",
+        "q": "A Still on Break? notice reaches your bell. What does it usually mean?",
         "options": [
-          "Fix My Punch Out",
-          "I'm Still Working",
-          "Punch Out and Punch In",
-          "Retry Now"
+          "Your manager ended your break",
+          "You took a break that was too short",
+          "Your break needs approval",
+          "You forgot to press End Break"
         ],
         "answer": [
-          1
+          3
         ],
-        "explanation": "I'm Still Working hides the banner when it is true. Fix My Punch Out is for a forgotten clock-out.",
+        "explanation": "A break left open about an hour brings Still on Break? Press End Break now and fix the time on your Time Sheet if it is wrong.",
+        "lesson": "06-punching-in-breaks-and-punching-out.md"
+      },
+      {
+        "type": "tf",
+        "q": "An early punch is recorded, and your manager gets a notice about it.",
+        "options": [
+          "True",
+          "False"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "True. Nexus never blocks an early punch; Clock In Anyway records it and your manager is told. Start early only when asked.",
         "lesson": "06-punching-in-breaks-and-punching-out.md"
       },
       {
         "type": "single",
-        "q": "You are an hourly team member at a California site and missed your meal break on Tuesday. What do you do when your Time Sheet is ready to sign?",
+        "q": "You are hourly in California and missed a meal break on Tuesday. The signing screen shows the break statement. What do you do?",
         "options": [
-          "Sign it anyway",
-          "Click Report a Missed Break, pick Tuesday and Meal, then Send Back to Manager",
-          "Add a note and sign",
-          "Ask a coworker"
+          "Decline the whole Time Sheet in Nexus Sign",
+          "Report a Missed Break for Tuesday instead of signing",
+          "Sign it; the break is too small to matter",
+          "Sign it and email HR afterward"
         ],
         "answer": [
           1
         ],
-        "explanation": "Signing confirms the meal and rest break statement. Hourly California staff report a missed break instead of signing, and the manager adds the premium pay. Training only, not legal advice.",
+        "explanation": "Report a Missed Break, pick Tuesday and Meal, and send it back; your manager adds the premium pay. Never sign a statement that is not true.",
         "lesson": "06-punching-in-breaks-and-punching-out.md"
-      },
-      {
-        "type": "single",
-        "q": "You work at a Texas site. The signing screen shows the meal and rest break statement, and it is not true for you. What should you do?",
-        "options": [
-          "Sign it to get paid on time",
-          "Tell your manager first; if it is still not true, decline it in Nexus Sign with a reason",
-          "Ignore the statement",
-          "Punch out again"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Never sign a statement that is not true. Report a Missed Break appears only for hourly staff on the California rule, so at a Texas site tell your manager first, then decline with a reason if it is still not true. Training only, not legal advice.",
-        "lesson": "06-punching-in-breaks-and-punching-out.md"
-      },
-      {
-        "type": "single",
-        "q": "How does your Time Sheet show eight hours and fifteen minutes?",
-        "options": [
-          "8.25",
-          "8:15",
-          "8.15 h",
-          "495"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Hours read as hours and minutes, like 8:15. Nexus never shows decimal hours on screen.",
-        "lesson": "08-your-time-sheet.md"
-      },
-      {
-        "type": "single",
-        "q": "You sent a missing punch request. How does that day look until your approver decides?",
-        "options": [
-          "Approved",
-          "Not Yet Approved",
-          "Missing",
-          "Locked"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "A request shows on its day as Not Yet Approved until your approver decides. Follow it under Change Requests This Period.",
-        "lesson": "08-your-time-sheet.md"
       },
       {
         "type": "single",
         "q": "Who signs your Time Sheet?",
         "options": [
-          "Your manager",
-          "HR",
+          "Your manager only",
+          "HR, then you",
           "Only you",
-          "You and your manager together"
+          "You and your manager"
         ],
         "answer": [
           2
         ],
-        "explanation": "Your manager approves with Review & Approve, but only you sign. Your signature finalizes the period for payroll.",
-        "lesson": "08-your-time-sheet.md"
-      },
-      {
-        "type": "order",
-        "q": "Put the Time Sheet approval and signing steps in order.",
-        "options": [
-          "The pay period ends",
-          "Your manager clicks Review & Approve",
-          "You get a bell and an email that it is approved",
-          "You click Sign & Submit and sign in Nexus Sign",
-          "The signed copy is filed in My Documents"
-        ],
-        "answer": [],
-        "explanation": "You do not need to submit first. After the period ends your manager approves, you are told, you sign, and the signed copy is filed.",
+        "explanation": "Only the employee signs. The manager approves and never signs, and nobody can sign for you.",
         "lesson": "08-your-time-sheet.md"
       },
       {
         "type": "single",
-        "q": "HR corrected your Time Sheet after you signed it. What are you asked to do?",
+        "q": "After your manager approved, you notice your Thursday 2:00 PM to 5:00 PM shift is missing. What do you do?",
         "options": [
-          "Nothing",
-          "Sign Updated Time Sheet, or decline it with what is wrong",
-          "Submit a new Time Sheet",
-          "Ask your manager to sign"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "When HR changes a signed Time Sheet, you check what changed and Sign Updated Time Sheet, or decline it with what is wrong.",
-        "lesson": "08-your-time-sheet.md"
-      },
-      {
-        "type": "single",
-        "q": "A banner in My Schedule says your schedule was shared and asks you to have a look and confirm. What does Confirm mean?",
-        "options": [
-          "You agree to every shift forever",
-          "You have seen the schedule",
-          "You are asking for a swap",
-          "You are requesting time off"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Confirm means you have seen it. If something does not work, confirm and then talk to your manager or use a shift request if your company allows them.",
-        "lesson": "09-schedules-and-time-off.md"
-      },
-      {
-        "type": "tf",
-        "q": "Shift swaps, offers and releases are on for every company by default.",
-        "options": [
-          "True",
-          "False"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "They are off by default, and each company decides whether to turn them on. If you see no Request button under your shifts, handle changes with your manager.",
-        "lesson": "09-schedules-and-time-off.md"
-      },
-      {
-        "type": "single",
-        "q": "A teammate accepted your swap request. Which shift do you work?",
-        "options": [
-          "The new one, right away",
-          "Your original shift, until a manager approves the swap",
-          "Neither",
-          "Whichever you prefer"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "A swap waits on your teammate, then on a manager. Until it is approved, the original schedule stands.",
-        "lesson": "09-schedules-and-time-off.md"
-      },
-      {
-        "type": "single",
-        "q": "You were sick yesterday and could not request time off in time. How do you ask for it?",
-        "options": [
-          "Past dates cannot be requested",
-          "Click Request for a Past Date on the Time Off form",
-          "Submit a ticket",
-          "Add a note on the Dashboard"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Past dates are grayed out on the form. Request for a Past Date lets you ask for one you missed.",
-        "lesson": "09-schedules-and-time-off.md"
-      },
-      {
-        "type": "tf",
-        "q": "An hourly team member who does not work on a company holiday is paid for that day.",
-        "options": [
-          "True",
-          "False"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Company holidays are unpaid days off for hourly staff, with the office closed. Hours actually worked on a holiday are paid as usual.",
-        "lesson": "09-schedules-and-time-off.md"
-      },
-      {
-        "type": "single",
-        "q": "Which Ask HR choice do you use for an employment verification letter for a new apartment?",
-        "options": [
-          "Profile Change",
-          "Request a Letter",
-          "Update a Document",
-          "Something Else"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Request a Letter covers employment verification, salary, visa and more, when your company offers HR letters.",
-        "lesson": "10-ask-hr-reimbursements-and-purchases.md"
-      },
-      {
-        "type": "single",
-        "q": "You do not have the receipt yet for something you bought for the site. Can you still file the reimbursement?",
-        "options": [
-          "No, never",
-          "Yes; send it now and use Add Receipt later. HR approves it once the receipt is attached",
-          "Only with a manager's signature",
-          "Only on a computer"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "You can send it without the receipt and add it later. HR approves the claim once the receipt is attached.",
-        "lesson": "10-ask-hr-reimbursements-and-purchases.md"
-      },
-      {
-        "type": "single",
-        "q": "Your reimbursement came back Sent Back with a note that the receipt photo is blurry. What do you do?",
-        "options": [
-          "File a new one",
-          "Open it, fix what the note says, and click Fix and Resubmit",
-          "Cancel it",
-          "Ignore it"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "A sent back claim is fixed in place: read What to fix, make the change, and click Fix and Resubmit.",
-        "lesson": "10-ask-hr-reimbursements-and-purchases.md"
-      },
-      {
-        "type": "single",
-        "q": "A ticket you raised shows Waiting for User. What should you do?",
-        "options": [
-          "Wait; it is being worked",
-          "Reply; the team is waiting on you",
-          "Close it",
-          "Submit a new ticket"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Waiting for User means the team needs something from you. The ticket cannot move until you answer.",
-        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
-      },
-      {
-        "type": "single",
-        "q": "The team resolved your ticket, but the problem is still there. What do you do?",
-        "options": [
-          "Click Confirm Resolution",
-          "Click Reopen while it is still Resolved, and say why",
-          "Submit a ticket to HR",
-          "Nothing"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Reopen with a reason while it is Resolved. Once a ticket is Closed it stays closed, and a problem that comes back is a new ticket.",
-        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
-      },
-      {
-        "type": "single",
-        "q": "You scan a QR tag at the end of a building. What can you do from the page that opens?",
-        "options": [
-          "Pay a tenant's rent",
-          "See Open Tickets there and Report a Problem with Where, Details and Photos",
-          "Change the gate code",
-          "Punch in"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "A place tag opens that place: Open Tickets shows what is already reported, and Report a Problem files a ticket already linked to the property.",
-        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
-      },
-      {
-        "type": "single",
-        "q": "The offline bar says something needs your choice. What is happening?",
-        "options": [
-          "Your phone is out of storage",
-          "Someone else changed the same record, and you pick Keep Mine or Use Theirs",
-          "Your punch was rejected",
-          "You must sign in"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Nexus never silently overwrites anyone's change. When two changes meet, you choose Keep Mine or Use Theirs.",
-        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
-      },
-      {
-        "type": "tf",
-        "q": "Nexus has its own chat for messaging coworkers.",
-        "options": [
-          "True",
-          "False"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "Greens talks on Microsoft Teams. Nexus has no chat of its own; Chat, Message on Teams and Call on Teams open Teams.",
-        "lesson": "12-people-equipment-and-notes.md"
-      },
-      {
-        "type": "single",
-        "q": "Which step does NOT need a photo in Item Management?",
-        "options": [
-          "Taking a borrowed item",
-          "Confirming receipt of a borrowed item",
-          "Returning a borrowed item",
-          "Reporting an item lost"
+          "Sign it and fix Thursday next period",
+          "Sign it; your manager will catch it",
+          "Punch in and out for those hours now",
+          "Decline in Nexus Sign and say Thursday is missing"
         ],
         "answer": [
           3
         ],
-        "explanation": "Photos are evidence at handover, receipt and return. A lost item has no photo to take, so Report Lost needs none.",
-        "lesson": "12-people-equipment-and-notes.md"
+        "explanation": "Decline with what is wrong, or ask for a punch fix on Thursday. Either sends it back to your manager to correct before you sign.",
+        "lesson": "08-your-time-sheet.md"
       },
       {
         "type": "single",
-        "q": "Who can open a note you wrote in Notes?",
+        "q": "You asked for a missing clock-out. What does that day show until your approver decides?",
         "options": [
-          "Everyone at your site",
-          "Only you and the people you share it with",
-          "Your manager",
-          "HR"
+          "Not Yet Approved",
+          "Missing",
+          "Approved, pending signature",
+          "Waiting for Signature"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "A change request shows Not Yet Approved on its day until your approver decides. You can still Cancel Request while it waits.",
+        "lesson": "08-your-time-sheet.md"
+      },
+      {
+        "type": "single",
+        "q": "Your Time Sheet shows 8:15 for Monday. How long did you work?",
+        "options": [
+          "8 hours 9 minutes",
+          "8 hours 15 minutes",
+          "8.15 hours",
+          "8 hours 25 minutes"
         ],
         "answer": [
           1
         ],
-        "explanation": "A note is private to its owner and the people it is shared with. A name typed in a note notifies nobody.",
-        "lesson": "12-people-equipment-and-notes.md"
+        "explanation": "Nexus shows hours as hours and minutes, never decimals, so 8:15 is eight hours and fifteen minutes.",
+        "lesson": "08-your-time-sheet.md"
       },
       {
         "type": "tf",
-        "q": "A checkpoint inside a course uses one of your final quiz tries.",
+        "q": "If HR changes your Time Sheet after you signed it, you are asked to sign the updated one.",
+        "options": [
+          "True",
+          "False"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "True. HR can correct a Time Sheet at any point, and you sign the updated one, or decline it with what is wrong.",
+        "lesson": "08-your-time-sheet.md"
+      },
+      {
+        "type": "single",
+        "q": "You were sick yesterday and could not request it in time. Yesterday is grayed out on the form. What do you click?",
+        "options": [
+          "Add on the Time Sheet only",
+          "Ask HR, Question for HR",
+          "Text your manager instead",
+          "Request for a Past Date"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "Past dates are grayed out on Request Time Off; Request for a Past Date is how you ask for a day already gone.",
+        "lesson": "09-schedules-and-time-off.md"
+      },
+      {
+        "type": "single",
+        "q": "A teammate agreed to swap Saturday with you, and the request reads Waiting On Manager. Which shift do you work?",
+        "options": [
+          "Your original shift",
+          "The swapped Saturday shift",
+          "Neither until it clears",
+          "Whichever you prefer"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "A swap waits on the teammate, then a manager. Until the manager approves, the original shift stands.",
+        "lesson": "09-schedules-and-time-off.md"
+      },
+      {
+        "type": "tf",
+        "q": "As an hourly employee, you are paid for a company holiday you do not work.",
         "options": [
           "True",
           "False"
@@ -1017,68 +786,289 @@
         "answer": [
           1
         ],
-        "explanation": "A checkpoint is practice and does not count as a quiz try. Use it to find what to reread.",
-        "lesson": "13-training-and-policies.md"
+        "explanation": "False. For hourly staff a company holiday is a day off with no pay. Hours you do work on a holiday are paid as usual.",
+        "lesson": "09-schedules-and-time-off.md"
       },
       {
         "type": "single",
-        "q": "You scored 76% on the final quiz. What should you do before you try again?",
+        "q": "You want your team to see only that you are out, not why. What do you tick?",
         "options": [
-          "Try Again right away",
-          "Read the lessons listed under Reread these before you try again",
-          "Ask a coworker for the answers",
-          "Skip the course"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "The quiz needs 80%. Reread the listed lessons first; the next try draws different questions, so understanding works and guessing does not.",
-        "lesson": "13-training-and-policies.md"
-      },
-      {
-        "type": "single",
-        "q": "How long do you have to finish the Greens Storage Academy as a new facility hire?",
-        "options": [
-          "7 days",
-          "30 days from your start date",
-          "90 days",
-          "There is no due date"
-        ],
-        "answer": [
-          1
-        ],
-        "explanation": "The New Hire: Facility Team plan is due 30 days from your start date. Your manager is told if a course runs past its due date.",
-        "lesson": "13-training-and-policies.md"
-      },
-      {
-        "type": "single",
-        "q": "You passed a Greens Storage Academy course. When do you have to retake it?",
-        "options": [
-          "Every year",
-          "Every six months",
-          "Never; the certificate does not expire. You can reread the lessons any time.",
-          "When your manager changes"
+          "Request for a Past Date",
+          "Send it to HR instead of your manager",
+          "Keep this confidential",
+          "All day"
         ],
         "answer": [
           2
         ],
-        "explanation": "Each academy course issues a certificate on pass with no renewal. A passed quiz is not taken again, but you can reread any lesson whenever you want a refresher.",
-        "lesson": "13-training-and-policies.md"
+        "explanation": "Keep this confidential shows your team only that you are out. Your approver still sees the request.",
+        "lesson": "09-schedules-and-time-off.md"
       },
       {
         "type": "single",
-        "q": "How do you sign a Read and Sign policy?",
+        "q": "You have a question about your health benefits. Where do you send it?",
         "options": [
-          "Reply to the email",
-          "Read it to the end, type your full name under Read, Then Sign Below, and sign",
-          "Click Acknowledge in the bell",
-          "Ask your manager to sign for you"
+          "A ticket to the HR desk",
+          "Your manager on Teams",
+          "A note shared with HR",
+          "Ask HR, Question for HR"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "Ask HR is the confidential HR desk: only you, the people you add and HR see the request.",
+        "lesson": "10-ask-hr-reimbursements-and-purchases.md"
+      },
+      {
+        "type": "single",
+        "q": "Your reimbursement comes back Sent Back. What do you do?",
+        "options": [
+          "Read What to fix, then Fix and Resubmit the same claim",
+          "File a brand new claim with the same receipt",
+          "Ask HR to approve it anyway",
+          "Cancel it and pay it yourself"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "Sent Back says what needs fixing. Change it and Fix and Resubmit the same claim; a second claim would duplicate it.",
+        "lesson": "10-ask-hr-reimbursements-and-purchases.md"
+      },
+      {
+        "type": "single",
+        "q": "You bought supplies today and the receipt is in your car. Can you file the claim now?",
+        "options": [
+          "Only if your manager files it",
+          "Yes; add it later with Add Receipt",
+          "No; Nexus refuses a claim without a receipt attached",
+          "Only through Ask HR"
         ],
         "answer": [
           1
         ],
-        "explanation": "Read to the end, type your full name and sign that version. A real policy change asks you to sign again.",
+        "explanation": "You can send it now and use Add Receipt later. HR does not pay it until the receipt is attached.",
+        "lesson": "10-ask-hr-reimbursements-and-purchases.md"
+      },
+      {
+        "type": "tf",
+        "q": "Your manager can read an Ask HR request you send, even if you do not add them.",
+        "options": [
+          "True",
+          "False"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "False. An Ask HR request is seen only by you, the people you add and HR.",
+        "lesson": "10-ask-hr-reimbursements-and-purchases.md"
+      },
+      {
+        "type": "single",
+        "q": "Your laptop will not charge and the office printer jams, both on the same morning. How many tickets do you raise?",
+        "options": [
+          "One, listing both problems",
+          "One, to your manager",
+          "None; text Facilities about both",
+          "Two, one for each problem"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "One problem per ticket: the two may go to different people, and each needs its own photo and status.",
+        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
+      },
+      {
+        "type": "single",
+        "q": "Your ticket shows Resolved, but the printer still jams. What do you click?",
+        "options": [
+          "Reopen, and say why",
+          "Confirm Resolution",
+          "Mark Resolved",
+          "Confirm Resolution, then a new ticket"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "Reopen works while a ticket is Resolved. Confirm Resolution only after you have checked the fix yourself.",
+        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
+      },
+      {
+        "type": "single",
+        "q": "You scan the QR tag on a company truck and Open Tickets already lists its flat tire. What does that tell you?",
+        "options": [
+          "The tag is broken and needs replacing",
+          "Someone already reported it",
+          "The tire has been fixed",
+          "You lack access to the place"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "Open Tickets on a place lists what is already reported there, so you can follow it instead of filing a second one.",
+        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
+      },
+      {
+        "type": "single",
+        "q": "You filled a vehicle check at a remote job site with no signal, and it shows Saved on This Phone. What next?",
+        "options": [
+          "Take a screenshot and email it",
+          "Delete it and use paper",
+          "Nothing; it sends itself when signal returns, or tap Sync Now",
+          "Fill it again at the office so it is not lost"
+        ],
+        "answer": [
+          2
+        ],
+        "explanation": "It sends itself when signal returns, and sending twice never creates two. Sync Now on the bar sends it right away.",
+        "lesson": "11-getting-help-tickets-report-a-problem-and-forms.md"
+      },
+      {
+        "type": "single",
+        "q": "Your manager assigns you a laptop to keep. Is a photo required to accept it?",
+        "options": [
+          "Yes, always",
+          "Only on a phone",
+          "Only if it is damaged",
+          "No, it is optional"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "Accepting an assigned item takes an optional photo. Handover, receipt and every return need one; a lost report needs none.",
+        "lesson": "12-people-equipment-and-notes.md"
+      },
+      {
+        "type": "single",
+        "q": "You open a payroll specialist's Directory card and click Chat. Where does it take you?",
+        "options": [
+          "Microsoft Teams",
+          "A Nexus chat window",
+          "Your Outlook inbox",
+          "A shared Notes page"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "Greens talks on Teams and Nexus has no chat of its own. Chat, Call and Video open Teams.",
+        "lesson": "12-people-equipment-and-notes.md"
+      },
+      {
+        "type": "single",
+        "q": "When does a borrowed laser level's due date start counting?",
+        "options": [
+          "From Monday",
+          "From the handover",
+          "From your request",
+          "From the approval"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "The due date counts from the handover, when you take it or confirm receipt, not from when you asked.",
+        "lesson": "12-people-equipment-and-notes.md"
+      },
+      {
+        "type": "tf",
+        "q": "A note you have not shared cannot be opened by your manager.",
+        "options": [
+          "True",
+          "False"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "True. A note is private to you and the people you share it with. That is also why a problem written in a note reaches nobody.",
+        "lesson": "12-people-equipment-and-notes.md"
+      },
+      {
+        "type": "single",
+        "q": "You missed two checkpoint questions in this course. How many quiz tries did that use?",
+        "options": [
+          "One",
+          "Two",
+          "All three",
+          "None"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "Checkpoints are practice and never count as a quiz try. They point you to what is worth rereading.",
         "lesson": "13-training-and-policies.md"
+      },
+      {
+        "type": "single",
+        "q": "You used all three tries on a final quiz. Who can unlock another round?",
+        "options": [
+          "Your manager",
+          "Any coworker on your team",
+          "Nobody at all",
+          "The Help Center"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "Your manager (or the course owner) can unlock another round. Reread the listed lessons before you use it.",
+        "lesson": "13-training-and-policies.md"
+      },
+      {
+        "type": "single",
+        "q": "A policy you signed last month gets a typo fix. Must you sign it again?",
+        "options": [
+          "Only if your manager asks",
+          "No; only a new version that changes the policy asks again",
+          "Yes; every edit needs a new signature",
+          "Yes, within 30 days"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "A new version that changes the policy brings it back for your signature. A small fix like a typo does not.",
+        "lesson": "13-training-and-policies.md"
+      },
+      {
+        "type": "single",
+        "q": "Your manager asks which of your assigned courses are still open and when each is due. Where do you look?",
+        "options": [
+          "The Catalog, under Training",
+          "My Learning, under Training",
+          "Workday, under Performance",
+          "The bell, under Closed"
+        ],
+        "answer": [
+          1
+        ],
+        "explanation": "My Learning lists your to-do training in one list, overdue first, then due soonest. The Catalog lists every course you could take, not the ones assigned to you.",
+        "lesson": "13-training-and-policies.md"
+      },
+      {
+        "type": "single",
+        "q": "It is your first week. Which of these is on the first-week list?",
+        "options": [
+          "Build your own Dashboard view",
+          "Turn on Dark Mode",
+          "Set your Navigation Motion",
+          "Add the Announcements widget"
+        ],
+        "answer": [
+          3
+        ],
+        "explanation": "Announcements reach the Dashboard only through their widget, so add it on day one. The others are optional preferences.",
+        "lesson": "14-on-one-page.md"
+      },
+      {
+        "type": "single",
+        "q": "The office kitchen sink is leaking when you arrive. Which habit applies?",
+        "options": [
+          "A ticket with a photo",
+          "A note in Today",
+          "A text to your manager",
+          "A line in your End of Day"
+        ],
+        "answer": [
+          0
+        ],
+        "explanation": "Anything another person must act on is a ticket or a form, one problem each, with a photo. Notes and texts leave no tracked record.",
+        "lesson": "14-on-one-page.md"
       }
     ]
   }

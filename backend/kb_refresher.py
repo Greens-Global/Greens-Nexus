@@ -50,8 +50,31 @@ def _public(q: dict) -> dict:
     return {"id": q["_id"], "type": q.get("type") or "single", "q": q.get("q") or "", "options": list(q.get("options") or [])}
 
 
+def _zone(db, email: str):
+    """The person's zone, resolved once per call (zone_for reads the database)."""
+    from zoneinfo import ZoneInfo
+    try:
+        return ZoneInfo(kb_core.zone_for(db, email) or kb_core.ORG_TZ)
+    except (KeyError, ValueError):
+        return ZoneInfo(kb_core.ORG_TZ)
+
+
+def _local_day(zone, ts: str) -> str:
+    """The person's calendar day of a stored UTC timestamp (compared with
+    kb_core.today_for, never the UTC date: an evening answer in California
+    is tomorrow in UTC)."""
+    from datetime import datetime, timezone
+    try:
+        t = datetime.fromisoformat(ts)
+        t = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+        return t.astimezone(zone).date().isoformat()
+    except (TypeError, ValueError):
+        return (ts or "")[:10]
+
+
 def _streak(db, email: str, today: str) -> int:
-    days = sorted({(r.last_answered_at or "")[:10] for r in db.query(models.KbRefresherItem).filter(models.KbRefresherItem.user_email == email).all()
+    zone = _zone(db, email)
+    days = sorted({_local_day(zone, r.last_answered_at) for r in db.query(models.KbRefresherItem).filter(models.KbRefresherItem.user_email == email).all()
                    if r.last_answered_at}, reverse=True)
     if not days:
         return 0
@@ -72,8 +95,9 @@ def today(db, email: str) -> dict:
     _seed(db, email, day)
     due = (db.query(models.KbRefresherItem).filter(models.KbRefresherItem.user_email == email, models.KbRefresherItem.due_on <= day)
            .order_by(models.KbRefresherItem.due_on, models.KbRefresherItem.created_at).all())
+    zone = _zone(db, email)
     answered_today = sum(1 for r in db.query(models.KbRefresherItem).filter(models.KbRefresherItem.user_email == email).all()
-                        if (r.last_answered_at or "")[:10] == day)
+                        if r.last_answered_at and _local_day(zone, r.last_answered_at) == day)
     items, courses = [], {}
     for r in due:
         if len(items) >= max(0, DAILY - answered_today):

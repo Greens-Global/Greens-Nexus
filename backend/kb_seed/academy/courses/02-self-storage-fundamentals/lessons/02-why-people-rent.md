@@ -3,227 +3,76 @@ title: Why People Rent
 summary: The 4 Ds and the other life events that bring people to storage, the main customer segments, how long people stay, and what that means for how you treat every caller.
 ---
 
-## What You'll Be Able to Do
+## A Tired Voice on the Phone
 
-- Name the 4 Ds of self-storage and give an example of each.
-- List other life events that bring people in: moves, remodels, deployments, students, new households.
-- Describe the main customer segments: residential, business, students, military and vehicle owners.
-- State the typical length of stay and explain why it matters to Greens.
-- Use what you know about a customer's situation to help them, without prying.
+A man calls Escondido about emptying his late mother's house. He sounds exhausted and is not sure what he needs. In this lesson you learn why people rent, which segment a caller belongs to, and how long they are likely to stay, so you can help him with the right unit, the right tone and the right expectations.
 
 ## People Rent Because Something Changed
 
-Hardly anyone wakes up and decides to rent storage for fun. Something in their life changed: they are moving, they lost space, they gained things, or someone they love died. In a 2024 survey, the top reason for renting was not enough space at home, and the second, at 25%, was moving (StorageCafe survey, 2024, cited by the California Senate Judiciary Committee, 07/2025).
+Hardly anyone rents storage for fun. They are moving, they lost space, they gained things, or someone they love died. The top reason renters give is not enough space at home; moving is the next.
 
-Understanding the reason behind the rental helps you in three ways:
-
-1. **You recommend the right size and type.** A family between homes needs different space from a contractor.
-2. **You set the right tone.** A grieving widow and an excited new homeowner need different conversations.
-3. **You predict how long they will stay.** That shapes what you tell them about rates and protection.
+Knowing the reason helps you three ways: you recommend the right size and type, you set the right tone, and you can predict how long they will stay.
 
 ## The 4 Ds
 
-```figure
-{
-  "kind": "compare",
-  "title": "The Four Ds, and What Each Customer Needs",
-  "columns": [
-    {
-      "name": "Death",
-      "note": "a family empties a home before it is sold",
-      "facts": [
-        "Time and patience",
-        "A larger unit for furniture",
-        "Flexibility on move-in day"
-      ]
-    },
-    {
-      "name": "Divorce",
-      "note": "one person moves to a smaller place",
-      "facts": [
-        "Discretion",
-        "A quick rental",
-        "Often a 5x10 or a 10x10"
-      ]
-    },
-    {
-      "name": "Downsizing",
-      "note": "a smaller home or a senior community",
-      "facts": [
-        "Climate control for furniture and keepsakes",
-        "A ground-floor unit"
-      ]
-    },
-    {
-      "name": "Dislocation",
-      "note": "a move, a job loss, an eviction, a fire, a flood",
-      "facts": [
-        "Speed",
-        "A clear price",
-        "A short-notice move-in"
-      ]
-    }
-  ]
-}
-```
-
-The industry's shorthand for the biggest drivers of storage demand is the **4 Ds**:
+The industry's shorthand for the biggest drivers of demand:
 
 | D | What it looks like | What the customer often needs |
 |---|---|---|
-| **Death** | A parent died and the family must empty the house before it is sold | Time, patience, a larger unit for furniture, flexibility on move-in day |
-| **Divorce** | One person moves out of the shared home, often to a smaller place | Discretion, a quick rental, often a 5x10 or 10x10 |
-| **Downsizing** | Retirees move to a smaller home or a senior community | Climate control for furniture and keepsakes, a ground-floor unit |
-| **Dislocation** | A move, a job loss, an eviction, a fire, a flood | Speed, a clear price, often a short-notice move-in |
+| **Death** | A family empties a parent's home before it is sold | Time, patience, a larger unit for furniture |
+| **Divorce** | One person moves out, often to a smaller place | Discretion and a quick rental, often a 5x10 or 10x10 |
+| **Downsizing** | Retirees move to a smaller home | Climate control for furniture and keepsakes, an easy-to-reach unit |
+| **Dislocation** | A move, a job loss, an eviction, a fire, a flood | Speed, a clear price, a short-notice move-in |
 
-Some operators use **Disaster** as the fourth D, and some add **Decluttering** and **Distribution** (online sellers and remote workers) to make six. The idea is the same: storage demand follows life events.
+Beyond the 4 Ds, these come up every week: a home remodel, a deployment or military move (Fairfield sits next to Travis Air Force Base), students over the summer, two households combining, a home staged for sale, seasonal gear, and vehicles. Many Southern California neighborhoods have HOA or city rules that keep an RV or boat out of the driveway, which is a big reason Greens' parking spaces fill.
 
 > [!TIP]
-> You do not need to ask "Why are you renting?" in a way that pries. "What's the occasion: a move, a remodel, or just making room?" gives the customer an easy way to tell you as much as they want.
-
-## Other Reasons People Rent
-
-Beyond the 4 Ds, these come up every week:
-
-- **Moving.** Between homes, waiting for escrow, a long-distance move with a gap.
-- **Home remodels.** A kitchen or flooring job means the furniture has to go somewhere for weeks or months.
-- **Military deployment and PCS moves.** Fairfield sits next to Travis Air Force Base. Service members store their belongings while deployed or between duty stations. The Lines You Never Cross lesson covers the special legal protections they have.
-- **College students.** Summer break and study abroad. Short stays, and a parent often pays.
-- **Combining households.** Two people move in together and have two of everything.
-- **New baby.** The spare room becomes a nursery.
-- **Staging a home for sale.** Agents ask sellers to clear out half their furniture.
-- **Hobby and seasonal gear.** Holiday decorations, camping and sports gear, tools.
-- **Vehicles, RVs, boats and trailers.** Many Southern California and Texas neighborhoods have HOA rules or city rules that do not allow an RV or boat in the driveway. This is a big reason Greens' parking spaces fill. The RV & Boat Storage course covers it.
+> Ask about the stuff, not the story: "What's the occasion: a move, a remodel, or just making room?" lets the customer share as much as they want.
 
 ## Customer Segments
 
-A **segment** is a group of customers with similar needs. Knowing the segment helps you answer the questions they have not asked yet.
-
-| Segment | Who they are | What to know |
-|---|---|---|
-| **Residential** | Households: movers, families, retirees, renters | The majority. Want clear prices, easy access, a clean site and to feel safe. |
-| **Business** | Contractors, pharmaceutical and sales reps with samples, online sellers, retailers with seasonal stock, offices storing records | Stay the longest. Storing business goods is normally fine; running a business out of the unit is not (the Rental Agreement lesson). |
-| **Students** | Summer and study-abroad storage | Short stays; often a parent on the account. Confirm who is authorized. |
-| **Military** | Active-duty members, deploying or moving | Federal law protects them in the lien process. Ask about military status at move-in. |
-| **Vehicle owners** | RV, boat, trailer and car owners | Need the right space size and length, paperwork for the vehicle and their own insurance. Separate course. |
-
-### What the National Numbers Say About Renters
-
-```figure
-{
-  "kind": "bars",
-  "title": "What Renters Do",
-  "unit": "%",
-  "max": 100,
-  "items": [
-    {
-      "label": "Rent an exterior drive-up unit",
-      "value": 55.7,
-      "text": "55.7%"
-    },
-    {
-      "label": "Rent more than one unit",
-      "value": 25,
-      "text": "about 25%"
-    },
-    {
-      "label": "Travel under 20 minutes to their unit",
-      "value": 69,
-      "text": "69% or more"
-    },
-    {
-      "label": "Buy boxes, tape or supplies",
-      "value": 41,
-      "text": "41%"
-    },
-    {
-      "label": "Business renters who stay over two years",
-      "value": 47.5,
-      "text": "47.5%"
-    },
-    {
-      "label": "All renters who stay over two years",
-      "value": 24,
-      "text": "about 24%"
-    }
-  ],
-  "caption": "SSA Demand Study, 2023."
-}
-```
-
-The Self Storage Association's 2023 Demand Study (as reported in the Self Storage Almanac, 2024) gives a picture of the typical renter:
-
-| Fact | What it means for you |
+| Segment | What to know |
 |---|---|
-| The **10x10** is the most popular size, then the 5x10 | Know your site's 10x10 and 5x10 prices by heart |
-| **55.7%** of rentals are exterior drive-up units | Many customers want to pull up to the door |
-| About **25%** of tenants rent more than one unit | Ask whether one unit will really be enough |
-| **69%+** travel under 20 minutes to their unit | Storage is local; your neighbors are your market |
-| Monthly is the most common visit frequency | Gate hours and easy access matter |
-| **41%** buy boxes, tape or supplies | Offer supplies at every move-in |
-| Automatic card payment is the most preferred way to pay | Offer autopay at every move-in |
-| **47.5%** of business renters stay over two years, versus about **24%** of all renters | Business customers are long-term relationships |
+| **Residential** | The majority. Want a clear price, easy access, a clean site and to feel safe |
+| **Business** | Contractors, sales reps, online sellers, offices. They stay the longest. Storing business goods is fine; running a business from the unit is not (see the lesson The Rental Agreement) |
+| **Students** | Short stays, often a parent paying. Confirm who is authorized on the account |
+| **Military** | Federal law protects them in the lien process. Ask about military status at every move-in |
+| **Vehicle owners** | Need the right space length, vehicle paperwork and their own insurance (RV & Boat Storage Fundamentals) |
+
+A few habits follow from how renters behave nationally: the 10x10 and 5x10 are the most rented sizes, so know their prices; many renters want a drive-up door; about a quarter rent more than one unit, so ask whether one will really be enough; and most live within 20 minutes, so your neighbors are your market.
 
 ## How Long People Stay
 
-Storage rentals are month-to-month, but people stay far longer than a month. Reported averages range from about 16 months (Extra Space Storage, 2022) to 19.3 months (Storable, across its platform, Q1 2026). About a quarter of renters stay one to two years, and about a quarter stay more than two years (SSA Demand Study, 2023).
+Storage is month-to-month, but people stay far longer than they plan. Greens' current tenants have already been with Greens for well over a year on average (the figure is on Greens by the Numbers). The customer who "only needs it for a month" very often stays a year.
 
-The number to remember: **about a year and a half on average, and it varies a lot.**
-
-Why this matters:
-
-- **A move-in is a long relationship.** A tenant paying $164 a month for 18 months pays about $2,950 in rent. Losing them in month two because of a bad experience costs far more than one month.
-- **First impressions last.** The move-in conversation sets the tone for every later call: rate changes, late payments, problems.
-- **People who "only need it for a month" often stay a year.** Recommend the right protection and autopay anyway.
-
-### Worked Example: The Value of One Tenant
-
-A Valley Center tenant rents a unit at $129 a month (Valley Center's median enclosed street rate, From Greens' Cubby, 11/2026) and stays 18 months.
-
-- Rent: $129 x 18 = $2,322
-- Admin fee at move-in: $25 (From Greens' Cubby, 11/2026)
-- A $9 protection plan for 18 months: $9 x 18 = $162 (From Greens' Cubby, 11/2026)
-- Total: about $2,509 from one rental, before any rate change
-
-Every call you answer well is worth real money. Every call you miss may go to the competitor down the road.
+That is why a move-in is a long relationship. At $129 a month, a tenant who stays 18 months pays $2,322 in rent. Losing them in month two because of a bad experience costs far more than one month, and a missed call may go to the competitor down the road. So recommend protection and autopay even to the customer who says it is short-term.
 
 ## The Emotional Side
 
-Many of your customers are having one of the hardest months of their lives. Someone just lost a parent. Someone is leaving a marriage. Someone's house burned. They may be short, distracted or upset, and it is rarely about you.
+Many customers are having one of the hardest months of their lives. They may be short, distracted or upset, and it is rarely about you. Slow down, do not pry ("I'm sorry you're dealing with that" is enough), make the next step simple, and be discreet: a person leaving a relationship may not want anyone to know where their things are (see the lesson Privacy and Compliance).
 
-What helps:
+## At Greens
 
-- **Slow down.** A calm, patient voice lowers the temperature.
-- **Do not pry.** Let them share what they want. "I'm sorry you're dealing with that" is enough.
-- **Make it simple.** Clear price, clear size, clear next step.
-- **Be discreet.** A person leaving a relationship may not want anyone to know where their things are. That is one reason privacy rules (the Privacy and Compliance lesson) are strict.
+**Escondido.** The man emptying his mother's house: you offer condolences, ask about the largest furniture, suggest a 10x15 or 10x20, and mention climate control for wood furniture and photo albums.
 
-The Customer Service & Sales course goes deeper on conversations. Here, the point is that understanding why people rent makes you better at every part of the job.
+**Fairfield.** An Air Force sergeant deploys in three weeks and wants to park a pickup and a trailer. You record her military status and set up autopay so nothing lapses while she is away.
 
-## Greens Scenarios
+**Temecula.** A couple's HOA sent a letter about the boat in the driveway. You ask its length including the trailer tongue, and for their insurance.
 
-**Escondido.** A man calls about emptying his late mother's three-bedroom house. He sounds tired. You offer condolences, ask what large furniture there is, and suggest a 10x15 or 10x20 (the Product: Units and Sizes lesson). You mention climate control is worth asking about for wood furniture and photo albums.
-
-**Fairfield.** An Air Force sergeant at Travis is deploying in three weeks and wants to park a pickup and a small trailer. You ask about and record her military status at move-in (the Lines You Never Cross lesson explains why), and explain autopay so nothing lapses while she is away.
-
-**Temecula.** A couple's HOA sent a letter about the boat in their driveway. They want covered parking. You ask the boat's length including the trailer and tongue, and their insurance.
-
-**Valley Center.** A contractor wants a unit for tools and materials. You confirm he will store tools there, not run a workshop with power tools in the unit, and you point out that business renters often stay for years.
-
-**A Texas site.** A family is between homes while a new house is built near Georgetown. They expect six months. You recommend autopay and protection anyway, since builds run late.
+**Valley Center.** A contractor wants a unit for tools. You confirm he will store them, not run a workshop there.
 
 ## Common Mistakes
 
-- **Prying into a customer's situation.** Ask about the stuff, not the story.
-- **Assuming a short stay.** Most people stay much longer than they plan.
-- **Forgetting business and military customers have special needs.** Business use rules and military protections both matter later.
+- **Prying** into a customer's situation.
+- **Believing "just a month."** Plan the rental as if it will last.
+- **Forgetting the military question** at move-in.
 - **Ignoring the vehicle segment.** At three Greens sites it is most of the business.
 
 ## Key Points
 
-- The 4 Ds (Death, Divorce, Downsizing, Dislocation) drive much of storage demand; moves, remodels, deployments, students and vehicles do the rest.
-- Lack of space at home is the top reason; moving is second at 25% (StorageCafe, 2024).
-- Segments: residential, business, students, military and vehicle owners. Business renters stay the longest.
-- The average stay is about a year and a half and varies a lot.
-- One tenant can be worth thousands of dollars over their stay. Treat every caller that way.
-- Many customers are in a hard moment. Be patient, discreet and clear.
+- The 4 Ds (Death, Divorce, Downsizing, Dislocation) drive much of demand; moves, remodels, deployments, students and vehicles do the rest.
+- Segments: residential, business, students, military and vehicle owners. Business renters stay longest.
+- Tenants stay far longer than they plan; one rental can be worth thousands of dollars.
+- Be patient, discreet and clear with every caller.
+
+Sources: Self Storage Association Demand Study; StorageCafe renter survey.

@@ -51,12 +51,12 @@ class KeepsUpCase(unittest.TestCase):
         if hasattr(auth, "_role_cache"):
             auth._role_cache.clear()
 
-    def _course(self, title="Nexus Fundamentals", teaches="Workday, Time Clock"):
+    def _course(self, title="Nexus Fundamentals", teaches="Workday, Time Clock", lesson_teaches=("Time Clock",)):
         self._as(MGR)
         r = self.client.post("/kb/courses", json={"title": title, "description": "d"})
         self.assertIn(r.status_code, (200, 201), r.text)
         cid = r.json()["course"]["id"]
-        lessons = [{"type": "text", "title": "The Time Clock", "teaches": ["Time Clock"], "blocks": kb_core.doc_from_text("Punch In starts the day.") if hasattr(kb_core, "doc_from_text") else {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Punch In starts the day."}]}]}},
+        lessons = [{"type": "text", "title": "The Time Clock", "teaches": list(lesson_teaches), "blocks": kb_core.doc_from_text("Punch In starts the day.") if hasattr(kb_core, "doc_from_text") else {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Punch In starts the day."}]}]}},
                    {"type": "text", "title": "Your Time Sheet", "blocks": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Hours and minutes."}]}]}}]
         r = self.client.patch(f"/kb/courses/{cid}", json={"lessons": lessons, "quiz": QUIZ, "teaches": teaches})
         self.assertEqual(r.status_code, 200, r.text)
@@ -88,6 +88,13 @@ class KeepsUpCase(unittest.TestCase):
         card = self.client.get(f"/kb/courses/{cid}").json()
         self.assertEqual(card["teaches"], ["Workday", "Time Clock"])
         self.assertTrue(card["reviewed_at"])
+
+    def test_learn_puts_the_course_whose_lessons_teach_the_screen_first(self):
+        broad = self._course(title="Leading Everything", teaches="Dashboard, Asset Management, Construction, Tickets", lesson_teaches=())
+        focused = self._course(title="Asset Basics", teaches="Asset Management", lesson_teaches=("Asset Management",))
+        self._as(LRN)
+        ids = [c["id"] for c in self.client.get("/kb/learn", params={"module": "Asset Management"}).json()["courses"]]
+        self.assertEqual(ids, [focused, broad])
 
     def test_a_release_about_a_taught_module_flags_the_course_until_reviewed(self):
         cid = self._course(title="Workday Course")

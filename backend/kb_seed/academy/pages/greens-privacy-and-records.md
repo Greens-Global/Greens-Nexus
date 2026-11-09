@@ -1,12 +1,9 @@
 ---
 title: Greens Privacy and Records
-summary: Who may hear about an account, how to answer police, process servers and family, and what Greens keeps in Cubby, in California and Texas.
+summary: Who may hear about an account, how to confirm a caller, how to answer police, process servers and family, and what Greens keeps in Cubby.
 page_type: policy
 tags: privacy, records, law-enforcement, greens-policy
 ---
-
-> [!NOTE]
-> **Pending:** counsel review before Publish (Operations Manager / a Super Administrator to arrange).
 
 ## The Rule
 
@@ -16,14 +13,13 @@ A spouse, parent, roommate, ex, landlord, process server or private investigator
 
 ## Confirming Who You Are Talking To
 
-| Situation | California | Texas |
-|---|---|---|
-| Caller asks about a balance | DRAFT: the caller gives the full name on the lease and two of: the unit number, the phone or email on file, the billing ZIP. Never read any of them out first | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Walk-in asks for access | Photo ID matching the lease, and their own gate code | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
-| Alternate contact on the lease | Receives lien notices only. Not allowed account details or access unless also listed as authorized | Set when the Texas sites join Cubby. Until then, ask your Area Manager. |
+| Situation | What you do |
+|---|---|
+| Caller asks about an account | The caller gives the full name on the lease and details only the tenant would know. Never read any detail out first. When in doubt, call back at the number on file |
+| Walk-in asks for access | Photo ID matching the lease, and their own gate code |
+| Alternate contact on the lease (California) | Receives lien notices only. No account details or access unless also listed as authorized |
 
-> [!NOTE]
-> **Pending:** confirm the DRAFT identity check for callers. Owner: Operations Manager. Greens' public privacy policy does not say how identity is checked (greensstorage.com, 11/2026).
+Which details Greens accepts from a caller: your manager has this until it is listed here.
 
 Gate codes are passwords. Never read one to an unverified caller and never write one on a receipt in front of others.
 
@@ -39,29 +35,26 @@ Gate codes are passwords. Never read one to an unverified caller and never write
 
 ## Collections Messages
 
-Never put a balance or lien detail in a text, an email or a voicemail unless Greens' policy says so, and never in a public reply (a review, social media). California's Rosenthal Act (Civil Code 1788 et seq.) and Texas Finance Code ch. 392 forbid harassing or misleading a person about a debt.
+Never put a balance or lien detail in a text, an email or a voicemail unless Greens' policy says so, and never in a public reply (a review, social media). California's Rosenthal Act (Civil Code 1788 and following) and Texas Finance Code chapter 392 forbid harassing or misleading a person about a debt.
 
 ## What Greens Keeps
 
-| Record | Where it lives | How long |
-|---|---|---|
-| Lease, addendums, ID and vehicle documents | Cubby, on the lease | Pending (see the note below) |
-| Payments and the full ledger | Cubby | Pending (see the note below) |
-| Notes on calls and visits | Cubby notes on the lease or contact | Pending (see the note below) |
-| Gate access log | Cubby (only Fairfield's gate reports to Cubby today, From Greens' Cubby, 11/2026) | Pending (see the note below) |
-| Lien notices and proof of mailing | Cubby and the lien file | Pending (see the note below) |
-| Camera footage | Greens' camera system; the footage belongs to management and tenants have no right to see it (From greensstorage.com Rules and Regulations, 11/2026) | Pending (see the note below) |
+| Record | Where it lives |
+|---|---|
+| Lease, addendums, ID and vehicle documents | Cubby, on the lease |
+| Payments and the full ledger | Cubby |
+| Notes on calls and visits | Cubby notes on the lease or contact |
+| Gate access log | Cubby, for Fairfield's gate. Your manager knows where the other sites' gate logs are kept |
+| Lien notices and proof of mailing | Cubby and the lien file |
+| Camera footage | Greens' camera system. Under Greens' Rules and Regulations the footage belongs to management and tenants have no right to see it |
 
-Greens' privacy policy says it keeps information "for as long as necessary" to run its services or for other business purposes (From greensstorage.com, 11/2026). It sets no period per record.
-
-> [!NOTE]
-> **Pending:** how long Greens keeps each record above, and where camera footage is stored. Owner: Operations Manager. Set with counsel; never delete a record or footage that a subpoena, a dispute or a lien needs.
+How long each record is kept: your manager has this. Never delete a record or footage that a subpoena, a dispute or a lien needs.
 
 Write notes as if the tenant will read them. Facts only: what was said, what was promised, what happened.
 
 ## Key Points
 
-- Confirm identity before you discuss any account.
+- Confirm identity before you discuss any account; the caller gives the details, you never read them out.
 - Never confirm that someone rents from Greens to a person who is not on the account.
 - Warrants and subpoenas go to your manager the same day.
 - Notes are facts, written as if the tenant will read them.
