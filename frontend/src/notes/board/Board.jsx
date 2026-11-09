@@ -635,7 +635,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     flashTimer.current = setTimeout(() => setNotice((n) => (n?.code === 'diagram' ? null : n)), error ? 5000 : 3500);
   }, []);
   // A new diagram lands centered on what the stage shows, selected.
-  const placeGraph = useCallback((graph, { dir = 'TB', source = '', ref = '' } = {}) => {
+  const placeGraph = useCallback((graph, { dir = 'TB', source = '', ref = '', group = '' } = {}) => {
     if (!api || !diagramApi || !graph?.nodes?.length) return;
     const stamp = newStamp();
     const g = prefixGraph(graph, stamp);
@@ -644,7 +644,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     const current = api.getSceneElementsIncludingDeleted();
     const placed = layoutGraph(g, { dir, origin: placeOrigin(center, bounds(layoutGraph(g, { dir })), current) });
     let built = diagramApi.build(placed, { look: lookRef.current });
-    if (source) built = stampBoxes(built, g.nodes.map((n) => n.id), { id: stamp, source, ref, dir });
+    if (source) built = stampBoxes(built, g.nodes.map((n) => n.id), { id: stamp, source, ref, dir, ...(group ? { group } : {}) });
     const selected = Object.fromEntries(g.nodes.map((n) => [n.id, true]));
     api.updateScene({ elements: [...current, ...built], appState: { selectedElementIds: selected }, captureUpdate: CAPTURE.IMMEDIATELY });
     api.scrollToContent(built, { fitToContent: g.nodes.length > 1, animate: true });
@@ -667,7 +667,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     const st = stampOf(api.getSceneElementsIncludingDeleted(), api.getAppState()?.selectedElementIds);
     if (!st) return;
     let graph;
-    try { graph = await loadGraph(st.source, st.ref, { fresh: true }); } catch { flash('The data did not load - the diagram is unchanged. Try again in a moment.', true); return; }
+    try { graph = await loadGraph(st.source, st.ref, { fresh: true, group: st.group || '' }); } catch { flash('The data did not load - the diagram is unchanged. Try again in a moment.', true); return; }
     if (!graph?.nodes?.length) { flash('There is nothing to draw from this source now - the diagram is unchanged.'); return; }
     const now = api.getSceneElementsIncludingDeleted();
     const mine = stampSelection(now, st.id);

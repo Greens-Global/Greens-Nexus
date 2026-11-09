@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../../../api', () => ({ api: {} }));
-import { orgGraph, workflowGraph, taskGraph } from './sources';
+import { orgGraph, workflowGraph, taskGraph, propertyGraph, NEXUS_MAP_TEXT } from './sources';
+import { parseText, layout } from './graph';
 import { layout as wfLayout } from '../../../workflows/canvas/layout';
 
 describe('orgGraph', () => {
@@ -40,6 +41,69 @@ describe('workflowGraph', () => {
     expect(g.edges.some((e) => e.from === 'w:s1' && e.to === 'w:s2' && e.label)).toBe(true);
     expect(g.edges.some((e) => e.from === 'w:s2' && e.to === 'w:s3')).toBe(true);
     for (const e of g.edges) { expect(ids).toContain(e.from); expect(ids).toContain(e.to); }
+  });
+});
+
+describe('orgGraph by company (11/08/2026)', () => {
+  it('boxes each company with its people, arrows still manager to report', () => {
+    const people = [
+      { email: 'boss@x.com', name: 'Boss', managerEmail: '', companyName: 'Greens Global' },
+      { email: 'b@x.com', name: 'Bea', managerEmail: 'boss@x.com', companyName: 'Greens India' },
+      { email: 'c@x.com', name: 'Cy', managerEmail: 'boss@x.com', company: 'gg', companyName: 'Greens Global' },
+      { email: 'd@x.com', name: 'Di', managerEmail: 'boss@x.com' },
+    ];
+    expect(orgGraph(people).groups).toBeUndefined();
+    const g = orgGraph(people, '', 0, { byCompany: true });
+    expect(g.groups.map((x) => [x.label, x.members, x.glyph])).toEqual([
+      ['Greens Global', ['p:boss@x.com', 'p:c@x.com'], 'building-2'],
+      ['Greens India', ['p:b@x.com'], 'building-2'],
+      ['No Company', ['p:d@x.com'], 'building-2'],
+    ]);
+    expect(g.edges).toHaveLength(3);
+  });
+});
+
+describe('Systems maps (11/08/2026)', () => {
+  const ws = {
+    properties: [
+      { id: 'p1', name: 'Escondido', address: '1 Main St, Escondido, CA' },
+      { id: 'p2', name: 'Gone', deleted: true },
+      { id: 'e1', kind: 'equipment', name: 'Gate Operator', make: 'LiftMaster', address: '1 Main St, Escondido, CA' },
+      { id: 'v1', kind: 'vehicle', name: 'Truck 4', parentId: 'p1' },
+      { id: 'e2', kind: 'equipment', name: 'Elsewhere', address: '9 Other Rd' },
+    ],
+    warranties: [{ propertyId: 'p1', scope: 'HVAC Units' }, { propertyId: 'p1', scope: 'HVAC Units' }, { propertyId: 'p9', scope: 'Not Here' }],
+    utilities: [{ propertyId: 'p1', service: 'Electric', provider: 'SDG&E' }, { propertyId: 'p1', service: 'Water', provider: 'City', deleted: true }],
+    vendors: [{ propertyId: 'p1', company: 'Bug Busters', category: 'Pest Control' }],
+  };
+  it('draws one property as a group, its equipment, utilities and vendors in groups inside it', () => {
+    const g = propertyGraph(ws, 'p1');
+    expect(g.groups.map((x) => [x.label, x.parent, x.members.length])).toEqual([
+      ['Escondido', '', 0], ['Equipment', 'site', 3], ['Utilities', 'site', 1], ['Vendors', 'site', 1],
+    ]);
+    expect(g.nodes.map((n) => [n.label, n.glyph])).toEqual([
+      ['Gate Operator\nLiftMaster', 'fence'], ['Truck 4', 'truck'], ['HVAC Units', 'fan'],
+      ['Electric\nSDG&E', 'zap'], ['Bug Busters\nPest Control', 'bug'],
+    ]);
+    expect(g.edges).toEqual([]);
+    const placed = layout(g);
+    expect(placed.groups[0].label).toBe('Escondido');
+    expect(placed.groups.slice(1).every((x) => x.parent === 'site')).toBe(true);
+  });
+  it('draws nothing for a property it was not sent, or one in the Trash', () => {
+    expect(propertyGraph(ws, 'p2').nodes).toEqual([]);
+    expect(propertyGraph(ws, 'nope').nodes).toEqual([]);
+    expect(propertyGraph({ properties: [{ id: 'p3', name: 'Bare' }] }, 'p3').nodes).toEqual([]);
+  });
+  it('maps Nexus and what it connects to, grouped, the sync jobs dashed', () => {
+    const g = parseText(NEXUS_MAP_TEXT);
+    expect(g.groups.map((x) => x.label)).toEqual(['Hosting', 'Microsoft', 'Business Systems']);
+    expect(g.notes).toEqual([]);
+    const label = (id) => g.nodes.find((n) => n.id === id).label;
+    const dashed = g.edges.filter((e) => e.kind === 'dashed').map((e) => label(e.to)).sort();
+    expect(dashed).toEqual(['Cubby', 'Egnyte', 'Intacct']);
+    expect(g.nodes.every((n) => n.glyph)).toBe(true);
+    expect(NEXUS_MAP_TEXT).not.toMatch(/https?:|\.com|\.net|\.io|secret|password|token|api[_ -]?key/i);
   });
 });
 
