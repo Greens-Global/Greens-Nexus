@@ -8,7 +8,7 @@ Priya's probation window ends next week and the reminder lands in Dana's bell. P
 
 ## What a Manager Sees in People
 
-**People** opens to a manager for **their reporting line** only. A person's profile shows Overview, Role, Assets, Work Mode and Work Logs. Hiring, the Organizational Chart, Checklists, Analytics, Exits and Performance as People tabs are HR's screens and stay hidden. For direct reports you get a read-only look at Pay & Benefits (no bank details), and People > Time shows hours, never wages.
+**People** opens to a manager for **their reporting line** only. A person's profile shows Overview, Role, Assets, Work Mode and Work Logs. Hiring, the Organizational Chart, Checklists, Analytics, Exits and Performance as People tabs are HR's screens and stay hidden. Pay and bank details need a separate Pay & Benefits grant that managers do not hold, and People > Time shows hours, never wages.
 
 | Who | Changes what |
 |---|---|
@@ -58,7 +58,7 @@ Dana opens Priya's Overview: probation ends 11/20, her checklist steps are done,
 
 ## Key Points
 
-- A manager sees their reporting line: the profile, hours never wages, read-only pay for direct reports. The record itself is HR's; Ask HR is the private channel.
+- A manager sees their reporting line: the profile, hours never wages, no pay or bank details. The record itself is HR's; Ask HR is the private channel.
 - The company never signs before the employee.
 - Checklist steps reach you as tasks; your probation call is a recommendation HR finalizes.
 - Performance for your team is Workday > Performance > My Team. An exit runs one way, through HR's Offboard flow.
