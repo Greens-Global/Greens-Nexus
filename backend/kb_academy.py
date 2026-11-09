@@ -14,8 +14,8 @@ import kb_blocks
 import kb_md
 
 ROOT = Path(__file__).parent / "kb_seed" / "academy"
-ORDER = ["nexus-fundamentals", "self-storage-fundamentals", "rv-boat-storage-fundamentals",
-         "cubby-fundamentals", "customer-service-sales-fundamentals", "hands-on-check",
+ORDER = ["nexus-fundamentals", "self-storage-fundamentals", "cubby-fundamentals",   # Cubby third: the counter tool comes before RV & Boat (11/08/2026)
+         "rv-boat-storage-fundamentals", "customer-service-sales-fundamentals", "hands-on-check",
          "property-vendor-management",   # the seventh course (Neil, 11/07/2026) is for managers, not on the new-hire plan
          "fundamentals-of-accounting", "intacct-fundamentals", "leading-with-nexus"]   # 11/07/2026: accounting, Intacct, leaders
 

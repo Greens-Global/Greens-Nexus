@@ -110,7 +110,7 @@ def test_load_errors_become_problems(tmp_path):
     pkg = _pkg(tmp_path)
     (pkg / "courses" / "01-nexus-fundamentals" / "lessons" / "01.md").unlink()
     (pkg / "courses" / "02-self-storage-fundamentals" / "course.json").write_text("{not json")
-    (pkg / "courses" / "03-rv-boat-storage-fundamentals" / "course.json").write_text("{}")
+    (pkg / "courses" / "04-rv-boat-storage-fundamentals" / "course.json").write_text("{}")
     probs = kb_academy.problems(kb_academy.load(pkg))
     assert sum("cannot load" in p for p in probs) == 3, probs
 
