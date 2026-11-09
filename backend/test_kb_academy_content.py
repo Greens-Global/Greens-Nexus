@@ -46,7 +46,7 @@ CASES = {
     "order one item": (lambda c: c["quiz"]["questions"][0].update(type="order", options=["A"], answer=[]), "normalizer"),
     "checkpoint over 10": (lambda c: c["lessons"][2].update(questions=[_q(i) for i in range(11)]), "more than 10"),
     "bank too small": (lambda c: c["quiz"].update(questions=[_q(i) for i in range(44)]), "needs 45"),
-    "draw too low": (lambda c: c["quiz"].update(drawCount=24), "drawCount"),
+    "draw too low": (lambda c: c["quiz"].update(drawCount=14), "drawCount"),
     "draw too high": (lambda c: c["quiz"].update(drawCount=41), "drawCount"),
     "photo": (lambda c: c["quiz"]["questions"][0].update(type="photo", options=[], answer=[]), "photo"),
     "short digit": (lambda c: c["quiz"]["questions"][0].update(type="short", options=[], answer=[], keywords=["30 days"]), "digit"),

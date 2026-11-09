@@ -275,8 +275,8 @@ def problems(a: Academy) -> list[str]:
             dc = c.quiz.get("drawCount", 0)
             if len(qs) < 45:
                 out.append(f"{c.slug}: quiz bank has {len(qs)} questions, needs 45 or more")
-            if not 25 <= dc <= 40 or dc > len(qs):
-                out.append(f"{c.slug}: drawCount {dc} must be 25-40 and within the bank")
+            if not 15 <= dc <= 40 or dc > len(qs):
+                out.append(f"{c.slug}: drawCount {dc} must be 15-40 and within the bank")
         out += _quiz_problems(f"{c.slug} quiz", qs, _norm_quiz)
         known = set().union(*(_lesson_keys(L) for L in c.lessons)) if c.lessons else set()
         for q in qs + [q for L in c.lessons for q in L.get("questions") or []]:

@@ -56,7 +56,7 @@ pages may not keep a fill-in placeholder (the bracketed marker `problems()` in k
 options are in the RIGHT order; `short` needs keywords with no digits (numbers
 are `single`). Limits: q 600, option 300, explanation 400 characters, 6
 options. No `photo` questions. Checkpoints: 10 questions at most. Quiz bank:
-45 or more, `drawCount` 25-40. The Hands-On Check (`delivery: in_person`) has no quiz.
+45 or more, `drawCount` 15-40. The Hands-On Check (`delivery: in_person`) has no quiz.
 
 Optional `"lesson"` on a checkpoint or quiz question names the lesson it
 tests: the lesson's file name (`"06-punching.md"`), a page lesson's slug, or a
