@@ -4,7 +4,7 @@ summary: Use the three Workday panels - Ask HR for confidential HR requests, Rei
 teaches: Workday, Reimbursements
 ---
 
-On a busy Saturday at Valley Center, Rosa runs out of receipt rolls. Her manager says buy them down the road and get paid back. The same week the site needs new padlocks for overlocks, and Rosa has a question about her benefits. Three different needs, three different panels on the same Workday row.
+Rosa is on the marketing team, setting up a booth at a community event on Saturday, and runs out of poster board. Her manager says buy it down the road and get paid back. The same week she needs a second monitor for design work, and she has a question about her benefits. Three different needs, three different panels on the same Workday row.
 
 ## Which Panel?
 
@@ -17,7 +17,7 @@ On the **Workday** Overview, the action row under the Time Clock holds **Ask HR*
 | A renewed ID, visa or certificate | **Ask HR**, Update a Document |
 | An employment verification letter | **Ask HR**, Request a Letter |
 | You paid for something the company should have | **Reimbursements** |
-| The site needs something the company does not have | **Purchase Request** |
+| Your team needs something the company does not have | **Purchase Request** |
 | Something is broken | A ticket (Getting Help: Tickets and Forms) |
 | A tool the company already owns | Item Management, Borrow (People, Equipment and Notes) |
 
@@ -37,7 +37,7 @@ Your requests and HR's answers are under **My Requests**. A red dot on Ask HR me
 ## Reimbursements
 
 ```figure
-{"kind": "screen", "title": "Reimbursements, Your Claims", "device": "computer", "module": "Workday", "tabs": ["Overview", "Time Sheet", "Time Off", "Performance"], "tab": "Overview", "parts": [{"kind": "sheet", "title": "Reimbursements", "items": [{"label": "Receipt rolls · $38.40", "note": "Supplies · 11/07/2026", "badge": "Waiting for Approval"}, {"label": "Lunch, training day · $18.40", "note": "Meals", "badge": "Waiting for Receipt", "n": 1}, {"label": "Printer toner · $89.99", "note": "Supplies", "badge": "Paid", "tone": "ok"}, {"label": "Mileage, bank run · $12.60", "note": "Travel", "badge": "Sent Back", "tone": "warn", "n": 2}], "buttons": [{"label": "New", "primary": true}]}], "callouts": [{"n": 1, "text": "Approved; HR needs the receipt."}, {"n": 2, "text": "Read What to fix, then Fix and Resubmit."}]}
+{"kind": "screen", "title": "Reimbursements, Your Claims", "device": "computer", "module": "Workday", "tabs": ["Overview", "Time Sheet", "Time Off", "Performance"], "tab": "Overview", "parts": [{"kind": "sheet", "title": "Reimbursements", "items": [{"label": "Poster board · $38.40", "note": "Supplies · 11/07/2026", "badge": "Waiting for Approval"}, {"label": "Lunch, training day · $18.40", "note": "Meals", "badge": "Waiting for Receipt", "n": 1}, {"label": "Printer toner · $89.99", "note": "Supplies", "badge": "Paid", "tone": "ok"}, {"label": "Mileage, bank run · $12.60", "note": "Travel", "badge": "Sent Back", "tone": "warn", "n": 2}], "buttons": [{"label": "New", "primary": true}]}], "callouts": [{"n": 1, "text": "Approved; HR needs the receipt."}, {"n": 2, "text": "Read What to fix, then Fix and Resubmit."}]}
 ```
 
 When you pay for something on the company's behalf, file it the same day while you have the receipt.
@@ -52,7 +52,7 @@ No receipt yet? Send it anyway and use **Add Receipt** later; HR will not pay it
 
 ## Purchase Requests
 
-A purchase request asks the company to buy something it does not have yet: a dolly, padlocks for overlocking, a second monitor. Check Item Management first; if the company already owns it, borrow it.
+A purchase request asks the company to buy something it does not have yet: a label printer, a safety harness, a second monitor. Check Item Management first; if the company already owns it, borrow it.
 
 1. Click **Purchase Request**, then **New**. The **New Purchase Request** form opens.
 2. Fill in **Who Is This Request For?**, **What Do You Need?**, **Quantity**, **Department**, **Reason / Justification** (enough for the approver to say yes), **Who Should Approve This?** and, if you have one, a **Reference Link** to a product page or quote.
@@ -62,7 +62,7 @@ It moves through **Pending Approval**, **Approved**, **Ordered** and **Fulfilled
 
 ## At Greens
 
-Rosa pays $38.40, photographs the receipt and files **Supplies** with the purpose "Office ran out of receipt rolls on Saturday; manager approved by phone." On Monday it is **Sent Back**: the photo is blurry. She takes a clear one and clicks **Fix and Resubmit**. Item Management has no padlocks to borrow, so she files a Purchase Request with the quantity, a link and the reason. Her benefits question goes to **Ask HR**, **Question for HR**.
+Rosa pays $38.40, photographs the receipt and files **Supplies** with the purpose "Ran out of poster board at the Saturday event booth; manager approved by phone." On Monday it is **Sent Back**: the photo is blurry. She takes a clear one and clicks **Fix and Resubmit**. Item Management has no spare monitor to borrow, so she files a Purchase Request with the quantity, a link and the reason. Her benefits question goes to **Ask HR**, **Question for HR**.
 
 ## Common Mistakes
 

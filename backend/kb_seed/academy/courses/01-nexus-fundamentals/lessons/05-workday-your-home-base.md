@@ -3,7 +3,7 @@ title: "Workday: Your Home Base"
 summary: Find your way around Workday, the page for your own time and HR record - the Time Clock, the action row, Documents to Sign, your profile card, My Schedule and My Documents.
 ---
 
-Keisha is on day two at Murrieta. Two hiring forms are waiting for her signature, her emergency contact is blank, and her last name is misspelled on her record. All three are fixed from one page: Workday.
+Keisha is on day two in the accounting office. Two hiring forms are waiting for her signature, her emergency contact is blank, and her last name is misspelled on her record. All three are fixed from one page: Workday.
 
 ## Workday Is About You
 
@@ -26,7 +26,7 @@ If your job is salaried and exempt from time tracking, Workday shows no Time Clo
 
 **Documents to Sign** sits at the very top whenever a Nexus Sign document waits for you: an offer letter, hiring packet forms, a policy acknowledgment, an HR letter. Click **Review & Sign**, read it and sign it there. In every HR document **you sign first**; the company never signs before you. Time Sheets are the exception: you sign those on the Time Sheet tab.
 
-**The Time Clock** comes next, with only the buttons that make sense right now and your hours with a **Today / This Week / Pay Period** switch. Punching In, Breaks and Punching Out covers it.
+**The Time Clock** comes next if you are hourly, with only the buttons that make sense right now and your hours with a **Today / This Week / Pay Period** switch. Punching In, Breaks and Punching Out covers it.
 
 **The action row** under the clock opens the Workday panels:
 
@@ -50,7 +50,7 @@ These panels slide in from the right. A click outside does not close them; it nu
 
 ## What You Change and What HR Changes
 
-Under **Contact & Emergency**, click **Edit**, change what you need and click **Save**. Keep it current: if something happens at a site, this is who the company calls.
+Under **Contact & Emergency**, click **Edit**, change what you need and click **Save**. Keep it current: if something happens to you at work, this is who the company calls.
 
 | You change it yourself | Through Ask HR, Profile Change |
 |---|---|

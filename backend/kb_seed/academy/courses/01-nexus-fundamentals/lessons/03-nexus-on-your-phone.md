@@ -1,28 +1,28 @@
 ---
 title: Nexus on Your Phone
-summary: Install Nexus on your Android phone or iPhone, turn on Push to This Device, set your appearance, and keep working with no signal.
+summary: Put Nexus on your phone's home screen, turn on Push to This Device, know what moves on a small screen, set your appearance, and keep working with no signal.
 ---
 
-Priya works the lot at Fairfield and is rarely near a desk. She wants her schedule and ticket replies to reach her lock screen, and she wants to punch in from where she is standing. One minute of setup on her phone does both.
+Priya works on a construction crew and is rarely near a desk. She wants a schedule change or a reply on her ticket to reach her lock screen, not wait in a browser tab she forgot to open. One minute of setup on her phone does it.
 
 ## Why the Phone
 
-You walk the lot, check locks and meet tenants at their units. Your phone is with you the whole time, so it is the best place for Nexus:
+Whether you sit at a desk all day or never do, your phone is with you. With Nexus on it:
 
-- You **punch in and out** where you are working, with a precise location.
-- You **take photos** for a ticket, a form or an equipment return straight from the camera.
-- You **fill a form with no signal** at the back of the lot, and it sends itself later.
+- You **punch in and out** where you are working, with a precise location, if you are hourly.
+- You **take photos** for a ticket, a form, a receipt or an equipment return straight from the camera.
+- You **fill a form with no signal**, and it sends itself later.
 - With push on, your bell notices arrive **as phone notifications**, even when Nexus is closed.
 
 The phone settings live in your profile menu (your photo or initials), under **Profile**, then **Phone Notifications**.
 
 ## Installing Nexus
 
-Installing puts a Nexus icon on your home screen that opens full screen, like an app. Nothing comes from an app store.
+Installing puts a Nexus icon on your home screen that opens full screen, like an app.
 
-**On Android:** open Nexus in Chrome or Edge and sign in. Go to **Profile**, **Phone Notifications**, and tap **Install** beside **Install Nexus**. The row then reads **Installed**.
+**On Android:** open Nexus in Chrome or Edge, go to **Profile**, **Phone Notifications**, and tap **Install** beside **Install Nexus**. The row then reads **Installed**.
 
-**On iPhone:** an iPhone installs web apps only from Safari, by hand. Open Nexus in **Safari** and sign in, tap the **Share** button (the square with an arrow), then **Add to Home Screen**, then **Add**. Close Safari and open Nexus from the new icon.
+**On iPhone:** an iPhone installs web apps only from Safari, by hand. Open Nexus in **Safari**, tap the **Share** button (the square with an arrow), then **Add to Home Screen**, then **Add**. Close Safari and open Nexus from the new icon.
 
 > [!TIP]
 > After you install, always open Nexus from the home screen icon. On an iPhone, push works only in the installed app.
@@ -50,6 +50,18 @@ Each phone or computer is set separately. If the switch will not turn on, read t
 
 Push is a convenience. If it is off for any reason, everything still waits in your bell.
 
+## What Moves on a Phone
+
+Everything in this course works on a phone too. A few things sit in different places:
+
+| On a computer | On a phone |
+|---|---|
+| Left menu on the side | A menu button opens it as a drawer |
+| Search bar in the header | A search button opens a search sheet |
+| Clock at the foot of the menu | A small clock pill on the screen |
+| Popups slide in from the right | Popups rise from the bottom, full screen |
+| Paste a screenshot with Ctrl+V | Take a photo with the camera |
+
 ## Appearance
 
 Under **Profile**, **Appearance** changes only what you see:
@@ -58,11 +70,11 @@ Under **Profile**, **Appearance** changes only what you see:
 - **Navigation Motion**: how the left menu moves. Pick Off if motion bothers you.
 - **Sidebar**: on a computer, **Collapse Automatically** or **Keep Open**.
 
-A pick saves the moment you make it. There is no Save button.
+A pick saves the moment you make it.
 
 ## With No Signal
 
-At the back of a big lot or inside a steel building you may lose signal. Nexus opens on the last copy saved on your phone, and **punches**, **Workday** and **Fill a Form** keep working. What you do is saved on the phone and sends itself when signal returns. A bar at the top says what is waiting, with **Sync Now**. Getting Help: Tickets and Forms explains the bar. For now: no signal never means lost work, so never redo something because you were offline.
+In a basement, a steel building or a remote job site you may lose signal. Nexus opens on the last copy saved on your phone, and **punches**, **Workday** and **Fill a Form** keep working. What you do is saved on the phone and sends itself when signal returns. A bar at the top says what is waiting, with **Sync Now**; Getting Help: Tickets and Forms explains the bar. No signal never means lost work, so never redo something because you were offline.
 
 ## At Greens
 
@@ -79,5 +91,5 @@ Priya opens Nexus in Chrome on her iPhone, goes to Phone Notifications and reads
 
 - Install from **Profile**, **Phone Notifications**: **Install** on Android; Safari, **Share**, **Add to Home Screen** on iPhone.
 - **Push to This Device** delivers your bell to your phone. The line under the switch says why it is off.
-- Appearance saves on the spot and changes only your own view.
+- On a phone the menu is a drawer and popups rise from the bottom.
 - Punches, Workday and Fill a Form work with no signal and send themselves later.

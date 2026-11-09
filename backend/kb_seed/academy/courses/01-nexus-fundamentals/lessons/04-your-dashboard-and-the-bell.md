@@ -3,7 +3,7 @@ title: Your Dashboard and the Bell
 summary: Read your Dashboard Home, add the Announcements widget, and use the bell and the yellow priority bar so nothing that needs you slips by.
 ---
 
-Monday morning at Temecula. Marco opens Nexus and sees a yellow bar across the top, a 1 on a tile, and a red number on the bell. Each one is asking him for something different. This lesson is how to read them in under a minute.
+Monday morning in the marketing office. Marco opens Nexus and sees a yellow bar across the top, a 1 on a tile, and a red number on the bell. Each one is asking him for something different. This lesson is how to read them in under a minute.
 
 ## Home
 
@@ -56,7 +56,7 @@ The yellow bar is the one thing in Nexus you never ignore.
 
 ## At Greens
 
-Marco taps the yellow bar, clicks **Open** and signs his Time Sheet; the bar goes and Signatures Needed drops to 0. In the bell he reads three updates on his light-out ticket and clicks **Clear All**. Then he realizes he has never seen an announcement, adds the **Announcements** widget, and finds one asking him to acknowledge the new gate hours. He reads it and clicks **Acknowledge**.
+Marco taps the yellow bar, clicks **Open** and signs his Time Sheet; the bar goes and Signatures Needed drops to 0. In the bell he reads three updates on his laptop ticket and clicks **Clear All**. Then he realizes he has never seen an announcement, adds the **Announcements** widget, and finds one asking him to acknowledge the new holiday schedule. He reads it and clicks **Acknowledge**.
 
 ## Common Mistakes
 

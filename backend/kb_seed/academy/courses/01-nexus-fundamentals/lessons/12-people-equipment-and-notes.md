@@ -4,7 +4,7 @@ summary: Find and reach anyone with the Directory and Teams, borrow and return e
 teaches: Team, Item Management, Notes
 ---
 
-Devon at Escondido needs a pressure washer for the dumpster pad on Saturday, has to ask the Fairfield site manager about a ladder, and wants to jot down a broken hinge before he forgets. Three tools: the Directory, Item Management and Notes. One of them is the wrong place for the hinge.
+Devon, a project coordinator on the construction team, needs a laser level for a site visit on Saturday, has to ask someone in accounting about a vendor invoice, and wants to jot down a broken trailer door latch before he forgets. Three tools: the Directory, Item Management and Notes. One of them is the wrong place for the hinge.
 
 ## The Directory
 
@@ -16,7 +16,7 @@ Greens talks on Microsoft Teams, and Nexus deliberately has **no chat of its own
 
 ## Item Management
 
-Open **Item Management** from the left menu. It tracks every physical company item: tools, keys, laptops, ladders, pressure washers. Everyone has **My Stuff** (what you have and what waits on you, most urgent first) and **Borrow** (pick what you need and send one request).
+Open **Item Management** from the left menu. It tracks every physical company item: tools, keys, laptops, monitors, ladders. Everyone has **My Stuff** (what you have and what waits on you, most urgent first) and **Borrow** (pick what you need and send one request).
 
 - **Borrowed items** you use for a while and give back.
 - **Assigned items** are given to you to keep for your job, such as a laptop or keys.
@@ -36,7 +36,7 @@ The photo at each handover proves the item's condition at that moment. If a tool
 ### Borrow and Return
 
 ```figure
-{"kind": "screen", "title": "Item Management, My Stuff", "device": "phone", "module": "Item Management", "parts": [{"kind": "list", "title": "My Stuff", "items": [{"label": "Pressure washer (PW-02)", "note": "Approved: take it with a photo", "badge": "Take It", "n": 1}, {"label": "Ladder, 24 ft", "note": "Handed over by R. Chen", "badge": "Confirm Receipt", "n": 2}, {"label": "Site keys, ring B", "note": "Assigned to you", "badge": "Accept"}, {"label": "Dolly (DL-07)", "note": "Due back 11/12/2026", "badge": "Start Return", "n": 3}]}], "callouts": [{"n": 1, "text": "You take it, with a handover photo."}, {"n": 2, "text": "Someone handed it over; confirm with your photo."}, {"n": 3, "text": "Photo, condition, Confirm Return."}]}
+{"kind": "screen", "title": "Item Management, My Stuff", "device": "phone", "module": "Item Management", "parts": [{"kind": "list", "title": "My Stuff", "items": [{"label": "Laser level (LL-02)", "note": "Approved: take it with a photo", "badge": "Take It", "n": 1}, {"label": "Ladder, 24 ft", "note": "Handed over by R. Chen", "badge": "Confirm Receipt", "n": 2}, {"label": "Laptop (LT-114)", "note": "Assigned to you", "badge": "Accept"}, {"label": "Dolly (DL-07)", "note": "Due back 11/12/2026", "badge": "Start Return", "n": 3}]}], "callouts": [{"n": 1, "text": "You take it, with a handover photo."}, {"n": 2, "text": "Someone handed it over; confirm with your photo."}, {"n": 3, "text": "Photo, condition, Confirm Return."}]}
 ```
 
 1. Click **Borrow** (or **Request an Item** in the + menu), find the item and click **Add**.
@@ -54,16 +54,16 @@ For an assigned item, you get a bell: click **Accept**, then **It's With Me**, o
 
 ## Notes
 
-Open **Dashboard**, then **Notes**: your own working notes, such as tenants to call back or a shift handoff. The tabs are **All**, **Pinned**, **Today** (a daily scratchpad), **Shared** and **Trash**. **New Note** in the + menu opens a Quick Note from any screen (Ctrl+Alt+N on a computer).
+Open **Dashboard**, then **Notes**: your own working notes, such as calls to return or a handoff to a coworker. The tabs are **All**, **Pinned**, **Today** (a daily scratchpad), **Shared** and **Trash**. **New Note** in the + menu opens a Quick Note from any screen (Ctrl+Alt+N on a computer).
 
 Notes save as you type. **Pin** keeps one at the top, **Share** gives a coworker access to one note, and you can record voice notes or dictate. A note is **private** to you and the people you share it with, not even your manager can open it, and typing someone's name in a note notifies nobody.
 
 > [!TIP]
-> A note is not a report. A broken gate written in a note is a note nobody else will read. Anything another person must act on is a ticket or a form.
+> A note is not a report. A broken latch written in a note is a note nobody else will read. Anything another person must act on is a ticket or a form.
 
 ## At Greens
 
-Devon borrows the pressure washer, clicks **Take It** with a photo, and on Monday returns it with **Start Return**, **Good**, **Confirm Return**. He jots the broken dumpster gate hinge in his Today note, then realizes nobody will see it there and raises a ticket with a photo. For the ladder he searches the Fairfield manager in the Directory and clicks **Chat**, which opens Teams.
+Devon borrows the laser level, clicks **Take It** with a photo, and on Monday returns it with **Start Return**, **Good**, **Confirm Return**. He jots the broken latch in his Today note, then realizes nobody will see it there and raises a ticket with a photo. For the invoice he searches the accounts payable specialist's name in the Directory and clicks **Chat**, which opens Teams.
 
 ## Common Mistakes
 
