@@ -1,139 +1,85 @@
 ---
 title: Why Vehicle Storage Matters
-summary: Why RV, boat and trailer owners need a place like ours, how big vehicle storage is at Greens, who the customers are, and how the seasons change the work.
+summary: Why RV, boat and trailer owners need a place like ours, how much of Greens is a vehicle lot, who the customers are, and how the seasons change the work.
 ---
 
-## What You'll Be Able to Do
+## The Moment
 
-- Explain why vehicle storage is a core part of Greens' business, with Greens' own numbers.
-- Give the main reasons owners cannot keep an RV, boat or trailer at home.
-- Recognize the common vehicle customer profiles and what each one cares about.
-- Describe how the seasons and the weather change demand in California and Texas.
-- Answer a caller's "Why would I pay to park it?" with something better than a price.
+It is 8:05 AM at Temecula. A caller says, "My HOA gave me ten days to move my trailer. Can you help?" Before you can help, you need to know why vehicle storage is its own business, who this caller is, and what they will ask next. That is this lesson.
 
-## Why This Course Exists
+## Not Just a Big Unit
 
-Self-Storage Fundamentals taught you the unit business: sizes, the rental agreement, delinquency and liens. This course is about the other half of Greens: the lot. RVs, boats, trailers, work trucks and cars parked in open, covered and enclosed spaces.
+Self-Storage Fundamentals taught the unit business. This course is the other half of Greens: the lot. RVs, boats, trailers, work trucks and cars parked in open, covered and enclosed spaces.
 
-A vehicle space is not just a big storage unit. The customer is different, the product is different, the paperwork is different, the risks are different, and when a tenant stops paying, the law is different. Staff who treat a 40 ft fifth wheel like a 10x10 make expensive mistakes: a rig that does not fit, a roof air conditioner torn off on a canopy beam, a boat sold through the wrong lien process.
+A vehicle space is not a large storage unit. The customer, the product, the paperwork, the risks and, when a tenant stops paying, the law are all different. Treat a 40 ft fifth wheel like a 10x10 and you get a rig that does not fit, a roof air conditioner torn off on a beam, or a boat sent down the wrong lien path. This course teaches only what is different; lien basics, the rental agreement and the lines you never cross stay in Self-Storage Fundamentals.
 
-> [!NOTE]
-> This course does not repeat what Self-Storage Fundamentals already teaches. Lien basics, the rental agreement and the lines you never cross are there. Here we cover only what is different for vehicles.
+## How Much of Greens Is a Lot
 
-## Vehicles Are a Big Part of Greens
+More than one Greens lease in three stores a vehicle. The current counts are on Greens by the Numbers. The business is not spread evenly:
 
-Greens runs five California sites on Cubby today, with Texas sites coming. Across the five, Cubby counts **1,038 parking spaces** next to **1,331 enclosed storage units**, and **759 of 2,042 active leases** store a vehicle (From Greens' Cubby, 11/2026). That is more than one lease in three.
+| Site | What the site is |
+|---|---|
+| Temecula | Greens' biggest lot; the only covered spaces |
+| Fairfield | Almost all open gravel parking |
+| Murrieta | A paved lot that runs nearly full, with many pull-throughs |
+| Escondido | Mostly storage units, with an open lot beside them |
+| Valley Center | Storage units and mailboxes; two enclosed vehicle garages |
 
-The vehicle business is not spread evenly. Some sites are almost all lot; others are almost all units.
-
-| Site | Parking spaces | Leased | Vehicle leases | What the site is |
-|---|---|---|---|---|
-| Temecula | 481 | 333 | 320 | Greens' biggest lot; the only covered spaces |
-| Fairfield | 303 | 211 | 207 | Almost all open gravel parking |
-| Murrieta | 161 | 150 | 149 | Paved lot, runs nearly full, many pull-throughs |
-| Escondido | 90 | 80 | 79 | Mostly storage units, with an open lot |
-| Valley Center | 3 | 3 | 4 | Storage units and mailboxes; two enclosed vehicle garages |
-
-All from Greens' Cubby, 11/2026.
-
-If you work at Temecula, Fairfield or Murrieta, nearly every customer you meet stores a vehicle. If you work at Escondido or Valley Center, you still answer vehicle calls, and you need to know where to send a caller when your own lot is full.
-
-> [!TIP]
-> Each site has a Site Profile page in this course with its spaces by size, rates and the notes your manager fills in. Read your own site's profile closely.
+At Temecula, Fairfield or Murrieta nearly every customer stores a vehicle. At Escondido or Valley Center you still take vehicle calls, and you need to know which sister site can fit a caller when your lot is full. Each site's Site Profile, later in this course, lists its spaces by size.
 
 ## Why People Cannot Park at Home
 
-When a caller asks for RV or boat storage, there is almost always a reason they cannot keep it in their own driveway. Knowing the reason helps you help them.
+There is almost always a reason the vehicle is not in the driveway. Find it; it tells you what to lead with.
 
-### HOAs and Deed Restrictions
-
-A growing number of homeowners associations bar oversized vehicles on members' lots (RV PRO, via RecNation). Many newer neighborhoods have HOAs. A letter from the HOA is one of the most common reasons a customer calls.
-
-### City Rules
-
-Cities regulate RVs and boats at home, and some of ours are strict:
-
-- **Escondido** has a chapter of its Municipal Code on parking recreational vehicles in residential zones. The driveway is the main allowed spot, and the city tightened RV parking on streets and city lots in 2023 and 2024.
-- **Murrieta** allows RV access to a home lot only through a city-permitted driveway opening.
-
-Rules for Temecula, Valley Center, Fairfield and the Texas cities are on each Site Profile page once your manager fills them in.
+- **An HOA or deed restriction.** Many neighborhoods bar oversized vehicles. An HOA letter is one of the most common reasons a customer calls, and it comes with a deadline.
+- **City rules.** Cities limit RVs and boats on driveways and streets, and Escondido and Murrieta are among the strict ones.
+- **Space.** The lot is too small, there is no side-yard access, or the RV is too tall for the garage.
+- **Theft.** Batteries, catalytic converters, solar panels and whole trailers.
+- **Neighbors,** or no driveway at all.
 
 > [!WARNING]
-> Never quote city code or HOA rules to a customer. You can say: "Many cities and HOAs around here limit driveway and street parking. Check with yours." Then help them with the space.
+> Never quote city code or HOA rules. Say: "Many cities and HOAs around here limit driveway and street parking. Check with yours." Then help them with the space.
 
-### Everything Else
+## Who the Customers Are
 
-- The lot is too small, or there is no side-yard access.
-- The RV is too tall for the garage.
-- Theft at home: batteries, catalytic converters, solar panels and whole trailers.
-- Neighbor complaints.
-- They rent and have no driveway at all.
+Vehicle tenants usually know what their vehicle is worth, carry insurance, often still owe a loan on it, and shop several sites. Once a site works for them, they tend to stay.
 
-## How Big the Market Is
-
-You do not need to memorize market data, but it helps to know why vehicle storage is in demand.
-
-- **RVs:** 8.1 million U.S. households own an RV, with a median owner age of 49 and a median of 30 days of use a year (Go RVing and RVIA, 2025 RV Owner Demographic Profile). An older 2021 study gave a higher number, but it used a different method, and RVIA says the two cannot be compared. Do not tell anyone "RV ownership fell."
-- **Boats:** Americans bought 238,117 new boats and 858,798 pre-owned boats in 2024, and spent $55.6 billion at retail on boating (NMMA, 2024).
-
-Every one of those RVs and boats has to sit somewhere between trips.
-
-## Who Our Vehicle Customers Are
-
-Industry writers describe vehicle tenants as people who know what their vehicle is worth, usually carry insurance, often still owe a loan on it, and pay and shop online (Inside Self Storage, 2007 and 2012). Once they find a site that works, they tend to stay. Covered and enclosed tenants behave like a different group from open-lot tenants: they are protecting something they value highly.
-
-These profiles are common in the industry. Your site will have its own mix.
-
-| Profile | What they store | What they care about |
+| Customer | Stores | Cares about |
 |---|---|---|
-| Retirees and snowbirds | A Class A motorhome or a fifth wheel, often very valuable | Covered or enclosed space, security, easy access, room to load before a trip |
-| Weekend families | A travel trailer, toy hauler, or ski or wake boat | Price, Friday night and early morning access, close to the freeway or the lake |
-| Anglers | A bass boat or center console on a trailer | Very early access for a pre-dawn launch, close to the lake |
-| Contractors and small businesses | An enclosed cargo trailer, a utility trailer, a work truck | Price, access hours, room to hitch up |
-| Car collectors and second cars | A classic, exotic or project car | Enclosed space, security |
-| Powersports | Jet skis on a double trailer, ATVs, dirt bikes | Short spaces and price |
-| Full-timers | Rarely store; sometimes park between trips or during a home sale | Short-term flexibility |
+| Retirees and snowbirds | A Class A or a fifth wheel | Covered or enclosed space, security, room to load |
+| Weekend families | A travel trailer, toy hauler or wake boat | Price, Friday night and early morning access |
+| Anglers | A bass boat or center console | Pre-dawn access, a short run to the lake |
+| Contractors | Cargo and utility trailers, work trucks | Price, hours, room to hitch up |
+| Collectors | A classic or second car | Enclosed space, security |
+| Powersports | Jet skis, ATVs, dirt bikes | Short spaces, price |
 
-> [!WARNING]
-> A full-timer lives in the RV. Living or sleeping in a stored vehicle is against common industry rules; Greens' own rule is on Greens Vehicle Storage Rules. If a caller says they need a place to "stay for a while," check that page or ask your manager before you answer.
+A full-timer lives in the RV. Greens never allows living or sleeping in a stored vehicle (Greens Vehicle Storage Rules), so a caller who wants a place to "stay for a while" gets a polite no.
 
-### Cubby's Vehicle Type Field
+## Seasons
 
-Cubby has a vehicle type on every lease (trailer, RV, boat, truck, SUV, sedan, other). Right now it is blank on **696 of 759** Greens vehicle leases (From Greens' Cubby, 11/2026). That means Greens cannot see its own mix of RVs, boats and trailers. Fill it in at every move-in; the Paperwork and Move-In lesson shows where it fits.
+Unit storage moves with people's lives. Vehicle storage also moves with the calendar. In Southern California use is year-round, with boats busiest from spring break through Labor Day, RVs in summer and on holidays, and some owners heading to the desert for winter.
 
-## Seasons and Weather
+- **Seasonal move-outs.** An owner who leaves for a season may expect the space to be there on return. It may not be; see Waitlists and Upgrades.
+- **Odd hours.** Tenants hitch up before dawn and come back Sunday evening. Plan gate checks around it.
+- **Weather walks.** Wind, heat and rain damage vehicles and canopies; see Walking the Lot.
 
-Unit storage moves with people's lives: moves, divorces, deaths, remodels. Vehicle storage also moves with the calendar and the weather.
+## At Greens
 
-| Place | What to expect |
-|---|---|
-| Southern California (Escondido, Valley Center, Temecula, Murrieta) | Operators have described use as year-round, with boats peaking from spring break through Labor Day and RVs in summer and on holidays; some owners take the RV to the desert in winter (Inside Self Storage, 2012). |
-| Fairfield | Ask your manager when the busy season is. Site notes go on the Fairfield Site Profile. |
-| A Texas site | Boat season runs roughly March through October. Spring hail drives demand for covered spaces, and summer heat and sun push people toward covers (RecNation marketing pages). |
+**Fairfield.** A walk-in asks why pay for gravel when the street is free. You ask what happens today: a neighbor complaint and a stolen battery. You talk about the gate and the lot walks, then give the rate from Cubby.
 
-What this means for you:
+**Valley Center.** A caller wants to store a 30 ft boat. Valley Center has almost no vehicle spaces. You check Escondido and Temecula in Cubby and offer what fits.
 
-- **Seasonal move-outs.** An owner who takes the RV away for the season may cancel and expect to come back. The space may not be there. The Waitlists and Upgrades lesson covers how to handle that.
-- **Busy access times.** Vehicle tenants hitch up before dawn and come back on Sunday evening. Plan gate checks (and camera checks, where the site has cameras) with that in mind.
-- **Weather walks.** Wind, heat, rain and (in Texas) hail all damage vehicles and canopies. The Walking the Lot lesson covers what to check.
+**Murrieta.** A retiree asks for "the best space you have" for a new Class A. You ask the length before you look, because a pull-through only helps if it is long enough.
 
-## Greens Scenarios
+## Common Mistakes
 
-**Temecula.** A caller says, "My HOA sent me a letter about my trailer. How fast can I get a space?" You do not comment on the HOA. You ask what the trailer is and how long it is hitch to bumper, check Cubby for open spaces that fit, and tell them what they need to bring.
-
-**Fairfield.** A walk-in asks why they should pay for a gravel space when they could park on the street. You do not quote city law. You ask what happens today. They mention a neighbor complaint and a stolen battery. You talk about the gate, cameras where the site has them, and the site walks, and you give them the rate.
-
-**Valley Center.** A caller wants to store a 30 ft boat. Valley Center has three vehicle spaces and all are leased (From Greens' Cubby, 11/2026). You take their details, explain that Escondido and Temecula have open lots, and offer to check those sites in Cubby.
-
-**Murrieta.** A retiree asks for "the best space you have" for a new Class A. You know Murrieta has pull-through spaces that let a big rig drive in and out without backing (From Greens' Cubby, 11/2026), and you ask the length before you look.
-
-**A Texas site.** In April, a caller asks for covered RV storage "before hail season." You explain covered versus open, check the waitlist, and offer an open space now so they are on the lot while they wait.
+- **Talking about the HOA instead of the space.** You do not judge the letter; you solve the deadline.
+- **Quoting a price before you know the length.** On a lot, length decides the space and the price.
+- **Leaving Cubby's vehicle type blank.** It is blank on most Greens vehicle leases, so Greens cannot see its own mix. Fill it at every move-in.
 
 ## Key Points
 
-- Vehicles are core at Greens: 1,038 parking spaces, and 759 of 2,042 active leases store a vehicle (From Greens' Cubby, 11/2026).
-- Temecula, Fairfield and Murrieta are mostly vehicle sites; Escondido and Valley Center are mostly units.
-- People store vehicles because of HOAs, city rules, small lots, garage height, theft and neighbors. Never quote the rules; tell them to check.
-- Learn the profiles: retirees with big rigs, weekend families, anglers, contractors, collectors, powersports.
-- Living or sleeping in a stored vehicle is against common industry rules; Greens' own rule is on Greens Vehicle Storage Rules.
-- Fill in Cubby's vehicle type at every move-in; it is blank on most leases today.
+- More than one Greens lease in three stores a vehicle; Temecula, Fairfield and Murrieta are mostly lot.
+- Find the reason they cannot park at home; never quote the rules behind it.
+- Know the customer types and what each one cares about.
+- Living or sleeping in a stored vehicle is never allowed at Greens.

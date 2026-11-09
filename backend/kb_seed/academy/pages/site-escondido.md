@@ -1,110 +1,73 @@
 ---
-title: Site Profile: Escondido
-summary: Escondido's parking spaces and storage units by size and type from Greens' Cubby, plus the clear heights, amenities, gate notes and local parking rules the site manager fills in.
+title: "Site Profile: Escondido"
+summary: Escondido's open vehicle lot by size, its storage units, amenities, gate and access, and local parking notes.
 page_type: reference
 tags: site-profile, escondido, parking, vehicles
 ---
 
-## Escondido at a Glance
+## At a Glance
 
-Escondido is mostly a storage-unit site with a vehicle lot beside it. It has the most enclosed units of any Greens site and a gravel and paved parking lot for RVs, boats, trailers and cars.
+Escondido is mostly a storage-unit site, with the most enclosed units at Greens and an open vehicle lot beside them.
 
-| What | Count | Leased |
-|---|---|---|
-| Enclosed storage units | 717 | 697 |
-| Parking spaces | 90 | 80 |
-| Mailboxes | 77 | 28 |
-| Active leases that store a vehicle | 79 | |
-
-All counts: From Greens' Cubby, 11/2026.
-
-## Parking Spaces
-
-Every Escondido parking space is **open**: no canopy and no enclosed vehicle garage (From Greens' Cubby, 11/2026).
-
-| Kind | Spaces (leased) | Depth | Street rate low / typical / high |
-|---|---|---|---|
-| Open, gravel | 80 (70) | 15 to 50 ft | $159 / $279 / $379 |
-| Open, paved | 10 (10) | 20 to 45 ft | $169 / $239 / $349 |
-
-Rates are the street rates in Cubby on the day these numbers were pulled (From Greens' Cubby, 11/2026). Always quote today's rate from Cubby, never this page.
-
-### Spaces by Size
-
-Sizes are width x depth in feet. The number in brackets is how many are leased (From Greens' Cubby, 11/2026).
-
-| Depth band | Sizes (spaces, leased) |
+| What | Escondido |
 |---|---|
-| Under 30 ft (28 spaces) | 10x20 1 (1), 10x25 2 (2), 12x15 1 (1), 12x16 2 (2), 12x17 1 (1), 12x20 5 (4), 12x22 1 (1), 12x25 11 (11), 12x27 2 (2), 12x28 2 (2) |
-| 30 to 39 ft (46 spaces) | 10x30 1 (1), 10x35 1 (1), 12x30 3 (3), 12x32 2 (2), 12x35 11 (11), 12x38 25 (18), 13x30 1 (1), 13x35 2 (2) |
-| 40 ft and up (16 spaces) | 12x40 9 (7), 12x42 2 (2), 12x45 3 (3), 12x50 2 (2) |
+| Surface | Mostly gravel, some paved; no canopy |
+| Kinds of space | Drive-in (back-in) |
+| Depths | 15 to 50 ft |
+| Covered or enclosed vehicle space | None |
+| Storage units | Hundreds, most of them 10x10 |
 
-What this means when you sell: the 12x38 is Escondido's most common space and has the most open ones. A long Class A or fifth wheel needs one of the few 40 ft and longer spaces, so check vacancy in Cubby before you promise one.
+## Parking Spaces by Size
+
+| Depth | Sizes (spaces) |
+|---|---|
+| Under 30 ft | 10x20 (1), 10x25 (2), 12x15 (1), 12x16 (2), 12x17 (1), 12x20 (5), 12x22 (1), 12x25 (11), 12x27 (2), 12x28 (2) |
+| 30 to 39 ft | 10x30 (1), 10x35 (1), 12x30 (3), 12x32 (2), 12x35 (11), 12x38 (25), 13x30 (1), 13x35 (2) |
+| 40 ft and up | 12x40 (9), 12x42 (2), 12x45 (3), 12x50 (2) |
+
+Ten of the spaces are paved, from 20 to 45 ft deep; the surface of each is on the space in Cubby.
+
+## What This Means When You Sell
+
+- **The 12x38 is the workhorse,** and usually where the open spaces are.
+- **Long spaces are few.** A long Class A or fifth wheel needs one of the 40 ft and longer spaces: check Cubby before you promise one, and know Temecula as the backup.
+- **Nearly every space is 12 ft wide,** good for mirrors and slides.
 
 ## Storage Units
 
-| Size | Units |
-|---|---|
-| 10x10 | 202 |
-| 5x10 | 122 |
-| 10x15 | 120 |
-| 10x20 | 100 |
-| 5x5 | 87 |
-| 10x25 | 48 |
-| 15x40, 15x44, 15x45 | 19, 6 and 5 |
-| Other sizes | 8 units (2 with no size recorded) |
-
-Cubby tags 549 of the enclosed units "Climate controlled" and 164 "Drive-up" (From Greens' Cubby, 11/2026). Check the unit in Cubby before you quote climate control.
-
-The 30 units that are 15 ft wide and 40 to 45 ft deep are large enough for a vehicle, but none is tagged for vehicles in Cubby. greensstorage.com offers "indoor and outdoor" RV parking at Escondido (From greensstorage.com, 11/2026), but which units count as indoor vehicle storage is not written down.
-
-> [!NOTE]
-> **Pending:** whether a vehicle may be stored in the 15 ft wide enclosed units, and how Cubby should tag them. Owner: Operations Manager. Ask the site manager and tag the units in Cubby.
+Mostly 10x10, 5x10, 10x15 and 10x20, with many climate controlled and some drive-up; check the unit in Cubby before you quote climate control. There are also 30 large units, 15 ft wide and 40 to 45 ft deep. They are not set up for vehicles in Cubby, so never offer one for a vehicle; your manager has whether a vehicle may go in one until the site profile is filled in.
 
 ## Clear Heights
 
-Cubby records no heights. Measure and post them.
-
-| Place | Clear height |
-|---|---|
-| Lowest point on the entry gate or entry path | Pending (see the note below) |
-| Large enclosed units (door opening, measured) | Pending (see the note below) |
-
-> [!NOTE]
-> **Pending:** measured clear heights at Escondido. Owner: Operations Manager. Measure on site with a tape and post them here and at the gate.
+The lot is open. Your manager has the clearance on the entry path and the large units' door openings until the site profile is filled in.
 
 ## Amenities
 
 | Amenity | Escondido |
 |---|---|
-| Dump station | Not listed on greensstorage.com (Pending, see the note below) |
-| Wash bay | None. Tenants may not wash on site; an approved mobile detailer may (From greensstorage.com, 11/2026) |
-| Power at spaces (battery tenders) | "Power access" is listed, with no detail on which spaces (From greensstorage.com, 11/2026) |
-| Air for tires | Air compressor station (From greensstorage.com, 11/2026) |
-| Propane fill | Propane filling station (From greensstorage.com, 11/2026) |
-| Other | Water fill station, vacuum station, EV charging (From greensstorage.com, 11/2026) |
+| Dump station | Not offered on the website |
+| Wash bay | None. Tenants may not wash; an approved mobile detailer may |
+| Power | "Power access" is offered, with no detail by space |
+| Air | Air compressor station |
+| Propane | Propane filling station |
+| Other | Water fill, vacuum station, EV charging |
 
-> [!NOTE]
-> **Pending:** whether Escondido has a dump station, and which spaces have power. Owner: Operations Manager. Ask the site manager.
+Your manager has whether there is a dump station, and which spaces have power, until the site profile is filled in.
 
-## Gate and Access Notes
+## Gate and Access
 
-- Gate hours and office hours: see Greens Site Hours and Access.
-- Address: 25260 North Centre City Parkway, Escondido, CA 92026; rentals (760) 993-5550 (From greensstorage.com, 11/2026).
-- Lot surface by space is in Cubby: 80 gravel, 10 paved (From Greens' Cubby, 11/2026).
-
-> [!NOTE]
-> **Pending:** gate width, turning room at the entry, stacking room for long rigs and one-way lanes at Escondido. Owner: Operations Manager. Measure and walk the lot with the site manager.
+- 25260 North Centre City Parkway, Escondido, CA 92026; rentals (760) 993-5550.
+- Gate and office hours: Greens Site Hours and Access.
+- Your manager has the gate width, turning room, stacking room and any one-way lanes until the site profile is filled in.
 
 ## Local Parking Rules
 
-Escondido's Municipal Code has its own rules for parking recreational vehicles in residential zones, and the city tightened RV parking on streets and city lots in 2023 and 2024. Never quote the code to a customer: tell them to check with the city and their HOA.
-
-> [!NOTE]
-> **Pending:** Escondido site notes for staff on local parking rules. Owner: Operations Manager. Optional; add any local notes the site manager wants staff to know.
+Escondido's Municipal Code limits recreational vehicles in residential zones, and the city has tightened RV parking on streets and city lots. Never quote the code; tell the customer to check with the city and their HOA.
 
 ## Key Points
 
-- Escondido has 90 open parking spaces (80 gravel, 10 paved), no covered and no enclosed vehicle spaces (From Greens' Cubby, 11/2026).
-- Only 16 spaces are 40 ft or longer; check Cubby before promising a big rig a space.
-- Most of the site is enclosed storage: 717 units, most of them 10x10.
+- All open, nearly all gravel and 12 ft wide; no covered or enclosed vehicle space.
+- Few spaces are 40 ft or longer: check Cubby before you promise a big rig one.
+- Most of the site is storage units; the big 15 ft wide units are not offered for vehicles.
+
+Space sizes and counts: Greens' Cubby, 11/2026. Amenities and address: greensstorage.com, 11/2026.

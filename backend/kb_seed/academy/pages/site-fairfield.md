@@ -1,97 +1,74 @@
 ---
-title: Site Profile: Fairfield
-summary: Fairfield's gravel vehicle lot by size from Greens' Cubby, its few storage units, and the clear heights, amenities, gate notes and local rules the site manager fills in.
+title: "Site Profile: Fairfield"
+summary: Fairfield's open gravel vehicle lot by size, from 12x20 to 12x48, its few storage units, amenities, gate and access, and weather notes.
 page_type: reference
 tags: site-profile, fairfield, parking, vehicles
 ---
 
-## Fairfield at a Glance
+## At a Glance
 
-Fairfield, in Solano County, is almost all vehicle storage. Nearly every tenant parks an RV, a boat, a trailer or a vehicle on an open gravel lot.
+Fairfield, in Solano County, is almost all vehicle storage: nearly every tenant parks an RV, a boat, a trailer or a vehicle on an open gravel lot.
 
-| What | Count | Leased |
+| What | Fairfield |
+|---|---|
+| Surface | All gravel, no canopy |
+| Kinds of space | Drive-in (back-in), all 12 ft wide |
+| Depths | 20 to 48 ft |
+| Covered or enclosed vehicle space | None |
+| Storage units | Four small drive-up units |
+
+## Parking Spaces by Size
+
+| Size | Spaces | Notes |
 |---|---|---|
-| Parking spaces | 303 | 211 |
-| Enclosed storage units | 4 | 1 |
-| Active leases that store a vehicle | 207 | |
+| 12x20 | 11 | Cars, jet skis, pop-ups |
+| 12x22 | 6 | |
+| 12x26 | 142 | The workhorse: cars, small boats, utility trailers, short campers |
+| 12x32 | 114 | Most travel trailers up to about 29 ft hitch to bumper |
+| 12x48 | 30 | Long trailers, fifth wheels, Class As |
 
-All counts: From Greens' Cubby, 11/2026.
+## What This Means When You Sell
 
-## Parking Spaces
-
-Every Fairfield parking space is **open gravel**, 12 ft wide, with no canopy (From Greens' Cubby, 11/2026). Cubby tags the lot as covered by security cameras.
-
-| Size | Spaces | Leased |
-|---|---|---|
-| 12x20 | 11 | 0 |
-| 12x22 | 6 | 6 |
-| 12x26 | 142 | 94 |
-| 12x32 | 114 | 91 |
-| 12x48 | 30 | 20 |
-
-Street rates run from $94 to $154 a month, with $104 typical (From Greens' Cubby, 11/2026). Always quote today's rate from Cubby, never this page.
-
-What this means when you sell:
-
-- Fairfield sizes jump in big steps: 26 ft, then 32 ft, then 48 ft. A 30 ft travel trailer that measures 34 ft hitch to bumper does not fit a 12x32; it needs the 12x48. Measure first.
-- The 12x26 is the workhorse for cars, small boats, utility trailers and short campers.
-- Fairfield has the lowest parking rates of the five sites, so price is often why a customer chose it. Lead with value and access.
+- **The sizes jump in big steps:** 26 ft, then 32 ft, then 48 ft. A "30 ft" trailer that is 34 ft hitch to bumper does not fit a 12x32; it needs the 12x48. Measure first.
+- **Every space is 12 ft wide,** so mirrors and slides are rarely a problem.
+- **Fairfield usually has the lowest rates at Greens,** so price is often why a customer chose it. Lead with value and access.
 
 ## Storage Units
 
-| Size | Units | Leased |
-|---|---|---|
-| 8x10 | 2 | 0 |
-| 8x20 | 2 | 1 |
-
-All four are tagged drive-up (From Greens' Cubby, 11/2026). A caller who needs a household storage unit may be better served at another site.
+Two 8x10 and two 8x20, all drive-up. A caller who needs household storage may be better served at another site.
 
 ## Clear Heights
 
-The lot is open, so height limits only matter where something overhead crosses the path. Entry gate or overhead obstructions: Pending (see the note below).
-
-> [!NOTE]
-> **Pending:** anything overhead on the path at Fairfield, with its measured clearance. Owner: Operations Manager. Walk the path from the gate with a tape.
+The lot is open, so height matters only where something crosses the path overhead. Your manager has the clearance on the path from the gate until the site profile is filled in.
 
 ## Amenities
 
 | Amenity | Fairfield |
 |---|---|
-| Dump station | Not listed on greensstorage.com (Pending, see the note below) |
-| Wash bay | None. Tenants may not wash on site; an approved mobile detailer may (From greensstorage.com, 11/2026) |
-| Power at spaces | Not listed on greensstorage.com (Pending, see the note below) |
-| Air for tires | Not listed on greensstorage.com (Pending, see the note below) |
-| Propane fill | Not listed on greensstorage.com (Pending, see the note below) |
+| Wash bay | None. Tenants may not wash; an approved mobile detailer may |
+| Dump station, power, air, propane | Not offered on the website |
 
-> [!NOTE]
-> **Pending:** whether Fairfield has a dump station, power at spaces, air and propane. Owner: Operations Manager. greensstorage.com lists none of them for this site and says they vary by location; ask the site manager.
+Your manager has whether any of these is on site until the site profile is filled in.
 
-## Gate and Access Notes
+## Gate and Access
 
-- Fairfield's gate is the only Greens gate that reports to Cubby today: Cubby shows allowed entries, master code use, unknown codes and "outside of hours" refusals there (From Greens' Cubby, 11/2026).
-- Gate hours and office hours: see Greens Site Hours and Access.
-- Address: 5044 Peabody Road, Fairfield, CA 94533; rentals (707) 378-6500 (From greensstorage.com, 11/2026).
-- Every Fairfield parking space is tagged "Security camera" in Cubby (From Greens' Cubby, 11/2026).
+- 5044 Peabody Road, Fairfield, CA 94533; rentals (707) 378-6500.
+- Gate and office hours: Greens Site Hours and Access.
+- Fairfield's gate reports to Cubby: you can see allowed entries, refused codes and after-hours attempts there. Every space is tagged as covered by security cameras.
+- Your manager has the gate width, turning room, row numbering and lane directions until the site profile is filled in.
 
-> [!NOTE]
-> **Pending:** gate width, stacking and turning room for long rigs, row numbering and lane directions at Fairfield. Owner: Operations Manager. Measure and walk the lot with the site manager.
+## Weather
 
-## Weather Notes
-
-Gravel lots puddle after rain, and strong winds across the lot loosen covers and tarps.
-
-> [!NOTE]
-> **Pending:** Fairfield site notes on wind, drainage and freezing nights. Owner: Operations Manager. Ask the site manager what tenants should be told.
+Gravel puddles after rain, and strong wind crosses the open lot, loosening covers, biminis and tarps. Walk the lot after wind and rain (see Walking the Lot).
 
 ## Local Parking Rules
 
-Never quote city code to a customer; tell them to check with the city and their HOA.
-
-> [!NOTE]
-> **Pending:** a staff summary of City of Fairfield rules on parking RVs and trailers at home. Owner: Operations Manager. Optional; read it from the Fairfield Municipal Code.
+Never quote city code; tell the customer to check with the City of Fairfield and their HOA.
 
 ## Key Points
 
-- Fairfield is a vehicle site: 303 open gravel spaces, 12 ft wide, 20 to 48 ft deep (From Greens' Cubby, 11/2026).
-- Sizes step from 26 ft to 32 ft to 48 ft: measure hitch to bumper before you pick one.
-- Fairfield's gate reports to Cubby, so its access log is the one you can check.
+- All open gravel, all 12 ft wide, 20 to 48 ft deep.
+- Sizes step from 26 to 32 to 48 ft: measure hitch to bumper before you pick one.
+- The gate reports to Cubby, so its entry log is one you can check.
+
+Space sizes and counts: Greens' Cubby, 11/2026. Amenities and address: greensstorage.com, 11/2026.

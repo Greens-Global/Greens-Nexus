@@ -1,40 +1,19 @@
 ---
 title: "Know the Vehicles: RVs"
-summary: The legal road limits that cap how big a vehicle can be, every RV class from Class A to the pop-up, their real lengths and heights, and the add-ons that change what fits.
+summary: The road limits that cap how big a vehicle can be, every RV type from Class A to the teardrop with real lengths and heights, and the add-ons that make an RV longer or taller than the brochure says.
 ---
 
-## What You'll Be Able to Do
+## The Moment
 
-- Explain why almost nothing on the road is wider than 8.5 ft or taller than 14 ft.
-- Tell a Class A, Class B, Class C, travel trailer, fifth wheel, toy hauler, pop-up, truck camper and teardrop apart.
-- Give the typical length and height range for each RV type.
-- Name the roof items and rear add-ons that make an RV taller or longer than the brochure says.
-- Ask the right follow-up question when a caller names their RV.
+A caller at Murrieta says, "I have a 36-foot fifth wheel." If you know what a fifth wheel is, you already know three things: its pin box may not be in that 36 feet, it is the tallest kind of trailer, and it cannot move without a pickup. If you do not, you will put it in the wrong space. This lesson gives you the words and the numbers.
 
-## Why Vehicle Literacy Matters
+## The Road Limits
 
-A caller says, "I have a 30-foot fifth wheel." If you do not know what a fifth wheel is, you cannot know that its hitch overhang may not be in that 30 feet, that it is the tallest kind of trailer, or that it cannot move without a pickup truck. You will put it in the wrong space.
+Without an oversize permit, vehicles on the road stay inside limits, and those limits tell you what to worry about:
 
-Customers notice. An RV owner who has to explain what a toad is will trust you less than one whose questions you answer before they ask. This lesson gives you the words and the numbers.
-
-## The Legal Road Limits
-
-Vehicles on public roads have size limits. Without a special oversize permit, the usual limits are:
-
-| Limit | Typical number | What it means for storage |
-|---|---|---|
-| Width | 102 inches (8.5 ft) | Body width tops out here. Mirrors, awnings and slide-outs stick out further. |
-| Height | 14 ft in California, as of 2026 | Height only matters for covered and enclosed spaces. |
-| Single vehicle length | About 45 ft for a bus or motorhome | The longest motorhomes are about 45 ft. |
-| Combined length | 65 ft for a combination in California, as of 2026 | A motorhome towing a car or a truck towing a fifth wheel can be very long; each piece is parked separately. |
-
-Sources: Inside Self Storage (2007) and a SEMA summary of California limits, as of 2026. Check your manager's notes before quoting any limit to a customer; you will rarely need to.
-
-The training point is simple:
-
-- **Width is almost always 8 to 8.5 ft** at the body. Plan for mirrors and anything that sticks out.
-- **Height is at most about 14 ft.** It matters only where there is a roof or a door: covered and enclosed spaces.
-- **Length is the number that decides the space.** It varies the most, and it is the one customers get wrong.
+- **Width is about 8.5 ft (102 in) at the body.** Mirrors, awnings and slide-outs stick out further.
+- **Height tops out around 14 ft.** It matters only where there is a roof or a door: covered and enclosed spaces.
+- **Length is what decides the space.** It varies the most, and it is the number customers get wrong.
 
 ## The RV Types
 
@@ -43,205 +22,84 @@ The training point is simple:
   "kind": "drawings",
   "title": "What Each RV Looks Like",
   "items": [
-    {
-      "draw": "rv-class-a",
-      "label": "Class A",
-      "note": "bus-shaped; 25 to 45 ft; often tows a car"
-    },
-    {
-      "draw": "rv-class-b",
-      "label": "Class B",
-      "note": "a camper van; 17 to 24 ft"
-    },
-    {
-      "draw": "rv-class-c",
-      "label": "Class C",
-      "note": "a truck cab with a bunk over it; 21 to 35 ft"
-    },
-    {
-      "draw": "rv-travel-trailer",
-      "label": "Travel trailer",
-      "note": "towed on a ball hitch; body 12 to 35 ft plus the tongue"
-    },
-    {
-      "draw": "rv-fifth-wheel",
-      "label": "Fifth wheel",
-      "note": "a raised nose that hitches in a pickup bed; 22 to 45 ft; the tallest towable"
-    },
-    {
-      "draw": "rv-toy-hauler",
-      "label": "Toy hauler",
-      "note": "a rear ramp door and a garage; 25 to 45 ft"
-    },
-    {
-      "draw": "rv-pop-up",
-      "label": "Pop-up",
-      "note": "a folding canvas camper; 8 to 16 ft folded"
-    },
-    {
-      "draw": "rv-truck-camper",
-      "label": "Truck camper",
-      "note": "slides into a pickup bed; truck length plus the overhang"
-    },
-    {
-      "draw": "rv-teardrop",
-      "label": "Teardrop",
-      "note": "a tiny sleeping trailer; 10 to 16 ft"
-    }
+    {"draw": "rv-class-a", "label": "Class A", "note": "bus front, big windshield"},
+    {"draw": "rv-class-b", "label": "Class B", "note": "a camper van"},
+    {"draw": "rv-class-c", "label": "Class C", "note": "truck cab, bunk over it"},
+    {"draw": "rv-travel-trailer", "label": "Travel trailer", "note": "ball hitch on the tongue"},
+    {"draw": "rv-fifth-wheel", "label": "Fifth wheel", "note": "raised nose over a pickup bed"},
+    {"draw": "rv-toy-hauler", "label": "Toy hauler", "note": "ramp door at the back"},
+    {"draw": "rv-pop-up", "label": "Pop-up", "note": "folding canvas camper"},
+    {"draw": "rv-truck-camper", "label": "Truck camper", "note": "rides in a pickup bed"},
+    {"draw": "rv-teardrop", "label": "Teardrop", "note": "tiny sleeping trailer"}
   ],
-  "caption": "Side views, facing left. Mirrors, awnings, slide-outs, ladders and spare tires stick out past what is drawn."
+  "caption": "Side views. Mirrors, awnings, slide-outs, ladders and spare tires stick out past what is drawn."
 }
 ```
 
-```figure
-{
-  "kind": "bars",
-  "title": "Typical Lengths by RV Type",
-  "unit": "ft",
-  "max": 50,
-  "items": [
-    {
-      "label": "Class A",
-      "low": 25,
-      "value": 45
-    },
-    {
-      "label": "Fifth wheel",
-      "low": 22,
-      "value": 45
-    },
-    {
-      "label": "Toy hauler",
-      "low": 25,
-      "value": 45
-    },
-    {
-      "label": "Class C",
-      "low": 21,
-      "value": 35
-    },
-    {
-      "label": "Travel trailer (body)",
-      "low": 12,
-      "value": 35,
-      "text": "12 to 35 ft, plus a 3 to 5 ft tongue"
-    },
-    {
-      "label": "Class B",
-      "low": 17,
-      "value": 24
-    },
-    {
-      "label": "Teardrop",
-      "low": 10,
-      "value": 16
-    },
-    {
-      "label": "Pop-up (folded)",
-      "low": 8,
-      "value": 16
-    }
-  ],
-  "caption": "A trailer's storage length is hitch to bumper; a fifth wheel's kingpin overhang may not be in the stated length."
-}
-```
+Ranges are typical and vary by model and year. Always measure the real vehicle.
 
-Ranges below are approximate. They vary a lot by model and year, and sources differ (Neighbor, Camper Report and Outdoorsy guides, as of 2026). Always measure the real vehicle.
+| Type | Typical length | Typical height | Watch for |
+|---|---|---|---|
+| **Class A** (gas, or diesel pusher with the engine in back) | 25 to 45 ft | 11 to 13.5 ft | The biggest and most valuable; often tows a car; two or three roof air conditioners |
+| **Class B** (camper van) | 17 to 24 ft | 8 to 11 ft | High-roof vans run about 9.5 to 10 ft |
+| **Class C** | 21 to 35 ft | 10 to 12 ft | A "Super C" on a heavy chassis can pass 40 ft |
+| **Travel trailer** | Body 12 to 35 ft, plus a 3 to 5 ft tongue | 9 to 11.5 ft | The stated length may or may not include the tongue |
+| **Fifth wheel** | 22 to 45 ft | 12 to 13.5 ft | **The tallest towable**; the 3 to 5 ft pin box may not be in the stated length |
+| **Toy hauler** | 25 to 45 ft | As its base type | Nobody loads or unloads it in an aisle |
+| **Pop-up** | 8 to 16 ft folded | About 4 to 5 ft folded | The cheapest RV; a short space |
+| **Truck camper** | Truck plus overhang | 10 to 12 ft | Stored off the truck on its jacks only with your manager's OK (Greens Vehicle Storage Rules) |
+| **Teardrop** | 10 to 16 ft | 4 to 7 ft | Often a car-size space works |
 
-| Type | What it is | Typical length | Typical height | Notes for staff |
-|---|---|---|---|---|
-| **Class A** | Bus-shaped motorhome on a truck or bus chassis; gas (engine in front) or diesel pusher (engine in back) | 25 to 45 ft | 11 to 13.5 ft | The biggest and most valuable. Often tows a car (a "toad"). Slide-outs, leveling jacks, often two or three roof air conditioners. |
-| **Class B** | Camper van on a van chassis such as a Sprinter, Transit or ProMaster | 17 to 24 ft | 8 to 11 ft | Often fits a 25 ft space. High-roof vans run about 9.5 to 10 ft. |
-| **Class C** | Motorhome with a truck cab and a bunk over the cab | 21 to 35 ft, often about 28 | 10 to 12 ft | A "Super C" on a heavy truck chassis can be 35 to 40 ft or more. |
-| **Travel trailer** | Towed by a ball hitch on a truck or SUV | Body 12 to 35 ft, plus a 3 to 5 ft tongue | 9 to 11.5 ft | The advertised length often includes the hitch, and sometimes not. Ask. |
-| **Fifth wheel** | Trailer with a raised front "nose" that hitches inside a pickup bed | 22 to 45 ft, most often 32 to 36 | 12 to 13.5 ft | **The tallest towable.** The kingpin overhang (3 to 5 ft) may not be in the stated length. Cannot move without the truck. |
-| **Toy hauler** | Travel trailer or fifth wheel with a rear ramp door and a garage for ATVs or motorcycles | 25 to 45 ft | Same as its base type | The closed ramp adds no length, but nobody should load or unload it in an aisle. |
-| **Pop-up (tent trailer)** | Folding canvas camper | 8 to 16 ft folded | About 4 to 5 ft folded | The cheapest RV. Fits a short space. |
-| **Truck camper** | Camper that slides into a pickup bed | Truck length plus overhang | 10 to 12 ft | Sometimes stored off the truck on jacks; whether Greens allows that is on Greens Vehicle Storage Rules. |
-| **Teardrop or small trailer** | Tiny sleeping trailer | 10 to 16 ft | 4 to 7 ft | Short space; often a car-size spot works. |
+### Tell Them Apart at a Glance
 
-### How to Tell Them Apart at a Glance
+- A driver's seat inside means a motorhome: Class A, B or C.
+- Flat bus front: Class A. A van: Class B. A truck cab with a bunk over it: Class C.
+- No engine and a ball hitch: travel trailer, or a toy hauler if there is a ramp door.
+- No engine and a tall nose that sits over a pickup bed: fifth wheel.
 
-- **Is there a driver's seat in it?** Then it is a motorhome: Class A, B or C.
-- **Flat bus front with a huge windshield?** Class A.
-- **Looks like a van?** Class B.
-- **Truck cab with a bunk sticking out over it?** Class C.
-- **No engine, ball hitch on the tongue?** Travel trailer (or a toy hauler with a ramp door in back).
-- **No engine, tall raised front that sits over a pickup bed?** Fifth wheel.
+## Words You Will Hear
 
-## Motorhome Words You Will Hear
+- **Toad (dinghy):** a car towed behind a motorhome. A separate vehicle, usually a separate space.
+- **Tow vehicle:** the truck that pulls a trailer. It leaves with the owner or needs its own space.
+- **Slide-out:** a wall section that moves out when parked. Slides stay in while stored.
+- **Coupler:** the front of a trailer tongue that fits over the hitch ball. Length is measured from here.
+- **Kingpin or pin box:** where a fifth wheel hitches to the truck.
+- **Tongue, stabilizer and leveling jacks:** legs that hold up or steady a parked RV. They sink into hot pavement or wet gravel without a pad.
+- **House and chassis batteries:** the living-area batteries and the engine battery. Both drain in storage, and both get stolen.
 
-| Word | What it means |
-|---|---|
-| **Diesel pusher** | A Class A with a diesel engine in the back. Usually a larger, more expensive coach. |
-| **Toad (or dinghy)** | A car towed behind a motorhome. It is a separate vehicle and usually needs its own space. |
-| **Slide-out (slide)** | A section of wall that moves out to make the room wider when parked. |
-| **Leveling jacks** | Legs that lower to level the motorhome. On hot pavement they can sink; pads help. |
-| **Generator (genset)** | Built-in power. A common rule is no generators running on the lot; see Greens Vehicle Storage Rules. |
-| **House batteries and chassis batteries** | The living-area batteries and the engine's starting battery. Both drain while stored. |
+## Longer and Taller Than the Brochure
 
-## Trailer Words You Will Hear
+The brochure height is to the roof. Under a roof or a door what counts is the **top of the tallest thing on it**: air conditioners (each adds 10 to 14 in), antennas and satellite domes, solar panels, ladders, cargo boxes, a kayak or bikes.
 
-| Word | What it means |
-|---|---|
-| **Coupler** | The front of a trailer tongue that fits over the hitch ball. Measure from here. |
-| **Tongue jack** | The crank or electric jack that holds up the front of a trailer. |
-| **Kingpin or pin box** | Where a fifth wheel hitches to the truck. |
-| **Stabilizer jacks** | Legs at the corners that steady a parked trailer. They are not for lifting. |
-| **Tow vehicle** | The truck or SUV that pulls the trailer. It leaves with the owner, or needs its own space. |
-| **Hitch-to-bumper length** | The true storage length of a trailer. |
+The brochure length leaves out what is bolted on: rear ladders, spare tires, bike racks, cargo carriers, a trailer's tongue, a fifth wheel's pin box, a motorhome's tow bar. An operator rule of thumb: a 38 ft RV needs at least a 42 ft space. Measuring for the Right Fit builds on this.
 
-## What Makes an RV Taller or Longer
-
-The brochure height is usually to the roof. The number that matters for a covered or enclosed space is to the **top of the tallest thing on the roof** (Neighbor, as of 2026):
-
-- Roof air conditioners (each adds about 10 to 14 inches)
-- TV antennas and satellite domes
-- Solar panels
-- Roof ladders and cargo boxes
-- Vent covers
-- A kayak or bikes on the roof
-
-The brochure length often leaves out what is bolted to the back and front:
-
-- Rear ladders, spare tires, bike racks and cargo carriers
-- The tongue and coupler on a travel trailer
-- The pin box overhang on a fifth wheel
-- A tow bar on a motorhome
-
-> [!TIP]
-> An operator rule of thumb: a 38 ft RV needs at least a 42 ft space, because ladders, mirrors and bumpers add length (Inside Self Storage, 2007). The next lesson on measuring builds on this.
-
-## Asking the Right Question
-
-When a caller names their RV, your follow-up shows you know the product.
+## Ask the Right Question
 
 | The caller says | You ask |
 |---|---|
-| "A Class A." | "How long is it, front bumper to the back of the ladder or tow bar? Will you leave the car in a separate space?" |
-| "A fifth wheel." | "What is the length from the front of the nose to the rear bumper? And the height to the top of the air conditioner?" |
-| "A travel trailer, 28 feet." | "Is that the box or hitch to bumper? Anything on the back, like a bike rack or spare?" |
-| "A Class B." | "Is it a high-roof van? How tall is it with anything on the roof?" |
-| "A toy hauler." | "Travel trailer or fifth wheel style? How long hitch to bumper?" |
-| "A truck camper." | "Will it stay on the truck? How long is the truck with the camper on?" |
+| "A Class A." | "How long, front bumper to the back of the ladder or tow bar? Will the car stay in a separate space?" |
+| "A fifth wheel." | "Front of the nose to the rear bumper? Height to the top of the air conditioner?" |
+| "A 28-foot travel trailer." | "Is that the box or hitch to bumper? Anything on the back?" |
+| "A Class B." | "Is it a high-roof van?" |
+| "A truck camper." | "Will it stay on the truck? How long is the truck with it on?" |
 
-## Greens Scenarios
+## At Greens
 
-**Murrieta.** A caller has a 36 ft fifth wheel. You ask for nose-to-bumper length. It is 39 ft with the pin box. Murrieta's 10 ft wide spaces top out at 35 ft, so you look at the 12x45 and the 12x50 pull-throughs (From Greens' Cubby, 11/2026), check Cubby for one that is open, and ask the height in case the customer later wants covered space at Temecula.
+**Murrieta.** The 36 ft fifth wheel measures 39 ft with the pin box. Murrieta's 10 ft wide spaces stop at 35 ft, so you look at the 12x45 drive-ins and the 12x50 pull-throughs, check Cubby for one that is open, and ask the height in case the customer later wants covered space at Temecula.
 
-**Temecula.** A customer arrives with a Class C and a car on a tow dolly. You explain that the car and dolly need their own space, or must leave with the owner. You record both in Cubby if both stay.
+**Temecula.** A Class C arrives with a car on a tow dolly. The car and dolly need their own space or leave with the owner; if both stay, both go in Cubby.
 
-**Escondido.** A caller says "a 30-foot trailer." You ask whether that is the box or hitch to bumper. It is the box. With a 4 ft tongue and a rear bike rack, it is about 35 ft, so you look at Escondido's 12x38 spaces rather than the 12x30s.
+**Escondido.** "A 30-foot trailer" is the box. With a 4 ft tongue and a bike rack it is about 35 ft, so you look at the 12x38s, not the 12x30s.
 
-**Fairfield.** A family has a pop-up camper. Folded, it is about 13 ft with the tongue. You offer the shortest open space, which saves them money, and point them to Greens Vehicle Storage Rules for how it must be left while stored.
+## Common Mistakes
 
-**A Texas site.** A retiree asks for covered space for a Class A diesel pusher with three roof air conditioners. You ask for the height to the top of the air conditioners before you look at any covered space.
+- **Taking "30 feet" at face value.** Ask box or hitch to bumper, every time.
+- **Measuring height to the roof.** The air conditioner is what hits the beam.
+- **Forgetting the toad.** A towed car is a second vehicle and usually a second space.
 
 ## Key Points
 
-- Width is about 8.5 ft at the body; height is at most about 14 ft; length is what decides the space.
-- Motorhomes have a driver's seat (Class A, B, C); trailers do not (travel trailer, fifth wheel, toy hauler, pop-up, teardrop).
-- The fifth wheel is the tallest towable, and its pin box overhang may not be in the brochure length.
-- Measure height to the top of the air conditioner or antenna, not the roof.
-- Length includes the tongue, ladders, spare tires, bike racks and tow bars.
-- A towed car or a tow vehicle is a separate vehicle and usually a separate space.
+- Width is about 8.5 ft at the body; height is at most about 14 ft; length decides the space.
+- A driver's seat means a motorhome (Class A, B, C); trailers have none.
+- The fifth wheel is the tallest towable, and its pin box may be missing from the stated length.
+- Length includes the tongue, ladders, spare tires, racks and tow bars.
