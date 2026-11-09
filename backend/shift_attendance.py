@@ -20,11 +20,12 @@ tile and the Workforce Scorecard:
      bell is retitled when they turn up later). A weather-cancelled shift,
      a removal waiting to be published, someone who is not an active
      person, or exempt from time tracking is never a no-show. A LIVE
-     published placement on a company holiday or over approved time off
-     is NOT excused by the clock (hardening pass, Oct 15 2026): the review
-     warned and the manager shared anyway, so the scan alerts and the
-     actuals judge it (the bell line and the cell say it was scheduled over
-     time off / a holiday). A punch whose job category classes as leave
+     published placement over a FULL DAY of approved time off is excused
+     (Neil, 11/09/2026: time off supersedes the shift - no "Not In Yet"
+     for someone who is off). A placement on a company holiday, or over a
+     partial day off (a request with times), is still judged (hardening
+     pass, Oct 15 2026): the bell line and the cell say what it was
+     scheduled over. A punch whose job category classes as leave
      (timeclock._leave_class: sick / vacation / personal) is NOT a clock-
      in: the scan treats the person as on leave (excused, never "came in").
      A person is judged ONCE per day, on the earliest live placement
@@ -64,7 +65,8 @@ tile and the Workforce Scorecard:
      that crosses midnight is judged by its own end (wall clock in the
      shift's zone, so a 10 PM - 6 AM shift across a DST change ends when
      the clock on the wall says 6:00 - shift_expect.end_utc), never by the
-     calendar date turning. A judged cell over approved time off or a
+     calendar date turning. A full day of approved time off is `excused`
+     (excuse time_off); a judged cell over a partial day off or a
      holiday says so (`over`); a day with a leave punch is `excused` with
      the leave class as its excuse. No pay figure appears anywhere in it.
      `for_viewer` strips the stamps and minutes from everyone else's cells
@@ -262,8 +264,9 @@ def _leave_class(category: str) -> str:
 OVER_TEXT = {"time_off": "scheduled over approved time off", "holiday": "scheduled over a company holiday"}
 
 
-def _leave_dates(db: Session, emails: list, start: str, end: str) -> set:
-    """{(email, date)} covered by approved time off inside [start, end]."""
+def _leave_dates(db: Session, emails: list, start: str, end: str, full_day: bool = False) -> set:
+    """{(email, date)} covered by approved time off inside [start, end];
+    `full_day` skips partial-day requests (ones with a start or end time)."""
     if not emails:
         return set()
     out = set()
@@ -276,6 +279,8 @@ def _leave_dates(db: Session, emails: list, start: str, end: str) -> set:
         try:
             a, b = date.fromisoformat((r.start_date or "")[:10]), date.fromisoformat((r.end_date or "")[:10])
         except ValueError:
+            continue
+        if full_day and ((r.start_time or "").strip() or (r.end_time or "").strip()):
             continue
         a, b = max(a, d0), min(b, d1)
         em = (r.employee_email or "").lower()
@@ -590,6 +595,7 @@ def noshow_scan(db: Session, now_utc: datetime = None) -> dict:
                    if company_ids else {})
     _recipient_people(db, people, groups, hr_contacts)
     leave = _leave_dates(db, emails, dates[0], dates[-1])
+    off_all_day = _leave_dates(db, emails, dates[0], dates[-1], full_day=True)
     holidays = _holiday_dates(db, {em: people[em] for em in emails if em in people}, dates[0], dates[-1])
     punch_dates = sorted(set(dates) | {a.work_date for a in open_alerts + unsettled if a.work_date})
     punches = _in_punches(db, emails, punch_dates,
@@ -606,6 +612,8 @@ def noshow_scan(db: Session, now_utc: datetime = None) -> dict:
         person = people.get(em)
         if not _scheduled(person) or em in exempt:
             continue
+        if (em, work_date) in off_all_day:
+            continue    # a full day of approved time off supersedes the shift (Neil, 11/09/2026)
         on_leave = (em, work_date) in leave
         on_holiday = (em, work_date) in holidays
         if usual_exp is not None and (on_leave or on_holiday):
@@ -911,6 +919,7 @@ def actuals(db: Session, emails: Iterable[str], start: str, end: str, now_utc: d
     settings = _settings_by_company(db)
     presets = _presets(db, rows)
     leave = _leave_dates(db, emails_l, start, end)
+    off_all_day = _leave_dates(db, emails_l, start, end, full_day=True)
     holidays = _holiday_dates(db, people, start, end)
     by_day: dict = {}
     for r in rows:
@@ -955,6 +964,8 @@ def actuals(db: Session, emails: Iterable[str], start: str, end: str, now_utc: d
         leave_cls = _leave_class_on(punches.get(em), work_date)
         if em in exempt:
             cell["status"] = "exempt"
+        elif (em, work_date) in off_all_day:
+            cell["status"], cell["excuse"], cell["over"] = "excused", "time_off", ""
         elif exp is None:
             cell["status"], cell["excuse"] = "excused", "weather"
         elif leave_cls:
