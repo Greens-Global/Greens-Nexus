@@ -3409,6 +3409,12 @@ export const api = {
   // The weather follows the jobsite (10/30/2026): "+ New Jobsite" in the
   // shift popup - a name and an address make a Construction project.
   createJobsite: (data) => req("/timeclock/jobsites", { method: "POST", body: JSON.stringify(data) }),
+  // Diagram From a Sentence (Neil, 11/08/2026): OFF - the setting reads
+  // { diagramAiEnabled, aiAvailable } and the route answers 403 ai_off unless
+  // AI is on for Nexus AND a Super Administrator turned this on.
+  getDiagramAiSettings: () => req("/notes/diagram/settings"),
+  setDiagramAiSettings: (diagramAiEnabled) => req("/notes/diagram/settings", { method: "PUT", body: JSON.stringify({ diagramAiEnabled }) }),
+  diagramFromSentence: (sentence) => req("/notes/diagram/from-sentence", { method: "POST", body: JSON.stringify({ sentence }), timeoutMs: 90_000 }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with

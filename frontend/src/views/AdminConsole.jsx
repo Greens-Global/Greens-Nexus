@@ -86,6 +86,7 @@ import {
   Workflow,
   CalendarDays,
   CalendarOff,
+  PenTool,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -158,6 +159,8 @@ const fromBranding = lazyFrom(() => import('./BrandingPoliciesSettings'));
 const BrandColorPanel = fromBranding('BrandColorPanel');
 const EmailAppearancePanel = fromBranding('EmailAppearancePanel');
 const SignInPolicyPanel = fromBranding('SignInPolicyPanel');
+// Notes & Boards > Diagram From a Sentence (Neil, 11/08/2026): OFF while AI is off.
+const DiagramAiSettings = lazy(() => import('../notes/board/diagram/DiagramAiSettings'));
 // Shifts (Oct 2026): the settings, shift types and groups that used to be a
 // Shifts tab - one self-contained module, three sections.
 const fromShifts = lazyFrom(() => import('../components/shifts/ShiftSettingsSections'));
@@ -270,6 +273,9 @@ const SUBJECTS = [
   // Workflows (Oct 28 2026): the one cross-module automation engine.
   { key: 'workflows', section: 'ops', label: 'Workflows',           Icon: Workflow, faces: 'both',
     desc: 'Automations across every module: the switches, the ceilings and the owner digest.' },
+  // Notes & Boards (Neil, 11/08/2026): what the boards may do for everyone.
+  { key: 'notes', section: 'ops', label: 'Notes & Boards',        Icon: PenTool, faces: 'org',
+    desc: 'What the whiteboards in Notes may do for everyone.' },
 ];
 const SUBJECT_KEYS = new Set(SUBJECTS.map(s => s.key));
 // The rail's four sections (Oct 25). `wide` subjects (whole screens: the
@@ -614,6 +620,12 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['workflows', 'full'] },
     sub: 'Whether workflows run for a company, the per-hour and recipient ceilings, the weekly owner digest, and the organization-wide pause.',
     keywords: 'workflows automation pause switch ceilings digest webhooks' },
+  // Notes & Boards (Neil, 11/08/2026): an extra OFF gate on the board's AI -
+  // a Super Administrator's alone, and it cannot go on while AI is off for Nexus.
+  { id: 'diagram-ai', subject: 'notes', face: 'org', scope: 'org', icon: PenTool, title: 'Diagram From a Sentence', flush: true,
+    needs: { role: 'administrator', orgWide: true },
+    sub: 'Whether people drawing on a board may describe a diagram in a sentence for Nexus to write. Off until AI is turned on for Nexus.',
+    keywords: 'notes boards whiteboard diagram ai sentence describe draw' },
 ];
 const GROUP_META = Object.fromEntries(GROUPS.map(g => [g.id, g]));
 // The groups in page order: a subject with an `order` lists its groups in
@@ -2039,6 +2051,7 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
       case 'brand-color':          return <LazyPanelSection key={key} id={id} Panel={BrandColorPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'email-appearance':     return <LazyPanelSection key={key} id={id} Panel={EmailAppearancePanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'signin-policy':        return <LazyPanelSection key={key} id={id} Panel={SignInPolicyPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'diagram-ai':           return <LazyPanelSection key={key} id={id} Panel={DiagramAiSettings} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'access':
         return (
           <Group key={key} {...g} {...chrome}>
