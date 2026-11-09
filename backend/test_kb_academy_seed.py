@@ -376,3 +376,23 @@ def test_course_without_a_fingerprint_last_written_by_the_content_pass_counts_as
     blocks, _, c = _first_text(db, "Nexus Fundamentals")
     assert "Third words." in blocks
     assert db.get(models.NexusSetting, kb_academy_seed.PREV_PREFIX + c.id)   # what it had is kept, recoverable
+
+
+def test_previous_package_match(tmp_path, monkeypatch):
+    """A course with no fingerprint (e.g. published as imported) counts as
+    untouched only while every text lesson is still the old package's."""
+    import hashlib
+    import json as _json
+    import kb_academy_seed as s
+    blocks = {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Old words"}]}]}
+    fig = {"type": "figure", "attrs": {"kind": "steps"}}
+    h = hashlib.sha256(_json.dumps(s._without_figures(blocks), sort_keys=True).encode()).hexdigest()[:24]
+    f = tmp_path / "prev.json"
+    f.write_text(_json.dumps({"courses": {"Course A": [h]}}))
+    monkeypatch.setattr(s, "PREV_LESSONS", f)
+    with_fig = {"type": "doc", "content": blocks["content"] + [fig]}
+    assert s._matches_previous_package("Course A", {"lessons": [{"type": "text", "blocks": with_fig}, {"type": "checkpoint"}]})
+    edited = {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Edited"}]}]}
+    assert not s._matches_previous_package("Course A", {"lessons": [{"type": "text", "blocks": blocks}, {"type": "text", "blocks": edited}]})
+    assert not s._matches_previous_package("Course B", {"lessons": [{"type": "text", "blocks": blocks}]})
+    assert not s._matches_previous_package("Course A", {"lessons": []})

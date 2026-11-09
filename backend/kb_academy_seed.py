@@ -12,6 +12,7 @@ Fields mirror routers/kb.py create_page and routers/kb_training.py
 create_course.
 """
 import hashlib
+from pathlib import Path
 import json
 
 from sqlalchemy import func
@@ -21,6 +22,7 @@ MARK = "kb.storage_academy_seeded_2026_11"
 PATHS_MARK = "kb.learning_paths_seeded_2026_11"
 CONTENT_MARK = "kb.academy_content"   # value = the package digest
 FP_PREFIX = "kb.academy_fp:"          # + course id; value = _fp of the draft the importer last wrote
+PREV_LESSONS = Path(__file__).parent / "kb_seed" / "academy_prev_lessons.json"
 PREV_PREFIX = "kb.academy_prev:"      # + course id; the draft an unfingerprinted course had before the importer replaced it
 # The Academy plan as the onboarding path (Neil, 11/07/2026): four stages, the
 # six courses in order. Index = the course's position in kb_academy.ORDER.
@@ -267,9 +269,27 @@ def _untouched(db: Session, c, draft: dict, mark) -> bool:
     row = db.get(NexusSetting, FP_PREFIX + c.id)
     if row is not None:
         return _fp(draft) == row.value
+    if _matches_previous_package(c.title, draft):   # e.g. published as imported: its text is still the package's
+        return True
     if c.major or not c.updated_at:
         return False
     return _near(c.updated_at, c.created_at or "") or (mark is not None and _near(c.updated_at, mark.updated_at or ""))
+
+
+def _matches_previous_package(title: str, draft: dict) -> bool:
+    """A course with no fingerprint whose every text lesson (figures left
+    out) is word for word a lesson of the package shipped before 11/08/2026
+    (kb_seed/academy_prev_lessons.json) - nobody rewrote it, even if it was
+    published. Its draft is replaced and the old one kept (PREV_PREFIX);
+    the live version is never touched."""
+    try:
+        known = set(json.loads(PREV_LESSONS.read_text(encoding="utf-8"))["courses"].get(title) or [])
+    except (OSError, ValueError, KeyError):
+        return False
+    texts = [L for L in draft.get("lessons") or [] if L.get("type") == "text"]
+    return bool(known) and bool(texts) and all(
+        hashlib.sha256(json.dumps(_without_figures(L.get("blocks") or {}), sort_keys=True).encode()).hexdigest()[:24] in known
+        for L in texts)
 
 
 def apply_content_once(db: Session) -> dict | None:
