@@ -5923,3 +5923,5 @@ from routers import construction_subs as construction_subs_router  # noqa: E402 
 app.include_router(construction_subs_router.router)  # Construction: subs on a job (Intacct vendors through Accounting) and their papers (Round Two item 7, 11/05/2026)
 from routers import construction_drawings as construction_drawings_router  # noqa: E402 - construction_drawings: create_all + explicit RLS line
 app.include_router(construction_drawings_router.router)  # Construction: the drawing register, current set and superseded revisions (Round Two item 9, 11/06/2026)
+from routers import notes_diagram as notes_diagram_router  # noqa: E402 - one nexus_settings row, no new table
+app.include_router(notes_diagram_router.router)  # Notes boards: Diagram From a Sentence - OFF unless AI is on for Nexus AND a Super Administrator turns it on (Neil, 11/08/2026)

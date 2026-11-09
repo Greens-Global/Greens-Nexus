@@ -173,7 +173,7 @@ describe('AdminConsole', () => {
     expect(screen.getByLabelText('Applies To')).toHaveValue('');
     const names = within(rail()).getAllByRole('button').filter(b => b.classList.contains('nx-set-rail-item')).map(b => b.textContent);
     expect(names).toEqual(['Companies', 'Locations', 'People & Access', 'Security', 'Branding & Email', 'Emails & Reminders',
-      'Tickets', 'Time & Pay', 'Time Off & Leave', 'Workforce Analytics', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Performance', 'Items & Equipment', 'Operations', 'Workflows']);
+      'Tickets', 'Time & Pay', 'Time Off & Leave', 'Workforce Analytics', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Performance', 'Items & Equipment', 'Operations', 'Workflows', 'Notes & Boards']);
     expect(screen.queryByText('For every company')).not.toBeInTheDocument();
   });
 
@@ -1090,5 +1090,32 @@ describe('AdminConsole walls, review follow-ups', () => {
     render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
     await waitFor(() => new Promise(r => setTimeout(r, 20)));   // the desk role has answered
     expect(within(rail()).queryByRole('button', { name: 'Tickets' })).not.toBeInTheDocument();
+  });
+});
+
+describe('AdminConsole, Diagram From a Sentence (Neil, 11/08/2026)', () => {
+  it('is a Super Administrator group whose switch cannot go on while AI is off', async () => {
+    apiOverrides.getDiagramAiSettings = () => Promise.resolve({ diagramAiEnabled: false, aiAvailable: false });
+    const set = vi.fn(() => Promise.resolve({ diagramAiEnabled: true, aiAvailable: true }));
+    apiOverrides.setDiagramAiSettings = set;
+    asRole('owner', { isGlobalAdmin: true });
+    render(<AdminConsole activeSub="notes" onSubChange={() => {}} />);
+    const sw = await screen.findByRole('switch', { name: 'Diagram From a Sentence' }, { timeout: 5000 });
+    expect(sw).toBeDisabled();
+    expect(sw).not.toBeChecked();
+    expect(screen.getByText(/A Super Administrator \(Neil or Visesh\) must enable AI for Nexus and connect an AI service first/)).toBeInTheDocument();
+    fireEvent.click(sw);
+    expect(set).not.toHaveBeenCalled();
+    expect(within(rail()).getByRole('button', { name: /Notes & Boards/ })).toBeInTheDocument();
+  });
+
+  it('is not there for an Administrator, walled or not', () => {
+    for (const extra of [{}, { hrScope: ['c1'], manageCompanies: ['c1'], companyWalled: true }]) {
+      asRole('administrator', extra);
+      render(<AdminConsole activeSub="notes" onSubChange={() => {}} />);
+      expect(screen.queryByRole('switch', { name: 'Diagram From a Sentence' })).not.toBeInTheDocument();
+      expect(within(rail()).queryByRole('button', { name: /Notes & Boards/ })).not.toBeInTheDocument();
+      cleanup();
+    }
   });
 });

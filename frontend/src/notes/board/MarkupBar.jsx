@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   MousePointer2, Hand, PenLine, Highlighter, MoveUpRight, Square, Type, MessageSquarePlus, Eraser,
   Undo2, Redo2, Trash2, MoreHorizontal, Check, Circle, Diamond, Minus, ImagePlus, Frame, Pointer, Shapes, SlidersHorizontal, ChevronDown,
-  Workflow, RectangleHorizontal, StickyNote, FileText, Users, ListTree, RefreshCw, ArrowDownNarrowWide, ArrowRightLeft, FileSymlink,
+  Workflow, RectangleHorizontal, StickyNote, FileText, Users, ListTree, RefreshCw, ArrowDownNarrowWide, ArrowRightLeft, FileSymlink, Network,
 } from 'lucide-react';
 import { MARKUP_TOOLS, MORE_TOOLS, MARKUP_COLORS, MARKUP_SIZES, colorByKey, isMoreTool } from './markupTools';
 
@@ -39,6 +39,7 @@ const DIAGRAM_ROWS = [
   { key: 'org', label: 'Org Chart from People', Icon: Users },
   { key: 'workflow', label: 'Workflow as Diagram', Icon: Workflow },
   { key: 'tasks', label: 'Task Dependencies', Icon: ListTree },
+  { key: 'systems', label: 'Systems Map', Icon: Network },
   { kicker: 'Arrange' },
   { key: 'tidy:TB', label: 'Tidy Up: Top to Bottom', Icon: ArrowDownNarrowWide, needs: 'tidy' },
   { key: 'tidy:LR', label: 'Tidy Up: Left to Right', Icon: ArrowRightLeft, needs: 'tidy' },
