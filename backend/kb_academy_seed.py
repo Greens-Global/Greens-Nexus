@@ -12,6 +12,7 @@ Fields mirror routers/kb.py create_page and routers/kb_training.py
 create_course.
 """
 import hashlib
+from functools import lru_cache
 from pathlib import Path
 import json
 
@@ -28,6 +29,10 @@ PREV_PREFIX = "kb.academy_prev:"      # + course id; the draft an unfingerprinte
 # six courses in order. Index = the course's position in kb_academy.ORDER.
 ACADEMY_STAGES = ["Week 1: Nexus and the Business", "Week 2: Storage and Cubby", "Weeks 3 and 4: Serving and Selling", "Sign-Off"]
 ACADEMY_STAGE_OF = [0, 0, 1, 1, 2, 3]
+# The package's path order before Cubby moved third (11/08/2026). A path still
+# exactly in this order was never reordered by a person, so it may follow the new one.
+PREV_PLAN_ORDER = ["nexus-fundamentals", "self-storage-fundamentals", "rv-boat-storage-fundamentals", "cubby-fundamentals",
+                   "customer-service-sales-fundamentals", "hands-on-check"]
 COLLECTION = "Greens Storage Academy"
 DEPT = "Operations"
 FALLBACK_OWNER = "neil@greensglobal.com"
@@ -181,32 +186,31 @@ def _plan_audience(plan: dict) -> str:
 
 
 def _sync_plan(db: Session, a, by_slug: dict) -> bool:
-    """Keep the Academy path in step with the package without undoing a
-    person's choices: a blank audience takes the package's, and when the
-    path still holds exactly the package's courses they follow its order
-    (stages too). Returns whether it changed."""
+    """Move the Academy path to the package's new order ONLY while nobody
+    reordered it: its courses are exactly the previous package order
+    (PREV_PLAN_ORDER) and its stages are still ACADEMY_STAGES. Never touches
+    the audience - kb_daily assigns a path to its whole audience, so the
+    package's audience is set only when apply_once creates the (inactive)
+    plan. Returns whether it changed."""
     from models import KbTrainingPlan
     import kb_core
     plan = db.query(KbTrainingPlan).filter(KbTrainingPlan.name == (a.plan.get("name") or "")[:200]).first() if a.plan else None
     if plan is None:
         return False
-    changed = False
-    want = _plan_audience(a.plan)
-    if want and not (plan.audience or "").strip("{} "):
-        plan.audience, changed = want, True
     ids = [by_slug[s] for s in a.plan.get("courses") or [] if s in by_slug]
+    prev = [by_slug[s] for s in PREV_PLAN_ORDER if s in by_slug]
     try:
         items = json.loads(plan.items or "[]")
+        stages = json.loads(plan.stages or "[]")
     except ValueError:
-        return changed
-    have = [it.get("id") for it in items if isinstance(it, dict) and it.get("kind") == "course"]
-    if len(items) == len(ids) and sorted(have) == sorted(ids) and have != ids:
-        plan.items = json.dumps([{"kind": "course", "id": i, "stage": ACADEMY_STAGE_OF[n] if n < len(ACADEMY_STAGE_OF) else -1}
-                                 for n, i in enumerate(ids)])
-        changed = True
-    if changed:
-        plan.updated_at = kb_core.now()
-    return changed
+        return False
+    have = [it.get("id") if isinstance(it, dict) and it.get("kind") == "course" else None for it in items]
+    if have != prev or stages != ACADEMY_STAGES or prev == ids or sorted(prev) != sorted(ids):
+        return False
+    plan.items = json.dumps([{"kind": "course", "id": i, "stage": ACADEMY_STAGE_OF[n] if n < len(ACADEMY_STAGE_OF) else -1}
+                             for n, i in enumerate(ids)])
+    plan.updated_at = kb_core.now()
+    return True
 
 
 def apply_paths_once(db: Session) -> dict | None:
@@ -263,11 +267,15 @@ def _no_qids(lessons: list) -> list:
 
 
 def _fp(draft: dict) -> str:
-    """What the importer owns in a draft: lessons, quiz (drawCount included)
-    and teaches. Question ids are left out - they are minted per normalize."""
+    """What the importer writes into a draft: lessons, quiz (drawCount
+    included), teaches, description, overview and est_minutes - an author's
+    edit to any of them reads as edited. Question ids are left out - they
+    are minted per normalize."""
     quiz = dict(draft.get("quiz") or {})
     quiz["questions"] = [{k: v for k, v in q.items() if k != "_id"} for q in quiz.get("questions") or []]
-    body = {"lessons": _no_qids(draft.get("lessons") or []), "quiz": quiz, "teaches": draft.get("teaches") or ""}
+    body = {"lessons": _no_qids(draft.get("lessons") or []), "quiz": quiz, "teaches": draft.get("teaches") or "",
+            "description": draft.get("description") or "", "overview": draft.get("overview") or [],
+            "est_minutes": int(draft.get("est_minutes") or 0)}
     return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
 
 
@@ -282,14 +290,14 @@ def _stamp(db: Session, course_id: str, draft: dict):
         row.value, row.updated_at = _fp(draft), kb_core.now()
 
 
-def _near(a: str, b: str) -> bool:
+def _near(a: str, b: str, within: float = 60) -> bool:
     from datetime import datetime, timezone
 
     def _t(v: str):
         d = datetime.fromisoformat(v)
         return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
     try:
-        return abs((_t(a) - _t(b)).total_seconds()) < 60
+        return abs((_t(a) - _t(b)).total_seconds()) < within
     except (TypeError, ValueError):
         return False
 
@@ -300,8 +308,10 @@ def _untouched(db: Session, c, draft: dict, mark) -> bool:
     draft - or, once published with no draft pending, the live version -
     still equals what it wrote; a publish of that same content keeps it
     untouched. Without one (older rows), the last write was the importer's:
-    updated_at within a minute of created_at (the first run) or of the last
-    content pass (the mark), and never published."""
+    updated_at within a minute of created_at (the first run) or within two
+    seconds of the last content pass (the mark: the pass stamps both in one
+    transaction, so a person's save a few seconds later is a person's), and
+    never published."""
     from models import NexusSetting
     row = db.get(NexusSetting, FP_PREFIX + c.id)
     if row is not None:
@@ -310,23 +320,52 @@ def _untouched(db: Session, c, draft: dict, mark) -> bool:
         return True
     if c.major or not c.updated_at:
         return False
-    return _near(c.updated_at, c.created_at or "") or (mark is not None and _near(c.updated_at, mark.updated_at or ""))
+    return _near(c.updated_at, c.created_at or "") or (mark is not None and _near(c.updated_at, mark.updated_at or "", within=2))
+
+
+def _h(v) -> str:
+    return hashlib.sha256(json.dumps(v, sort_keys=True).encode()).hexdigest()[:24]
+
+
+def _qtexts(qs) -> list:
+    return [str(q.get("q") or "").strip()[:600] for q in qs or [] if isinstance(q, dict)]
+
+
+def lesson_sequence(lessons: list) -> list:
+    """[type, title, hash] per lesson, in order, of what survives the
+    normalizer: text = its blocks with the figures out, checkpoint = its
+    questions' words, page = its title (the draft keeps no slug)."""
+    out = []
+    for L in lessons or []:
+        t, title = L.get("type"), str(L.get("title") or "Lesson")[:200]
+        body = _without_figures(L.get("blocks") or {}) if t == "text" else _qtexts(L.get("questions")) if t == "checkpoint" else title
+        out.append([t, title, _h(body)])
+    return out
+
+
+def quiz_hash(quiz: dict) -> str:
+    return _h(_qtexts((quiz or {}).get("questions")))
+
+
+@lru_cache(maxsize=4)
+def _prev_courses(path: str) -> dict:
+    """The previous package's courses, read once (keyed by path, so a test's file is its own)."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))["courses"]
+    except (OSError, ValueError, KeyError):
+        return {}
 
 
 def _matches_previous_package(title: str, draft: dict) -> bool:
-    """A course with no fingerprint whose every text lesson (figures left
-    out) is word for word a lesson of the package shipped before 11/08/2026
-    (kb_seed/academy_prev_lessons.json) - nobody rewrote it, even if it was
-    published. Its draft is replaced and the old one kept (PREV_PREFIX);
-    the live version is never touched."""
-    try:
-        known = set(json.loads(PREV_LESSONS.read_text(encoding="utf-8"))["courses"].get(title) or [])
-    except (OSError, ValueError, KeyError):
+    """A course with no fingerprint whose lessons (type, title, content -
+    figures left out) and final quiz questions are exactly those of the
+    package shipped before 11/08/2026 (kb_seed/academy_prev_lessons.json) -
+    nobody rewrote it, even if it was published. Its draft is replaced and
+    the old one kept (PREV_PREFIX); the live version is never touched."""
+    want = _prev_courses(str(PREV_LESSONS)).get(title)
+    if not want or not draft.get("lessons"):
         return False
-    texts = [L for L in draft.get("lessons") or [] if L.get("type") == "text"]
-    return bool(known) and bool(texts) and all(
-        hashlib.sha256(json.dumps(_without_figures(L.get("blocks") or {}), sort_keys=True).encode()).hexdigest()[:24] in known
-        for L in texts)
+    return lesson_sequence(draft["lessons"]) == want.get("lessons") and quiz_hash(draft.get("quiz")) == want.get("quiz")
 
 
 def apply_content_once(db: Session) -> dict | None:

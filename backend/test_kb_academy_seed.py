@@ -230,7 +230,7 @@ def test_content_pass_refreshes_untouched_courses_and_figures_in_touched_ones(_p
         assert has == (title != "Hands On Check"), title
     d = json.loads(db.get(models.KbCourse, courses["Nexus Fundamentals"].id).draft)
     assert [L["title"] for L in d["lessons"]][:2] == [d["lessons"][0]["title"], "The Facility"]   # the new lesson landed, in place
-    assert d["lessons"][1]["_id"] == "l_nexus-fundamentals_02"
+    assert d["lessons"][1]["_id"] == "l_nexus-fundamentals_01a"   # by file name: the lessons after it keep theirs
     assert db.get(models.KbCourse, courses["Nexus Fundamentals"].id).teaches == "Workday, Time Clock"
     assert kb_academy_seed.apply_content_once(db) is None   # the package did not change
     # the package grows a course (the code's ORDER grows with it): the pass imports it as a draft
@@ -378,49 +378,124 @@ def test_course_without_a_fingerprint_last_written_by_the_content_pass_counts_as
     assert db.get(models.NexusSetting, kb_academy_seed.PREV_PREFIX + c.id)   # what it had is kept, recoverable
 
 
+def _prev_file(tmp_path, monkeypatch, lessons, quiz):
+    import kb_academy_seed as s
+    f = tmp_path / "prev.json"
+    f.write_text(json.dumps({"courses": {"Course A": {"lessons": s.lesson_sequence(lessons), "quiz": s.quiz_hash(quiz)}}}))
+    monkeypatch.setattr(s, "PREV_LESSONS", f)
+
+
 def test_previous_package_match(tmp_path, monkeypatch):
     """A course with no fingerprint (e.g. published as imported) counts as
-    untouched only while every text lesson is still the old package's."""
-    import hashlib
-    import json as _json
+    untouched only while its lessons, in order, and its quiz are exactly the
+    old package's (figures aside)."""
     import kb_academy_seed as s
-    blocks = {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Old words"}]}]}
+    words = {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Old words"}]}]}
+    lessons = [{"type": "text", "title": "One", "blocks": words},
+               {"type": "checkpoint", "title": "Check", "questions": [{"q": "Q1?"}, {"q": "Q2?"}]},
+               {"type": "page", "title": "Gate Codes", "docId": "kb1"},
+               {"type": "text", "title": "Two", "blocks": words}]
+    quiz = {"questions": [{"q": "F1?", "_id": "q1"}, {"q": "F2?", "_id": "q2"}]}
+    _prev_file(tmp_path, monkeypatch, lessons, quiz)
+
+    def same(ls, qz=quiz, title="Course A"):
+        return s._matches_previous_package(title, {"lessons": ls, "quiz": qz})
     fig = {"type": "figure", "attrs": {"kind": "steps"}}
-    h = hashlib.sha256(_json.dumps(s._without_figures(blocks), sort_keys=True).encode()).hexdigest()[:24]
-    f = tmp_path / "prev.json"
-    f.write_text(_json.dumps({"courses": {"Course A": [h]}}))
-    monkeypatch.setattr(s, "PREV_LESSONS", f)
-    with_fig = {"type": "doc", "content": blocks["content"] + [fig]}
-    assert s._matches_previous_package("Course A", {"lessons": [{"type": "text", "blocks": with_fig}, {"type": "checkpoint"}]})
-    edited = {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Edited"}]}]}
-    assert not s._matches_previous_package("Course A", {"lessons": [{"type": "text", "blocks": blocks}, {"type": "text", "blocks": edited}]})
-    assert not s._matches_previous_package("Course B", {"lessons": [{"type": "text", "blocks": blocks}]})
-    assert not s._matches_previous_package("Course A", {"lessons": []})
+    with_fig = [dict(lessons[0], blocks={"type": "doc", "content": words["content"] + [fig]})] + lessons[1:]
+    assert same(with_fig, {"questions": [{"q": "F1?", "_id": "x"}, {"q": "F2?", "_id": "y"}]})   # figures and fresh question ids: still the package's
+    assert not same(lessons, {"questions": [{"q": "F1?"}, {"q": "F2 edited?"}]})   # an edited quiz question
+    assert not same(lessons[:-1])                                                  # a removed lesson
+    assert not same([dict(lessons[0], title="Renamed")] + lessons[1:])             # a renamed lesson
+    assert not same([lessons[0], dict(lessons[1], questions=[{"q": "Q1?"}, {"q": "Changed?"}])] + lessons[2:])   # an edited checkpoint
+    assert not same(lessons[1:] + lessons[:1])                                     # reordered
+    assert not same(lessons, title="Course B")
+    assert not same([])
 
 
-def test_academy_path_takes_the_package_audience_and_order_without_undoing_a_person(_package):
+def test_academy_path_audience_is_never_filled_and_only_an_untouched_order_moves(_package):
     db = _package
     res = kb_academy_seed.apply_once(db)
     plan = db.get(models.KbTrainingPlan, res["plan"])
-    plan.audience = ""
-    items = json.loads(plan.items)
-    items[0], items[1] = items[1], items[0]   # an old package order
-    plan.items = json.dumps(items)
+    by_id = {c.title: c.id for c in db.query(models.KbCourse).all()}
+    slug_id = {s: by_id[s.replace("-", " ").title()] for s in kb_academy_seed.PREV_PLAN_ORDER}
+    old = [slug_id[s] for s in kb_academy_seed.PREV_PLAN_ORDER]
+    plan.audience = ""   # a plan made before the package named an audience
+    plan.items = json.dumps([{"kind": "course", "id": i, "stage": kb_academy_seed.ACADEMY_STAGE_OF[n]} for n, i in enumerate(old)])
+    db.commit()
+    kb_academy_seed.apply_content_once(db)
+    plan = db.get(models.KbTrainingPlan, plan.id)
+    assert plan.audience == ""   # kb_daily would assign it to every current Operations hire: never filled
+    new = [slug_id[s] for s in kb_academy.load(kb_academy.ROOT).plan["courses"]]
+    assert new != old and [i["id"] for i in json.loads(plan.items)] == new   # the untouched old order follows the package
+
+
+def test_academy_path_a_persons_order_or_stages_survive(_package):
+    db = _package
+    res = kb_academy_seed.apply_once(db)
+    plan = db.get(models.KbTrainingPlan, res["plan"])
+    by_id = {c.title: c.id for c in db.query(models.KbCourse).all()}
+    old = [by_id[s.replace("-", " ").title()] for s in kb_academy_seed.PREV_PLAN_ORDER]
+    mine = [old[1], old[0]] + old[2:]   # a person reordered it
+    plan.items = json.dumps([{"kind": "course", "id": i, "stage": 0} for i in mine])
+    db.commit()
+    kb_academy_seed.apply_content_once(db)
+    plan = db.get(models.KbTrainingPlan, plan.id)
+    assert [i["id"] for i in json.loads(plan.items)] == mine
+    # the old order but a person's own stages: left alone too
+    plan.items = json.dumps([{"kind": "course", "id": i, "stage": 0} for i in old])
+    plan.stages = json.dumps(["Everything"])
     db.commit()
     p = kb_academy.ROOT / "plan.json"
-    cfg = json.loads(p.read_text())
-    p.write_text(json.dumps(dict(cfg, audience={"departments": ["Operations"]})))
+    p.write_text(json.dumps(dict(json.loads(p.read_text()), description="changed")))   # a new digest: the pass runs again
     kb_academy_seed.apply_content_once(db)
     plan = db.get(models.KbTrainingPlan, plan.id)
-    assert json.loads(plan.audience)["departments"] == ["Operations"]
-    assert [i["id"] for i in json.loads(plan.items)] == [i["id"] for i in items[1::-1] + items[2:]]
-    # a person's audience and a person's course list are left exactly as they are
-    plan.audience = json.dumps({"departments": ["Construction"]})
-    mine = json.loads(plan.items)[:-1]
-    mine[0], mine[1] = mine[1], mine[0]
-    plan.items = json.dumps(mine)
+    assert [i["id"] for i in json.loads(plan.items)] == old
+
+
+def test_an_authors_description_overview_or_minutes_reads_as_edited(_package):
+    db = _package
+    kb_academy_seed.apply_once(db)
+    for title, key, val in (("Nexus Fundamentals", "description", "Mine."), ("Cubby Fundamentals", "overview", ["My point"]),
+                            ("Self Storage Fundamentals", "est_minutes", 999)):
+        c = db.query(models.KbCourse).filter(models.KbCourse.title == title).one()
+        d = json.loads(c.draft)
+        d[key] = val
+        c.draft = json.dumps(d)
     db.commit()
-    p.write_text(json.dumps(dict(cfg, audience={"departments": ["Operations"]}, description="changed")))
+    _rewrite("Hello there.", "New words.")
     kb_academy_seed.apply_content_once(db)
-    plan = db.get(models.KbTrainingPlan, plan.id)
-    assert json.loads(plan.audience)["departments"] == ["Construction"] and json.loads(plan.items) == mine
+    db.expire_all()
+    for title in ("Nexus Fundamentals", "Cubby Fundamentals", "Self Storage Fundamentals"):
+        assert "New words." not in _first_text(db, title)[0], title
+    assert "New words." in _first_text(db, "Customer Service Sales Fundamentals")[0]   # an untouched one still follows
+
+
+def test_a_save_seconds_after_the_content_pass_is_a_persons(_package):
+    db = _package
+    kb_academy_seed.apply_once(db)
+    _rewrite("Hello there.", "Second words.")
+    kb_academy_seed.apply_content_once(db)
+    db.query(models.NexusSetting).filter(models.NexusSetting.key.like(kb_academy_seed.FP_PREFIX + "%")).delete(synchronize_session=False)
+    mark = db.get(models.NexusSetting, kb_academy_seed.CONTENT_MARK)
+    c = db.query(models.KbCourse).filter(models.KbCourse.title == "Cubby Fundamentals").one()
+    from datetime import datetime, timedelta
+    c.created_at = "2026-11-01T00:00:00"   # imported days ago
+    c.updated_at = (datetime.fromisoformat(mark.updated_at) + timedelta(seconds=20)).isoformat()   # a person saved 20 s after the pass
+    db.commit()
+    assert not kb_academy_seed._untouched(db, c, json.loads(c.draft), mark)
+    c.updated_at = mark.updated_at
+    assert kb_academy_seed._untouched(db, c, json.loads(c.draft), mark)
+
+
+def test_progress_ignores_a_stale_lesson_id(_package):
+    """Rewritten lessons get new ids; an old tick in lessons_done is simply not counted."""
+    import kb_core
+    db = _package
+    kb_academy_seed.apply_once(db)
+    c = db.query(models.KbCourse).filter(models.KbCourse.title == "Nexus Fundamentals").one()
+    d = json.loads(c.draft)
+    c.lessons, c.quiz = json.dumps(d["lessons"]), json.dumps(d["quiz"])
+    prog = models.KbCourseProgress(id="prg1", course_id=c.id, user_email="a@x.com", lessons_done=json.dumps(["l_nexus-fundamentals_07", d["lessons"][0]["_id"]]),
+                                   quiz_score=None, passed=False, started_at="2026-11-01T00:00:00", completed_at="", course_major=0, unlock_rounds=0, certificate_id="")
+    st = kb_core.training_status(db, c, prog)
+    assert st["pct"] == round(100 * 1 / (len(d["lessons"]) + 1))

@@ -158,6 +158,18 @@ def test_question_lesson_links_lesson_id(tmp_path):
     a = kb_academy.load(_pkg(tmp_path, tag))
     assert kb_academy.problems(a) == []
     c = a.courses[0]
-    assert [L["_id"] for L in c.lessons] == [f"l_{c.slug}_01", f"l_{c.slug}_02", f"l_{c.slug}_03"]
+    assert [L["_id"] for L in c.lessons] == [f"l_{c.slug}_01", f"l_{c.slug}_gate-codes", f"l_{c.slug}_checkpoint-one"]   # by name, not position
     assert c.quiz["questions"][0]["lessonId"] == c.lessons[0]["_id"]
     assert c.lessons[2]["questions"][0]["lessonId"] == c.lessons[1]["_id"]
+
+
+def test_lesson_ids_stay_put_when_a_lesson_is_inserted(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    first = kb_academy.load(_pkg(tmp_path / "a")).courses[0]
+    moved = kb_academy.load(_pkg(tmp_path / "b", lambda c: c["lessons"].insert(0, {"checkpoint": "Warm Up", "questions": [_q(9)]}))).courses[0]
+    assert [L["_id"] for L in moved.lessons][1:] == [L["_id"] for L in first.lessons]   # a learner's ticks still name the same lessons
+
+
+def test_two_lessons_with_one_id_are_a_problem(tmp_path):
+    _has(_probs(tmp_path, lambda c: c["lessons"].append({"checkpoint": "Checkpoint: One", "questions": [_q(3)]})), "two lessons share the id")

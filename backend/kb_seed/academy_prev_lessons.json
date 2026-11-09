@@ -1,127 +1,815 @@
 {
- "_note": "Text-lesson fingerprints (figures left out) of the package as shipped before 11/08/2026, by course title. kb_academy_seed uses them only for a course with no fingerprint of its own: if every text lesson still matches, nobody edited it.",
+ "_note": "The package as shipped before 11/08/2026 (commit 0bdb6a3c), by course title: each lesson in order as [type, title, hash of what survives the normalizer - text blocks without figures, checkpoint question words, page title] and a hash of the final quiz's question words. kb_academy_seed uses it only for a course with no fingerprint of its own: an exact match means nobody edited it.",
  "courses": {
-  "Nexus Fundamentals": [
-   "1901fbf9fdb1cffc9f2c94e1",
-   "266ea46d95f7df147343f3e2",
-   "2899fb0d4d4bd1f5b22aaedf",
-   "6f3c0f753cd4f28e48fb1824",
-   "84d9aec5c8514646707c463d",
-   "9d8786dca9c62b02474f4d3e",
-   "a8a58f691a4eae1ca2b815d5",
-   "d0afa703771ce85d5277b86f",
-   "db5f421ec71b13324ec32d0c",
-   "dc53cc38859f12c1f5eaed3d",
-   "f244a147644451ded0c44c90",
-   "fe4e2b455152de277f14c525"
-  ],
-  "Self-Storage Fundamentals": [
-   "03dc3e14f06ba9c36e17c32b",
-   "059fdc638c6a93378fe9229f",
-   "11679e3cf2157dcade27340e",
-   "4ba010175cb645b35730a97f",
-   "8816b465bcb648e4e591fc72",
-   "8d8e6960a2bd3079245898c4",
-   "946851afe8898e5a6753e92c",
-   "9ef8f562dd2aeebc94396967",
-   "a7659159c2f16b85adbf8fb5",
-   "c5af5182be2e81dca89946a0",
-   "d2f6765fc47cf89e70b02e26",
-   "d3bee67ebaa0683b29cf3f7a",
-   "edad0ed41d34a64a5de2b7f8",
-   "f0fc92a6cb747dab68bd9a01"
-  ],
-  "RV & Boat Storage Fundamentals": [
-   "03fd8c35b969d3d4bbd1cc9f",
-   "171737b6959ed188da592d71",
-   "274b80c8a1417180cf6e1090",
-   "3c792712275f9334841e4219",
-   "4a42432b00ca7852d8edaa4f",
-   "70a1017a70538fd8ab395416",
-   "80b8e6b7c73a7c9aeff1693e",
-   "84a9808d54467b272ae98578",
-   "bf6f11fcbb82713bc93ddd9b",
-   "c35ce54f7fd3b37b3c21f563",
-   "db379aba252bb684f50a9f14",
-   "de6531aa0a70ab9c56795a7e"
-  ],
-  "Cubby Fundamentals": [
-   "82169a076762fa5b5664f3e6",
-   "ac579ee1ca02dc502831a3fd",
-   "b320ccf2c0ce054628075c73"
-  ],
-  "Customer Service & Sales Fundamentals": [
-   "0165f4ab144cabf3911d3762",
-   "0eb7dd776c6a9269f7f20fad",
-   "1825b5a828cdbae3eaa160c4",
-   "218a6d260851903cf8aa9c00",
-   "22fbd045557d11804c74268d",
-   "249afd679ef1947f467d9dd6",
-   "2c92817773a0142491587aa4",
-   "2d5098efa369750740c04578",
-   "3d5d65b445c5d091a3186c0d",
-   "52954aaa1c7cc599d35d2807",
-   "68fb02ce0cf03dcdb6a2d94f",
-   "869b45fba0526c8061c39148",
-   "93a296734dde0edc8ad13a65",
-   "d64a06df28d5f0b9c6520906",
-   "e4dc2f4353b0ada02e7c5cb0",
-   "fb6df5302ebb8c708351d20c"
-  ],
-  "Hands-On Check": [
-   "52a1d3967fbe0b2348614eaf"
-  ],
-  "Property & Vendor Management for Storage Sites": [
-   "0232b5608ece04349fee1339",
-   "1b17105f006ac1f73b144231",
-   "4892dafc5f883ec19e063955",
-   "4d68e33335813d9d4ae232fc",
-   "543995bf223572a7a61cee1c",
-   "70ed37c4bc3f78fd49c96ee3",
-   "82e7a6509e559ad557009491",
-   "91f419ba658e0f2797837173",
-   "9ea25bf1d8a80c7943239afd",
-   "cb9d1ceb1bccaedfb43d7327",
-   "d9ec1a04f53a0d1f37638f39"
-  ],
-  "Fundamentals of Accounting": [
-   "1c9fc458c20b861393fdf2c8",
-   "32f93972014ea08fa1e54108",
-   "52032b88a4e95da699ac03ac",
-   "796bba477878213083e19a56",
-   "8261ff44d5dcbbc6491e8361",
-   "991b4cff42da791adc3fd3a0",
-   "a6f2d13ef0027d19559f06bb",
-   "ba6023d8cb8c5b64c90df8ba",
-   "bb668b488e475f7ef64f9b07",
-   "cf183f255f1bf87287f292e4",
-   "e9b4a9cdf98e81fb316de78a"
-  ],
-  "Intacct Fundamentals at Greens": [
-   "19b4ff08b3dd054c47ccee23",
-   "20ee57b42e8edc48133e643c",
-   "248384d33b89d7b71915229b",
-   "2e42f93a2c82f4dd7d9a986b",
-   "366e17b86f059d2c78903484",
-   "870235e620d8cfa4308943f0",
-   "980e2ac88534fc87379d94a9",
-   "d5094436dd2c1fa8ca3d5251",
-   "ec6a3d9ea64f66cf59af79df",
-   "ff672bda4669aad5583bf283"
-  ],
-  "Leading With Nexus": [
-   "0762fa1dd8e8988c608c9246",
-   "0c371fece676ef3584370277",
-   "0ec505b483a6927c1542e64d",
-   "2419df0d39080643db28a311",
-   "2b42bbe44cbcb7664750854a",
-   "2fba3b7a83c0e451d1ba43ec",
-   "98bf131df43316e00b231b6f",
-   "b93c3d54ce8c781e288dc190",
-   "bd26c8a3636d1725a6a00f02",
-   "bf7913454b62b87ddf795ec2",
-   "d5d76ef364302a51edffdc6c",
-   "dfbfa3934883f10695b639df"
-  ]
+  "Nexus Fundamentals": {
+   "lessons": [
+    [
+     "text",
+     "Welcome to Nexus",
+     "84d9aec5c8514646707c463d"
+    ],
+    [
+     "text",
+     "Signing In and Getting Around",
+     "fe4e2b455152de277f14c525"
+    ],
+    [
+     "text",
+     "Nexus on Your Phone",
+     "d0afa703771ce85d5277b86f"
+    ],
+    [
+     "text",
+     "Your Dashboard and the Bell",
+     "9d8786dca9c62b02474f4d3e"
+    ],
+    [
+     "text",
+     "Workday: Your Home Base",
+     "2899fb0d4d4bd1f5b22aaedf"
+    ],
+    [
+     "text",
+     "Punching In, Breaks and Punching Out",
+     "266ea46d95f7df147343f3e2"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Time Clock",
+     "601a0e04ebd6b11e10f6031b"
+    ],
+    [
+     "text",
+     "Your Time Sheet",
+     "a8a58f691a4eae1ca2b815d5"
+    ],
+    [
+     "text",
+     "Schedules and Time Off",
+     "db5f421ec71b13324ec32d0c"
+    ],
+    [
+     "text",
+     "Ask HR, Reimbursements and Purchases",
+     "6f3c0f753cd4f28e48fb1824"
+    ],
+    [
+     "text",
+     "Getting Help: Tickets, Report a Problem and Forms",
+     "dc53cc38859f12c1f5eaed3d"
+    ],
+    [
+     "text",
+     "People, Equipment and Notes",
+     "1901fbf9fdb1cffc9f2c94e1"
+    ],
+    [
+     "text",
+     "Training and Policies",
+     "f244a147644451ded0c44c90"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Putting It Together",
+     "3d5dc4ca5e81bf37ab7e2639"
+    ]
+   ],
+   "quiz": "c46244b25f2b5ddad3c906d7"
+  },
+  "Self-Storage Fundamentals": {
+   "lessons": [
+    [
+     "text",
+     "Welcome to Self-Storage",
+     "edad0ed41d34a64a5de2b7f8"
+    ],
+    [
+     "text",
+     "Why People Rent",
+     "059fdc638c6a93378fe9229f"
+    ],
+    [
+     "text",
+     "The Product: Units and Sizes",
+     "a7659159c2f16b85adbf8fb5"
+    ],
+    [
+     "text",
+     "The Facility: What a Storage Site Is Made Of",
+     "946851afe8898e5a6753e92c"
+    ],
+    [
+     "text",
+     "Access, Locks and Security",
+     "8816b465bcb648e4e591fc72"
+    ],
+    [
+     "page",
+     "Greens Site Hours and Access",
+     "d0f8f4b4152660d789502f1c"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: The Product",
+     "6ad385a151d727e3de855857"
+    ],
+    [
+     "text",
+     "How a Storage Site Makes Money",
+     "8d8e6960a2bd3079245898c4"
+    ],
+    [
+     "page",
+     "Greens Fees and Charges",
+     "40476a0e024ec582a891aa05"
+    ],
+    [
+     "text",
+     "Tenant Protection and Insurance",
+     "c5af5182be2e81dca89946a0"
+    ],
+    [
+     "page",
+     "Greens Tenant Protection",
+     "e5f3f0afb3a0cd0ada09ae4b"
+    ],
+    [
+     "text",
+     "The Rental Agreement",
+     "11679e3cf2157dcade27340e"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Money and the Agreement",
+     "4d48ff6502d429e6a73c22a4"
+    ],
+    [
+     "text",
+     "Delinquency and the Lien Process",
+     "d2f6765fc47cf89e70b02e26"
+    ],
+    [
+     "page",
+     "Greens Delinquency Timeline",
+     "5c9b395501b3f3f6de0cdf25"
+    ],
+    [
+     "text",
+     "Lines You Never Cross",
+     "03dc3e14f06ba9c36e17c32b"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Liens",
+     "f47448df09a170594aa42160"
+    ],
+    [
+     "text",
+     "Running the Site: Open to Close",
+     "9ef8f562dd2aeebc94396967"
+    ],
+    [
+     "text",
+     "Safety and Emergencies",
+     "d3bee67ebaa0683b29cf3f7a"
+    ],
+    [
+     "text",
+     "Privacy and Compliance",
+     "f0fc92a6cb747dab68bd9a01"
+    ],
+    [
+     "page",
+     "Greens Privacy and Records",
+     "30d1d93021c9ea15fb13cb31"
+    ],
+    [
+     "text",
+     "Numbers That Matter and Words to Know",
+     "4ba010175cb645b35730a97f"
+    ]
+   ],
+   "quiz": "ede217c2f5e916e4c9ab7ce2"
+  },
+  "RV & Boat Storage Fundamentals": {
+   "lessons": [
+    [
+     "text",
+     "Why Vehicle Storage Matters",
+     "80b8e6b7c73a7c9aeff1693e"
+    ],
+    [
+     "text",
+     "Know the Vehicles: RVs",
+     "3c792712275f9334841e4219"
+    ],
+    [
+     "text",
+     "Know the Vehicles: Boats and Everything Else",
+     "bf6f11fcbb82713bc93ddd9b"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Vehicles",
+     "fbc46e54cdcd35d874e7c270"
+    ],
+    [
+     "text",
+     "Our Spaces: Open, Covered and Enclosed",
+     "70a1017a70538fd8ab395416"
+    ],
+    [
+     "page",
+     "Know Your Site: Escondido",
+     "db37a632f83b0c319b21e9a7"
+    ],
+    [
+     "page",
+     "Know Your Site: Fairfield",
+     "a4cf647b00932d6e4bac14e8"
+    ],
+    [
+     "page",
+     "Know Your Site: Murrieta",
+     "5814cad2f883da5decc45721"
+    ],
+    [
+     "page",
+     "Know Your Site: Temecula",
+     "91079f840babb42627b94f23"
+    ],
+    [
+     "page",
+     "Know Your Site: Valley Center",
+     "6304013c0f5cb3acef1b70e1"
+    ],
+    [
+     "text",
+     "Measuring for the Right Fit",
+     "c35ce54f7fd3b37b3c21f563"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Fit",
+     "2c44e42470f0ba51d4986285"
+    ],
+    [
+     "text",
+     "Paperwork and Move-In",
+     "84a9808d54467b272ae98578"
+    ],
+    [
+     "page",
+     "Greens Vehicle Storage Rules",
+     "26c8d6b18a2c80846baf1998"
+    ],
+    [
+     "text",
+     "Lot Rules and Risks",
+     "db379aba252bb684f50a9f14"
+    ],
+    [
+     "text",
+     "Walking the Lot",
+     "03fd8c35b969d3d4bbd1cc9f"
+    ],
+    [
+     "text",
+     "Vehicle and Boat Liens",
+     "274b80c8a1417180cf6e1090"
+    ],
+    [
+     "text",
+     "Selling Vehicle Storage",
+     "171737b6959ed188da592d71"
+    ],
+    [
+     "text",
+     "Waitlists and Upgrades",
+     "de6531aa0a70ab9c56795a7e"
+    ],
+    [
+     "text",
+     "Words to Know",
+     "4a42432b00ca7852d8edaa4f"
+    ]
+   ],
+   "quiz": "42c1818225ff5cedda4e1bf4"
+  },
+  "Cubby Fundamentals": {
+   "lessons": [
+    [
+     "text",
+     "Meet Cubby",
+     "b320ccf2c0ce054628075c73"
+    ],
+    [
+     "page",
+     "Finding Your Way Around",
+     "f983eca858a16f842265df41"
+    ],
+    [
+     "page",
+     "Leads and Reservations",
+     "24d46b70589ee8ab14d9e648"
+    ],
+    [
+     "page",
+     "The Move-In",
+     "0310e9e52b805acdab30b8f9"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Getting a Tenant In",
+     "9d796b7d9195dc2a71cd70ba"
+    ],
+    [
+     "text",
+     "How a Ledger Works",
+     "ac579ee1ca02dc502831a3fd"
+    ],
+    [
+     "text",
+     "Ledger Worked Examples",
+     "82169a076762fa5b5664f3e6"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Read the Ledger",
+     "7887467a8a1c84fd591a269e"
+    ],
+    [
+     "page",
+     "Taking Payments and Autopay",
+     "89873fc1992ba1618f2df0c8"
+    ],
+    [
+     "page",
+     "Waives, Credits and Refunds",
+     "af38faae394b2ae8a798826f"
+    ],
+    [
+     "page",
+     "Transfers",
+     "4d4c3e02bae1ddb987761e5e"
+    ],
+    [
+     "page",
+     "Move-Outs",
+     "ac268938b6d42cf7d8b4a55f"
+    ],
+    [
+     "page",
+     "Delinquency in Cubby: Overlock and Lockout",
+     "acb77f555dac29632af4c611"
+    ],
+    [
+     "page",
+     "Delinquency in Cubby: Starting a Lien",
+     "bb30aa3ceb80ceeb7e4a59e3"
+    ],
+    [
+     "page",
+     "Delinquency in Cubby: Exemptions",
+     "c28c6c141ac05c3b0d089ed9"
+    ],
+    [
+     "page",
+     "Gate Codes",
+     "9e74eb711b4f68c25aafd366"
+    ],
+    [
+     "page",
+     "Notes",
+     "28a939dccbff00d72d3f0234"
+    ],
+    [
+     "page",
+     "Tasks",
+     "7a30c0650aa7f7b1e7c0b7f5"
+    ],
+    [
+     "page",
+     "Open and Close and Reports",
+     "1f47860cfbd1c25adb8af232"
+    ]
+   ],
+   "quiz": "296fee295fb74bfe4c218d6c"
+  },
+  "Customer Service & Sales Fundamentals": {
+   "lessons": [
+    [
+     "text",
+     "Who Walks Through Our Door",
+     "d64a06df28d5f0b9c6520906"
+    ],
+    [
+     "text",
+     "The Greens Service Standard",
+     "1825b5a828cdbae3eaa160c4"
+    ],
+    [
+     "text",
+     "Why the Phone Wins or Loses Rentals",
+     "22fbd045557d11804c74268d"
+    ],
+    [
+     "text",
+     "The Nine Parts of a Sales Call",
+     "fb6df5302ebb8c708351d20c"
+    ],
+    [
+     "text",
+     "Recommending a Size",
+     "93a296734dde0edc8ad13a65"
+    ],
+    [
+     "text",
+     "The Call Score Sheet",
+     "52954aaa1c7cc599d35d2807"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: The Sales Call",
+     "2f246bf26b869eecd790dd0e"
+    ],
+    [
+     "text",
+     "Walk-Ins and the Tour",
+     "68fb02ce0cf03dcdb6a2d94f"
+    ],
+    [
+     "text",
+     "Move-In Done Right",
+     "3d5d65b445c5d091a3186c0d"
+    ],
+    [
+     "page",
+     "Greens Tenant Protection",
+     "e5f3f0afb3a0cd0ada09ae4b"
+    ],
+    [
+     "text",
+     "Online Renters and Digital Leads",
+     "249afd679ef1947f467d9dd6"
+    ],
+    [
+     "page",
+     "Leads and Reservations in Cubby",
+     "fcaa47e2484adc70634fd8a2"
+    ],
+    [
+     "text",
+     "Objections, Honestly",
+     "e4dc2f4353b0ada02e7c5cb0"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Leads and Objections",
+     "c7dc43e384182126a00e74de"
+    ],
+    [
+     "text",
+     "Existing Tenants: Payments, Rate Increases and Move-Outs",
+     "2c92817773a0142491587aa4"
+    ],
+    [
+     "page",
+     "Greens Waivers, Credits and Refunds",
+     "b3efc43a6acbeb0a3ea67063"
+    ],
+    [
+     "text",
+     "Collections With Respect",
+     "0eb7dd776c6a9269f7f20fad"
+    ],
+    [
+     "page",
+     "Greens Delinquency Timeline",
+     "5c9b395501b3f3f6de0cdf25"
+    ],
+    [
+     "text",
+     "Difficult Situations",
+     "2d5098efa369750740c04578"
+    ],
+    [
+     "page",
+     "Greens Privacy and Records",
+     "30d1d93021c9ea15fb13cb31"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Difficult Situations",
+     "2aca1f04f50dfe86c62eb6cb"
+    ],
+    [
+     "text",
+     "Reviews and Reputation",
+     "0165f4ab144cabf3911d3762"
+    ],
+    [
+     "text",
+     "Practice: Twenty Scenarios, Part 1",
+     "869b45fba0526c8061c39148"
+    ],
+    [
+     "text",
+     "Practice: Twenty Scenarios, Part 2",
+     "218a6d260851903cf8aa9c00"
+    ]
+   ],
+   "quiz": "00ea399c82f42ec6acdbd866"
+  },
+  "Hands-On Check": {
+   "lessons": [
+    [
+     "text",
+     "The Trainer's Checklist",
+     "52a1d3967fbe0b2348614eaf"
+    ]
+   ],
+   "quiz": "4f53cda18c2baa0c0354bb5f"
+  },
+  "Property & Vendor Management for Storage Sites": {
+   "lessons": [
+    [
+     "text",
+     "Property Management at a Storage Site",
+     "82e7a6509e559ad557009491"
+    ],
+    [
+     "text",
+     "The Maintenance Mindset: Preventive, Corrective, Emergency",
+     "cb9d1ceb1bccaedfb43d7327"
+    ],
+    [
+     "text",
+     "Building Systems and What Fails",
+     "d9ec1a04f53a0d1f37638f39"
+    ],
+    [
+     "text",
+     "Grounds, Paving and the Vehicle Lot",
+     "91f419ba658e0f2797837173"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: The Property",
+     "41f92611a8fb979448d7eed1"
+    ],
+    [
+     "text",
+     "Vendors: Who Does What and How to Qualify Them",
+     "4892dafc5f883ec19e063955"
+    ],
+    [
+     "text",
+     "Getting the Work Done: From Ticket to Invoice",
+     "9ea25bf1d8a80c7943239afd"
+    ],
+    [
+     "text",
+     "Inspections, Permits and Compliance",
+     "4d68e33335813d9d4ae232fc"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Vendors and Work",
+     "1c3f3d9b15456d72b434fd9a"
+    ],
+    [
+     "text",
+     "Budgets and Capital Planning",
+     "0232b5608ece04349fee1339"
+    ],
+    [
+     "text",
+     "Risk, Insurance and Incidents",
+     "543995bf223572a7a61cee1c"
+    ],
+    [
+     "text",
+     "Vendor Relationships, Performance and Ethics",
+     "1b17105f006ac1f73b144231"
+    ],
+    [
+     "text",
+     "Words to Know",
+     "70ed37c4bc3f78fd49c96ee3"
+    ]
+   ],
+   "quiz": "154d867dae6f25d939426f9d"
+  },
+  "Fundamentals of Accounting": {
+   "lessons": [
+    [
+     "text",
+     "Why the Numbers Matter",
+     "52032b88a4e95da699ac03ac"
+    ],
+    [
+     "text",
+     "The Accounting Equation and the Accounts",
+     "cf183f255f1bf87287f292e4"
+    ],
+    [
+     "text",
+     "Debits and Credits",
+     "bb668b488e475f7ef64f9b07"
+    ],
+    [
+     "text",
+     "Cash and Accrual, and the Period",
+     "ba6023d8cb8c5b64c90df8ba"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: The Books",
+     "e4973f23632cc25ef1a8e134"
+    ],
+    [
+     "text",
+     "Revenue at a Storage Company",
+     "991b4cff42da791adc3fd3a0"
+    ],
+    [
+     "text",
+     "Receivables, Delinquency and Bad Debt",
+     "32f93972014ea08fa1e54108"
+    ],
+    [
+     "text",
+     "Fixed Assets and Depreciation",
+     "796bba477878213083e19a56"
+    ],
+    [
+     "text",
+     "Payables, Cards and the Bank",
+     "1c9fc458c20b861393fdf2c8"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Revenue, Assets and Cash",
+     "abcba23fcc1c399e2edd7bb0"
+    ],
+    [
+     "text",
+     "The Close and the Three Statements",
+     "e9b4a9cdf98e81fb316de78a"
+    ],
+    [
+     "text",
+     "Budgets, Controls and the Audit",
+     "a6f2d13ef0027d19559f06bb"
+    ],
+    [
+     "text",
+     "Words to Know",
+     "8261ff44d5dcbbc6491e8361"
+    ]
+   ],
+   "quiz": "c0bd135ebdfe6cd343a88aa9"
+  },
+  "Intacct Fundamentals at Greens": {
+   "lessons": [
+    [
+     "text",
+     "One Ledger, Two Doors",
+     "870235e620d8cfa4308943f0"
+    ],
+    [
+     "text",
+     "Entities and the Company Tree",
+     "ff672bda4669aad5583bf283"
+    ],
+    [
+     "text",
+     "Dimensions: Reading One Account Many Ways",
+     "980e2ac88534fc87379d94a9"
+    ],
+    [
+     "text",
+     "Journals and Books",
+     "19b4ff08b3dd054c47ccee23"
+    ],
+    [
+     "text",
+     "The Reports and the Drill-Down",
+     "2e42f93a2c82f4dd7d9a986b"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: The Ledger and Its Reports",
+     "0710399dc6ea3d48551dd9e1"
+    ],
+    [
+     "text",
+     "Vendors, Customers and Their Records",
+     "ec6a3d9ea64f66cf59af79df"
+    ],
+    [
+     "text",
+     "The Recurring Picture: MRI, MRE, Loans and Fees",
+     "20ee57b42e8edc48133e643c"
+    ],
+    [
+     "text",
+     "Ask My Accountant and the Audit Pages",
+     "366e17b86f059d2c78903484"
+    ],
+    [
+     "text",
+     "The Dashboard, the Close and the Tools",
+     "d5094436dd2c1fa8ca3d5251"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Records, Questions and the Close",
+     "544bacb7f0eb377089cf7c69"
+    ],
+    [
+     "text",
+     "Words to Know",
+     "248384d33b89d7b71915229b"
+    ]
+   ],
+   "quiz": "51fc8fea341bce7c99cd59d6"
+  },
+  "Leading With Nexus": {
+   "lessons": [
+    [
+     "text",
+     "The Leader's Day in Nexus",
+     "dfbfa3934883f10695b639df"
+    ],
+    [
+     "text",
+     "Approvals: Deciding Well",
+     "b93c3d54ce8c781e288dc190"
+    ],
+    [
+     "text",
+     "Your Team's Time: Shifts and the Planner",
+     "2fba3b7a83c0e451d1ba43ec"
+    ],
+    [
+     "text",
+     "Reviewing and Approving Time Sheets",
+     "2b42bbe44cbcb7664750854a"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: Decisions and Time",
+     "209f37cf89308d4ea52e0cf0"
+    ],
+    [
+     "text",
+     "Workforce Analytics and the Scorecard",
+     "bd26c8a3636d1725a6a00f02"
+    ],
+    [
+     "text",
+     "Running the Desk: Tickets as a Leader",
+     "d5d76ef364302a51edffdc6c"
+    ],
+    [
+     "text",
+     "People: Hiring, Onboarding, Probation and Exits",
+     "98bf131df43316e00b231b6f"
+    ],
+    [
+     "text",
+     "Training Your Team",
+     "0ec505b483a6927c1542e64d"
+    ],
+    [
+     "text",
+     "Communicating: Announcements, Teams, Notes and Boards",
+     "2419df0d39080643db28a311"
+    ],
+    [
+     "checkpoint",
+     "Checkpoint: The Desk, People and Training",
+     "19073fd52a96fbc39bfd45cf"
+    ],
+    [
+     "text",
+     "Money and Property Views for Leaders",
+     "0c371fece676ef3584370277"
+    ],
+    [
+     "text",
+     "Access, Settings and the Leader's Record",
+     "0762fa1dd8e8988c608c9246"
+    ],
+    [
+     "text",
+     "Words to Know",
+     "bf7913454b62b87ddf795ec2"
+    ]
+   ],
+   "quiz": "2f3d250512e0adde51f850bb"
+  }
  }
 }

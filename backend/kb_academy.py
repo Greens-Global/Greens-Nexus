@@ -104,8 +104,9 @@ def load(root: Path = ROOT) -> Academy:
                     lessons.append({"type": "page", "page": L["page"], "title": L.get("title", ""), "summary": L.get("summary", "")})
                 else:
                     lessons.append({"type": "checkpoint", "title": L.get("checkpoint", ""), "questions": L.get("questions", [])})
-                # a stable id, so a question's `lesson` can point "Reread these" at it (lessonId)
-                lessons[-1]["_id"] = f"l_{slug}_{len(lessons):02d}"
+                # a stable id by name, not position, so a learner's lessons_done keeps pointing at the
+                # same lesson when lessons are added or moved (and a question's `lesson` can link to it)
+                lessons[-1]["_id"] = _lesson_id(slug, lessons[-1])
             quiz = c.get("quiz") or {}
             _link_questions(lessons, [q for L in lessons for q in L.get("questions") or []] + list(quiz.get("questions") or []))
             a.courses.append(CourseSpec(slug, c["title"], c.get("description", ""), c.get("overview", []), c.get("est_minutes", 0),
@@ -114,6 +115,12 @@ def load(root: Path = ROOT) -> Academy:
         except (OSError, ValueError, KeyError, TypeError) as e:
             a.errors.append(f"{d.parent.name}: cannot load ({type(e).__name__}: {e})")
     return a
+
+
+def _lesson_id(slug: str, L: dict) -> str:
+    """l_<course>_<file stem | page slug | checkpoint title slug>: short and URL-safe."""
+    key = Path(L["file"]).stem if L["type"] == "text" else L["page"] if L["type"] == "page" else L["title"]
+    return f"l_{slug}_{re.sub(r'[^a-z0-9]+', '-', str(key).lower()).strip('-')[:32].rstrip('-')}"
 
 
 def _lesson_keys(L: dict) -> set:
@@ -279,6 +286,8 @@ def problems(a: Academy) -> list[str]:
             if not 15 <= dc <= 40 or dc > len(qs):
                 out.append(f"{c.slug}: drawCount {dc} must be 15-40 and within the bank")
         out += _quiz_problems(f"{c.slug} quiz", qs, _norm_quiz)
+        ids = [L["_id"] for L in c.lessons]
+        out += [f"{c.slug}: two lessons share the id {i!r} (rename a file or checkpoint)" for i in sorted({i for i in ids if ids.count(i) > 1})]
         known = set().union(*(_lesson_keys(L) for L in c.lessons)) if c.lessons else set()
         for q in qs + [q for L in c.lessons for q in L.get("questions") or []]:
             if q.get("lesson") and q["lesson"] not in known:
