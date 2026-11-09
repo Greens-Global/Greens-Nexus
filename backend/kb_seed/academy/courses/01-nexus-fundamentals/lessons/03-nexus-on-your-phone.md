@@ -1,188 +1,83 @@
 ---
 title: Nexus on Your Phone
-summary: Install Nexus on your Android phone or iPhone, turn on Push to This Device, and set up your appearance.
+summary: Install Nexus on your Android phone or iPhone, turn on Push to This Device, set your appearance, and keep working with no signal.
 ---
 
-## What You'll Be Able to Do
+Priya works the lot at Fairfield and is rarely near a desk. She wants her schedule and ticket replies to reach her lock screen, and she wants to punch in from where she is standing. One minute of setup on her phone does both.
 
-- Install Nexus on your phone's home screen, on Android and on iPhone.
-- Turn on **Push to This Device** so your bell notices reach your phone.
-- Fix the most common reasons push does not work.
-- Set your appearance: Dark Mode, Navigation Motion and how the sidebar behaves.
+## Why the Phone
 
-## Why Your Phone Matters at a Greens Site
+You walk the lot, check locks and meet tenants at their units. Your phone is with you the whole time, so it is the best place for Nexus:
 
-A site team member is rarely at a desk. You walk the lot, check locks, meet a tenant at a unit, and help someone back an RV into a space. Your phone is with you the whole time, so it is the best place for Nexus:
+- You **punch in and out** where you are working, with a precise location.
+- You **take photos** for a ticket, a form or an equipment return straight from the camera.
+- You **fill a form with no signal** at the back of the lot, and it sends itself later.
+- With push on, your bell notices arrive **as phone notifications**, even when Nexus is closed.
 
-- You can **punch in and out** where you are working, with a precise location.
-- You can **take photos** for a ticket, a form or an equipment return right from the camera.
-- You can **fill a form with no signal** at the back of the lot, and it sends itself later (the Getting Help: Tickets, Report a Problem and Forms lesson).
-- With push turned on, you get your bell notices **as phone notifications**, even when Nexus is closed.
-
-Installing Nexus takes about one minute and makes all of this smoother.
-
-## Where the Phone Settings Live
-
-Open your profile menu (tap your photo or initials at the top right; on a phone you may reach it through the menu button) and tap **Profile**. Profile has these sections:
-
-| Section | What it holds |
-|---|---|
-| Appearance | Dark Mode, Theme, Navigation Motion and Sidebar |
-| Date & Time | How dates and times show for you |
-| Email Signature | Your signature for emails sent from Nexus |
-| Task Emails | Which task emails you get (if you use Tasks) |
-| Phone Notifications | **Install Nexus** and **Push to This Device** |
-| Security | Your sign-in security |
-
-This lesson uses **Phone Notifications** and **Appearance**.
+The phone settings live in your profile menu (your photo or initials), under **Profile**, then **Phone Notifications**.
 
 ## Installing Nexus
 
-Installing puts a Nexus icon on your home screen. It opens full screen like any app, without the browser's address bar. Nothing is downloaded from an app store; Nexus installs straight from the browser.
+Installing puts a Nexus icon on your home screen that opens full screen, like an app. Nothing comes from an app store.
 
-### On Android
+**On Android:** open Nexus in Chrome or Edge and sign in. Go to **Profile**, **Phone Notifications**, and tap **Install** beside **Install Nexus**. The row then reads **Installed**.
 
-1. Open Nexus in **Chrome** or **Edge** on your phone and sign in.
-2. Open **Profile**, then **Phone Notifications**.
-3. Beside **Install Nexus**, tap **Install**.
-4. Confirm when your phone asks.
-
-When it is done, the row reads **Installed** and says "Installed on this device. Open it from your home screen like any app."
-
-### On iPhone
-
-An iPhone installs web apps only from Safari, and only by hand:
-
-1. Open Nexus in **Safari** (not Chrome) and sign in.
-2. Tap the **Share** button (the square with an arrow pointing up).
-3. Scroll down and tap **Add to Home Screen**, then **Add**.
-4. Close Safari and open Nexus from the new icon on your home screen.
-
-If you open **Profile**, then **Phone Notifications** in Safari, the Install Nexus row reminds you: "In Safari, tap Share, then Add to Home Screen."
+**On iPhone:** an iPhone installs web apps only from Safari, by hand. Open Nexus in **Safari** and sign in, tap the **Share** button (the square with an arrow), then **Add to Home Screen**, then **Add**. Close Safari and open Nexus from the new icon.
 
 > [!TIP]
-> After you install, always open Nexus from the home screen icon, not from a browser tab. On an iPhone, push notifications only work in the installed app.
+> After you install, always open Nexus from the home screen icon. On an iPhone, push works only in the installed app.
 
-## Turning On Push to This Device
+## Turning On Push
 
 ```figure
-{
-  "kind": "screen",
-  "title": "Profile, Phone Notifications",
-  "device": "phone",
-  "module": "Profile",
-  "sub": "Dashboard",
-  "parts": [
-    {
-      "kind": "card",
-      "title": "Phone Notifications",
-      "rows": [
-        {
-          "label": "Install Nexus",
-          "value": "Installed",
-          "tone": "ok",
-          "n": 1
-        },
-        {
-          "label": "Push to This Device",
-          "value": "On",
-          "tone": "ok",
-          "n": 2
-        }
-      ],
-      "text": "The same notices as your bell, as notifications on this device."
-    },
-    {
-      "kind": "card",
-      "title": "Appearance",
-      "rows": [
-        {
-          "label": "Dark Mode",
-          "value": "Off"
-        },
-        {
-          "label": "Navigation Motion",
-          "value": "Company Default"
-        }
-      ]
-    }
-  ],
-  "callouts": [
-    {
-      "n": 1,
-      "text": "On Android, Install is a button here. On an iPhone, Safari's Share, then Add to Home Screen."
-    },
-    {
-      "n": 2,
-      "text": "The switch. When it will not turn on, the line under it says exactly why."
-    }
-  ]
-}
+{"kind": "screen", "title": "Profile, Phone Notifications", "device": "phone", "module": "Profile", "sub": "Dashboard", "parts": [{"kind": "card", "title": "Phone Notifications", "rows": [{"label": "Install Nexus", "value": "Installed", "tone": "ok", "n": 1}, {"label": "Push to This Device", "value": "On", "tone": "ok", "n": 2}]}], "callouts": [{"n": 1, "text": "Android: a button. iPhone: Safari, Share, Add to Home Screen."}, {"n": 2, "text": "If it will not turn on, the line under it says why."}]}
 ```
 
-Push sends the same notices as your bell to your phone as notifications. It is the bell, delivered to your pocket. It never sends anything that is not in your bell, and company-wide broadcasts do not push.
+Push sends the same notices as your bell to your phone. It never sends anything that is not in your bell, and company-wide broadcasts do not push.
 
 1. Open Nexus from the home screen icon.
-2. Open **Profile**, then **Phone Notifications**.
-3. Turn on the **Push to This Device** switch.
-4. When your phone asks to allow notifications for Nexus, tap **Allow**.
+2. Go to **Profile**, **Phone Notifications**, and turn on **Push to This Device**.
+3. When your phone asks to allow notifications, tap **Allow**.
 
-Once it is on, the row reads "The same notices as your bell, as notifications on this device." Each phone or computer is set separately, so turn it on for every device where you want notices.
+Each phone or computer is set separately. If the switch will not turn on, read the line under it:
 
-### When Push Will Not Turn On
+| It says | What to do |
+|---|---|
+| Not available in this browser. On an iPhone, install Nexus first... | Install from Safari, then open the icon. |
+| Not available on this phone. Update it to iOS 16.4 or later. | Update the phone if you can. |
+| Notifications are blocked for Nexus in this browser. | Allow Nexus in your phone's settings, then try again. |
+| Not set up for the company yet. Ask your administrator. | Nothing for you to do. The bell still works. |
 
-The description under **Push to This Device** tells you exactly what is wrong. The common messages:
-
-| Message | What it means | What to do |
-|---|---|---|
-| Not available in this browser. On an iPhone, install Nexus first and open it from the home screen. | You are in a browser tab on an iPhone. | Install Nexus (above), then open it from the icon. |
-| Not available on this phone. Update it to iOS 16.4 or later. | The iPhone is too old for web push. | Update the phone's software if you can. |
-| Notifications are blocked for Nexus in this browser. | You tapped Don't Allow earlier. | Allow notifications for Nexus in your phone's settings, then turn the switch on. |
-| Not set up for the company yet. Ask your administrator. | Push has not been switched on for Greens yet. | Nothing to do on your side. Your bell still works inside Nexus. |
-
-> [!NOTE]
-> Push is a convenience, not a replacement for the bell. If push is off for any reason, everything still waits for you in the bell when you open Nexus.
+Push is a convenience. If it is off for any reason, everything still waits in your bell.
 
 ## Appearance
 
-Appearance is about how Nexus looks for you. None of it changes what anyone else sees.
+Under **Profile**, **Appearance** changes only what you see:
 
-- **Dark Mode:** dark backgrounds across Nexus, on this device. Helpful outdoors at night or in a dim office.
-- **Theme:** the color theme of the work screens.
-- **Navigation Motion:** how the left navigation moves when you hover and click. Choose Company Default, Off, Subtle, Lively or Bold. If motion bothers you, pick Off.
-- **Sidebar:** on a computer, choose **Collapse Automatically** (the left menu folds to icons when you are not using it) or **Keep Open** (it always shows names).
+- **Dark Mode**: dark backgrounds on this device.
+- **Navigation Motion**: how the left menu moves. Pick Off if motion bothers you.
+- **Sidebar**: on a computer, **Collapse Automatically** or **Keep Open**.
 
-A pick saves the moment you make it. There is no Save button to look for.
+A pick saves the moment you make it. There is no Save button.
 
-## What Works Offline
+## With No Signal
 
-Field work does not always have signal, especially at the back of a large lot or inside a steel building. Nexus is built for that:
+At the back of a big lot or inside a steel building you may lose signal. Nexus opens on the last copy saved on your phone, and **punches**, **Workday** and **Fill a Form** keep working. What you do is saved on the phone and sends itself when signal returns. A bar at the top says what is waiting, with **Sync Now**. Getting Help: Tickets and Forms explains the bar. For now: no signal never means lost work, so never redo something because you were offline.
 
-- Nexus opens with no signal on the last copy saved on your phone.
-- **Workday**, **Fill a Form** and **punches** work offline. What you do is saved on the phone and sends itself when signal comes back.
-- A bar at the top tells you what is waiting, for example "Waiting to send" with a **Sync Now** button.
+## At Greens
 
-The Getting Help: Tickets, Report a Problem and Forms lesson covers the offline bar in detail. For now, remember: no signal does not mean lost work. Do not redo something just because you were offline.
-
-## A Greens Scenario
-
-Priya works the lot at Fairfield and wants her bell notices on her iPhone. She opens Nexus in Chrome, goes to **Profile**, then **Phone Notifications**, and sees "Not available in this browser. On an iPhone, install Nexus first and open it from the home screen."
-
-She opens Nexus in **Safari**, taps **Share**, then **Add to Home Screen**, then **Add**. She opens Nexus from the new icon, goes back to **Phone Notifications**, and turns on **Push to This Device**. Her phone asks to allow notifications; she taps **Allow**. The next time her manager shares a new schedule, a notification lands on her lock screen and tapping it opens the schedule to confirm.
+Priya opens Nexus in Chrome on her iPhone, goes to Phone Notifications and reads "Not available in this browser." She switches to Safari, taps **Share**, **Add to Home Screen**, **Add**, opens the new icon and turns on **Push to This Device**. The next time her manager shares a schedule, the notice lands on her lock screen and one tap opens it.
 
 ## Common Mistakes
 
-- **Trying to install on iPhone from Chrome.** iPhones install web apps only from Safari.
-- **Opening Nexus from a browser tab after installing.** Use the home screen icon, or push will not work on an iPhone.
-- **Tapping Don't Allow on the notification prompt.** Fix it in the phone's settings, then turn the switch on again.
-- **Assuming push replaces the bell.** It does not. The bell is the full list.
-- **Redoing work you did offline.** It is saved on the phone and sends itself.
+- **Installing on an iPhone from Chrome.** Only Safari can.
+- **Opening a browser tab after installing.** Use the icon, or push will not work on an iPhone.
+- **Tapping Don't Allow.** Fix it in the phone's settings, then turn the switch on again.
+- **Redoing work done offline.** It is saved and sends itself.
 
 ## Key Points
 
-- Install Nexus from **Profile**, then **Phone Notifications**. Android: tap **Install** in Chrome or Edge. iPhone: in Safari, **Share**, then **Add to Home Screen**.
-- Turn on **Push to This Device** and allow notifications. On an iPhone, it needs iOS 16.4 or later and the installed app.
-- Push sends the same notices as your bell. Broadcasts never push.
-- The description under the switch tells you why push is not working.
-- Appearance (Dark Mode, Navigation Motion, Sidebar) saves on the spot and only changes your view.
-- Workday, Fill a Form and punches work offline and send themselves when signal returns.
+- Install from **Profile**, **Phone Notifications**: **Install** on Android; Safari, **Share**, **Add to Home Screen** on iPhone.
+- **Push to This Device** delivers your bell to your phone. The line under the switch says why it is off.
+- Appearance saves on the spot and changes only your own view.
+- Punches, Workday and Fill a Form work with no signal and send themselves later.
