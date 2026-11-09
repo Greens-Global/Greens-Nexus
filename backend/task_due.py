@@ -241,15 +241,18 @@ def init_due(t: models.Task, actor: str) -> None:
 
 
 def record_due_change(db: Session, t: models.Task, old: str, new: str, *, actor: str,
-                      source: str = "app", note: str = "") -> dict | None:
+                      source: str = "app", note: str = "", auto: bool = False) -> dict | None:
     """Log one move of t.due_on (already written by the caller) and keep the
     count and the agreement in step. Returns the history entry, or None when
-    the date did not actually change."""
+    the date did not actually change. `auto` (automatic scheduling,
+    task_schedule 11/08/2026): the engine's move writes the history row and
+    nothing else - no extension counted, the agreement and any pending
+    proposal left exactly as they stand, no manager alert."""
     old, new = (old or "")[:10], (new or "")[:10]
     if old == new:
         return None
     actor = (actor or "").strip().lower()
-    ext = is_extension(t, old, new, source)
+    ext = False if auto else is_extension(t, old, new, source)
     entry = {"at": now_iso(), "from": old, "to": new, "by": actor,
              "source": source if source in SOURCES else "app", "extension": ext}
     if note:
@@ -262,7 +265,9 @@ def record_due_change(db: Session, t: models.Task, old: str, new: str, *, actor:
     if ext:
         t.due_extension_count = int(t.due_extension_count or 0) + 1
 
-    if source in ("proposal", "approved"):
+    if auto:
+        pass   # the engine never speaks for anyone: the negotiation stays where it was
+    elif source in ("proposal", "approved"):
         t.due_agreement, t.due_proposal = "accepted", None
     elif source != "asana":
         # An Asana edit has no Nexus actor to attribute a confirmation to, so

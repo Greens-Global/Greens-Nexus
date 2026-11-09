@@ -35,19 +35,40 @@ const addDays = (iso, n) => { const d = fromISO(iso); d.setDate(d.getDate() + n)
 const isAuto = (t) => (t?.scheduleMode || 'manual') === 'auto';
 // shortcut: weekends only here - the server's rule also skips the company's
 // holidays, so the bracket may miss a start that lands on one; it is a hint.
+const isWeekend = (d) => d.getDay() === 0 || d.getDay() === 6;
 const addWorkingDays = (iso, n) => {
   let d = fromISO(iso);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
-  for (let i = 0; i < n; i += 1) { d.setDate(d.getDate() + 1); while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); }
+  const step = n < 0 ? -1 : 1;
+  while (isWeekend(d)) d.setDate(d.getDate() + step);
+  for (let i = 0; i < Math.abs(n); i += 1) { d.setDate(d.getDate() + step); while (isWeekend(d)) d.setDate(d.getDate() + step); }
   return toISO(d);
 };
-/** The earliest start the task's predecessors allow (due + lag + 1 working day), '' with none dated. */
+/** Working days from a to b inclusive, at least 1 - a task's length. */
+const spanWorking = (a, b) => {
+  if (!a || !b) return 1;
+  let [d, e] = a <= b ? [fromISO(a), fromISO(b)] : [fromISO(b), fromISO(a)];
+  let n = 0;
+  for (; d <= e; d.setDate(d.getDate() + 1)) if (!isWeekend(d)) n += 1;
+  return Math.max(1, n);
+};
+/** The earliest start the task's predecessors allow - the server's rule per
+ *  dependency type (task_schedule._start_by): FS start = due + lag + 1,
+ *  SS start = start + lag, FF due = due + lag, SF due = start + lag (the
+ *  task's start = that due - its length + 1). '' with none dated. */
 export function earliestStart(t, lookup) {
   let best = '';
+  const span = spanWorking(t.startOn, t.dueOn);
   for (const id of t.blockedByIds || []) {
     const p = lookup(id);
-    if (!p?.dueOn) continue;
-    const s = addWorkingDays(p.dueOn, ((t.dependencyLags || {})[id] || 0) + 1);
+    const pStart = p?.startOn || p?.dueOn, pDue = p?.dueOn || p?.startOn;
+    if (!pDue) continue;
+    const lag = (t.dependencyLags || {})[id] || 0;
+    const kind = String((t.dependencyTypes || {})[id] || 'FS').toUpperCase();
+    let s;
+    if (kind === 'SS') s = addWorkingDays(pStart, lag);
+    else if (kind === 'FF') s = addWorkingDays(addWorkingDays(pDue, lag), -(span - 1));
+    else if (kind === 'SF') s = addWorkingDays(addWorkingDays(pStart, lag), -(span - 1));
+    else s = addWorkingDays(pDue, lag + 1);
     if (s > best) best = s;
   }
   return best;

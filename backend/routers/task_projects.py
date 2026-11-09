@@ -613,10 +613,11 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
     require_project_access(db, user, p, "editor" if editor_only else "owner")
     if "portfolio_id" in data:
         _require_portfolio_wall(db, user, data["portfolio_id"])
-    if "status" in data and (data["status"] or "") != (p.status or ""):
-        # A NEW status is one of the known words (a form re-sending an old
-        # row's value as it stands is left alone); who said so and when is
-        # the chip's title.
+    if "status" in data and (data["status"] or "not_started") != (p.status or "not_started"):
+        # A REAL change only, both sides read as the screen reads them ('' /
+        # None = not_started, so the Edit form saving a legacy row stamps
+        # nothing): a new status is one of the known words, and who said so
+        # and when is the chip's title.
         if data["status"] not in PROJECT_STATUSES:
             raise HTTPException(422, f"Unknown project status {data['status']!r}.")
         p.status_set_by, p.status_set_at = (user["email"] or "").lower(), now_iso()
@@ -3156,14 +3157,22 @@ def _baseline_project(db: Session, user: dict, project_id: str, min_role: str) -
     return p
 
 
-def _baseline_rows(db: Session, user: dict, p: models.TaskProject) -> list:
-    """The project's live tasks the caller may see - its own rows and every
-    subtask under them, walled and filtered exactly like the task list."""
+def _baseline_rows(db: Session, p: models.TaskProject) -> list:
+    """The project's live tasks, the FULL project: its own rows and every
+    subtask under them, each once. A baseline is the project's record, so
+    it is taken over all of it (the taker is an editor); who may read which
+    row is decided when it is read back (_readable)."""
     from routers.tasks import _live_descendants   # lazy, like this file's other routers.tasks imports
-    from routers.task_util import task_visible_to
     rows = db.query(models.Task).filter(models.Task.project_id == p.id).all()
     rows = rows + _live_descendants(db, [r.id for r in rows])
-    return [t for t in wall_tasks(db, user, rows) if task_visible_to(db, user, t)]
+    return list({t.id: t for t in rows}.values())
+
+
+def _readable(db: Session, user: dict, rows: list) -> set:
+    """The ids among `rows` the reader may see: the company wall, then the
+    task list's own visibility rule."""
+    from routers.task_util import task_visible_to
+    return {t.id for t in wall_tasks(db, user, rows) if task_visible_to(db, user, t)}
 
 
 def _snap(t: models.Task) -> dict:
@@ -3197,13 +3206,13 @@ def take_baseline(project_id: str, body: BaselineBody, user: dict = Depends(get_
     p = _baseline_project(db, user, project_id, "editor")
     if db.query(models.TaskProjectBaseline).filter(models.TaskProjectBaseline.project_id == p.id).count() >= MAX_BASELINES:
         raise HTTPException(422, f"A project keeps at most {MAX_BASELINES} baselines - delete one first.")
+    import task_due
     now = now_iso()
-    d = now[:10]
     b = models.TaskProjectBaseline(
         id=gen_id(), project_id=p.id, company_id=p.company_id or "",
-        name=(body.name or "").strip()[:80] or f"Baseline {d[5:7]}/{d[8:10]}/{d[0:4]}",
+        name=(body.name or "").strip()[:80] or f"Baseline {task_due.us_date(now)}",
         taken_at=now, taken_by=(user["email"] or "").lower(),
-        snapshot=[_snap(t) for t in _baseline_rows(db, user, p)])
+        snapshot=[_snap(t) for t in _baseline_rows(db, p)])
     db.add(b)
     db.commit()
     return baseline_to_dict(b)
@@ -3213,15 +3222,25 @@ def take_baseline(project_id: str, body: BaselineBody, user: dict = Depends(get_
 def baseline_diff(project_id: str, baseline_id: str, user: dict = Depends(get_current_user),
                   db: Session = Depends(get_db)):
     """The project now against the baseline: added, removed, moved (with the
-    due date's slip in working days - positive = later) and how many stayed."""
+    due date's slip in working days - positive = later) and how many stayed.
+    Both sides are cut to what the READER may see before they are compared,
+    so a task they cannot see is never listed - not as added, not as removed,
+    not by title; a baselined task that is gone from the project is checked
+    on its trashed row, and one no row is left for is dropped."""
     import task_schedule
     p = _baseline_project(db, user, project_id, "viewer")
     b = (db.query(models.TaskProjectBaseline)
          .filter(models.TaskProjectBaseline.id == baseline_id, models.TaskProjectBaseline.project_id == p.id).first())
     if not b:
         raise HTTPException(404, "Baseline not found")
-    current = {t.id: _snap(t) for t in _baseline_rows(db, user, p)}
-    snap = {s["id"]: s for s in (b.snapshot or []) if isinstance(s, dict) and s.get("id")}
+    live = _baseline_rows(db, p)
+    snap_all = {s["id"]: s for s in (b.snapshot or []) if isinstance(s, dict) and s.get("id")}
+    gone_ids = [i for i in snap_all if i not in {t.id for t in live}]
+    gone = (db.query(models.Task).execution_options(include_deleted=True).filter(models.Task.id.in_(gone_ids)).all()
+            if gone_ids else [])
+    readable = _readable(db, user, live + gone)
+    current = {t.id: _snap(t) for t in live if t.id in readable}
+    snap = {i: s for i, s in snap_all.items() if i in readable}
     cal = task_schedule.calendar_for(db, p)
     moved, unchanged = [], 0
     for i, s in snap.items():

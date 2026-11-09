@@ -51,6 +51,20 @@ describe('working-day arithmetic for the bracket', () => {
     expect(startsTooEarly(taskById.c, lookup)).toBe(true);
     expect(startsTooEarly(taskById.b, lookup)).toBe(false);            // auto tasks are never warned
   });
+
+  it('follows the dependency type the way the server does (SS, FF, SF)', () => {
+    const pred = () => ({ startOn: '2026-11-09', dueOn: '2026-11-11' });   // Mon - Wed
+    const two = { blockedByIds: ['a'], startOn: '2026-11-12', dueOn: '2026-11-13' };   // two working days
+    expect(earliestStart({ ...two, dependencyTypes: { a: 'SS' } }, pred)).toBe('2026-11-09');
+    expect(earliestStart({ ...two, dependencyTypes: { a: 'SS' }, dependencyLags: { a: 1 } }, pred)).toBe('2026-11-10');
+    expect(earliestStart({ ...two, dependencyTypes: { a: 'FF' } }, pred)).toBe('2026-11-10');   // due Wed, start Tue
+    expect(earliestStart({ ...two, dependencyTypes: { a: 'FF' }, dependencyLags: { a: 2 } }, pred)).toBe('2026-11-12');
+    expect(earliestStart({ ...two, dependencyTypes: { a: 'SF' }, dependencyLags: { a: 1 } }, pred)).toBe('2026-11-09');
+    expect(earliestStart({ ...two, dependencyTypes: { a: 'FS' } }, pred)).toBe('2026-11-12');
+    // A manual SS successor that starts before its predecessor starts is warned; one on the same day is not.
+    expect(startsTooEarly({ ...two, startOn: '2026-11-06', dependencyTypes: { a: 'SS' } }, pred)).toBe(true);
+    expect(startsTooEarly({ ...two, startOn: '2026-11-09', dependencyTypes: { a: 'SS' } }, pred)).toBe(false);
+  });
 });
 
 describe('TimelineView scheduling marks', () => {

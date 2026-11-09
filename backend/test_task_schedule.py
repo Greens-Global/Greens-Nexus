@@ -24,6 +24,7 @@ _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 
 from fastapi import HTTPException
+from sqlalchemy import event
 
 import cache
 import database
@@ -49,6 +50,7 @@ EDITOR = {"email": "editor@greensglobal.com", "level": 1}
 VIEWER = {"email": "viewer@greensglobal.com", "level": 1}
 OUTSIDER = {"email": "outsider@greensglobal.com", "level": 1}
 PEOPLE = (OWNER, EDITOR, VIEWER, OUTSIDER)
+ASSIGNEE_LIKE = VIEWER["email"]
 PID = "p-gate"
 
 # 2026-11-09 is a Monday; 11/14 and 11/15 the weekend; 11/16 the holiday below.
@@ -113,8 +115,9 @@ class Base(unittest.TestCase):
         kw.setdefault("created_by", OWNER["email"])
         kw.setdefault("project_id", PID)
         kw.setdefault("status", "not_started")
+        kw.setdefault("company_id", CO)
         t = models.Task(id=kw.pop("id", gen_id()), code=f"T-{gen_id()[:6]}", title=title,
-                        priority="medium", start_on=start, due_on=due, schedule_mode=mode, company_id=CO,
+                        priority="medium", start_on=start, due_on=due, schedule_mode=mode,
                         blocked_by_ids=list(blocked_by), blocking_ids=list(blocking), dependency_lags=lags or {},
                         created_at=now_iso(), modified_at=now_iso(), **kw)
         self.db.add(t)
@@ -142,6 +145,15 @@ class Base(unittest.TestCase):
             call()
         self.db.rollback()
         return e.exception.status_code
+
+    def arm_walls(self):
+        self.db.add(models.NexusSetting(key="company_walls", value="on"))
+        self.db.commit()
+        cache.settings_config.invalidate()
+
+    def history(self, t):
+        self.db.refresh(t)
+        return [h["source"] for h in (t.due_history or [])]
 
 
 class CalendarTests(unittest.TestCase):
@@ -248,12 +260,12 @@ class EngineTests(Base):
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(self.dates(b), (THU, THU))
 
-    def test_five_hundred_tasks_at_most(self):
+    def test_five_hundred_tasks_at_most_and_a_bounded_number_of_queries(self):
         a = self.task("Root", MON, MON)
         prev, chain = a, []
         for i in range(520):
             t = models.Task(id=f"c{i:03d}", code=f"C-{i}", title=f"Step {i}", status="not_started", priority="medium",
-                            start_on=MON, due_on=MON, schedule_mode="auto", company_id=CO, project_id="",
+                            start_on=MON, due_on=MON, schedule_mode="auto", company_id=CO, project_id=PID,
                             owner_email=OWNER["email"], created_by=OWNER["email"],
                             blocked_by_ids=[prev.id], blocking_ids=[], created_at=now_iso(), modified_at=now_iso())
             prev.blocking_ids = [t.id]
@@ -261,7 +273,21 @@ class EngineTests(Base):
             chain.append(t)
             prev = t
         self.db.commit()
-        moves = task_schedule.reschedule_successors(self.db, a, actor=OWNER["email"])
+        # The project's rows are read once up front, not once per task
+        # (item 8 of the review): a handful of READS for 500 moves. The
+        # writes are the moves' own - each one's activity rows go to the
+        # Workflows outbox as they are logged (one INSERT each, not counted).
+        reads = []
+
+        def count(_conn, _cursor, statement, *_a, **_k):
+            if statement.lstrip().upper().startswith("SELECT"):
+                reads.append(statement)
+        event.listen(database.engine, "before_cursor_execute", count)
+        try:
+            moves = task_schedule.reschedule_successors(self.db, a, actor=OWNER["email"])
+        finally:
+            event.remove(database.engine, "before_cursor_execute", count)
+        self.assertLess(len(reads), 40, reads[:5])
         self.db.commit()
         self.assertEqual(len(moves), task_schedule.MAX_AUTO_TASKS - 1)   # the root is one of the 500 visited
         self.assertEqual(self.dates(chain[0]), (TUE, TUE))
@@ -343,6 +369,87 @@ class EngineTests(Base):
         self.patch(a, due_on=THU)
         self.assertEqual(self.dates(b), (MON2, WED2))
 
+    # Review item 1: only what the actor may edit moves, and only what they
+    # may see is named in the answer.
+    def test_a_successor_the_actor_may_not_edit_stays_and_stops_the_walk(self):
+        self.db.add(models.TaskProject(id="p-other", name="Theirs", owner_email=OUTSIDER["email"],
+                                       access_level="restricted", company_id=CO, member_emails=[], member_roles={},
+                                       created_at=now_iso(), modified_at=now_iso(), created_by=OUTSIDER["email"]))
+        self.db.commit()
+        a = self.task("Demo", MON, TUE)
+        theirs = self.task("Their Footings", WED, THU, mode="auto", blocked_by=[a.id], project_id="p-other",
+                           owner_email=OUTSIDER["email"], created_by=OUTSIDER["email"])
+        after = self.task("Posts", FRI, FRI, mode="auto", blocked_by=[theirs.id])
+        self.link(a, theirs)
+        self.link(theirs, after)
+        out = self.patch(a, due_on=WED)
+        self.assertNotIn("moved", out)
+        self.assertEqual(self.dates(theirs), (WED, THU))   # not the owner's to move
+        self.assertEqual(self.dates(after), (FRI, FRI))    # the walk stopped at it
+        # The preview answers the same: nothing.
+        self.assertEqual(T.schedule_preview(a.id, T.SchedulePreviewBody(), user=OWNER, db=self.db)["moved"], [])
+
+    def test_moved_payload_names_only_what_the_caller_may_see(self):
+        a = self.task("Demo", MON, TUE)
+        moves = [{"id": a.id, "title": "Demo", "cause": "x", "causeId": "y", "from": {"start": MON, "due": TUE},
+                  "to": {"start": TUE, "due": WED}}]
+        seen = T._moved_payload(self.db, moves, lambda r: True)
+        self.assertEqual(seen[0]["task"]["id"], a.id)
+        self.assertEqual(seen[0]["title"], "Demo")
+        hidden = T._moved_payload(self.db, moves, lambda r: False)
+        self.assertEqual(hidden, [{"id": a.id, "from": {"start": MON, "due": TUE}, "to": {"start": TUE, "due": WED}}])
+
+    # Review item 2: the dependency type decides where the successor lands.
+    def test_dependency_types_place_the_successor(self):
+        a = self.task("Demo", MON, WED)                                   # Mon 11/09 - Wed 11/11
+        b = self.task("Footings", THU, FRI, mode="auto", blocked_by=[a.id])   # two working days
+        self.link(a, b)
+        cases = [
+            ("SS", 0, (MON, TUE)),      # start = Demo's start
+            ("SS", 1, (TUE, WED)),
+            ("FF", 0, (TUE, WED)),      # due = Demo's due, start = due - 1
+            ("FF", 2, (THU, FRI)),      # due = Wed + 2 = Fri
+            ("SF", 1, (MON, TUE)),      # due = Demo's start + 1 = Tue
+            ("FS", 0, (THU, FRI)),      # the default: due + 1
+        ]
+        for kind, lag, want in cases:
+            with self.subTest(kind=kind, lag=lag):
+                self.patch(b, dependency_types={a.id: kind}, dependency_lags={a.id: lag})
+                self.assertEqual(self.dates(b), want)
+
+    # Review item 3: a Timeline drag writes ONE line per moved task - the
+    # engine's for an auto successor, the cascade's for a manual one after it.
+    def test_timeline_drag_moves_an_auto_successor_once(self):
+        a = self.task("Demo", MON, TUE)
+        b = self.task("Footings", WED, THU, mode="auto", blocked_by=[a.id])
+        c = self.task("Posts", THU, FRI, blocked_by=[b.id])
+        self.link(a, b)
+        self.link(b, c)
+        out = T.reschedule_task(a.id, T.RescheduleBody(start_on=TUE, due_on=WED), Recorder(), user=OWNER, db=self.db)
+        self.assertEqual(self.dates(b), (THU, FRI))
+        self.assertEqual(self.history(b), ["auto"])
+        self.assertEqual(self.dates(c), (FRI, "2026-11-14"))   # pushed one calendar day by the cascade, as before
+        self.assertEqual(self.history(c), ["cascade"])
+        self.assertEqual(int(b.due_extension_count or 0), 0)
+        self.assertEqual(sorted(m["id"] for m in out["moved"]), sorted([b.id, c.id]))
+        self.assertEqual(self.db.query(models.TaskNotification).filter(models.TaskNotification.task_id == b.id,
+                                                                         models.TaskNotification.kind == "task_due_changed").count(), 0)
+
+    # Review item 4: the engine's move leaves the negotiation and the count alone.
+    def test_auto_move_touches_no_agreement_or_extension_count(self):
+        a = self.task("Demo", MON, TUE)
+        b = self.task("Footings", WED, THU, mode="auto", blocked_by=[a.id], due_agreement="proposed",
+                      due_proposal={"dueOn": FRI2, "by": ASSIGNEE_LIKE, "at": now_iso()}, due_extension_count=2)
+        self.link(a, b)
+        self.patch(a, due_on=THU)
+        self.db.refresh(b)
+        self.assertEqual((b.start_on, b.due_on), (FRI, MON2))
+        self.assertEqual(b.due_agreement, "proposed")
+        self.assertEqual(b.due_proposal["dueOn"], FRI2)
+        self.assertEqual(b.due_extension_count, 2)
+        self.assertFalse(b.due_history[-1]["extension"])
+        self.assertEqual(self.db.query(models.TaskNotification).filter(models.TaskNotification.task_id == b.id).count(), 0)
+
 
 class BaselineTests(Base):
     def test_take_diff_and_delete(self):
@@ -387,6 +494,30 @@ class BaselineTests(Base):
         self.assertEqual(self.code(lambda: P.baseline_diff(PID, base["id"], user=OUTSIDER, db=self.db)), 403)
         self.assertEqual(self.code(lambda: P.take_baseline(PID, P.BaselineBody(), user=VIEWER, db=self.db)), 403)
 
+    # Review item 6: the snapshot is the whole project; a reader sees only
+    # their part of both sides, so nothing is added / removed by sight.
+    def test_snapshot_is_the_full_project_and_the_diff_is_the_readers_view(self):
+        self.arm_walls()
+        mine = self.task("Footings", WED, THU)
+        theirs = self.task("Their Fence", MON, TUE, company_id="co-b", owner_email=OUTSIDER["email"],
+                           created_by=OUTSIDER["email"])
+        base = P.take_baseline(PID, P.BaselineBody(), user=EDITOR, db=self.db)
+        self.assertEqual(base["count"], 2)                      # the full project, the other company's row included
+        diff = P.baseline_diff(PID, base["id"], user=VIEWER, db=self.db)
+        self.assertEqual([s["id"] for s in diff["snapshot"]], [mine.id])
+        self.assertEqual((diff["added"], diff["removed"], diff["moved"], diff["unchanged"]), ([], [], [], 1))
+        # Trashed and still over the wall: not listed as removed either.
+        theirs.deleted_at = now_iso()
+        self.db.commit()
+        diff = P.baseline_diff(PID, base["id"], user=VIEWER, db=self.db)
+        self.assertEqual(diff["removed"], [])
+        self.assertNotIn("Their Fence", str(diff))
+        # Trashed on the reader's own side: that one IS removed.
+        mine.deleted_at = now_iso()
+        self.db.commit()
+        diff = P.baseline_diff(PID, base["id"], user=VIEWER, db=self.db)
+        self.assertEqual([r["id"] for r in diff["removed"]], [mine.id])
+
 
 class ProjectStatusTests(Base):
     def test_editor_sets_status_with_actor_and_time(self):
@@ -408,6 +539,17 @@ class ProjectStatusTests(Base):
         p = P.project_to_dict(self.db.query(models.TaskProject).filter(models.TaskProject.id == PID).first())
         self.assertIsNone(p["statusSetAt"])
         self.assertIsNone(p["statusSetBy"])
+
+    # Review item 5: the Edit form saving a legacy row ('' / None) stamps nothing.
+    def test_legacy_status_saved_back_as_not_started_stamps_nothing(self):
+        p = self.db.query(models.TaskProject).filter(models.TaskProject.id == PID).first()
+        for legacy in ("", None):
+            p.status = legacy
+            self.db.commit()
+            out = P.update_project(PID, P.ProjectBody(status="not_started", name="Escondido Gate Rebuild"), user=OWNER, db=self.db)
+            self.assertIsNone(out["statusSetAt"], legacy)
+        out = P.update_project(PID, P.ProjectBody(status="on_track"), user=OWNER, db=self.db)
+        self.assertTrue(out["statusSetAt"])
 
 
 if __name__ == "__main__":

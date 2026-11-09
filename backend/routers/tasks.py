@@ -3186,7 +3186,7 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
         before_commit(t)
     # A new predecessor or subtask places the auto tasks after / above it
     # (task_schedule, 11/08/2026); the new task itself starts manual.
-    auto_moves = task_schedule.reschedule_successors(db, t, actor=user["email"])
+    auto_moves = task_schedule.reschedule_successors(db, t, actor=user["email"], can_edit=_auto_gates(db, user)[0])
     db.commit()
     db.refresh(t)
     fire_task_event(tid, "created")
@@ -3558,8 +3558,9 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # auto, the tasks that follow it and its parent (the one it just left
     # too) are placed again - task_schedule.reschedule_successors, in this
     # same transaction. A manual task is never moved by it.
+    auto_can_edit, auto_can_see = _auto_gates(db, user)
     auto_moves = task_schedule.reschedule_successors(
-        db, t, actor=user["email"],
+        db, t, actor=user["email"], can_edit=auto_can_edit,
         also=[prev_parent] if prev_parent and prev_parent != (t.parent_task_id or "") else ())
 
     db.commit()
@@ -3592,14 +3593,44 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     if auto_moves:
         # What automatic scheduling moved with this edit, each with its row,
         # so the screen can put them in place and say what moved.
-        out["moved"] = _moved_payload(db, auto_moves)
+        out["moved"] = _moved_payload(db, auto_moves, auto_can_see)
     return out
 
 
-def _moved_payload(db: Session, moves: list) -> list:
-    """The engine's moves with each task's full row (after the commit)."""
+def _auto_gates(db: Session, user: dict):
+    """(can_edit, can_see) for automatic scheduling: the same editor check
+    the Timeline cascade uses (require_task_role - wall, role, sight) decides
+    what the engine may move; `can_see` what the response may name."""
+    def can_edit(d) -> bool:
+        try:
+            require_task_role(db, user, d, "editor")
+            return True
+        except HTTPException:
+            return False
+
+    def can_see(d) -> bool:
+        try:
+            assert_task_wall(db, user, d)
+        except HTTPException:
+            return False
+        return task_visible_to(db, user, d)
+    return can_edit, can_see
+
+
+def _moved_payload(db: Session, moves: list, can_see=None) -> list:
+    """The engine's moves for a response: each task's full row when the
+    caller may see it (after the commit), else only {id, from, to}."""
+    if not moves:
+        return []
     rows = {r.id: r for r in db.query(models.Task).filter(models.Task.id.in_([m["id"] for m in moves])).all()}
-    return [{**m, "task": task_to_dict(rows[m["id"]])} for m in moves if m["id"] in rows]
+    out = []
+    for m in moves:
+        row = rows.get(m["id"])
+        if row is not None and (can_see is None or can_see(row)):
+            out.append({**m, "task": task_to_dict(row)})
+        else:
+            out.append({"id": m["id"], "from": m["from"], "to": m["to"]})
+    return out
 
 
 def _announce_auto_moves(moves: list, actor: str, add_task=None) -> None:
@@ -3634,12 +3665,15 @@ def schedule_preview(task_id: str, body: SchedulePreviewBody, user: dict = Depen
     assert_task_wall(db, user, t)
     require_task_role(db, user, t, "editor")
     data = validate_task_payload(db, body.model_dump(exclude_unset=True), task_id=task_id)
+    can_edit, can_see = _auto_gates(db, user)
     try:
         for k, v in data.items():
             if v is not None:
                 setattr(t, k, v)
-        moves = task_schedule.reschedule_successors(db, t, actor=user["email"])
-        return {"moved": [{k: m[k] for k in ("id", "title", "from", "to")} for m in moves]}
+        moves = task_schedule.reschedule_successors(db, t, actor=user["email"], can_edit=can_edit)
+        rows = {r.id: r for r in db.query(models.Task).filter(models.Task.id.in_([m["id"] for m in moves])).all()} if moves else {}
+        return {"moved": [{k: m[k] for k in ("id", "title", "from", "to")} if m["id"] in rows and can_see(rows[m["id"]])
+                          else {k: m[k] for k in ("id", "from", "to")} for m in moves]}
     finally:
         db.rollback()
 
@@ -3670,8 +3704,9 @@ def reschedule_task(task_id: str, body: RescheduleBody, background_tasks: Backgr
     entries_before = len(before) if isinstance(before, list) else 0
     primary = update_task(task_id, TaskUpdate(**fields), background_tasks, user=user, db=db)
     # The auto tasks that followed this move (task_schedule, 11/08/2026) ride
-    # in `moved` with the cascade's, so the Timeline puts every bar in place.
-    auto_moved = [m["task"] for m in primary.pop("moved", [])]
+    # in `moved` with the cascade's, so the Timeline puts every bar in place
+    # (only the rows the caller may see carry a task).
+    auto_moved = [m["task"] for m in primary.pop("moved", []) if m.get("task")]
     t = _get_task(db, task_id)
     # A Timeline move may push other tasks, which the due-date Undo cannot
     # take back - the entry this move added says where it came from (undo_due).
@@ -3704,11 +3739,12 @@ def reschedule_task(task_id: str, body: RescheduleBody, background_tasks: Backgr
                                     title="Due Date Moved", body=f"{d.title} - moved with {t.title}", task_id=d.id,
                                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
                     # A pushed task may itself be followed by auto tasks (11/08/2026).
-                    auto_after += task_schedule.reschedule_successors(db, d, actor=user["email"])
+                    auto_after += task_schedule.reschedule_successors(db, d, actor=user["email"], can_edit=_can_edit)
                 db.commit()
                 if auto_after:
                     _announce_auto_moves(auto_after, user["email"], background_tasks.add_task)
-                    auto_moved += [m["task"] for m in _moved_payload(db, auto_after)]
+                    _, can_see = _auto_gates(db, user)
+                    auto_moved += [m["task"] for m in _moved_payload(db, auto_after, can_see) if m.get("task")]
         except Exception as e:   # the dependents' rows are uncommitted; the task's own move stands
             db.rollback()
             detail = e.detail if isinstance(e, HTTPException) else "The tasks waiting on it could not be moved."
@@ -3812,7 +3848,7 @@ def respond_due(body: DueAnswer, task_id: str, user: dict = Depends(get_current_
             raise HTTPException(403, "Only whoever requested this task, or a manager, can approve this extension.")
         if me in task_assignees(t) and not is_manager(user):
             raise HTTPException(403, "You cannot approve an extension on your own task.")
-        moves = _respond_and_sync(db, t, me, body.accept, (body.note or "").strip())
+        moves = _respond_and_sync(db, t, me, body.accept, (body.note or "").strip(), user=user)
         return _due_done(db, t, moves, me)
     if (t.due_agreement or "") != "proposed" or not isinstance(t.due_proposal, dict):
         raise HTTPException(409, "There is no proposed date to answer.")
@@ -3823,11 +3859,12 @@ def respond_due(body: DueAnswer, task_id: str, user: dict = Depends(get_current_
         _check_iso_date(counter, "counter_on")
         if counter in ((t.due_on or "")[:10], ((t.due_proposal or {}).get("dueOn") or "")[:10]):
             raise HTTPException(422, "Suggest a date different from both the current and the proposed one.")
-    moves = _respond_and_sync(db, t, me, body.accept, (body.note or "").strip(), counter_on=counter)
+    moves = _respond_and_sync(db, t, me, body.accept, (body.note or "").strip(), counter_on=counter, user=user)
     return _due_done(db, t, moves, me)
 
 
-def _respond_and_sync(db: Session, t: models.Task, me: str, accept: bool, note: str, counter_on: str = "") -> list:
+def _respond_and_sync(db: Session, t: models.Task, me: str, accept: bool, note: str, counter_on: str = "",
+                      user: dict | None = None) -> list:
     """task_due.respond, and a date it moved (an approved extension, an
     accepted proposal, a counter) moves a checklist subtask's step too -
     otherwise the step keeps the old date and its next sync moves the task
@@ -3838,7 +3875,7 @@ def _respond_and_sync(db: Session, t: models.Task, me: str, accept: bool, note: 
     if (t.due_on or "")[:10] != before:
         import hr_checklists
         hr_checklists.task_due_changed(db, t, me)
-        return task_schedule.reschedule_successors(db, t, actor=me)
+        return task_schedule.reschedule_successors(db, t, actor=me, can_edit=_auto_gates(db, user or {"email": me})[0])
     return []
 
 
@@ -3921,7 +3958,7 @@ def undo_due(task_id: str, body: DueUndo, user: dict = Depends(get_current_user)
     import hr_checklists
     hr_checklists.task_due_changed(db, t, me)
     # The auto tasks that followed the undone move follow it back (11/08/2026).
-    moves = task_schedule.reschedule_successors(db, t, actor=me)
+    moves = task_schedule.reschedule_successors(db, t, actor=me, can_edit=_auto_gates(db, user)[0])
     return _due_done(db, t, moves, me)
 
 
@@ -4805,9 +4842,10 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # the automatic scheduling engine itself for every row whose dates moved
     # (task_schedule, 11/08/2026) - still inside this one transaction.
     auto_moves = []
+    auto_can_edit = _auto_gates(db, user)[0]
     for t in rows:
         if (t.due_on or "")[:10] != before_due[t.id] or (t.start_on or "") != before_start[t.id]:
-            auto_moves += task_schedule.reschedule_successors(db, t, actor=actor)
+            auto_moves += task_schedule.reschedule_successors(db, t, actor=actor, can_edit=auto_can_edit)
 
     db.commit()
     _announce_auto_moves(auto_moves, actor)
