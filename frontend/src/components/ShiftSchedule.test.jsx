@@ -2,6 +2,15 @@ import { plannerToday } from './shifts/nowLine';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
+// The clock is pinned to a Thursday noon (11/05/2026) so "today", the week and
+// the day strip agree whatever the machine's zone - the CI runner is UTC and
+// between Sunday 4 PM and midnight Pacific it is already Monday there, which
+// put the team's today outside the shown week (fix of 11/08/2026, same as
+// PayrollTimecard.salaried). Only Date is faked; timers stay real.
+vi.useFakeTimers({ toFake: ['Date'] });
+vi.setSystemTime(new Date(2026, 10, 5, 12, 0, 0));
+
+
 // The schedule grid (rebuilt Oct 2026, Teams parity; decluttered 10/02):
 // one toolbar row, blocks of one calm line that open the editor on a click,
 // time off beside shifts as an outlined block, open shifts per group,
