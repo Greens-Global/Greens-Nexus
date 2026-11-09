@@ -18,7 +18,7 @@ Every year Greens reports to the IRS what it paid many vendors for services, on 
 So the rule is simple: **no first payment without a W-9.** A W-9 is the vendor's own signed form giving their legal name, tax classification and TIN.
 
 - Ask for the W-9 when you first bring a vendor in, before any work is billed.
-- A new vendor is requested in Nexus under Accounting > Records > Vendors; it shows **Pending Approval**, then **Approved - Awaiting Intacct** until Accounting keys it in. The vendor's papers, the W-9 among them, are tracked on its **Compliance** tab.
+- A new vendor is set up in Intacct by your Accounting team, so send them the vendor's papers first. A change to a vendor already on file is requested in Nexus under Accounting > Records > Vendors; it shows **Pending Approval**, then **Approved - Awaiting Intacct** until Accounting keys it in. The vendor's papers, the W-9 among them, are tracked on its **Compliance** tab.
 - The vendor record shows only the last four digits of the tax ID. Never email a full TIN or put it in a ticket; send the form the way Accounting asks.
 - A name on the invoice that does not match the W-9 is a question for Accounting before payment, not after.
 
