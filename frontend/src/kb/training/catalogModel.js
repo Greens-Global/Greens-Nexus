@@ -51,7 +51,7 @@ export function shelveCourses(courses, myDepartment = '', order = new Map()) {
   });
   return names.map((name) => ({
     name,
-    courses: by.get(name).sort((a, b) => ((order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9)) || (LEVEL_ORDER[a.level || ''] - LEVEL_ORDER[b.level || '']) || a.title.localeCompare(b.title)),
+    courses: by.get(name).sort((a, b) => ((a.my_status === 'Completed') - (b.my_status === 'Completed')) || ((order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9)) || (LEVEL_ORDER[a.level || ''] - LEVEL_ORDER[b.level || '']) || a.title.localeCompare(b.title)),
   }));
 }
 

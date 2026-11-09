@@ -12,14 +12,20 @@ const courses = [
 ];
 
 describe('shelveCourses', () => {
-  it('puts your own department first, General last, foundations before core', () => {
+  it('puts your own department first, General last, completed last', () => {
     const shelves = shelveCourses(courses, 'Accounting');
     expect(shelves.map((s) => s.name)).toEqual(['Accounting', 'Operations', GENERAL]);
-    expect(shelves[1].courses.map((c) => c.id)).toEqual(['ops2', 'ops1']);
+    expect(shelves[1].courses.map((c) => c.id)).toEqual(['ops1', 'ops2']);   // completed sinks under the started one
+    expect(shelveCourses([C({ id: 'x', level: 'core' }), C({ id: 'y', level: 'foundations' })], '')[0].courses.map((c) => c.id)).toEqual(['y', 'x']);   // foundations before core
   });
   it('orders a shelf the way a path takes it, ahead of the level', () => {
     const order = pathOrder([{ stages: ['A', 'B'], items: [{ kind: 'course', id: 'ops2', stage: 1 }, { kind: 'course', id: 'ops1', stage: 0 }] }]);
     expect(shelveCourses(courses, 'Accounting', order)[1].courses.map((c) => c.id)).toEqual(['ops1', 'ops2']);
+  });
+  it('sinks Completed courses below open ones, each part in path order', () => {
+    const shelf = [C({ id: 'a', my_status: 'Completed' }), C({ id: 'b' }), C({ id: 'c', my_status: 'Completed' }), C({ id: 'd', my_status: 'In Progress' })];
+    const order = pathOrder([{ stages: ['A'], items: ['a', 'b', 'c', 'd'].map((id) => ({ kind: 'course', id, stage: 0 })) }]);
+    expect(shelveCourses(shelf, '', order)[0].courses.map((c) => c.id)).toEqual(['b', 'd', 'a', 'c']);
   });
 });
 

@@ -46,4 +46,13 @@ describe('lesson player on a phone', () => {
     expect(await screen.findByRole('button', { name: /Lesson 3 of 3/ })).toBeTruthy();
     expect(screen.getByText('Punch body.')).toBeTruthy();
   });
+
+  it('a link to another lesson of the course already open moves to it', async () => {
+    const ui = (lesson) => <ToastProvider><CoursePlayer id="crs_1" lesson={lesson} me={{}} /></ToastProvider>;
+    const { rerender } = render(ui('l3'));
+    expect(await screen.findByRole('button', { name: /Lesson 3 of 3/ })).toBeTruthy();
+    rerender(ui('l1'));
+    expect(await screen.findByRole('button', { name: /Lesson 1 of 3/ })).toBeTruthy();
+    expect(screen.getByText('Welcome body.')).toBeTruthy();
+  });
 });

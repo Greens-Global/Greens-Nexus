@@ -2,7 +2,7 @@
 // outline - Neil, 11/07/2026), then lessons (a Library page pinned to its
 // version, or its own content), checkpoints, the final quiz (graded on the
 // server), the result with what to reread, the certificate.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Lock, Award, Download, BookOpen, RotateCcw, AlertTriangle, ChevronRight, ChevronLeft, ChevronDown, MapPin, UserCheck, Home, Clock, Compass, Play } from 'lucide-react';
 import { api, saveBlob } from '../../api';
 import AsyncSection from '../../components/AsyncState';
@@ -248,6 +248,13 @@ export default function CoursePlayer({ id, me, lesson: startLesson = '' }) {
     const after = course.delivery === 'in_person' ? 'inperson' : 'quiz';   // In Person: the sign-off step (WP 5.1)
     setCur(next ? next._id : (course.delivery === 'in_person' || (course.quiz.question_count && !course.quiz.passed)) ? after : 'home');
   }, [course, cur, startLesson]);
+  // A new lesson link while this course is already open (the player stays mounted - keyed by course) moves to it.
+  const lastStart = useRef(startLesson);
+  useEffect(() => {
+    if (lastStart.current === startLesson || !course) return;
+    lastStart.current = startLesson;
+    if (startLesson && course.lessons.some((L) => L._id === startLesson)) setCur(startLesson);
+  }, [course, startLesson]);
   useEffect(() => { if (cur) { setListOpen(false); window.scrollTo?.({ top: 0, behavior: 'auto' }); } }, [cur]);
   // WP 5.10: a lesson with an uploaded video counts only once every such video
   // has played to the end in this visit (links to YouTube etc. cannot be watched for).
