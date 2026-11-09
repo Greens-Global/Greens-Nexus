@@ -187,12 +187,19 @@ class NoShowScanTests(_Case):
         s = sa.noshow_scan(self.db, LINE + timedelta(hours=1))
         self.assertEqual((s["noShows"], s["alerts"]), (0, 0), s)
 
-    def test_a_live_placement_over_time_off_or_a_holiday_still_alerts(self):
-        # The review warned and the manager shared anyway (Oct 15): the
-        # clock judges it, and the bell says what it was scheduled over.
+    def test_a_live_placement_over_time_off_or_a_holiday(self):
+        # A full day of approved time off supersedes the shift (Neil,
+        # 11/09/2026): no alert at all.
         self._shift(AMY)
         self.db.add(models.TimeOffRequest(id="to-1", employee_email=AMY, type="vacation", start_date=DAY,
                                           end_date=DAY, status="approved"))
+        self.db.commit()
+        s = sa.noshow_scan(self.db, LINE)
+        self.assertEqual((s["noShows"], s["alerts"]), (0, 0), s)
+        # A partial day off (a request with times) is still judged, and the
+        # bell says what it was scheduled over.
+        self.db.query(models.TimeOffRequest).first().start_time = "13:00"
+        self.db.query(models.TimeOffRequest).first().end_time = "17:00"
         self.db.commit()
         s = sa.noshow_scan(self.db, LINE)
         self.assertEqual((s["noShows"], s["alerts"]), (1, 2), s)
@@ -611,8 +618,8 @@ class ActualsTests(_Case):
         out = sa.actuals(self.db, [AMY, BOB, CARA], MON, FRI, NOW)
         cells = out["cells"]
         got = {k: (c["status"], c["excuse"], c["over"], c["lateMin"], c["earlyMin"], c["workedMin"]) for k, c in cells.items()}
-        # A shared placement over a holiday or approved time off is judged
-        # like any other (Oct 15) - the cell says what it was over.
+        # A shared placement over a holiday is judged like any other (Oct
+        # 15) - the cell says what it was over; a full day off is excused.
         self.assertEqual(got, {
             f"{AMY}|{MON}": ("no_show", "", "holiday", 0, 0, 0),
             f"{AMY}|{TUE}": ("on_time", "", "", 0, 0, 517),
@@ -621,7 +628,7 @@ class ActualsTests(_Case):
             f"{AMY}|{WED}": ("left_early", "", "", 0, 90, 420),
             f"{BOB}|{WED}": ("no_show", "", "", 0, 0, 0),
             f"{AMY}|{THU}": ("in_progress", "", "", 0, 0, 0),
-            f"{BOB}|{THU}": ("no_show", "", "time_off", 0, 0, 0),
+            f"{BOB}|{THU}": ("excused", "time_off", "", 0, 0, 0),
             f"{AMY}|{FRI}": ("upcoming", "", "", 0, 0, 0),
             f"{BOB}|{FRI}": ("excused", "weather", "", 0, 0, 0),
         })
@@ -632,12 +639,12 @@ class ActualsTests(_Case):
         self.assertEqual(cells[f"{BOB}|{FRI}"]["scheduledMin"], 0, "a cancelled day has no paid minutes")
         self.assertEqual(cells[f"{AMY}|{THU}"]["firstIn"], "2026-10-15T12:00:00")
         # Totals: past and in-progress days only.
-        self.assertEqual(out["totals"], {"scheduledMin": 3570, "workedMin": 1427, "late": 1, "noShow": 3,
-                                         "leftEarly": 1, "onTime": 1, "judged": 6})
+        self.assertEqual(out["totals"], {"scheduledMin": 3060, "workedMin": 1427, "late": 1, "noShow": 2,
+                                         "leftEarly": 1, "onTime": 1, "judged": 5})
         self.assertEqual(out["people"][AMY], {"scheduledMin": 2040, "workedMin": 937, "late": 0, "noShow": 1,
                                               "leftEarly": 1, "onTime": 1, "judged": 3})
-        self.assertEqual(out["people"][BOB], {"scheduledMin": 1530, "workedMin": 490, "late": 1, "noShow": 2,
-                                              "leftEarly": 0, "onTime": 0, "judged": 3})
+        self.assertEqual(out["people"][BOB], {"scheduledMin": 1020, "workedMin": 490, "late": 1, "noShow": 1,
+                                              "leftEarly": 0, "onTime": 0, "judged": 2})
         self.assertEqual(out["people"][CARA], sa._empty_totals())
         self.assertNotIn("pay", json.dumps(out).lower())
         # Someone who is not an active person has no cells at all.
