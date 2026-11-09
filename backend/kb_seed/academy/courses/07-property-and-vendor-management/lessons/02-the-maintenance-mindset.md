@@ -1,63 +1,27 @@
 ---
 title: "The Maintenance Mindset: Preventive, Corrective, Emergency"
-summary: The three kinds of maintenance and what each one costs, how the daily walk feeds the ticket desk, how preventive schedules work in Nexus (calendar, floating and meter), and a year of preventive work at a storage site.
+summary: The three kinds of maintenance and what each costs, how the daily walk feeds the ticket desk, the three kinds of preventive schedule in Nexus (Fixed Dates, After Each Completion, By Meter), and how to build a site's preventive year.
+teaches: Asset Management, Tickets
 ---
 
-## What You'll Be Able to Do
-
-- Tell preventive, corrective and emergency maintenance apart, and say why the first is the cheapest.
-- Turn a repeat problem into a preventive schedule.
-- Explain the three schedule kinds in Nexus: calendar, floating and meter.
-- Read a preventive ticket and know what closing it does.
-- Plan a year of preventive work for a storage and RV site.
+Saturday, 9:00 PM: Fairfield's gate will not close, and the after-hours rate is already running. Reading the gate's tickets on Monday, you see it told you for weeks: a grind, a slow cycle, a chain that needed tension. This lesson is how to hear the building before it costs you a Saturday night.
 
 ## Three Kinds of Maintenance
 
-```figure
-{
-  "kind": "compare",
-  "title": "Preventive, Corrective, Emergency",
-  "columns": [
-    { "name": "Preventive", "note": "on a schedule, before it fails", "facts": ["A gate operator serviced every quarter", "Gutters cleaned before the rains", "Planned, quoted, the cheapest hour of labor you buy", "Nobody notices, which is the point"] },
-    { "name": "Corrective", "note": "it broke; fix it", "facts": ["A door that will not latch", "A light out over the RV row", "A ticket, a vendor visit, a normal invoice", "The tenant noticed first"] },
-    { "name": "Emergency", "note": "now, whatever it costs", "facts": ["A gate stuck open at night", "A roof leak over rented units in a storm", "After-hours rates, no quotes, a damage claim behind it", "The most expensive hour you will ever buy"] }
-  ]
-}
-```
-
-Every maintenance dollar at a storage site is one of three kinds. The split between them is the clearest measure of how well a property is run.
-
 | Kind | When | What it costs | Example |
 |---|---|---|---|
-| **Preventive** | On a schedule, before anything fails | The least: planned labor, parts in stock, a quote on file | Servicing the gate operator every quarter; lubricating door springs on a schedule |
-| **Corrective** | After something fails but nobody is in danger and nothing is being damaged | A normal visit at a normal rate | A latch that will not slide; a light out; a bent canopy panel |
-| **Emergency** | Now, because the site cannot operate or damage is spreading | The most: after-hours rates, no time to quote, often a claim behind it | A gate that will not close; a roof leak into rented units; a sewer backup |
+| **Preventive** | On a schedule, before anything fails | The least: planned labor, a quote on file | The gate operator serviced every quarter |
+| **Corrective** | It failed, but nobody is in danger and nothing is spreading | A normal visit at a normal rate | A latch that will not slide; a light out |
+| **Emergency** | Now, because the site cannot operate or damage is spreading | The most: after-hours rates, no time to quote, often a claim | A gate that will not close; a roof leak into rented units |
 
-The mindset: **every emergency was once a corrective job, and every corrective job was once preventive work nobody did.** The gate that fails at 9:00 PM on a Saturday usually told you for weeks: a grind in the motor, a slower cycle, a chain that needed tension. A site that runs mostly on preventive work has few emergencies and a manager who sleeps.
+The mindset: **every emergency was once a corrective job, and every corrective job was once preventive work nobody did.** The split between the three is the clearest measure of how well a property is run.
 
-## The Daily Walk Feeds the Desk
+## The Walk Feeds the Desk
 
-The Running the Site lesson in Self-Storage Fundamentals and the Walking the Lot lesson in RV & Boat Storage taught the walks. From the property side, the walk is a **sensor**: it is how the building tells you what is about to fail.
-
-```figure
-{
-  "kind": "steps",
-  "title": "From a Walk to a Work Order",
-  "items": [
-    { "label": "See it", "note": "a slow gate, a dark light, a stain under a door" },
-    { "label": "Photograph it", "note": "with the unit number or the place in the shot" },
-    { "label": "Scan the tag", "note": "Report a Problem, or raise a ticket" },
-    { "label": "It is a ticket", "note": "on the property, with the right team" },
-    { "label": "Work it", "note": "staff, or a qualified vendor" },
-    { "label": "Close it", "note": "inspect, photo, the maintenance record writes itself" }
-  ]
-}
-```
-
-What matters is that nothing you see stays in your head or in a text. Every finding is a ticket (scan the site QR tag and use **Report a Problem**, or Submit a Ticket), with a photo. A problem with a ticket has a number, an owner, a due date and a history. A problem in a text has none of those.
+The daily walk is the building's sensor. What matters is that nothing you see stays in your head or in a text: every finding is a ticket with a photo, raised by scanning the site tag and choosing **Report a Problem**, or from Help Center. A ticket has a number, an owner, a due date and a history. A text has none of those.
 
 > [!TIP]
-> Write the ticket for the building, not for yourself. "Gate 1 slow to open, grinding from the motor housing, started about 11/02, video attached" tells the vendor what to bring. "Gate acting up" sends them twice.
+> Write the ticket for the vendor who will read it. "Gate 1 slow to open, grinding from the motor housing, started 11/02, video attached" tells them what to bring. "Gate acting up" sends them twice.
 
 ## Preventive Schedules in Nexus
 
@@ -72,81 +36,72 @@ What matters is that nothing you see stays in your head or in a text. Every find
   "tab": "Maintenance",
   "actions": [{ "label": "New Schedule", "primary": true }],
   "parts": [
-    { "kind": "table", "title": "Preventive Maintenance", "columns": ["Schedule", "Kind", "Every", "Next due", "Assigned team", "Last done"], "rows": [
-      ["Gate operator service", "Calendar", "3 months", "10/26/2026", "Facilities", "07/24/2026"],
-      ["Roll-up door lubrication, rows A to D", "Floating", "6 months after last", "01/12/2027", "Facilities", "07/12/2026"],
-      ["Skid steer engine service", "Meter", "250 hours", "at 1,250 h (now 1,212 h)", "Facilities", "at 1,000 h"],
-      ["Gutter and downspout cleaning", "Calendar", "Yearly, October", "10/15/2027", "Facilities", "10/09/2026"],
-      ["Fire extinguisher inspection", "Calendar", "Yearly", "11/30/2026", "Facilities", "11/20/2025"]
+    { "kind": "table", "title": "Preventive Maintenance", "columns": ["Schedule", "Kind", "Next Due"], "rows": [
+      ["Gate operator service", "Fixed Dates", "10/26/2026"],
+      ["Door lubrication, rows A to D", "After Each Completion", "01/12/2027"],
+      ["Skid steer service", "By Meter", "at 1,250 h"]
     ], "n": 1 },
-    { "kind": "list", "title": "Open Tickets on This Property", "items": [{ "label": "Gate operator service (preventive)", "note": "#4790 · due 10/26/2026 · Overdue", "badge": "Overdue", "tone": "bad", "n": 2 }, { "label": "Gate 1 slow to open, grinding", "note": "#4830 · Waiting for Vendor · Precision Gate Co.", "badge": "Waiting for Vendor", "tone": "warn" }] }
+    { "kind": "list", "items": [{ "label": "Gate operator service (preventive)", "note": "due 10/26/2026", "badge": "Overdue", "tone": "bad", "n": 2 }] }
   ],
   "callouts": [
-    { "n": 1, "text": "Three kinds of schedule: calendar (a date), floating (so long after the last time it was done), meter (hours or miles on an asset)." },
-    { "n": 2, "text": "When a schedule comes due, Nexus files ONE ticket for it. Closing that ticket writes the maintenance record and moves the schedule on." }
+    { "n": 1, "text": "The kind decides what next due means." },
+    { "n": 2, "text": "A due schedule files ONE ticket. Closing it with a photo writes the record and moves the schedule on." }
   ]
 }
 ```
 
-A preventive schedule is set on the property under **Maintenance**, **Preventive Maintenance**. There are three kinds, and the kind decides what "next due" means:
+A schedule is set on the property under **Maintenance**, **Preventive Maintenance**, with **New Schedule**. You pick one of three kinds:
 
 | Kind | Next due is | Use it for |
 |---|---|---|
-| **Calendar** | A date: every three months, every October | Gate service, extinguisher inspections, gutter cleaning, pest control |
-| **Floating** | So long after the work was last done | Door lubrication, filter changes: things that slip when the last visit slipped |
-| **Meter** | A reading on the asset: hours, miles | A skid steer, a pressure washer, a site vehicle. The reading comes from the asset's own record; nobody types it twice |
+| **Fixed Dates** | Set dates, whether or not the last one is done | Gate service each quarter, extinguisher service, gutters each October |
+| **After Each Completion** | A set time after the last ticket was done | Door lubrication, filter changes: work that should slip when the last visit slipped |
+| **By Meter** | Each time a reading passes the next mark | A skid steer's hours, a site vehicle's miles. The reading comes from the asset's own record; nobody types it twice |
 
 How it runs:
 
 1. A daily scan finds every schedule that is due.
-2. For each one it files **one ticket** on the property, to the team you assigned, as the person who last saved the schedule. The ticket carries the schedule, the due date and the equipment.
+2. It files **one ticket** on the property, to the team you assigned. A due date already filed is never filed twice, so look for the existing ticket before you raise one by hand.
 3. The team works it like any ticket. A preventive ticket needs a **photo** to resolve; a resolve without one is refused.
-4. Closing the ticket writes the **maintenance record** on the property and moves the schedule on: the next date, or the next reading.
+4. Closing the ticket writes the **maintenance record** and moves the schedule to its next date or reading.
 
-A ticket that a schedule filed and nobody worked goes **Overdue**, and the property's Overview counts it among its critical items. Overdue preventive tickets are the first thing a visiting regional manager looks at.
+An unworked preventive ticket goes **Overdue** and shows on the property's Needs Attention card. It is the first thing a visiting regional manager looks at.
 
-> [!NOTE]
-> A schedule saved with a stale copy is refused (every save carries its revision), and an occurrence already filed is never filed twice. If a due ticket seems to be missing, look for the one that already exists before you file another by hand.
-
-## A Year of Preventive Work
+## Building the Preventive Year
 
 ```figure
 {
   "kind": "timeline",
   "title": "A Storage and RV Site's Preventive Year, Inland California",
   "items": [
-    { "at": "January", "label": "Walk the roofs and gutters after the first storms", "note": "look for standing water, loose panels, a downspout off its drain" },
-    { "at": "March", "label": "Asphalt: crack seal and striping", "note": "before the heat softens it; repaint faded lines and space numbers" },
-    { "at": "April", "label": "Gate operator and keypads", "note": "quarterly service; test the safety loops and the hold-open time with a long rig" },
-    { "at": "May", "label": "HVAC on the climate buildings", "note": "filters, coils, a test under load before summer", "tone": "live" },
-    { "at": "June", "label": "Canopies and bollards", "note": "walk every post and beam; replace clear height signs" },
-    { "at": "July", "label": "Gate operator service", "note": "quarterly" },
-    { "at": "September", "label": "Fire protection", "note": "extinguisher tags, sprinkler and backflow tests where the site has them, fire lanes repainted" },
-    { "at": "October", "label": "Gutters, drains and the lot's low spots", "note": "before the rains; grade the gravel", "tone": "warn" },
-    { "at": "October", "label": "Gate operator service", "note": "quarterly; lights on the photocells checked as the days shorten" },
-    { "at": "December", "label": "Review the year", "note": "which corrective tickets should be schedules next year; the budget asks" }
-  ],
-  "caption": "Texas sites move the storm work to spring and add hail: a canopy and roof walk after every storm season."
+    { "at": "January", "label": "Roofs and gutters after the first storms" },
+    { "at": "March", "label": "Asphalt crack seal and striping", "note": "before the heat" },
+    { "at": "Quarterly", "label": "Gate operator service", "note": "test the safety loops and hold-open time with a long rig" },
+    { "at": "May", "label": "HVAC on the climate buildings", "note": "before summer" },
+    { "at": "June", "label": "Canopy posts, beams and clear height signs" },
+    { "at": "September", "label": "Fire protection", "note": "tags, sprinkler and backflow tests, fire lanes" },
+    { "at": "October", "label": "Gutters, drains and low spots", "note": "before the rains; grade the gravel" },
+    { "at": "December", "label": "Review the year", "note": "which repeat tickets become schedules" }
+  ]
 }
 ```
 
-The calendar above is a starting point. Build your site's own from three sources: the manufacturer's service interval for each system (the gate operator's manual says every three months or so many cycles), the weather at your site (the rains, the heat, the hail), and your own ticket history (what broke last year, and when). A schedule with a reason behind it survives the next manager; a schedule nobody understands gets skipped.
+Build your site's own year from three sources: the **manufacturer's interval** for each system, the **weather** at your site, and your **own ticket history** (what broke last year, and when). Write the reason in the schedule's notes. A schedule with a reason survives the next manager; one nobody understands gets skipped.
 
-## A Greens Scenario
+## At Greens
 
-Fairfield's gate failed three times in a year, each time a corrective ticket and a vendor visit, twice after hours. The manager pulls the three tickets from the property's Timeline, reads the vendor's notes (chain tension, a worn sprocket, a dirty sensor), and sets a calendar schedule: gate operator service every three months, assigned to Facilities, with the vendor's checklist in the schedule notes. The next year the gate has one corrective ticket, during office hours, for a keypad.
+Fairfield's gate failed three times in a year, twice after hours. The manager reads the three tickets in the Timeline (chain tension, a worn sprocket, a dirty sensor) and sets a Fixed Dates schedule: gate service every three months, assigned to Facilities, with the vendor's checklist in the notes. The next year the gate has one corrective ticket, during office hours, for a keypad.
 
 ## Common Mistakes
 
 - **Running the site on corrective work** and calling it normal.
 - **Fixing it twice and never scheduling it.** Two of the same ticket is the signal.
-- **A preventive ticket closed without the photo.** Nexus refuses it; the photo is the proof the work was done.
-- **A schedule with no reason written down.** Write the manufacturer's interval and what happened the year you set it.
-- **Filing a second ticket by hand for a schedule that already filed one.**
+- **After Each Completion where the law sets the date.** An extinguisher service is due on its date even if last year's ran late; that is Fixed Dates.
+- **A second ticket by hand** for a schedule that already filed one.
 
 ## Key Points
 
-- Preventive is the cheapest maintenance; emergency the most expensive; the split between them measures the property.
-- The daily walk is the sensor; every finding is a ticket with a photo, never a text.
-- Preventive schedules are calendar, floating or meter; each due occurrence files one ticket; closing it with a photo writes the record and moves the schedule on.
-- Build the site's preventive year from the manufacturer's intervals, the weather and your own ticket history.
+- Preventive is the cheapest maintenance, emergency the most expensive; the split measures the property.
+- Every finding on the walk is a ticket with a photo, never a text.
+- Schedules are Fixed Dates, After Each Completion or By Meter; each due date files one ticket.
+- Closing a preventive ticket with its photo writes the record and moves the schedule on.
