@@ -16,6 +16,7 @@ export function prefixGraph(graph, prefix) {
     ...graph,
     nodes: (graph?.nodes || []).map((n) => ({ ...n, id: id(n.id) })),
     edges: (graph?.edges || []).map((e) => ({ ...e, from: id(e.from), to: id(e.to) })),
+    groups: (graph?.groups || []).map((g) => ({ ...g, id: id(g.id), parent: g.parent ? id(g.parent) : '', members: (g.members || []).map(id) })),
   };
 }
 
