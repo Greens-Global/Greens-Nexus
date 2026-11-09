@@ -50,8 +50,22 @@ def _public(q: dict) -> dict:
     return {"id": q["_id"], "type": q.get("type") or "single", "q": q.get("q") or "", "options": list(q.get("options") or [])}
 
 
+def _local_day(db, email: str, ts: str) -> str:
+    """The person's calendar day of a stored UTC timestamp (compared with
+    kb_core.today_for, never the UTC date: an evening answer in California
+    is tomorrow in UTC)."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    try:
+        t = datetime.fromisoformat(ts)
+        t = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+        return t.astimezone(ZoneInfo(kb_core.zone_for(db, email) or kb_core.ORG_TZ)).date().isoformat()
+    except (TypeError, ValueError, KeyError):
+        return (ts or "")[:10]
+
+
 def _streak(db, email: str, today: str) -> int:
-    days = sorted({(r.last_answered_at or "")[:10] for r in db.query(models.KbRefresherItem).filter(models.KbRefresherItem.user_email == email).all()
+    days = sorted({_local_day(db, email, r.last_answered_at) for r in db.query(models.KbRefresherItem).filter(models.KbRefresherItem.user_email == email).all()
                    if r.last_answered_at}, reverse=True)
     if not days:
         return 0
@@ -73,7 +87,7 @@ def today(db, email: str) -> dict:
     due = (db.query(models.KbRefresherItem).filter(models.KbRefresherItem.user_email == email, models.KbRefresherItem.due_on <= day)
            .order_by(models.KbRefresherItem.due_on, models.KbRefresherItem.created_at).all())
     answered_today = sum(1 for r in db.query(models.KbRefresherItem).filter(models.KbRefresherItem.user_email == email).all()
-                        if (r.last_answered_at or "")[:10] == day)
+                        if r.last_answered_at and _local_day(db, email, r.last_answered_at) == day)
     items, courses = [], {}
     for r in due:
         if len(items) >= max(0, DAILY - answered_today):

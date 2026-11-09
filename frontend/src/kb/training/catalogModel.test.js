@@ -1,7 +1,7 @@
 // The catalog's pure rules (11/07/2026): shelves by department, filters,
 // stages on a path, the next item, the paths People still lacks.
 import { describe, it, expect } from 'vitest';
-import { filterCourses, shelveCourses, stagesOf, nextOnPath, pathsForMe, courseAction, suggestPaths, GENERAL } from './catalogModel';
+import { filterCourses, shelveCourses, stagesOf, nextOnPath, pathsForMe, courseAction, suggestPaths, GENERAL, pathOrder, pathProgress, pathCountText, stageInHand, isStarted, blurb, titleWords, courseSteps } from './catalogModel';
 
 const C = (over) => ({ id: over.id, title: over.title || over.id, description: '', code: '', tags: [], department_list: [], level: '', my_status: 'Not Started', assigned: false, my_pct: 0, ...over });
 const courses = [
@@ -12,10 +12,59 @@ const courses = [
 ];
 
 describe('shelveCourses', () => {
-  it('puts your own department first, General last, foundations before core, completed last', () => {
+  it('puts your own department first, General last, foundations before core', () => {
     const shelves = shelveCourses(courses, 'Accounting');
     expect(shelves.map((s) => s.name)).toEqual(['Accounting', 'Operations', GENERAL]);
-    expect(shelves[1].courses.map((c) => c.id)).toEqual(['ops1', 'ops2']);   // completed sinks under the started one
+    expect(shelves[1].courses.map((c) => c.id)).toEqual(['ops2', 'ops1']);
+  });
+  it('orders a shelf the way a path takes it, ahead of the level', () => {
+    const order = pathOrder([{ stages: ['A', 'B'], items: [{ kind: 'course', id: 'ops2', stage: 1 }, { kind: 'course', id: 'ops1', stage: 0 }] }]);
+    expect(shelveCourses(courses, 'Accounting', order)[1].courses.map((c) => c.id)).toEqual(['ops1', 'ops2']);
+  });
+});
+
+describe('progress: one resolver', () => {
+  const path = { stages: ['Week 1', 'Week 2'], items: [
+    { kind: 'course', id: 'nf', status: 'In Progress', pct: 13, done: false, stage: 0 },
+    { kind: 'course', id: 'ss', status: 'Not Started', pct: 0, done: false, stage: 0 },
+    { kind: 'course', id: 'cb', status: 'Not Started', pct: 0, done: false, stage: 1 },
+    { kind: 'policy', id: 'p', status: 'To Sign', done: false, stage: 1 },
+  ] };
+  it('a path with a course under way says Continue, counts it in progress, and never reads 0%', () => {
+    expect(pathProgress(path)).toMatchObject({ done: 0, total: 4, started: 1, pct: 3, action: 'Continue' });
+    expect(pathCountText(path)).toBe('0 of 4 done · 1 in progress');
+    expect(nextOnPath(path).id).toBe('nf');
+    expect(stageInHand(path)).toBe(0);
+  });
+  it('an untouched path says Start; a finished one Review and no stage in hand', () => {
+    expect(pathProgress({ items: [{ status: 'Not Started', pct: 0 }] }).action).toBe('Start');
+    const all = { items: [{ done: true }, { done: true }] };
+    expect(pathProgress(all)).toMatchObject({ finished: true, action: 'Review', pct: 100 });
+    expect(stageInHand(all)).toBe(-1);
+  });
+  it('a course card and a path item agree on Start / Continue', () => {
+    expect(courseAction({ my_status: 'Overdue', my_pct: 13 })).toBe('Continue');
+    expect(courseAction({ my_status: 'Overdue', my_pct: 0 })).toBe('Start');
+    expect(courseAction({ status: 'In Progress', pct: 13 })).toBe(courseAction({ my_status: 'In Progress', my_pct: 13 }));
+    expect(isStarted({ my_status: 'Completed', my_pct: 100 })).toBe(false);
+  });
+});
+
+describe('titleWords and courseSteps', () => {
+  it('writes a tag in Title Case and keeps capitals', () => {
+    expect(['new hire', 'RV storage', 'self-storage'].map(titleWords)).toEqual(['New Hire', 'RV Storage', 'Self-Storage']);
+  });
+  it('counts steps the way the server counts the percent: lessons plus the final', () => {
+    expect(courseSteps({ lessons: [{ done: true }, { done: false }], quiz: { question_count: 40, passed: false } })).toEqual({ done: 1, total: 3 });
+    expect(courseSteps({ lessons: [{ done: true }], quiz: { question_count: 0 } })).toEqual({ done: 1, total: 1 });
+  });
+});
+
+describe('blurb', () => {
+  it('cuts at a sentence, never mid-sentence', () => {
+    const t = 'Every new hire takes it. Sign in, punch in and fix a missed punch, sign your Time Sheet, request time off and HR help, report problems with tickets and forms. And more.';
+    expect(blurb(t, 60)).toBe('Every new hire takes it.');
+    expect(blurb('Short.', 60)).toBe('Short.');
   });
 });
 

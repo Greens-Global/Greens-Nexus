@@ -1,0 +1,127 @@
+{
+ "_note": "Text-lesson fingerprints (figures left out) of the package as shipped before 11/08/2026, by course title. kb_academy_seed uses them only for a course with no fingerprint of its own: if every text lesson still matches, nobody edited it.",
+ "courses": {
+  "Nexus Fundamentals": [
+   "1901fbf9fdb1cffc9f2c94e1",
+   "266ea46d95f7df147343f3e2",
+   "2899fb0d4d4bd1f5b22aaedf",
+   "6f3c0f753cd4f28e48fb1824",
+   "84d9aec5c8514646707c463d",
+   "9d8786dca9c62b02474f4d3e",
+   "a8a58f691a4eae1ca2b815d5",
+   "d0afa703771ce85d5277b86f",
+   "db5f421ec71b13324ec32d0c",
+   "dc53cc38859f12c1f5eaed3d",
+   "f244a147644451ded0c44c90",
+   "fe4e2b455152de277f14c525"
+  ],
+  "Self-Storage Fundamentals": [
+   "03dc3e14f06ba9c36e17c32b",
+   "059fdc638c6a93378fe9229f",
+   "11679e3cf2157dcade27340e",
+   "4ba010175cb645b35730a97f",
+   "8816b465bcb648e4e591fc72",
+   "8d8e6960a2bd3079245898c4",
+   "946851afe8898e5a6753e92c",
+   "9ef8f562dd2aeebc94396967",
+   "a7659159c2f16b85adbf8fb5",
+   "c5af5182be2e81dca89946a0",
+   "d2f6765fc47cf89e70b02e26",
+   "d3bee67ebaa0683b29cf3f7a",
+   "edad0ed41d34a64a5de2b7f8",
+   "f0fc92a6cb747dab68bd9a01"
+  ],
+  "RV & Boat Storage Fundamentals": [
+   "03fd8c35b969d3d4bbd1cc9f",
+   "171737b6959ed188da592d71",
+   "274b80c8a1417180cf6e1090",
+   "3c792712275f9334841e4219",
+   "4a42432b00ca7852d8edaa4f",
+   "70a1017a70538fd8ab395416",
+   "80b8e6b7c73a7c9aeff1693e",
+   "84a9808d54467b272ae98578",
+   "bf6f11fcbb82713bc93ddd9b",
+   "c35ce54f7fd3b37b3c21f563",
+   "db379aba252bb684f50a9f14",
+   "de6531aa0a70ab9c56795a7e"
+  ],
+  "Cubby Fundamentals": [
+   "82169a076762fa5b5664f3e6",
+   "ac579ee1ca02dc502831a3fd",
+   "b320ccf2c0ce054628075c73"
+  ],
+  "Customer Service & Sales Fundamentals": [
+   "0165f4ab144cabf3911d3762",
+   "0eb7dd776c6a9269f7f20fad",
+   "1825b5a828cdbae3eaa160c4",
+   "218a6d260851903cf8aa9c00",
+   "22fbd045557d11804c74268d",
+   "249afd679ef1947f467d9dd6",
+   "2c92817773a0142491587aa4",
+   "2d5098efa369750740c04578",
+   "3d5d65b445c5d091a3186c0d",
+   "52954aaa1c7cc599d35d2807",
+   "68fb02ce0cf03dcdb6a2d94f",
+   "869b45fba0526c8061c39148",
+   "93a296734dde0edc8ad13a65",
+   "d64a06df28d5f0b9c6520906",
+   "e4dc2f4353b0ada02e7c5cb0",
+   "fb6df5302ebb8c708351d20c"
+  ],
+  "Hands-On Check": [
+   "52a1d3967fbe0b2348614eaf"
+  ],
+  "Property & Vendor Management for Storage Sites": [
+   "0232b5608ece04349fee1339",
+   "1b17105f006ac1f73b144231",
+   "4892dafc5f883ec19e063955",
+   "4d68e33335813d9d4ae232fc",
+   "543995bf223572a7a61cee1c",
+   "70ed37c4bc3f78fd49c96ee3",
+   "82e7a6509e559ad557009491",
+   "91f419ba658e0f2797837173",
+   "9ea25bf1d8a80c7943239afd",
+   "cb9d1ceb1bccaedfb43d7327",
+   "d9ec1a04f53a0d1f37638f39"
+  ],
+  "Fundamentals of Accounting": [
+   "1c9fc458c20b861393fdf2c8",
+   "32f93972014ea08fa1e54108",
+   "52032b88a4e95da699ac03ac",
+   "796bba477878213083e19a56",
+   "8261ff44d5dcbbc6491e8361",
+   "991b4cff42da791adc3fd3a0",
+   "a6f2d13ef0027d19559f06bb",
+   "ba6023d8cb8c5b64c90df8ba",
+   "bb668b488e475f7ef64f9b07",
+   "cf183f255f1bf87287f292e4",
+   "e9b4a9cdf98e81fb316de78a"
+  ],
+  "Intacct Fundamentals at Greens": [
+   "19b4ff08b3dd054c47ccee23",
+   "20ee57b42e8edc48133e643c",
+   "248384d33b89d7b71915229b",
+   "2e42f93a2c82f4dd7d9a986b",
+   "366e17b86f059d2c78903484",
+   "870235e620d8cfa4308943f0",
+   "980e2ac88534fc87379d94a9",
+   "d5094436dd2c1fa8ca3d5251",
+   "ec6a3d9ea64f66cf59af79df",
+   "ff672bda4669aad5583bf283"
+  ],
+  "Leading With Nexus": [
+   "0762fa1dd8e8988c608c9246",
+   "0c371fece676ef3584370277",
+   "0ec505b483a6927c1542e64d",
+   "2419df0d39080643db28a311",
+   "2b42bbe44cbcb7664750854a",
+   "2fba3b7a83c0e451d1ba43ec",
+   "98bf131df43316e00b231b6f",
+   "b93c3d54ce8c781e288dc190",
+   "bd26c8a3636d1725a6a00f02",
+   "bf7913454b62b87ddf795ec2",
+   "d5d76ef364302a51edffdc6c",
+   "dfbfa3934883f10695b639df"
+  ]
+ }
+}

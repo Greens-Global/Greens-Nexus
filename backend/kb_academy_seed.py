@@ -11,6 +11,8 @@ Academy collection) is left untouched, so a second worker adds nothing.
 Fields mirror routers/kb.py create_page and routers/kb_training.py
 create_course.
 """
+import hashlib
+from pathlib import Path
 import json
 
 from sqlalchemy import func
@@ -19,6 +21,9 @@ from sqlalchemy.orm import Session
 MARK = "kb.storage_academy_seeded_2026_11"
 PATHS_MARK = "kb.learning_paths_seeded_2026_11"
 CONTENT_MARK = "kb.academy_content"   # value = the package digest
+FP_PREFIX = "kb.academy_fp:"          # + course id; value = _fp of the draft the importer last wrote
+PREV_LESSONS = Path(__file__).parent / "kb_seed" / "academy_prev_lessons.json"
+PREV_PREFIX = "kb.academy_prev:"      # + course id; the draft an unfingerprinted course had before the importer replaced it
 # The Academy plan as the onboarding path (Neil, 11/07/2026): four stages, the
 # six courses in order. Index = the course's position in kb_academy.ORDER.
 ACADEMY_STAGES = ["Week 1: Nexus and the Business", "Week 2: Storage and Cubby", "Weeks 3 and 4: Serving and Selling", "Sign-Off"]
@@ -114,6 +119,7 @@ def _course(db: Session, s, owner: str, owner_name: str, page_ids: dict):
     draft["teaches"] = s.teaches or ""
     c.draft = json.dumps(draft)
     db.add(c)
+    _stamp(db, c.id, draft)
     kb_core.event(db, kind="course_created", actor=owner, course_id=c.id, actor_name=owner_name)
     return c, 1
 
@@ -219,23 +225,71 @@ def _no_qids(lessons: list) -> list:
             for L in lessons]
 
 
-def _untouched(c) -> bool:
-    """A course nobody has saved since a first run imported it: every save,
-    publish and import stamps updated_at; the first run stamps it in the
-    same transaction as created_at (two now() calls, microseconds apart),
-    so a gap under a minute means nobody has touched it since."""
+def _fp(draft: dict) -> str:
+    """What the importer owns in a draft: lessons, quiz (drawCount included)
+    and teaches. Question ids are left out - they are minted per normalize."""
+    quiz = dict(draft.get("quiz") or {})
+    quiz["questions"] = [{k: v for k, v in q.items() if k != "_id"} for q in quiz.get("questions") or []]
+    body = {"lessons": _no_qids(draft.get("lessons") or []), "quiz": quiz, "teaches": draft.get("teaches") or ""}
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+
+
+def _stamp(db: Session, course_id: str, draft: dict):
+    """Remember what the importer wrote, so the next pass can tell it was not changed since."""
+    from models import NexusSetting
+    import kb_core
+    row = db.get(NexusSetting, FP_PREFIX + course_id)
+    if row is None:
+        db.add(NexusSetting(key=FP_PREFIX + course_id, value=_fp(draft), updated_by="startup", updated_at=kb_core.now()))
+    else:
+        row.value, row.updated_at = _fp(draft), kb_core.now()
+
+
+def _near(a: str, b: str) -> bool:
     from datetime import datetime, timezone
-    if c.major or not c.created_at or not c.updated_at:
-        return False
 
     def _t(v: str):
         d = datetime.fromisoformat(v)
         return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
     try:
-        gap = _t(c.updated_at) - _t(c.created_at)
+        return abs((_t(a) - _t(b)).total_seconds()) < 60
     except (TypeError, ValueError):
         return False
-    return abs(gap.total_seconds()) < 60
+
+
+def _untouched(db: Session, c, draft: dict, mark) -> bool:
+    """Nobody changed the course since the importer last wrote it. With a
+    fingerprint (every course the importer wrote from 11/08/2026 on): the
+    draft - or, once published with no draft pending, the live version -
+    still equals what it wrote; a publish of that same content keeps it
+    untouched. Without one (older rows), the last write was the importer's:
+    updated_at within a minute of created_at (the first run) or of the last
+    content pass (the mark), and never published."""
+    from models import NexusSetting
+    row = db.get(NexusSetting, FP_PREFIX + c.id)
+    if row is not None:
+        return _fp(draft) == row.value
+    if _matches_previous_package(c.title, draft):   # e.g. published as imported: its text is still the package's
+        return True
+    if c.major or not c.updated_at:
+        return False
+    return _near(c.updated_at, c.created_at or "") or (mark is not None and _near(c.updated_at, mark.updated_at or ""))
+
+
+def _matches_previous_package(title: str, draft: dict) -> bool:
+    """A course with no fingerprint whose every text lesson (figures left
+    out) is word for word a lesson of the package shipped before 11/08/2026
+    (kb_seed/academy_prev_lessons.json) - nobody rewrote it, even if it was
+    published. Its draft is replaced and the old one kept (PREV_PREFIX);
+    the live version is never touched."""
+    try:
+        known = set(json.loads(PREV_LESSONS.read_text(encoding="utf-8"))["courses"].get(title) or [])
+    except (OSError, ValueError, KeyError):
+        return False
+    texts = [L for L in draft.get("lessons") or [] if L.get("type") == "text"]
+    return bool(known) and bool(texts) and all(
+        hashlib.sha256(json.dumps(_without_figures(L.get("blocks") or {}), sort_keys=True).encode()).hexdigest()[:24] in known
+        for L in texts)
 
 
 def apply_content_once(db: Session) -> dict | None:
@@ -298,22 +352,24 @@ def apply_content_once(db: Session) -> dict | None:
             continue
         draft = _draft_of(c)
         changed = False
-        if spec.teaches and not (c.teaches or "").strip():   # metadata, not content: the module tags land even on a course somebody saved
-            c.teaches = spec.teaches
-            draft.setdefault("teaches", spec.teaches)
-            changed = True
-        if _untouched(c) and all(L["type"] != "page" or L["page"] in page_ids for L in spec.lessons):
+        if _untouched(db, c, draft, mark) and all(L["type"] != "page" or L["page"] in page_ids for L in spec.lessons):
             lessons = [{**L, "docId": page_ids[L["page"]]} if L["type"] == "page" else L for L in spec.lessons]
-            new_lessons = _norm_lessons(db, lessons)
-            if _no_qids(new_lessons) != _no_qids(draft.get("lessons") or []):   # question ids are minted per normalize
-                draft["lessons"] = new_lessons
-                draft["quiz"] = _norm_quiz(spec.quiz)
-                draft["description"], draft["overview"] = (spec.description or "")[:400], spec.overview or []
-                draft["est_minutes"] = int(spec.est_minutes or draft.get("est_minutes") or 15)
-                draft["teaches"] = spec.teaches or draft.get("teaches") or ""
-                lessons_touched += sum(1 for L in new_lessons if L["type"] == "text")
+            new = dict(draft, lessons=_norm_lessons(db, lessons), quiz=_norm_quiz(spec.quiz), teaches=spec.teaches or draft.get("teaches") or "",
+                       description=(spec.description or "")[:400], overview=spec.overview or [],
+                       est_minutes=int(spec.est_minutes or draft.get("est_minutes") or 15))
+            if _fp(new) != _fp(draft):
+                if db.get(NexusSetting, FP_PREFIX + c.id) is None and c.draft:   # no fingerprint: keep what it had, recoverable
+                    db.merge(NexusSetting(key=PREV_PREFIX + c.id, value=c.draft, updated_by="startup", updated_at=kb_core.now()))
+                draft = new
+                lessons_touched += sum(1 for L in new["lessons"] if L["type"] == "text")
                 changed = True
+            _stamp(db, c.id, draft)
         else:
+            if db.get(NexusSetting, FP_PREFIX + c.id) is None:   # a person's course: never read as untouched again, whatever its updated_at
+                db.add(NexusSetting(key=FP_PREFIX + c.id, value="edited", updated_by="startup", updated_at=kb_core.now()))
+            if spec.teaches and not (draft.get("teaches") or "").strip():   # metadata: fills a blank, never replaces a person's value
+                draft["teaches"] = spec.teaches
+                changed = True
             pkg = {L["title"]: L["blocks"] for L in spec.lessons if L["type"] == "text"}
             for L in draft.get("lessons") or []:
                 if L.get("type") != "text" or L.get("title") not in pkg:
@@ -325,9 +381,13 @@ def apply_content_once(db: Session) -> dict | None:
                     L["blocks"] = new
                     lessons_touched += 1
                     changed = True
+        if spec.teaches and not (c.teaches or "").strip():   # the Help panel's Learn This Screen reads the live column
+            c.teaches = spec.teaches
+            changed = True
         if changed:
-            c.draft = json.dumps(draft)
-            c.est_minutes = int(draft.get("est_minutes") or c.est_minutes or 15)
+            c.draft = json.dumps(draft)   # drafts only: a published course's live lessons and quiz wait for an author's Publish
+            if c.status == "draft":
+                c.est_minutes = int(draft.get("est_minutes") or c.est_minutes or 15)
             c.updated_at = kb_core.now()
             courses_touched += 1
     now = kb_core.now()

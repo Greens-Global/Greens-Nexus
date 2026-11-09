@@ -13,7 +13,7 @@ import { Banner } from '../components/Chips';
 import { useToast, errText } from '../components/Toast';
 import { goKb, fmtDate, minutesText, plural, trainingColor } from '../lib';
 import { LevelChip, PathLadder, pathWho } from './cards';
-import { nextOnPath, stagesOf, courseAction } from './catalogModel';
+import { nextOnPath, stagesOf, courseAction, pathProgress, isStarted, blurb } from './catalogModel';
 
 function openItem(it) {
   goKb(it.kind === 'course' ? 'course' : 'page', it.id);
@@ -33,8 +33,8 @@ function ItemRow({ it, n }) {
           {isCourse && it.delivery === 'in_person' && <span>In Person</span>}
           {isCourse && it.published === false && <span style={{ color: '#b45309' }}>Not Published Yet</span>}
         </div>
-        {(isCourse ? it.description : it.summary) && <div className="kb-prow-desc kb-clamp2">{isCourse ? it.description : it.summary}</div>}
-        {isCourse && it.status === 'In Progress' && <ProgressTrack size="sm" value={(it.pct || 0) / 100} state="live" label={`${it.title} progress`} valueText={`${it.pct || 0}% done`} style={{ marginTop: 8, maxWidth: 200 }} />}
+        {(isCourse ? it.description : it.summary) && <div className="kb-prow-desc">{blurb(isCourse ? it.description : it.summary)}</div>}
+        {isCourse && isStarted(it) && <ProgressTrack size="sm" value={(it.pct || 0) / 100} state="live" label={`${it.title} progress`} valueText={`${it.pct || 0}% done`} note={<><b>{it.pct || 0}%</b> done</>} style={{ marginTop: 8, maxWidth: 200 }} />}
       </div>
       <div className="kb-item-side">
         <span className="kb-state" style={{ color: trainingColor(it.status) }}>{it.status}</span>
@@ -60,7 +60,8 @@ export default function PathView({ id }) {
   return (
     <AsyncSection loading={!path && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
       {path && (() => {
-        const done = !!path.completed_at || (path.total > 0 && path.done >= path.total);
+        const prog = pathProgress(path);
+        const done = prog.finished;
         const next = nextOnPath(path);
         const stages = stagesOf(path);
         const facts = [plural(path.total, 'item'), path.est_minutes > 0 ? `about ${minutesText(path.est_minutes)}` : '', path.due_date && !done ? `due ${fmtDate(path.due_date)}` : '', path.completed_at ? `completed ${fmtDate(path.completed_at)}` : ''].filter(Boolean).join(' · ');
@@ -77,7 +78,7 @@ export default function PathView({ id }) {
               </div>
               <div className="kb-lead-side">
                 {done && <span className="kb-mark done" style={{ alignSelf: 'flex-start' }}><Check size={12} />Completed</span>}
-                {!done && path.enrolled && next && <button type="button" className="kb-btn pri lg" onClick={() => openItem(next)}>{path.done ? 'Continue' : 'Start'}: {next.title}<ChevronRight /></button>}
+                {!done && path.enrolled && next && <button type="button" className="kb-btn pri lg" onClick={() => openItem(next)}>{prog.action}: {next.title}<ChevronRight /></button>}
                 {!done && !path.enrolled && path.open_enrollment && <button type="button" className="kb-btn pri lg" disabled={busy} onClick={start}>Start This Path</button>}
                 {!done && !path.enrolled && !path.open_enrollment && <div className="kb-meta">Your manager or a training author puts people on this path. Ask them if it is yours to take.</div>}
                 {!done && !path.enrolled && next && <button type="button" className="kb-btn" onClick={() => openItem(next)}>Look at the First Item</button>}
@@ -86,7 +87,7 @@ export default function PathView({ id }) {
             </header>
             <div className="kb-lead-ladder">
               <PathLadder p={path} names size="lg" />
-              <div className="kb-meta" style={{ marginTop: 6 }}><b style={{ color: 'var(--kb-ink)' }}>{path.done} of {path.total}</b> done{!!path.days_overdue && !done && <span style={{ color: '#dc2626' }}> · {plural(path.days_overdue, 'day')} overdue</span>}</div>
+              <div className="kb-meta" style={{ marginTop: 6 }}><b style={{ color: 'var(--kb-ink)' }}>{prog.done} of {prog.total}</b> done{prog.started ? ` · ${prog.started} in progress` : ''}{!!path.days_overdue && !done && <span style={{ color: '#dc2626' }}> · {plural(path.days_overdue, 'day')} overdue</span>}</div>
             </div>
 
             {stages.map((s) => (
