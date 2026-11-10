@@ -1,0 +1,462 @@
+---
+title: Academy Glossary
+summary: Every word the Storage Academy courses use, one line each, grouped by subject.
+page_type: reference
+tags: reference, glossary
+---
+
+## How to Use This Glossary
+
+Look a word up under its subject. Each word appears once, under the subject where it is taught first; Greens' changing numbers (prices, fees, counts, ladder days) are on Greens by the Numbers.
+
+## Self-Storage
+
+- **Access control system**: The gate keypad, codes and software that decide and log who enters.
+- **Access hours (gate hours)**: When tenants can get in through the gate; longer than office hours.
+- **Admin fee**: A one-time setup charge at move-in.
+- **Alternate contact (California)**: A second person and address the tenant names to receive lien notices.
+- **Ancillary income**: Revenue beyond rent, such as protection, merchandise and fees.
+- **Auction (lien sale)**: The public sale of a defaulted tenant's goods to satisfy the lien.
+- **Autopay**: An automatic recurring card or bank payment.
+- **Bailment**: One party taking custody of another's goods; a storage agreement creates none.
+- **Bollard**: A steel crash post at a corner, canopy post or keypad that takes a truck's hit.
+- **Climate-controlled unit**: A unit in a building whose temperature is regulated.
+- **Commercially reasonable sale (California)**: A lien sale held in person or on a public auction website.
+- **Concession**: A move-in discount or promotion, such as a free first month.
+- **Control key**: The key that pulls a cylinder lock's core; opens every cylinder door on the site.
+- **Conversion rate**: The share of inquiries that become rentals.
+- **Core**: The keyed part inside a cylinder lock, changed between tenants.
+- **Cylinder lock**: A shackle-less lock that sits inside the door latch.
+- **Declaration in Opposition (California)**: A sworn form a tenant returns to stop a lien sale; the owner must then go to court.
+- **Delinquency**: Rent past due.
+- **Disc lock**: A round lock that hides its shackle; hard to cut.
+- **Drive aisle**: The lane between buildings a truck parks in and a fire engine drives down.
+- **Drive-up unit**: An exterior unit you can park in front of.
+- **Economic occupancy**: Rent actually achieved divided by gross potential rent.
+- **ECRI**: Existing Customer Rate Increase, a rent increase for a current tenant.
+- **Exclusive control**: The tenant alone controls access to the unit and its contents.
+- **Exit loop**: A wire loop under the pavement that opens the gate for a vehicle leaving.
+- **Fire lane**: A marked lane kept clear for fire engines; never blocked.
+- **Gate code**: A tenant's personal entry code; a password.
+- **Gross potential rent**: The rent if every unit were rented at street rate.
+- **Hasp**: A hinged, slotted plate that swings over a staple so a lock can hold a door shut.
+- **In-place rate**: What an existing tenant pays now.
+- **Interior unit**: A unit reached from inside a building.
+- **Latch**: The plate and slide bolt at a roll-up door's bottom corner where the lock goes.
+- **Late fee**: A fee for late rent; capped by rent in California.
+- **Lessor, owner, operator**: The facility side; California law says owner, Texas says lessor.
+- **Letters testamentary, letters of administration**: Court documents showing who controls a deceased person's estate.
+- **Lien**: The facility's legal claim on stored property for unpaid charges.
+- **Lockout**: Suspending a tenant's gate access or overlocking the unit.
+- **Mailbox**: A locking box that gives a customer a street address for mail and packages.
+- **Management system**: The software for rentals, payments, gates and reports; at Greens, Cubby.
+- **Mesh**: Wire mesh closing the gap between a unit's partitions and the roof.
+- **Month-to-month**: A rental that renews each month until ended.
+- **Net rentals**: Move-ins minus move-outs.
+- **Notice of claim (Texas)**: The statutory notice that starts the Texas lien sale clock.
+- **Notice of Lien Sale (California)**: The second notice, giving a sale date at least 14 days out.
+- **Occupant, tenant**: The renter; California law says occupant, Texas says tenant.
+- **Overlock**: A facility lock added beside the tenant's to block access.
+- **Partition**: A unit's steel wall; not load-bearing, not soundproof.
+- **Physical occupancy**: Rented square feet divided by total rentable square feet.
+- **Preliminary Lien Notice (California)**: The first statutory notice, after 14 consecutive days unpaid.
+- **Protection plan**: An operator program, not insurance, that waives the liability release and pays covered losses up to a limit.
+- **REIT**: Real Estate Investment Trust, a publicly traded real estate owner.
+- **Rent roll**: A list of all rented units, tenants and rents.
+- **Rentable, unrentable unit**: Ready to sell, or out of service.
+- **Roll-up door**: A corrugated steel curtain that rolls onto a spring-loaded drum.
+- **SCRA**: The Servicemembers Civil Relief Act; no lien enforcement on an active-duty servicemember, or within 90 days after, without a court order.
+- **Staple**: The loop a lock's shackle passes through on a hasp.
+- **Street rate**: Today's price for a new customer.
+- **Tenant insurance**: A real insurance policy covering the tenant's goods.
+- **Third-party management**: An outside company running a facility for its owner.
+- **Unit occupancy**: Units rented divided by total units.
+- **Value limit**: A cap in the agreement on the value a tenant may store.
+- **Verified mail (Texas)**: Mail with proof of mailing, used for Texas notices.
+
+## RV and Boat Storage
+
+- **Angled space**: Set at an angle on a one-way aisle; easy from the right direction only.
+- **Beam**: The hull's widest point.
+- **Bilge plug**: The hull's drain plug; pulled in storage so rain drains.
+- **Bimini top**: A fabric sun top; folded under a roof.
+- **Blocks**: Wood under a trailer's jacks that spread the weight so they do not sink.
+- **Bow, stern, port, starboard**: Front, back, left, right.
+- **Care, custody and control**: Taking responsibility for property by handling it; why staff never move vehicles.
+- **Chock**: A wedge against a tire that stops a parked trailer rolling.
+- **Class A**: A bus-shaped motorhome, about 25 to 45 ft; needs the longest spaces and often tows a car.
+- **Class B**: A camper van, about 17 to 24 ft; high-roof vans are about 10 ft tall.
+- **Class C**: A motorhome with a truck cab and a bunk over the cab, usually 21 to 35 ft.
+- **Clear height**: The measured height of the lowest point a vehicle passes under; never guessed.
+- **Coupler**: The front of a trailer tongue that fits over the hitch ball; length is measured from here.
+- **Covered (canopy) space**: A roof on posts, open sides; limited by the lowest beam and the posts.
+- **Diesel pusher**: A Class A with the diesel engine in the back; usually a large, valuable coach.
+- **DMV lien sale**: California's process for selling a vehicle to satisfy a storage lien (Civil Code 3071).
+- **Drive-in (back-in) space**: Open at one end only; trailers and motorhomes back in, facing the aisle.
+- **Dump station**: A sewer inlet where RVs empty their tanks; the most requested RV amenity.
+- **Enclosed space**: A garage with a roll-up door; limited by the measured door opening.
+- **End space; corner space**: A space against a fence at a row's end; the space where two rows meet (the hardest turn).
+- **Fifth wheel**: A trailer with a raised nose that hitches in a pickup bed; the tallest towable.
+- **Full-timer**: Someone who lives in an RV; living on a Greens lot is never allowed.
+- **HIN**: Hull identification number, the boat's VIN, on the transom.
+- **Hitch-to-bumper length**: A trailer's true storage length.
+- **Holding tanks**: Fresh, gray and black water tanks; emptied only at a dump station.
+- **House and chassis batteries**: The living-area batteries and the engine battery; both drain in storage.
+- **Keel**: A sailboat's fin under the hull; lifts the boat higher on its trailer.
+- **Kingpin (pin box)**: Where a fifth wheel hitches to the truck; length is measured from its front.
+- **Legal owner**: On a California title, the lender when there is a loan.
+- **Lienholder**: Anyone with a recorded lien on the title, usually a lender; ranks ahead of the storage lien.
+- **LOA (length overall)**: Hull length, bow to stern; not the storage length.
+- **Lower unit**: The bottom of an outboard or sterndrive; often the rearmost point on a trailer.
+- **Mast**: A sailboat's spar; lies on the boat and can overhang either end.
+- **Non-Operational Vehicle Deposit**: The deposit Greens charges when a manager approves storing a vehicle that does not run.
+- **Open space**: A marked space with no roof; cheapest; any height.
+- **Outboard; inboard; I/O (sterndrive)**: A motor on the back; an engine inside; an engine inside with a drive leg outside.
+- **PNO (Planned Non-Operation)**: A California DMV filing for a vehicle kept off public roads for a whole registration year; it must be registered again before it leaves on a public road, even towed.
+- **Pop-up (tent trailer)**: A folding canvas camper; short and low.
+- **Pull-through space**: An aisle at each end; drive in one end, out the other; one-way.
+- **PWC (personal watercraft)**: A jet ski; often two on one trailer.
+- **Rear overhang**: The body behind the rear wheels; hangs past a wheel stop.
+- **Registered owner**: The person the vehicle is registered to; must match the tenant.
+- **Slide-out (slide)**: A wall section that moves out when parked; kept in while stored.
+- **Snowbird**: Someone who travels south or to the desert for winter; a seasonal move-out.
+- **Stabilizer and leveling jacks**: Legs that steady or level a parked RV; they do not lift it.
+- **Stacking lane**: Room outside the gate for a rig to wait off the street.
+- **Super C**: A Class C on a heavy truck chassis; can pass 40 ft.
+- **Swim platform**: A step across the stern; adds length beyond the LOA.
+- **Swing (folding) tongue**: A trailer tongue that folds to save a few feet.
+- **T-top (hardtop)**: A fixed roof over a fishing boat's console; does not fold.
+- **Tail swing**: How far the back of a long vehicle swings out in a turn; why aisles are wide.
+- **Tandem space**: A double-length space for two vehicles nose to tail.
+- **Teardrop**: A tiny sleeping trailer, 10 to 16 ft.
+- **Title**: The state's record of ownership; why vehicle liens go through the state.
+- **Toad (dinghy)**: A car towed behind a motorhome; a separate vehicle, usually a separate space.
+- **Tongue jack**: The jack holding up the front of a trailer; sinks without a block or pad.
+- **Tow option**: Towing a defaulted vehicle, boat or trailer instead of a sale, under the state's notice rules.
+- **Tow vehicle**: The truck that pulls a trailer; leaves with the owner or needs its own space.
+- **Toy hauler**: A trailer or fifth wheel with a rear ramp door and a garage; never loaded in an aisle.
+- **Travel trailer**: An RV towed on a ball hitch; ask whether its stated length includes the tongue.
+- **Trim or tilt**: Raising the motor: less length, more height.
+- **Truck camper**: A camper that rides in a pickup bed; stored off the truck only with the manager's OK.
+- **Vessel lien sale**: California's process for boats (Harbors and Navigation Code 503).
+- **VIN**: Vehicle identification number; must match on every document.
+- **VSF (vehicle storage facility)**: A licensed Texas facility a defaulted vehicle may be towed to.
+- **Wake tower**: A tall frame on ski and wake boats; sets the height even folded.
+- **Winterize**: Draining water lines before a freeze.
+
+## Cubby
+
+- **Aging / Aged Receivables**: Sorting each open charge by its age into 0-30, 30-60, 60-90, 90-120 and over 120 days.
+- **Contact**: A person in Cubby, tenant or lead; one contact can hold several leases.
+- **Coverage**: Cubby's word for a Greens protection plan or the tenant's own insurance on a lease.
+- **Credit**: Goodwill money held on a lease and used on the next recurring bill; it does not lower today's balance.
+- **Cubby**: The software Greens runs its California storage sites on: units, leases, charges, payments, tasks and reports.
+- **Days past due**: Today minus the paid-through date, minus 1.
+- **Delinquency exemption**: A pause on chosen collection steps for one lease, with a reason and an end date; rent still posts.
+- **Gate lockout**: Cubby changing a late tenant's gate code so it stops working at the gate.
+- **Jump day**: The day of the month (26 at Greens) from which a move-in also pays all of next month.
+- **Lead**: Someone who asked about renting and has not rented yet, saved with a source and a status.
+- **Lease (rental)**: One rental of one unit by one contact; charges, payments, gate code, documents and coverage belong to it.
+- **Ledger**: The running record of every charge, payment, waive and transfer on a lease.
+- **Paid-through date**: The last day a lease is paid up to; it moves only when a whole month is paid.
+- **Payment link**: A link texted or emailed to a tenant to pay from their phone; one link can cover several leases.
+- **Pinned note**: The one note on a contact shown wherever staff see the tenant, for what everyone must know before acting.
+- **Prepaid**: Money paid when nothing is owed, used as new charges post.
+- **Pricing group**: All units of one size and kind sharing one set of rates; you pick the pricing group, then the unit.
+- **Proration**: Charging only the days used: monthly amount x days used / days in the month; applies to rent and protection.
+- **Refund**: Money sent back to the card or account it came from; it reopens the charge unless that charge is also waived.
+- **Reservation**: A specific unit held for a future move-in; Greens charges no reservation fee.
+- **Unit**: One rentable space in Cubby: a storage unit, a parking space or a mailbox.
+- **Unit transfer**: Moving a staying tenant to a different unit: the old lease ends, a new one starts, the balance moves across.
+- **Unrentable**: A unit taken off the market, with a reason such as Repairs Required or Cleaning Required.
+- **Vacant**: A unit that is not leased and is rentable.
+- **Waive**: Cancels all or part of one specific charge now, with a reason.
+- **Workflow task**: A task Cubby makes by itself, named for its day, such as "2nd - Call Failed Autopay Tenants.".
+- **Write-off**: Clearing a balance Greens will not collect, recorded as bad debt; a manager decision.
+
+## Customer Service and Sales
+
+- **Abandoned Checkout**: A Cubby lead for someone who started renting online and stopped.
+- **Assumptive close**: Asking about the details as if the customer has decided: "Does Saturday work?".
+- **Call score sheet**: The 22-item checklist Greens uses to score a sales call; 70% passes.
+- **Discovery**: The questions you ask before you recommend: rented before, what you are storing, when, how long.
+- **Hear, Own, Solve, Thank, Fix**: Greens' five steps when something goes wrong, in that order.
+- **Legacy price**: A lower price kept on an older lease; never quoted to a new customer.
+- **Objection**: A customer's concern that is still a question, not a no.
+- **Option close**: Offering two choices that are both a yes: "The 10x15 or the 10x20?".
+- **Quote sheet**: A written list of the units shown, the rent, any special and its end, the admin fee, protection, your name and the site's phone.
+- **Rate change**: A change to an existing tenant's rent, made with the notice the agreement requires.
+- **Reservation close**: Holding the unit at no charge for a customer not ready to rent today.
+- **Review gating**: Asking only happy customers for reviews; Greens never does it.
+- **Save call**: The live call within 24 hours of a move-out notice, to learn why and help if a save fits.
+- **Second mile**: One thing beyond what the customer expected.
+- **Third party**: Anyone who is not the tenant or a verified authorized person; gets a name and a number only.
+- **Web lead**: A rental, reservation, abandoned or failed checkout, or contact form that came in online.
+
+## Nexus
+
+- **Announcements widget**: The only place announcements show on the Dashboard; add it on day one.
+- **Ask HR**: The confidential desk for pay, profile changes and HR questions.
+- **Bell**: Your notices; Clear All moves them to Closed, kept for 30 days.
+- **Checkpoint**: Practice questions inside a course; they never use a quiz try.
+- **Confirm (schedule)**: Telling your manager you have seen a shared schedule.
+- **Documents to Sign**: The card at the top of Workday when something waits for your signature.
+- **Early Clock-In**: The prompt when you punch in well before a shift (Not Yet or Clock In Anyway).
+- **Fix My Punch Out**: The button on a Missing shift that opens a punch fix request.
+- **Form**: A field form (inspection, incident report, checklist) filled from Fill a Form.
+- **Grant**: A module opened to a person at a level, given through an Access Group.
+- **Help Center**: Where anyone raises and follows tickets.
+- **Keep this confidential**: The Ask HR option that limits a request to HR.
+- **Module**: One area of Nexus in the left menu, such as Workday or Tickets.
+- **Nexus**: Greens' company portal for time, pay records, HR requests, tickets, forms and training.
+- **Note**: A private page, shared only with the people you choose; never a report.
+- **Out of Location / Location Off**: Words on a punch made away from the site or with location off; recorded, never blocked.
+- **Punch In / Punch Out**: Start and end of your worked time on the Time Clock.
+- **Purchase Request**: Asking the company to buy something, with a justification.
+- **Read and Sign**: A policy you must read and sign; a real change asks again.
+- **Reimbursement**: Getting paid back for a company expense, with a receipt.
+- **Report a Problem**: The fast way to file a ticket about a place or a piece of equipment.
+- **Saved on This Phone**: A punch made with no signal, kept and sent when signal returns, at the time you pressed it.
+- **Send Request**: The button that sends a missing-punch request to your approver.
+- **Sign & Submit**: Signing your approved Time Sheet in Nexus Sign.
+- **Take It / Confirm Receipt / Start Return**: The steps of borrowing and returning equipment in Item Management.
+- **Team Sign-In**: The shared-computer sign-in; always Sign Out when you leave.
+- **Tier**: How far a person's view and approvals reach (Employee to Super Administrator).
+- **Usual Hours**: Your standing schedule, used when no shift is shared.
+- **Workday**: Your home base - Time Clock, Time Sheet, Time Off, Ask HR, My Schedule, My Documents.
+- **Yellow priority bar**: The strip at the top of a screen naming something waiting on you.
+
+## Property and Vendors
+
+- **Additional insured**: A party named on another's policy so it can claim on it directly.
+- **Adjuster**: The insurer's person who inspects a claim; permanent repairs wait for them.
+- **After Each Completion**: A preventive schedule due a set time after the last ticket was done.
+- **AHJ (authority having jurisdiction)**: Any agency with the right to inspect the property and require things of it; each is a record in Records > AHJ.
+- **Approval limit**: The amount a level may approve on its own; never split a job to stay under one.
+- **Asset**: The property and everything on it with value and a service life.
+- **Backflow device**: The valve that keeps site water from flowing back into the public supply; tested yearly.
+- **Billed to Date**: What a vendor has billed on a commitment, read from the books.
+- **By Meter**: A preventive schedule due each time an asset's reading (hours, miles) passes the next mark.
+- **Capital (capex)**: Money that replaces or adds something lasting years; at Greens it runs as a Construction job.
+- **Certificate of insurance (COI)**: A one-page proof of a vendor's liability coverage, limits and expiry; must name Greens as additional insured.
+- **Change order**: A written change to a job's scope or price, with a reason.
+- **Climate log**: The daily temperature reading in a climate building; the answer to a heat claim.
+- **Commitment**: A subcontract or purchase order with one vendor on a Construction job.
+- **Conditional waiver / unconditional waiver**: Effective only once the payment clears / effective with no condition left.
+- **Conflict of interest**: A personal interest in a vendor or job; disclosed in writing or it is a breach.
+- **Corrective maintenance**: Fixing something that failed when nobody is in danger and nothing is spreading.
+- **Cost per unit, cost per space**: The property's cost divided by what it rents; how sites are compared.
+- **Crack seal, sealcoat, striping**: The yearly, every-few-years and with-the-sealcoat steps of the asphalt cycle.
+- **Deductible**: The part of a claim the policyholder pays.
+- **Deficiency**: An item an inspection found wrong; a ticket with its deadline.
+- **Emergency maintenance**: Work needed now because the site cannot operate or damage is spreading; skips quotes, never the record.
+- **Entity**: How Intacct separates each property's books; a property's costs are read by its entity.
+- **Expiring Soon, Expired, No Insurance On File**: The one state of a vendor's papers on its Compliance tab; Expired does no work on site.
+- **Fall protection**: The harness and anchor anyone on a roof or in a lift must use.
+- **Finaled**: A permit whose work passed its last inspection.
+- **Fixed Dates**: A preventive schedule due on set dates whether or not the last one is done.
+- **Forecast at Completion**: Where a job's cost is heading: the larger of budget plus pending changes, or spent plus still owed.
+- **General contractor**: A company that coordinates several trades on one job.
+- **Grading**: Shaping a gravel lot so water runs off it.
+- **Hot work**: Welding, torching or grinding; needs a permit and a fire watch, never near stored vehicles.
+- **Incident report**: The Nexus Form recording what happened, with photos and location, filed the same day.
+- **Knox box**: The fire department's key box at the gate; current keys and codes, never shared.
+- **Liability insurance**: Greens' coverage for injury to people on site.
+- **License**: The state's permission to practice a trade.
+- **Lien waiver**: A vendor's signed statement giving up its lien rights for a payment; the vendor's own form, never written by Nexus.
+- **Loop detector, photo eye**: The gate's pavement sensor and beam sensor that keep it from closing on a vehicle.
+- **Loss control survey**: The insurer's inspection of the property, with recommendations and deadlines.
+- **Maintenance record**: What was done to the property, when and by whom, written when the ticket closes.
+- **Mechanics lien**: An unpaid contractor's or supplier's claim against the property itself.
+- **Needs Attention**: The card on a property's Overview listing overdue preventive tickets and records coming due.
+- **On-call**: Work at a vendor's rate on file, as needed.
+- **Operating expense (opex)**: Money that keeps today's property running; the site manager's budget.
+- **Operator**: The gate's motor and gearbox; staff never open its housing.
+- **Overlay, repave**: A new surface over a sound base; a rebuilt base. Both capital projects.
+- **Permit**: The building authority's permission to do work and its right to inspect it.
+- **Photocell**: The sensor that turns site lights on at dusk.
+- **Preventive maintenance**: Work done on a schedule before anything fails; the cheapest kind.
+- **Preventive schedule**: A schedule on a property (Fixed Dates, After Each Completion or By Meter) that files one ticket when due.
+- **Progress waiver / final waiver**: Covers one payment through a date / covers the whole job.
+- **Project-Job**: The Intacct code a Construction job's costs post to.
+- **Property insurance**: Greens' coverage for damage to the buildings and lot.
+- **Purchase order (PO)**: A written order for goods or work at an agreed price.
+- **Purlin**: A roof beam that carries a canopy's panels.
+- **Quote**: A written price against a written scope.
+- **Records > Vendors (Asset Management)**: The property's own list of who services it, with contact, contract dates and COI expiration.
+- **Reserve**: Capital set aside over a system's life to pay for its replacement.
+- **Response time**: How fast a vendor comes for each kind of problem.
+- **Retainage**: Part of each payment held back until the work is finished.
+- **Scope of work**: What is to be done, where, to what standard, by when, and what is excluded.
+- **Scorecard**: Response, quality, price and papers, scored from the tickets twice a year.
+- **Service contract**: A fixed price for scheduled visits and a defined emergency response.
+- **Service life**: How long a system lasts with its maintenance kept.
+- **Swale, catch basin, culvert**: A drainage ditch, a drain inlet, a pipe under an aisle.
+- **Three-way match**: Paying an invoice only when what was ordered, what was received and what was billed agree.
+- **Trade**: A licensed line of work such as electrical, plumbing, roofing, gate or door.
+- **Variance**: The gap between a budget line and the actual.
+- **Vendor**: A company Greens buys work or goods from; the one Greens pays is an Intacct vendor record in Accounting > Records > Vendors.
+- **W-9**: The tax form a vendor provides before it can be paid.
+- **Warranty status**: Active, Expiring in 90d, Expired, or Incomplete when the scope or expiration is missing.
+- **Work order**: An instruction to do a piece of work; at Greens, a ticket.
+- **Workers compensation**: Coverage for a vendor's own crew if hurt on the job.
+
+## Accounting
+
+- **Accounting equation**: Assets = Liabilities + Equity, always.
+- **Accounts payable**: Vendor bills received and not yet paid.
+- **Accrual basis**: Counts a transaction when it is earned or incurred; Greens' statements use it.
+- **Accrued expense**: Something incurred but not yet billed or paid, such as wages earned.
+- **Accumulated depreciation**: Depreciation taken so far, held against the asset's cost.
+- **Adjusted balance**: The book or bank balance after the reconciling items; the two must agree.
+- **Adjusting entry**: A period-end entry that moves something into the right period.
+- **Aging report**: Balances sorted by how long they are unpaid (Aged Receivables: 0-30 to 120+ Days).
+- **Allowance for doubtful accounts**: The expected loss on receivables, recorded in the period of the revenue.
+- **Assessment notice**: A county's new value for a property, with an appeal deadline.
+- **Audit**: An independent test that the statements are fair, by following trails and testing controls.
+- **Balance sheet**: Assets, liabilities and equity at one moment.
+- **Bank reconciliation**: Explaining every difference between the books and the bank statement.
+- **Bill**: A vendor invoice entered in Intacct's Accounts Payable.
+- **Billed rent**: What was charged on the 1st at each lease's own rate.
+- **Capitalization policy**: The threshold and test for what is capitalized; Accounting's call.
+- **Capitalize**: Record a spend as an asset rather than an expense, because it adds value or life.
+- **Cash basis**: Counts a transaction when money moves.
+- **Cash flow statement**: The change in cash, in operating, investing and financing.
+- **Chart of accounts**: The numbered list of every account; the number tells you the kind.
+- **Close**: The work that makes a period's statements final.
+- **Coding**: The account and dimensions on a transaction; puts the cost on the right site.
+- **Collected rent**: What actually arrived.
+- **Construction in progress**: A project's costs before it is placed in service; not depreciating yet.
+- **Contra account**: An account that sits against another to net it, such as accumulated depreciation or the allowance.
+- **Cut-off**: The line between one period's transactions and the next.
+- **Debit, credit**: The left and right side of an entry; debit increases assets and expenses, credit increases liabilities, equity and revenue.
+- **Delinquency rate**: Past-due balances divided by rent billed.
+- **Depreciation**: Spreading an asset's cost over its useful life; straight line is cost divided by life.
+- **Dimension**: An Intacct tag on a line (entity, department, vendor, customer, Project-Job) that lets one account be read many ways.
+- **Earned rent**: Billed rent less concessions and credits; what the income statement reports.
+- **Equity**: The owners' share: what they put in plus profits kept, less distributions.
+- **Expense**: What it cost to earn it in the period: payroll, repairs, utilities, depreciation.
+- **Expense ratio**: Operating expenses divided by revenue.
+- **Fixed asset**: A long-lived asset the business uses: buildings, canopies, a gate operator.
+- **Fixed asset register**: Every capitalized asset with its cost, life and depreciation.
+- **Form 1099**: The yearly report to the IRS of what Greens paid many vendors for services.
+- **General ledger**: Every account with every entry posted to it; what every report drills down to.
+- **Income statement**: Revenue and expenses over a period.
+- **Internal control**: A rule or check that keeps the books honest and cash safe.
+- **Journal entry**: A recorded transaction: accounts, debits, credits and a memo; debits always equal credits.
+- **Liability**: What the business owes: payables, prepaid rent, deposits held, the loan.
+- **Lien sale proceeds**: Money from a lien sale, applied to the tenant's balance owed; never revenue.
+- **Lien sale surplus**: Proceeds beyond what the tenant owed; the tenant's money, a liability handled per state law.
+- **Matching**: Revenue and the expenses that earned it go in the same period.
+- **Net book value**: Cost less accumulated depreciation.
+- **Net operating income (NOI)**: Revenue less operating expenses, before depreciation and interest.
+- **NOI margin**: NOI divided by revenue.
+- **Pass-through**: Money collected for someone else, such as third-party insurance; a liability until remitted.
+- **Payables aging**: What the company owes, sorted by days past due.
+- **Payment terms**: How long after the invoice date a bill is due, such as Net 30.
+- **Placed in service**: The day an asset starts being used and depreciation starts.
+- **Prepaid expense**: Something paid ahead and used up over time, such as a year of insurance.
+- **Prepaid rent (unearned revenue)**: Rent a tenant paid for a month not yet arrived; a liability until the 1st.
+- **Receivable**: Money a tenant owes the company.
+- **Recovery**: A payment on a balance already written off; never new rent.
+- **Retention**: How long records are kept; long, and nothing is cleaned up.
+- **Revenue**: What was earned in the period: rent, fees, protection plan, merchandise.
+- **Segregation of duties**: No one person takes, records and reconciles the same cash.
+- **Suspense account**: Where an uncoded or unexplained item waits.
+- **Timing variance**: A difference that reverses next period, such as a bill in the wrong month.
+- **TIN**: Taxpayer identification number; never typed in full into a ticket or email.
+- **Use tax**: Tax the buyer owes on a taxable item bought without sales tax.
+
+## Intacct
+
+- **Account Reconciliations**: The Close page card listing every bank, card, mortgage, credit line and brokerage account with its status.
+- **Aged Receivables**: The Cubby report of every lease that owes money, in 30, 60, 90 and 120-day buckets.
+- **Allocations**: The monthly payroll allocation by hours at each site, exported as an Intacct file.
+- **AMA (Ask My Accountant)**: The suspense account and the page where questions on ledger lines are asked and answered.
+- **Awaiting Intacct**: An approved change not yet keyed into Intacct.
+- **Book**: A timing rule for reading the ledger: Accrual (the default), Cash, Accrual and Cash side by side, or a user-defined book.
+- **Change request**: An edit to a vendor or customer record filed in Nexus: Pending Approval, Approved - Awaiting Intacct, In Intacct (or Declined, Changed In Intacct).
+- **Commercial lease tenant**: A tenant billed through Intacct as a customer; most tenants are Cubby's alone.
+- **Compliance tab**: A vendor's insurance, workers comp, license and W-9, with one state word: Papers Current, Expiring Soon, Expired, No Insurance On File.
+- **Drill-down**: A posted figure opens its General Ledger lines; a line opens its journal entry.
+- **DSCR**: Debt service coverage: NOI divided by debt service; what lenders watch.
+- **Ended (lease)**: A lease whose tenant left; kept, never overwritten.
+- **Entity access**: The entities a person may read; All Entities by default, set under Accounting > Tools > Access at Full level.
+- **Flux Analysis**: Lines that moved past thresholds, each Open, Answered or Reviewed.
+- **General Ledger lines**: Date, Entry, Doc No, Account, Description, Entity, Vendor, Customer, Department, Debit, Credit and a running Balance.
+- **Import Hub**: Builds import files, such as Bank Statement to Intacct; nothing posts from Nexus.
+- **Intercompany**: Balances between Greens entities, removed when the company is added up.
+- **Journal**: The door an entry came through: payables (APJ), receivables, payroll (PYRJ), general (GJ), user defined, statistical.
+- **Management fee**: What the operating company charges a property entity for running it.
+- **Manual Journal Entries**: Every entry a person keyed or changed in Intacct, and who.
+- **Memorize**: Keeps a report view; a named period moves with the calendar.
+- **Merchant Services Disbursements**: The Operations report that lists each payout batch and the payments in it.
+- **MRE**: Monthly Recurring Expenses: a vendor paid on a schedule, each month Paid, Short, Over, Missed or Upcoming.
+- **MRI**: Monthly Recurring Income: leases, interest and loan payments expected, beside what posted.
+- **Nexus Accounting**: The Nexus module that reads a copy of the Intacct ledger and never posts to it.
+- **Open Full**: Spreads a side panel, such as a journal entry, over the whole screen.
+- **Other Side**: The account(s) on the other side of an entry, shown on each AMA line.
+- **Package**: A lender's set of memorized reports built into one PDF.
+- **Payout batch**: Card and ACH payments paid to the bank together as one deposit.
+- **Reclass**: Moving a line to the right account: Pick GL, Send To Bookkeeper, Preview Change, Approve & Push To Intacct; only a bookkeeper pushes.
+- **Report Builder**: Builds your own report from accounts, entities, Filters, period, Columns, Book and Row Groups; Publish, then Share With Everyone.
+- **Row group**: A named total gathering several accounts in Report Builder.
+- **Sage Intacct**: The accounting system Greens' books live in; the source of truth.
+- **Spend by Vendor**: The report that groups spending by vendor.
+- **Statistical journal**: Quantities such as hours or units, never added into a money total.
+- **Stress Test / Loan Planning**: What a higher rate does to a loan; a calculator and planned loans.
+- **Sub-entity (child code)**: Part of an entity kept on its own books under the parent's code with a suffix, such as 15001-1; read with its parent.
+- **Sync**: The button on a report that reads its table again from the ledger.
+- **User-defined book**: Accrual plus that book's own journals, kept for one purpose.
+
+## Leading
+
+- **Acknowledge**: A required "I have read it" on an announcement; the poster sees who has not.
+- **Announcement**: The company's word to staff, with an audience, a notify mode and optional Acknowledge.
+- **Approvals**: The Dashboard tab that gathers every decision waiting on you, counted in one place so the badge and the list agree.
+- **Audit log**: The record of sensitive changes, with a name and a time.
+- **Board**: A drawing inside Notes; Mark Up attaches a marked-up photo back to its ticket.
+- **Company wall**: Each company's people, departments, approvers and settings kept to itself; an Administrator is always walled.
+- **Compliance (Manage)**: Your team's training status; act on Overdue and Locked.
+- **Confidential HR ticket**: An Ask HR ticket, visible only to HR's audience, never to the requester's manager.
+- **Confirm / Nudge**: A person's "I have seen it" on a shared schedule; the manager nudges those who have not.
+- **Delegate My Approvals**: Handing your approvals to a colleague for the days of your approved time off; set at the bottom of Workday > Time Off.
+- **Early punch**: A clock-in well before the shift; recorded, never blocked, one grouped bell.
+- **Escalation**: A course still not done after its due date, raised to the manager once and then weekly.
+- **Expected hours**: Published shift, else the usual-hours preset, else the standard day for full-time staff; No Schedule is never guessed.
+- **Grant / Access Group**: A module opened at a level (Viewer, Editor, Full); the group that carries it.
+- **Hardest Questions**: The questions people miss most, on a course's report.
+- **Learn This Screen**: The Help panel card that offers the course for the current screen.
+- **Learning path**: Onboarding, role, department or custom; stages of courses and policies.
+- **Message on Teams / Call on Teams**: The two buttons beside every person; Nexus has no chat of its own.
+- **Missed-break report / premium pay**: A California-rule hourly person's report instead of signing; the pay the manager adds for a missed required break.
+- **My Team (Performance)**: Workday > Performance > My Team, a manager's view of their people's numbers, goals, reviews and 1:1s.
+- **Needs Attention / Data Gaps**: The Asset Management Overview cards for what is due or warning, and what the record is missing.
+- **Needs Reply**: The requester spoke last, or nobody has replied; decided by the server.
+- **Next Clock**: The one deadline wording on a ticket row (first reply, update or resolution due), red only when overdue.
+- **No-Show bell**: One bell per team and day for people not clocked in after the alert window; resolves as they arrive.
+- **Offboard flow**: The one way an exit runs, through HR.
+- **On Time, Late, Left Early, No-Show, Excused**: How a day's punches matched the shift; facts, never a pay change.
+- **Onboarding checklist**: A new hire's steps by role; each step reaches its owner as a task.
+- **Only the employee signs**: A Time Sheet's one signer is the employee; the manager's approval is recorded on the PDF.
+- **Open shift**: A shift with no one on it yet, where the company allows them.
+- **Preventive queue**: Tickets filed by preventive maintenance schedules; its count is the overdue ones.
+- **Probation**: A window from the start date; a manager's Confirm, Extend or End is a recommendation HR finalizes.
+- **Punch fix**: A request to change a punch, with a reason; decided on evidence, never edited by the manager directly.
+- **Queue**: A filter preset over the tickets, counted over the whole workspace.
+- **Recommendation**: Recommended: Approve or Check First on a time off request, with reasons; advice only, nothing approves by itself.
+- **Refresher**: Three questions a day from courses a person passed; never a score.
+- **Review & Approve, Send Back, Approve and Next**: The Time Sheet decisions; a send-back carries a note.
+- **Review All Clean / Approve Reviewed**: Review the unflagged Time Sheets and approve only the ones you ticked.
+- **Save & Share**: Publishing the week; each person is belled and asked to Confirm.
+- **Scope (Settings)**: Every setting belongs to the organization, one company, or is a default a company may override.
+- **Shift Planner**: The Team tab where managers build and share the week (Fill Automatically, Copy Week, Save & Share).
+- **Shift rules**: Rest, days in a row, daily and weekly overtime, week caps; they warn and never block; sharing past one asks for a reason only managers see.
+- **Shift type**: A shift's hours, unpaid break and grace minutes.
+- **Sign Off a Person**: Recording an in-person completion for work you saw.
+- **Signing order**: The company never signs an HR document before the employee.
+- **Teaches / Mark Reviewed**: The modules a course teaches; the owner's confirmation after a review flag.
+- **Time Sheets to Review**: The list in People > Time of Time Sheets waiting on your review after the period ends.
+- **Unlock**: Another quiz round for a locked person, by their manager, the course owner or the Knowledge Base manager.
+- **Waiting for Vendor**: A ticket status that carries the vendor's name and promised date.
+- **Workforce Scorecard**: Weekly punched hours against expected hours, under Team > Workforce Analytics, by grant.

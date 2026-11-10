@@ -1,141 +1,101 @@
 ---
-title: Cubby How-To: Move-In
-summary: The move-in from start to finish - pick the unit, preview the move-in charges, choose coverage, take the payment, turn on autopay, get every document done, and set the gate code and lock.
+title: "Cubby How-To: Move-In"
+summary: The move-in from start to finish - pick the unit, set coverage and rate, read the move-in total, create the rental, collect payment, turn on AutoPay, complete documents, and set the gate code and lock.
 page_type: how_to
 tags: cubby, cubby-how-to, move-in, leases
 ---
 
-## What You'll Be Able to Do
-
-- Run a move-in in Cubby from a lead, a reservation or a walk-in.
-- Read the move-in charges preview and explain each line to the customer.
-- Set coverage correctly: a Greens plan, the tenant's own policy, or none.
-- Take the move-in payment and turn on autopay.
-- Finish every document before the tenant leaves: the lease, ID, vehicle details and proof of insurance.
-- Assign the gate code and the lock.
+A customer at Escondido has her ID out and her card in hand. In fifteen minutes she should leave with a signed lease, a working gate code, AutoPay on and nothing on the lease marked Incomplete. This page is the order that gets you there.
 
 ## Before You Start
 
-- In Cubby's developer documents a move-in is called a **checkout**. The screen may say Move-In, Rent or Checkout. The button name in Greens' Cubby is on the screenshot.
-- Have the customer's **photo ID**. For a vehicle, boat or trailer: the **registration** and **proof of insurance**, and the vehicle's length hitch to bumper.
-- Know the charges: the **Administration Fee is $25.00** on a storage or parking lease and the **Mailbox Administration Fee is $10.00** on a mailbox. New move-ins pay **no deposit** (From Greens' Cubby, 11/2026). Other fees are on Greens Fees and Charges.
-- Greens bills on the 1st with **jump day 26**: a move-in on or after the 26th pays the rest of this month plus all of next month (From Greens' Cubby, 11/2026). The worked numbers are in the Ledger Worked Examples lesson.
+- Have the customer's **photo ID**. For a vehicle, boat or trailer: the **registration**, **proof of insurance** and the length hitch to bumper.
+- A new storage or parking lease carries the **Administration Fee**; a mailbox the **Mailbox Administration Fee**. New move-ins pay **no deposit**. Amounts are on Greens Fees and Charges.
+- Greens bills on the 1st with **jump day 26**; the arithmetic is in Ledger Worked Examples: Move-Ins.
 
 > [!WARNING]
-> The order matters. Cubby creates the lease and then charges the payment. **If the payment is declined, Cubby undoes the lease, but the lead stays.** Never hand over a gate code or a lock until the payment has gone through.
+> Never hand over a gate code or a lock until Cubby shows the move-in payment **succeeded**.
 
-## Steps: Choose the Unit
+```figure
+{"kind": "steps", "title": "The Move-In, in Order", "items": [{"label": "Customer and unit", "note": "from the lead or reservation if there is one"}, {"label": "Configure move-in", "note": "date, coverage, rate"}, {"label": "Read the total", "note": "line by line, to the customer"}, {"label": "Create rental"}, {"label": "Collect payment", "note": "wait for succeeded"}, {"label": "Complete documents", "note": "lease signed, ID, vehicle, insurance"}, {"label": "Gate code, lock, note"}]}
+```
 
-1. Start from the lead or reservation if there is one, so the lead converts. For a walk-in, create the contact first.
-2. Pick the unit type (pricing group), then the exact unit. Check on the site map that it is vacant and rentable.
-3. For a parking space, check the fit: vehicle length plus a margin, and for covered or enclosed spaces the height.
-4. Confirm the move-in date (today, unless it is a future reservation).
+## Steps: Customer and Unit
 
-> [!NOTE]
-> **Pending:** screenshot of choosing the unit in the move-in from Greens' Cubby. Owner: Operations Manager.
+1. Start from the lead or reservation if there is one (**More actions**, then **Convert to rental**), so the lead converts. For a walk-in, choose **+ Create**, then **Rental**, and add the customer.
+2. Choose the pricing group, then the unit (Cubby How-To: Find an Open Unit).
+3. For a parking space, check the fit: length plus a margin, and height for covered or enclosed spaces.
+4. Choose **Configure move-in**.
 
-## Steps: Preview the Move-In Charges
+## Steps: Configure the Move-In
 
-Cubby works out what is due before you take any money. Its documents call this **Preview Charges** (also Get Move-In Charges).
+| Field | What you set |
+|---|---|
+| **Move-in date** | Today, unless it is a future reservation |
+| **Coverage** | A Greens protection plan, the tenant's own insurance, or no coverage (only where Greens allows it) |
+| **Rate** | Walk-in rate, Web rate or a custom rate your manager approved |
+| **Tenant is storing a vehicle** | Tick it for every vehicle, boat or trailer |
 
-The lines you can expect:
+**Coverage.** Ask: "Do you have insurance that covers stored property, or would you like Greens' protection plan?" Cubby preselects the highest plan; choose the one the customer picks. For their own policy, enter the policy number and an expiration date in the future, and collect a copy. What each plan covers and costs is on Greens Tenant Protection. Vehicle tenants almost always carry their own policy.
 
-- Prorated rent from today to the end of the month.
-- On or after the 26th, the whole next month as well.
-- The $25.00 Administration Fee (or $10.00 on a mailbox).
-- The protection plan premium, if they take a Greens plan.
-- Any merchandise, such as a lock, and its tax.
-- Any discount, as its own line.
+Leave **Waive Move-in fee** unticked unless your manager approved it. A lock or boxes go on the **Merchandise** tab.
 
-1. Open the move-in charges preview.
-2. Read each line to the customer.
-3. Check the total against what you quoted. If something looks wrong, stop and ask before you charge.
+## Steps: Read the Total
 
-> [!NOTE]
-> **Pending:** screenshot of the move-in charges preview from Greens' Cubby. Owner: Operations Manager.
+Cubby shows the move-in total on the right as you build it. Read each line to the customer:
 
-## Steps: Coverage
+- Rent from today to the end of the month, and on or after the 26th all of next month too.
+- The protection plan, prorated the same way.
+- The Administration Fee.
+- Any merchandise and its tax, and any discount as its own line.
 
-Every lease has one of three coverage types in Cubby:
+If the total does not match what you quoted, stop and ask before you go on.
 
-| Coverage type | What it means | What you enter |
-|---|---|---|
-| **Greens plan** (Cubby: Organisation) | The tenant buys Greens' protection plan | The coverage level and monthly premium |
-| **Own policy** (Cubby: Private Policy) | The tenant has their own insurance | The policy number and expiration date, and a copy (proof of insurance) |
-| **None** | Waived | Only if Greens allows it for this lease |
+## Steps: Create the Rental and Collect Payment
 
-Greens' plans in Cubby are $2,500 of protection at $9.00 or $14.00 a month and $5,000 at $20.00 or $25.00 a month (From Greens' Cubby, 11/2026). Vehicle tenants carry their own policy: only one vehicle lease is on a Greens plan. What each plan covers and excludes is on Greens Tenant Protection.
+1. Choose **Create rental** (with merchandise in the cart the button reads **Pay and create rental**).
+2. On the success screen, choose **Collect payment**.
+3. Take the card, bank account, cash or check (Cubby How-To: Take a Payment) and wait for **succeeded**.
+4. **Declined:** ask for another card or method. **Pending:** do not run it again; ask your manager.
 
-1. Ask: "Do you have insurance that covers stored property, or would you like Greens' protection plan?"
-2. Choose the coverage type and enter what the table says.
-3. For an own policy, check the expiration date is in the future. Cubby raises "Remind Tenant of POI Obligation" tasks when proof of insurance is missing or expires, and "Enroll Tenant in Protection Plan" tasks.
+## Steps: AutoPay
 
-> [!NOTE]
-> **Pending:** screenshot of the coverage step from Greens' Cubby. Owner: Operations Manager.
-
-## Steps: Discount
-
-1. If the customer qualifies for a discount program your site offers, add it now.
-2. Check that the discount shows as its own line in the move-in charges preview.
-
-## Steps: Take the Payment
-
-1. Choose the payment method: card, bank account (ACH), cash, check, or a card taken outside Cubby's card reader (offline card).
-2. The payment must equal the move-in total.
-3. Take the payment. Wait until Cubby shows it **succeeded**.
-4. If it is **declined**, the lease is undone and nothing posts. Ask for another card or method and run the move-in again.
-5. If it shows **pending**, do not run it again. A pending payment has an unknown outcome and running it again can charge the customer twice. Ask your manager.
-
-> [!NOTE]
-> **Pending:** screenshot of the payment step from Greens' Cubby. Owner: Operations Manager.
-
-## Steps: Turn On Autopay
-
-1. Offer autopay to every tenant: "Would you like rent to come off this card automatically on the 1st?" About 74% of Greens' active leases are on autopay (From Greens' Cubby, 11/2026).
-2. Turn it on in the move-in. Cubby saves the card only after the charge succeeds.
+Offer it to every tenant: "Would you like rent to come off this card automatically on the 1st?" Turn it on from **Rental actions**, then **Set up AutoPay**. A card used for a payment is saved to the tenant's account.
 
 ## Steps: Documents
 
-Every lease has required documents, each with a status:
+Choose **Complete documents** on the success screen.
 
 | Document | What you do |
 |---|---|
-| **Lease agreement** | The tenant signs it electronically. Check it shows Approved, not Signature Needed |
-| **Identity** | Check the photo ID matches the person and record it |
-| **Vehicle** | For a parking lease: plate, state, and the vehicle type (Trailer, RV, Boat, Truck, SUV, Sedan, Other) |
-| **Coverage** | Proof of insurance for an own policy |
+| **Lease agreement** | The tenant signs electronically; check it shows Approved, not Signature Needed |
+| **Identity** | Check the photo ID matches the person, and approve it |
+| **Vehicle** | Plate, state and type (Trailer, RV, Boat, Truck, SUV, Sedan, Other) |
+| **Proof of insurance** | For the tenant's own policy |
 
-1. Send the lease for signing and have the tenant sign before they leave.
-2. Approve each document you checked.
-3. Fill the vehicle type. It is blank on 696 of Greens' 759 vehicle leases today (From Greens' Cubby, 11/2026), which makes it hard to know what is on the lot.
+Fill the vehicle type every time; a blank type hides what is on the lot.
 
-> [!NOTE]
-> **Pending:** screenshot of the documents on a new lease from Greens' Cubby. Owner: Operations Manager.
+## Steps: Gate Code, Lock and Note
 
-## Steps: Gate Code, Lock and Notes
+1. Set the tenant's gate code and check it is enabled (Cubby How-To: Gate Code). A future-dated move-in keeps its code disabled until the move-in day; an online renter gets no code until the lease is signed.
+2. Attach a lock to the lease if the tenant bought one or Greens provides one.
+3. Add a note the next person can use: "Stores a 34 ft fifth wheel, backs in, spotter needed."
+4. Walk the tenant to the space and show the gate and the rules.
 
-1. Set the tenant's **gate access code** and check it is enabled. See Cubby How-To: Gate Code.
-2. If the tenant buys or receives a lock, attach it to the lease so it moves to tenant use.
-3. Add a note with anything the next person should know: "Stores a 34 ft fifth wheel, backs in, spotter needed."
-4. Walk the tenant to the unit or space. Show them the gate, the hours and the rules.
+## At Greens
 
-## Example
-
-**Escondido, 11/18/2026.** A customer rents a 10x10 at a made-up $150.00 with the $2,500 plan at $9.00. The move-in charges preview shows prorated rent for 13 days, $65.00; protection $3.90; Administration Fee $25.00; total $93.90 (check against the real preview). She pays by card; it succeeds. You turn on autopay and tell her $159.00 comes off on the 1st. She signs the lease on the tablet, you check her ID and approve it, set her gate code, attach the lock she bought, and add a note. Nothing on the lease shows Incomplete.
+**Escondido, 11/18.** A 10x10 at a made-up $150.00 with a $14.00 plan. The total shows November rent $65.00, protection $6.07 and the Administration Fee: $96.07. You create the rental, collect payment by card, see succeeded, set up AutoPay and tell her $164.00 comes off on the 1st. She signs, you approve her ID, set her code, attach the lock she bought and add a note. Nothing shows Incomplete.
 
 ## Common Mistakes
 
-1. **Giving the gate code before the payment succeeds.** A declined payment undoes the lease.
-2. **Re-running a pending payment.** It can charge twice.
-3. **Skipping the preview** and quoting from memory.
-4. **Leaving documents incomplete**, especially the signature and the vehicle type.
-5. **Choosing None for coverage** without permission.
-6. **Not offering autopay.**
+1. **Giving the gate code before the payment succeeds.**
+2. **Re-running a pending payment.**
+3. **Quoting from memory** instead of reading the total.
+4. **Leaving documents incomplete**, especially the signature and vehicle type.
 
 ## Key Points
 
-- Preview the move-in charges and read each line to the customer.
-- The Administration Fee is $25.00 ($10.00 on a mailbox); no deposit on new move-ins (From Greens' Cubby, 11/2026).
-- If the payment is declined, Cubby undoes the lease and keeps the lead.
-- Coverage is a Greens plan, the tenant's own policy (with number and expiration), or none.
-- Nothing leaves the counter incomplete: signed lease, ID, vehicle details, proof of insurance, gate code.
+- Configure move-in: date, coverage, rate, and the vehicle box for every vehicle.
+- Read the total line by line before Create rental.
+- Collect payment and wait for succeeded before the code or lock.
+- Complete documents before the tenant leaves: signed lease, ID, vehicle, proof of insurance.

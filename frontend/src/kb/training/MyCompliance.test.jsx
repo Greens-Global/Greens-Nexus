@@ -33,5 +33,7 @@ describe('My Compliance', () => {
     expect(titles).toEqual(['Code of Conduct', 'Forklift Basics']);
     expect(screen.getByText('29 days overdue (due 10/01/2026)')).toBeTruthy();
     expect(screen.queryByText(/Manage > Compliance/)).toBeNull();     // no team link for a non-manager
+    expect(screen.getByText('50% met · 1 overdue or expired · 2 in all')).toBeTruthy();   // figures in a line, no stat tiles
+    expect(document.querySelector('.kb-stats')).toBeNull();
   });
 });

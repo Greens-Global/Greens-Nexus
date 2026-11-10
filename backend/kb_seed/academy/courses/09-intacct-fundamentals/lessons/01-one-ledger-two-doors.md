@@ -1,112 +1,83 @@
 ---
 title: One Ledger, Two Doors
-summary: What Sage Intacct is and why Greens runs its books in it, how Nexus Accounting shows the ledger without ever keeping a second one, the Greens Accounting app that looks like Intacct, who has the Accounting grant and what the entity limit means for what you see.
+summary: What Sage Intacct is, how Nexus Accounting shows the ledger without ever keeping a second one, why nothing is typed into the ledger from Nexus, and how the Accounting grant and entity access decide what you see.
+teaches: Accounting
 ---
 
-## What You'll Be Able to Do
-
-- Say what Intacct is, what Nexus Accounting is, and how the two relate.
-- Explain why nothing in Nexus is ever typed into the ledger by hand.
-- Know who holds the Accounting grant and how entity access narrows what a person reads.
-- Find your way from the Nexus Accounting module to the accounting app and back.
+It is the first week of the month and a property manager opens Accounting in Nexus to see why repairs ran high. She clicks the figure, reads the lines, finds the gate invoice, and asks a question on it. She never logged in to Intacct, and nothing she did changed the books. This lesson is why that works, and what she can and cannot do there.
 
 ## Intacct Is the Ledger
 
-**Sage Intacct** is the accounting system Greens' books live in: every entity, every account, every journal entry, every vendor and customer, every report Charmi's team closes the month on. It is the reference tool the accounting team knows, and the Fundamentals of Accounting course's words (accounts, journals, accrual, the close) are Intacct's words too.
+**Sage Intacct** is the accounting system Greens' books live in: every entity, account, journal entry, vendor and customer. The accounting team keys entries, pays bills and closes the month there. Intacct is the source of truth.
 
-Greens reaches the ledger through two doors:
+**Nexus Accounting** is the second door. It reads a copy of the Intacct ledger that the accounting app keeps in step with Intacct, and shows it as dashboards, statements, reports and records. It never keeps a second set of books.
 
 ```figure
 {
   "kind": "compare",
   "title": "Two Doors to One Ledger",
   "columns": [
-    { "name": "Nexus Accounting", "note": "the module in Nexus, for everyone with the grant", "facts": ["Dashboards, financial statements, reports, the drill-down", "Vendors and customers, their records and papers", "Recurring income and expenses, loans, management fees", "Reads the ledger; never writes to Intacct"] },
-    { "name": "Greens Accounting", "note": "the standalone app, built to look like Intacct", "facts": ["The accounting team's working tool", "Where entries are keyed and the month is closed", "Mirrors the Intacct ledger in its own database", "Reached from Nexus with Launch"] }
-  ],
-  "caption": "One ledger. Nexus reads a mirror of it over a private connection; Nexus never talks to Intacct or to the accounting database directly."
-}
-```
-
-Nexus never keeps a second set of books, never writes to Intacct, and never lets anyone key a dollar into a report. Every figure on a Nexus Accounting screen is read from the accounting app's internal reports, refreshed every few minutes, and every one drills down to the ledger lines behind it. That is the house rule from the Accounting side of CLAUDE.md made visible: a figure that is posted opens the lines behind it, and every line opens its transaction.
-
-## Why Read-Only Matters
-
-A ledger with two writers is two ledgers. If a site could key a payment into Nexus, the rent in Nexus and the rent in Intacct would drift apart, and nobody could say which was right. So:
-
-- A tenant's payment is recorded in **Cubby** and reaches the ledger through the deposit batch.
-- A vendor is paid from **payables in the accounting app**, never from a site.
-- A reclass (moving a line to a different account) is **asked for** in Nexus (Ask My Accountant) and **done** by the bookkeeper in the accounting app.
-- An allocation or an import is **prepared** in Nexus as an Intacct import file and **posted** by the accounting team.
-
-When a Nexus screen looks like it is editing money, it is editing Nexus's own notes about the ledger (a vendor's compliance papers, a loan's planning, a lease record) or preparing a file for the accounting team. The ledger itself has one door.
-
-## Who Sees the Module
-
-```figure
-{
-  "kind": "screen",
-  "title": "Accounting, Access",
-  "device": "computer",
-  "module": "Accounting",
-  "sub": "Tools",
-  "tabs": ["Dashboard", "Reports", "Financing", "Records", "Tools"],
-  "tab": "Tools",
-  "parts": [
-    { "kind": "text", "title": "Access", "text": "Everyone holding the Accounting grant. All Entities is the default; a limit takes effect on the person's next click." },
-    { "kind": "table", "columns": ["Person", "Grant level", "Entities"], "rows": [
-      ["Charmi K.", "Full", "All Entities"],
-      ["Dana Reyes", "Viewer", "Greens Storage Temecula, Greens Storage Murrieta"],
-      ["Priya N.", "Viewer", "Greens Storage Temecula"],
-      ["Sam O.", "Viewer", "Greens Storage Fairfield"]
-    ], "n": 1 },
-    { "kind": "card", "note": "Family and personal entities are in the same ledger as the companies. Only Full level may change this list.", "n": 2 }
-  ],
-  "callouts": [
-    { "n": 1, "text": "The grant opens the module; the entity list says which entities the person reads. Reports, search, drill-downs and journal entries all stop at it." },
-    { "n": 2, "text": "Anything that only exists consolidated (the dashboard tabs, the accounting app itself) needs All Entities." }
+    { "name": "Sage Intacct", "note": "the accounting team's door", "facts": ["Entries are keyed and posted here", "Bills are paid and the month is closed here", "The source of truth"] },
+    { "name": "Nexus Accounting", "note": "everyone with the grant", "facts": ["Reads a copy of the ledger", "Statements, reports, records, the drill-down", "Asks questions; never posts"] }
   ]
 }
 ```
 
-Two things decide what a person sees:
+## How Fresh the Figures Are
 
-| | What it is | Who sets it |
+A line posted in Intacct reaches Nexus when the ledger copy next catches up. Dashboard figures are held for a couple of minutes between reads, so two people see the same picture. A report has a **Sync** button that reads its table again from the ledger. If a line you know was posted is not there, press Sync; if it is still missing, ask Accounting.
+
+## Why Nothing Is Typed In
+
+A ledger with two writers is two ledgers. If a site could key a payment into Nexus, Nexus and Intacct would drift apart and nobody could say which was right. So:
+
+- A tenant's payment is taken in **Cubby** and reaches the books through the bank (see the lesson How Cubby Money Reaches the Books).
+- A vendor is paid by the accounting team in Intacct, never from a site.
+- A wrong account on a line is **asked about** in Nexus, on **Reports > Audit & Insights > AMA** (Ask My Accountant). Only the bookkeeper may approve the fix and push it to Intacct.
+- An allocation or a bank import is **prepared** in Nexus as a file and **posted** by the accounting team.
+
+When a Nexus screen looks like it is editing money, it is editing Nexus's own records beside the ledger (a vendor's insurance papers, a loan's planning) or preparing a file.
+
+## Who Sees What
+
+Two things decide what a person reads:
+
+| | What it does | Where it is set |
 |---|---|---|
-| **The Accounting grant** | Opens the Accounting module in the left menu. Viewer reads; Editor and Full edit Nexus's own records (vendors' papers, loans, MRI and MRE) | Access Groups (People & Access) |
-| **Entity access** | Which Intacct entities the person reads: All Entities, or a list. An entity brings its sub-entities | Accounting > Tools > Access, Full level only |
+| **The Accounting grant** | Opens the module. Viewer reads; Editor and Full also keep Nexus's own records | Access Groups |
+| **Entity access** | Which Intacct entities the person reads: All Entities by default, or a list | Accounting > Tools > Access, Full level |
 
-A site manager with the grant and one entity reads their own site's statements and nothing else. The consolidated screens (the dashboard's Overview, Cash, Performance and Close; the accounting app) open only for people with All Entities. Administrators and owners are never limited.
+A manager limited to one entity reads that entity's statements and nothing else; search, drill-downs and journal entries stop at the same line. The Dashboard tabs show the whole company added up, so they open only for people with All Entities.
 
-**Personal financial statements** (PFS) are a separate matter: owners and an explicit PFS grant only, whatever a person's tier. They are the most sensitive records in Nexus and this course does not touch them.
+**Personal financial statements** (PFS) are separate: owners and an explicit PFS grant only. This course does not cover them.
 
 ## Finding Your Way
 
-Open **Accounting** from the left menu (Modules group). The header carries the module's tabs: Dashboard, Reports, Financing, Records and Tools, each a group with pages under it. Every page has the same bones: an entity picker (your entities, or all), a period, a book, and a grid whose figures click.
+Open **Accounting** from the left menu. The header carries five menus:
 
-| Group | Pages |
+| Menu | What is under it |
 |---|---|
 | **Dashboard** | Overview, Cash, Performance, Close |
-| **Reports** | Report Center, Report Builder, Packages; the financial statements; Banking & Credit Cards; Budget; Payroll & People; Audit & Insights (Manual Journal Entries, MRE, MRI, Ask My Accountant, Profitability); Tax |
+| **Reports** | Report Center, Financial, Banking & Credit Cards, Budget, Payroll & People, Audit & Insights, Tax |
 | **Financing** | Loans, Intercompany, Investments |
 | **Records** | Vendors, Customers, General Ledger Accounts, Entities, Journals |
 | **Tools** | Data, Access, Allocations, Import Hub |
 
-**Launch** opens the Greens Accounting app for the accounting team. The rest of this course walks the Nexus pages in the order a manager meets them.
+The search box at the top right of every tab finds any posted line by vendor, customer, invoice, amount or memo.
 
-## A Greens Scenario
+## At Greens
 
-A new site manager at Murrieta is given the Accounting grant at Viewer level with one entity, Greens Storage Murrieta. She opens Accounting: the Dashboard tabs are not there (consolidated only), but Reports is, and her Income Statement shows her site alone. She clicks repairs and maintenance, reads the ledger lines, opens one entry, and sees the vendor's invoice number and the ticket number in the memo. She never saw a dollar of another site's, and nothing she did changed the ledger.
+A new Murrieta manager gets the Accounting grant at Viewer level with one entity. The Dashboard tabs are not there, but Reports is, and her Income Statement shows her property alone. She opens repairs, reads the lines, and finds a ticket number in a memo. She saw nothing of another property's, and changed nothing.
 
 ## Common Mistakes
 
-- **Looking for a place to type a payment or a correction in Nexus.** There is none; ask through Ask My Accountant.
-- **Expecting the Dashboard tabs with one entity.** They are consolidated views.
-- **Treating the accounting app and Nexus as two ledgers.** One ledger; Nexus reads a mirror.
+- **Looking for a place to type a payment or a correction.** There is none; ask on the line through AMA.
+- **Expecting the Dashboard with one entity.** It shows the whole company.
+- **Reporting a "missing" line before pressing Sync.**
 
 ## Key Points
 
-- Intacct is the ledger; the Greens Accounting app is where the accounting team works in it; Nexus Accounting reads a mirror and never writes to Intacct.
-- Every figure drills to its ledger lines and every line to its transaction.
-- The Accounting grant opens the module; entity access narrows what a person reads; consolidated screens need All Entities; PFS is owners only.
-- The module is five groups: Dashboard, Reports, Financing, Records, Tools; Launch opens the accounting app.
+- Intacct is the ledger; Nexus Accounting reads a copy and never posts.
+- Sync reads a report's table again; a line still missing after Sync is a question for Accounting.
+- The grant opens the module; entity access narrows it; the Dashboard needs All Entities.
+- A fix to the ledger is requested in Nexus and made by the bookkeeper.

@@ -56,14 +56,13 @@ describe('Org chart externals and four-line cards', () => {
   it('externals are off the chart until the External Users option is on, then wear the designation and their own company', async () => {
     await renderChart();
     expect(screen.queryByText('Jane Doe')).toBeNull();
-    const toggle = screen.getByRole('checkbox', { name: /External Users/ });
-    expect(toggle.checked).toBe(false);
-    expect(screen.getByText('1', { selector: 'label span' })).toBeTruthy();   // one active external; the deactivated one is not counted
+    const toggle = screen.getByRole('button', { name: /External Users/ });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(within(toggle).getByText('1')).toBeTruthy();   // one active external; the deactivated one is not counted
     fireEvent.click(toggle);
     const card = cardOf('Jane Doe');
-    expect(within(card).getByText('External')).toBeTruthy();
+    expect(card.textContent).toContain('Field · External');   // the designation rides the department line
     expect(within(card).getByText('Site Foreman')).toBeTruthy();
-    expect(within(card).getByText('Field')).toBeTruthy();
     expect(within(card).getByText('Acme Construction')).toBeTruthy();
     expect(screen.queryByText('Gone Guest')).toBeNull();
     expect(localStorage.getItem('nx-orgchart-externals')).toBe('true');       // remembered per device
@@ -78,7 +77,7 @@ describe('Org chart externals and four-line cards', () => {
     const { default: HR } = await import('./HR');
     render(<HR activeSub="hr-org" onSubChange={onSubChange} />);
     await screen.findByText('Val Top');
-    fireEvent.click(screen.getByRole('button', { name: 'Expand All' }));   // seeded view folds the second level once it has reports
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all teams' }));   // seeded view folds the second level once it has reports
     // A tap = pointer down on the card, pointer up with no movement.
     fireEvent.pointerDown(cardOf('Jane Doe'), { clientX: 10, clientY: 10, button: 0 });
     fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
@@ -95,7 +94,7 @@ describe('Org chart externals and four-line cards', () => {
     localStorage.setItem('nx-orgchart-externals', 'true');
     await renderChart();
     fireEvent.change(screen.getByDisplayValue('All Companies'), { target: { value: 'co1' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Expand All' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all teams' }));
     expect(screen.getByText('Jane Doe')).toBeTruthy();                       // reports into Greens Co
     fireEvent.pointerDown(cardOf('Mia Mid'), { clientX: 10, clientY: 10, button: 0 });
     fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });

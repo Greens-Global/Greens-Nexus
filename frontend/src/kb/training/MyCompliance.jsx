@@ -5,11 +5,17 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import AsyncSection from '../../components/AsyncState';
-import { Chip, SectionHead, Stat } from '../components/Chips';
 import { errText } from '../components/Toast';
 import { goKb, CELL_COLORS, fmtDate, plural } from '../lib';
 
 const ORDER = { red: 0, amber: 1, green: 2 };
+
+// "62% met · 3 overdue or expired · 5 due soon or in progress · 13 in all"
+export function standing(stats, n) {
+  if (!n) return '';
+  return [`${stats.compliant_pct}% met`, stats.overdue ? `${stats.overdue} overdue or expired` : 'nothing overdue',
+    stats.due_soon ? `${stats.due_soon} due soon or in progress` : '', `${n} in all`].filter(Boolean).join(' · ');
+}
 
 function whenText(cell) {
   if (cell.signed_at) return `Signed ${fmtDate(cell.signed_at)}`;
@@ -35,25 +41,26 @@ export default function MyCompliance({ me }) {
     <AsyncSection loading={!data && !err} error={err ? new Error(err) : null} errorMessage={err} onRetry={load}>
       {data && (
         <>
-          <div className="kb-stats">
-            <Stat value={`${data.stats.compliant_pct}%`} label="of your requirements met" color={data.stats.compliant_pct >= 90 ? '#1e7b4e' : '#b45309'} />
-            <Stat value={data.stats.overdue} label="overdue or expired" color={data.stats.overdue ? '#dc2626' : undefined} />
-            <Stat value={data.stats.due_soon} label="due soon or in progress" color={data.stats.due_soon ? '#d97706' : undefined} />
-            <Stat value={rows.length} label="requirements" />
-          </div>
-          <section className="kb-card">
-            <SectionHead title="My Requirements" count={rows.length} sub="the courses and policies you are responsible for" />
-            {rows.length === 0 && <div className="kb-empty">Nothing is required of you right now. Assigned courses and policies to sign show up here.</div>}
-            {rows.map((r) => (
-              <div key={r.key} className="kb-row link" onClick={() => goKb(r.kind === 'course' ? 'course' : 'page', r.id)}>
-                <Chip color={r.kind === 'course' ? '#1e7b4e' : '#7c3aed'}>{r.kind === 'course' ? 'Course' : 'Policy'}</Chip>
-                <div className="kb-grow">
-                  <div className="kb-title">{r.title}</div>
-                  <div className="kb-meta">{whenText(r.cell)}</div>
-                </div>
-                <Chip color={CELL_COLORS[r.cell.color]}>{r.cell.status}</Chip>
-              </div>
-            ))}
+          {/* No stat tiles in Training (house rule, 11/07/2026): a titled list with its figures in one plain line. */}
+          <section className="kb-shelf">
+            <div className="kb-shelf-head">
+              <h3 className="kb-shelf-title">My Requirements</h3>
+              <span className="kb-meta">{standing(data.stats, rows.length)}</span>
+            </div>
+            <div className="kb-shelf-body">
+              {rows.length === 0 && <div className="kb-empty-state"><div className="kb-empty-title">Nothing Required Right Now</div><div className="kb-meta">Assigned courses and policies to sign show up here.</div></div>}
+              {rows.map((r) => {
+                const open = () => goKb(r.kind === 'course' ? 'course' : 'page', r.id);
+                return (
+                  <div key={r.key} className="kb-todo" role="link" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}>
+                    <span className={`kb-todo-kind${r.kind === 'course' ? '' : ' policy'}`}>{r.kind === 'course' ? 'Course' : 'Policy'}</span>
+                    <div className="kb-todo-text"><div className="kb-prow-title">{r.title}</div><div className="kb-meta">{whenText(r.cell)}</div></div>
+                    <span className="kb-state" style={{ color: CELL_COLORS[r.cell.color] }}>{r.cell.status}</span>
+                    <span />
+                  </div>
+                );
+              })}
+            </div>
           </section>
           <div className="kb-meta">
             Green: done and current. Amber: in progress, not started, or due within 14 days. Red: overdue or expired.

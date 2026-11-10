@@ -113,7 +113,9 @@ describe('Knowledge Base module', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'New Hire: Facility Team' })).toBeTruthy();
     expect(screen.getAllByText('Week 1').length).toBeGreaterThan(0);   // the ladder names it and the stage heads it
     expect(screen.getAllByText('0 of 2', { exact: false }).length).toBeGreaterThan(0);
-    expect(screen.getByText('Start: Site Safety Basics', { exact: false })).toBeTruthy();
+    expect(screen.getByText('Continue: Site Safety Basics', { exact: false })).toBeTruthy();   // its first course is 60% done: Continue, never Start (11/08/2026)
+    expect(screen.getAllByText('1 in progress', { exact: false }).length).toBeGreaterThan(0);
+    expect(document.querySelector('.kb-ladder-seg.live')).toBeTruthy();   // the stage in hand carries the live accent
     expect(screen.getByText('Hands-On Check')).toBeTruthy();
   });
 
