@@ -1256,7 +1256,10 @@ function CubbyLink({ taskId }) {
   }, [taskId]);
   if (info === 'denied') return <span style={{ fontSize: 13, color: NX.faint, paddingTop: 5 }}>Cubby&apos;s copy could not be read</span>;
   if (!info) return <span className="skel" style={{ display: 'block', width: 180, height: 14, marginTop: 8 }} />;
-  const where = [info.facilityName, info.unitName ? `unit ${info.unitName}` : ''].filter(Boolean).join(' · ');
+  // A task Cubby filed against a tenant shows the tenant's unit(s) and name, so it
+  // can be found among hundreds in Cubby's list (Sagar, 11/10/2026).
+  const unit = info.unitName ? `${info.unitName.includes(',') ? 'Units' : 'Unit'} ${info.unitName}` : '';
+  const where = [info.facilityName, unit, info.tenantName].filter(Boolean).join(' · ');
   const people = (info.assignedNames || []).length ? `Assigned in Cubby to ${info.assignedNames.join(', ')}`
     : (info.groupNames || []).length ? `Assigned in Cubby to the ${info.groupNames.join(', ')} group` : '';
   const cubbyState = info.pushStatus ? `Waiting to be ${info.pushStatus === 'COMPLETED' ? 'completed' : 'reopened'} in Cubby`

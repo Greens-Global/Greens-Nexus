@@ -32,7 +32,7 @@ STAFF = [{"manager_id": "m1", "manager_name": "Amy Bolanos", "manager_email": AM
          {"manager_id": "m3", "manager_name": "Greens Storage - API", "manager_email": "neil@greensglobal.com"}]
 
 TABLES = (models.Task, models.TaskProject, models.TaskActivity, models.CubbyTaskLink, models.CubbyTask,
-          models.CubbyFacility, models.CubbyUnit, models.NexusEmployee, models.NexusRole, models.NexusSetting,
+          models.CubbyFacility, models.CubbyUnit, models.CubbyRental, models.CubbyCustomer, models.NexusEmployee, models.NexusRole, models.NexusSetting,
           models.NexusNotification, models.TaskComment, models.TaskNotification)
 
 
@@ -424,6 +424,38 @@ def test_overview_lists_what_settings_shows(world):
     assert info["facilityName"] == "Greens Storage Temecula" and info["unitName"] == "A014"
     assert info["assignedNames"] == ["Amy Bolanos"] and info["automated"] is False
     assert info["url"] == "https://app.cubbystorage.com/tasks/all"   # Find in Cubby: no deep link exists
+
+
+def test_a_task_filed_against_a_tenant_shows_their_unit_and_name(world):
+    # Cubby files a move-out against the TENANT, not a unit (Sagar, 11/10/2026):
+    # the unit comes from the rent roll, else the tenant's latest lease.
+    db = SessionLocal()
+    try:
+        for uid, name, cid in (("u2", "B234", "cust_2"), ("u3", "B236", "cust_2"), ("u4", "C197", ""),
+                               ("u5", "C001", "")):
+            db.add(models.CubbyUnit(id=f"{FAC}:{uid}", facility_id=FAC, unit_id=uid, unit_name=name, customer_id=cid))
+        for lid, uid, moved_in in (("l1", "u5", "2024-01-01"), ("l2", "u4", "2025-06-01")):
+            db.add(models.CubbyRental(id=f"{FAC}:{lid}", facility_id=FAC, lease_id=lid, unit_id=uid,
+                                      customer_id="cust_3", move_in_date=moved_in, move_out_date="2026-10-31"))
+        db.add(models.CubbyCustomer(id=f"{FAC}:cust_2", facility_id=FAC, customer_id="cust_2", name="Pat Renter"))
+        db.commit()
+    finally:
+        db.close()
+    renting = {**_api_task("task_20", "Move TNT Out", unit=None), "customerId": "cust_2"}
+    moved = _api_task("task_21", "Please make sure to move TNT out", unit=None)
+    moved.pop("customerId")                                 # the API left it out; the warehouse has it
+    world.api_open = {"task_20": renting, "task_21": moved}
+    world.wh = {"task_20": {**_wh_task("task_20", "Move TNT Out"), "unit_id": None, "contact_id": "cust_2"},
+                "task_21": {**_wh_task("task_21", "Please make sure to move TNT out"), "unit_id": None,
+                            "contact_id": "cust_3"}}
+    assert world.sync()["created"] == 2
+    assert _link("task_20").unit_name == "B234, B236" and _link("task_21").unit_name == "C197"
+    db = SessionLocal()
+    try:
+        info = cubby_tasks.link_for_task(db, _tasks()["task_20"].id)
+    finally:
+        db.close()
+    assert info["unitName"] == "B234, B236" and info["tenantName"] == "Pat Renter"
 
 
 # ── Notes, and what Cubby did is Cubby's (Sagar, 11/03/2026) ─────────────────
