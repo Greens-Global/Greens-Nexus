@@ -61,8 +61,10 @@ export const SITE = [
     P('reports', 'Reports', ['ticket reports']),
     P('preventive', 'Preventive Maintenance', ['preventive maintenance', 'preventive', 'work orders', 'scan to request']),
   ]),
-  S('egnyte', 'Files', ['files', 'egnyte', 'egnyte throttling']),
-  S('documents', 'Documents', ['documents', 'document library'], [
+  // Files (Neil, 11/10/2026) is the Documents module with the Egnyte browser
+  // in it - one place; the old 'egnyte' key's words now land here.
+  S('documents', 'Files', ['files', 'documents', 'document library', 'egnyte', 'egnyte throttling'], [
+    P('files', 'Browse Files', ['browse files', 'egnyte folders']),
     P('templates', 'Templates', ['templates', 'document templates']),
     P('forms', 'Forms', ['forms', 'field forms', 'federal forms']),
     P('filing', 'Filing & Sorting', ['filing and sorting', 'filing', 'hr filing']),

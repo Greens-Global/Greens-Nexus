@@ -14,11 +14,14 @@
 //                                   2026; the id stays - it is the stored access grant)
 //   people          -> hr          (the module is called People; /people/... opens it,
 //                                   the address it writes stays /hr - Oct 29 2026)
+//   files          <-> documents   (Documents took in the Egnyte browser and is called
+//                                   Files, Neil 11/10/2026; the id stays - it is the
+//                                   stored access grant - and /documents/... still opens it)
 import { legacyItemsSub } from '../inventory/model/routes';
 
 export const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr', insights: 'bi', bi: 'bi',
-  team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support', credentials: 'credvault', credvault: 'credvault', people: 'hr' };
-export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', bi: 'insights', shifts: 'team', support: 'help-center', credvault: 'credentials' };
+  team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support', credentials: 'credvault', credvault: 'credvault', people: 'hr', files: 'documents', documents: 'documents' };
+export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', bi: 'insights', shifts: 'team', support: 'help-center', credvault: 'credentials', documents: 'files' };
 
 // A module tab's obvious address (11/05/2026): /notes is Dashboard > Notes -
 // it used to say Page Not Found because Notes lives under Dashboard. Each
@@ -42,6 +45,15 @@ export function tabAddress(view, sub) {
   const hit = Object.hasOwn(TAB_ADDRESSES, view || '') ? TAB_ADDRESSES[view] : null;
   if (!hit) return null;
   return { view: hit.view, sub: hit.item && sub ? `${hit.sub}:${sub}` : hit.sub };
+}
+
+// The Egnyte browser became the Files module's Browse Files tab (Neil,
+// 11/10/2026): the old 'egnyte' view - /egnyte, /egnyte/wiring, the rail's
+// old row in a saved link - lands on that tab (Wiring on Wiring). null = not
+// an old Files address.
+export function egnyteRedirect(view, sub) {
+  if (view !== 'egnyte') return null;
+  return { view: 'documents', sub: sub === 'wiring' ? 'documents-wiring' : 'documents-files' };
 }
 
 // Purchase Requisition moved to Workday > Purchase Requests (Neil, Oct 22

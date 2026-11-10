@@ -531,10 +531,10 @@ export const IMPL_PHASES = [
       { title: 'Knowledge Base', where: 'Knowledge Base > Manage', view: 'sop', items: [
         'Load the SOPs and policies, assign sign-offs, and build required training courses.',
       ]},
-      { title: 'Documents and E-Signature', where: 'Documents', view: 'documents', items: [
+      { title: 'Documents and E-Signature', where: 'Files > Documents', view: 'documents', items: [
         'Upload the templates, set a default per type, and define merge fields.',
       ]},
-      { title: 'Files (Egnyte)', where: 'Files', view: 'egnyte', items: [
+      { title: 'Files (Egnyte)', where: 'Files > Browse Files', view: 'documents', items: [
         'Connect Egnyte, map Folder Groups, and set where property folders and signed documents are filed.',
       ]},
     ],

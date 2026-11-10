@@ -177,7 +177,9 @@ const TABS = [
   { key: 'wiring',   label: 'Wiring',             Icon: Cable, minRole: 'manager' },
 ];
 
-export default function EgnyteApp({ activeSub, onSubChange }) {
+// `embedded` (Neil, 11/10/2026): the Files module (views/Documents.jsx) draws
+// Browse Files and Wiring as its own tabs, so this one draws no tab strip.
+export default function EgnyteApp({ activeSub, onSubChange, embedded = false }) {
   const { can } = useRole();
   // Mirrors require_level(2) on the write routes in routers/egnyte.py.
   const canWrite = can('supervisor');
@@ -191,7 +193,7 @@ export default function EgnyteApp({ activeSub, onSubChange }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
-      <ModuleTabs tabs={tabs} active={sub} onChange={goTo} />
+      {!embedded && <ModuleTabs tabs={tabs} active={sub} onChange={goTo} />}
 
       {loading ? (
         <Loading label="Checking the Egnyte connection…" />

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { PATH_TO_VIEW, tabAddress, VIEW_TO_PATH, purchaseRedirect, itemsRedirect, addressFor, itemLinkSub, ticketPlaceSub } from './lib/routes';
+import { PATH_TO_VIEW, tabAddress, VIEW_TO_PATH, purchaseRedirect, egnyteRedirect, itemsRedirect, addressFor, itemLinkSub, ticketPlaceSub } from './lib/routes';
 import { workforceRedirect, WORKFORCE_GRANTS } from './lib/workforceAccess';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
@@ -93,7 +93,6 @@ const Legal               = lazy(() => import("./views/Legal"));   // Privacy Po
 const TimeClock           = lazy(() => import("./views/TimeClock"));
 const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
-const Egnyte              = lazy(() => import("./views/Egnyte"));
 const Shifts              = lazy(() => import("./views/Shifts"));
 const MyBriefing          = lazy(() => import("./views/MyBriefing"));
 const WhatsNew            = lazy(() => import("./tasks/ChangelogView"));   // What's New as a page (Oct 12)
@@ -178,7 +177,13 @@ const VIEW_GRANT = {};
 // Analytics grant - Team is otherwise internal-only for them - and then
 // shows that one tab alone (views/Shifts.jsx). Internal staff have Team
 // anyway; the tab itself gates on lib/workforceAccess.js (Oct 29 2026).
-const VIEW_ALT_GRANTS = { shifts: WORKFORCE_GRANTS };
+const VIEW_ALT_GRANTS = {
+  shifts: WORKFORCE_GRANTS,
+  // Files (Neil, 11/10/2026) is the Documents module with the Egnyte browser
+  // in it: the old Files grant ('egnyte') opens it too, showing only the
+  // tabs it covers (views/Documents.jsx filesTabs).
+  documents: ['egnyte'],
+};
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
@@ -415,7 +420,6 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault activeSub={activeSub} onSubChange={onSubChange} />;
-    case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
     case "shifts":             return <Shifts activeSub={activeSub} onSubChange={onSubChange} />;
     case "legal":              return <Legal activeSub={activeSub} onSubChange={onSubChange} />;
     // Old links to the two separate pages open their tab of Legal.
@@ -491,6 +495,9 @@ function parsePath() {
   // Workday > Purchase Requests (/purchase/new opens the form).
   const moved = purchaseRedirect(view, segs[1] || null);
   if (moved) return moved;
+  // The old Files (Egnyte) module is Files > Browse Files (Neil, 11/10/2026).
+  const egnyte = egnyteRedirect(view, segs[1] || null);
+  if (egnyte) return egnyte;
   // An item's own link (a QR tag): /itemmanagement/item/<id> -> sub item/<id>.
   const itemLink = itemLinkSub(view, segs);
   if (itemLink) return { view, sub: itemLink };
@@ -518,11 +525,10 @@ const DEFAULT_SUBS = {
   development:       "dev-permits",
   "property-asset":  "asset-portfolio",
   hr:                "hr-ms",
-  documents:         "documents-browse",
+  documents:         "documents-files",   // Files opens on Browse Files (Neil, 11/10/2026); a documents-only grant gets its first tab
   "investor-relations": "investor-dashboard",
   marketing:         "marketing-ads",
   accounting:        "overview",
-  egnyte:            "browse",
   shifts:            "shifts",    // Team opens on the group's Shifts; Contact is last (Oct 15 2026)
   // Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
   // id lands on its own natural tab so the URL is meaningful from the first
@@ -786,6 +792,9 @@ function MainApp() {
     // Purchase Requisition -> Workday > Purchase Requests (see parsePath).
     const moved = purchaseRedirect(view, sub);
     if (moved) ({ view, sub } = moved);
+    // Old Files (Egnyte) module -> Files > Browse Files (see parsePath).
+    const egnyte = egnyteRedirect(view, sub);
+    if (egnyte) ({ view, sub } = egnyte);
     // Item Management's old subs (bells, emails, tiles) -> the new tabs (see parsePath).
     const items = itemsRedirect(view, sub);
     if (items) ({ view, sub } = items);

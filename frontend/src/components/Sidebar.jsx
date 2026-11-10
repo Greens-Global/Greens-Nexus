@@ -105,32 +105,25 @@ export const NAV = [
   // Oct 13 2026: "anything to do with support or learning is right here") -
   // still baseline, the 'sop' view and its address are unchanged.
   //
-  // The Work group reads Tasks, Tickets, Files, Documents, Credentials,
-  // Workflows (Neil, 10/28/2026) - Credentials and Workflows moved up
-  // from Modules. Sidebar.orderNav.test.jsx pins this order.
+  // The Work group reads Tasks, Tickets, Files, Credentials (Neil,
+  // 11/10/2026: Files and Documents are ONE module, called Files; Workflows
+  // moved down to System). Sidebar.orderNav.test.jsx pins this order.
   { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
   { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
-  // Files (Egnyte-backed; beneath Tasks since Pranshu, Aug 31 - Tickets
-  // now sits between them, Neil 10/28/2026).
-  // Egnyte stays the source of truth for files; this module browses, uploads
-  // and searches it in place. Sub list is for the mobile menu - the desktop
-  // rail is flat and the module renders its own tab strip.
+  // Files (Neil, 11/10/2026): the Documents module took in the Egnyte
+  // browser (its Browse Files tab, views/Documents.jsx) and is called Files.
+  // The view id stays 'documents' (bells, emails, saved links); the old
+  // 'egnyte' view lands on Browse Files (lib/routes.js egnyteRedirect).
+  // Either grant opens it - each one opens only its own tabs.
   {
-    view: "egnyte", code: "EGN", label: "Files", icon: HardDrive, minRole: 'supervisor',
+    view: "documents", code: "FIL", label: "Files", icon: HardDrive, minRole: 'supervisor',
+    grants: ['documents', 'egnyte'],
     sub: [
-      { subview: "browse",   label: "Browse Files",       icon: FolderOpen },
-    ],
-  },
-  {
-    view: "documents", code: "DOC", label: "Documents", icon: FileText, minRole: 'supervisor',
-    sub: [
+      { subview: "documents-files", label: "Browse Files", icon: FolderOpen },
       { subview: "documents-esign", label: "Nexus Sign", icon: PenTool },
     ],
   },
   { view: "credvault", code: "VLT", label: "Credentials", icon: KeyRound, minRole: 'supervisor' },
-  // Workflows (Oct 28 2026): cross-module automations - build, pause, review
-  // what ran. Granted like the other modules.
-  { view: "workflows", code: "WFL", label: "Workflows", icon: Workflow, minRole: 'supervisor' },
   { divider: true },
   {
     view: "it", code: "IT", label: "IT", icon: Monitor, minRole: 'supervisor',
@@ -227,6 +220,10 @@ export const NAV = [
   // Help Center (Neil, Oct 13 2026; was Support): Submit a Ticket,
   // Documentation and the Knowledge Base & Training. View id stays 'support'.
   { view: "support", code: "HLP",        label: "Help Center",    icon: HelpCircle },
+  // Workflows (Oct 28 2026): cross-module automations - build, pause, review
+  // what ran. Granted like the other modules. In System since Neil,
+  // 11/10/2026 (was the end of Work).
+  { view: "workflows", code: "WFL", label: "Workflows", icon: Workflow, minRole: 'supervisor' },
   // External Links folded into Dashboard as a tab (Pranshu, Sep 3 - same
   // "shrink the left nav" pattern as Manager Dashboard, Aug 31). The
   // 'external-links' view id still resolves (App.jsx parsePath/navigate
