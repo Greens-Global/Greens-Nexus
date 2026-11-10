@@ -573,6 +573,14 @@ export const DOCS = [
         ],
       },
       {
+        title: "Let Someone Build a Team's Schedule Without Being a Manager",
+        steps: [
+          'Name the person a Scheduler on the team: Settings > Shifts & Scheduling > Groups, open the group, add them under Schedulers and Save.',
+          'Give them the Shift Planner access in an Access Group. Viewer opens Team > Shift Planner and shows the shared schedule of the teams they schedule. Editor also adds, edits, moves and deletes the shifts of those teams and shares the week. Full also clears a week, imports a file and changes who is on those teams. Owner acts as a manager inside Shifts for their whole company: every team, swap and open-shift decisions and weather calls.',
+          'They stay an Employee. No level opens Time Sheets, pay, scheduled labor, shift types or Settings.',
+        ],
+      },
+      {
         title: 'Fill a Week or a Month for a Team',
         steps: [
           'On Team > Shift Planner, pick the team in the box above the grid and the week or month, then click Fill Automatically.',

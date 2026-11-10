@@ -95,6 +95,14 @@ export const MODULE_CAPABILITIES = {
     full:   'See and receive the Scorecard for the whole company.',
     owner:  'Company-wide Scorecard, plus manage who else has it.',
   },
+  // Name the person a team's Scheduler (Settings > Shifts & Scheduling > Teams)
+  // too - Viewer, Editor and Full work only on those teams.
+  shifts: {
+    viewer: 'Open the Shift Planner and see the shared schedule of the teams they are named Scheduler on.',
+    editor: "Add, edit, move and delete those teams' shifts, and share the week.",
+    full:   'Editor, plus Clear Week, Import and changing who is on those teams.',
+    owner:  'Act as a manager inside Shifts for their company: every team, swap and open-shift decisions, weather calls. Never Time Sheets, pay or Settings.',
+  },
   marketing: {
     viewer: 'View campaigns, ads and reputation.',
     editor: 'Create and edit campaigns and content.',
