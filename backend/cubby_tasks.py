@@ -398,6 +398,30 @@ def _open_rows(db, facility_ids) -> dict:
     return out
 
 
+def _tenant_units(db, facility_ids, units: dict) -> dict:
+    """"<facility>:<customer>" -> the tenant's unit names: the units they rent
+    now (the rent roll), else the unit of their latest lease (moved out)."""
+    import models
+    if not facility_ids:
+        return {}
+    out: dict = {}
+    for u in (db.query(models.CubbyUnit).filter(models.CubbyUnit.facility_id.in_(facility_ids),
+                                                models.CubbyUnit.customer_id != "").all()):
+        name = u.unit_name or u.unit_id or ""
+        if name:
+            out.setdefault(f"{u.facility_id}:{u.customer_id}", []).append(name)
+    latest: dict = {}
+    for le in (db.query(models.CubbyRental).filter(models.CubbyRental.facility_id.in_(facility_ids),
+                                                   models.CubbyRental.customer_id != "").all()):
+        key = f"{le.facility_id}:{le.customer_id}"
+        name = units.get(f"{le.facility_id}:{le.unit_id}", "")
+        if key not in out and name and (le.move_in_date or "") >= latest.get(key, ("", ""))[0]:
+            latest[key] = (le.move_in_date or "", name)
+    named = {k: ", ".join(sorted(set(v))) for k, v in out.items()}
+    named.update({k: name for k, (_, name) in latest.items()})
+    return named
+
+
 def _sync(db, cfg: dict, facility_ids) -> dict:
     import models
     at = _now()
@@ -408,6 +432,7 @@ def _sync(db, cfg: dict, facility_ids) -> dict:
     fac_names = {f.facility_id: (f.name or f.facility_id) for f in db.query(models.CubbyFacility).all()}
     units = {u.id: (u.unit_name or u.unit_id or "") for u in db.query(models.CubbyUnit)
              .filter(models.CubbyUnit.facility_id.in_(facility_ids)).all()} if facility_ids else {}
+    tenant_units = _tenant_units(db, facility_ids, units)
     projects = {p.id: p for p in db.query(models.TaskProject)
                 .filter(models.TaskProject.id.in_(list(set(cfg["projects"].values())) or [""])).all()}
     wh_tasks, staff, wh_note = _warehouse()
@@ -441,11 +466,15 @@ def _sync(db, cfg: dict, facility_ids) -> dict:
         missing = [dict(zip(keys, names)).get(m, m) for m in missing]
         for m in missing:
             s["unmatchedPeople"][m] = s["unmatchedPeople"].get(m, 0) + 1
+        uid = str(data.get("unitId") or (wh or {}).get("unit_id") or "")
+        cid = str(data.get("customerId") or (wh or {}).get("contact_id") or "")
         fields = {
             "facility_id": fid, "title": (data.get("title") or "").strip() or "Cubby task",
-            "due_date": (data.get("dueDate") or "")[:10], "unit_id": data.get("unitId") or "",
-            "unit_name": units.get(f"{fid}:{data.get('unitId') or ''}", ""),
-            "customer_id": data.get("customerId") or "",
+            "due_date": (data.get("dueDate") or "")[:10], "unit_id": uid,
+            # A task Cubby filed against a TENANT rather than a unit (a move-out)
+            # shows the tenant's unit, so it can be found in Cubby (Sagar, 11/10/2026).
+            "unit_name": units.get(f"{fid}:{uid}", "") or tenant_units.get(f"{fid}:{cid}", ""),
+            "customer_id": cid,
             "assigned_names": names, "group_names": groups,
             "created_by_name": (wh or {}).get("created_by") or "",
             "workflow_generated": bool((wh or {}).get("is_workflow_generated")),
@@ -823,11 +852,22 @@ def link_for_task(db, nexus_task_id: str) -> dict | None:
         "cubbyTaskId": link.task_id, "facilityId": link.facility_id, "url": cubby.task_url(link.task_id),
         "facilityName": (fac.name if fac else "") or link.facility_id,
         "unitName": link.unit_name or "", "status": link.status or "OPEN",
+        "tenantName": _tenant_name(db, link),
         "assignedNames": list(link.assigned_names or []), "groupNames": list(link.group_names or []),
         "createdBy": link.created_by_name or "", "automated": bool(link.workflow_generated),
         "dueDate": link.due_date or "", "pushStatus": link.push_status or "", "pushError": link.push_error or "",
         "pushedAt": link.pushed_at or "", "lastSeenAt": link.last_seen_at or "",
     }
+
+
+def _tenant_name(db, link) -> str:
+    """The tenant a task concerns, by the name Cubby's customer list gives."""
+    import models
+    if not link.customer_id:
+        return ""
+    c = db.query(models.CubbyCustomer).filter(
+        models.CubbyCustomer.id == f"{link.facility_id}:{link.customer_id}").first()
+    return (c.name or "").strip() if c else ""
 
 
 def overview(db) -> dict:

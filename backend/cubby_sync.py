@@ -350,7 +350,8 @@ def _write_facility(db, org: str, fac: dict, pulled: dict, stamp: str) -> dict:
 
     # Customers: the name only, and only for people this facility's rows point at.
     wanted = ({row["customer_id"] for row in units + leases + leads + recs if row["customer_id"]}
-              | {str(p.get("customerId")) for p in pulled.get("payments", []) if p.get("customerId")})
+              | {str(p.get("customerId")) for p in pulled.get("payments", []) if p.get("customerId")}
+              | {str(t["data"].get("customerId")) for t in tasks if t["data"].get("customerId")})
     custs, seen = [], set()
     for c in pulled.get("customers", []):
         cid = str(c.get("customerId") or "")
