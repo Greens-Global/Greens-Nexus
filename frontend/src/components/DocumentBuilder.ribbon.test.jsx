@@ -94,7 +94,8 @@ describe('DocumentBuilder ribbon', () => {
     fireEvent.click(document.querySelector('[data-tab="insert"]'));
     const nexus = Array.from(document.querySelectorAll('.doc-ribbon-group')).find((g) => g.querySelector('.doc-ribbon-caption')?.textContent === 'Nexus');
     expect(nexus.textContent).toMatch(/Signature/);
-    expect(nexus.querySelector('select[aria-label="Insert a variable"]')).toBeTruthy();
+    // Insert A Variable is a searchable pick list now, not a browser select (11/10/2026).
+    expect(nexus.querySelector('button[aria-label="Insert a variable"]')).toBeTruthy();
   });
 
   it('shows the fields Word has: a styles gallery naming the current style, galleries and menus', async () => {
