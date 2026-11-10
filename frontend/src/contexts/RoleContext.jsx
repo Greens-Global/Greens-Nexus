@@ -62,7 +62,7 @@ export const MODULES = [
   // Shift Planner (Pranshu, 11/10/2026): runs Team > Shift Planner without the
   // Manager role, on the teams the person is named Scheduler on; owner acts
   // as a manager inside Shifts for their company (routers/timeclock.py SHIFT_GRANT).
-  { id: 'shifts',              label: 'Shift Planner' },
+  { id: 'shifts',              label: 'Team' },
 ];
 
 // Per-module permission levels an Access Group can grant - mirrors a
