@@ -207,7 +207,10 @@ describe('Sidebar motion', () => {
     fireEvent.pointerEnter(document.querySelector('.nav-kicker'), { pointerType: 'mouse' });
     expect(pill('hover').classList.contains('is-on')).toBe(false);
     fireEvent.pointerEnter(row('Tasks'), { pointerType: 'mouse' });
-    fireEvent.pointerEnter(document.querySelector('.nav-divider'), { pointerType: 'mouse' });
+    // Between groups the label IS the line (11/10/2026) - no bare divider
+    // row in the open rail, so the second kicker is the group boundary.
+    expect(document.querySelector('.nav-divider')).toBe(null);
+    fireEvent.pointerEnter(document.querySelectorAll('.nav-kicker')[1], { pointerType: 'mouse' });
     expect(pill('hover').classList.contains('is-on')).toBe(false);
   });
 
