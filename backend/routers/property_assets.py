@@ -638,23 +638,25 @@ def _egnyte_refusal(e: Exception, what: str) -> HTTPException:
 
 
 def _egnyte_read(db: Session, user, call):
-    """Run `call(token)` with the shared service token first; when Egnyte refuses
-    that token (401 expired / 403 no access to the folder - Nov 10 2026: folders
-    connected through the picker, which browses as the PERSON, showed "did not
-    answer" because the service account could not open them), retry as the
-    caller's own Egnyte connection. The route has already checked the path is
-    inside the pinned folder, and Egnyte's own permissions decide the retry."""
+    """Run `call(token)` as the caller's own Egnyte connection when they have one,
+    else / then with the shared service token. Nov 10 2026: the service account's
+    API quota runs out (Egnyte 429 / 403 "Developer Over Qps/Rate") under the
+    server's sweeps, and every asset card showed "Egnyte is busy" while the same
+    person browsed the folder fine in Files. Reading as the person spends their
+    own quota; a refusal of theirs (401 / 403 no access / 429) falls back to the
+    service token, so a viewer whose Egnyte cannot open the folder still sees it
+    (Neil, 11/05/2026). The route has already checked the path is inside the
+    pinned folder."""
     from services import egnyte as egnyte_svc
-    try:
-        return call(None)
-    except egnyte_svc.EgnyteError as e:
-        if e.status not in (401, 403):
-            raise
-        import egnyte_oauth
-        own = egnyte_oauth.token_for(db, (user or {}).get("email", ""))
-        if not own:
-            raise
-        return call(own)
+    import egnyte_oauth
+    own = egnyte_oauth.token_for(db, (user or {}).get("email", ""))
+    if own:
+        try:
+            return call(own)
+        except egnyte_svc.EgnyteError as e:
+            if e.status not in (401, 403, 404, 429):   # 404: Egnyte may hide a folder the person cannot see
+                raise
+    return call(None)
 
 
 @router.get("/property-assets/{pid}/egnyte/folder")
