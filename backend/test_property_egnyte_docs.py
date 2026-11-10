@@ -121,24 +121,44 @@ class DocsTests(unittest.TestCase):
             out = PA.asset_egnyte_folder("esc", path="", db=self.db, user=VIEWER)
         self.assertIn("did not answer", out["error"])
 
-    def test_a_refused_service_token_falls_back_to_the_viewers_own_egnyte(self):
-        # Nov 10 2026: the picker browses as the person, so a folder they connected
-        # may be one Nexus's service account cannot open (403) - read it as them.
+    def test_a_connected_viewer_reads_as_themselves_and_spares_the_service_quota(self):
+        # Nov 10 2026: the service account's quota ran out ("Egnyte is busy")
+        # while the same person browsed the folder fine in Files.
         def listing(path, token=None, **kw):
             if token is None:
-                raise egnyte_svc.EgnyteError("forbidden", 403)
+                raise egnyte_svc.EgnyteError("Developer Over Rate", 429)
             return _listing(path, token=token, **kw)
         import egnyte_oauth
-        with mock.patch.dict(os.environ, EGNYTE_ON), mock.patch.object(egnyte_svc, "list_folder", side_effect=listing) as lf,              mock.patch.object(egnyte_oauth, "token_for", return_value="own-tok"),              mock.patch.object(egnyte_svc, "read_file", side_effect=[egnyte_svc.EgnyteError("expired", 401), b"pdf"]) as rf:
+        with mock.patch.dict(os.environ, EGNYTE_ON), \
+             mock.patch.object(egnyte_svc, "list_folder", side_effect=listing) as lf, \
+             mock.patch.object(egnyte_oauth, "token_for", return_value="own-tok"), \
+             mock.patch.object(egnyte_svc, "read_file", return_value=b"pdf") as rf:
             out = PA.asset_egnyte_folder("esc", path="", db=self.db, user=VIEWER)
             PA.asset_egnyte_file("esc", path=f"{PINNED}/CO.pdf", db=self.db, user=VIEWER)
         self.assertEqual([f["name"] for f in out["files"]], ["CO.pdf"])
-        self.assertEqual(lf.call_args.kwargs["token"], "own-tok")
-        self.assertEqual(rf.call_args.kwargs["token"], "own-tok")
+        self.assertEqual([c.kwargs["token"] for c in lf.call_args_list], ["own-tok"])
+        self.assertEqual([c.kwargs["token"] for c in rf.call_args_list], ["own-tok"])
+
+    def test_a_refused_own_token_falls_back_to_the_service_token(self):
+        # Neil 11/05: a viewer whose own Egnyte cannot open the folder still sees it.
+        import egnyte_oauth
+        for status in (401, 403, 404, 429):
+            def listing(path, token=None, status=status, **kw):
+                if token:
+                    raise egnyte_svc.EgnyteError("no", status)
+                return _listing(path, **kw)
+            with self.subTest(status=status), mock.patch.dict(os.environ, EGNYTE_ON), \
+                 mock.patch.object(egnyte_svc, "list_folder", side_effect=listing) as lf, \
+                 mock.patch.object(egnyte_oauth, "token_for", return_value="own-tok"):
+                out = PA.asset_egnyte_folder("esc", path="", db=self.db, user=VIEWER)
+            self.assertEqual(out["files"][0]["name"], "CO.pdf")
+            self.assertEqual([c.kwargs["token"] for c in lf.call_args_list], ["own-tok", None])
 
     def test_a_refused_service_token_with_no_own_connection_says_why(self):
         import egnyte_oauth
-        with mock.patch.dict(os.environ, EGNYTE_ON),              mock.patch.object(egnyte_svc, "list_folder", side_effect=egnyte_svc.EgnyteError("forbidden", 403)),              mock.patch.object(egnyte_oauth, "token_for", return_value=None):
+        with mock.patch.dict(os.environ, EGNYTE_ON), \
+             mock.patch.object(egnyte_svc, "list_folder", side_effect=egnyte_svc.EgnyteError("forbidden", 403)), \
+             mock.patch.object(egnyte_oauth, "token_for", return_value=None):
             out = PA.asset_egnyte_folder("esc", path="", db=self.db, user=VIEWER)
         self.assertIn("Connect your own Egnyte account", out["error"])
         self.assertNotIn("did not answer", out["error"])
