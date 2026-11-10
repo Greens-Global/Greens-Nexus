@@ -192,7 +192,10 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
     setTimeout(() => { setSubPanel(null); setSubClosing(false); }, 260);
   };
 
-  return (
+  return (<>
+    {/* The page stays in view on the right (Neil, 11/10/2026: 70/30, the
+        backdrop darker) - a tap there closes the menu like the X does. */}
+    <div className={`mobile-menu-scrim${closing ? ' closing' : ''}`} onClick={requestClose} aria-hidden="true" />
     <div ref={menuRef} className={`mobile-menu${closing ? ' closing' : ''}`} role="dialog" aria-modal="true" aria-label="Menu">
       <div className="mobile-menu-head">
         <div className="mobile-menu-brand"><span className="dk-mark" aria-hidden="true">N</span>Nexus</div>
@@ -274,5 +277,5 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         </div>
       )}
     </div>
-  );
+  </>);
 }
