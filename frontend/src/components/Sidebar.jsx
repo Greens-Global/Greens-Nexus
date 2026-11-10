@@ -516,16 +516,19 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               // `ord` is each label's place in the cascade (--i), top to bottom.
               let ord = 1;
               if (!collapsed && visible.length && !visible[0].divider) {
-                out.push(<li key="k0" className="nav-kicker" role="presentation" onPointerEnter={hoverOff} style={{ '--i': ord++ }}>{KICKERS[0]}</li>);
+                out.push(<li key="k0" className="nav-kicker" role="presentation" onPointerEnter={hoverOff} style={{ '--i': ord++ }}><span>{KICKERS[0]}</span></li>);
               }
               visible.forEach((item, i) => {
                 if (item.divider) {
                   group += 1;
                   // Between groups the pill stands down: it would otherwise
                   // sit on the last row while the pointer is on a heading.
-                  out.push(<li key={`d${i}`} className="nav-divider" role="separator" onPointerEnter={hoverOff} />);
+                  // A named group's label IS its line (Neil, 11/10/2026:
+                  // "Operations ───" in one short row, not a line and then
+                  // a heading); the folded rail keeps the bare hairline.
                   const kicker = item.kicker ?? KICKERS[group];
-                  if (!collapsed && kicker) out.push(<li key={`k${group}`} className="nav-kicker" role="presentation" onPointerEnter={hoverOff} style={{ '--i': ord++ }}>{kicker}</li>);
+                  if (!collapsed && kicker) out.push(<li key={`k${group}`} className="nav-kicker" role="separator" aria-label={kicker} onPointerEnter={hoverOff} style={{ '--i': ord++ }}><span>{kicker}</span></li>);
+                  else out.push(<li key={`d${i}`} className="nav-divider" role="separator" onPointerEnter={hoverOff} />);
                   return;
                 }
                 out.push(renderItem(item, i, ord++));

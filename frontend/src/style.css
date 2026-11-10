@@ -2637,6 +2637,37 @@ html { overflow-x: hidden; }
 .mobile-menu-row.signout { color: hsl(var(--color-red)); }
 .mobile-menu-divider { height: 1px; background: var(--line); margin: 4px 20px; }
 
+/* Shorter menu (Neil, 11/10/2026: "feels too long"). A group's label IS
+   its line ("Operations ───", no separate hairline row); the groups after
+   Work fold to that same row, which then carries a chevron, its modules'
+   icons and their waiting count (MobileMenu FOLD_AT). Rows keep a 44px tap
+   target. Help, Legal and Sign Out share one footer line. */
+.mobile-menu .mm-kicker { display: flex; align-items: center; gap: 10px; padding: 14px 16px 4px; }
+.mobile-menu .mm-kicker::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.mobile-menu-rows > .mm-kicker:first-child { padding-top: 4px; }
+.mobile-menu .mm-group {
+  width: 100%; min-height: 44px; margin-top: 4px; padding: 8px 16px;
+  background: none; border: none; border-radius: 10px; cursor: pointer;
+  font-family: var(--wk-font); text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile-menu .mm-group::after { display: none; }
+.mobile-menu .mm-group:active { background: var(--mist); }
+.mobile-menu .mm-group > span:first-child { color: var(--ink); font-size: 13px; font-weight: 600; }
+.mm-group-icons { display: inline-flex; gap: 6px; color: var(--wk-faint, var(--muted)); }
+.mm-group-icons svg { color: inherit; }
+.mm-group-line { flex: 1; height: 1px; background: var(--line); min-width: 12px; }
+.mm-group .nav-count { margin: 0; }
+.mm-group-chev { color: var(--muted); flex-shrink: 0; transition: transform .2s var(--ease-out, ease-out); }
+.mm-group.open .mm-group-chev { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .mm-group-chev { transition: none; } }
+.mobile-menu-rows:not(.secondary) .mobile-menu-row { min-height: 44px; padding-top: 9px; padding-bottom: 9px; }
+.mobile-menu-rows.secondary { flex-direction: row; align-items: center; gap: 2px; padding: 4px 8px calc(16px + env(safe-area-inset-bottom)); }
+.mobile-menu-rows.secondary .mobile-menu-row { padding: 10px 12px; min-height: 44px; }
+.mobile-menu-rows.secondary .mobile-menu-row-label { gap: 8px; }
+.mobile-menu-rows.secondary .mobile-menu-row-label svg { width: 17px !important; height: 17px !important; }
+.mobile-menu-rows.secondary .mobile-menu-row.signout { margin-left: auto; gap: 8px; justify-content: flex-end; }
+
 /* ── Mobile usability polish ────────────────────────────────────────────────
    Full-width drawers, toasts above the tab bar, comfortable touch targets,
    and 16px inputs (anything smaller makes iOS zoom the page on focus). */
@@ -4602,6 +4633,16 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   user-select: none;
 }
 .sidebar.collapsed .nav-kicker { display: none; }
+/* The label IS the section line (Neil, 11/10/2026: the rail "feels too
+   long"): "Operations ───" in one short row instead of a hairline and then
+   a heading row - about 10px back per section, the groups still named. */
+.sidebar .nav-kicker {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; line-height: 14px;
+  padding: 8px 10px 3px;
+}
+.sidebar .nav-kicker::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.sidebar .nav-kicker:first-child, .sidebar .nav-pill + .nav-pill + .nav-kicker { padding-top: 2px; }
 .sidebar .nav-divider { margin: 3px 6px; }
 
 /* Dark theme still works on the shell (legacy tokens drive it) - but the

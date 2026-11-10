@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, ChevronRight, ChevronLeft, LogOut, Moon, Sun, CircleHelp, Scale } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, ChevronDown, LogOut, Moon, Sun, CircleHelp, Scale } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { BFF_MODE, bffLogout } from '../bffAuth';
 import { useRole, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
@@ -119,6 +119,23 @@ export const SUBMENUS = {
   ],
 };
 
+// Folding sections (Neil, 11/10/2026: the menu "feels too long"). My Desk
+// and Work always stand open - the daily modules; the groups after them
+// (Operations, Finance, Company, System) fold to one row each that opens in
+// place, but only when the person sees more than FOLD_AT modules - a crew
+// member with a handful sees them all, flat. A group of one never folds
+// (its own row is no longer than the fold). The group holding the page
+// you are on opens by itself; a folded group carries its modules' icons
+// and their waiting count. What you opened is remembered in this browser.
+export const FOLD_AT = 12;
+const OPEN_KEY = 'nexus.mobileMenu.openGroups';
+function readOpenGroups() {
+  try { const v = JSON.parse(localStorage.getItem(OPEN_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+function saveOpenGroups(list) {
+  try { localStorage.setItem(OPEN_KEY, JSON.stringify(list)); } catch { /* private mode - per-visit only */ }
+}
+
 // Full-screen phone menu. Mirrors the desktop sidebar EXACTLY - same NAV
 // definition, same order, same dividers, same minRole/group gating - so the
 // app never presents two different navigation structures (Visesh).
@@ -146,6 +163,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   const [subPanel,   setSubPanel]   = useState(null); // { view, label }
   const [subClosing, setSubClosing] = useState(false);
   const [closing,    setClosing]    = useState(false);
+  const [openGroups, setOpenGroups] = useState(readOpenGroups);
   useEffect(() => { if (!open) { setSubPanel(null); setSubClosing(false); setClosing(false); } }, [open]);
 
   // A busy module below the fold gets a "3 waiting below" pill (NavMore).
@@ -187,6 +205,64 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
     if (subs) setSubPanel({ view: item.view, label: item.label, subs });
     else go(item.view);
   };
+  const toggleGroup = (name) => setOpenGroups((list) => {
+    const next = list.includes(name) ? list.filter((g) => g !== name) : [...list, name];
+    saveOpenGroups(next);
+    return next;
+  });
+
+  // The rail's groups as sections: { name, items, idx }.
+  const groups = [];
+  let cur = { name: isExternal ? null : KICKERS[0], items: [], idx: 0 };
+  visible.forEach((item) => {
+    if (item.divider) { groups.push(cur); cur = { name: item.kicker || null, items: [], idx: groups.length }; }
+    else cur.items.push(item);
+  });
+  groups.push(cur);
+  const shownGroups = groups.filter((g) => g.items.length);
+  const moduleRows = shownGroups.reduce((n, g) => n + g.items.length, 0);
+  const folds = (g) => moduleRows > FOLD_AT && g.idx >= 2 && g.items.length > 1 && !!g.name;
+  const isOpenGroup = (g) => openGroups.includes(g.name) || g.items.some((it) => it.view === activeView);
+
+  const renderRow = (item) => (
+    <button key={item.view} className={`mobile-menu-row${activeView === item.view ? ' active' : ''}${moduleCount(counts, item.view) ? ' has-count' : ''}`} onClick={() => openRow(item)}
+      data-count={moduleCount(counts, item.view) || undefined}
+      aria-label={moduleCount(counts, item.view) ? `${item.label}, ${countText(moduleCount(counts, item.view))} waiting on you${countDetail(counts, item.view) ? `: ${countDetail(counts, item.view)}` : ''}` : undefined}>
+      <span className="mobile-menu-row-label">
+        <span className="nav-ico">{renderIcon(item)}</span>
+        <span>{item.label}</span>
+      </span>
+      <NavCount n={moduleCount(counts, item.view)} />
+      {subsFor(item.view) ? <ChevronRight size={17} /> : null}
+    </button>
+  );
+
+  const renderGroup = (g, i) => {
+    if (!folds(g)) {
+      return [
+        g.name ? <div key={`k${g.idx}`} className="mm-kicker"><span>{g.name}</span></div>
+          : i > 0 ? <div key={`d${g.idx}`} className="mobile-menu-divider" /> : null,
+        ...g.items.map(renderRow),
+      ];
+    }
+    const openNow = isOpenGroup(g);
+    const waiting = g.items.reduce((n, it) => n + (moduleCount(counts, it.view) || 0), 0);
+    return [
+      <button key={`g${g.idx}`} type="button" className={`mm-kicker mm-group${openNow ? ' open' : ''}`}
+        aria-expanded={openNow}
+        data-count={!openNow && waiting ? waiting : undefined}
+        aria-label={!openNow && waiting ? `${g.name}, ${countText(waiting)} waiting on you` : g.name}
+        onClick={() => toggleGroup(g.name)}>
+        <span>{g.name}</span>
+        {!openNow && <span className="mm-group-icons" aria-hidden="true">{g.items.slice(0, 4).map((it) => <span key={it.view}>{renderIcon(it, 14)}</span>)}</span>}
+        <span className="mm-group-line" aria-hidden="true" />
+        {!openNow && <NavCount n={waiting} />}
+        <ChevronDown size={16} className="mm-group-chev" aria-hidden="true" />
+      </button>,
+      ...(openNow ? g.items.map(renderRow) : []),
+    ];
+  };
+
   const closeSub = () => {
     setSubClosing(true);
     setTimeout(() => { setSubPanel(null); setSubClosing(false); }, 260);
@@ -216,27 +292,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         <SessionChip mine={clock} onOpen={() => { onClose(); openTimeClock(); }} />
       </div>
       <div className="mobile-menu-rows">
-        {!isExternal && visible.length > 0 && !visible[0].divider && <div className="mm-kicker">{KICKERS[0]}</div>}
-        {visible.map((item, i) => {
-          if (item.divider) {
-            return [
-              <div key={`d${i}`} className="mobile-menu-divider" />,
-              item.kicker && <div key={`k${i}`} className="mm-kicker">{item.kicker}</div>,
-            ];
-          }
-          return (
-            <button key={item.view} className={`mobile-menu-row${activeView === item.view ? ' active' : ''}${moduleCount(counts, item.view) ? ' has-count' : ''}`} onClick={() => openRow(item)}
-              data-count={moduleCount(counts, item.view) || undefined}
-              aria-label={moduleCount(counts, item.view) ? `${item.label}, ${countText(moduleCount(counts, item.view))} waiting on you${countDetail(counts, item.view) ? `: ${countDetail(counts, item.view)}` : ''}` : undefined}>
-              <span className="mobile-menu-row-label">
-                <span className="nav-ico">{renderIcon(item)}</span>
-                <span>{item.label}</span>
-              </span>
-              <NavCount n={moduleCount(counts, item.view)} />
-              {subsFor(item.view) ? <ChevronRight size={17} /> : null}
-            </button>
-          );
-        })}
+        {shownGroups.map(renderGroup)}
       </div>
       <div className="mobile-menu-divider" />
       <div className="mobile-menu-rows secondary">
