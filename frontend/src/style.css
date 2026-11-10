@@ -4781,7 +4781,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .tab-ink--glide { transition: transform var(--dur-md) var(--ease-standard), width var(--dur-md) var(--ease-standard); }
 .tab-ink--pill { background: var(--wk-card); border: 1px solid var(--wk-line); border-radius: 9px; box-shadow: 0 1px 3px rgba(29,33,57,.08); }
 [data-theme="dark"] .tab-ink--pill { background: rgba(43,69,225,.18); border-color: var(--line); box-shadow: none; }
-.tab-ink--line { box-shadow: inset 0 -2.5px 0 var(--wk-brand); }
+/* The underline is a painted strip, not an inset shadow: at a fractional display scale (150%) Chrome bled a hairline of the inset shadow up one side of the full-height ink box - left, right or neither, by where the tab fell on the pixel grid (Neil, 11/10/2026). */
+.tab-ink--line { background: linear-gradient(var(--wk-brand), var(--wk-brand)) bottom / 100% 2.5px no-repeat; }
 .hdr-tabs:has(.tab-ink) .hdr-tab.active { background: none; border-color: transparent; box-shadow: none; }
 .module-tabs-inline:has(.tab-ink) .module-tab-inline-btn.active { box-shadow: none; }
 @media (prefers-reduced-motion: reduce) { .tab-ink--glide { transition: none; } }

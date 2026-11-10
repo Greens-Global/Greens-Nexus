@@ -93,6 +93,17 @@ describe('Tasks Home tiles', () => {
     expect(screen.queryByText(/\/\d+ tasks/)).toBeNull();   // no "/N" fractions any more
   });
 
+  it('carry the module buttons on their first line when Tasks hands them in (Neil, 11/10/2026)', async () => {
+    store.tasks = [task({ dueOn: addDays(TODAY, -2) })];
+    const actions = (pageControls) => <>{pageControls}<button type="button">Manage</button></>;
+    render(<HomeView onNavigate={() => {}} actions={actions} />);
+    await flush();
+    const line = screen.getByText('1 needs you now').closest('div').parentElement;
+    expect(within(line).getByRole('button', { name: /Customize/ })).toBeTruthy();
+    expect(within(line).getByRole('button', { name: 'Manage' })).toBeTruthy();
+    expect(screen.getAllByText(/needs? you now/)).toHaveLength(1);   // said once, above the tiles
+  });
+
   it('switch the Tasks card', async () => {
     store.tasks = [task({ title: 'Late one', dueOn: addDays(TODAY, -2) }), task({ title: 'Doing it', status: 'in_progress' })];
     render(<HomeView onNavigate={() => {}} />);
