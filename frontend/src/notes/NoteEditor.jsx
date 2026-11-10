@@ -15,6 +15,13 @@
 // scrolls them out of sight - the formatting wraps instead - and the "/" menu
 // offers them too (Neil, Oct 31 2026: "i can't seem to find them").
 //
+// Photos and Start With (Neil, 11/10/2026): Photo (a computer) and Photo or
+// Video (the phone bar: the phone offers its camera, the library or a file)
+// keep a small tile that opens full size (noteMedia.jsx); a picture pasted
+// or dropped in is saved the same way. An empty note offers what it can
+// start as - Text, Checklist, Bulleted List, Numbered List, Table, Photo or
+// a template - so a list or a table is one tap (StartWith).
+//
 // Record Links (Neil, 11/06/2026, recordLink.jsx): [[ opens a picker of
 // notes, tasks, jobs and Knowledge Base pages and puts a chip that opens the
 // record; Link to a Record sits in the toolbar, the phone bar's Aa row and
@@ -29,7 +36,7 @@ import {
   AlignRight, Link2, Table as TableIcon, Minus, CalendarDays, Pilcrow, ListPlus, Rows3, Columns3, Trash2, Check, X,
   Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, PenTool, FileSymlink,
   Info, Lightbulb, TriangleAlert, ListCollapse,
-  ListTodo,
+  ListTodo, Camera, ImagePlus, Type as TypeIcon, LayoutTemplate,
 } from 'lucide-react';
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
@@ -40,9 +47,11 @@ import { useRecordSearch, recordContent, RECORD_META } from './recordLink';
 import { boxesKey, syncBoxesFromTasks, listenForBoxTicks } from './checklistTasks';
 import { TextSelection } from '@tiptap/pm/state';
 import {
-  EDITED, mediaKind, checkMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
+  EDITED, noteMediaKind, checkNoteMedia, mediaFiles, uploadNoteMedia, useVoiceRecorder, useDictation,
   canRecord, canDictate, clock,
 } from './noteMedia';
+import NoteTemplatePicker from './NoteTemplatePicker';
+import { noteTemplate } from './noteTemplates';
 
 // The notes phone layout (notes.css "phone").
 const PHONE = '(max-width: 768px)';
@@ -104,6 +113,35 @@ function PBtn({ icon: Icon, label, active, disabled, danger, onClick, children }
 }
 
 // Recording, listening, saving a clip or a problem with one: one line.
+// What an empty note can start as (Neil, 11/10/2026: "templates of if we want
+// to make it a list or a table or just regular text"). One tap shapes the
+// first line; it goes away as soon as the note has anything in it.
+const STARTS = [
+  { key: 'text', label: 'Text', icon: TypeIcon },
+  { key: 'check', label: 'Checklist', icon: ListChecks },
+  { key: 'bullet', label: 'Bulleted List', short: 'Bullets', icon: List },
+  { key: 'number', label: 'Numbered List', short: 'Numbered', icon: ListOrdered },
+  { key: 'table', label: 'Table', icon: TableIcon },
+  { key: 'photo', label: 'Photo', icon: Camera },
+  { key: 'templates', label: 'Templates', icon: LayoutTemplate },
+];
+function StartWith({ phone, onPick }) {
+  return (
+    <div className="nt-start" role="group" aria-label="Start this note as">
+      <span className="nt-start-label">Start with</span>
+      <div className="nt-start-row">
+        {STARTS.map((s) => (
+          <button key={s.key} type="button" className="nt-start-chip" onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(s.key)}
+            aria-label={s.key === 'templates' ? 'Templates - meeting notes, site walk, handover and your own' : `Start with ${s.label}`}>
+            <s.icon size={16} strokeWidth={1.9} aria-hidden="true" />
+            <span>{phone && s.short ? s.short : s.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MediaStatus({ voice, dictation, busy, error, onDismiss }) {
   if (voice.recording) {
     return (
@@ -131,7 +169,7 @@ function MediaStatus({ voice, dictation, busy, error, onDismiss }) {
       <div className="nt-rec" role="status">
         <Loader2 size={14} className="spin" aria-hidden="true" />
         <span className="nt-rec-text">
-          Saving {busy.kind === 'video' ? 'video' : 'voice note'}{busy.progress ? ` ${Math.round(busy.progress * 100)}%` : '…'}
+          Saving {busy.kind === 'video' ? 'video' : busy.kind === 'image' ? 'photo' : 'voice note'}{busy.progress ? ` ${Math.round(busy.progress * 100)}%` : '…'}
           {busy.waiting ? ` - ${busy.waiting} more waiting` : ''}
         </span>
       </div>
@@ -151,6 +189,7 @@ function MediaStatus({ voice, dictation, busy, error, onDismiss }) {
 export default function NoteEditor({
   value, onChange, readOnly = false, people, placeholder = "Write anything. Type / for blocks, @ to mention someone, [[ to link a record.",
   onMakeTask, autoFocus = false, toolbar = true, compact = false, onBusy, collab = null, onRemoteChange, noteId = '',
+  starters = true,
 }) {
   const [menu, setMenu] = useState(null);   // { kind: 'slash'|'mention'|'record', query, from, index }
   const [link, setLink] = useState(null);   // { href } while the link bar is open
@@ -173,6 +212,8 @@ export default function NoteEditor({
   const [focused, setFocused] = useState(false);
   const [more, setMore] = useState(false);      // the phone bar's Aa row
   const videoInput = useRef(null);
+  const photoInput = useRef(null);   // Photo (image/*) on a computer; Photo or Video on a phone
+  const [tplOpen, setTplOpen] = useState(false);
   const mediaRef = useRef(() => {});
   const actRef = useRef({});
   // Checklist lines that are tasks (checklistTasks.js): when the set of task
@@ -251,11 +292,11 @@ export default function NoteEditor({
   const uploading = useRef(false);
   const addMedia = async (file) => {
     if (!editor || editor.isDestroyed || readOnly) return;
-    const bad = checkMedia(file);
+    const bad = checkNoteMedia(file);
     if (bad) { setMediaErr(bad); return; }
     if (uploading.current) { queue.current.push(file); setBusy((b) => (b ? { ...b, waiting: queue.current.length } : b)); return; }
     uploading.current = true;
-    const kind = mediaKind(file);
+    const kind = noteMediaKind(file);
     let at = editor.state.selection.to;
     const follow = ({ transaction }) => { at = transaction.mapping.map(at); };
     editor.on('transaction', follow);
@@ -266,9 +307,9 @@ export default function NoteEditor({
       if (editor.isDestroyed) return;
       touched.current = true;
       editor.chain().insertContentAt(Math.min(at, editor.state.doc.content.size),
-        { type: kind === 'video' ? 'noteVideo' : 'noteAudio', attrs: { src } }).run();
+        { type: kind === 'video' ? 'noteVideo' : kind === 'image' ? 'noteImage' : 'noteAudio', attrs: { src } }).run();
     } catch (err) {
-      setMediaErr(`Could not save the ${kind === 'video' ? 'video' : 'voice note'}: ${err?.message || 'try again'}.`.replace(/\.\.$/, '.'));
+      setMediaErr(`Could not save the ${kind === 'video' ? 'video' : kind === 'image' ? 'photo' : 'voice note'}: ${err?.message || 'try again'}.`.replace(/\.\.$/, '.'));
     } finally {
       editor.off('transaction', follow);
       uploading.current = false;
@@ -302,9 +343,10 @@ export default function NoteEditor({
   const toggleVoice = () => { clearErr(); if (voice.recording) voice.stop(); else voice.start(); };
   const toggleDictate = () => { clearErr(); if (dictation.listening) dictation.stop(); else dictation.start(); };
   const pickVideo = () => { clearErr(); videoInput.current?.click(); };
+  const pickPhoto = () => { clearErr(); photoInput.current?.click(); };
   const openBoardPick = () => { if (!readOnly) setBoardPick(true); };
   const insertBoard = (attrs) => { setBoardPick(false); if (!editor) return; touched.current = true; editor.chain().focus().setMeta(EDITED, true).insertBoard(attrs).run(); };
-  useEffect(() => { actRef.current = { dictate: toggleDictate, voice: toggleVoice, video: pickVideo, board: openBoardPick }; });
+  useEffect(() => { actRef.current = { dictate: toggleDictate, voice: toggleVoice, video: pickVideo, photo: pickPhoto, board: openBoardPick }; });
   const showPhoneBar = phone && toolbar && !readOnly && (focused || live || !!busy || !!err);
   const inset = useKeyboardInset(showPhoneBar);
 
@@ -337,6 +379,7 @@ export default function NoteEditor({
     const capture = [
       dictateOk && { key: 'dictate', label: 'Dictate', hint: 'Type what you say', icon: Mic, keys: 'voice speech talk speak mic', act: 'dictate' },
       recordOk && { key: 'voice', label: 'Voice Note', hint: 'Record a clip that stays in the note', icon: AudioLines, keys: 'audio record recording mic', act: 'voice' },
+      { key: 'photo', label: 'Photo', hint: 'A picture - or paste one with Ctrl+V', icon: ImagePlus, keys: 'picture image camera snap pic', act: 'photo' },
       { key: 'video', label: 'Video', hint: 'Add a clip from this computer', icon: Clapperboard, keys: 'movie clip film', act: 'video' },
       { key: 'board', label: 'Board', hint: 'Insert one of your boards', icon: PenTool, keys: 'whiteboard drawing sketch markup', act: 'board' },
     ].filter(Boolean);
@@ -523,6 +566,7 @@ export default function NoteEditor({
             active={dictation.listening} danger={dictation.listening} keep disabled={voice.recording} onClick={toggleDictate} />}
           {recordOk && <TBtn icon={AudioLines} text={voice.recording ? 'Stop and Save' : 'Voice Note'} label={voice.recording ? 'Stop and Save the Voice Note' : 'Record a Voice Note'}
             active={voice.recording} danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
+          <TBtn icon={ImagePlus} text="Photo" label="Add a Photo - or paste one with Ctrl+V" disabled={live} onClick={pickPhoto} />
           <TBtn icon={Clapperboard} text="Video" label="Add a Video" disabled={live} onClick={pickVideo} />
           <TBtn icon={PenTool} text="Board" label="Insert Board - one of your boards, as a picture that opens it" active={boardPick} onClick={openBoardPick} />
           <Btn icon={ListTodo} label="Live Task List - my tasks or a project, always up to date" onClick={run((c) => c.insertLiveList())} />
@@ -556,6 +600,30 @@ export default function NoteEditor({
       {!readOnly && (
         <input ref={videoInput} type="file" accept="video/*" hidden aria-hidden="true" tabIndex={-1}
           onChange={(ev) => { const f = ev.target.files?.[0]; ev.target.value = ''; if (f) addMedia(f); }} />
+      )}
+      {!readOnly && (
+        // No `capture`: the phone then asks Take Photo or Video / Photo Library / Choose File.
+        // Several at once go in one after another (addMedia's queue).
+        <input ref={photoInput} type="file" accept={phone ? 'image/*,video/*' : 'image/*'} multiple hidden aria-hidden="true" tabIndex={-1}
+          onChange={(ev) => { const files = [...(ev.target.files || [])]; ev.target.value = ''; files.forEach((f) => addMedia(f)); }} />
+      )}
+      {!readOnly && starters && e && e.isEmpty && !live && !busy && (
+        <StartWith phone={phone} onPick={(key) => {
+          touch();
+          if (key === 'photo') { pickPhoto(); return; }
+          if (key === 'templates') { setTplOpen(true); return; }
+          const c = e.chain().focus();
+          if (key === 'check') c.toggleTaskList().run();
+          else if (key === 'bullet') c.toggleBulletList().run();
+          else if (key === 'number') c.toggleOrderedList().run();
+          else if (key === 'table') c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+          else c.setParagraph().run();
+        }} />
+      )}
+      {tplOpen && (
+        <NoteTemplatePicker onClose={() => setTplOpen(false)}
+          onPick={(key) => { const t = noteTemplate(key); setTplOpen(false); if (t && e) { touch(); e.chain().focus().setMeta(EDITED, true).insertContent(t.body()).run(); } }}
+          onPickNote={(n) => { setTplOpen(false); if (n?.body && e) { touch(); e.chain().focus().setMeta(EDITED, true).insertContent(n.body).run(); } }} />
       )}
       {showPhoneBar && e && createPortal(
         <div className="nt-pb" role="toolbar" aria-label="Formatting" style={{ bottom: inset, ...(inset && keyboardUp() ? { paddingBottom: 0 } : null) }}>
@@ -598,7 +666,7 @@ export default function NoteEditor({
               disabled={voice.recording} onClick={toggleDictate} />}
             {recordOk && <PBtn icon={AudioLines} label={voice.recording ? 'Stop and Save the Voice Note' : 'Record a Voice Note'} active={voice.recording}
               danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
-            <PBtn icon={Clapperboard} label="Add a Video" disabled={live} onClick={pickVideo} />
+            <PBtn icon={Camera} label="Photo or Video - take one or pick from the library" disabled={live} onClick={pickPhoto} />
           </div>
           {/* Aa stays put at the right edge; the row beside it scrolls if it must. */}
           <PBtn icon={CaseSensitive} label="More Formatting" active={more} onClick={() => setMore((m) => !m)} />

@@ -186,6 +186,28 @@ describe('Quick Note', () => {
     expect(apiMock.noteCreate).not.toHaveBeenCalled();
   });
 
+  it('the first words are never lost while the scratchpad is being made (Neil, 11/10/2026)', async () => {
+    apiMock.noteDaily.mockResolvedValue({ note: null });
+    let made;
+    apiMock.noteCreate.mockImplementation(() => new Promise((res) => { made = res; }));
+    apiMock.noteUpdate.mockImplementation(async (id, patch) => note({ id, kind: 'daily', title: '', rev: 2, ...patch }));
+    render(<QuickNotePanel onClose={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector('.ProseMirror')?.editor).toBeTruthy());
+    const pm = document.querySelector('.ProseMirror');
+    const type = (text) => act(async () => { pm.editor.chain().focus('end').setMeta('noteEdited', true).insertContent(text).run(); });
+    await type('Walked');
+    await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledTimes(1));
+    await type(' the north side');                       // typed while the create is still out
+    const daily = note({ id: 'daily_1', kind: 'daily', title: '', body: '<p>Walked</p>', rev: 1 });
+    apiMock.noteGet.mockResolvedValue(daily);
+    await act(async () => { made(daily); });
+    await type(' of the building');
+    expect(document.querySelector('.ProseMirror')).toBe(pm);   // one editor the whole time - no remount
+    expect(pm.textContent).toBe('Walked the north side of the building');
+    await waitFor(() => expect(JSON.stringify(apiMock.noteUpdate.mock.calls.at(-1))).toContain('Walked the north side of the building'), { timeout: 4000 });
+    expect(apiMock.noteCreate).toHaveBeenCalledTimes(1);
+  });
+
   it('Escape closes it', async () => {
     apiMock.noteDaily.mockResolvedValue({ note: null });
     const onClose = vi.fn();
