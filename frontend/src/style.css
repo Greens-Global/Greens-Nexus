@@ -2560,7 +2560,29 @@ html { overflow-x: hidden; }
   animation: menuIn 0.45s cubic-bezier(.32,.72,0,1);
 }
 .mobile-menu.closing { animation: menuOut 0.36s cubic-bezier(.55,0,.85,.36) forwards; }
-@media (min-width: 901px) { .mobile-menu { display: none; } }
+@media (min-width: 901px) { .mobile-menu, .mobile-menu-scrim { display: none; } }
+/* 75/25 (Neil, 11/10/2026): the menu takes 75% of the width and the page
+   stays in view on the right under a dark scrim; a tap on the scrim closes
+   it, the X stays. A module's sub-screen opens inside the same 75%. */
+.mobile-menu, .mobile-menu .mobile-submenu {
+  right: auto;
+  width: min(75vw, 420px);
+  border-radius: 0 18px 18px 0;
+}
+.mobile-menu {
+  box-shadow: 6px 0 32px rgba(0,0,0,.28);
+}
+.mobile-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 2699;
+  background: rgba(8, 14, 11, .62);
+  animation: menuScrimIn 0.3s ease-out;
+}
+.mobile-menu-scrim.closing { animation: menuScrimOut 0.36s ease-in forwards; }
+@keyframes menuScrimIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes menuScrimOut { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .mobile-menu-scrim { animation: none; } }
 @keyframes menuIn { from { transform: translateX(-100%); } to { transform: none; } }
 @keyframes menuOut { from { transform: none; } to { transform: translateX(-100%); } }
 
