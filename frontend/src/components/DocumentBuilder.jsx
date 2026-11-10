@@ -21,7 +21,7 @@ import {
   FlipHorizontal, FlipVertical, Frame, Replace, Image as ImageIcon, Move, Crop,
 } from 'lucide-react';
 import { NodeSelection, TextSelection } from '@tiptap/pm/state';
-import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS, useDismiss } from './docRibbon/ui';
+import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS, useDismiss, RibbonBar, PickList, SizeBox } from './docRibbon/ui';
 import StyleGallery from './docRibbon/StyleGallery';
 import StatusBar from './docRibbon/StatusBar';
 import Ruler from './docRibbon/Ruler';
@@ -36,6 +36,7 @@ import { useRole } from '../contexts/RoleContext';
 import { canDictate, useDictation, spokenAfter } from '../lib/voice';
 import { listChanges } from '../lib/docTrackChanges';
 import { dialog } from '../ui/dialog';
+import { isUntitled, suggestName, askForName, UNTITLED_DOCUMENT } from '../lib/untitled';
 import FullScreenButton, { useFullScreen } from './FullScreenButton';
 import { api, API_BASE } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
@@ -1042,7 +1043,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     apiGet(docId).then(d => {
       if (cancelled) return;
       setDoc(d);
-      setTitle(d[nameKey]);
+      // An unnamed document shows an empty title box saying "Untitled Document" (lib/untitled.js).
+      setTitle(kind === 'document' && isUntitled(d[nameKey]) ? '' : d[nameKey]);
       setLetterheadId(d.letterheadId || '');
       setRequiresLetterhead(!!d.requiresLetterhead);
       setEmployeeId(d.employeeId || '');
@@ -1263,10 +1265,35 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   useEffect(() => { trackingRef.current = tracking; }, [tracking]);
   const setTrackingModeRef = useRef(() => {});
 
+  // Blank is never saved: the box goes back to the name it had (or stays
+  // empty on a still-unnamed document). The saved name is kept on `doc` so
+  // the next comparison - and the name check on Close - read the real one.
   const saveTitle = () => {
     const t = title.trim();
-    if (!t || t === doc?.[nameKey]) return;
-    apiUpdate(docId, { [nameKey]: t }).catch(e => toastErr?.(e.message || 'Failed to rename'));
+    if (!t) { if (!isUntitled(doc?.[nameKey])) setTitle(doc?.[nameKey] || ''); return Promise.resolve(); }
+    if (t === doc?.[nameKey]) return Promise.resolve();
+    return apiUpdate(docId, { [nameKey]: t })
+      .then(() => setDoc((d) => (d ? { ...d, [nameKey]: t } : d)))
+      .catch(e => toastErr?.(e.message || 'Failed to rename'));
+  };
+
+  // Who is asked to name an unnamed document on Close: an editor of a draft.
+  const mayName = kind === 'document' && !readOnly && !isLocked && doc?.access !== 'view';
+  // "Name This Document" (Neil, 11/10/2026): an unnamed document cannot be
+  // closed without a name; Keep Editing stays put. Suggests the first line.
+  const askName = async () => {
+    const text = pages.map((p) => editorsRef.current.get(p.id)?.getText?.({ blockSeparator: '\n' }) || '').join('\n');
+    const name = await askForName(dialog, { kind: 'document', suggestion: suggestName(text) });
+    if (!name) return false;
+    try {
+      await apiUpdate(docId, { [nameKey]: name });
+      setTitle(name);
+      setDoc((d) => (d ? { ...d, [nameKey]: name } : d));
+      return true;
+    } catch (e) {
+      toastErr?.(e.message || 'Failed to rename');
+      return false;
+    }
   };
 
   const close = () => {
@@ -1277,6 +1304,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     if (kind === 'document' && preview) {
       setPreview(false);
       closePdfPreview();
+      return;
+    }
+    // Still unnamed: ask for a name first; Keep Editing cancels the close.
+    if (mayName && isUntitled(title.trim() || doc?.[nameKey])) {
+      askName().then((named) => { if (named) Promise.resolve(flushPendingSave()).finally(() => onClose?.()); });
       return;
     }
     // Wait for the pending write before unmounting. This used to fire doSave()
@@ -2141,13 +2173,6 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       .finally(() => setRestoringId(''));
   };
 
-  const insertMergeField = (e) => {
-    const token = e.target.value;
-    if (!token) return;
-    insertVariable(token);
-    e.target.value = '';
-  };
-
   // One way in for every variable insertion - the toolbar picker, the library
   // panel and a drag-and-drop all land here, so a variable is always a
   // mergeField NODE and never typed "{{token}}" text that silently never
@@ -2490,15 +2515,19 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
 
   return (
     <div className={`nx-docb${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: preview ? 6 : 8, flexWrap: 'wrap' }}>
-        <button onClick={close} title="Close"
-          style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
+      {/* The header, Word / Google Docs style (Neil, 11/10/2026): Close, the
+          file's mark, its name (typed in place; "Untitled Document" until it
+          has one), the save state, then the actions. */}
+      <div className="nx-docb-head" style={{ marginBottom: preview ? 6 : 8 }}>
+        <button onClick={close} title="Close" aria-label="Close" className="nx-docb-hbtn is-icon">
           <X size={16} />
         </button>
-        <input ref={titleRef} className="nx-inline-edit" value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
-          onKeyDown={e => e.key === 'Enter' && e.target.blur()}
-          style={{ flex: '1 1 260px', fontSize: 16, fontWeight: 700, border: 'none', fontFamily: 'Inter, sans-serif', color: 'var(--ink)' }} />
-        <span style={{ fontSize: 11.5, color: saveStatus === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 70 }}>
+        <span className={`nx-docb-mark is-${kind}`} aria-hidden="true">{kind === 'template' ? <FileStack size={16} /> : <PageIcon size={16} />}</span>
+        <input ref={titleRef} className="nx-inline-edit nx-docb-title" value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
+          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setTitle(isUntitled(doc?.[nameKey]) && kind === 'document' ? '' : doc?.[nameKey] || ''); e.target.blur(); } }}
+          placeholder={kind === 'document' ? UNTITLED_DOCUMENT : 'Untitled Template'} aria-label={kind === 'document' ? 'Document name' : 'Template name'}
+          readOnly={readOnly || isLocked} />
+        <span className="nx-docb-save" style={{ color: saveStatus === 'error' ? 'hsl(var(--color-red))' : undefined }}>
           {saveStatus === 'saving' && <Spinner size={12} />}
           {saveStatus === 'saved' && <Check size={12} />}
           {saveStatus === 'error' && <AlertCircle size={12} />}
@@ -2506,8 +2535,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         </span>
         {live && <LivePeople peers={live.peers} status={live.status} />}
         {kind === 'document' && doc?.access && (
-          <button type="button" className="secondary-btn" onClick={() => setShareOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '6px 10px' }}>
+          <button type="button" className="nx-docb-hbtn nx-docb-compact" title="Share" onClick={() => setShareOpen(true)}>
             <Users size={14} /> Share
           </button>
         )}
@@ -2552,7 +2580,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         {!preview && (
           <div style={{ position: 'relative' }}>
             <button onClick={() => setLhPickerOpen(o => !o)}
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+              className="nx-docb-hbtn">
               <Award size={14} /> {activeLetterhead ? activeLetterhead.name : 'No Letterhead'}
             </button>
             {lhPickerOpen && (
@@ -2600,7 +2628,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         {!preview && (
           <div style={{ position: 'relative' }}>
             <button onClick={() => setMergePickerOpen(o => !o)}
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+              className="nx-docb-hbtn">
               <Users size={14} /> {activeEmployee ? empLabel(activeEmployee) : 'Merge Data'}
             </button>
             {mergePickerOpen && (
@@ -2691,7 +2719,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         {!preview && (
           <div style={{ position: 'relative' }}>
             <button onClick={() => setImportPopoverOpen(o => !o)} disabled={importing} title="Import Document"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: importing ? 0.6 : 1 }}>
+              className="nx-docb-hbtn nx-docb-compact" style={{ opacity: importing ? 0.6 : 1 }}>
               {importing ? <Spinner size={14} /> : <Upload size={14} />} {importing ? 'Importing…' : 'Import'}
             </button>
             {importPopoverOpen && (
@@ -2725,23 +2753,23 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         {kind === 'document' && preview && (
           <>
             <button onClick={() => window.print()} title="Print"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+              className="nx-docb-hbtn">
               <Printer size={14} /> Print
             </button>
             <button onClick={saveAsTemplate} disabled={savingTemplate} title="Save as Template"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: savingTemplate ? 0.6 : 1 }}>
+              className="nx-docb-hbtn" style={{ opacity: savingTemplate ? 0.6 : 1 }}>
               {savingTemplate ? <Spinner size={14} /> : <FileStack size={14} />} Save as Template
             </button>
             <button onClick={() => doExport('pdf')} disabled={!!exporting} title="Export PDF"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
+              className="nx-docb-hbtn" style={{ opacity: exporting ? 0.6 : 1 }}>
               <FileDown size={14} /> {exporting === 'pdf' ? 'Exporting…' : 'Export PDF'}
             </button>
             <button onClick={() => doExport('docx')} disabled={!!exporting} title="Export DOCX"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
+              className="nx-docb-hbtn" style={{ opacity: exporting ? 0.6 : 1 }}>
               <FileDown size={14} /> {exporting === 'docx' ? 'Exporting…' : 'Export DOCX'}
             </button>
             <button onClick={openInWord} disabled={!!exporting} title="Open in Word on this computer to keep editing"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
+              className="nx-docb-hbtn" style={{ opacity: exporting ? 0.6 : 1 }}>
               <PageIcon size={14} /> {exporting === 'word' ? 'Opening…' : 'Open in Word'}
             </button>
             <button onClick={doSendForSignature} disabled={!!exporting} title="Send for Signature"
@@ -2749,22 +2777,21 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               <Send size={14} /> {exporting === 'send' ? 'Preparing…' : 'Send for Signature'}
             </button>
             <button onClick={() => { setPreview(false); closePdfPreview(); }} title="Back to Edit"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+              className="nx-docb-hbtn">
               <EyeOff size={14} /> Back to Edit
             </button>
           </>
         )}
         {kind !== 'document' && (
           <button onClick={() => setPreview(p => !p)}
-            style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+            className="nx-docb-hbtn">
             {preview ? <EyeOff size={14} /> : <Eye size={14} />} {preview ? 'Edit' : 'Preview'}
           </button>
         )}
-        <button onClick={openHistory} title="Version History"
-          style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
+        <button onClick={openHistory} title="Version History" aria-label="Version History" className="nx-docb-hbtn is-icon">
           <History size={16} />
         </button>
-        <FullScreenButton on={full} onToggle={toggleFull} />
+        <FullScreenButton on={full} onToggle={toggleFull} className="nx-docb-hbtn nx-docb-compact" />
       </div>
 
       {kind === 'document' && preview ? (
@@ -2831,7 +2858,9 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             </button>
           </div>
         )}
-        <div className="doc-toolbar doc-ribbon" role="toolbar" aria-label={`${ribbonTab} ribbon`}>
+        {/* One row, never wrapped (Neil, 11/10/2026): groups that do not fit
+            go into More at the end (docRibbon/ui.jsx RibbonBar). */}
+        <RibbonBar tabKey={ribbonTab} role="toolbar" aria-label={`${ribbonTab} ribbon`} render={() => (<>
           {ribbonTab === 'file' && (
           <>
           <Group label="Document">
@@ -2874,24 +2903,17 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           <Group label="Font">
             <div className="doc-ribbon-stack">
               <div className="doc-ribbon-row">
-                <select onChange={e => { const v = e.target.value; if (v) activeEditor.chain().focus().setFontFamily(v).run(); else activeEditor.chain().focus().unsetFontFamily().run(); }}
-                  value={activeEditor.getAttributes('textStyle').fontFamily || ''} title="Font" aria-label="Font"
-                  style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '4px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', maxWidth: 124 }}>
-                  <option value="">Font</option>
-                  {Object.entries(FONT_GROUPS).map(([group, fonts]) => (
-                    <optgroup key={group} label={group}>
-                      {fonts.map(f => <option key={f} value={f}>{f}</option>)}
-                    </optgroup>
-                  ))}
-                </select>
-                <select onChange={e => { const v = e.target.value; if (v) activeEditor.chain().focus().setFontSize(`${v}px`).run(); else activeEditor.chain().focus().unsetFontSize().run(); }}
-                  // Strips whatever unit the size carries - this control writes px,
-                  // but an imported document states its sizes in pt.
-                  value={(activeEditor.getAttributes('textStyle').fontSize || '').replace(/(px|pt)$/, '')} title="Font Size" aria-label="Font Size"
-                  style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '4px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', width: 58 }}>
-                  <option value="">Size</option>
-                  {FONT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                {/* Word's Font box: each name shown in its own face, searchable (Neil, 11/10/2026). */}
+                <PickList ariaLabel="Font" placeholder="Font" emptyLabel="Default Font" width={230}
+                  value={activeEditor.getAttributes('textStyle').fontFamily || ''}
+                  label={activeEditor.getAttributes('textStyle').fontFamily || 'Default Font'}
+                  groups={Object.entries(FONT_GROUPS).map(([group, fonts]) => [group, fonts.map(f => [f, f])])}
+                  preview={(f) => ({ fontFamily: `"${f}", Inter, sans-serif` })}
+                  onPick={(v) => { if (v) activeEditor.chain().focus().setFontFamily(v).run(); else activeEditor.chain().focus().unsetFontFamily().run(); }} />
+                {/* Type a size and press Enter, or pick one. Strips whatever unit the size
+                    carries - this control writes px, an imported document states pt. */}
+                <SizeBox sizes={FONT_SIZES} value={(activeEditor.getAttributes('textStyle').fontSize || '').replace(/(px|pt)$/, '')}
+                  onPick={(v) => { if (v) activeEditor.chain().focus().setFontSize(`${v}px`).run(); else activeEditor.chain().focus().unsetFontSize().run(); }} />
                 <SmallBtn title="Grow Font" onClick={() => stepFontSize(1)}><span style={{ fontSize: 13, fontWeight: 700 }}>A↑</span></SmallBtn>
                 <SmallBtn title="Shrink Font" onClick={() => stepFontSize(-1)}><span style={{ fontSize: 11, fontWeight: 700 }}>A↓</span></SmallBtn>
                 <Menu label="Aa" title="Change Case" items={[
@@ -3128,20 +3150,12 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           )}
           <BigBtn icon={Variable} label="Library" title="Variable Library - browse every variable and drag one in"
             active={variableLibraryOpen} onClick={() => setVariableLibraryOpen(o => !o)} />
-          <select onChange={insertMergeField} defaultValue="" aria-label="Insert a variable"
-            style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
-            <option value="">Insert A Variable…</option>
-            {builtinGroups.map(([label, items]) => (
-              <optgroup key={label} label={label}>
-                {items.map(([t, l]) => <option key={t} value={t}>{l}</option>)}
-              </optgroup>
-            ))}
-            {customVarKeys.length > 0 && (
-              <optgroup label="Custom Fields In This Template">
-                {customVarKeys.map(k => <option key={k} value={k}>{varLabel[k] || humanizeKey(k)}</option>)}
-              </optgroup>
-            )}
-          </select>
+          <PickList ariaLabel="Insert a variable" label="Insert A Variable" placeholder="Insert A Variable" width={280} buttonWidth={170} value=""
+            groups={[
+              ...builtinGroups.map(([label, items]) => [label, items.map(([t, l]) => [t, l])]),
+              ...(customVarKeys.length ? [['Custom Fields In This Template', customVarKeys.map(k => [k, varLabel[k] || humanizeKey(k)])]] : []),
+            ]}
+            onPick={(token) => insertVariable(token)} />
           </Group>
           <Group label="Links">
           <div style={{ position: 'relative' }}>
@@ -3515,8 +3529,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </Group>
           </>
           )}
-          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={onPickImage} style={{ display: 'none' }} />
-        </div>
+        </>)} />
+        <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={onPickImage} style={{ display: 'none' }} />
 
         {findOpen && (
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, margin: '4px 0 10px', padding: '8px 10px', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8 }}
