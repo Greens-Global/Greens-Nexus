@@ -10096,7 +10096,7 @@ a[data-type="recordLink"][data-ref]:hover { background: var(--wk-hover); }
 .doc-ribbon-item-hint { margin-left: auto; padding-left: 16px; font-size: 11px; color: var(--muted); }
 
 /* The ribbon is ONE row: groups that do not fit go into More, in order. */
-.doc-toolbar.doc-ribbon.doc-ribbon-bar { flex-wrap: nowrap; overflow: hidden; }
+.doc-toolbar.doc-ribbon.doc-ribbon-bar { flex-wrap: nowrap; }   /* no overflow clip: the Link, Drawing and Signature pop-ups hang below their group */
 .doc-ribbon-bar > .is-overflow { display: none !important; }
 .doc-ribbon-bar > .doc-ribbon-group { flex: 0 0 auto; }
 .doc-ribbon-bar > .doc-ribbon-more { margin-left: auto; border-left: 1px solid var(--line); border-right: none; }
@@ -10163,4 +10163,53 @@ button.nx-docb-hbtn.is-icon { width: 32px; padding: 0; }
 @media (max-width: 1360px) {
   .nx-docb-head button.nx-docb-hbtn.nx-docb-compact { font-size: 0; gap: 0; width: 32px; padding: 0; }
   input.nx-docb-title { flex-basis: 160px; }
+}
+
+/* The menu bar under the document's name, Google Docs style (Neil, 11/10/2026). */
+.nx-docb-titlecol { flex: 1 1 320px; min-width: 200px; display: flex; flex-direction: column; gap: 0; }
+.nx-docb-titlerow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.nx-docb-titlerow input.nx-docb-title { flex: 1 1 auto; height: 28px; }
+.nx-docb-head:has(.doc-mb) .nx-docb-mark { width: 36px; height: 36px; flex-basis: 36px; }
+.doc-mb { display: flex; align-items: center; gap: 1px; min-width: 0; flex-wrap: nowrap; margin-left: -2px; }
+button.doc-mb-top {
+  height: 26px; padding: 0 8px; border: none; border-radius: 6px; background: none; cursor: pointer;
+  font: 500 13px Inter, sans-serif; color: var(--ink); white-space: nowrap;
+}
+button.doc-mb-top:hover, button.doc-mb-top.is-open { background: var(--mist); }
+button.doc-mb-top:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: -2px; }
+.doc-mb-search {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; height: 26px; margin-left: 6px; padding: 0 6px;
+  width: 28px; flex: 0 0 28px; overflow: hidden; cursor: text;
+  border: 1px solid transparent; border-radius: 6px; color: var(--wk-dim, var(--ink)); background: none; transition: width .16s ease, background .12s;
+}
+.doc-mb-search:hover { background: var(--mist); }
+.doc-mb-search.is-open, .doc-mb-search:focus-within {
+  width: 230px; flex-basis: 230px; z-index: 2; background: var(--card); border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 2px hsla(var(--color-blue), 0.15);
+}
+.doc-mb-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: 400 12.5px Inter, sans-serif; color: var(--ink); }
+.doc-mb-search input::placeholder { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .doc-mb-search { transition: none; } }
+button.doc-mb-search-clear { display: inline-flex; border: none; background: none; padding: 2px; cursor: pointer; color: var(--muted); border-radius: 4px; }
+
+/* A menu: icon column, label, hint or shortcut on the right, chevron for a submenu. */
+.doc-toolbar.doc-ribbon.doc-ribbon-panel.doc-mb-panel { min-width: 250px; padding: 6px 4px; }
+.doc-mb-panel button.doc-ribbon-item.doc-mb-item { gap: 10px; padding: 6px 10px 6px 8px; min-height: 30px; }
+.doc-mb-panel button.doc-mb-item.is-open { background: var(--mist); }
+.doc-mb-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; flex: 0 0 18px; color: var(--muted); }
+.doc-mb-item[aria-checked="true"] .doc-mb-icon { color: hsl(var(--color-blue)); }
+.doc-mb-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: flex; flex-direction: column; }
+.doc-mb-path { font-size: 11px; color: var(--muted); }
+.doc-mb-hint { color: var(--muted); font-size: 11.5px; }
+kbd.doc-mb-key { margin-left: auto; padding-left: 18px; font: 500 11.5px Inter, sans-serif; color: var(--muted); background: none; border: none; letter-spacing: 0.01em; }
+.doc-mb-chev { color: var(--muted); flex: 0 0 auto; }
+
+/* Help > Keyboard Shortcuts: a centered card (a question-sized popup). */
+.doc-mb-keys { width: min(640px, calc(100vw - 32px)); max-height: min(80vh, 720px); display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.doc-mb-keys-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.doc-mb-keys-body { overflow-y: auto; padding: 8px 16px 16px; columns: 2 260px; column-gap: 28px; }
+.doc-mb-keys-body section { break-inside: avoid; margin-bottom: 12px; }
+.doc-mb-keys-body h4 { margin: 10px 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.doc-mb-keys-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 12.5px; color: var(--ink); }
+@media (max-width: 1200px) {
+  .nx-docb-head button.nx-docb-hbtn.nx-docb-compact-md { font-size: 0; gap: 0; width: 32px; padding: 0; }
 }

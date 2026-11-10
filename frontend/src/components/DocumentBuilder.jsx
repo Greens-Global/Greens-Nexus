@@ -37,6 +37,8 @@ import { canDictate, useDictation, spokenAfter } from '../lib/voice';
 import { listChanges } from '../lib/docTrackChanges';
 import { dialog } from '../ui/dialog';
 import { isUntitled, suggestName, askForName, UNTITLED_DOCUMENT } from '../lib/untitled';
+import MenuBar, { ShortcutsCard } from './docRibbon/MenuBar';
+import { STYLES as PARA_STYLES, currentStyle } from './docRibbon/StyleGallery';
 import FullScreenButton, { useFullScreen } from './FullScreenButton';
 import { api, API_BASE } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
@@ -690,6 +692,36 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   }, [commentStore.comments, commentStore.loading]);
   const [a11yIssues, setA11yIssues] = useState(null);
   const [full, toggleFull] = useFullScreen('documents');
+  // The menu bar's two of its own (Neil, 11/10/2026): the shortcuts card, and
+  // Word's Collapse Ribbon (Ctrl+F1) - the tabs stay, the buttons fold away;
+  // remembered in this browser.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [ribbonCollapsed, setRibbonCollapsed] = useState(() => { try { return localStorage.getItem('nexus.docRibbonCollapsed') === '1'; } catch { return false; } });
+  const toggleRibbon = useCallback(() => setRibbonCollapsed((v) => { try { localStorage.setItem('nexus.docRibbonCollapsed', v ? '0' : '1'); } catch { /* private mode: this visit only */ } return !v; }), []);
+  // Shortcuts the menus list that the editor did not already have, live only
+  // while focus is inside this document (the header's Ctrl+F search stays
+  // the app's). Handlers are read through a ref so the listener is set once.
+  const menuKeysRef = useRef({});
+  useEffect(() => {
+    const onKey = (e) => {
+      const root = rootRef.current;
+      if (!root || !(e.ctrlKey || e.metaKey) || !root.contains(e.target)) return;
+      const k = menuKeysRef.current;
+      const key = e.key.toLowerCase();
+      const hit = (fn) => { e.preventDefault(); e.stopPropagation(); fn?.(); };
+      if (key === 'h' && !e.shiftKey && !e.altKey) hit(k.find);
+      else if (key === 'k' && !e.shiftKey && !e.altKey) hit(k.link);
+      else if (key === 'enter' && !e.shiftKey && !e.altKey) hit(k.pageBreak);
+      else if (key === 'm' && e.altKey) hit(k.comment);
+      else if (key === '\\' && !e.shiftKey) hit(k.clearFormatting);
+      else if (key === '/' && !e.shiftKey && !e.altKey) hit(k.shortcuts);
+      else if (key === 'c' && e.shiftKey && !e.altKey) hit(k.wordCount);
+      else if (e.key === 'F1') hit(k.collapseRibbon);
+    };
+    // Capture: Ctrl+Enter must reach this before the editor makes it a line break.
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
   const rootRef = useRef(null);
   const canvasRef = useRef(null);
   const titleRef = useRef(null);
@@ -1304,18 +1336,18 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     if (kind === 'document' && preview) {
       setPreview(false);
       closePdfPreview();
-      return;
+      return Promise.resolve(false);
     }
     // Still unnamed: ask for a name first; Keep Editing cancels the close.
+    // Resolves true once it really closed (File > New Document waits on it).
     if (mayName && isUntitled(title.trim() || doc?.[nameKey])) {
-      askName().then((named) => { if (named) Promise.resolve(flushPendingSave()).finally(() => onClose?.()); });
-      return;
+      return askName().then((named) => (named ? Promise.resolve(flushPendingSave()).finally(() => onClose?.()).then(() => true) : false));
     }
     // Wait for the pending write before unmounting. This used to fire doSave()
     // and call onClose() in the same breath: the component went away while the
     // request was still in flight, which is what "it says Saved and then
     // discards everything" looked like from the outside.
-    Promise.resolve(flushPendingSave()).finally(() => onClose?.());
+    return Promise.resolve(flushPendingSave()).finally(() => onClose?.()).then(() => true);
   };
 
   const changeLetterhead = (id) => {
@@ -2513,6 +2545,185 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     </div>
   );
 
+  // The menu bar (Neil, 11/10/2026): every command, by menu, with its icon
+  // and shortcut - the ribbon's own actions, nothing new behind them.
+  const ed = activeEditor;
+  const isDoc = kind === 'document';
+  const editing = !preview && !readOnly && !isLocked && !viewingOnly;
+  const blockAttrs = ed ? ed.getAttributes(currentBlockType()) : {};
+  const curStyle = currentStyle(ed);
+  const openOnRibbon = (tab, open) => { setRibbonCollapsed(false); setRibbonTab(tab); open?.(); };
+  const pageBreak = () => ed?.chain().focus().insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run();
+  const linkCmd = () => openOnRibbon('home', toggleLinkPopover);
+  const commentCmd = () => { if (ed && !ed.state.selection.empty) startComment(); else toastOk?.('Select the words to comment on first.'); };
+  const clearFormatting = () => ed?.chain().focus().unsetAllMarks().clearNodes().run();
+  const spacing = (label, v) => ({ label, checked: blockAttrs.lineHeight === v, onClick: () => setLineHeight(v), disabled: !editing });
+  const mark = (label, name, toggle, icon, shortcut) => ({ label, icon, shortcut, checked: !!ed?.isActive(name), disabled: !editing || !ed, onClick: () => ed?.chain().focus()[toggle]().run() });
+  const align = (label, v, icon, shortcut) => ({ label, icon, shortcut, cardLabel: `Align ${label}`, checked: !!ed?.isActive({ textAlign: v }), disabled: !editing || !ed, onClick: () => ed?.chain().focus().setTextAlign(v).run() });
+  menuKeysRef.current = {
+    find: () => setFindOpen(true), link: editing ? linkCmd : null, pageBreak: editing ? pageBreak : null, comment: commentCmd,
+    clearFormatting: editing ? clearFormatting : null, shortcuts: () => setShortcutsOpen(true), wordCount: () => setWordCountOpen(true), collapseRibbon: toggleRibbon,
+  };
+  const docMenus = [
+    { label: 'File', items: [
+      { label: 'New Document', icon: FilePlus, onClick: () => close().then((ok) => { if (ok) window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-new' } })); }) },
+      { label: 'Rename', icon: Type, disabled: readOnly || isLocked, onClick: () => { titleRef.current?.focus(); titleRef.current?.select(); } },
+      isDoc && doc?.access && { label: 'Share...', icon: Users, onClick: () => setShareOpen(true) },
+      '-',
+      !preview && { label: 'Import a File...', icon: Upload, disabled: !editing, onClick: () => setImportPopoverOpen(true) },
+      { label: 'Version History', icon: History, onClick: openHistory },
+      '-',
+      isDoc && { label: 'Download', icon: FileDown, items: [
+        { label: 'PDF Document (.pdf)', disabled: !!exporting, onClick: () => doExport('pdf') },
+        { label: 'Word Document (.docx)', disabled: !!exporting, onClick: () => doExport('docx') },
+      ] },
+      isDoc && { label: 'Open in Word', icon: PageIcon, disabled: !!exporting, onClick: openInWord },
+      isDoc && { label: 'Save as Template', icon: FileStack, disabled: savingTemplate, onClick: saveAsTemplate },
+      isDoc && { label: 'Preview & Send', icon: Send, onClick: () => { setPreview(true); openPdfPreview(); } },
+      '-',
+      { label: 'Page Setup...', icon: FileStack, onClick: () => openOnRibbon('layout', () => setPageSetupOpen(true)) },
+      { label: 'Print', icon: Printer, shortcut: 'Mod+P', onClick: () => window.print() },
+      '-',
+      { label: 'Close', icon: X, onClick: close },
+    ] },
+    { label: 'Edit', items: [
+      { label: 'Undo', icon: Undo, shortcut: 'Mod+Z', disabled: !editing || !ed?.can().undo(), onClick: () => ed?.chain().focus().undo().run() },
+      { label: 'Redo', icon: Redo, shortcut: 'Mod+Y', disabled: !editing || !ed?.can().redo(), onClick: () => ed?.chain().focus().redo().run() },
+      '-',
+      { label: 'Cut', icon: Scissors, shortcut: 'Mod+X', disabled: !editing, onClick: () => clipboardAction('cut') },
+      { label: 'Copy', icon: ClipboardCopy, shortcut: 'Mod+C', onClick: () => clipboardAction('copy') },
+      { label: 'Paste', icon: ClipboardPaste, shortcut: 'Mod+V', disabled: !editing, onClick: () => clipboardAction('paste') },
+      { label: 'Paste Without Formatting', shortcut: 'Mod+Shift+V', disabled: !editing, onClick: pasteTextOnly },
+      '-',
+      { label: 'Select All', icon: MousePointerSquareDashed, shortcut: 'Mod+A', onClick: () => ed?.chain().focus().selectAll().run() },
+      { label: 'Format Painter', icon: Paintbrush, checked: !!painterActive, disabled: !editing, onClick: () => toggleFormatPainter(false) },
+      '-',
+      { label: 'Find and Replace', icon: Search, shortcut: 'Mod+H', onClick: () => setFindOpen(true) },
+    ] },
+    { label: 'View', items: [
+      { label: 'Mode', icon: docMode === 'Viewing' ? EyeOff : docMode === 'Reviewing' ? PenLine : Type, hint: docMode, items: [
+        { label: 'Editing', checked: docMode === 'Editing', onClick: () => { setViewingOnly(false); if (tracking !== 'off') setTrackingMode('off'); } },
+        { label: 'Reviewing', checked: docMode === 'Reviewing', onClick: () => { setViewingOnly(false); setTrackingMode('everyone'); } },
+        { label: 'Viewing', checked: docMode === 'Viewing', onClick: () => setViewingOnly(true) },
+      ] },
+      '-',
+      { label: 'Print Layout', checked: !!viewPrefs.paginate, onClick: () => setPref('paginate', !viewPrefs.paginate) },
+      { label: 'Reading View', icon: BookOpen, onClick: () => { setPreview(true); if (isDoc) openPdfPreview(); } },
+      '-',
+      { label: 'Show Ruler', checked: !!viewPrefs.ruler, onClick: () => setPref('ruler', !viewPrefs.ruler) },
+      { label: 'Show Navigation', checked: !!viewPrefs.nav, onClick: () => setPref('nav', !viewPrefs.nav) },
+      { label: 'Show Comments', checked: !!commentsOpen, onClick: () => setCommentsOpen((o) => !o) },
+      { label: 'Show Header & Footer', checked: !!(headerVisible || footerVisible), onClick: toggleHeaderFooter },
+      { label: 'Show Formatting Marks', checked: !!showMarks, onClick: () => setShowMarks((v) => !v) },
+      '-',
+      { label: 'Zoom', icon: ZoomIn, hint: `${Math.round(zoom * 100)}%`, items: [
+        ...[50, 75, 100, 125, 150, 200].map((n) => ({ label: `${n}%`, checked: Math.round(zoom * 100) === n, onClick: () => setZoom(n / 100) })),
+        '-', { label: 'Page Width', onClick: zoomToPageWidth }, { label: 'Fit Page', onClick: zoomToFit },
+      ] },
+      '-',
+      { label: 'Collapse Ribbon', shortcut: 'Mod+F1', checked: ribbonCollapsed, onClick: toggleRibbon },
+      { label: 'Full Screen', checked: !!full, onClick: toggleFull },
+    ] },
+    { label: 'Insert', items: [
+      { label: 'Picture', icon: ImagePlus, disabled: !editing, items: [
+        { label: 'From This Device...', onClick: () => fileInputRef.current?.click() },
+        { label: 'From the Clipboard', onClick: () => toastOk?.('Click where the picture goes and press Ctrl+V with it on the clipboard.') },
+      ] },
+      { label: 'Table', icon: TableIcon, disabled: !editing || !ed, items: [
+        ...[[2, 2], [3, 3], [4, 4], [3, 5], [5, 5]].map(([c, rr]) => ({ label: `${c} x ${rr} Table`, onClick: () => ed?.chain().focus().insertTable({ rows: rr, cols: c, withHeaderRow: false }).run() })),
+        '-', { label: 'Other Sizes...', onClick: () => openOnRibbon('insert') },
+      ] },
+      { label: 'Drawing', icon: Shapes, disabled: !editing, onClick: () => openOnRibbon('insert', () => setShapePopoverOpen(true)) },
+      { label: 'Text Box', icon: Type, disabled: !editing, onClick: insertTextbox },
+      '-',
+      { label: 'Link', icon: Link2, shortcut: 'Mod+K', disabled: !editing, onClick: linkCmd },
+      { label: 'Bookmark', icon: Bookmark, disabled: !editing, onClick: () => openOnRibbon('insert', () => setBookmarkPopoverOpen(true)) },
+      { label: 'Table of Contents', icon: ListTree, disabled: !editing, items: [
+        { label: 'Insert Table of Contents', onClick: insertTableOfContents },
+        { label: 'Update Table of Contents', onClick: insertTableOfContents, disabled: !findTocRange() },
+        { label: 'Remove Table of Contents', onClick: removeTableOfContents, disabled: !findTocRange() },
+      ] },
+      { label: 'Comment', icon: MessageSquare, shortcut: 'Mod+Alt+M', onClick: commentCmd },
+      '-',
+      { label: 'Header & Footer', icon: LayoutPanelTop, checked: !!(headerVisible || footerVisible), onClick: toggleHeaderFooter },
+      { label: 'Page Numbers', icon: Hash, items: [
+        ...[['bottom-left', 'Bottom Left'], ['bottom-center', 'Bottom Center'], ['bottom-right', 'Bottom Right'], ['top-right', 'Top Right']].map(([v, l]) => ({ label: l, checked: pageSetup.pageNumbers === v, onClick: () => updatePageSetup({ pageNumbers: v }) })),
+        '-', { label: 'Remove Page Numbers', onClick: () => updatePageSetup({ pageNumbers: 'none' }) },
+      ] },
+      { label: 'Page Break', icon: SeparatorHorizontal, shortcut: 'Mod+Enter', disabled: !editing || !ed, onClick: pageBreak },
+      isDoc && { label: 'New Page', icon: PageIcon, disabled: !editing, onClick: addPage },
+      '-',
+      { label: 'Special Characters...', icon: Smile, disabled: !editing, onClick: () => openOnRibbon('insert', () => setSymbolPopoverOpen(true)) },
+      { label: 'Signature Block...', icon: PenLine, disabled: !editing, onClick: () => openOnRibbon('insert', () => { setSigPopoverOpen(true); setSigDraft((d) => ({ ...d, role: d.role || signerOptions[0]?.key || '' })); }) },
+      { label: 'Variable...', icon: Variable, disabled: !editing, onClick: () => setVariableLibraryOpen(true) },
+    ] },
+    { label: 'Format', items: [
+      { label: 'Text', icon: Bold, items: [
+        mark('Bold', 'bold', 'toggleBold', Bold, 'Mod+B'),
+        mark('Italic', 'italic', 'toggleItalic', Italic, 'Mod+I'),
+        mark('Underline', 'underline', 'toggleUnderline', Underline, 'Mod+U'),
+        mark('Strikethrough', 'strike', 'toggleStrike', Strikethrough, 'Mod+Shift+S'),
+        '-',
+        mark('Superscript', 'superscript', 'toggleSuperscript', SuperscriptIcon, 'Mod+.'),
+        mark('Subscript', 'subscript', 'toggleSubscript', SubscriptIcon, 'Mod+,'),
+        '-',
+        { label: 'Grow Font', onClick: () => stepFontSize(1), disabled: !editing },
+        { label: 'Shrink Font', onClick: () => stepFontSize(-1), disabled: !editing },
+      ] },
+      { label: 'Paragraph Styles', icon: Pilcrow, hint: curStyle?.label, disabled: !editing || !ed, items: PARA_STYLES.map((st) => ({
+        label: st.label, cardLabel: st.key === 'normal' ? 'Normal Text' : undefined, checked: curStyle?.key === st.key,
+        shortcut: st.key === 'normal' ? 'Mod+Alt+0' : /^h[1-4]$/.test(st.key) ? `Mod+Alt+${st.key[1]}` : undefined,
+        onClick: () => st.apply(ed.chain().focus()).run(),
+      })) },
+      { label: 'Align', icon: AlignLeft, disabled: !editing || !ed, items: [
+        align('Left', 'left', AlignLeft, 'Mod+Shift+L'), align('Center', 'center', AlignCenter), align('Right', 'right', AlignRight, 'Mod+Shift+R'), align('Justified', 'justify', AlignJustify, 'Mod+Shift+J'),
+      ] },
+      { label: 'Line & Paragraph Spacing', icon: AlignVerticalSpaceAround, disabled: !editing || !ed, items: [
+        spacing('Single', '1.2'), spacing('1.15', '1.38'), spacing('1.5', '1.8'), spacing('Double', '2.4'), '-',
+        blockAttrs.spacingBefore ? { label: 'Remove Space Before Paragraph', onClick: () => setParaAttr({ spacingBefore: null }) } : { label: 'Add Space Before Paragraph', onClick: () => setParaAttr({ spacingBefore: 12 }) },
+        blockAttrs.spacingAfter ? { label: 'Remove Space After Paragraph', onClick: () => setParaAttr({ spacingAfter: null }) } : { label: 'Add Space After Paragraph', onClick: () => setParaAttr({ spacingAfter: 12 }) },
+      ] },
+      { label: 'Bullets & Numbering', icon: List, disabled: !editing || !ed, items: [
+        { label: 'Bulleted List', icon: List, shortcut: 'Mod+Shift+8', checked: !!ed?.isActive('bulletList'), onClick: () => ed?.chain().focus().toggleBulletList().run() },
+        { label: 'Numbered List', icon: ListOrdered, shortcut: 'Mod+Shift+7', checked: !!ed?.isActive('orderedList'), onClick: () => ed?.chain().focus().toggleOrderedList().run() },
+        '-',
+        { label: 'Increase Indent', icon: Indent, onClick: () => changeIndent(1) },
+        { label: 'Decrease Indent', icon: Outdent, onClick: () => changeIndent(-1) },
+      ] },
+      { label: 'Change Case', icon: Type, disabled: !editing || !ed, items: [
+        { label: 'Sentence case', onClick: () => changeCase('sentence') }, { label: 'lowercase', onClick: () => changeCase('lower') },
+        { label: 'UPPERCASE', onClick: () => changeCase('upper') }, { label: 'Capitalize Each Word', onClick: () => changeCase('title') },
+      ] },
+      { label: 'Columns', icon: Columns2, disabled: !editing, items: [[1, 'One'], [2, 'Two'], [3, 'Three']].map(([n, l]) => ({ label: l, checked: (pageSetup.columns || 1) === n, onClick: () => updatePageSetup({ columns: n }) })) },
+      '-',
+      { label: 'Clear Formatting', icon: Eraser, shortcut: 'Mod+\\', disabled: !editing || !ed, onClick: clearFormatting },
+    ] },
+    { label: 'Tools', items: [
+      { label: 'Spelling', icon: SpellCheck, checked: !!viewPrefs.spell, onClick: () => setPref('spell', !viewPrefs.spell) },
+      { label: 'Word Count', icon: FileSearch, shortcut: 'Mod+Shift+C', onClick: () => setWordCountOpen(true) },
+      { label: 'Check Accessibility', icon: Accessibility, onClick: () => setA11yIssues(accessibilityIssues([...editorsRef.current.values()])) },
+      '-',
+      { label: 'Track Changes', icon: PenLine, hint: tracking === 'off' ? 'Off' : tracking === 'mine' ? 'Just Mine' : 'For Everyone', items: [
+        { label: 'Off', checked: tracking === 'off', onClick: () => setTrackingMode('off') },
+        { label: 'For Everyone', cardLabel: 'Track Changes On / Off', checked: tracking === 'everyone', shortcut: 'Mod+Shift+E', onClick: () => setTrackingMode('everyone') },
+        { label: 'Just Mine', checked: tracking === 'mine', onClick: () => setTrackingMode('mine') },
+        '-',
+        { label: 'Accept All Changes', disabled: !changeCount, onClick: () => resolveAll(true) },
+        { label: 'Reject All Changes', disabled: !changeCount, onClick: () => resolveAll(false) },
+      ] },
+      canDictate() && { label: dictation.listening ? 'Stop Dictating' : 'Dictate', icon: Mic, checked: dictation.listening, disabled: !editing, onClick: () => (dictation.listening ? dictation.stop() : dictation.start()) },
+      '-',
+      { label: 'Detect Variables', icon: Wand2, disabled: !editing || detecting, onClick: detectVariables },
+      { label: 'Variable Library', icon: Variable, checked: !!variableLibraryOpen, onClick: () => setVariableLibraryOpen((o) => !o) },
+      kind === 'template' && { label: 'Template Fields', icon: ListChecks, onClick: () => openFieldsPanel() },
+    ] },
+    { label: 'Help', items: [
+      { label: 'Documents Guide', icon: HelpCircle, onClick: openHelp },
+      { label: 'Keyboard Shortcuts', icon: BookOpen, shortcut: 'Mod+/', onClick: () => setShortcutsOpen(true) },
+      { label: 'Search the Menus', icon: Search, shortcut: 'Alt+/', onClick: () => document.querySelector('.doc-mb-search input')?.focus() },
+    ] },
+  ].map((m) => ({ ...m, items: m.items.filter(Boolean).filter((it, i, a) => it !== '-' || (i > 0 && a[i - 1] !== '-' && i < a.length - 1)) }));
+
   return (
     <div className={`nx-docb${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
       {/* The header, Word / Google Docs style (Neil, 11/10/2026): Close, the
@@ -2523,6 +2734,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           <X size={16} />
         </button>
         <span className={`nx-docb-mark is-${kind}`} aria-hidden="true">{kind === 'template' ? <FileStack size={16} /> : <PageIcon size={16} />}</span>
+        <div className="nx-docb-titlecol">
+        <div className="nx-docb-titlerow">
         <input ref={titleRef} className="nx-inline-edit nx-docb-title" value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
           onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setTitle(isUntitled(doc?.[nameKey]) && kind === 'document' ? '' : doc?.[nameKey] || ''); e.target.blur(); } }}
           placeholder={kind === 'document' ? UNTITLED_DOCUMENT : 'Untitled Template'} aria-label={kind === 'document' ? 'Document name' : 'Template name'}
@@ -2533,6 +2746,9 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           {saveStatus === 'error' && <AlertCircle size={12} />}
           {SAVE_LABEL[saveStatus]}
         </span>
+        </div>
+        {!preview && activeEditor && <MenuBar menus={docMenus} />}
+        </div>
         {live && <LivePeople peers={live.peers} status={live.status} />}
         {kind === 'document' && doc?.access && (
           <button type="button" className="nx-docb-hbtn nx-docb-compact" title="Share" onClick={() => setShareOpen(true)}>
@@ -2579,8 +2795,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         )}
         {!preview && (
           <div style={{ position: 'relative' }}>
-            <button onClick={() => setLhPickerOpen(o => !o)}
-              className="nx-docb-hbtn">
+            <button onClick={() => setLhPickerOpen(o => !o)} title={`Letterhead: ${activeLetterhead ? activeLetterhead.name : 'None'}`}
+              className="nx-docb-hbtn nx-docb-compact-md">
               <Award size={14} /> {activeLetterhead ? activeLetterhead.name : 'No Letterhead'}
             </button>
             {lhPickerOpen && (
@@ -2627,8 +2843,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         )}
         {!preview && (
           <div style={{ position: 'relative' }}>
-            <button onClick={() => setMergePickerOpen(o => !o)}
-              className="nx-docb-hbtn">
+            <button onClick={() => setMergePickerOpen(o => !o)} title={`Merge Data: ${activeEmployee ? empLabel(activeEmployee) : 'Nobody picked'}`}
+              className="nx-docb-hbtn nx-docb-compact-md">
               <Users size={14} /> {activeEmployee ? empLabel(activeEmployee) : 'Merge Data'}
             </button>
             {mergePickerOpen && (
@@ -2816,7 +3032,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         <div className="doc-ribbon-sticky">
           <div className="doc-ribbon-tabs" role="tablist">
             {[['file', 'File'], ['home', 'Home'], ['insert', 'Insert'], ['layout', 'Layout'], ['references', 'References'], ['review', 'Review'], ['view', 'View'], ['help', 'Help']].map(([key, label]) => (
-              <button key={key} type="button" role="tab" data-tab={key} aria-selected={ribbonTab === key} onClick={() => setRibbonTab(key)}
+              <button key={key} type="button" role="tab" data-tab={key} aria-selected={ribbonTab === key} onClick={() => { if (ribbonCollapsed && ribbonTab === key) setRibbonCollapsed(false); else setRibbonTab(key); }}
                 className={`doc-ribbon-tab${ribbonTab === key ? ' is-active' : ''}`}>
                 {label}
               </button>
@@ -2860,11 +3076,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         )}
         {/* One row, never wrapped (Neil, 11/10/2026): groups that do not fit
             go into More at the end (docRibbon/ui.jsx RibbonBar). */}
-        <RibbonBar tabKey={ribbonTab} role="toolbar" aria-label={`${ribbonTab} ribbon`} render={() => (<>
+        {!ribbonCollapsed && <RibbonBar tabKey={ribbonTab} role="toolbar" aria-label={`${ribbonTab} ribbon`} render={() => (<>
           {ribbonTab === 'file' && (
           <>
           <Group label="Document">
-            <BigBtn icon={FilePlus} label="New" title="New Document - opens the Documents list" onClick={() => { close(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-browse' } })); }} />
+            <BigBtn icon={FilePlus} label="New" title="New Document - opens the Documents list" onClick={() => close().then((ok) => { if (ok) window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-new' } })); })} />
             <BigBtn icon={Type} label="Rename" onClick={() => { titleRef.current?.focus(); titleRef.current?.select(); }} />
             <BigBtn icon={History} label="Version History" onClick={openHistory} />
             <BigBtn icon={FileStack} label="Page Setup" onClick={() => { setRibbonTab('layout'); setPageSetupOpen(true); }} />
@@ -3529,7 +3745,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </Group>
           </>
           )}
-        </>)} />
+        </>)} />}
         <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={onPickImage} style={{ display: 'none' }} />
 
         {findOpen && (
@@ -3929,6 +4145,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           onCancel={() => setMergeFieldModal(null)}
         />
       )}
+      {shortcutsOpen && <ShortcutsCard menus={docMenus} onClose={() => setShortcutsOpen(false)} />}
     </div>
   );
 }
