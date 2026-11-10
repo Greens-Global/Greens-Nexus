@@ -566,7 +566,7 @@ export default function NoteEditor({
             active={dictation.listening} danger={dictation.listening} keep disabled={voice.recording} onClick={toggleDictate} />}
           {recordOk && <TBtn icon={AudioLines} text={voice.recording ? 'Stop and Save' : 'Voice Note'} label={voice.recording ? 'Stop and Save the Voice Note' : 'Record a Voice Note'}
             active={voice.recording} danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
-          <TBtn icon={ImagePlus} text="Photo" label="Add a Photo - or paste one with Ctrl+V" disabled={live} onClick={pickPhoto} />
+          <TBtn icon={ImagePlus} text="Photo" label="Add a Photo - or paste one with Ctrl+V" keep disabled={live} onClick={pickPhoto} />
           <TBtn icon={Clapperboard} text="Video" label="Add a Video" disabled={live} onClick={pickVideo} />
           <TBtn icon={PenTool} text="Board" label="Insert Board - one of your boards, as a picture that opens it" active={boardPick} onClick={openBoardPick} />
           <Btn icon={ListTodo} label="Live Task List - my tasks or a project, always up to date" onClick={run((c) => c.insertLiveList())} />

@@ -88,6 +88,10 @@
 .nt-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .nt-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 0 13px; font-size: 12.5px; color: var(--muted); }
 .nt-meta .nt-sep { color: var(--wk-line); }
+.nt-sharer { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.nt-sharer > span:last-child { white-space: nowrap; }
+.nt-meta.is-phone { gap: 2px 10px; margin-top: 2px; font-size: 12px; }
+.nt-row-meta [data-avatar], .nt-board-card-meta [data-avatar] { vertical-align: -3px; }
 .nt-status { display: inline-flex; align-items: center; gap: 5px; }
 .nt-status.is-warn { color: var(--wk-orange, #e8930c); }
 .nt-status.is-bad { color: var(--wk-red, #e2445c); }
@@ -114,7 +118,7 @@
 .nt-tb-text.is-on { color: var(--wk-green); background: var(--wk-hover); }
 .nt-tb-text.is-danger { color: var(--wk-red, #e2445c); }
 .nt-tb-text:disabled { opacity: .35; cursor: default; }
-/* Narrower: only Dictate keeps its name; narrowest: icons alone. */
+/* Narrower: only Dictate and Photo keep their names; narrowest: icons alone. */
 @container (max-width: 760px) {
   .nt-tb-capture .nt-tb-text:not(.is-key) .nt-tb-word { display: none; }
   .nt-tb-capture .nt-tb-text:not(.is-key) { padding: 0 7px; }
