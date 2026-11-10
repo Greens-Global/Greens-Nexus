@@ -15,7 +15,7 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({
   isExternal: role.external,
   can: (r) => role.level >= ({ manager: 3, administrator: ADMIN }[r] ?? 1),
   // RoleContext's rule: the role tier, else a grant at the level asked for.
-  canAccessModule: (m, minRole) => role.level >= ({ administrator: ADMIN }[minRole] ?? 1) || role.grants.has(m),
+  canAccessModule: (m, minRole) => role.level >= ({ manager: 3, administrator: ADMIN }[minRole] ?? 1) || role.grants.has(m),
 }) }));
 vi.mock('../components/TimeTrackingAdmin', () => ({ default: ({ initialSub, embedded }) => <div>Workforce Analytics on {initialSub || 'its first tab'}{embedded ? ' (embedded)' : ''}</div> }));
 const shiftRequestsInbox = vi.fn();
@@ -85,6 +85,14 @@ describe('Team module', () => {
     expect(screen.getByText('Group week')).toBeTruthy();
     expect(shiftRequestsInbox).not.toHaveBeenCalled();
     expect(timeOffList).not.toHaveBeenCalled();
+  });
+  // The Shift Planner grant (11/10/2026) opens the planner tab below Manager.
+  it('gives a Shift Planner grant holder the Shift Planner tab without the Manager role', () => {
+    role.level = 1;
+    role.grants = new Set(['shifts']);
+    render(<Shifts activeSub="schedule" onSubChange={vi.fn()} />);
+    expect(tabNames()).toEqual(['Shifts', 'Shift Planner', 'Directory']);
+    expect(screen.getByText('Schedule grid')).toBeTruthy();
   });
   // Workforce Analytics moved into Team (Neil, Oct 29 2026). Team is
   // everyone's, so the tab is only for administrators and the people given

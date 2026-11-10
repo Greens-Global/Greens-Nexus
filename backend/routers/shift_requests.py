@@ -70,6 +70,7 @@ from auth import get_current_user
 from database import get_db
 from notify_company import notification_company
 from routers.timeclock import (require_schedule_write, require_shift_manage, SHIFT_MANAGE_LEVEL, _visible_emails,
+                               SHIFT_GRANT, SHIFT_MANAGE_DENIED, can_manage_shifts,
                                _team_alert_recipients, _sched_dict, _hm12, _shift_local_now,
                                _shift_conflicts, _timeoff_dict, _availability, _company_holidays_for_employee,
                                _TimeoffPrivacy, _DEFAULT_TEAM_TZ, _require_company_manage, _company_choices,
@@ -646,12 +647,13 @@ def _slot_deciders(db: Session, group_id: str) -> list:
     not on it (a cross-team claim, Phase 3b): the team's schedulers who hold
     Manage access to Shifts (manager and above), else the managers of the
     team's company (People > Companies). [] when nobody fits - the
-    requester's usual approvers then decide."""
-    from auth import level_for
+    requester's usual approvers then decide. A Shift Planner Owner counts
+    as a manager here (auth.level_in_module)."""
+    from auth import level_for, level_in_module
     g = db.query(models.ShiftGroup).filter(models.ShiftGroup.id == group_id).first() if group_id else None
     if g is None:
         return []
-    named = [e for e in _schedulers(g) if level_for(e, db) >= SHIFT_MANAGE_LEVEL]
+    named = [e for e in _schedulers(g) if level_in_module(e, SHIFT_GRANT, SHIFT_MANAGE_LEVEL, db) >= SHIFT_MANAGE_LEVEL]
     if named:
         return list(dict.fromkeys(named))
     cid = getattr(g, "company_id", "") or ""
@@ -976,9 +978,12 @@ def inbox(user: dict = Depends(require_schedule_write), db: Session = Depends(ge
     me = user["email"].lower()
     cache = {}
     # A manager's own swap/offer/pickup waits on ANOTHER manager (Sep 29).
+    # Deciding is a manager's (or a Shift Planner Owner's): a Shift Planner
+    # Editor / Full builds the schedule but decides nothing (11/10/2026).
     pending_rows = [r for r in db.query(models.ShiftRequest).filter(models.ShiftRequest.status.in_(PENDING))
                     .order_by(models.ShiftRequest.created_at).all()
-                    if _decidable(db, r, scope, me, cache) and me not in (r.requester_email, r.target_email)]
+                    if _decidable(db, r, scope, me, cache) and me not in (r.requester_email, r.target_email)
+                    ] if can_manage_shifts(user) else []
     waiting = [r for r in pending_rows if r.status == "pending_manager"]
     on_peer = [r for r in pending_rows if r.status == "pending_peer"]
     recent = [r for r in db.query(models.ShiftRequest)
@@ -1165,6 +1170,8 @@ def cancel_requests_for_shifts(db: Session, shift_ids: list, actor: str) -> int:
 
 @router.post("/{req_id}/decide")
 def decide(req_id: str, body: DecideIn, user: dict = Depends(require_schedule_write), db: Session = Depends(get_db)):
+    if not can_manage_shifts(user):
+        raise HTTPException(403, SHIFT_MANAGE_DENIED)
     actor = user["email"].lower()
     r = _own(db, req_id, lock=True)
     if not _decidable(db, r, _visible_emails(db, user), actor):

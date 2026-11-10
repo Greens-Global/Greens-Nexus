@@ -59,6 +59,10 @@ export const MODULES = [
   // Workflows (Oct 28 2026): viewer reads, editor builds and publishes its
   // own, full manages every workflow in scope (routers/workflows.py).
   { id: 'workflows',           label: 'Workflows' },
+  // Shift Planner (Pranshu, 11/10/2026): runs Team > Shift Planner without the
+  // Manager role, on the teams the person is named Scheduler on; owner acts
+  // as a manager inside Shifts for their company (routers/timeclock.py SHIFT_GRANT).
+  { id: 'shifts',              label: 'Shift Planner' },
 ];
 
 // Per-module permission levels an Access Group can grant - mirrors a
