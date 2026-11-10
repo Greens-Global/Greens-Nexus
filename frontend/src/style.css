@@ -2561,12 +2561,12 @@ html { overflow-x: hidden; }
 }
 .mobile-menu.closing { animation: menuOut 0.36s cubic-bezier(.55,0,.85,.36) forwards; }
 @media (min-width: 901px) { .mobile-menu, .mobile-menu-scrim { display: none; } }
-/* 70/30 (Neil, 11/10/2026): the menu takes 70% of the width and the page
+/* 75/25 (Neil, 11/10/2026): the menu takes 75% of the width and the page
    stays in view on the right under a dark scrim; a tap on the scrim closes
-   it, the X stays. A module's sub-screen opens inside the same 70%. */
+   it, the X stays. A module's sub-screen opens inside the same 75%. */
 .mobile-menu, .mobile-menu .mobile-submenu {
   right: auto;
-  width: min(70vw, 420px);
+  width: min(75vw, 420px);
   border-radius: 0 18px 18px 0;
 }
 .mobile-menu {

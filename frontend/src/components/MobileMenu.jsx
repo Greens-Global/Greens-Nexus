@@ -193,7 +193,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   };
 
   return (<>
-    {/* The page stays in view on the right (Neil, 11/10/2026: 70/30, the
+    {/* The page stays in view on the right (Neil, 11/10/2026: 75/25, the
         backdrop darker) - a tap there closes the menu like the X does. */}
     <div className={`mobile-menu-scrim${closing ? ' closing' : ''}`} onClick={requestClose} aria-hidden="true" />
     <div ref={menuRef} className={`mobile-menu${closing ? ' closing' : ''}`} role="dialog" aria-modal="true" aria-label="Menu">
