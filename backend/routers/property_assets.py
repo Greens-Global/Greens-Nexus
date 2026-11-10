@@ -624,10 +624,37 @@ def inside_folder(root: str, path: str, allow_root: bool = True) -> bool:
 
 def _egnyte_refusal(e: Exception, what: str) -> HTTPException:
     from services import egnyte as egnyte_svc
-    if isinstance(e, egnyte_svc.EgnyteError) and e.status == 404:
+    status = e.status if isinstance(e, egnyte_svc.EgnyteError) else 502
+    if status == 404:
         return HTTPException(status_code=404, detail=f"That {what} is not in Egnyte any more.")
     print(f"[property-assets] Egnyte {what}: {e}")
+    if status in (401, 403):
+        return HTTPException(status_code=403, detail=(
+            f"Nexus's Egnyte connection cannot open this {what}. Connect your own Egnyte account "
+            "(Files > Connect) to see it, or ask an administrator to give Nexus's Egnyte account access to it."))
+    if status == 429:
+        return HTTPException(status_code=429, detail="Egnyte is busy right now - try again in a minute.")
     return HTTPException(status_code=502, detail="Egnyte did not answer - try again in a minute.")
+
+
+def _egnyte_read(db: Session, user, call):
+    """Run `call(token)` with the shared service token first; when Egnyte refuses
+    that token (401 expired / 403 no access to the folder - Nov 10 2026: folders
+    connected through the picker, which browses as the PERSON, showed "did not
+    answer" because the service account could not open them), retry as the
+    caller's own Egnyte connection. The route has already checked the path is
+    inside the pinned folder, and Egnyte's own permissions decide the retry."""
+    from services import egnyte as egnyte_svc
+    try:
+        return call(None)
+    except egnyte_svc.EgnyteError as e:
+        if e.status not in (401, 403):
+            raise
+        import egnyte_oauth
+        own = egnyte_oauth.token_for(db, (user or {}).get("email", ""))
+        if not own:
+            raise
+        return call(own)
 
 
 @router.get("/property-assets/{pid}/egnyte/folder")
@@ -645,7 +672,7 @@ def asset_egnyte_folder(pid: str, path: str = "", db: Session = Depends(get_db),
     if not inside_folder(pinned, target):
         raise HTTPException(status_code=403, detail="That folder is outside this asset's Egnyte folder.")
     try:
-        data = egnyte_svc.list_folder(target, timeout=_DOCS_TIMEOUT)
+        data = _egnyte_read(db, user, lambda tok: egnyte_svc.list_folder(target, token=tok, timeout=_DOCS_TIMEOUT))
     except Exception as e:
         if isinstance(e, egnyte_svc.EgnyteError) and e.status == 404 and egnyte_svc.norm(target).lower() == egnyte_svc.norm(pinned).lower():
             return {**out, "missing": True}
@@ -677,7 +704,7 @@ def asset_egnyte_file(pid: str, path: str, inline: bool = False, db: Session = D
         raise HTTPException(status_code=503, detail="Egnyte is not connected here.")
     want = egnyte_svc.norm(path)
     try:
-        content = egnyte_svc.read_file(want)
+        content = _egnyte_read(db, user, lambda tok: egnyte_svc.read_file(want, token=tok))
     except Exception as e:
         raise _egnyte_refusal(e, "file")
     name = want.rsplit("/", 1)[-1] or "download"

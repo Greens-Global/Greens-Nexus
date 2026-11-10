@@ -92,7 +92,7 @@ class DocsTests(unittest.TestCase):
         self.assertTrue(out["connected"])
         self.assertEqual([f["name"] for f in out["files"]], ["CO.pdf"])
         self.assertFalse(out["mayChange"])
-        self.assertNotIn("token", lf.call_args.kwargs)   # shared token, never the viewer's own
+        self.assertIsNone(lf.call_args.kwargs.get("token"))   # shared token first, never the viewer's own
 
     def test_a_subfolder_inside_opens_and_case_does_not_matter(self):
         out, _ = self._folder(VIEWER, path=f"{PINNED.lower()}/plans")
@@ -120,6 +120,28 @@ class DocsTests(unittest.TestCase):
              mock.patch.object(egnyte_svc, "list_folder", side_effect=egnyte_svc.EgnyteError("boom", 500)):
             out = PA.asset_egnyte_folder("esc", path="", db=self.db, user=VIEWER)
         self.assertIn("did not answer", out["error"])
+
+    def test_a_refused_service_token_falls_back_to_the_viewers_own_egnyte(self):
+        # Nov 10 2026: the picker browses as the person, so a folder they connected
+        # may be one Nexus's service account cannot open (403) - read it as them.
+        def listing(path, token=None, **kw):
+            if token is None:
+                raise egnyte_svc.EgnyteError("forbidden", 403)
+            return _listing(path, token=token, **kw)
+        import egnyte_oauth
+        with mock.patch.dict(os.environ, EGNYTE_ON), mock.patch.object(egnyte_svc, "list_folder", side_effect=listing) as lf,              mock.patch.object(egnyte_oauth, "token_for", return_value="own-tok"),              mock.patch.object(egnyte_svc, "read_file", side_effect=[egnyte_svc.EgnyteError("expired", 401), b"pdf"]) as rf:
+            out = PA.asset_egnyte_folder("esc", path="", db=self.db, user=VIEWER)
+            PA.asset_egnyte_file("esc", path=f"{PINNED}/CO.pdf", db=self.db, user=VIEWER)
+        self.assertEqual([f["name"] for f in out["files"]], ["CO.pdf"])
+        self.assertEqual(lf.call_args.kwargs["token"], "own-tok")
+        self.assertEqual(rf.call_args.kwargs["token"], "own-tok")
+
+    def test_a_refused_service_token_with_no_own_connection_says_why(self):
+        import egnyte_oauth
+        with mock.patch.dict(os.environ, EGNYTE_ON),              mock.patch.object(egnyte_svc, "list_folder", side_effect=egnyte_svc.EgnyteError("forbidden", 403)),              mock.patch.object(egnyte_oauth, "token_for", return_value=None):
+            out = PA.asset_egnyte_folder("esc", path="", db=self.db, user=VIEWER)
+        self.assertIn("Connect your own Egnyte account", out["error"])
+        self.assertNotIn("did not answer", out["error"])
 
     def test_outside_reach_is_404(self):
         self.db.add(models.NexusAccessScope(id=str(uuid.uuid4()), email=VIEWER["email"], module_id="property-asset",
