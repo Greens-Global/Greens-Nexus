@@ -17,7 +17,7 @@ describe('placeOf', () => {
     expect(at('Payroll Export Codes').label).toBe('Settings - Time & Pay');      // longer than "payroll"
     expect(at('Time Off prod feedback').label).toBe('Workday - Time Off');
     expect(at('Shifts Phase 3a').label).toBe('Team - Shift Planner');
-    expect(at('Filing & Sorting').label).toBe('Documents - Filing & Sorting');
+    expect(at('Filing & Sorting').label).toBe('Files - Filing & Sorting');
     expect(at('Approvals inbox').label).toBe('Dashboard - Approvals');
   });
 

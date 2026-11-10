@@ -37,7 +37,10 @@ export const MODULES = [
   { id: 'investor-relations',  label: 'Investor Relations' },
   { id: 'hr',                  label: 'People' },
   { id: 'hr_comp',             label: 'People - Compensation (salary/bank)' },
-  { id: 'documents',           label: 'Documents' },
+  // Files (Neil, 11/10/2026): the module took in the Egnyte browser. This
+  // label is the module's name everywhere (the header reads it); the grant
+  // opens its Documents, Templates, Forms, Sign and PDF Tools tabs.
+  { id: 'documents',           label: 'Files' },
   { id: 'marketing',           label: 'Marketing' },
   { id: 'external-links',      label: 'Links' },
   { id: 'inventory',           label: 'Item Management' },
@@ -46,7 +49,7 @@ export const MODULES = [
   { id: 'support',             label: 'Help Center' },
   { id: 'testing',             label: 'Testing' },
   { id: 'credvault',           label: 'Credentials' },
-  { id: 'egnyte',              label: 'Files' },
+  { id: 'egnyte',              label: 'Files - Browse Files' },   // the Files module's Egnyte tabs (Browse Files, Wiring)
   // Workforce Analytics > Scorecard + the weekly manager email (Neil, 10/10):
   // viewer = their own reporting line, full = the whole company.
   { id: 'workforce-scorecard', label: 'Workforce Scorecard' },

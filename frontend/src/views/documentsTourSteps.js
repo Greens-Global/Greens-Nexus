@@ -21,23 +21,25 @@ export function buildDocumentsTourSteps({ go, isMobile }) {
   const steps = [
     {
       target: null,
-      before: () => go('documents-browse'),
-      title: 'Welcome to Documents',
-      body: 'This is where company paperwork gets made and signed - build a document from a template, send it for signature inside or outside the company, and fix up PDFs. Every signature keeps an audit trail.',
+      // No tab change on the welcome (Neil, 11/10/2026): Files opens on
+      // Browse Files, and a first visit should stay there until the tour
+      // reaches the library.
+      title: 'Welcome to Files',
+      body: 'Company files and paperwork in one place - browse and upload the company Egnyte drive, build a document from a template, send it for signature inside or outside the company, and fix up PDFs. Every signature keeps an audit trail.',
     },
     {
       target: 'module-tabs',
       before: () => go('documents-browse'),
       when: () => !isMobile,
-      title: 'Four tabs',
-      body: 'Documents is the one list of everything. Templates are what you make things from, Nexus Sign is for anything out for signature, and PDF Tools edits a PDF.',
+      title: 'The tabs',
+      body: 'Browse Files is the company Egnyte drive. Documents is the one list of everything made in Nexus. Templates are what you make things from, Nexus Sign is for anything out for signature, and PDF Tools edits a PDF.',
     },
     {
       target: null,
       before: () => go('documents-browse'),
       when: () => isMobile,
-      title: 'Four tabs, at the bottom',
-      body: 'On your phone the tabs are the bar at the bottom of the screen: Documents, Templates, Sign and PDF Tools.',
+      title: 'The tabs, at the bottom',
+      body: 'On your phone the tabs are the bar at the bottom of the screen: Files, Documents, Templates, Forms, Sign and PDF Tools.',
     },
     {
       target: 'documents-screen-documents-browse',
@@ -79,7 +81,7 @@ export function buildDocumentsTourSteps({ go, isMobile }) {
       target: null,
       before: () => go('documents-browse'),
       title: 'That is the tour',
-      body: 'You will not see it again on its own. To walk through it later, open your profile menu (top right) and choose Tour while you are in Documents.',
+      body: 'You will not see it again on its own. To walk through it later, open your profile menu (top right) and choose Tour while you are in Files.',
     },
   ];
   return steps.filter((s) => !s.when || s.when()).map(({ when, ...s }) => s);   // eslint-disable-line no-unused-vars

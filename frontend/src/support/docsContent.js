@@ -901,10 +901,10 @@ export const DOCS = [
     ],
   },
   {
-    id: 'files', name: 'Files', group: 'Work', icon: 'HardDrive', view: 'egnyte',
+    id: 'files', name: 'Files', group: 'Work', icon: 'HardDrive', view: 'documents', sub: 'documents-files', grant: 'egnyte',
     tagline: 'Browse, upload and search the company Egnyte drive without leaving Nexus.',
-    where: 'Left menu > Files',
-    access: 'Supervisors and above with the Files grant',
+    where: 'Left menu > Files > Browse Files',
+    access: 'Supervisors and above with the Files - Browse Files grant',
     purpose: 'Files is a window onto Egnyte, the company file store. Egnyte stays the one true copy. Nexus lists, previews, uploads and links files in place, using your own Egnyte permissions, so you see exactly what you would see in Egnyte itself.',
     gains: [
       'Find and open company files without switching apps.',
@@ -951,10 +951,10 @@ export const DOCS = [
     tips: ['If a folder is missing, you probably do not have access to it in Egnyte. Ask the folder owner.'],
   },
   {
-    id: 'documents', name: 'Documents', group: 'Work', icon: 'FileText', view: 'documents',
+    id: 'documents', name: 'Documents', group: 'Work', icon: 'FileText', view: 'documents', sub: 'documents-browse', grant: 'documents',
     tagline: 'Create documents from templates, send them for e-signature and edit PDFs.',
-    where: 'Left menu > Documents',
-    access: 'Supervisors and above with the Documents grant',
+    where: 'Left menu > Files > Documents',
+    access: 'Supervisors and above with the Files grant',
     purpose: 'Documents is where company paperwork gets made and signed. Build a document from a template with merge fields filled in, send it through Nexus Sign for signature (inside or outside the company), and fix up PDFs with PDF Tools. Every signature has an audit trail.',
     gains: [
       'Offer letters, agreements and forms in minutes, not hours.',
@@ -1131,7 +1131,7 @@ export const DOCS = [
     ],
   },
   {
-    id: 'workflows', name: 'Workflows', group: 'Work', icon: 'Workflow', view: 'workflows',
+    id: 'workflows', name: 'Workflows', group: 'System', icon: 'Workflow', view: 'workflows',
     tagline: 'When something happens in Nexus, do something about it - without a developer.',
     where: 'Left menu > Workflows',
     access: 'Anyone with the Workflows grant. Viewer sees workflows and their runs; Editor builds and publishes their own; Full manages every workflow in their scope.',

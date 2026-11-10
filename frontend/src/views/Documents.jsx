@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { FileSignature, Folder, LayoutTemplate, FileText, ClipboardList, FolderInput, Briefcase } from 'lucide-react';
+import { FileSignature, Folder, FolderOpen, LayoutTemplate, FileText, ClipboardList, FolderInput, Briefcase, Cable } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { useEntities } from '../lib/queries';
@@ -23,8 +23,16 @@ const FormsTab = lazy(() => import('../forms/FormsTab'));
 // Filing & Sorting (Nov 2026): the Egnyte filing engine - scan #Unsorted,
 // propose per the naming SOPs, apply. Loaded when the tab is opened.
 const FilingTab = lazy(() => import('../filing/FilingTab'));
+// Browse Files and Wiring (Neil, 11/10/2026): the Egnyte module, moved in.
+const EgnyteApp = lazy(() => import('../egnyte/EgnyteApp'));
 
-// ── Documents module ─────────────────────────────────────────────────────────
+// ── Files module (the Documents module, renamed) ─────────────────────────────
+// Neil, 11/10/2026: "move files into the documents module and rename that
+// whole module to Files". The Egnyte browser is its first tab, Browse Files
+// (and Wiring, managers, last); the view id stays 'documents'. Each half
+// keeps its own grant: 'egnyte' shows Browse Files / Wiring, 'documents' the
+// rest (filesTabs below); either one opens the module (App VIEW_ALT_GRANTS).
+// Administrators see every tab, as before.
 // E-Sign was carved out of HR into its own top-level module (Jul 2026), then
 // grown into a full DMS. Four tabs (Neil, 10/31/2026): Documents is one library
 // that took in the old Dashboard, My Documents and HR Records tabs; Templates;
@@ -37,6 +45,9 @@ const FilingTab = lazy(() => import('../filing/FilingTab'));
 // window.__esignPrefill then fires nexus:navigate here. We read it on mount
 // (fresh navigation) AND on a repeat nexus:navigate (already mounted), so the
 // send wizard opens pre-filled either way.
+const FILES_TAB = { key: 'documents-files', label: 'Browse Files', Icon: FolderOpen };
+// Manager+ only, mirroring require_manager on /egnyte/wiring.
+const WIRING_TAB = { key: 'documents-wiring', label: 'Wiring', Icon: Cable, minRole: 'manager' };
 const TABS = [
   { key: 'documents-browse', label: 'Documents', Icon: Folder },
   { key: 'documents-templates', label: 'Templates', Icon: LayoutTemplate },
@@ -100,8 +111,17 @@ export default function Documents({ activeSub, onSubChange }) {
     : String(activeSub || '').startsWith('documents-forms') ? 'documents-forms' : activeSub);
   const { can, canAccessModule, hrTeam } = useRole();
   const mayHire = !hrTeam && (can('administrator') || !!canAccessModule?.('hr', 'administrator', 'editor'));
-  const tabs = mayHire ? [...TABS.slice(0, 2), HIRING_TAB, ...TABS.slice(2)] : TABS;
-  const sub = tabs.some(t => t.key === navSub) ? navSub : 'documents-browse';
+  // The Documents half and the Egnyte half each need their own grant (or an
+  // administrator); the same bar App.jsx uses to open a module.
+  const mayDocs = !canAccessModule || !!canAccessModule('documents', 'administrator');
+  const mayFiles = !canAccessModule || !!canAccessModule('egnyte', 'administrator');
+  const docTabs = !mayDocs ? [] : mayHire ? [...TABS.slice(0, 2), HIRING_TAB, ...TABS.slice(2)] : TABS;
+  const tabs = [
+    ...(mayFiles ? [FILES_TAB] : []),
+    ...docTabs,
+    ...(mayFiles && can('manager') ? [WIRING_TAB] : []),
+  ];
+  const sub = tabs.some(t => t.key === navSub) ? navSub : (tabs[0]?.key || 'documents-browse');
   // The + menu's New Document asks the library to pop its create dialog open - a
   // bumped counter (not a bool) so a second click while already there re-triggers it.
   const [browseCreateSignal, setBrowseCreateSignal] = useState(0);
@@ -149,8 +169,11 @@ export default function Documents({ activeSub, onSubChange }) {
   // device does not repeat it.
   const isMobile = useIsMobile();
   const isMobileRef = useRef(isMobile);
+  // The tour walks the Documents half; someone with only Browse Files gets
+  // none of it (it would point at tabs they cannot see).
+  const mayDocsRef = useRef(mayDocs);
   const onSubChangeRef = useRef(onSubChange);
-  useEffect(() => { onSubChangeRef.current = onSubChange; isMobileRef.current = isMobile; });
+  useEffect(() => { onSubChangeRef.current = onSubChange; isMobileRef.current = isMobile; mayDocsRef.current = mayDocs; });
   // The steps are built when the tour OPENS (never during render), so they
   // hold still while it runs; each step switches tabs at click time.
   const [tourSteps, setTourSteps] = useState(null);
@@ -159,10 +182,10 @@ export default function Documents({ activeSub, onSubChange }) {
       go: (k) => changeTab(onSubChangeRef.current, k), isMobile: isMobileRef.current }));
     let cancelled = false;
     api.getToursSeen()
-      .then(({ seen }) => { if (!cancelled && !seen?.[DOCUMENTS_TOUR_ID]) openTour(); })
+      .then(({ seen }) => { if (!cancelled && mayDocsRef.current && !seen?.[DOCUMENTS_TOUR_ID]) openTour(); })
       .catch(() => { /* can't confirm "seen" - skip the auto-tour rather than risk nagging on every flaky load */ });
     window.addEventListener('nexus:documents-tour', openTour);
-    const unTour = registerTour('documents', 'Documents', openTour);   // the Help panel's Take the Tour (lib/tours.js)
+    const unTour = registerTour('documents', 'Files', openTour);   // the Help panel's Take the Tour (lib/tours.js)
     return () => { cancelled = true; window.removeEventListener('nexus:documents-tour', openTour); unTour(); };
   }, []);
   const closeTour = () => {
@@ -262,6 +285,12 @@ export default function Documents({ activeSub, onSubChange }) {
       )}
 
       {sub === 'documents-pdf' && <PdfEditorModule />}
+
+      {(sub === 'documents-files' || sub === 'documents-wiring') && (
+        <Suspense fallback={<SkeletonBlocks count={6} height={44} />}>
+          <EgnyteApp embedded activeSub={sub === 'documents-wiring' ? 'wiring' : 'browse'} />
+        </Suspense>
+      )}
       </div>
 
       {tourSteps && <GuidedTour steps={tourSteps} onClose={closeTour} />}

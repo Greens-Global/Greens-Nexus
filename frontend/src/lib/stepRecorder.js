@@ -35,7 +35,7 @@ const _SLUG_LABELS = {
   '': 'Dashboard', dashboard: 'Dashboard', 'manager-dashboard': 'Manager Dashboard',
   itemmanagement: 'Item Management', inventory: 'Item Management',
   hr: 'People', myhr: 'Workday', timeclock: 'Workday', tasks: 'Tasks',
-  sop: 'Knowledge Base', documents: 'Documents', 'property-asset': 'Asset Management',
+  sop: 'Knowledge Base', documents: 'Files', 'property-asset': 'Asset Management',
   accounting: 'Accounting', 'investor-relations': 'Investor Relations',
   marketing: 'Marketing', testing: 'Testing', purchase: 'Purchase', admin: 'Access Manager',
   it: 'IT', ops: 'Construction', operations: 'Operations', development: 'Development',

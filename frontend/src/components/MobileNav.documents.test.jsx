@@ -7,27 +7,40 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 // stops drawing its in-page strip there, so this bar IS the navigation - if it
 // stops listing a tab, that screen becomes unreachable on a phone.
 
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
+const roleNow = vi.hoisted(() => ({ current: { can: () => true } }));
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => roleNow.current }));
 
 const MobileNav = (await import('./MobileNav')).default;
 
 const labels = () => [...document.querySelectorAll('.mobile-nav-item span')].map(s => s.textContent);
 const activeLabel = () => document.querySelector('.mobile-nav-item.active span')?.textContent;
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); roleNow.current = { can: () => true }; });
 
 describe('Documents bottom bar', () => {
   it('lists every Documents tab, in the desktop strip order', () => {
     render(<MobileNav activeView="documents" activeSub="documents-browse" />);
-    expect(labels()).toEqual(['Documents', 'Templates', 'Forms', 'Sign', 'PDF Tools']);
+    expect(labels()).toEqual(['Files', 'Documents', 'Templates', 'Forms', 'Sign', 'PDF Tools']);
   });
 
-  it('marks the open tab, defaulting to the library before any navigation', () => {
+  // Files (Neil, 11/10/2026): each half of the module shows only with its grant.
+  it('shows Files only with the Browse Files grant, and the Documents tabs only with theirs', () => {
+    roleNow.current = { can: () => false, canAccessModule: (m) => m === 'documents' };
+    const { unmount } = render(<MobileNav activeView="documents" activeSub="" />);
+    expect(labels()).toEqual(['Documents', 'Templates', 'Forms', 'Sign', 'PDF Tools']);
+    expect(activeLabel()).toBe('Documents');
+    unmount();
+    roleNow.current = { can: () => false, canAccessModule: (m) => m === 'egnyte' };
+    render(<MobileNav activeView="documents" activeSub="" />);
+    expect(labels()).toEqual(['Files']);
+  });
+
+  it('marks the open tab, defaulting to Browse Files before any navigation', () => {
     const { unmount } = render(<MobileNav activeView="documents" activeSub="documents-templates" />);
     expect(activeLabel()).toBe('Templates');
     unmount();
     render(<MobileNav activeView="documents" activeSub="" />);
-    expect(activeLabel()).toBe('Documents');
+    expect(activeLabel()).toBe('Files');
   });
 
   it('keeps the e-sign deep links on the Sign tab', () => {

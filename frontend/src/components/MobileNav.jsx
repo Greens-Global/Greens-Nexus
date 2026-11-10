@@ -4,8 +4,9 @@ import {
   Building2, Plug, ListChecks, FileCheck, Shield, ClipboardCheck, Folder,
   MessageSquare, PackageSearch, Calendar, Circle,
   Home, CheckCircle2, FolderKanban, Briefcase,
-  LayoutTemplate, FileSignature,
+  LayoutTemplate, FileSignature, FolderOpen,
 } from 'lucide-react';
+import { useRole } from '../contexts/RoleContext';
 import { TASKS_PERSON_PAGE } from '../lib/personTasksNav';
 
 // Icons for broadcast (dynamic) actions, keyed by action id - keeps the bar
@@ -38,6 +39,10 @@ const TASK_ACTIONS = [
 // Task module's: the swipeable top strip is for desktop, phones get it here as
 // icon-over-label. Same order and icons as the desktop strip; labels are
 // shortened only where the full one would ellipsize in a fifth of a phone.
+// Files (Neil, 11/10/2026) leads with Browse Files - the Egnyte browser moved
+// in - shown, like the desktop tab, only with the Files - Browse Files grant;
+// the rest only with the Files - Documents grant (Documents.jsx tabs).
+const FILES_ACTION = { sub: 'documents-files', label: 'Files', Icon: FolderOpen };
 const DOCUMENT_ACTIONS = [
   { sub: 'documents-browse',    label: 'Documents',  Icon: Folder },
   { sub: 'documents-templates', label: 'Templates',  Icon: LayoutTemplate },
@@ -47,6 +52,7 @@ const DOCUMENT_ACTIONS = [
 ];
 
 export default function MobileNav({ activeView, activeSub }) {
+  const role = useRole();
 
   // Views can broadcast their own action set (label + id + active) via
   // 'nexus:mobile-actions'; taps come back as 'nexus:mobile-action'. This is
@@ -86,11 +92,13 @@ export default function MobileNav({ activeView, activeSub }) {
       else if (effSub === 'tasks') effSub = 'projects';
     }
   } else if (activeView === 'documents') {
-    actions = DOCUMENT_ACTIONS;
-    // The module opens on its Dashboard before any navigation sets a sub, and
+    const may = (m) => !role?.canAccessModule || !!role.canAccessModule(m, 'administrator');
+    actions = [...(may('egnyte') ? [FILES_ACTION] : []), ...(may('documents') ? DOCUMENT_ACTIONS : [])];
+    // The module opens on its first tab before any navigation sets a sub, and
     // the e-sign deep links ('documents-esign-requests') all live on the Nexus
     // Sign tab - same mapping Documents.jsx makes for its own strip.
-    if (!effSub || effSub === 'documents-dashboard' || effSub === 'documents-hr-records') effSub = 'documents-browse';
+    if (!effSub) effSub = actions[0]?.sub;
+    else if (effSub === 'documents-dashboard' || effSub === 'documents-hr-records') effSub = 'documents-browse';
     else if (String(effSub).startsWith('documents-esign')) effSub = 'documents-esign';
   }
 
