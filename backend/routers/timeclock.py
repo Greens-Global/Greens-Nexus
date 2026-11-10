@@ -12210,6 +12210,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
             from routers import extra_time
             card["extraTimeFiling"] = extra_time.filing_state(db, user["email"], card["periodStart"], card["periodEnd"])
         _card_record_batches(db, user, user["email"], card)   # the tag and reason, never the document
+        card["name"] = _display_name(db, user["email"])   # the Time Sheet's header (Neil, 11/10/2026)
         return card
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
@@ -12226,6 +12227,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
     card["notes"] = _timecard_notes(db, user["email"], p_start, p_end, own=True)
     card["zoneKey"] = _employee_zone_key(db, user["email"])
     card.update(_invoice_keys(db, user["email"], p_start, p_end))
+    card["name"] = _display_name(db, user["email"])   # the Time Sheet's header (Neil, 11/10/2026)
     return card
 
 
