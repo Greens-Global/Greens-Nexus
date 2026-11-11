@@ -46,6 +46,7 @@ from sqlalchemy.orm import Session
 
 import auth
 import construction_company
+import construction_labor
 import construction_notify
 import construction_tasks
 import construction_weather
@@ -214,6 +215,8 @@ def project_to_dict(p: models.ConstructionProject, *, with_cost: bool, db: Sessi
         "clientId": _nz(getattr(p, "client_id", "")), "clientName": getattr(p, "client_name", "") or "",
         "clientContactName": getattr(p, "client_contact_name", "") or "",
         "clientContactEmail": getattr(p, "client_contact_email", "") or "",
+        # Round Three item 3: the cost codes the crew picks from at punch-in.
+        "laborCodes": construction_labor.labor_codes_of(p),
     }
     if db is not None:
         import construction_closeout

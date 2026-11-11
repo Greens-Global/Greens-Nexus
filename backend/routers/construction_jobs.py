@@ -893,6 +893,27 @@ def my_jobs(user: dict = Depends(get_current_user), db: Session = Depends(get_db
                       "jobType": construction_tasks.job_type_of(p)} for p in mine]}
 
 
+@router.get("/my-cost-codes")
+def my_cost_codes(date: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """What the Time Clock offers at punch-in (Round Three item 3, 11/11/2026):
+    the job the caller is placed at on `date` (their local day) and its
+    labor cost codes - {jobId, jobName, codes: [{code, name}]}, or
+    {codes: []} when the day's shift is on no job with labor codes. Code
+    names only, never a figure."""
+    import re as _re
+    day = (date or "").strip()[:10]
+    if not _re.match(r"^\d{4}-\d{2}-\d{2}$", day):
+        return {"codes": []}
+    js = construction_labor.placement_jobsite(db, _me(user), day)
+    if not js.startswith(construction_labor.PROJECT):
+        return {"codes": []}
+    p = db.get(models.ConstructionProject, js[len(construction_labor.PROJECT):])
+    if p is None or p.deleted_at or not _may_read(db, user, p):
+        return {"codes": []}
+    codes = construction_labor.labor_codes_of(p)
+    return {"jobId": p.id, "jobName": p.name, "codes": codes} if codes else {"codes": []}
+
+
 @router.get("/search")
 def search_jobs(q: str = "", limit: int = 6, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The Jobs group of the header search: jobs the caller may read

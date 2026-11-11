@@ -622,3 +622,40 @@ async def job_cost_codes(ctx: dict = Depends(_commit_ctx)):
     rows = [{"code": c, "name": n, "onJob": c in on_job} for c, n in codes.items()]
     rows.sort(key=lambda r: (not r["onJob"], r["code"]))
     return {"codes": rows, "limited": allowed is not None}
+
+
+# ── Labor cost codes (Round Three item 3, 11/11/2026) ──────────────────────
+class LaborCodesIn(BaseModel):
+    codes: list = []
+
+
+def _save_labor_codes(ctx: dict, codes: list) -> dict:
+    db, p = ctx["db"], ctx["p"]
+    before = list(p.labor_codes or [])
+    if before != codes:
+        p.labor_codes = codes
+        p.modified_at = now_iso()
+        _log_activity(db, project_id=p.id, entity_kind="project", entity_id=p.id, type="labor_codes_set",
+                      actor_email=(ctx["user"].get("email") or "").lower(),
+                      detail=("labor cost codes: " + ", ".join(c["code"] for c in codes) if codes else "cleared the labor cost codes")[:500])
+    db.commit()
+    return {"ok": True, "laborCodes": codes}
+
+
+@router.put("/projects/{project_id}/labor-codes")
+async def set_labor_codes(body: LaborCodesIn, ctx: dict = Depends(_commit_ctx)):
+    """The job's labor cost codes - the short list of Intacct items its crew
+    picks from at punch-in: [{code, name}], at most 40, no repeats. Set by
+    the job's managers who may see its money (they pick from the job's cost
+    code list, GET /cost-codes); [] = no cost code is offered."""
+    await _entity_gate(ctx)
+    out, seen = [], set()
+    for c in (body.codes or [])[:40]:
+        if not isinstance(c, dict):
+            raise HTTPException(422, "Each labor code is a code and a name.")
+        code = _cost_code(c.get("code"))
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        out.append({"code": code, "name": " ".join(str(c.get("name") or "").split())[:120]})
+    return await asyncio.to_thread(_save_labor_codes, ctx, out)

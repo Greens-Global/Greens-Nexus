@@ -3752,6 +3752,9 @@ api.removeCommitmentWaiver = (id, waiverId) => _post(`/construction/commitments/
 api.searchJobCustomers = (jobId, q) => req(`${_jp(jobId)}/customers?q=${encodeURIComponent(q)}`);
 api.setJobClient = (jobId, data) => req(`${_jp(jobId)}/client`, { method: 'PUT', body: JSON.stringify(data) });
 api.getJobCostCodes = (jobId) => req(`${_jp(jobId)}/cost-codes`);
+// Labor by cost code (Round Three item 3, 11/11/2026): the job's labor codes and the Time Clock's offer.
+api.setJobLaborCodes = (jobId, codes) => req(`${_jp(jobId)}/labor-codes`, { method: 'PUT', body: JSON.stringify({ codes }) });
+api.getMyCostCodes = (date) => req(`/construction/my-cost-codes?date=${encodeURIComponent(date)}`);
 
 // Mark Up "Attach to" a job photo (lib/markup.js source kind construction_media).
 async function _attachConstructionMarkup(source, { name, blob }) {

@@ -141,6 +141,10 @@ class ConstructionProject(Base):
     client_name          = Column(String, default="")
     client_contact_name  = Column(String, default="")
     client_contact_email = Column(String, default="")
+    # Labor cost codes (Round Three item 3, 11/11/2026): the short list of
+    # Intacct items the crew picks from at punch-in on this job -
+    # [{code, name}]. [] = the punch screen offers no cost code here.
+    labor_codes          = Column(JSON, default=list)
 
 
 class ConstructionDailyLog(Base):

@@ -1621,6 +1621,8 @@ def _run_migrations():
             "ALTER TABLE construction_projects ADD COLUMN client_contact_name VARCHAR DEFAULT ''",
             "ALTER TABLE construction_projects ADD COLUMN client_contact_email VARCHAR DEFAULT ''",
             "ALTER TABLE construction_commitments ADD COLUMN cost_code VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN labor_codes JSON DEFAULT '[]'",
+            "ALTER TABLE time_punches ADD COLUMN cost_code VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3873,6 +3875,11 @@ def _run_migrations():
         "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS client_contact_name VARCHAR DEFAULT ''",
         "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS client_contact_email VARCHAR DEFAULT ''",
         "ALTER TABLE construction_commitments ADD COLUMN IF NOT EXISTS cost_code VARCHAR DEFAULT ''",
+        # Labor by cost code (Round Three item 3, 11/11/2026): a job's labor
+        # codes and the code on an IN punch. Existing tables, no new RLS.
+        # models.ConstructionProject / TimePunch.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS labor_codes JSON DEFAULT '[]'",
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS cost_code VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
