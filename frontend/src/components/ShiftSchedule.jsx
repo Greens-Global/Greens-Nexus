@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
-import { CalendarPlus, Copy as CopyIcon, CalendarDays, Undo2, X as XIcon, CloudRain, ChevronDown, ChevronUp } from 'lucide-react';
+import { CalendarPlus, CalendarX, Copy as CopyIcon, CalendarDays, Undo2, X as XIcon, CloudRain, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -12,7 +12,7 @@ import { setLeaveGuard } from '../lib/dialogGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { ShiftTypeWeek, ImportModal, ShiftMenu, PersonMenu, ShiftDetails } from './ShiftScheduleExtras';
-import { printSchedule, DEFAULT_VIEW_PREFS } from './shiftScheduleLib';
+import { printSchedule, DEFAULT_VIEW_PREFS, timeOffLabel } from './shiftScheduleLib';
 import RequestsStrip from './shifts/RequestsStrip';
 import { AddMembersModal, ReorderTeamsModal, TeamMenu } from './ShiftTeams';
 import { ScheduleToolbar, ConfirmChip, ShareDialog, DayNoteDialog, ViewOptionsDialog, MODAL_BACK, MODAL_CARD, DialogHead } from './shifts/ScheduleToolbar';
@@ -1262,6 +1262,31 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       });
     },
     selectShift: (s, email, ds) => setSel({ key: `${email}|${ds}`, groupId: s.groupId || '', shiftId: s.id }),
+    // Cancel an approved leave from its bar (Pranshu, 11/11/2026): hold to
+    // confirm with an optional reason - the person gets the yellow bar and an
+    // email with a Teams button - then offer their usual shift on the days
+    // that are free now, as drafts the manager Shares when ready.
+    cancelOff: async (t, emp) => {
+      const first = (emp.name || '').split(' ')[0] || 'They';
+      const type = t.confidential ? 'Time Off' : timeOffLabel(t.type || 'Time Off');
+      const span = !t.endDate || t.endDate === t.startDate ? formatDate(t.startDate) : `${formatDate(t.startDate)} - ${formatDate(t.endDate)}`;
+      let res = null;
+      const ok = await dialog.prompt(
+        `Cancel ${emp.name}'s ${type} (${span})? ${first} gets a notice and an email right away. Days already taken stay as time off.`,
+        { title: 'Cancel Time Off', placeholder: 'Reason (optional) - it goes in the email', multiline: true,
+          hold: true, confirmText: 'Cancel Time Off', doneText: 'Canceled', holdIcon: CalendarX, cancelText: 'Keep It',
+          onConfirm: async (reason) => { res = await api.timeOffManagerCancel(t.id, (reason || '').trim()); } });
+      if (!ok || !res) return;
+      toastOk?.(`${emp.name}'s time off is canceled - ${first} has been told.`);
+      const u = res.usual;
+      if (!u?.dates?.length) { load(true); return; }
+      const days = u.dates.map((d) => `${formatWeekday(d, 'short')} ${formatDate(d)}`).join(', ');
+      const add = await dialog.confirm(
+        `Add ${first}'s usual shift (${formatHHMM(u.start)} - ${formatHHMM(u.end)}) on ${days}? They go in as drafts - ${first} sees them when you Share the week.`,
+        { title: 'Add Their Usual Shift?', confirmText: 'Add Shifts', cancelText: 'No Thanks' });
+      if (add) await fillUsual([emp.email], emp.name, { start_date: u.dates[0], end_date: u.dates[u.dates.length - 1] });
+      else load(true);
+    },
   };
   const ready = !!data;
   // The usual shift an empty day would get on a click (none on a whole day

@@ -29,7 +29,7 @@ import { Avatar } from '../ShiftScheduleExtras';
 import { TeamMenu } from '../ShiftTeams';
 import { timeOffLabel, availText } from '../shiftScheduleLib';
 import { ShiftBlock, TimeOffBlock, HolidayBlock } from './ShiftBlock';
-import { isoDate, dayShort, fmtHrs, planMinutes, counts, isAllDayOff, isApprovedOff, shiftShortText, parseIso, sectionKey, actualFor } from './shiftLib';
+import { isoDate, dayShort, fmtHrs, planMinutes, counts, isAllDayOff, isApprovedOff, shiftShortText, parseIso, sectionKey, actualFor, cancelProps } from './shiftLib';
 import { TODAY_CELL, TODAY_HEAD, TODAY_INK, plannerToday } from './nowLine';
 
 export const PERSON_W = 200;
@@ -233,7 +233,9 @@ export function timeOffSpans(days, offOn, email) {
 
 // "Vacation · Mon 28 - Thu 1" - the short type and the whole range, said
 // once across the days it covers.
-export function TimeOffPill({ t, days, c0, n, lane, row, compact = false }) {
+// `onCancel` (11/11/2026): a manager's click on an approved leave cancels it
+// (ShiftSchedule's cancelOff - hold to confirm, then offer the usual shift).
+export function TimeOffPill({ t, days, c0, n, lane, row, compact = false, onCancel = null }) {
   const approved = isApprovedOff(t);
   const type = t.confidential ? 'Time Off' : (t.type ? timeOffLabel(t.type) : 'Time Off');
   const multi = t.startDate && t.endDate && t.startDate !== t.endDate;
@@ -243,10 +245,11 @@ export function TimeOffPill({ t, days, c0, n, lane, row, compact = false }) {
   const before = !!t.startDate && t.startDate < first;
   const after = !!t.endDate && t.endDate > last;
   const fullRange = multi ? `${formatDate(t.startDate)} - ${formatDate(t.endDate)}` : formatDate(t.startDate || first);
-  const title = [type, approved ? 'Approved' : 'Requested', fullRange, !t.confidential ? t.note : ''].filter(Boolean).join('\n');
+  const title = [type, approved ? 'Approved' : 'Requested', fullRange, !t.confidential ? t.note : '', onCancel ? 'Click to cancel this time off' : ''].filter(Boolean).join('\n');
   return (
     <div data-timeoff={t.id || undefined} className="sched-span" title={title} aria-label={`${approved ? '' : 'Requested '}${type}, ${fullRange}`}
-      style={{ gridRow: row, gridColumn: `${c0 + 2} / span ${n}`, alignSelf: 'start', margin: `${PAD + lane * (PILL_H + PILL_GAP)}px ${PAD}px 0`, height: PILL_H, zIndex: 1,
+      {...cancelProps(onCancel, `${type}, ${fullRange}`)}
+      style={{ cursor: onCancel ? 'pointer' : undefined, gridRow: row, gridColumn: `${c0 + 2} / span ${n}`, alignSelf: 'start', margin: `${PAD + lane * (PILL_H + PILL_GAP)}px ${PAD}px 0`, height: PILL_H, zIndex: 1,
         boxSizing: 'border-box', minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '0 4px' : '0 8px', borderRadius: 6,
         background: ROSE_BG, border: `1px ${approved ? 'solid' : 'dashed'} ${ROSE_LINE}`, color: ROSE_INK, fontSize: compact ? 10.5 : 11.5, fontWeight: 700 }}>
       {before && <ChevronLeft size={12} aria-label="Continues from last week" style={{ flexShrink: 0, marginLeft: -2 }} />}
@@ -542,6 +545,9 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
       const editable = rowEditable(emp.email);
       const isMe = !!me && emp.email === me;
       const { spans, partial, lanesAt } = timeOffSpans(days, offOn, emp.email);
+      // An approved leave not yet over, on a row this manager edits, never their own.
+      const cancelOf = (t) => (on?.cancelOff && canManage && editable && !isMe && isApprovedOff(t)
+        && (t.endDate || t.startDate || '') >= today ? () => on.cancelOff(t, emp) : null);
       const pdp = personDragProps ? personDragProps(emp, g) : {};
       out.push(
         <Fragment key={`p-${key}-${emp.email}`}>
@@ -576,13 +582,13 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
                       style={{ position: 'absolute', inset: 0, background: 'repeating-linear-gradient(135deg, hsla(var(--color-orange),0.10) 0 6px, transparent 6px 12px)', pointerEvents: 'none' }} />
                   )}
                   {hol && <HolidayBlock holiday={hol} compact={compact} style={{ marginBottom: 0 }} />}
-                  {(partial[ds] || []).map((t, i) => <TimeOffBlock key={t.id || i} off={t} compact={compact} style={{ marginBottom: 0 }} />)}
+                  {(partial[ds] || []).map((t, i) => <TimeOffBlock key={t.id || i} off={t} compact={compact} style={{ marginBottom: 0 }} onCancel={cancelOf(t)} />)}
                 </>
               );
               const top = lanesAt[c] ? lanesAt[c] * (PILL_H + PILL_GAP) : 0;
               return dayCell(row, emp.email, d, c, g.id || '', items, r, editable, inner, top);
             })}
-            {spans.map((s) => <TimeOffPill key={`${s.t.id || s.t.startDate}-${s.c0}`} t={s.t} days={days} c0={s.c0} n={s.n} lane={s.lane} row={row} compact={compact} />)}
+            {spans.map((s) => <TimeOffPill key={`${s.t.id || s.t.startDate}-${s.c0}`} t={s.t} days={days} c0={s.c0} n={s.n} lane={s.lane} row={row} compact={compact} onCancel={cancelOf(s.t)} />)}
           </div>
         </Fragment>,
       );

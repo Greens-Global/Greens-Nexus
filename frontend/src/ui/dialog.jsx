@@ -17,6 +17,7 @@
 // (a lucide icon for an action that is not a delete; the trash by default), and
 // `onConfirm` - an async action the dialog waits for, staying open with the
 // reason when it throws, so the button finishes only when the server did.
+// A prompt may hold too: its `onConfirm` gets the typed text.
 // `dialog.undo(message, onUndo)` shows a short Undo toast. `required:true` (prompt) disables OK until non-empty;
 // `minLength:n` keeps it disabled until n characters, with a hint saying so.
 //
@@ -294,7 +295,8 @@ function DialogCard() {
           )}
           {item.hold ? (
             <HoldButton label={item.confirmText || 'Delete'} doneLabel={item.doneText || 'Done'} holdMs={item.holdMs || HOLD_MAJOR_MS}
-              icon={item.holdIcon} clickRuns onConfirm={item.onConfirm} onDone={() => close(true)} />
+              icon={item.holdIcon} clickRuns onDone={() => close(true)}
+              onConfirm={item.onConfirm && (() => item.onConfirm(isPrompt ? value : undefined))} />
           ) : (
           <button
             ref={okRef}
