@@ -29,6 +29,8 @@ import { cleanTabStops, TAB_ALIGNS } from '../lib/docTabs';
 import { useTableValue } from '../tasks/tableCols';
 import NavigationPane from './docRibbon/NavigationPane';
 import RibbonDisplay from './docRibbon/RibbonDisplay';
+import { ParagraphDialog, FontDialog } from './docRibbon/Dialogs';
+import KeyTips from './docRibbon/KeyTips';
 import { WordCountDialog, AccessibilityDialog } from './docRibbon/WordCountDialog';
 import { countWords, accessibilityIssues, headingsOf } from './docRibbon/docStats';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -464,15 +466,6 @@ function ContextMenu({ x, y, items, onClose }) {
   );
 }
 
-function ToolbarBtn({ onClick, active, disabled, title, children }) {
-  return (
-    <button type="button" title={title} onClick={onClick} disabled={disabled}
-      className={active ? 'is-active' : ''}
-      style={{ opacity: disabled ? 0.4 : 1 }}>
-      {children}
-    </button>
-  );
-}
 
 function DocumentBuilderInner({ docId, kind = 'document', employees = [], entities = [], onClose, toastOk, toastErr, quickSections = [], onContentSaved, live = null, readOnly = false }) {
   const { get: apiGet, update: apiUpdate, nameKey, getVersions, getVersion } = KIND_API[kind];
@@ -667,6 +660,9 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const [rulerOn, setRulerOn] = useTableValue('documents', 'ruler', true);
   // The tab stop a click on the ruler sets - the box in the rulers' corner.
   const [tabType, setTabType] = useState('left');
+  // Word's dialog launchers: Font (Ctrl+D) and Paragraph.
+  const [fontDlg, setFontDlg] = useState(false);
+  const [paraDlg, setParaDlg] = useState(false);
   // View > Navigation (Word's pane, 11/11/2026): Headings, Pages or Results.
   // It floats in the desk margin beside the page and is off until opened -
   // the old always-on Pages rail lives in its Pages tab.
@@ -754,10 +750,30 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   useEffect(() => {
     const onKey = (e) => {
       const root = rootRef.current;
-      if (!root || !(e.ctrlKey || e.metaKey) || !root.contains(e.target)) return;
+      if (!root || !root.contains(e.target)) return;
       const k = menuKeysRef.current;
       const key = e.key.toLowerCase();
       const hit = (fn) => { e.preventDefault(); e.stopPropagation(); fn?.(); };
+      // Word's own, while typing on a page (11/11/2026). Ctrl+1/2/5 and
+      // Ctrl+Shift+N are the browser's and cannot be taken over.
+      const onPage = !!e.target.closest?.('.ProseMirror');
+      if (onPage && e.key === 'F3' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) { if (k.cycleCase) hit(k.cycleCase); return; }
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (onPage && !e.altKey && k.word) {
+        const w = k.word;
+        if (!e.shiftKey && key === 'e') { hit(() => w.align('center')); return; }
+        if (!e.shiftKey && key === 'l') { hit(() => w.align('left')); return; }
+        if (!e.shiftKey && key === 'r') { hit(() => w.align('right')); return; }
+        if (!e.shiftKey && key === 'j') { hit(() => w.align('justify')); return; }
+        if (!e.shiftKey && e.key === ']') { hit(() => w.size(1)); return; }
+        if (!e.shiftKey && e.key === '[') { hit(() => w.size(-1)); return; }
+        if (e.shiftKey && (e.key === '>' || e.key === '.')) { hit(() => w.size(1)); return; }
+        if (e.shiftKey && (e.key === '<' || e.key === ',')) { hit(() => w.size(-1)); return; }
+        if (key === 'm') { hit(() => w.indent(e.shiftKey ? -1 : 1)); return; }
+        if (key === 't') { hit(() => w.hanging(e.shiftKey ? -1 : 1)); return; }
+        if (!e.shiftKey && key === 'q') { hit(w.clearParagraph); return; }
+        if (!e.shiftKey && e.key === ' ') { hit(w.clearCharacter); return; }
+      }
       if (key === 'h' && !e.shiftKey && !e.altKey) hit(k.find);
       else if (key === 'k' && !e.shiftKey && !e.altKey) hit(k.link);
       else if (key === 'enter' && !e.shiftKey && !e.altKey) hit(k.pageBreak);
@@ -765,6 +781,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       else if (key === '\\' && !e.shiftKey) hit(k.clearFormatting);
       else if (key === '/' && !e.shiftKey && !e.altKey) hit(k.shortcuts);
       else if (key === 'c' && e.shiftKey && !e.altKey) hit(k.wordCount);
+      else if (key === 'd' && !e.shiftKey && !e.altKey) hit(k.font);
       else if (e.key === 'F1') hit(k.collapseRibbon);
     };
     // Capture: Ctrl+Enter must reach this before the editor makes it a line break.
@@ -772,6 +789,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
   const rootRef = useRef(null);
+  // KeyTips open a tab through this (stable, so its key listener is set once).
+  const keyTipTabRef = useRef((tab) => { setRibbonModeState((m) => (m === 'tabs' ? lastOpenModeRef.current : m)); setRibbonTab(tab); });
   const canvasRef = useRef(null);
   const rulerPagesElRef = useRef(() => canvasRef.current);
   const rulerScrollerElRef = useRef(() => canvasRef.current?.closest('.nx-docb-canvas') || null);
@@ -1845,7 +1864,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     const current = parseFloat(activeEditor.getAttributes('textStyle').fontSize || '12') || 12;
     const idx = FONT_SIZES.findIndex(s => Number(s) >= current);
     const nextIdx = Math.max(0, Math.min(FONT_SIZES.length - 1, (idx === -1 ? FONT_SIZES.length - 1 : idx) + delta));
-    activeEditor.chain().focus().setFontSize(`${FONT_SIZES[nextIdx]}px`).run();
+    activeEditor.chain().focus().setFontSize(`${FONT_SIZES[nextIdx]}pt`).run();
   };
 
   // Word's Home > Font > Change Case. ProseMirror has no "transform selected
@@ -2062,6 +2081,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     setFindIndex(all.length ? 0 : -1);
     if (all.length) jumpToMatch(all[0]);
   };
+  // Word's contextual tabs show while their object is selected; a tab whose
+  // object is gone falls back to Home.
+  const inTable = !!activeEditor?.isActive('table');
+  const shapeType = activeEditor?.isActive('docShape') ? 'docShape' : activeEditor?.isActive('docTextbox') ? 'docTextbox' : null;
+  const shownTab = (ribbonTab === 'picture' && !imgAttrs) || (/^table/.test(ribbonTab) && !inTable) || (ribbonTab === 'shape' && !shapeType) ? 'home' : ribbonTab;
   const navShown = !preview && !isMobile && viewPrefs.nav;
   const showRulers = !preview && !isMobile && !!rulerOn;
   const rulerPagesEl = rulerPagesElRef.current;
@@ -2699,8 +2723,9 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     updatePageSetup({ margins: 'custom', marginIn: { ...marginsOf(pageSetup), [side]: inches } });
   };
   const openOnRibbon = (tab, open) => { setRibbonCollapsed(false); setRibbonTab(tab); open?.(); };
+  const keyTipTab = keyTipTabRef.current;
   const pageBreak = () => ed?.chain().focus().insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run();
-  const linkCmd = () => openOnRibbon('home', toggleLinkPopover);
+  const linkCmd = () => openOnRibbon('insert', toggleLinkPopover);
   const commentCmd = () => { if (ed && !ed.state.selection.empty) startComment(); else toastOk?.('Select the words to comment on first.'); };
   const clearFormatting = () => ed?.chain().focus().unsetAllMarks().clearNodes().run();
   const spacing = (label, v) => ({ label, checked: blockAttrs.lineHeight === v, onClick: () => setLineHeight(v), disabled: !editing });
@@ -2709,6 +2734,26 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   menuKeysRef.current = {
     find: () => setFindOpen(true), link: editing ? linkCmd : null, pageBreak: editing ? pageBreak : null, comment: commentCmd,
     clearFormatting: editing ? clearFormatting : null, shortcuts: () => setShortcutsOpen(true), wordCount: () => setWordCountOpen(true), collapseRibbon: toggleRibbon,
+    font: editing && ed ? () => setFontDlg(true) : null,
+    cycleCase: editing && ed ? () => {
+      const { from, to, empty } = ed.state.selection;
+      if (empty) return;
+      const t = ed.state.doc.textBetween(from, to, '\n');
+      changeCase(t === t.toUpperCase() ? 'lower' : t === t.toLowerCase() ? 'title' : 'upper');   // Word's Shift+F3 cycle
+    } : null,
+    word: editing && ed ? {
+      align: (v) => ed.chain().focus().setTextAlign(v).run(),
+      size: stepFontSize,
+      indent: changeIndent,
+      // Ctrl+T: a hanging indent half an inch deeper (Ctrl+Shift+T undoes one).
+      hanging: (dir) => {
+        const a = paraIndents || { left: 0, first: 0 };
+        const left = Math.max(0, a.left + 36 * dir);
+        applyIndents({ indentLeft: left, indentFirst: left ? Math.min(0, a.first - 36 * dir) : 0 });
+      },
+      clearParagraph: () => ed.chain().focus().updateAttributes('paragraph', { textAlign: null, indent: 0, indentLeft: null, indentFirst: null, indentRight: null, spacingBefore: null, spacingAfter: null, lineHeight: null, tabStops: null }).updateAttributes('heading', { textAlign: null, indentLeft: null, indentFirst: null, indentRight: null }).run(),
+      clearCharacter: () => ed.chain().focus().unsetAllMarks().run(),
+    } : null,
   };
   const docMenus = [
     { label: 'File', items: [
@@ -2804,6 +2849,9 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       { label: 'Variable...', icon: Variable, disabled: !editing, onClick: openLibrary },
     ] },
     { label: 'Format', items: [
+      { label: 'Font...', icon: Type, shortcut: 'Mod+D', disabled: !editing || !ed, onClick: () => setFontDlg(true) },
+      { label: 'Paragraph...', icon: Pilcrow, disabled: !editing || !ed, onClick: () => setParaDlg(true) },
+      '-',
       { label: 'Text', icon: Bold, items: [
         mark('Bold', 'bold', 'toggleBold', Bold, 'Mod+B'),
         mark('Italic', 'italic', 'toggleItalic', Italic, 'Mod+I'),
@@ -2813,8 +2861,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         mark('Superscript', 'superscript', 'toggleSuperscript', SuperscriptIcon, 'Mod+.'),
         mark('Subscript', 'subscript', 'toggleSubscript', SubscriptIcon, 'Mod+,'),
         '-',
-        { label: 'Grow Font', onClick: () => stepFontSize(1), disabled: !editing },
-        { label: 'Shrink Font', onClick: () => stepFontSize(-1), disabled: !editing },
+        { label: 'Grow Font', shortcut: 'Mod+]', onClick: () => stepFontSize(1), disabled: !editing },
+        { label: 'Shrink Font', shortcut: 'Mod+[', onClick: () => stepFontSize(-1), disabled: !editing },
+        { label: 'Change Case', shortcut: 'Shift+F3', onClick: () => menuKeysRef.current.cycleCase?.(), disabled: !editing },
+        { label: 'Clear Character Formatting', shortcut: 'Mod+Space', onClick: () => ed?.chain().focus().unsetAllMarks().run(), disabled: !editing },
       ] },
       { label: 'Paragraph Styles', icon: Pilcrow, hint: curStyle?.label, disabled: !editing || !ed, items: PARA_STYLES.map((st) => ({
         label: st.label, cardLabel: st.key === 'normal' ? 'Normal Text' : undefined, checked: curStyle?.key === st.key,
@@ -2822,7 +2872,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         onClick: () => st.apply(ed.chain().focus()).run(),
       })) },
       { label: 'Align', icon: AlignLeft, disabled: !editing || !ed, items: [
-        align('Left', 'left', AlignLeft, 'Mod+Shift+L'), align('Center', 'center', AlignCenter), align('Right', 'right', AlignRight, 'Mod+Shift+R'), align('Justified', 'justify', AlignJustify, 'Mod+Shift+J'),
+        align('Left', 'left', AlignLeft, 'Mod+L'), align('Center', 'center', AlignCenter, 'Mod+E'), align('Right', 'right', AlignRight, 'Mod+R'), align('Justified', 'justify', AlignJustify, 'Mod+J'),
       ] },
       { label: 'Line & Paragraph Spacing', icon: AlignVerticalSpaceAround, disabled: !editing || !ed, items: [
         spacing('Single', '1.2'), spacing('1.15', '1.38'), spacing('1.5', '1.8'), spacing('Double', '2.4'), '-',
@@ -2833,8 +2883,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         { label: 'Bulleted List', icon: List, shortcut: 'Mod+Shift+8', checked: !!ed?.isActive('bulletList'), onClick: () => ed?.chain().focus().toggleBulletList().run() },
         { label: 'Numbered List', icon: ListOrdered, shortcut: 'Mod+Shift+7', checked: !!ed?.isActive('orderedList'), onClick: () => ed?.chain().focus().toggleOrderedList().run() },
         '-',
-        { label: 'Increase Indent', icon: Indent, onClick: () => changeIndent(1) },
-        { label: 'Decrease Indent', icon: Outdent, onClick: () => changeIndent(-1) },
+        { label: 'Increase Indent', icon: Indent, shortcut: 'Mod+M', onClick: () => changeIndent(1) },
+        { label: 'Decrease Indent', icon: Outdent, shortcut: 'Mod+Shift+M', onClick: () => changeIndent(-1) },
+        { label: 'Hanging Indent', shortcut: 'Mod+T', onClick: () => menuKeysRef.current.word?.hanging(1) },
+        { label: 'Clear Paragraph Formatting', shortcut: 'Mod+Q', onClick: () => menuKeysRef.current.word?.clearParagraph() },
       ] },
       { label: 'Change Case', icon: Type, disabled: !editing || !ed, items: [
         { label: 'Sentence case', onClick: () => changeCase('sentence') }, { label: 'lowercase', onClick: () => changeCase('lower') },
@@ -3299,17 +3351,23 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             {/* Word's tabs (11/11/2026). File and Help are the menu bar's: its
                 File and Help menus hold every command those two tabs had. */}
             {RIBBON_TABS.map(([key, label]) => (
-              <button key={key} type="button" role="tab" data-tab={key} aria-selected={ribbonTab === key} onClick={() => { if (ribbonCollapsed && ribbonTab === key) setRibbonCollapsed(false); else setRibbonTab(key); }}
-                className={`doc-ribbon-tab${ribbonTab === key ? ' is-active' : ''}`}>
+              <button key={key} type="button" role="tab" data-tab={key} aria-selected={shownTab === key} onClick={() => { if (ribbonCollapsed && shownTab === key) setRibbonCollapsed(false); else setRibbonTab(key); }}
+                className={`doc-ribbon-tab${shownTab === key ? ' is-active' : ''}`}>
                 {label}
               </button>
             ))}
-            {activeEditor?.isActive('table') && <span className="doc-ribbon-tab is-context" title="The Table tools show under the ribbon while the cursor is in a table">Table</span>}
+            {inTable && [['tableDesign', 'Table Design'], ['tableLayout', 'Table Layout']].map(([key, label]) => (
+              <button key={key} type="button" role="tab" data-tab={key} aria-selected={shownTab === key} onClick={() => { setRibbonCollapsed(false); setRibbonTab(key); }}
+                className={`doc-ribbon-tab is-context${shownTab === key ? ' is-active' : ''}`}>{label}</button>
+            ))}
             {imgAttrs && (
-              <button type="button" role="tab" data-tab="picture" aria-selected={ribbonTab === 'picture'} onClick={() => setRibbonTab('picture')}
-                className={`doc-ribbon-tab is-context${ribbonTab === 'picture' ? ' is-active' : ''}`}>Picture Format</button>
+              <button type="button" role="tab" data-tab="picture" aria-selected={shownTab === 'picture'} onClick={() => setRibbonTab('picture')}
+                className={`doc-ribbon-tab is-context${shownTab === 'picture' ? ' is-active' : ''}`}>Picture Format</button>
             )}
-            {(activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && <span className="doc-ribbon-tab is-context">Shape Format</span>}
+            {shapeType && (
+              <button type="button" role="tab" data-tab="shape" aria-selected={shownTab === 'shape'} onClick={() => { setRibbonCollapsed(false); setRibbonTab('shape'); }}
+                className={`doc-ribbon-tab is-context${shownTab === 'shape' ? ' is-active' : ''}`}>Shape Format</button>
+            )}
             <RibbonDisplay mode={ribbonMode} onMode={setRibbonMode} onToggle={toggleRibbon} />
           </div>
         {isLocked && (
@@ -3344,8 +3402,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         )}
         {/* One row, never wrapped (Neil, 11/10/2026): groups that do not fit
             go into More at the end (docRibbon/ui.jsx RibbonBar). */}
-        {!ribbonCollapsed && <RibbonBar tabKey={ribbonTab} role="toolbar" aria-label={`${ribbonTab} ribbon`} render={() => (<>
-          {ribbonTab === 'home' && (
+        {!ribbonCollapsed && <RibbonBar tabKey={shownTab} className={ribbonMode === 'simplified' ? 'is-simplified' : ''} role="toolbar" aria-label={`${shownTab} ribbon`} render={() => (<>
+          {shownTab === 'home' && (
           <>
           <Group label="Clipboard">
             <Menu big icon={ClipboardPaste} label="Paste" items={[{ label: 'Paste', onClick: () => clipboardAction('paste') }, { label: 'Keep Text Only', onClick: pasteTextOnly }]} />
@@ -3355,7 +3413,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             </div>
             <BigBtn icon={Paintbrush} label="Format Painter" title="Format Painter - click, then select or click the text to copy the formatting onto. Double-click to paint several places; Esc stops." active={!!painterActive} onClick={() => toggleFormatPainter(false)} onDoubleClick={() => toggleFormatPainter(true)} />
           </Group>
-          <Group label="Font">
+          <Group label="Font" onLaunch={() => setFontDlg(true)} launchTitle="Font (Ctrl+D)">
             <div className="doc-ribbon-stack">
               <div className="doc-ribbon-row">
                 {/* Word's Font box: each name shown in its own face, searchable (Neil, 11/10/2026). */}
@@ -3365,10 +3423,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                   groups={Object.entries(FONT_GROUPS).map(([group, fonts]) => [group, fonts.map(f => [f, f])])}
                   preview={(f) => ({ fontFamily: `"${f}", Inter, sans-serif` })}
                   onPick={(v) => { if (v) activeEditor.chain().focus().setFontFamily(v).run(); else activeEditor.chain().focus().unsetFontFamily().run(); }} />
-                {/* Type a size and press Enter, or pick one. Strips whatever unit the size
-                    carries - this control writes px, an imported document states pt. */}
+                {/* Type a size and press Enter, or pick one. Points, as in Word and as the
+                    exporter prints them (11/11/2026; it wrote px, which showed a 12 as 9 pt). */}
                 <SizeBox sizes={FONT_SIZES} value={(activeEditor.getAttributes('textStyle').fontSize || '').replace(/(px|pt)$/, '')}
-                  onPick={(v) => { if (v) activeEditor.chain().focus().setFontSize(`${v}px`).run(); else activeEditor.chain().focus().unsetFontSize().run(); }} />
+                  onPick={(v) => { if (v) activeEditor.chain().focus().setFontSize(`${v}pt`).run(); else activeEditor.chain().focus().unsetFontSize().run(); }} />
                 <SmallBtn title="Grow Font" onClick={() => stepFontSize(1)}><span style={{ fontSize: 13, fontWeight: 700 }}>A↑</span></SmallBtn>
                 <SmallBtn title="Shrink Font" onClick={() => stepFontSize(-1)}><span style={{ fontSize: 11, fontWeight: 700 }}>A↓</span></SmallBtn>
                 <Menu label="Aa" title="Change Case" items={[
@@ -3396,7 +3454,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               </div>
             </div>
           </Group>
-          <Group label="Paragraph">
+          <Group label="Paragraph" onLaunch={() => setParaDlg(true)} launchTitle="Paragraph Settings">
             <div className="doc-ribbon-stack">
               <div className="doc-ribbon-row">
                 <Menu icon={List} title="Bullets" active={activeEditor.isActive('bulletList')} items={[
@@ -3450,23 +3508,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               </div>
             </div>
           </Group>
-          <Group label="Styles"><StyleGallery editor={activeEditor} /></Group>
+          <Group label="Styles"><StyleGallery editor={activeEditor} compact={ribbonMode === 'simplified'} /></Group>
           <Group label="Editing">
             <BigBtn icon={Search} label="Find" title="Find & Replace" active={findOpen} onClick={() => setFindOpen(o => !o)} />
+            <BigBtn icon={Replace} label="Replace" title="Replace (Ctrl+H)" onClick={() => { setFindOpen(true); requestAnimationFrame(() => document.querySelector('.nx-docb input[placeholder="Replace with"]')?.focus()); }} />
             <BigBtn icon={MousePointerSquareDashed} label="Select All" onClick={() => activeEditor.chain().focus().selectAll().run()} />
-            <div style={{ position: 'relative' }}>
-              <BigBtn icon={Link2} label="Link" active={activeEditor.isActive('link')} onClick={toggleLinkPopover} />
-              {linkPopoverOpen && (
-                <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <input className="form-input" style={{ fontSize: 12, width: 180 }} placeholder="https://…" value={linkUrlDraft}
-                    onChange={e => setLinkUrlDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && applyLink()} autoFocus />
-                  <button onClick={applyLink} className="primary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }}>Apply</button>
-                  {activeEditor.isActive('link') && (
-                    <button onClick={removeLink} title="Remove Link" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: 5, cursor: 'pointer', display: 'flex' }}><Link2Off size={13} /></button>
-                  )}
-                </div>
-              )}
-            </div>
           </Group>
           {canDictate() && (
             <Group label="Voice">
@@ -3477,7 +3523,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'insert' && (
+          {shownTab === 'insert' && (
           <>
           <Group label="Pages">
             <BigBtn icon={SeparatorHorizontal} label="Page Break" title="Start the next line on a new page" onClick={() => activeEditor.chain().focus().insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run()} />
@@ -3679,7 +3725,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'design' && (
+          {shownTab === 'design' && (
           <>
           <Group label="Letterhead">
             <Menu big icon={Award} label={activeLetterhead ? activeLetterhead.name : 'Letterhead'} title={`Letterhead: ${activeLetterhead ? activeLetterhead.name : 'None'}`}
@@ -3715,9 +3761,9 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'layout' && (
+          {shownTab === 'layout' && (
           <>
-          <Group label="Page Setup">
+          <Group label="Page Setup" onLaunch={() => setPageSetupOpen(true)} launchTitle="Page Setup">
           <Menu big icon={RectangleHorizontal} label="Margins" items={[
             { label: 'Normal - 1" all around', onClick: () => updatePageSetup({ margins: 'normal' }), active: pageSetup.margins === 'normal' },
             { label: 'Narrow - 0.5" all around', onClick: () => updatePageSetup({ margins: 'narrow' }), active: pageSetup.margins === 'narrow' },
@@ -3825,7 +3871,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             )}
           </div>
           </Group>
-          <Group label="Paragraph">
+          <Group label="Paragraph" onLaunch={() => setParaDlg(true)} launchTitle="Paragraph Settings">
             <div className="doc-ribbon-stack">
               <div className="doc-ribbon-row">
                 {[['indentLeft', 'Indent Left', 'Left indent, in points'], ['indentRight', 'Indent Right', 'Right indent, in points']].map(([key, label, hint]) => (
@@ -3850,7 +3896,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'references' && (
+          {shownTab === 'references' && (
           <>
           <Group label="Table of Contents">
             <BigBtn icon={ListTree} label={findTocRange() ? 'Update Table' : 'Table of Contents'} title="Table of Contents - lists every heading with its page number" onClick={insertTableOfContents} />
@@ -3862,7 +3908,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'variables' && (
+          {shownTab === 'variables' && (
           <>
           <Group label="Insert">
             <span ref={libBtnRef} style={{ display: 'inline-flex' }}>
@@ -3904,7 +3950,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'review' && (
+          {shownTab === 'review' && (
           <>
           <Group label="Proofing">
             <BigBtn icon={SpellCheck} label="Spelling" title="Underline misspelled words (the browser's own spelling check)" active={viewPrefs.spell} onClick={() => setPref('spell', !viewPrefs.spell)} />
@@ -3948,7 +3994,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'view' && (
+          {shownTab === 'view' && (
           <>
           <Group label="Views">
             <BigBtn icon={PageIcon} label="Separate Pages" title="Lay the document out as pages" active={viewPrefs.paginate} onClick={() => setPref('paginate', !viewPrefs.paginate)} />
@@ -3969,7 +4015,77 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'picture' && imgAttrs && (
+          {shownTab === 'tableDesign' && inTable && (
+          <>
+          <Group label="Table Style Options">
+            <BigBtn icon={Rows} label="Header Row" title="Toggle header row" active={activeEditor.isActive('tableHeader')} onClick={() => activeEditor.chain().focus().toggleHeaderRow().run()} />
+            <BigBtn icon={Columns} label="First Column" title="Toggle header column" onClick={() => activeEditor.chain().focus().toggleHeaderColumn().run()} />
+          </Group>
+          <Group label="Table Styles">
+            <Menu big icon={PaintBucket} label="Shading" title="Shade the current cell" width={260}>
+              <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]}
+                current={activeEditor.getAttributes(activeEditor.isActive('tableHeader') ? 'tableHeader' : 'tableCell').backgroundColor}
+                onPick={(hex) => activeEditor.chain().focus().updateAttributes(activeEditor.isActive('tableHeader') ? 'tableHeader' : 'tableCell', { backgroundColor: hex }).run()}
+                onNone={() => activeEditor.chain().focus().updateAttributes(activeEditor.isActive('tableHeader') ? 'tableHeader' : 'tableCell', { backgroundColor: null }).run()} />
+            </Menu>
+            <Menu big icon={RectangleHorizontal} label="Borders" title="Table borders" items={[
+              { label: 'All Borders', active: activeEditor.getAttributes('table').borders !== 'none', onClick: () => activeEditor.chain().focus().updateAttributes('table', { borders: null }).run() },
+              { label: 'No Border', active: activeEditor.getAttributes('table').borders === 'none', onClick: () => activeEditor.chain().focus().updateAttributes('table', { borders: 'none' }).run() },
+            ]} />
+          </Group>
+          </>
+          )}
+
+          {shownTab === 'tableLayout' && inTable && (
+          <>
+          <Group label="Rows & Columns">
+            <BigBtn icon={Rows} label="Insert Above" title="Add row above" onClick={() => activeEditor.chain().focus().addRowBefore().run()} />
+            <BigBtn icon={Rows} label="Insert Below" title="Add row below" onClick={() => activeEditor.chain().focus().addRowAfter().run()} />
+            <BigBtn icon={Columns} label="Insert Left" title="Add column left" onClick={() => activeEditor.chain().focus().addColumnBefore().run()} />
+            <BigBtn icon={Columns} label="Insert Right" title="Add column right" onClick={() => activeEditor.chain().focus().addColumnAfter().run()} />
+            <Menu big icon={Trash2} label="Delete" title="Delete cells, rows, columns or the table" items={[
+              { label: 'Delete Row', onClick: () => activeEditor.chain().focus().deleteRow().run() },
+              { label: 'Delete Column', onClick: () => activeEditor.chain().focus().deleteColumn().run() },
+              { label: 'Delete Table', onClick: () => activeEditor.chain().focus().deleteTable().run() },
+            ]} />
+          </Group>
+          <Group label="Merge">
+            <BigBtn icon={Combine} label="Merge Cells" title="Merge cells" onClick={() => activeEditor.chain().focus().mergeCells().run()} />
+            <BigBtn icon={SquareSplitHorizontal} label="Split Cell" title="Split cell" onClick={() => activeEditor.chain().focus().splitCell().run()} />
+          </Group>
+          </>
+          )}
+
+          {shownTab === 'shape' && shapeType && (() => {
+            const attrs = activeEditor.getAttributes(shapeType);
+            const rotate = (delta) => activeEditor.chain().focus().updateAttributes(shapeType, { rotation: ((attrs.rotation || 0) + delta + 360) % 360 }).run();
+            const fillKey = 'fillColor';
+            const lineKey = shapeType === 'docShape' ? 'strokeColor' : 'borderColor';
+            return (
+              <>
+              <Group label="Shape Styles">
+                <Menu big icon={PaintBucket} label={shapeType === 'docShape' ? 'Shape Fill' : 'Fill'} title="Fill color" width={260}>
+                  <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]} current={attrs[fillKey]}
+                    onPick={(hex) => activeEditor.chain().focus().updateAttributes(shapeType, { [fillKey]: hex }).run()}
+                    onNone={() => activeEditor.chain().focus().updateAttributes(shapeType, { [fillKey]: 'transparent' }).run()} />
+                </Menu>
+                <Menu big icon={RectangleHorizontal} label={shapeType === 'docShape' ? 'Shape Outline' : 'Border'} title="Outline color" width={260}>
+                  <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]} current={attrs[lineKey]}
+                    onPick={(hex) => activeEditor.chain().focus().updateAttributes(shapeType, { [lineKey]: hex }).run()} more />
+                </Menu>
+              </Group>
+              <Group label="Arrange">
+                <Menu big icon={Move} label="Wrap Text" title="Wrap text around it" items={WRAP_MODES.map((w) => ({
+                  label: w.label, active: (attrs.wrapMode || 'inline') === w.value, onClick: () => activeEditor.chain().focus().updateAttributes(shapeType, { wrapMode: w.value }).run(),
+                }))} />
+                <BigBtn icon={RotateCcw} label="Rotate Left" title="Rotate left 90°" onClick={() => rotate(-90)} />
+                <BigBtn icon={RotateCw} label="Rotate Right" title="Rotate right 90°" onClick={() => rotate(90)} />
+              </Group>
+              </>
+            );
+          })()}
+
+          {shownTab === 'picture' && imgAttrs && (
           <>
           <Group label="Picture Styles">
             <Menu big icon={Frame} label="Styles" title="Picture style" items={[
@@ -4054,89 +4170,6 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               <Plus size={13} /> {s.heading}
             </button>
           ))}
-        </div>
-      )}
-
-      {/* Contextual toolbars - appear only while the cursor/selection is
-          inside the relevant node, mirroring Word's "click a table/picture/
-          shape and its own ribbon shows up" behavior instead of cluttering
-          the main toolbar with buttons that only apply some of the time. */}
-      {!preview && activeEditor?.isActive('table') && (
-        <div className="doc-toolbar" style={{ marginTop: -8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', paddingLeft: 4 }}>Table:</span>
-          <ToolbarBtn title="Add row above" onClick={() => activeEditor.chain().focus().addRowBefore().run()}><Rows size={15} /><span style={{ fontSize: 10 }}>↑+</span></ToolbarBtn>
-          <ToolbarBtn title="Add row below" onClick={() => activeEditor.chain().focus().addRowAfter().run()}><Rows size={15} /><span style={{ fontSize: 10 }}>↓+</span></ToolbarBtn>
-          <ToolbarBtn title="Delete row" onClick={() => activeEditor.chain().focus().deleteRow().run()}><Rows size={15} /><Trash2 size={11} /></ToolbarBtn>
-          <span className="doc-toolbar-sep" />
-          <ToolbarBtn title="Add column left" onClick={() => activeEditor.chain().focus().addColumnBefore().run()}><Columns size={15} /><span style={{ fontSize: 10 }}>←+</span></ToolbarBtn>
-          <ToolbarBtn title="Add column right" onClick={() => activeEditor.chain().focus().addColumnAfter().run()}><Columns size={15} /><span style={{ fontSize: 10 }}>→+</span></ToolbarBtn>
-          <ToolbarBtn title="Delete column" onClick={() => activeEditor.chain().focus().deleteColumn().run()}><Columns size={15} /><Trash2 size={11} /></ToolbarBtn>
-          <span className="doc-toolbar-sep" />
-          <ToolbarBtn title="Merge cells" onClick={() => activeEditor.chain().focus().mergeCells().run()}><Combine size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Split cell" onClick={() => activeEditor.chain().focus().splitCell().run()}><SquareSplitHorizontal size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Toggle header row" active={activeEditor.isActive('tableHeader')} onClick={() => activeEditor.chain().focus().toggleHeaderRow().run()}>H</ToolbarBtn>
-          <span className="doc-toolbar-sep" />
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted)' }} title="Shade the current cell">
-            Shade
-            <input type="color" defaultValue="#f3f4f6"
-              onChange={(e) => {
-                const attrName = activeEditor.isActive('tableHeader') ? 'tableHeader' : 'tableCell';
-                activeEditor.chain().focus().updateAttributes(attrName, { backgroundColor: e.target.value }).run();
-              }}
-              style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
-          </label>
-          <ToolbarBtn title="Delete table" onClick={() => activeEditor.chain().focus().deleteTable().run()}><Trash2 size={15} /></ToolbarBtn>
-        </div>
-      )}
-
-      {!preview && (activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && (
-        <div className="doc-toolbar" style={{ marginTop: -8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', paddingLeft: 4 }}>
-            {activeEditor.isActive('docShape') ? 'Shape:' : 'Text box:'}
-          </span>
-          {(() => {
-            const type = activeEditor.isActive('docShape') ? 'docShape' : 'docTextbox';
-            const attrs = activeEditor.getAttributes(type);
-            const rotate = (delta) => activeEditor.chain().focus().updateAttributes(type, { rotation: ((attrs.rotation || 0) + delta + 360) % 360 }).run();
-            return (
-              <>
-                <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  Wrap
-                  <select value={attrs.wrapMode || 'inline'} onChange={(e) => activeEditor.chain().focus().updateAttributes(type, { wrapMode: e.target.value }).run()}
-                    style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '4px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
-                    {WRAP_MODES.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
-                  </select>
-                </label>
-                <ToolbarBtn title="Rotate left 90°" onClick={() => rotate(-90)}><RotateCcw size={15} /></ToolbarBtn>
-                <ToolbarBtn title="Rotate right 90°" onClick={() => rotate(90)}><RotateCw size={15} /></ToolbarBtn>
-                {type === 'docShape' && (
-                  <>
-                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      Fill <input type="color" value={attrs.fillColor || '#dbeafe'} onChange={(e) => activeEditor.chain().focus().updateAttributes('docShape', { fillColor: e.target.value }).run()}
-                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
-                    </label>
-                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      Stroke <input type="color" value={attrs.strokeColor || '#2563eb'} onChange={(e) => activeEditor.chain().focus().updateAttributes('docShape', { strokeColor: e.target.value }).run()}
-                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
-                    </label>
-                  </>
-                )}
-                {type === 'docTextbox' && (
-                  <>
-                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      Border <input type="color" value={attrs.borderColor || '#9ca3af'} onChange={(e) => activeEditor.chain().focus().updateAttributes('docTextbox', { borderColor: e.target.value }).run()}
-                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
-                    </label>
-                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      Fill <input type="color" value={attrs.fillColor && attrs.fillColor !== 'transparent' ? attrs.fillColor : '#ffffff'}
-                        onChange={(e) => activeEditor.chain().focus().updateAttributes('docTextbox', { fillColor: e.target.value }).run()}
-                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
-                    </label>
-                  </>
-                )}
-              </>
-            );
-          })()}
         </div>
       )}
 
@@ -4328,6 +4361,30 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         </div>
       )}
 
+      {paraDlg && ed && (
+        <ParagraphDialog attrs={blockAttrs} onClose={() => setParaDlg(false)}
+          onApply={(patch) => ed.chain().focus().updateAttributes('paragraph', patch).updateAttributes('heading', patch).run()} />
+      )}
+      {fontDlg && ed && (() => {
+        const ts = ed.getAttributes('textStyle');
+        return (
+          <FontDialog fonts={FONT_GROUPS} onClose={() => setFontDlg(false)}
+            marks={{ fontFamily: ts.fontFamily, fontSize: ts.fontSize, color: ts.color, bold: ed.isActive('bold'), italic: ed.isActive('italic'), underline: ed.isActive('underline'), strike: ed.isActive('strike'), superscript: ed.isActive('superscript'), subscript: ed.isActive('subscript') }}
+            onApply={(m) => {
+              let c = ed.chain().focus();
+              c = m.fontFamily ? c.setFontFamily(m.fontFamily) : c.unsetFontFamily();
+              c = m.fontSize ? c.setFontSize(m.fontSize) : c.unsetFontSize();
+              c = m.color ? c.setColor(m.color) : c.unsetColor();
+              c = m.bold ? c.setBold() : c.unsetBold();
+              c = m.italic ? c.setItalic() : c.unsetItalic();
+              c = m.underline ? c.setUnderline() : c.unsetUnderline();
+              c = m.strike ? c.setStrike() : c.unsetStrike();
+              c = m.superscript ? c.setSuperscript() : c.unsetSuperscript();
+              c = m.subscript ? c.setSubscript() : c.unsetSubscript();
+              c.run();
+            }} />
+        );
+      })()}
       {importPopoverOpen && !preview && (
         <div className="modal-overlay" onClick={() => { if (!importing) setImportPopoverOpen(false); }}>
           <div className="modal-content nx-popup nx-center nx-docb-import" role="dialog" aria-label="Import a File" onClick={(e) => e.stopPropagation()}>
@@ -4365,6 +4422,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         />
       )}
       {shortcutsOpen && <ShortcutsCard menus={docMenus} onClose={() => setShortcutsOpen(false)} />}
+      {!preview && !isMobile && <KeyTips rootRef={rootRef} onTab={keyTipTab} />}
     </div>
   );
 }

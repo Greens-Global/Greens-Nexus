@@ -84,9 +84,10 @@ describe('DocumentBuilder ribbon', () => {
     const onTab = {
       home: ['Cut', 'Copy', 'Paste', /^Format Painter/, 'Bold', 'Italic', 'Underline', 'Strikethrough', 'Subscript', 'Superscript', 'Font', 'Font Size',
         'Grow Font', 'Shrink Font', 'Change Case', 'Font Color', 'Text Highlight Color', /^Styles - /, 'Align Left', 'Center', 'Align Right', 'Justify',
-        'Link', 'Bullets', 'Numbering', 'Decrease Indent', 'Increase Indent', 'Line and Paragraph Spacing', 'Shading', 'Borders',
-        'Sort A to Z (list items)', 'Sort Z to A (list items)', 'Show/Hide ¶', 'Find & Replace', 'Select All'],
-      insert: ['Table', 'Picture', 'Shapes', 'Text Box', 'Signature Block - where a signer signs', 'Bookmarks', 'Table of Contents', 'Symbol / Emoji', 'Start the next line on a new page'],
+        'Bullets', 'Numbering', 'Decrease Indent', 'Increase Indent', 'Line and Paragraph Spacing', 'Shading', 'Borders',
+        'Sort A to Z (list items)', 'Sort Z to A (list items)', 'Show/Hide ¶', 'Find & Replace', 'Replace (Ctrl+H)', 'Select All'],
+      // Link moved from Home to Insert only, as in Word (11/11/2026).
+      insert: ['Link', 'Table', 'Picture', 'Shapes', 'Text Box', 'Signature Block - where a signer signs', 'Bookmarks', 'Table of Contents', 'Symbol / Emoji', 'Start the next line on a new page'],
       design: [/^Letterhead/, 'Page Color', 'Watermark'],
       layout: ['Margins', 'Orientation', 'Size', 'Columns', 'Breaks', 'Line Numbers', 'Page Setup', 'Space before paragraph, in points', 'Space after paragraph, in points'],
       variables: ['Select text, then click to convert it into a named merge field', /^Find \{\{variables\}\}/, /^Template Fields/, /^Variable Library/, /^Merge Data/, /^Variables Used/],

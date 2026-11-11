@@ -10403,3 +10403,66 @@ button.doc-ruler-corner:hover:not(:disabled) { background: var(--mist); }
 button.doc-ruler-corner:disabled { opacity: 0.5; cursor: default; }
 button.doc-ruler-corner:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; }
 @media (max-width: 900px) { button.doc-ruler-corner { display: none; } }
+
+/* Ribbon Display Options > Simplified Ribbon (11/11/2026): one line - no
+   captions, the Font and Paragraph rows side by side, a labeled button
+   becomes a compact one; what does not fit goes into More, as before. */
+.doc-ribbon-bar.is-simplified { padding-top: 4px; padding-bottom: 4px; }
+.doc-ribbon-bar.is-simplified .doc-ribbon-caption { display: none; }
+.doc-ribbon-bar.is-simplified .doc-ribbon-items { flex-wrap: nowrap; max-width: none; }
+.doc-ribbon-bar.is-simplified .doc-ribbon-stack { flex-direction: row; gap: 4px; }
+.doc-toolbar.doc-ribbon.is-simplified button.doc-ribbon-big { height: 30px; min-width: 0; flex-direction: row; gap: 5px; padding: 0 8px; font-size: 11.5px; }
+.doc-toolbar.doc-ribbon.is-simplified button.doc-ribbon-big svg { width: 16px; height: 16px; }
+
+/* Word's dialog launcher in a group's caption. */
+.doc-ribbon-caption { position: relative; display: flex; align-items: center; justify-content: center; align-self: stretch; }
+.doc-toolbar.doc-ribbon button.doc-ribbon-launch { position: absolute; right: -4px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; padding: 0; border-radius: 3px; color: var(--muted); }
+.doc-toolbar.doc-ribbon button.doc-ribbon-launch:hover { color: var(--ink); background: var(--mist); }
+
+/* Home > Styles: the gallery tiles, each drawn in its own style. */
+.doc-style-gallery { display: flex; align-items: stretch; gap: 4px; }
+.doc-toolbar.doc-ribbon button.doc-style-tile {
+  width: 62px; height: 54px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 0 7px;
+  border: 1px solid var(--line); border-radius: 7px; background: #fff; color: #111827; overflow: hidden;
+}
+.doc-toolbar.doc-ribbon button.doc-style-tile:hover { border-color: var(--muted); background: #fff; }
+.doc-toolbar.doc-ribbon button.doc-style-tile.is-active { border-color: var(--wk-brand, hsl(var(--color-green))); box-shadow: 0 0 0 1px var(--wk-brand, hsl(var(--color-green))); background: #fff; color: #111827; }
+.doc-style-sample { font: 400 12px Inter, sans-serif; line-height: 1.15; white-space: nowrap; }
+.doc-style-name { font: 500 9.5px Inter, sans-serif; color: #6b7280; white-space: nowrap; }
+.doc-style-tile-h1 .doc-style-sample { font-size: 15px; font-weight: 700; }
+.doc-style-tile-h2 .doc-style-sample { font-size: 13.5px; font-weight: 700; }
+.doc-style-tile-title .doc-style-sample { font-size: 16px; font-weight: 600; }
+.doc-style-tile-nospacing .doc-style-sample { letter-spacing: -0.01em; }
+
+/* Table Design / Table Layout / Shape Format / Picture Format: Word's
+   contextual tabs, set apart from the fixed ones. */
+.doc-ribbon-tab.is-context { color: var(--wk-brand, hsl(var(--color-green))); }
+.doc-ribbon-tab.is-context.is-active { border-bottom-color: var(--wk-brand, hsl(var(--color-green))); }
+
+/* The Font and Paragraph dialogs. */
+.doc-dlg { display: flex; flex-direction: column; gap: 16px; font-family: Inter, sans-serif; }
+.doc-dlg-section { display: flex; flex-direction: column; gap: 8px; }
+.doc-dlg-section h4 { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.doc-dlg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 14px; }
+.doc-dlg-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.doc-dlg-label { font-size: 11.5px; font-weight: 500; color: var(--muted); }
+.doc-dlg-hint { font-size: 10.5px; color: var(--muted); }
+.doc-dlg-note { margin: 0; font-size: 12px; color: var(--muted); }
+.doc-dlg-tab { display: flex; align-items: center; gap: 8px; }
+.doc-dlg-tab input { width: 90px; }
+.doc-dlg-tab select { width: 120px; }
+button.doc-dlg-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--muted); cursor: pointer; }
+button.doc-dlg-icon:hover { color: hsl(var(--color-red)); }
+.doc-dlg-checks { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; }
+.doc-dlg-checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.doc-dlg-preview { border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #111827; padding: 18px; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-height: 30px; }
+
+/* KeyTips (Alt): Word's letter badges on the tabs and buttons. */
+.doc-keytips { position: fixed; inset: 0; pointer-events: none; z-index: 6000; }
+.doc-keytip { position: fixed; transform: translate(-50%, 0); min-width: 16px; padding: 1px 4px; border-radius: 4px; background: var(--ink); color: var(--card); font: 700 10.5px/1.4 Inter, sans-serif; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.25); letter-spacing: 0.02em; }
+/* Simplified keeps the everyday buttons on its one line (Word's does the
+   same); the rest stay on the Classic ribbon and in the menus. */
+.doc-ribbon-bar.is-simplified :is(button[aria-label="Subscript"], button[aria-label="Superscript"], button[aria-label="Grow Font"], button[aria-label="Shrink Font"],
+  button[aria-label="Change Case"], button[aria-label^="Sort "], button[aria-label="Show/Hide ¶"], button[aria-label="Shading"], button[aria-label="Borders"],
+  button[aria-label="Line and Paragraph Spacing"], button[aria-label="Decrease Indent"], button[aria-label="Increase Indent"], button[aria-label="Clear All Formatting"]) { display: none; }
+.doc-ribbon-bar.is-simplified .doc-ribbon-menu:has(> button[aria-label="Change Case"], > button[aria-label="Shading"], > button[aria-label="Borders"], > button[aria-label="Line and Paragraph Spacing"]) { display: none; }
