@@ -454,6 +454,42 @@ keep the diff minimal.
   frame, laser pointer) are under More Tools; a computer keeps the engine's
   hints and properties panel, a phone opens that panel above the dock from
   Style. Never bring back a second tool strip.
+  **Running a meeting on a board** (Neil, 11/10/2026: "copy from the best of
+  the best"; "comment - yes, votes - named, measure - yes"): every piece is
+  ordinary board elements or the board's own live document - no new table, no
+  second channel. Sticky Note is a tool (`board/stickies.js`: paper + words +
+  author line, `customData.nexusSticky`; Tab writes the next one beside it;
+  Sort by color / author / word into labeled columns; Make Tasks sends the
+  selected stickies through `AddSeveralModal` - the import engine, never a
+  loop - and links each sticky to its task). The meeting kit
+  (`board/meet.js`, Run the Meeting) lives in the board's Yjs map `meet`: a
+  shared timer (the starter's clock), NAMED dot votes (one map row per voter;
+  each person sees only their own dots until Show Results stamps
+  `customData.nexusVotes` and a "2 Votes - Ana, Bo" line), Private Writing
+  (new stickies stay in the author's own tray, this browser only, until the
+  host reveals them) and Bring Everyone Here (awareness `summon`; people
+  follow the presenter's `view` through the adapter's `follow` member).
+  Comment pins are THREADS (`board/threads.js`, `customData.nexusThread`:
+  replies, Resolve / Reopen); an @mention of someone who can open the board
+  sends a bell through `POST /notes/{id}/board-mentions` (one rollup per pin,
+  link `notes:<id>~<pin>`) - the ONE exception to Notes' "a mention notifies
+  nobody", board comments only. Measure (`board/measure.js`, More Tools):
+  Set Scale over a known length, then Measure Length / Measure Area label in
+  feet and inches from the nearest scale; the numbers live on the elements
+  and refresh when one is moved. Ink to Shape (`board/inkShape.js`, a switch
+  in the pen's tray) turns a pen stroke that reads as a line, box, circle,
+  diamond or triangle into the clean shape. The Storage Site Kit (Diagram >
+  Pictures) places the KB drawings (`kb/components/drawings.jsx`) as board
+  images stored like any picture (`kit-<name>`). Six more templates: Retro,
+  Kickoff, SWOT, Fishbone, Site Walk, Weekly Huddle.
+  Import (the markup bar's Import button, `board/boardImport.js`): a picture
+  or every page of a PDF (`pdfPage.renderPdfPages`, 40 at most) goes in
+  BEHIND the drawing and LOCKED, stacked top to bottom, and the Pen comes up;
+  a PDF pasted or dropped on the board comes the same way, a picture pasted
+  stays the engine's own paste. Widths: Fine / Medium / Bold plus a 1-24
+  custom slider (a number in the same `size` pref). Snap and Align (the
+  engine's object snapping, Alt+S, Ctrl held skips it) is on by default, a
+  per-person pref set through the adapter's `setStyle`.
 - **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
   on the phone (`public/manifest.webmanifest`, `public/sw.js` - push plus the
   offline app shell, see Field offline below) and pushes the BELL: a Web Push

@@ -1,18 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MARKUP_TOOLS, strokeStyle, toolFromEngine, commentPin, wrapWords, nextCommentNumber, stageToBoard, restyle, removeSelected, colorByKey, PIN_MAX,
+  MARKUP_TOOLS, strokeStyle, toolFromEngine, commentPin, wrapWords, nextCommentNumber, stageToBoard, restyle, removeSelected, colorByKey, PIN_MAX, sizeByKey, isSizeKey,
 } from './markupTools';
 import { FONT_HAND, FONT_SANS } from './scene';
 
 describe('markup tools', () => {
   it('offers the reviewer set, in order', () => {
-    expect(MARKUP_TOOLS.map((t) => t.key)).toEqual(['select', 'hand', 'pen', 'highlight', 'arrow', 'box', 'text', 'comment', 'eraser']);
+    expect(MARKUP_TOOLS.map((t) => t.key)).toEqual(['select', 'hand', 'pen', 'highlight', 'sticky', 'arrow', 'box', 'text', 'comment', 'eraser']);
   });
 
   it('draws the highlighter wide and see-through, the pen solid at the picked width', () => {
     expect(strokeStyle('highlight', 'yellow', 'fine')).toMatchObject({ currentItemStrokeColor: colorByKey('yellow').color, currentItemStrokeWidth: 4, currentItemOpacity: 35 });
     expect(strokeStyle('pen', 'red', 'bold')).toMatchObject({ currentItemStrokeColor: '#e03131', currentItemStrokeWidth: 4, currentItemOpacity: 100 });
     expect(strokeStyle('box', 'blue', 'fine').currentItemStrokeWidth).toBe(1);
+    expect(strokeStyle('pen', 'red', 9).currentItemStrokeWidth).toBe(9);
+    expect(strokeStyle('pen', 'red', 99).currentItemStrokeWidth).toBe(24);
+    expect(sizeByKey(4)).toBe(sizeByKey('bold'));
+    expect(isSizeKey(7)).toBe(true);
+    expect(isSizeKey('huge')).toBe(false);
+    expect(isSizeKey(NaN)).toBe(false);
   });
 
   it('reads the engine tool back without losing pen vs highlighter or comment', () => {

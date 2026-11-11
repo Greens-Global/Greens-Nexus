@@ -28,7 +28,7 @@ const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, d
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '');
 const SUBMIT_KEY = isMac ? 'Cmd+Enter' : 'Ctrl+Enter';
 
-export default function AddSeveralModal({ defaults = {}, onClose, onDone }) {
+export default function AddSeveralModal({ defaults = {}, onClose, onDone, zIndex }) {
   const store = useTasks();
   const { projects = [], teams = [], sections = [], customFields = [], myEmail, importTasks } = store;
   const people = usePeople(true);
@@ -152,7 +152,7 @@ export default function AddSeveralModal({ defaults = {}, onClose, onDone }) {
   const dedupedWarnings = warnings.filter((w) => { const k = `${w.row}|${w.text}`; if (seen.has(k)) return false; seen.add(k); return true; });
 
   return (
-    <Modal title="Add Several Tasks" onClose={() => { if (!busy) onClose?.(false); }} footer={footer} isDirty={text.trim() !== initialText.trim()}>
+    <Modal title="Add Several Tasks" onClose={() => { if (!busy) onClose?.(false); }} footer={footer} isDirty={text.trim() !== initialText.trim()} zIndex={zIndex}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1, minHeight: 0, fontFamily: FONT }}>
         {err && (
           <div role="alert" style={{ padding: '9px 12px', borderRadius: 8, background: 'rgba(220,38,38,0.08)', color: NX.red, fontSize: 13 }}>{err}</div>

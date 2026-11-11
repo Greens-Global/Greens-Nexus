@@ -15,13 +15,16 @@ import {
   MousePointer2, Hand, PenLine, Highlighter, MoveUpRight, Square, Type, MessageSquarePlus, Eraser,
   Undo2, Redo2, Trash2, MoreHorizontal, Check, Circle, Diamond, Minus, ImagePlus, Frame, Pointer, Shapes, SlidersHorizontal, ChevronDown,
   Workflow, RectangleHorizontal, StickyNote, FileText, Users, ListTree, RefreshCw, ArrowDownNarrowWide, ArrowRightLeft, FileSymlink, Network,
+  Ruler, SquareDashed, Scaling, Warehouse, Vote, Timer, EyeOff, LocateFixed, Wand2,
+  Magnet, FileUp, ClipboardPaste, FolderOpen,
 } from 'lucide-react';
-import { MARKUP_TOOLS, MORE_TOOLS, MARKUP_COLORS, MARKUP_SIZES, colorByKey, isMoreTool } from './markupTools';
+import { MARKUP_TOOLS, MORE_TOOLS, MARKUP_COLORS, MARKUP_SIZES, colorByKey, isMoreTool, sizeByKey, WIDTH_MIN, WIDTH_MAX } from './markupTools';
 
 const ICONS = {
   select: MousePointer2, hand: Hand, pen: PenLine, highlight: Highlighter, arrow: MoveUpRight,
   box: Square, text: Type, comment: MessageSquarePlus, eraser: Eraser,
   ellipse: Circle, diamond: Diamond, line: Minus, image: ImagePlus, frame: Frame, laser: Pointer,
+  sticky: StickyNote, measure: Ruler, area: SquareDashed, scale: Scaling,
 };
 
 // The Diagram menu (Neil, 11/06/2026, board/diagram/): boxes that start a
@@ -44,10 +47,28 @@ const DIAGRAM_ROWS = [
   { key: 'tidy:TB', label: 'Tidy Up: Top to Bottom', Icon: ArrowDownNarrowWide, needs: 'tidy' },
   { key: 'tidy:LR', label: 'Tidy Up: Left to Right', Icon: ArrowRightLeft, needs: 'tidy' },
   { key: 'refresh', label: 'Refresh from Source', Icon: RefreshCw, needs: 'refresh' },
+  { kicker: 'Pictures' },
+  { key: 'kit', label: 'Storage Site Kit', Icon: Warehouse },
+];
+
+// Run the Meeting (Neil, 11/10/2026, meet.js): the timer, a named vote,
+// Private Writing and Bring Everyone Here. What each row does is Board.jsx's.
+const MEET_ROWS = [
+  { kicker: 'Timer' },
+  ...[1, 3, 5, 10, 15].map((m) => ({ key: `timer:${m}`, label: `${m} ${m === 1 ? 'Minute' : 'Minutes'}`, Icon: Timer })),
+  { kicker: 'Vote' },
+  ...[3, 5, 10].map((n) => ({ key: `vote:${n}`, label: `Start a Vote: ${n} Each`, Icon: Vote })),
+  { kicker: 'Together' },
+  { key: 'silent', label: 'Private Writing', Icon: EyeOff, needs: 'silent' },
+  { key: 'summon', label: 'Bring Everyone Here', Icon: LocateFixed, needs: 'summon' },
 ];
 
 export default function MarkupBar({
   diagram = null,
+  meet = null,            // { onAction(key), canSilent, canSummon }
+  inkShape = null,        // { on, onToggle } - the pen's Ink to Shape switch
+  snap = null,            // { on, onToggle } - Snap and Align, at the foot of More Tools
+  importer = null,        // { onFiles(files), onPaste(), busy } - Import: a picture or a PDF to mark up
   phone = false, tool, colorKey, sizeKey, hasSelection = false, styleOpen = false,
   onTool, onColor, onSize, onUndo, onRedo, onDelete, onMore, onStyle, onHide,
 }) {
@@ -58,20 +79,26 @@ export default function MarkupBar({
   const trayRef = useRef(null);
   const dgRef = useRef(null);
   const dgBtnRef = useRef(null);
+  const mtRef = useRef(null);
+  const mtBtnRef = useRef(null);
   const dotRef = useRef(null);
+  const imRef = useRef(null);
+  const imBtnRef = useRef(null);
+  const fileRef = useRef(null);
   const moreRef = useRef(null);
   const moreBtnRef = useRef(null);
   const ink = colorByKey(colorKey);
   // The highlighter has one width (wide); the tray says so instead of
   // offering widths that would not apply.
   const sizes = tool === 'highlight' ? [] : MARKUP_SIZES;
+  const width = sizeByKey(sizeKey).width;
 
   // A pop-up closes on a tap anywhere else or on Escape.
   useEffect(() => {
     if (!pop) return undefined;
-    const mine = [trayRef, dotRef, moreRef, moreBtnRef, dgRef, dgBtnRef];
+    const mine = [trayRef, dotRef, moreRef, moreBtnRef, dgRef, dgBtnRef, mtRef, mtBtnRef, imRef, imBtnRef];
     const away = (e) => { if (!mine.some((r) => r.current?.contains(e.target))) setPop(''); };
-    const esc = (e) => { if (e.key === 'Escape') { const back = pop === 'ink' ? dotRef : pop === 'diagram' ? dgBtnRef : moreBtnRef; setPop(''); back.current?.focus(); } };
+    const esc = (e) => { if (e.key === 'Escape') { const back = pop === 'ink' ? dotRef : pop === 'diagram' ? dgBtnRef : pop === 'meet' ? mtBtnRef : pop === 'import' ? imBtnRef : moreBtnRef; setPop(''); back.current?.focus(); } };
     document.addEventListener('pointerdown', away, true);
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc); };
@@ -109,15 +136,29 @@ export default function MarkupBar({
               </button>
             ))}
           </div>
+          {inkShape && tool === 'pen' && (
+            <label className="nx-mk-switch">
+              <input type="checkbox" checked={!!inkShape.on} onChange={() => inkShape.onToggle?.()} />
+              <Wand2 size={15} aria-hidden /> <span>Ink to Shape</span>
+            </label>
+          )}
           {sizes.length > 0 && (
             <div className="nx-mk-sizes" role="radiogroup" aria-label="Width">
               {sizes.map((s) => (
-                <button key={s.key} type="button" role="radio" aria-checked={sizeKey === s.key} aria-label={s.label} title={s.label}
+                <button key={s.key} type="button" role="radio" aria-checked={width === s.width} aria-label={s.label} title={s.label}
                   className="nx-mk-size" onClick={() => onSize?.(s.key)}>
                   <span style={{ height: s.width * 1.5 + 1, background: ink.color }} aria-hidden />
                 </button>
               ))}
             </div>
+          )}
+          {sizes.length > 0 && (
+            <label className="nx-mk-range">
+              <span className="nx-mk-range-name">Custom</span>
+              <input type="range" min={WIDTH_MIN} max={WIDTH_MAX} step={1} value={width} aria-label="Custom Width"
+                style={{ '--ink': ink.color }} onChange={(e) => onSize?.(Number(e.target.value))} />
+              <span className="nx-mk-range-value" aria-hidden>{width}</span>
+            </label>
           )}
         </div>
       )}
@@ -129,10 +170,31 @@ export default function MarkupBar({
             return (
               <button key={t.key} type="button" role="menuitemradio" aria-checked={tool === t.key} className={`nx-mk-more-row${tool === t.key ? ' is-on' : ''}`}
                 onClick={() => { setPop(''); onTool?.(t.key); }} data-tool={t.key}>
-                <Icon size={18} /> <span>{t.label}</span>{!phone && <kbd>{t.hint}</kbd>}
+                <Icon size={18} /> <span>{t.label}</span>{!phone && t.hint && <kbd>{t.hint}</kbd>}
               </button>
             );
           })}
+          {snap && (<>
+            <div className="nx-mk-more-sep" role="separator" />
+            <button type="button" role="menuitemcheckbox" aria-checked={!!snap.on} className={`nx-mk-more-row${snap.on ? ' is-on' : ''}`}
+              onClick={() => snap.onToggle?.()} title="Shapes line up with each other as they move; hold Ctrl to place freely">
+              <Magnet size={18} /> <span>Snap and Align</span>{!phone && <kbd>Alt+S</kbd>}
+            </button>
+          </>)}
+        </div>
+      )}
+
+      {pop === 'import' && importer && (
+        <div className="nx-mk-tray nx-mk-more" ref={imRef} role="menu" aria-label="Import">
+          <div className="nx-mk-tray-kicker">To Mark Up</div>
+          <button type="button" role="menuitem" className="nx-mk-more-row" disabled={importer.busy}
+            onClick={() => { setPop(''); fileRef.current?.click(); }}>
+            <FolderOpen size={18} /> <span>Picture or PDF From This {phone ? 'Phone' : 'Computer'}</span>
+          </button>
+          <button type="button" role="menuitem" className="nx-mk-more-row" disabled={importer.busy}
+            onClick={() => { setPop(''); importer.onPaste?.(); }}>
+            <ClipboardPaste size={18} /> <span>Paste a Picture</span>{!phone && <kbd>Ctrl+V</kbd>}
+          </button>
         </div>
       )}
 
@@ -143,6 +205,19 @@ export default function MarkupBar({
             : (
               <button key={r.key} type="button" role="menuitem" className="nx-mk-more-row" data-diagram={r.key}
                 onClick={() => { setPop(''); diagram.onAction?.(r.key); }}>
+                <r.Icon size={18} /> <span>{r.label}</span>
+              </button>
+            )))}
+        </div>
+      )}
+
+      {pop === 'meet' && meet && (
+        <div className="nx-mk-tray nx-mk-more nx-mk-diagram" ref={mtRef} role="menu" aria-label="Run the Meeting">
+          {MEET_ROWS.filter((r) => !r.needs || (r.needs === 'silent' ? meet.canSilent : meet.canSummon)).map((r) => (r.kicker
+            ? <div key={r.kicker} className="nx-mk-tray-kicker">{r.kicker}</div>
+            : (
+              <button key={r.key} type="button" role="menuitem" className="nx-mk-more-row" data-meet={r.key}
+                onClick={() => { setPop(''); meet.onAction?.(r.key); }}>
                 <r.Icon size={18} /> <span>{r.label}</span>
               </button>
             )))}
@@ -168,10 +243,24 @@ export default function MarkupBar({
             <MoreIcon size={phone ? 20 : 18} />
           </button>
         </div>
+        {importer && (<>
+          <button ref={imBtnRef} type="button" className={`nx-mk-btn${pop === 'import' ? ' is-on' : ''}`} aria-expanded={pop === 'import'} aria-haspopup="menu"
+            aria-label="Import a Picture or PDF" title="Import a Picture or PDF" disabled={importer.busy} onClick={() => setPop((p) => (p === 'import' ? '' : 'import'))}>
+            <FileUp size={phone ? 20 : 18} />
+          </button>
+          <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" multiple hidden data-testid="nx-mk-import-file"
+            onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ''; if (f.length) importer.onFiles?.(f); }} />
+        </>)}
         {diagram && (
           <button ref={dgBtnRef} type="button" className={`nx-mk-btn${pop === 'diagram' ? ' is-on' : ''}`} aria-expanded={pop === 'diagram'} aria-haspopup="menu"
             aria-label="Diagram" title="Diagram" onClick={() => setPop((p) => (p === 'diagram' ? '' : 'diagram'))} data-testid="nx-mk-diagram">
             <Workflow size={phone ? 20 : 18} />
+          </button>
+        )}
+        {meet && (
+          <button ref={mtBtnRef} type="button" className={`nx-mk-btn${pop === 'meet' ? ' is-on' : ''}`} aria-expanded={pop === 'meet'} aria-haspopup="menu"
+            aria-label="Run the Meeting" title="Run the Meeting" onClick={() => setPop((p) => (p === 'meet' ? '' : 'meet'))} data-testid="nx-mk-meet">
+            <Vote size={phone ? 20 : 18} />
           </button>
         )}
         <span className="nx-mk-sep" aria-hidden />
