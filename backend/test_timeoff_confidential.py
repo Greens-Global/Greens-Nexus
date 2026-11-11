@@ -208,10 +208,14 @@ class DecisionTests(_Base):
     def test_administrators_decide_when_there_is_nobody_else(self):
         req = self._request(who=ORPHAN)
         self.assertEqual(self._decide(HRC, req["id"]).status_code, 403)
-        # ORPHAN works for CO2: CO's Administrator is walled from them (Neil,
-        # 11/02/2026); a Super Administrator decides.
-        self.assertIsNone(self._listed(ADM, req["id"]))
-        self.assertNotEqual(self._decide(ADM, req["id"]).status_code, 200)
+        # ORPHAN works for CO2: once the walls are armed CO's Administrator is
+        # walled from them (11/11/2026: only then); a Super Administrator decides.
+        from unittest import mock
+        with mock.patch.object(auth, "_company_walls_on", lambda _db: True):
+            self.assertIsNone(self._listed(ADM, req["id"]))
+            self.assertNotEqual(self._decide(ADM, req["id"]).status_code, 200)
+        # Walls off: CO's Administrator reaches CO2's people too.
+        self.assertEqual(self._listed(ADM, req["id"])["canDecide"], True)
         row = self._listed(SUPER, req["id"])
         self.assertEqual((row["type"], row["canDecide"]), ("sick", True))
         self.assertEqual(self._decide(SUPER, req["id"]).status_code, 200)

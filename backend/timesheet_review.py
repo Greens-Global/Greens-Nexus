@@ -176,8 +176,8 @@ def is_hr(db: Session, actor: str, employee_email: str) -> bool:
     if level >= _LEVELS["owner"]:
         return True
     if level >= _LEVELS["administrator"]:
-        # An Administrator is HR only inside their companies (Neil,
-        # 11/02/2026 - walled, the switch on or off): the one scoped rule.
+        # An Administrator is HR only inside their companies once the walls
+        # are on (Pranshu, 11/11/2026): the one scoped rule.
         import hr_access
         return hr_access.is_hr_for(db, actor, employee_email)
     return _module_level(actor, "hr", db) >= _MODULE_LEVEL_RANK["full"]

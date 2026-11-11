@@ -857,7 +857,7 @@ def people_directory(include_external: bool = False,
         if not can_assign:
             include_external = False
     scope = auth.company_scope(user, db)
-    # An Administrator (always walled, 11/02/2026) still sees the people with
+    # An Administrator (walled once the switch is on) still sees the people with
     # no company - the guests / externals they manage and untagged People
     # rows are shared (auth.AdminScope; the key says so).
     key = auth.scope_key(scope)

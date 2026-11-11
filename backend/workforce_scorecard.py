@@ -289,9 +289,9 @@ def direct_reports(db: Session, email: str) -> set:
 def scope_kind(rank: int, level: int = 1, company: bool = False) -> str:
     """direct | line | company | all from a grant rank
     (auth._MODULE_LEVEL_RANK) and tier. An Administrator (level 4) gets
-    `company` - their own companies' people, never everyone (Neil,
-    11/02/2026: walled, the switch on or off); only a Super Administrator,
-    a Full grant or a company recipient gets `all`."""
+    `company` - their own companies' people once the walls are on, everyone
+    while they are off (11/11/2026, `_scoped` relabels it `all`); a Super
+    Administrator, a Full grant or a company recipient gets `all`."""
     from auth import _MODULE_LEVEL_RANK
     if level == 4:
         return "company"
@@ -323,7 +323,14 @@ def scope_for(db: Session, user: dict) -> tuple:
     from auth import _module_level
     email = (user.get("email") or "").lower()
     kind = scope_kind(_module_level(email, MODULE_ID, db), int(user.get("level", 0)))
-    return scope_emails(db, email, kind), kind
+    return _scoped(db, email, kind)
+
+
+def _scoped(db: Session, email: str, kind: str) -> tuple:
+    """(emails, kind); `company` that turns out to be everyone (walls off)
+    reads `all`, so the screen never says "their companies" for everyone."""
+    emails = scope_emails(db, email, kind)
+    return emails, ("all" if kind == "company" and emails is None else kind)
 
 
 def grant_holders(db: Session) -> dict:
@@ -363,7 +370,7 @@ def recipients(db: Session, cfg: dict) -> list:
         if not emp or not daily._no_shift_eligible(emp):
             continue
         kind = scope_kind(holders.get(em, 0), _level_of(db, em), company=em in company)
-        out.append((emp, scope_emails(db, em, kind), kind))
+        out.append((emp, *_scoped(db, em, kind)))
     return out
 
 

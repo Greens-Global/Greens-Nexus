@@ -1,7 +1,8 @@
 """Tiers, security pass A (Neil, 11/02/2026): the ways an Administrator
 (level 4) could still step past their company walls, closed one by one.
-Every case runs with the `company_walls` switch OFF - an Administrator is
-walled whether or not it is on - and pits a company A Administrator against
+Every case runs with the `company_walls` switch ON - an Administrator is
+walled only once it is armed (11/11/2026; WallsOffTests pins what still
+binds them with it off) - and pits a company A Administrator against
 company B's people and records; a Super Administrator (level 5) still
 reaches everything.
 
@@ -71,6 +72,7 @@ class _Base(unittest.TestCase):
             db.add(models.NexusGroup(id=GRP_A, name="Alpha Group", allowed_modules="tasks:viewer", company_id=COA))
             db.add(models.NexusGroup(id=GRP_B, name="Beta Group", allowed_modules="tasks:viewer", company_id=COB))
             db.add(models.NexusGroupMember(group_id=GRP_B, email=BEMP))
+            db.add(models.NexusSetting(key="company_walls", value="on"))
             db.commit()
         finally:
             db.close()
@@ -98,9 +100,10 @@ class _Base(unittest.TestCase):
         return database.SessionLocal()
 
     def _walls_off(self):
+        # Historical name: the suite now runs ARMED (see the module docstring).
         db = self._db()
         try:
-            self.assertFalse(auth._company_walls_on(db))
+            self.assertTrue(auth._company_walls_on(db))
         finally:
             db.close()
 
@@ -371,9 +374,7 @@ class ActAsTests(_Base):
         try:
             target = act_as.resolve_target(sid, ADMIN_A, db)
             self.assertEqual((target["email"], target["level"], target["real_level"]), (AMGR, 3, 4))
-            # A level-3 person with the walls off is unrestricted on their own...
-            self.assertIsNone(auth.company_scope({"email": AMGR, "level": 3}, db))
-            # ...but acting for company A's Administrator they reach only company A.
+            # Acting for company A's Administrator they reach only company A.
             self.assertEqual(auth.company_scope(target, db), {COA})
             self.assertFalse(auth.company_ok(COB, auth.company_scope(target, db)))
         finally:
@@ -385,12 +386,12 @@ class ActAsTests(_Base):
         emails = {r["email"] for r in ppl.json()}
         self.assertIn(AEMP, emails)
         self.assertNotIn(BEMP, emails)
-        # A Super Administrator acting caps nothing.
+        # A Super Administrator acting caps nothing: the manager's own walls.
         self._as(SUPER)
         sid2 = self.client.post("/act-as/start", json={"target_email": AMGR}).json()["session_id"]
         db = self._db()
         try:
-            self.assertIsNone(auth.company_scope(act_as.resolve_target(sid2, SUPER, db), db))
+            self.assertEqual(auth.company_scope(act_as.resolve_target(sid2, SUPER, db), db), {COA})
         finally:
             db.close()
 
@@ -642,6 +643,48 @@ class SharedPeopleTests(_Base):
             self.assertFalse(auth.admits_blank(auth.company_scope({"email": AEMP, "level": 1}, db)))
         finally:
             db.close()
+
+
+class WallsOffTests(_Base):
+    """Walls OFF (11/11/2026): an Administrator sees every company, but the
+    Super-only rules on the walls themselves still bind them, so nothing set
+    up now widens their reach once the walls are armed."""
+
+    def setUp(self):
+        super().setUp()
+        db = self._db()
+        try:
+            db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+            db.commit()
+        finally:
+            db.close()
+        self._flush()
+
+    def test_an_administrator_sees_every_company(self):
+        db = self._db()
+        try:
+            self.assertIsNone(auth.company_scope({"email": ADMIN_A, "level": 4}, db))
+        finally:
+            db.close()
+        self._as(ADMIN_A)
+        self.assertIn(BEMP, {r["email"] for r in self.client.get("/roles").json()})
+
+    def test_the_walls_themselves_stay_super_only(self):
+        self._as(ADMIN_A)
+        post = lambda email, **b: self.client.post(f"/access-scopes/{email}", json={  # noqa: E731
+            "module_id": "property-asset", "scope_type": "property", "scope_id": "prop-1", **b})
+        self.assertEqual(post(ADMIN_A, module_id="company", scope_type="entity", scope_id=COB).status_code, 403)
+        self.assertEqual(post(BEMP, module_id="hr", scope_type="entity", scope_id=COB).status_code, 403)
+        self.assertEqual(post(ADMIN_A).status_code, 403)          # never their own limits
+        self.assertEqual(post(ADMIN_B).status_code, 403)          # never another Administrator's
+        self.assertEqual(post(BEMP).status_code, 201)             # a company B person: fine now
+        self.assertEqual(self.client.post("/groups", json={"name": "Org Wide", "allowed_modules": [],
+                                                           "company_id": ""}).status_code, 403)
+        self.assertEqual(self.client.put(f"/groups/{PLAIN}", json={"name": "x"}).status_code, 403)
+        self.assertEqual(self.client.put(f"/groups/{GRP_B}", json={"name": "Beta 2"}).status_code, 200)
+        self.assertEqual(self.client.post("/jobroles", json={"name": "Shared New"}).status_code, 403)
+        self._as(SUPER)
+        self.assertEqual(post(BEMP, module_id="hr", scope_type="entity", scope_id=COB).status_code, 201)
 
 
 if __name__ == "__main__":

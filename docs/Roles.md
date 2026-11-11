@@ -5,7 +5,7 @@ Neil, 11/02/2026. Code keys in parentheses; the words are what people see.
 | Tier | Level | Can |
 |---|---|---|
 | Super Administrator (`owner`) | 5 | Everything, for every company: security settings, the company walls, who holds which tier (incl. Administrator and Super Administrator), groups that pass the walls, Personal Financial Statements without a grant, deleting people, Workflows' organization face, Act As anyone below them. |
-| Administrator (`administrator`) | 4 | Runs their company: people, settings, modules and approvals inside their company walls, always (whether or not the walls switch is on). One exception: the Tickets desk, where an Administrator sees and works every company's tickets (hotfix 11/04/2026; Ask HR tickets stay HR's). Grants tiers up to Manager. Cannot touch another Administrator or a Super Administrator, security settings, the walls, or a group that passes the walls. Acts As managers and below. |
+| Administrator (`administrator`) | 4 | Runs their company: people, settings, modules and approvals inside their company once the walls switch is on; with it off they see every company (Pranshu, 11/11/2026). One exception: the Tickets desk, where an Administrator sees and works every company's tickets (hotfix 11/04/2026; Ask HR tickets stay HR's). Grants tiers up to Manager. Cannot touch another Administrator or a Super Administrator, security settings, the walls, or a group that passes the walls. Acts As managers and below. |
 | Manager (`manager`) | 3 | Leads a team: approvals, schedules and People for their own reporting line. |
 | Supervisor (`supervisor`) | 2 | Sees the supervisor screens (Insights, Documents) their grants open. |
 | Employee (`employee`) | 1 | Their own work. |
@@ -13,7 +13,7 @@ Neil, 11/02/2026. Code keys in parentheses; the words are what people see.
 Access Group grants (`require_module_grant`) open single modules on top of
 any tier; an Administrator passes every grant inside their company.
 
-An Administrator whose own People record has no company sees only shared
+With the walls on, an Administrator whose own People record has no company sees only shared
 rows (records that belong to no company) - the walls fail closed, they never
 open every company.
 

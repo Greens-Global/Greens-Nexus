@@ -124,6 +124,13 @@ class PropertyCompanyTests(unittest.TestCase):
         return SimpleNamespace(status_code=got[0]["status"], detail=got[0]["message"])
 
     # ── validation on the per-row save ──
+    def _arm(self):
+        # An Administrator is walled only once the walls are on (11/11/2026).
+        self.db.add(models.NexusSetting(key="company_walls", value="on"))
+        self.db.commit()
+        cache.settings_config.invalidate()
+        self.addCleanup(cache.settings_config.invalidate)
+
     def test_an_unknown_company_is_refused(self):
         self._asset("gst")
         err = self._refused(SUPER, {"id": "gst", "name": "Gst", "companyId": "nope", "_rev": "r0"})
@@ -132,6 +139,7 @@ class PropertyCompanyTests(unittest.TestCase):
         self.assertEqual(self._company("gst"), "")
 
     def test_a_walled_administrator_assigns_only_their_own_companies(self):
+        self._arm()
         self._asset("gst")
         err = self._refused(ADMIN_A, {"id": "gst", "name": "Gst", "companyId": "c2", "_rev": "r0"})
         self.assertEqual(err.status_code, 403)
@@ -139,10 +147,12 @@ class PropertyCompanyTests(unittest.TestCase):
         self.assertEqual(self._company("gst"), "c1")
 
     def test_an_administrator_with_no_company_assigns_none(self):
+        self._arm()
         self._asset("gst")
         self.assertEqual(self._refused(ADMIN_NONE, {"id": "gst", "name": "Gst", "companyId": "c1", "_rev": "r0"}).status_code, 403)
 
     def test_a_walled_administrator_cannot_take_or_clear_an_asset(self):
+        self._arm()
         self._asset("away", companyId="c2")
         self._asset("mine", companyId="c1")
         self.assertEqual(self._refused(ADMIN_A, {"id": "away", "name": "Away", "companyId": "c1", "_rev": "r0"}).status_code, 403)
@@ -197,11 +207,13 @@ class PropertyCompanyTests(unittest.TestCase):
         self.assertIsNone(self.db.get(models.PropertyActivityLog, "lg2"))
 
     def test_a_new_asset_is_checked_like_a_change(self):
+        self._arm()
         self.assertEqual(self._refused(ADMIN_A, {"id": "new1", "name": "New", "companyId": "c2"}).status_code, 403)
         self._save(ADMIN_A, {"id": "new1", "name": "New", "companyId": "c1"})
         self.assertEqual(self._company("new1"), "c1")
 
     def test_the_picker_offers_what_the_caller_may_assign(self):
+        self._arm()
         self._asset("away", companyId="c2")
         got = {c["id"]: c["assignable"] for c in PA.assignable_companies(self.db, ADMIN_A)}
         self.assertEqual(got, {"c1": True, "c2": False})          # c2 named (an asset sits there), not offered
@@ -291,6 +303,7 @@ class PropertyCompanyTests(unittest.TestCase):
         self.assertEqual(out["conflicts"], ["kept"])
 
     def test_a_refused_row_does_not_drop_the_rest_of_the_batch(self):
+        self._arm()
         self._asset("mine")
         self._asset("away", companyId="c2")
         log_ok = {"id": "lg-ok", "propertyId": "mine", "action": "edited", "ts": "2026-11-03T10:00:00Z"}

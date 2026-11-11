@@ -123,10 +123,14 @@ class ScopeGapTests(unittest.TestCase):
         return {p["email"]: p["count"] for p in timeclock.list_screenshots(date=DAY, email="", user=user, db=self.db)["people"]}
 
     def test_an_administrator_sees_every_frame(self):
-        # Of their own company (Neil, 11/02/2026: an Administrator is walled,
-        # the switch on or off); a Super Administrator sees every one.
+        # Walls off: every one (11/11/2026); armed: their own company's only.
+        # A Super Administrator sees every one either way.
+        every = {"ravi@greensglobal.com": 2, B_EMP["email"]: 1, LEAD["email"]: 1}
+        self.assertEqual(self._people(ADMIN), every)
+        self.assertEqual(self._people(SUPER), every)
+        self._walls("on")
         self.assertEqual(self._people(ADMIN), {"ravi@greensglobal.com": 2, LEAD["email"]: 1})
-        self.assertEqual(self._people(SUPER), {"ravi@greensglobal.com": 2, B_EMP["email"]: 1, LEAD["email"]: 1})
+        self.assertEqual(self._people(SUPER), every)
 
     def test_a_grant_holder_sees_their_own_team(self):
         self.assertEqual(self._people(LEAD), {"ravi@greensglobal.com": 2, LEAD["email"]: 1})
@@ -151,7 +155,8 @@ class ScopeGapTests(unittest.TestCase):
         try:
             mine = timeclock.list_screenshots(date=DAY, email="Ravi@greensglobal.com", user=LEAD, db=self.db)
             theirs = timeclock.list_screenshots(date=DAY, email=B_EMP["email"], user=SUPER, db=self.db)
-            with self.assertRaises(HTTPException):     # company B is outside the Administrator's wall
+            self._walls("on")
+            with self.assertRaises(HTTPException):     # armed: company B is outside the Administrator's wall
                 timeclock.list_screenshots(date=DAY, email=B_EMP["email"], user=ADMIN, db=self.db)
         finally:
             timeclock._sign_shot_rows = signed
