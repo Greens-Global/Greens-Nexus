@@ -37,8 +37,10 @@ const cardStyle = { background: 'var(--card)', borderRadius: 16, boxShadow: 'var
 // Use Template on the Templates tab opens this too, with the template picked.
 // Import on the list opens this with the file already picked (Pranshu, 11/05/2026).
 export function CreateDocModal({ folders = [], employees = [], entities = [], initialTemplateId = '', initialFile = null, onClose, onCreated, toastErr }) {
-  const [title, setTitle] = useState(initialFile ? initialFile.name.replace(/\.[^.]+$/, '') : '');
-  const [titleTyped, setTitleTyped] = useState(!!initialFile);
+  // No name box (Neil, 11/11/2026: "I don't like the step where it makes you
+  // name it before you make one"): the name comes from the template and the
+  // person, else the file, and the editor asks for a real one on Close.
+  const [fileTitle, setFileTitle] = useState(initialFile ? initialFile.name.replace(/\.[^.]+$/, '') : '');
   const [folderId, setFolderId] = useState('');
   const [templateId, setTemplateId] = useState(initialTemplateId);
   // Who the document is about and for which company: what tells two letters with
@@ -59,7 +61,8 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
   const [fillValues, setFillValues] = useState({});
   const [fillErrors, setFillErrors] = useState({});
 
-  useEffect(() => { api.getDocTemplates({ status: 'active' }).then(setTemplates).catch(() => setTemplates([])); }, []);
+  // Field forms (doc_type 'form') are filled from Fill a Form, never made into a document.
+  useEffect(() => { api.getDocTemplates({ status: 'active' }).then((ts) => setTemplates((ts || []).filter((t) => t.docType !== 'form'))).catch(() => setTemplates([])); }, []);
 
   const people = useMemo(() => {
     const seen = new Set();
@@ -73,7 +76,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
   const person = people.find(p => p.email === personEmail) || null;
   const template = templates.find(t => t.id === templateId) || null;
   const suggestedTitle = template ? (person ? `${template.name} - ${person.name}` : template.name) : '';
-  const shownTitle = titleTyped ? title : (suggestedTitle || title);
+  const shownTitle = (importFile ? fileTitle : suggestedTitle) || '';
   const pickPerson = (email) => {
     setPersonEmail(email);
     const company = people.find(p => p.email === email)?.company;
@@ -107,7 +110,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
     setImportFile(file);
     setTemplateId('');
     setFieldDefs([]); setFillValues({}); setFillErrors({});
-    if (!shownTitle.trim()) { setTitle(file.name.replace(/\.[^.]+$/, '')); setTitleTyped(true); }
+    setFileTitle(file.name.replace(/\.[^.]+$/, ''));
   };
 
   const onPickImportFile = (e) => {
@@ -121,8 +124,8 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
     setEgnyteOpen(false);
   };
 
-  // The name is optional (Neil, 11/10/2026): blank is "Untitled Document" and
-  // the editor asks for a real one on Close (lib/untitled.js).
+  // With nothing to name it from it is "Untitled Document" and the editor asks
+  // for a real one on Close (lib/untitled.js).
   const create = async () => {
     // Required-field guard mirrors the server's own check (documents.py
     // create_document) - client-side so the user sees it inline instead of
@@ -178,26 +181,13 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
   return (
     <div className="modal-overlay" style={{ ...overlayStyle, alignItems: undefined, justifyContent: undefined, padding: undefined }} onClick={onClose}>
       <div className="modal-content nx-popup" style={{ ...cardStyle, display: 'flex', flexDirection: 'column', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-        <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700 }}>New Document</div>
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700 }}>{initialFile ? 'Open a File' : 'New From a Template'}</div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14, flex: '1 0 auto' }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Name (optional)</label>
-            <input className="form-input" style={{ width: '100%' }} autoFocus value={shownTitle} aria-label="Name"
-              onChange={e => { setTitle(e.target.value); setTitleTyped(true); }} placeholder="Untitled Document - you can name it later"
-              onKeyDown={e => e.key === 'Enter' && create()} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Folder</label>
-            <select className="form-input" style={{ width: '100%' }} value={folderId} onChange={e => setFolderId(e.target.value)}>
-              <option value="">No folder</option>
-              {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Start from template (optional)</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Start From</label>
             <select className="form-input" style={{ width: '100%', opacity: importFile ? 0.5 : 1 }} value={templateId} disabled={!!importFile}
               onChange={e => setTemplateId(e.target.value)}>
-              <option value="">Blank document</option>
+              <option value="">Blank Document</option>
               {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
@@ -240,7 +230,14 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
           )}
 
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Import from file (optional)</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Folder</label>
+            <select className="form-input" style={{ width: '100%' }} value={folderId} onChange={e => setFolderId(e.target.value)}>
+              <option value="">No Folder</option>
+              {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Or Open a File</label>
             {importFile ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
                 <FileText size={14} />
@@ -252,22 +249,23 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
               <div style={{ display: 'flex', gap: 6 }}>
                 <button onClick={() => importInputRef.current?.click()} disabled={!!templateId}
                   style={{ background: 'none', border: '1px dashed var(--line)', borderRadius: 8, padding: '9px 12px', flex: 1, cursor: templateId ? 'default' : 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--ink)', opacity: templateId ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-                  <Upload size={14} /> Choose file…
+                  <Upload size={14} /> Choose File...
                 </button>
                 <button onClick={() => setEgnyteOpen(true)} disabled={!!templateId}
                   style={{ background: 'none', border: '1px dashed var(--line)', borderRadius: 8, padding: '9px 12px', flex: 1, cursor: templateId ? 'default' : 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--ink)', opacity: templateId ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-                  <Cloud size={14} /> Browse Egnyte…
+                  <Cloud size={14} /> Browse Egnyte...
                 </button>
               </div>
             )}
             {egnyteOpen && <EgnyteBrowser onPick={onPickEgnyteFile} onClose={() => setEgnyteOpen(false)} />}
             <input ref={importInputRef} type="file" accept=".docx,.doc,.pdf,.txt" onChange={onPickImportFile} style={{ display: 'none' }} />
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-            {templateId && !importFile ? 'Made from the published wording. It opens beside the list, ready to send.' : 'Opens straight into the editor once created.'}
+          <div className="nx-newdoc-name" aria-live="polite">
+            <span>Saved as <strong>{shownTitle.trim() || UNTITLED_DOCUMENT}</strong>{shownTitle.trim() ? '' : ' until you name it'}.</span>
+            <span>{templateId && !importFile ? 'Made from the published wording. It opens beside the list, ready to send. Rename it any time.' : 'Opens straight into the editor. You name it when you close it.'}</span>
           </div>
         </div>
-        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10, position: 'sticky', bottom: 0, background: 'var(--card)' }}>
           <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button className="primary-btn" disabled={busy} onClick={create} style={{ opacity: busy ? 0.6 : 1 }}>
             {busy ? (importFile ? 'Importing…' : 'Creating…') : (templateId && !importFile ? 'Make Document' : 'Create Draft')}
@@ -543,13 +541,11 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
           </div>
           <input ref={importRef} type="file" accept=".docx,.doc,.pdf,.txt,.xlsx,.xls,.csv" style={{ display: 'none' }} aria-label="Import a file"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) { if (SHEET_FILE.test(f.name)) newSheet(f); else setCreateOpen({ file: f }); } e.target.value = ''; }} />
-          <button type="button" className="secondary-btn" title="Open a Word, PDF, text, Excel or CSV file as a new document or sheet" onClick={() => importRef.current?.click()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Upload size={14} /> Import
-          </button>
           <button type="button" className="secondary-btn" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
             Send For Signature
           </button>
-          {/* New Document opens a blank draft at once; its arrow offers a template or a file. */}
+          {/* New Document opens a blank draft at once (named on Close); its arrow
+              holds a blank sheet, a template and a file (Word, PDF, Excel...). */}
           <span className="nx-dl-split" role="group" aria-label="New Document">
             <button type="button" className="primary-btn" data-tour="documents-new-document" disabled={makingDoc} onClick={newDocument}>
               <FilePlus2 size={14} /> {makingDoc ? 'Opening...' : 'New Document'}
@@ -565,19 +561,17 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
               <FilePlus2 size={14} /><span>Blank Document</span>
             </button>
             <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); newSheet(); }}>
-              <SheetIcon size={14} /><span>Blank Sheet</span>
+              <SheetIcon size={14} /><span>{makingSheet ? 'Making...' : 'Blank Sheet'}</span>
             </button>
             <div className="doc-ribbon-sep" role="separator" />
             <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); setCreateOpen(true); }}>
               <LayoutTemplate size={14} /><span>From a Template...</span>
             </button>
-            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); importRef.current?.click(); }}>
-              <Upload size={14} /><span>Import a File...</span>
+            <button type="button" role="menuitem" className="doc-ribbon-item" title="Open a Word, PDF, text, Excel or CSV file as a new document or sheet"
+              onClick={() => { setNewMenuOpen(false); importRef.current?.click(); }}>
+              <Upload size={14} /><span>Open a File...</span>
             </button>
           </AnchoredMenu>
-          <button type="button" className="secondary-btn" disabled={makingSheet} onClick={() => newSheet()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <SheetIcon size={14} /> {makingSheet ? 'Making...' : 'New Sheet'}
-          </button>
         </div>
 
         <AsyncSection

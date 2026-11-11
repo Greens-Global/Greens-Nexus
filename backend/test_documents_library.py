@@ -233,3 +233,25 @@ class OnePublishTests(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MineFlagTests(_Base):
+    """GET /documents/{id} and /documents/templates/{id} say whether the row is
+    the caller's own: the builder drops a blank, unnamed draft on Close only
+    when it is (11/11/2026) - never an administrator's reach into someone
+    else's."""
+
+    def test_a_document_is_mine_only_for_its_owner(self):
+        self.as_user(STAFF)
+        did = self.client.post("/documents", json={"title": "Untitled Document"}).json()["id"]
+        self.assertTrue(self.client.get(f"/documents/{did}").json()["mine"])
+        self.as_user(ADMIN)
+        r = self.client.get(f"/documents/{did}").json()
+        self.assertEqual(r["access"], "owner")   # an administrator's reach...
+        self.assertFalse(r["mine"])              # ...is not ownership
+
+    def test_a_template_is_mine_for_whoever_made_it(self):
+        tid = self.client.post("/documents/templates", json={"name": "Untitled Template", "category": "general", "status": "draft"}).json()["id"]
+        self.assertTrue(self.client.get(f"/documents/templates/{tid}").json()["mine"])
+        self.as_user(STAFF)
+        self.assertFalse(self.client.get(f"/documents/templates/{tid}").json()["mine"])

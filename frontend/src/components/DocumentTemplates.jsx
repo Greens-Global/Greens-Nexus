@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, FileText, Award, Star } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Search, Plus, FileText, Award, Star, ChevronDown, FileUp, Sparkles } from 'lucide-react';
+import AnchoredMenu from './AnchoredMenu';
+import { TEMPLATE_CATEGORIES } from '../lib/templateCategories';
+import { UNTITLED_TEMPLATE } from '../lib/untitled';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import DocumentBuilder from './DocumentBuilder';
@@ -23,93 +26,11 @@ import HoldButton from '../ui/HoldButton';
 // beside the list with its page and every action by name. DocumentBuilder (kind=
 // "template") edits - same in-tab-replace convention as the library / E-Sign
 // (a plain early return, not a portal).
-const CATEGORIES = [
-  ['letterhead', 'Letterhead'], ['hr', 'HR'], ['legal', 'Legal'], ['finance', 'Finance'],
-  ['operations', 'Operations'], ['sales', 'Sales'], ['engineering', 'Engineering'], ['general', 'General'],
-  // One per role - the Job Description a hiring packet picks per hire (Oct 14).
-  ['job_description', 'Job Description'],
-  // The single document an offer is - one per kind of hire (Neil, Oct 14).
-  ['offer_letter', 'Offer Letter'],
-];
+const CATEGORIES = TEMPLATE_CATEGORIES;
 
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const cardStyle = { background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)' };
 
-function CreateTemplateModal({ letterheads, onClose, onCreated, toastErr }) {
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState('general');
-  const [department, setDepartment] = useState('');
-  const [requiresLetterhead, setRequiresLetterhead] = useState(false);
-  const [letterheadId, setLetterheadId] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const create = () => {
-    if (!name.trim()) return;
-    setBusy(true);
-    api.createDocTemplate({ name: name.trim(), category, department: department.trim(), status: 'draft', requiresLetterhead, letterheadId: requiresLetterhead ? letterheadId : '' })
-      .then(t => { onCreated(t); onClose(); })
-      .catch(e => toastErr?.(e.message || 'Failed to create template'))
-      .finally(() => setBusy(false));
-  };
-
-  // A form, so a sheet from the right (CLAUDE.md popups) - the same shape as
-  // New Document: the Sheets CSS block keys on .modal-overlay > .modal-content.nx-popup.
-  return (
-    <div className="modal-overlay" style={{ ...overlayStyle, alignItems: undefined, justifyContent: undefined, padding: undefined }} onClick={onClose}>
-      <div className="modal-content nx-popup" style={{ ...cardStyle, display: 'flex', flexDirection: 'column', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-        <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700 }}>New Template</div>
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Name</label>
-            <input className="form-input" style={{ width: '100%' }} autoFocus value={name}
-              onChange={e => setName(e.target.value)} placeholder="e.g. Vendor Contract"
-              onKeyDown={e => e.key === 'Enter' && create()} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Category</label>
-            <select className="form-input" style={{ width: '100%' }} value={category} onChange={e => setCategory(e.target.value)}>
-              {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Owning department</label>
-            <input className="form-input" style={{ width: '100%' }} value={department}
-              onChange={e => setDepartment(e.target.value)} placeholder="e.g. Legal"
-              onKeyDown={e => e.key === 'Enter' && create()} />
-            {/* Requirement 12: department heads maintain their own department's
-                approved language. Blank makes it company-wide, which only an
-                administrator can create or edit. */}
-            <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>
-              Department heads maintain their own department's templates. Leave blank for a
-              company-wide template (administrators only).
-            </p>
-          </div>
-          {/* Requirement 3: only a published template can be generated from, so
-              a draft is the safe place to build one up before anyone uses it. */}
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
-            It starts as a Draft. Once you publish it, people can make documents from it and HR packets can pick it.
-          </p>
-          <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
-            <input type="checkbox" checked={requiresLetterhead} onChange={e => setRequiresLetterhead(e.target.checked)} />
-            Requires a letterhead
-          </label>
-          {requiresLetterhead && (
-            <select className="form-input" style={{ width: '100%' }} value={letterheadId} onChange={e => setLetterheadId(e.target.value)}>
-              <option value="">Use org default</option>
-              {letterheads.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
-          )}
-        </div>
-        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-          <button className="primary-btn" disabled={!name.trim() || busy} onClick={create} style={{ opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
-            {busy ? 'Creating…' : 'Create & Edit'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // A new letterhead is a draft (the Settings save pattern, Oct 23 2026):
 // it says so to the group (lib/groupDirty.js) and has the one Save row at its
@@ -362,9 +283,14 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('current');   // current|published|changes|draft|archived
   const [templates, setTemplates] = useState(null);
-  const [letterheads, setLetterheads] = useState([]);
   const [folders, setFolders] = useState([]);
-  const [createOpen, setCreateOpen] = useState(false);
+  // New Template (Neil, 11/11/2026: "I don't like the step where it makes
+  // you name it before you make one"): a blank draft opens in the editor at
+  // once; closing it asks for the name and category. Its arrow holds the
+  // other ways to start one and the letterheads.
+  const [makingTpl, setMakingTpl] = useState(false);
+  const [tplMenuOpen, setTplMenuOpen] = useState(false);
+  const tplMenuRef = useRef(null);
   const [wordOpen, setWordOpen] = useState(false);       // New template from a Word file (Oct 14)
   // Open In Documents from an HR packet (Oct 14) lands straight in the editor.
   // ?template=<id> opens one in a new tab (Make An Offer's Preview, Neil 11/04/2026).
@@ -379,11 +305,22 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
   // ever reached a brand-new library.
   const { can } = useRole();
   const isAdmin = can('administrator');
+  const newTemplate = async () => {
+    if (makingTpl) return;
+    setMakingTpl(true);
+    try {
+      const t = await api.createDocTemplate({ name: UNTITLED_TEMPLATE, category: 'general', status: 'draft' });
+      setEditingId(t.id);
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not start the template.');
+    } finally {
+      setMakingTpl(false);
+    }
+  };
 
   const load = () => api.getDocTemplates({}).then(setTemplates).catch(() => setTemplates([]));
 
   useEffect(() => { load(); }, []);
-  useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
   useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
 
   const visible = useMemo(() => {
@@ -443,19 +380,36 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
             <option value="draft">{TEMPLATE_STATES.draft.label}</option>
             <option value="archived">{TEMPLATE_STATES.archived.label}</option>
           </select>
-          {isAdmin && templates?.length > 0 && (
-            <button className="secondary-btn" disabled={seeding} onClick={seedStarters} title="Add any starter template the library does not have yet">
-              {seeding ? 'Adding…' : 'Add Starter Templates'}
+          <span className="nx-dl-split" role="group" aria-label="New Template">
+            <button className="primary-btn" data-tour="documents-new-template" disabled={makingTpl} onClick={newTemplate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Plus size={14} /> {makingTpl ? 'Opening...' : 'New Template'}
             </button>
-          )}
-          <button className="secondary-btn" title="Letterheads are under Settings > Branding & Email"
-            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'branding:letterheads' } }))}>
-            Letterheads
-          </button>
-          <button className="secondary-btn" onClick={() => setWordOpen(true)} title="Nexus reads the Word file and finds every blank and signature line">From Word File</button>
-          <button className="primary-btn" data-tour="documents-new-template" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Plus size={14} /> New Template
-          </button>
+            <button ref={tplMenuRef} type="button" className="primary-btn nx-dl-split-arrow" aria-label="More ways to start a template" title="More ways to start a template"
+              aria-haspopup="menu" aria-expanded={tplMenuOpen} onClick={() => setTplMenuOpen((o) => !o)}>
+              <ChevronDown size={14} />
+            </button>
+          </span>
+          <AnchoredMenu anchorRef={tplMenuRef} open={tplMenuOpen} onClose={() => setTplMenuOpen(false)} align="end"
+            className="doc-toolbar doc-ribbon doc-ribbon-panel" style={{ width: 250 }}>
+            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setTplMenuOpen(false); newTemplate(); }}>
+              <Plus size={14} /><span>Blank Template</span>
+            </button>
+            <button type="button" role="menuitem" className="doc-ribbon-item" title="Nexus reads the Word file and finds every blank and signature line"
+              onClick={() => { setTplMenuOpen(false); setWordOpen(true); }}>
+              <FileUp size={14} /><span>From a Word File...</span>
+            </button>
+            {isAdmin && templates?.length > 0 && (
+              <button type="button" role="menuitem" className="doc-ribbon-item" disabled={seeding} title="Add any starter template the library does not have yet"
+                onClick={() => { setTplMenuOpen(false); seedStarters(); }}>
+                <Sparkles size={14} /><span>{seeding ? 'Adding…' : 'Add Starter Templates'}</span>
+              </button>
+            )}
+            <div className="doc-ribbon-sep" role="separator" />
+            <button type="button" role="menuitem" className="doc-ribbon-item" title="Letterheads are under Settings > Branding & Email"
+              onClick={() => { setTplMenuOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'branding:letterheads' } })); }}>
+              <Award size={14} /><span>Letterheads</span>
+            </button>
+          </AnchoredMenu>
         </div>
 
         {!templates ? (
@@ -508,11 +462,6 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
           onClose={() => setSelectedId('')} onEdit={setEditingId} onUse={(t) => setUseId(t.id)} onDepartment={setDepartmentOf} />
       )}
 
-      {createOpen && (
-        <CreateTemplateModal letterheads={letterheads} toastErr={toastErr}
-          onClose={() => setCreateOpen(false)}
-          onCreated={(t) => { toastOk?.('Template created'); setEditingId(t.id); }} />
-      )}
       {wordOpen && (
         <WordTemplateWizard categories={CATEGORIES.filter(([v]) => v !== 'letterhead')} toastErr={toastErr}
           onClose={() => { setWordOpen(false); load(); }}

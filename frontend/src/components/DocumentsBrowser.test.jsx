@@ -279,6 +279,7 @@ describe('New Document', () => {
     render(<DocumentsBrowser employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'More ways to start a document' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: /From a Template/ }));
+    expect(await screen.findByText('Untitled Document')).toBeTruthy();
     const create = await screen.findByRole('button', { name: 'Create Draft' });
     expect(create.disabled).toBe(false);
     fireEvent.click(create);
@@ -293,11 +294,26 @@ describe('New Document', () => {
     const option = await screen.findByRole('option', { name: 'Offer Letter' });
     fireEvent.change(option.closest('select'), { target: { value: 't1' } });
     fireEvent.change(person, { target: { value: 'jordan@greensglobal.com' } });
-    expect(screen.getByDisplayValue('Offer Letter - Jordan Lee')).toBeTruthy();
+    // No name box: the name it is saved under is shown, and can change in the editor.
+    expect(document.querySelector('.nx-newdoc-name strong').textContent).toBe('Offer Letter - Jordan Lee');
+    expect(screen.queryByLabelText('Name')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Make Document' }));
     await waitFor(() => expect(createDocument).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Offer Letter - Jordan Lee', templateId: 't1', employeeId: 'emp-1', entityId: 'ent-1',
     })));
+  });
+});
+
+describe('The toolbar', () => {
+  it('keeps one New Document button; Blank Sheet and Open a File are under its arrow', async () => {
+    render(<DocumentsBrowser toastOk={() => {}} />);
+    await screen.findByRole('button', { name: 'More ways to start a document' });
+    expect(screen.queryByRole('button', { name: /^New Sheet/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Import$/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'More ways to start a document' }));
+    for (const n of ['Blank Document', 'Blank Sheet', 'From a Template...', 'Open a File...']) {
+      expect(await screen.findByRole('menuitem', { name: n })).toBeTruthy();
+    }
   });
 });
 
