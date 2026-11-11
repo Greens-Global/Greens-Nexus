@@ -604,8 +604,11 @@ function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen, onPageCount })
     let live = true;
     (async () => {
       try {
-        const pdfjs = await import('pdfjs-dist');
-        pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+        // Legacy build (11/12/2026): the modern one needs browser functions an
+        // older phone lacks, and the signer saw an error instead of the page.
+        // scripts/check-pdfjs-legacy.mjs keeps every import on it.
+        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')).default;
         const buf = file ? await file.arrayBuffer() : await (await fetch(url)).arrayBuffer();
         const pdf = await pdfjs.getDocument({ data: buf }).promise;
         const out = [];
