@@ -5,9 +5,9 @@ import { formatDate } from '../lib/datetime';
 import { currencyOptions, moneyPrefix } from '../asset/lib/currency';
 import { timeTrackingText } from '../lib/timeTracking';
 import { useNameResolver } from '../lib/useNameResolver';
-import { dialog } from '../ui/dialog';
 import { DateField } from '../tasks/components';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
+import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import MealWaiverCard from '../components/MealWaiverCard';
 import { useTabDraft } from './useTabDraft';
@@ -47,6 +47,10 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
   const [stubPeriod, setStubPeriod] = useState('');
   const [stubBusy, setStubBusy] = useState(false);
   const [stepLocked, setStepLocked] = useState(false);   // comp/bank need a fresh step-up
+  // A failed read is an error with Retry, never an empty record (11/11/2026):
+  // an empty record offered Edit, and a save from it replaced the real pay
+  // and bank accounts with blanks.
+  const [loadError, setLoadError] = useState('');
   const [reload, setReload] = useState(0);
   const stubFileRef = useRef(null);
   const nameOf = useNameResolver();   // "Changed by" shows a name, never a raw email
@@ -58,12 +62,13 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
       .then(r => {
         if (!live) return;
         setStepLocked(false);
+        setLoadError('');
         setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [], gstin: r.gstin || '', pan: r.pan || '', ownPayLocked: !!r.ownPayLocked });
       })
       .catch(e => {
         // Compensation/bank require a fresh step-up MFA - show the Verify gate.
         if (isStepUpRequired(e)) { if (live) setStepLocked(true); return; }
-        if (live) setData({ comp: {}, bank: [], payroll: {}, rateHistory: [], gstin: '', pan: '' });
+        if (live) { setData(null); setLoadError(e?.message || 'Could not load pay and benefits.'); }
       });
     if (!readOnly) api.getWorkersCompRates(employee.id).then(r => { if (live) setWc(r || { rates: [], history: [] }); }).catch(() => {});
     api.hrPaystubs(employee.id).then(r => { if (live) setStubs(Array.isArray(r) ? r : []); }).catch(() => {});
@@ -138,11 +143,13 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
     finally { setStubBusy(false); if (stubFileRef.current) stubFileRef.current.value = ''; }
   };
   const openStub = async (id) => {
-    try { const { url } = await api.getDocUrl(id); window.open(url, '_blank', 'noopener'); } catch { /* noop */ }
+    try { const { url } = await api.getDocUrl(id); window.open(url, '_blank', 'noopener'); }
+    catch (e) { toastErr?.(e?.message || 'Could not open the paystub.'); }
   };
+  // One record, gone for good: held on its row (HOLD_RECORD_MS); a refusal shows under the button.
   const deleteStub = async (id) => {
-    if (!await dialog.confirm('Delete this paystub?', { title: 'Delete Paystub', confirmText: 'Delete', danger: true })) return;
-    try { await api.deleteEmployeeDoc(id); setStubs(s => s.filter(x => x.id !== id)); } catch { /* noop */ }
+    await api.deleteEmployeeDoc(id);
+    setStubs(s => s.filter(x => x.id !== id));
   };
 
   const d = t.draft || saved;
@@ -168,9 +175,10 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
         <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <Lock size={12} /> {readOnly ? 'Read only · your direct report' : 'Restricted · compensation grant'}
         </span>
-        {!readOnly && data && !t.editing && <EditButton onClick={t.startEdit} />}
+        {!readOnly && data && !loadError && !t.editing && <EditButton onClick={t.startEdit} />}
       </SectionHead>
-      {!data ? <SkeletonBlocks count={4} height={44} /> : (
+      {loadError ? <ErrorBanner message={loadError} onRetry={() => { setLoadError(''); setReload(n => n + 1); }} />
+        : !data ? <SkeletonBlocks count={4} height={44} /> : (
         <>
           {t.editing && locked && (
             <div data-testid="own-pay-hint" style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -398,9 +406,8 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
                 </button>
                 <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{formatDate(s.createdAt?.slice(0, 10))}</span>
                 {!readOnly && (
-                  <button type="button" onClick={() => deleteStub(s.id)} title="Delete" aria-label="Delete Paystub" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
-                    <Trash2 size={13} />
-                  </button>
+                  <HoldButton label="Delete" doneLabel="Deleted" size="sm" holdMs={HOLD_RECORD_MS}
+                    ariaLabel="Delete Paystub" onConfirm={() => deleteStub(s.id)} />
                 )}
               </div>
             ))}

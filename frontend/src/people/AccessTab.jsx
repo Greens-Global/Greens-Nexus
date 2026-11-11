@@ -18,7 +18,7 @@
 import { useEffect, useState } from 'react';
 import { Shield, Plus, X } from 'lucide-react';
 import { api } from '../api';
-import { Spinner } from '../components/AsyncState';
+import { Spinner, ErrorBanner } from '../components/AsyncState';
 import HoldButton from '../ui/HoldButton';
 import { dialog } from '../ui/dialog';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
@@ -60,9 +60,13 @@ export default function AccessTab({
   const setExt = (v) => setFetchedExt({ email, v });
   const who = nameOf(email) || email;
 
+  // A failed read is an error with Retry (11/11/2026) - never a made-up
+  // Employee tier with "No job role yet" and Set Job Role offered over it.
+  const [loadErr, setLoadErr] = useState({ email: null, v: '' });
+  const loadError = loadErr.email === email ? loadErr.v : '';
   const load = () => api.getEffectiveAccess(email)
-    .then(setData)
-    .catch(() => setData({ tier: 'employee', job_role: null, extra_groups: [], modules: [] }));
+    .then((v) => { setLoadErr({ email, v: '' }); setData(v); })
+    .catch((e) => setLoadErr({ email, v: e?.message || 'Could not load access.' }));
   const loadScopes = () => api.getAccessScopes(email).then((s) => setScopes(Array.isArray(s) ? s : [])).catch(() => setScopes([]));
   const loadExt = () => api.getExternalUsers()
     .then((rows) => setExt((rows || []).find((r) => (r.email || '').toLowerCase() === (email || '').toLowerCase()) || null))
@@ -79,6 +83,7 @@ export default function AccessTab({
   }, []);
 
   if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet - provision their account first to manage access.</div>;
+  if (!data && loadError) return <ErrorBanner message={loadError} onRetry={() => { setLoadErr({ email, v: '' }); load(); }} />;
   if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>;
 
   const refresh = () => { load(); onChanged?.(); };

@@ -954,7 +954,19 @@ def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session
     if len(q) < 2:
         raise HTTPException(400, "q too short")
     match = None
-    for e in db.query(NexusEmployee).filter(NexusEmployee.status != "offboarded").all():
+    # The company wall, exactly as /myhr/directory applies it (People review,
+    # 11/11/2026): a hover card never names someone the caller's pickers hide.
+    import auth
+    from sqlalchemy import false, or_
+    pq = db.query(NexusEmployee).filter(NexusEmployee.status != "offboarded")
+    scope = auth.company_scope(user, db)
+    if scope is not None:
+        blank = or_(NexusEmployee.company.is_(None), NexusEmployee.company == "")
+        if auth.admits_blank(scope):
+            pq = pq.filter(or_(NexusEmployee.company.in_(list(scope)), blank) if scope else blank)
+        else:
+            pq = pq.filter(NexusEmployee.company.in_(list(scope))) if scope else pq.filter(false())
+    for e in pq.all():
         # Both spellings are searchable: people type the Teams name they see,
         # but older links and emails still carry the first+last form.
         names = {f"{e.first_name} {e.last_name}".strip().lower(), _person_name(e).lower()} - {""}
@@ -965,7 +977,6 @@ def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session
             match = e
     if not match:
         raise HTTPException(404, "No matching person")
-    import auth
     return {"name": _person_name(match),
             "jobTitle": match.job_title, "department": match.department,
             "photoUrl": match.photo_url, "workEmail": match.work_email,
