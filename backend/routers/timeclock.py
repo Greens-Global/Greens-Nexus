@@ -11432,6 +11432,18 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # Auto-lunch: deduct a lunch from a long segment that recorded no break, before
     # any totals/overtime are computed (so the deduction flows through to pay).
     al = _autolunch_cfg(db, _co)
+    # SwipeClock's payroll record is the hours worked as paid (Charmi,
+    # 11/12/2026): a segment loaded from it never gets an auto-lunch - its
+    # lunch is already the gap between its pairs (Ashley 09/14: 8:25-2:30,
+    # 3:25-5:40 lost 30 min). Batches whose reason starts "SwipeClock".
+    _rec_batches = {p.batch_id for p in punches if p.batch_id
+                    and (getattr(p, "entry_source", "") or "") == _RECORD_SOURCE}
+    _sw_batches = {b for (b,) in db.query(TimeEntryBatch.id).filter(
+        TimeEntryBatch.id.in_(_rec_batches), TimeEntryBatch.reason.like("SwipeClock%")).all()} if _rec_batches else set()
+
+    def _from_swipeclock(s):
+        p = _punch_by_id.get(s.get("inId"))
+        return bool(p and p.batch_id in _sw_batches)
     total_deducted = 0
     for segs in segs_by_day.values():
         for s in segs:
@@ -11440,6 +11452,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             # A leave block (sick / vacation) is entered as a whole - no lunch
             # was taken out of it, so nothing to deduct.
             if al["enabled"] and al["deductMin"] and s.get("out") and not s["payClass"] and \
+               not _from_swipeclock(s) and \
                s["workedMin"] >= al["afterMin"] and int(s.get("_break", 0)) == 0:
                 ded = min(al["deductMin"], s["workedMin"])
                 s["workedMin"] -= ded
