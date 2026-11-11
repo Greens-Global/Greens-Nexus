@@ -2366,7 +2366,7 @@ export const DOCS = [
     manager: {
       title: 'Writers',
       points: [
-        'People with Tasks or Tickets access can add an update (Add New Update) and comment. A manager publishes it and runs Manage.',
+        'People with Tasks or Tickets access can add an update (Add New Update) and comment - it waits as Pending Review until a manager publishes it. Only managers and above publish, edit, delete, pin or change the status of an update, and run Manage.',
         'Work merged into Nexus is published there on its own.',
       ],
     },
@@ -2438,7 +2438,7 @@ export const DOCS = [
         title: 'See What Someone Else Sees',
         steps: [
           'Open your profile menu (top right) and click Act As under Tools, or press A with the menu open.',
-          'Type part of a name, title, company or site and pick the person (Up / Down, then Enter). Nexus shows their view, with a banner saying who you are acting as.',
+          'Type part of a name, title, company or site and pick the person (Up / Down, then Enter). A manager is offered only the people in their own reporting line; an administrator, everyone in their companies. Nexus shows their view, with a banner saying who you are acting as.',
           'Stop acting as them from the banner when you are done.',
         ],
       },

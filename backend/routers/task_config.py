@@ -1433,22 +1433,27 @@ def _mark_changelog_seen(db: Session, email: str) -> None:
 def create_changelog(body: ChangelogEntryBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     from routers.changelog_lifecycle import clean_payload
     now = now_iso()
-    e = models.TaskChangelogEntry(id=body.id or gen_id(), payload=clean_payload(_stored_payload(body.payload), None),
+    payload = _stored_payload(body.payload)
+    # Below the Manager tier an entry is a SUBMISSION (Neil, Oct 12 2026):
+    # it lands as Pending Review whatever the body says, so nobody is belled.
+    if user["level"] < 3:
+        payload = {**payload, "status": "Pending Review"}
+    e = models.TaskChangelogEntry(id=body.id or gen_id(), payload=clean_payload(payload, None),
                                   created_at=now, updated_at=now)
     db.add(e)
-    if (body.payload or {}).get("status") == "Released":
+    if payload.get("status") == "Released":
         _mark_changelog_seen(db, user["email"])
     import changelog_reach
     changelog_reach.record_history(db, e.id, user["email"], "created", {})
     db.commit()
     db.refresh(e)
-    if (body.payload or {}).get("status") == "Released":
+    if payload.get("status") == "Released":
         changelog_reach.on_released(db, [e])
     return changelog_entry_to_dict(e)
 
 
 @router.patch("/task-changelog/{entry_id}")
-def update_changelog(entry_id: str, body: ChangelogEntryBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def update_changelog(entry_id: str, body: ChangelogEntryBody, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     e = db.query(models.TaskChangelogEntry).filter(models.TaskChangelogEntry.id == entry_id).first()
     if not e:
         raise HTTPException(404, "Changelog entry not found")
@@ -1689,7 +1694,7 @@ def get_released_since(since: str = "", user: dict = Depends(get_current_user), 
     return {**_category_counts(rows), "items": _release_items(db, rows)}
 
 
-@router.delete("/task-changelog/{entry_id}", status_code=204)
+@router.delete("/task-changelog/{entry_id}", status_code=204, dependencies=[Depends(require_manager)])
 def delete_changelog(entry_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskChangelogEntry).filter(models.TaskChangelogEntry.id == entry_id).delete()
     db.query(models.TaskChangelogComment).filter(models.TaskChangelogComment.entry_id == entry_id).delete()
