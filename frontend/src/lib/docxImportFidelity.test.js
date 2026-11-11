@@ -618,3 +618,50 @@ describe('the editor canvas renders those sizes at true scale', () => {
     expect(approxCharsPerLine).toBeLessThan(130);
   });
 });
+
+// Word's tabs (Neil, 11/11/2026): a w:tab is a real tab now, not four
+// spaces, and a paragraph's w:tabs are its stops (positions from the margin).
+describe('Word import keeps tabs and tab stops', () => {
+  it('reads a right tab stop and the tab that reaches it; a style\'s stop can be cleared', async () => {
+    const styles = `<?xml version="1.0"?><w:styles ${DOC_NS}><w:style w:type="paragraph" w:styleId="Sig"><w:pPr><w:tabs><w:tab w:val="left" w:pos="2880"/></w:tabs></w:pPr></w:style></w:styles>`;
+    const body = '<w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="9360"/><w:tab w:val="center" w:pos="4680"/></w:tabs></w:pPr>'
+      + '<w:r><w:t>Employee</w:t></w:r><w:r><w:tab/><w:t>Date</w:t></w:r></w:p>'
+      + '<w:p><w:pPr><w:pStyle w:val="Sig"/><w:tabs><w:tab w:val="clear" w:pos="2880"/><w:tab w:val="decimal" w:pos="5760"/></w:tabs></w:pPr><w:r><w:t>Total</w:t><w:tab/><w:t>12.50</w:t></w:r></w:p>';
+    const { body: doc } = await convertDocxToTiptap(await docxFile(body, { styles }), {});
+    const [p1, p2] = doc.content;
+    expect(p1.attrs.tabStops).toEqual([{ pos: 234, align: 'center' }, { pos: 468, align: 'right' }]);
+    expect(p1.content.map((n) => n.type)).toEqual(['text', 'tab', 'text']);
+    expect(p2.attrs.tabStops).toEqual([{ pos: 288, align: 'decimal' }]);
+    expect(JSON.stringify(p2)).not.toContain('    ');
+  });
+});
+
+// The Word redesign (Neil, 11/11/2026): variables, notes and a later
+// section's header come through.
+describe('Word import brings variables, notes and headers', () => {
+  it('reads «Name» text and a simple MERGEFIELD as variables', async () => {
+    const body = '<w:p><w:r><w:t xml:space="preserve">Dear «First_Name», welcome to </w:t></w:r>'
+      + '<w:fldSimple w:instr=" MERGEFIELD company \\* MERGEFORMAT "><w:r><w:t>«company»</w:t></w:r></w:fldSimple></w:p>';
+    const { body: doc } = await convertDocxToTiptap(await docxFile(body), {});
+    const p = doc.content[0];
+    expect(p.content.filter((n) => n.type === 'mergeField').map((n) => n.attrs.token)).toEqual(['first_name', 'company']);
+    expect(JSON.stringify(p)).not.toContain('«');
+  });
+
+  it('reads an endnote as a footnote, in place', async () => {
+    const body = '<w:p><w:r><w:t>Rent</w:t></w:r><w:r><w:endnoteReference w:id="2"/></w:r><w:r><w:t xml:space="preserve"> is due monthly.</w:t></w:r></w:p>';
+    const file = await docxWithParts({ body, parts: { 'word/endnotes.xml': `<?xml version="1.0"?><w:endnotes ${DOC_NS}><w:endnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:endnote><w:endnote w:id="2"><w:p><w:r><w:t>Before the 5th.</w:t></w:r></w:p></w:endnote></w:endnotes>` } });
+    const { body: doc } = await convertDocxToTiptap(file, {});
+    expect(doc.content[0].content.map((n) => n.type)).toEqual(['text', 'footnote', 'text']);
+    expect(doc.content[0].content[1].attrs.text).toBe('Before the 5th.');
+  });
+
+  it('takes the header of the first section that has one', async () => {
+    const hdr = `<?xml version="1.0"?><w:hdr ${DOC_NS}><w:p><w:r><w:t>Section Two Header</w:t></w:r></w:p></w:hdr>`;
+    const body = '<w:p><w:pPr><w:sectPr/></w:pPr><w:r><w:t>One</w:t></w:r></w:p><w:p><w:r><w:t>Two</w:t></w:r></w:p>'
+      + '<w:sectPr><w:headerReference w:type="default" r:id="rIdH"/></w:sectPr>';
+    const file = await docxWithParts({ body, rels: [{ id: 'rIdH', type: 'header', target: 'header1.xml' }], parts: { 'word/header1.xml': hdr } });
+    const { header } = await convertDocxToTiptap(file, {});
+    expect(JSON.stringify(header)).toContain('Section Two Header');
+  });
+});

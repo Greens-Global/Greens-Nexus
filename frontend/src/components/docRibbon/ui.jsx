@@ -14,14 +14,25 @@
 // `doc-toolbar doc-ribbon` so every ribbon button rule still styles what is
 // inside it (`.doc-ribbon-panel.doc-toolbar` resets the shape, style.css).
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronDown, MoreHorizontal, Search } from 'lucide-react';
+import { ArrowDownRight, ChevronDown, MoreHorizontal, Search } from 'lucide-react';
 import AnchoredMenu from '../AnchoredMenu';
 
-export function Group({ label, children, className = '' }) {
+// `onLaunch` draws Word's dialog launcher - the small arrow in the group's
+// corner that opens the whole dialog (Font, Paragraph, Page Setup).
+export function Group({ label, children, className = '', onLaunch, launchTitle }) {
   return (
     <div className={`doc-ribbon-group ${className}`.trim()}>
       <div className="doc-ribbon-items">{children}</div>
-      {label && <div className="doc-ribbon-caption">{label}</div>}
+      {label && (
+        <div className="doc-ribbon-caption">
+          {label}
+          {onLaunch && (
+            <button type="button" className="doc-ribbon-launch" onClick={onLaunch} title={launchTitle || `${label} Settings`} aria-label={launchTitle || `${label} Settings`}>
+              <ArrowDownRight size={10} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

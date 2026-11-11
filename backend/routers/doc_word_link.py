@@ -88,5 +88,7 @@ def word_file(token: str, filename: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Document not found")
     user = {"email": email, "role": "", "level": auth.level_for(email, db)}
     row, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup = _export_prep(db, data["d"], user)
-    docx_bytes = render_docx(row.title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup)
+    from routers.documents import docx_comments
+    docx_bytes = render_docx(row.title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup,
+                             comments=docx_comments(db, "document", row.id))
     return Response(content=docx_bytes, media_type=DOCX_TYPE, headers={"Cache-Control": "no-store"})

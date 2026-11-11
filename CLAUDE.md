@@ -877,6 +877,14 @@ keep the diff minimal.
   makes it usable, a document is made from the published wording
   (`_released`) exactly as an HR packet prints it, and a template live since
   before this is released as it stands on first use or first edit.
+  **Nothing asks for a name before it exists** (Neil, 11/11/2026): New
+  Document and New Template open a blank draft in the builder at once; the
+  name (and a template's category) is asked on Close in
+  `docRibbon/NameOnClose.jsx`, filled in with the first line or
+  "Document - MM/DD/YYYY" (`lib/untitled.js`), and a blank, unnamed draft
+  that is the caller's own (`mine` on the GET) is not kept. The rest of the
+  ways in (a sheet, a template, a file, Word, starters, Letterheads) sit under
+  the split button's arrow - one primary button per toolbar.
 
 - **Sheets and live editing (Neil, 11/05/2026, `routers/documents.py`
   "Working together", `frontend/src/sheets/`, `frontend/src/docLive/`).** A

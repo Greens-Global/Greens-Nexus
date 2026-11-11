@@ -22,6 +22,7 @@ Known, deliberate approximations (see the plan, not silent gaps):
   number position are PDF-only; the Word file keeps Word's defaults.
 """
 import base64
+import contextvars
 import re
 import io
 from urllib.parse import unquote_to_bytes
@@ -81,6 +82,12 @@ def _resolve_page_setup(page_setup: dict = None):
 
 
 # ── TipTap JSON -> neutral blocks ────────────────────────────────────────────
+
+# One render's own state (Word export, Neil 11/11/2026): the comments' runs,
+# the footnotes, whether variables become Word merge fields, the text width.
+# A ContextVar, so two exports in two worker threads never share one.
+_DOCX_STATE = contextvars.ContextVar("nexus_docx_state", default=None)
+_PDF_STATE = contextvars.ContextVar("nexus_pdf_state", default=None)
 
 _EMPTY_RUN_STYLE = {"color": None, "fontFamily": None, "fontSize": None, "link": None,
                      "strike": False, "subscript": False, "superscript": False, "highlight": None}
@@ -149,8 +156,15 @@ def _text_runs(nodes, merge: dict) -> list:
         if t == "text":
             marks = n.get("marks") or []
             mark_types = {m.get("type") for m in marks}
-            if "deletion" in mark_types:      # a tracked deletion prints as accepted: gone
-                continue
+            # Tracked changes ride along on the run: the PDF prints a deletion
+            # as accepted (gone), Word gets <w:ins> / <w:del> to accept or reject.
+            change = None
+            for m in marks:
+                if m.get("type") in ("insertion", "deletion"):
+                    a = m.get("attrs") or {}
+                    change = {"type": "ins" if m["type"] == "insertion" else "del",
+                              "author": a.get("name") or a.get("author") or "Nexus", "at": a.get("at") or ""}
+            comment_ids = [((m.get("attrs") or {}).get("id")) for m in marks if m.get("type") == "comment"]
             style_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "textStyle"), {})
             link_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "link"), {})
             highlight_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "highlight"), {})
@@ -160,6 +174,12 @@ def _text_runs(nodes, merge: dict) -> list:
                    "superscript": "superscript" in mark_types, "highlight": highlight_attrs.get("color"),
                    "color": style_attrs.get("color"), "fontFamily": style_attrs.get("fontFamily"),
                    "fontSize": style_attrs.get("fontSize"), "link": link_attrs.get("href")}
+            if change:
+                run["change"] = change
+                if change["type"] == "del":
+                    run["deleted"] = True
+            if any(comment_ids):
+                run["comments"] = [c for c in comment_ids if c]
             # Filled first, so "**{{full_name}}**" prints the name in bold.
             for piece, box in _fill_segments(n.get("text") or "", merge):
                 if box:
@@ -170,12 +190,23 @@ def _text_runs(nodes, merge: dict) -> list:
         elif t == "mergeField":
             token = (n.get("attrs") or {}).get("token") or ""
             value = merge.get(token, "{{%s}}" % token)
-            run = {"text": value, "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE}
+            run = {"text": value, "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE,
+                   "merge": token}
             if getattr(value, "fill_box", None):
                 run["fill"] = value.fill_box      # filled by the new hire while signing
             runs.append(run)
         elif t == "hardBreak":
             runs.append({"text": "\n", "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE})
+        elif t == "footnote":
+            # Word's footnote: the note's words travel on the run; Word gets a
+            # real footnote, the PDF a numbered note at the end.
+            note = str((n.get("attrs") or {}).get("text") or "").strip()
+            if note:
+                runs.append({"text": "", "footnote": note, "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE})
+        elif t == "tab":
+            # A real tab (Word's w:tab): the PDF lays the text out at the
+            # paragraph's stops (_tab_row), Word gets its own <w:tab/>.
+            runs.append({"text": "\t", "tab": True, "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE})
         elif t == "image":
             # An INLINE picture - the editor's image node is inline, because
             # Word puts a picture inside the run where it sits (a meeting
@@ -192,6 +223,30 @@ def _text_runs(nodes, merge: dict) -> list:
         else:
             runs.extend(_text_runs(n.get("content"), merge))
     return runs
+
+
+# Word's tab stops (Neil, 11/11/2026): a paragraph's [{pos, align}], `pos` in
+# points from the left margin - what the editor stores (lib/docTabs.js) and
+# what Word writes as w:tabs (twips / 20).
+_TAB_ALIGNS = ("left", "center", "right", "decimal")
+_DEFAULT_TAB_PT = 36
+
+
+def _clean_tab_stops(raw) -> list:
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for st in raw:
+        if not isinstance(st, dict):
+            continue
+        pos = _num(st.get("pos"))
+        if not pos or pos <= 0 or pos > 1584:
+            continue
+        pos = round(pos * 2) / 2
+        if any(abs(o["pos"] - pos) < 0.5 for o in out):
+            continue
+        out.append({"pos": pos, "align": st.get("align") if st.get("align") in _TAB_ALIGNS else "left"})
+    return sorted(out, key=lambda x: x["pos"])
 
 
 def _num(v):
@@ -216,6 +271,7 @@ def _para_layout(attrs: dict) -> dict:
         "indentFirst": _num(attrs.get("indentFirst")),
         "indentRight": _num(attrs.get("indentRight")),
         "background": attrs.get("backgroundColor"),
+        "tabStops": _clean_tab_stops(attrs.get("tabStops")),
     }
 
 
@@ -319,7 +375,7 @@ def _blocks_to_plaintext(blocks: list) -> str:
     lines = []
     for b in blocks or []:
         if b["type"] in ("paragraph", "heading"):
-            text = "".join(r["text"] for r in b.get("runs", []))
+            text = "".join(r["text"] for r in b.get("runs", []) if not r.get("deleted"))
             if text.strip():
                 lines.append(text.strip())
     return "   |   ".join(lines)
@@ -624,6 +680,19 @@ def _runs_to_markup(runs: list) -> str:
             if markup:
                 parts.append(markup)
             continue
+        if r.get("deleted"):
+            continue
+        if r.get("footnote"):
+            st = _PDF_STATE.get()
+            if st is None:
+                parts.append("<super>*</super>")
+            else:
+                st["notes"].append(r["footnote"])
+                parts.append(f"<super>{len(st['notes'])}</super>")
+            continue
+        if r.get("tab"):
+            parts.append("&nbsp;" * 6)
+            continue
         t = _esc(_pdf_text(r.get("text") or "")).replace("\n", "<br/>")
         if r.get("bold"):
             t = f"<b>{t}</b>"
@@ -890,6 +959,98 @@ def _signature_flow(b: dict, body_style, content_width: float, anchors) -> list:
     return [box]
 
 
+def _tab_row(b: dict, style, content_width: float):
+    """A paragraph with tabs, laid out as Word does: each piece of text after
+    a tab starts at the next stop past the text before it (left), ends there
+    (right, decimal) or is centered on it (center); past the last stop Word's
+    defaults fall every half inch. Drawn as one borderless row of cells at
+    those positions. None when the pieces will not fit - the caller then
+    prints the paragraph with a plain gap for each tab."""
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.platypus import Paragraph, Table, TableStyle
+    segs = [[]]
+    for r in b.get("runs") or []:
+        if r.get("deleted"):
+            continue
+        if r.get("tab"):
+            segs.append([])
+        else:
+            segs[-1].append(r)
+    if len(segs) < 2:
+        return None
+    stops = b.get("tabStops") or []
+    base = style.fontSize
+
+    def width(runs):
+        total = 0.0
+        for r in runs:
+            if r.get("image"):
+                return None
+            face = style.fontName
+            try:
+                total += stringWidth(r.get("text") or "", face, _font_size_num(r.get("fontSize")) or base)
+            except Exception:
+                total += len(r.get("text") or "") * base * 0.5
+        return total
+
+    start = (b.get("indentLeft") or 0) + (b.get("indentFirst") or 0)
+    w0 = width(segs[0])
+    if w0 is None:
+        return None
+    cells = [{"lo": 0.0, "hi": None, "align": "left", "runs": segs[0]}]
+    x = start + w0
+    for seg in segs[1:]:
+        w = width(seg)
+        if w is None:
+            return None
+        stop = next((st for st in stops if st["pos"] > x + 0.5), None)
+        if stop is None:
+            pos, align = (int((x + 0.5) // _DEFAULT_TAB_PT) + 1) * _DEFAULT_TAB_PT, "left"
+        else:
+            pos, align = stop["pos"], stop["align"]
+        prev = cells[-1]
+        if align == "left":
+            lo, hi, end = pos, None, pos + w
+        elif align == "center":
+            lo = max(x, pos - w / 2)
+            hi, end = lo + 2 * (pos - lo), pos + w / 2
+        else:   # right, decimal
+            lo, hi, end = x, pos, pos
+        if prev["hi"] is None:
+            prev["hi"] = lo
+        cells.append({"lo": lo, "hi": hi, "align": align, "runs": seg})
+        x = end
+    if cells[-1]["hi"] is None:
+        cells[-1]["hi"] = content_width
+    cols, row, cur = [], [], 0.0
+    for c in cells:
+        lo, hi = max(c["lo"], cur), min(c["hi"], content_width)
+        if lo > cur + 0.5:
+            cols.append(lo - cur)
+            row.append("")
+        if hi - lo < 1:
+            return None
+        ta = {"left": TA_LEFT, "center": TA_CENTER}.get(c["align"], TA_RIGHT)
+        cs = style.clone(f"{style.name}_tab{len(cols)}", alignment=ta, leftIndent=0, firstLineIndent=0, rightIndent=0,
+                         spaceBefore=0, spaceAfter=0)
+        row.append(Paragraph(_runs_to_markup(c["runs"]) or "&nbsp;", cs))
+        cols.append(hi - lo)
+        cur = hi
+    if cur < content_width - 0.5:
+        cols.append(content_width - cur)
+        row.append("")
+    table = Table([row], colWidths=cols, hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    table.spaceBefore = getattr(style, "spaceBefore", 0) or 0
+    table.spaceAfter = getattr(style, "spaceAfter", 0) or 0
+    return table
+
+
 def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anchors=None) -> list:
     from reportlab.lib import colors
     from reportlab.lib.units import mm
@@ -903,6 +1064,10 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anch
             style = _pdf_align_style(body_style, b.get("align"))
             style = _para_style_for_runs(style, b["runs"])
             style = _para_layout_style(style, b)
+            row = _tab_row(b, style, content_width) if any(r.get("tab") for r in b["runs"]) else None
+            if row is not None:
+                flow.append(row)
+                continue
             para = Paragraph(_runs_to_markup(b["runs"]) or "&nbsp;", style)
             boxed = b.get("border") or b.get("background")
             flow.append(_bordered_para(para, content_width, b.get("border"), b.get("background")) if boxed else para)
@@ -911,6 +1076,10 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anch
             style = _pdf_align_style(styles[f"Heading{level}"], b.get("align"))
             style = _para_style_for_runs(style, b["runs"])
             style = _para_layout_style(style, b)
+            row = _tab_row(b, style, content_width) if any(r.get("tab") for r in b["runs"]) else None
+            if row is not None:
+                flow.append(row)
+                continue
             para = Paragraph(_runs_to_markup(b["runs"]), style)
             boxed = b.get("border") or b.get("background")
             flow.append(_bordered_para(para, content_width, b.get("border"), b.get("background")) if boxed else para)
@@ -1074,10 +1243,22 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
         # backward compat with content saved before pages were real, independent
         # units (a single-page body doc could still carry manual pageBreak nodes).
         out = []
-        for i, blocks in enumerate(pages_blocks):
-            if i > 0:
-                out.append(PageBreak())
-            out.extend(_blocks_to_flow(blocks, body_style, styles, content_width, sink))
+        token = _PDF_STATE.set({"notes": []})
+        try:
+            for i, blocks in enumerate(pages_blocks):
+                if i > 0:
+                    out.append(PageBreak())
+                out.extend(_blocks_to_flow(blocks, body_style, styles, content_width, sink))
+            notes = _PDF_STATE.get()["notes"]
+        finally:
+            _PDF_STATE.reset(token)
+        if notes:
+            from reportlab.platypus import HRFlowable, Spacer
+            note_style = ParagraphStyle("note", parent=body_style, fontSize=8.5, leading=11, spaceAfter=3)
+            out.append(Spacer(1, 10))
+            out.append(HRFlowable(width="30%", thickness=0.6, color=colors.HexColor("#9ca3af"), hAlign="LEFT", spaceAfter=6))
+            for k, note in enumerate(notes, 1):
+                out.append(Paragraph(f"<super>{k}</super> {_esc(_pdf_text(note))}", note_style))
         if not out:
             out.append(Paragraph("", body_style))
         return out
@@ -1323,14 +1504,69 @@ def _docx_link_run(paragraph, url: str, text: str):
     return run
 
 
+def _docx_field(paragraph, instr: str, cached: str):
+    """A Word field (PAGE, NUMPAGES, MERGEFIELD, TOC...): begin, the code,
+    separate, the result Word shows until it updates, end. Returns the result run."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    def fld(kind):
+        r = paragraph.add_run()
+        el = OxmlElement("w:fldChar")
+        el.set(qn("w:fldCharType"), kind)
+        r._r.append(el)
+        return r
+    fld("begin")
+    r = paragraph.add_run()
+    it = OxmlElement("w:instrText")
+    it.set(qn("xml:space"), "preserve")
+    it.text = f" {instr} "
+    r._r.append(it)
+    fld("separate")
+    result = paragraph.add_run(cached)
+    fld("end")
+    return result
+
+
+def _docx_track(run, change: dict, seq: list) -> None:
+    """Wraps a written run in Word's <w:ins> / <w:del>, so the change can be
+    accepted or rejected in Word (a deletion's text becomes w:delText)."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    seq[0] += 1
+    wrap = OxmlElement("w:ins" if change["type"] == "ins" else "w:del")
+    wrap.set(qn("w:id"), str(seq[0]))
+    wrap.set(qn("w:author"), str(change.get("author") or "Nexus")[:255])
+    at = str(change.get("at") or "")
+    if at:
+        wrap.set(qn("w:date"), at if at.endswith("Z") or "+" in at[10:] else at + "Z")
+    r = run._r
+    r.addprevious(wrap)
+    wrap.append(r)
+    if change["type"] == "del":
+        for t in r.findall(qn("w:t")):
+            t.tag = qn("w:delText")
+
+
 def _add_runs(paragraph, runs: list) -> None:
     from docx.shared import Pt, RGBColor
+    state = _DOCX_STATE.get()
     for r in runs or []:
         if r.get("image"):
             _docx_add_inline_image(paragraph, r["image"])
             continue
+        if r.get("footnote"):
+            if state is not None:
+                _docx_footnote_ref(paragraph, state, r["footnote"])
+            continue
         text = r.get("text") or ""
         if not text:
+            continue
+        if r.get("merge") and state is not None and state.get("merge_fields"):
+            # A template's variable is a Word merge field, so Word's own mail
+            # merge (and a re-import) knows it as a variable: «token».
+            run = _docx_field(paragraph, f'MERGEFIELD {r["merge"]} \\* MERGEFORMAT', f'«{r["merge"]}»')
+            _note_comments(state, r, run)
             continue
         link = r.get("link")
         run = None
@@ -1359,6 +1595,57 @@ def _add_runs(paragraph, runs: list) -> None:
             run.font.size = Pt(size)
         if r.get("fontFamily"):
             run.font.name = r["fontFamily"]
+        if state is not None:
+            if r.get("change"):
+                _docx_track(run, r["change"], state["seq"])
+            _note_comments(state, r, run)
+
+
+def _note_comments(state: dict, r: dict, run) -> None:
+    """The first and last run each comment thread covers (add_comment anchors
+    on them once the document is written)."""
+    for cid in r.get("comments") or []:
+        span = state["comments_at"].setdefault(cid, [run, run])
+        span[1] = run
+
+
+def _docx_footnote_ref(paragraph, state: dict, text: str) -> None:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    state["footnotes"].append(text)
+    fid = len(state["footnotes"])
+    run = paragraph.add_run()
+    rpr = run._r.get_or_add_rPr()
+    va = OxmlElement("w:vertAlign")
+    va.set(qn("w:val"), "superscript")
+    rpr.append(va)
+    ref = OxmlElement("w:footnoteReference")
+    ref.set(qn("w:id"), str(fid))
+    run._r.append(ref)
+
+
+_W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _docx_add_footnotes(doc, notes: list) -> None:
+    """Word's footnotes part: the two separators Word expects, then one
+    footnote per reference, numbered in order (python-docx has no API)."""
+    from xml.sax.saxutils import escape
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.opc.packuri import PackURI
+    from docx.opc.part import Part
+    body = [f'<w:footnotes xmlns:w="{_W_NS}">',
+            '<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>',
+            '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>']
+    for i, text in enumerate(notes, 1):
+        body.append(f'<w:footnote w:id="{i}"><w:p><w:pPr><w:spacing w:after="0"/></w:pPr>'
+                    f'<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:footnoteRef/></w:r>'
+                    f'<w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve"> {escape(text)}</w:t></w:r></w:p></w:footnote>')
+    body.append('</w:footnotes>')
+    part = Part(PackURI("/word/footnotes.xml"),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml",
+                "".join(body).encode("utf-8"), doc.part.package)
+    doc.part.relate_to(part, RT.FOOTNOTES)
 
 
 def _shape_png_bytes(b: dict):
@@ -1470,6 +1757,12 @@ def _apply_docx_para_extras(paragraph, b: dict) -> None:
         pf.first_line_indent = Pt(b["indentFirst"])
     if b.get("indentRight"):
         pf.right_indent = Pt(b["indentRight"])
+    if b.get("tabStops"):
+        from docx.enum.text import WD_TAB_ALIGNMENT
+        kinds = {"left": WD_TAB_ALIGNMENT.LEFT, "center": WD_TAB_ALIGNMENT.CENTER,
+                 "right": WD_TAB_ALIGNMENT.RIGHT, "decimal": WD_TAB_ALIGNMENT.DECIMAL}
+        for st in b["tabStops"]:
+            pf.tab_stops.add_tab_stop(Pt(st["pos"]), kinds.get(st["align"], WD_TAB_ALIGNMENT.LEFT))
     if b.get("background"):
         _shade_docx_paragraph(paragraph, b["background"])
     if b.get("border"):
@@ -1483,11 +1776,13 @@ def _docx_table(container, b: dict, is_document: bool):
     from docx.shared import Inches, Pt
     rows = b["rows"]
     ncols, placed = _table_grid(rows)
-    col_widths = _table_col_widths(ncols, placed, 6.5 * 72)
+    # The page's own text width (landscape, narrow margins), not a fixed 6.5".
+    text_in = (_DOCX_STATE.get() or {}).get("text_in") or 6.5
+    col_widths = _table_col_widths(ncols, placed, text_in * 72)
     if is_document:
         table = container.add_table(rows=len(rows), cols=ncols)
     else:
-        table = container.add_table(rows=len(rows), cols=ncols, width=Inches(6.5))
+        table = container.add_table(rows=len(rows), cols=ncols, width=Inches(text_in))
     if b.get("borders", True):
         try:
             table.style = "Table Grid"
@@ -1544,6 +1839,8 @@ def _blocks_to_docx(doc, blocks: list) -> None:
                 p.alignment = align
             _add_runs(p, b["runs"] if is_document else [{**r, "bold": True} for r in b["runs"]])
             _apply_docx_para_extras(p, b)
+        elif t == "bulletList" and _is_toc_list(b):
+            _docx_toc(doc, b)
         elif t in ("bulletList", "orderedList"):
             style = "List Bullet" if t == "bulletList" else "List Number"
             for item_blocks in b["items"]:
@@ -1613,6 +1910,162 @@ def _blocks_to_docx(doc, blocks: list) -> None:
             doc.add_page_break()
 
 
+def _is_toc_list(b: dict) -> bool:
+    """The editor's Table of Contents: a bullet list whose every entry links
+    to a "#toc:" heading anchor (DocumentBuilder insertTableOfContents)."""
+    items = b.get("items") or []
+    if not items:
+        return False
+    for blocks in items:
+        runs = [r for r in ((blocks[0].get("runs") if blocks else None) or []) if (r.get("text") or "").strip()]
+        if not runs or not all(str(r.get("link") or "").startswith("#toc:") for r in runs):
+            return False
+    return True
+
+
+def _docx_toc(doc, b: dict) -> None:
+    """Word's own TOC field, its entries as the result Word shows until
+    someone presses Update Field (Word rebuilds it with Word's page numbers)."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Pt
+    entries = []
+    for blocks in b["items"]:
+        first = blocks[0]
+        text = "".join(r.get("text") or "" for r in first.get("runs") or [])
+        level = 1 + int((first.get("indentLeft") or 0) // 18)
+        entries.append((re.sub(r"\s+-\s+p\.\d+$", "", text).strip(), level))
+
+    def fld(p, kind):
+        el = OxmlElement("w:fldChar")
+        el.set(qn("w:fldCharType"), kind)
+        p.add_run()._r.append(el)
+    for i, (text, level) in enumerate(entries):
+        p = doc.add_paragraph()
+        p.paragraph_format.left_indent = Pt(12 * (level - 1))
+        if i == 0:
+            fld(p, "begin")
+            r = p.add_run()
+            it = OxmlElement("w:instrText")
+            it.set(qn("xml:space"), "preserve")
+            it.text = ' TOC \\o "1-3" \\h \\z \\u '
+            r._r.append(it)
+            fld(p, "separate")
+        p.add_run(text)
+        if i == len(entries) - 1:
+            fld(p, "end")
+
+
+def _docx_section_extras(doc, section, page_setup: dict, w_in: float) -> None:
+    """What the PDF draws and Word must be told: page numbers as Word's own
+    PAGE / NUMPAGES fields, the watermark (Word's own, in the header), text
+    columns, line numbers, the page border and the page color."""
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement, parse_xml
+    from docx.oxml.ns import qn
+    ps = page_setup or {}
+    sect = section._sectPr
+
+    def before_cols(el):
+        cols = sect.find(qn("w:cols"))
+        if cols is not None:
+            cols.addprevious(el)
+        else:
+            sect.append(el)
+
+    # Page border (Layout > Page Borders).
+    border = ps.get("pageBorder") if isinstance(ps.get("pageBorder"), dict) else None
+    if border and border.get("style"):
+        kind = {"solid": "single", "dashed": "dashed", "dotted": "dotted", "double": "double"}.get(border["style"], "single")
+        color = str(border.get("color") or "#111827").lstrip("#")[:6] or "111827"
+        size = max(2, min(96, int(round((_num(border.get("width")) or 1) * 6))))
+        pg = OxmlElement("w:pgBorders")
+        pg.set(qn("w:offsetFrom"), "page")
+        for side in ("top", "left", "bottom", "right"):
+            e = OxmlElement(f"w:{side}")
+            e.set(qn("w:val"), kind)
+            e.set(qn("w:sz"), str(size))
+            e.set(qn("w:space"), "24")
+            e.set(qn("w:color"), color)
+            pg.append(e)
+        before_cols(pg)
+    # Line numbers (Layout > Line Numbers).
+    if ps.get("lineNumbers"):
+        ln = OxmlElement("w:lnNumType")
+        ln.set(qn("w:countBy"), "1")
+        ln.set(qn("w:restart"), "continuous")
+        before_cols(ln)
+    # Columns (Layout > Columns).
+    try:
+        ncols = int(ps.get("columns") or 1)
+    except (TypeError, ValueError):
+        ncols = 1
+    if ncols > 1:
+        cols = sect.find(qn("w:cols"))
+        if cols is None:
+            cols = OxmlElement("w:cols")
+            sect.append(cols)
+        cols.set(qn("w:num"), str(min(ncols, 3)))
+        cols.set(qn("w:space"), "480")   # 1/3 inch, the PDF's gap
+    # Page color (Design > Page Color).
+    color = str(ps.get("pageColor") or "").lstrip("#")
+    if re.fullmatch(r"[0-9A-Fa-f]{6}", color):
+        bg = OxmlElement("w:background")
+        bg.set(qn("w:color"), color.upper())
+        doc.element.insert(0, bg)
+        settings = doc.settings.element
+        if settings.find(qn("w:displayBackgroundShape")) is None:
+            settings.insert(0, OxmlElement("w:displayBackgroundShape"))
+
+    # Page numbers: "Page X of Y" as Word's PAGE and NUMPAGES fields, where
+    # the document puts them (Insert > Page Numbers), on every page.
+    where = str(ps.get("pageNumbers") or "bottom-right")
+    bands = []
+    if where != "none":
+        top = where.startswith("top")
+        bands = [section.header if top else section.footer]
+        if section.different_first_page_header_footer:
+            bands.append(section.first_page_header if top else section.first_page_footer)
+        align = {"left": WD_ALIGN_PARAGRAPH.LEFT, "center": WD_ALIGN_PARAGRAPH.CENTER}.get(where.split("-")[-1], WD_ALIGN_PARAGRAPH.RIGHT)
+        for band in bands:
+            band.is_linked_to_previous = False
+            p = band.add_paragraph()
+            p.alignment = align
+            p.add_run("Page ")
+            _docx_field(p, "PAGE", "1")
+            p.add_run(" of ")
+            _docx_field(p, "NUMPAGES", "1")
+
+    # The watermark: Word's own (a WordArt shape behind the text, in the header).
+    mark = str(ps.get("watermark") or "").strip()[:40]
+    if mark:
+        from xml.sax.saxutils import quoteattr
+        width_pt = int(min(w_in * 72 * 0.9, 9 * 72))
+        heads = [section.header] + ([section.first_page_header] if section.different_first_page_header_footer else [])
+        for i, head in enumerate(heads):
+            head.is_linked_to_previous = False
+            p = head.paragraphs[0] if head.paragraphs else head.add_paragraph()
+            vml = (
+                '<w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+                'xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">'
+                '<w:rPr><w:noProof/></w:rPr><w:pict>'
+                '<v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">'
+                '<v:formulas><v:f eqn="sum #0 0 10800"/><v:f eqn="prod #0 2 1"/><v:f eqn="sum 21600 0 @1"/><v:f eqn="sum 0 0 @2"/>'
+                '<v:f eqn="sum 21600 0 @3"/><v:f eqn="if @0 @3 0"/><v:f eqn="if @0 21600 @1"/><v:f eqn="if @0 0 @2"/>'
+                '<v:f eqn="if @0 @4 21600"/><v:f eqn="mid @5 @6"/><v:f eqn="mid @8 @5"/><v:f eqn="mid @7 @8"/>'
+                '<v:f eqn="mid @6 @7"/><v:f eqn="sum @6 0 @5"/></v:formulas>'
+                '<v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>'
+                '<v:textpath on="t" fitshape="t"/><o:lock v:ext="edit" text="t" shapetype="t"/></v:shapetype>'
+                f'<v:shape id="NexusWatermark{i}" o:spid="_x0000_s20{50 + i}" type="#_x0000_t136" '
+                f'style="position:absolute;margin-left:0;margin-top:0;width:{width_pt}pt;height:{int(width_pt / 4)}pt;rotation:315;'
+                'z-index:-251657216;mso-position-horizontal:center;mso-position-horizontal-relative:margin;'
+                'mso-position-vertical:center;mso-position-vertical-relative:margin" o:allowincell="f" fillcolor="silver" stroked="f">'
+                '<v:fill opacity=".35"/>'
+                f'<v:textpath style="font-family:&quot;Calibri&quot;;font-size:1pt" string={quoteattr(mark)}/>'
+                '</v:shape></w:pict></w:r>')
+            p._p.append(parse_xml(vml))
+
+
 def _fill_docx_band(part, blocks: list) -> None:
     """A header or footer part, with the document's real paragraphs/tables in
     it (it used to get one flattened line of text). The part starts with one
@@ -1626,12 +2079,27 @@ def _fill_docx_band(part, blocks: list) -> None:
 
 
 def render_docx(title: str, header_blocks: list, pages_blocks: list, footer_blocks: list,
-                letterhead: dict = None, page_setup: dict = None) -> bytes:
+                letterhead: dict = None, page_setup: dict = None, comments: dict = None,
+                merge_fields: bool = False) -> bytes:
+    """`comments`: {thread id: {author, initials, text}} - the Review tab's
+    open threads, written as Word comments on the text they mark.
+    `merge_fields`: a template's variables become Word MERGEFIELDs."""
+    w_in, h_in, margins = _resolve_page_setup(page_setup)
+    state = {"seq": [0], "comments_at": {}, "footnotes": [], "merge_fields": bool(merge_fields),
+             "text_in": max(1.0, w_in - margins["left"] - margins["right"])}
+    token = _DOCX_STATE.set(state)
+    try:
+        return _render_docx(title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup,
+                            w_in, h_in, margins, state, comments or {})
+    finally:
+        _DOCX_STATE.reset(token)
+
+
+def _render_docx(title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup,
+                 w_in, h_in, margins, state, comments) -> bytes:
     from docx import Document as DocxDocument
     from docx.shared import Pt, Inches
     from docx.enum.section import WD_ORIENT
-
-    w_in, h_in, margins = _resolve_page_setup(page_setup)
 
     doc = DocxDocument()
     section = doc.sections[0]
@@ -1700,6 +2168,21 @@ def render_docx(title: str, header_blocks: list, pages_blocks: list, footer_bloc
         if i > 0:
             doc.add_page_break()
         _blocks_to_docx(doc, blocks)
+
+    _docx_section_extras(doc, section, page_setup, w_in)
+    if state["footnotes"]:
+        _docx_add_footnotes(doc, state["footnotes"])
+    # Comments go on last: python-docx anchors each on the first and last run
+    # its thread covers.
+    for cid, (first, last) in state["comments_at"].items():
+        info = comments.get(cid)
+        if not info or not (info.get("text") or "").strip():
+            continue
+        try:
+            doc.add_comment([first, last], text=info["text"], author=str(info.get("author") or "Nexus")[:255],
+                            initials=str(info.get("initials") or "")[:9])
+        except Exception:
+            continue
 
     buf = io.BytesIO()
     doc.save(buf)
