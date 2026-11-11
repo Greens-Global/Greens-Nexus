@@ -2959,6 +2959,7 @@ class EntityUpdate(BaseModel):
     twitter_url:        Optional[str] = None
     instagram_url:      Optional[str] = None
     signature_template: Optional[str] = None
+    signature_color:    Optional[str] = None
     notes:              Optional[str] = None
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
@@ -3021,6 +3022,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
         "twitterUrl": e.twitter_url or "", "instagramUrl": e.instagram_url or "",
         "signatureTemplate": e.signature_template or "classic",
+        "signatureColor": e.signature_color or "",
         "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
         "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
@@ -3104,6 +3106,12 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         from routers.myhr import SIGNATURE_TEMPLATES
         if body.signature_template not in SIGNATURE_TEMPLATES:
             raise HTTPException(400, "Unknown signature template")
+    if body.signature_color is not None:
+        import email_theme
+        color = body.signature_color.strip()
+        if color and not email_theme.normalize_hex(color):
+            raise HTTPException(400, "Signature color must be a hex color such as #1f8a4d")
+        body.signature_color = email_theme.normalize_hex(color) or ""
     fields = body.model_dump(exclude_unset=True)
     # manager_emails (the list) is the source of truth whenever the request sends
     # it - skip the plain manager_email key entirely so processing order can't
@@ -3303,7 +3311,7 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
 
 
 @router.get("/entities/{entity_id}/signature-templates")
-def entity_signature_templates(entity_id: str,
+def entity_signature_templates(entity_id: str, color: Optional[str] = None,
                                user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """Every signature template pre-rendered with this company's real
     branding + placeholder person data, for the Settings picker (Pranshu,
@@ -3316,10 +3324,14 @@ def entity_signature_templates(entity_id: str,
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Entity not found")
-    from routers.myhr import admin_preview_templates
+    from routers.myhr import admin_preview_templates, template_id
+    import email_theme
+    # `color` previews an unsaved pick; anything that is not a hex is ignored.
+    pick = email_theme.normalize_hex(color or "") if color is not None else None
     return {
-        "templates": admin_preview_templates(row),
-        "template": row.signature_template or "classic",
+        "templates": admin_preview_templates(row, pick),
+        "template": template_id(row.signature_template),
+        "color": row.signature_color or "",
     }
 
 
@@ -3371,7 +3383,8 @@ def get_signature_sender_overrides(user: dict = Depends(require_hr_read), db: Se
 @router.put("/signature-sender-overrides")
 def save_signature_sender_overrides(body: SenderOverridesIn,
                                     user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    from routers.myhr import SIGNATURE_TEMPLATES, _OVERRIDE_FIELD_KEYS, SENDER_OVERRIDES_SETTING_KEY
+    from routers.myhr import SIGNATURE_TEMPLATES, _OVERRIDE_FIELD_KEYS, SENDER_OVERRIDES_SETTING_KEY, _TEMPLATE_ALIASES
+    import email_theme
     # Every company shares them (Neil, 11/02/2026): a Super Administrator's
     # to change; company-wide HR reads them (read only on the screen).
     import settings_walls
@@ -3380,7 +3393,7 @@ def save_signature_sender_overrides(body: SenderOverridesIn,
     for grp in body.overrides:
         if not isinstance(grp, dict):
             continue
-        tmpl = grp.get("template")
+        tmpl = _TEMPLATE_ALIASES.get(grp.get("template"), grp.get("template"))
         if tmpl not in SIGNATURE_TEMPLATES:
             raise HTTPException(400, "Unknown signature template in sender override")
         # Free-typed (Sep 22, Pranshu: "admin should have the control to type
@@ -3392,6 +3405,7 @@ def save_signature_sender_overrides(body: SenderOverridesIn,
             continue
         raw_fields = grp.get("fields") or {}
         fields = {k: str(raw_fields.get(k) or "").strip()[:300] for k in _OVERRIDE_FIELD_KEYS}
+        fields["accent"] = email_theme.normalize_hex(fields["accent"]) or ""
         custom_fields = _clean_custom_fields(grp.get("customFields"))
         # Whatever order the admin last dragged into - only ever read back
         # key-by-key (myhr._ordered_row_values skips anything unrecognized),
@@ -3431,8 +3445,8 @@ def preview_sender_override(body: SenderOverridePreviewIn,
     modal - nothing here is persisted. Reuses the exact same render path a
     real send would take (myhr._render_override_signature), so what's shown
     here is guaranteed to match what actually goes out."""
-    from routers.myhr import SIGNATURE_TEMPLATES, _render_override_signature, _OVERRIDE_FIELD_KEYS
-    tmpl = body.template if body.template in SIGNATURE_TEMPLATES else "classic"
+    from routers.myhr import _render_override_signature, _OVERRIDE_FIELD_KEYS, template_id
+    tmpl = template_id(body.template)
     raw_fields = body.fields or {}
     grp = {
         "template": tmpl,

@@ -522,9 +522,31 @@ describe('AdminConsole', () => {
     fireEvent.click(within(region).getByText('Bold B'));
     fireEvent.change(box, { target: { value: 'c1' } });
     await waitFor(() => expect(confirm).toHaveBeenCalled());
-    expect(confirm.mock.calls[0][0]).toMatch(/Greens India has not been saved/);
+    expect(confirm.mock.calls[0][0]).toMatch(/Greens India have not been saved/);
     expect(box).toHaveValue('c2');
     expect(within(region).getByText('Bold B')).toBeInTheDocument();
+  });
+
+  it('Email Signature: a color redraws the gallery before Save, a bad hex is refused, Save sends it (Neil, 11/11/2026)', async () => {
+    const calls = [];
+    apiOverrides.getEntitySignatureTemplates = (id, color) => {
+      calls.push(color);
+      return Promise.resolve({ templates: [{ id: 'bold', label: 'Bold', html: `<i>${color ?? 'saved'}</i>` }], template: 'bold', color: '' });
+    };
+    const saved = [];
+    apiOverrides.updateEntity = (id, body) => { saved.push([id, body]); return Promise.resolve({ signatureColor: '#1d4ed8' }); };
+    render(<AdminConsole activeSub="branding:email-signature" onSubChange={() => {}} />);
+    const region = screen.getByRole('region', { name: 'Email Signature' });
+    const hex = await within(region).findByLabelText('Signature Color');
+    fireEvent.change(hex, { target: { value: '#zzz' } });
+    expect(within(region).getByText('Enter a hex color such as #1f8a4d.')).toBeInTheDocument();
+    fireEvent.change(hex, { target: { value: '#1D4ED8' } });
+    await waitFor(() => expect(within(region).getByText('#1D4ED8')).toBeInTheDocument());
+    expect(calls).toContain('#1D4ED8');
+    expect(calls).not.toContain('#zzz');
+    fireEvent.click(within(region).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0][1]).toEqual({ signature_template: 'bold', signature_color: '#1D4ED8' });
   });
 
   it('Item Types: a failed load says so with Retry and keeps the editors shut', async () => {
