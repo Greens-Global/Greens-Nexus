@@ -613,6 +613,17 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const [fieldsPanel, setFieldsPanel] = useState(null);   // null | { newTokens: [] }
   const [mergeFieldModal, setMergeFieldModal] = useState(null); // null | { range?: {from,to}, existingDef?: object, initialLabel?: string }
   const [variableLibraryOpen, setVariableLibraryOpen] = useState(false);
+  // The library is a flyout under Variables > Variable Library (11/11/2026);
+  // pinned, it stays open while you click and drag on the pages.
+  const [libPinned, setLibPinned] = useState(false);
+  const libBtnRef = useRef(null);
+  // Variables > Preview Results (Word's Mailings): every chip shows the value
+  // the document will print - the same resolution an export uses
+  // (GET /documents/{id}/merge-values); a template shows its Merge Data
+  // defaults. Highlight Fields: Word's gray field shading, on by default.
+  const [previewResults, setPreviewResults] = useState(false);
+  const [previewValues, setPreviewValues] = useState(null);
+  const [fieldShading, setFieldShading] = useState(true);
   // The variables placed in THIS document, in page order, each with how many
   // places it is used (Sagar, 11/04/2026: "whatever variable is used in that
   // particular document it should be listed at right side so we can reuse the
@@ -1500,15 +1511,35 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     return out;
   }, [fieldDefs]);
   const shared = useMemo(() => sharedDefs(variables, docId), [variables, docId]);
-  // The chips on the page say what the field definition calls them.
+  // The chips on the page say what the field definition calls them - or,
+  // with Preview Results on, the value the document will print. The chip's
+  // own label (what the node renders) is kept in data-base to come back to.
   useEffect(() => {
-    for (const ed of editorsRef.current.values()) {
+    const eds = [...editorsRef.current.values(), headerEditor, footerEditor].filter((e) => e && !e.isDestroyed);
+    for (const ed of eds) {
       ed.view.dom.querySelectorAll('.tpl-chip[data-merge-token]').forEach((el) => {
-        const label = varLabel[el.getAttribute('data-merge-token')];
-        if (label && el.textContent !== label) el.textContent = label;
+        if (el.dataset.base == null) el.dataset.base = el.textContent;
+        const token = el.getAttribute('data-merge-token');
+        const label = varLabel[token] || el.dataset.base;
+        const value = previewResults && previewValues ? String(previewValues[token] ?? '').trim() : '';
+        const text = value || label;
+        if (el.textContent !== text) el.textContent = text;
+        el.classList.toggle('is-value', !!value);
+        el.classList.toggle('is-missing', previewResults && !value);
       });
     }
-  }, [varLabel, pages]);
+  }, [varLabel, pages, previewResults, previewValues, selectionTick, headerEditor, footerEditor]);
+  useEffect(() => {
+    if (!previewResults) return undefined;
+    let live = true;
+    const t = setTimeout(() => {
+      if (kind !== 'document') { setPreviewValues({ ...mergeOverrides }); return; }
+      api.documentMergeValues(docId)
+        .then((r) => { if (live) setPreviewValues({ ...(r?.values || {}), ...mergeOverrides }); })
+        .catch((e) => { if (live) { setPreviewValues({}); toastErr?.(e.message || 'Could not load the values to preview'); } });
+    }, 350);   // a Merge Data change saves first
+    return () => { live = false; clearTimeout(t); };
+  }, [previewResults, kind, docId, employeeId, entityId, mergeOverrides]);   // eslint-disable-line react-hooks/exhaustive-deps
   // The insert picker, grouped by WHEN Nexus fills each built-in. Until the
   // library answers, the short list it always had.
   const builtinGroups = useMemo(() => {
@@ -2242,6 +2273,25 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     activeEditor?.chain().focus().insertContent({ type: 'mergeField', attrs: { token } }).run();
   };
 
+  // Variables > Previous / Next: select the variable before or after the
+  // cursor, in page order, and bring it into view (Word's Go To Field).
+  const stepField = (dir) => {
+    const eds = pages.map((p) => [p.id, editorsRef.current.get(p.id)]).filter(([, e]) => e && !e.isDestroyed);
+    const all = [];
+    eds.forEach(([, e], pi) => e.state.doc.descendants((n, pos) => { if (n.type.name === 'mergeField') all.push({ e, pos, pi }); }));
+    if (!all.length) { toastOk?.('There are no variables in this document yet.'); return; }
+    const curPi = Math.max(0, eds.findIndex(([pid]) => pid === activePageId));
+    const sel = activeEditor?.state.selection;
+    const curPos = sel ? sel.from : -1;
+    const after = (f) => f.pi > curPi || (f.pi === curPi && f.pos > curPos);
+    const before = (f) => f.pi < curPi || (f.pi === curPi && f.pos < curPos);
+    let f = dir > 0 ? all.find(after) : [...all].reverse().find(before);
+    if (!f) f = dir > 0 ? all[0] : all[all.length - 1];
+    f.e.chain().focus().setNodeSelection(f.pos).run();
+    requestAnimationFrame(() => f.e.view.nodeDOM(f.pos)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }));
+  };
+  const openLibrary = () => { setRibbonCollapsed(false); setRibbonTab('variables'); setVariableLibraryOpen(true); };
+
   // Converts every {{token}} already sitting on the page into a real merge
   // field. Import does this automatically; this is for content that arrived
   // some other way - pasted in, or written before the importer knew how - and
@@ -2683,7 +2733,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       '-',
       { label: 'Special Characters...', icon: Smile, disabled: !editing, onClick: () => openOnRibbon('insert', () => setSymbolPopoverOpen(true)) },
       { label: 'Signature Block...', icon: PenLine, disabled: !editing, onClick: () => openOnRibbon('insert', () => { setSigPopoverOpen(true); setSigDraft((d) => ({ ...d, role: d.role || signerOptions[0]?.key || '' })); }) },
-      { label: 'Variable...', icon: Variable, disabled: !editing, onClick: () => setVariableLibraryOpen(true) },
+      { label: 'Variable...', icon: Variable, disabled: !editing, onClick: openLibrary },
     ] },
     { label: 'Format', items: [
       { label: 'Text', icon: Bold, items: [
@@ -2742,7 +2792,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       canDictate() && { label: dictation.listening ? 'Stop Dictating' : 'Dictate', icon: Mic, checked: dictation.listening, disabled: !editing, onClick: () => (dictation.listening ? dictation.stop() : dictation.start()) },
       '-',
       { label: 'Detect Variables', icon: Wand2, disabled: !editing || detecting, onClick: detectVariables },
-      { label: 'Variable Library', icon: Variable, checked: !!variableLibraryOpen, onClick: () => setVariableLibraryOpen((o) => !o) },
+      { label: 'Variable Library', icon: Variable, checked: !!variableLibraryOpen, onClick: () => (variableLibraryOpen ? setVariableLibraryOpen(false) : openLibrary()) },
+      { label: 'Preview Results', icon: Eye, checked: previewResults, onClick: () => setPreviewResults((v) => !v) },
       kind === 'template' && { label: 'Template Fields', icon: ListChecks, onClick: () => openFieldsPanel() },
     ] },
     { label: 'Help', items: [
@@ -2921,7 +2972,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </button>
         );
       })}
-      <button type="button" className="nx-docb-vars-lib" onClick={() => { closeMenu?.(); setVariableLibraryOpen(true); }}>Variable Library</button>
+      <button type="button" className="nx-docb-vars-lib" onClick={() => { closeMenu?.(); openLibrary(); }}>Variable Library</button>
     </div>
   );
   const importPanel = () => (
@@ -3029,7 +3080,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const commentsShown = !preview && !isMobile && commentsOpen;
 
   return (
-    <div className={`nx-docb${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
+    <div className={`nx-docb${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}${fieldShading ? '' : ' doc-fields-plain'}${previewResults ? ' doc-previewing' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
       {/* The header, Word / Google Docs style (Neil, 11/10/2026): Close, the
           file's mark, its name (typed in place; "Untitled Document" until it
           has one), the save state, then the actions. */}
@@ -3741,8 +3792,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           {ribbonTab === 'variables' && (
           <>
           <Group label="Insert">
-            <BigBtn icon={Variable} label="Variable Library" title="Variable Library - browse every variable and drag one in"
-              active={variableLibraryOpen} onClick={() => setVariableLibraryOpen(o => !o)} />
+            <span ref={libBtnRef} style={{ display: 'inline-flex' }}>
+              <BigBtn icon={Variable} label="Variable Library" title="Variable Library - browse every variable and drag one in"
+                active={variableLibraryOpen} onClick={() => setVariableLibraryOpen(o => !o)} />
+            </span>
             {insertVariablePick()}
           </Group>
           <Group label="Create">
@@ -3756,6 +3809,12 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                 active={!!fieldsPanel} onClick={() => openFieldsPanel()} />
             )}
           </Group>
+          <Group label="Preview">
+            <BigBtn icon={Eye} label="Preview Results" title="Preview Results - show the values this document will print in place of the variable names"
+              active={previewResults} onClick={() => setPreviewResults((v) => !v)} />
+            <BigBtn icon={Highlighter} label="Highlight Fields" title="Highlight Fields - Word's gray shading on every variable"
+              active={fieldShading} onClick={() => setFieldShading((v) => !v)} />
+          </Group>
           <Group label="Values">
             <Menu big icon={Users} label="Merge Data" title={`Merge Data: ${activeEmployee ? empLabel(activeEmployee) : 'Nobody picked'}`} width={316}>
               {() => mergeDataPanel()}
@@ -3766,6 +3825,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               panelClassName="nx-docb-usedpanel">
               {(closeMenu) => usedVarsList(closeMenu)}
             </Menu>
+            <BigBtn icon={ChevronLeft} label="Previous" title="Previous variable" disabled={!usedVars.length} onClick={() => stepField(-1)} />
+            <BigBtn icon={ChevronRight} label="Next" title="Next variable" disabled={!usedVars.length} onClick={() => stepField(1)} />
           </Group>
           </>
           )}
@@ -4172,8 +4233,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         </div>
       )}
 
-      <VariableLibrary open={variableLibraryOpen} onClose={() => setVariableLibraryOpen(false)}
+      <VariableLibrary open={variableLibraryOpen} onClose={() => { setVariableLibraryOpen(false); setLibPinned(false); }}
         onInsert={insertVariable} localVariables={customVarKeys}
+        anchorRef={libBtnRef} pinned={libPinned} onPin={setLibPinned}
+        used={Object.fromEntries(usedVars.map((v) => [v.token, v.count]))}
         anchorLabel={kind === 'template' ? 'the template' : 'the document'} />
 
       {fieldsPanel && kind === 'template' && (

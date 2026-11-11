@@ -3655,22 +3655,34 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .tpl-inline::placeholder { color: #9ca3af; font-style: italic; }
 .tpl-rich { min-height: 1.7em; white-space: pre-wrap; word-break: break-word; cursor: text; }
 .tpl-rich:empty::before { content: attr(data-ph); color: #9ca3af; font-style: italic; pointer-events: none; }
+/* A variable on the page reads like a Word merge field (Neil, 11/11/2026):
+   «Name» in the text's own font, with Word's light gray field shading - not
+   an orange pill (orange is reserved for "live"). The Document Builder and
+   E-Sign templates share it. Variables > Highlight Fields turns the shading
+   off (.doc-fields-plain); Preview Results shows the value (.is-value) or,
+   with nothing to fill it, the name dashed underneath (.is-missing). */
 .tpl-chip {
-  display: inline-block;
-  padding: 0 8px;
-  margin: 0 1px;
-  border-radius: 999px;
-  background: rgba(245, 158, 11, 0.13);
-  border: 1px solid rgba(217, 119, 6, 0.35);
-  color: #92400e;
-  font-family: Inter, sans-serif;
-  font-size: 0.8em;
-  font-weight: 700;
-  line-height: 1.55;
+  display: inline;
+  padding: 0 1px;
+  margin: 0;
+  border-radius: 2px;
+  background: hsla(220, 12%, 50%, 0.16);
+  border: none;
+  color: inherit;
+  font: inherit;
   white-space: nowrap;
   user-select: none;
   cursor: default;
+  box-decoration-break: clone;
 }
+.tpl-chip::before { content: '\00AB'; opacity: 0.55; }
+.tpl-chip::after { content: '\00BB'; opacity: 0.55; }
+.tpl-chip.ProseMirror-selectednode { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; }
+.doc-fields-plain .tpl-chip { background: none; }
+.tpl-chip.is-value::before, .tpl-chip.is-value::after { content: none; }
+.tpl-chip.is-value { background: hsla(220, 12%, 50%, 0.08); }
+.doc-fields-plain .tpl-chip.is-value { background: none; }
+.tpl-chip.is-missing { text-decoration: underline dashed; text-decoration-color: hsla(220, 12%, 40%, 0.7); text-underline-offset: 3px; }
 
 .doc-bookmark {
   display: inline-block; color: #d97706; font-size: 0.85em; cursor: default; user-select: none; padding: 0 1px;
@@ -10310,3 +10322,34 @@ button.doc-ribbon-display-btn:focus-visible, button.doc-ribbon-display-fold:focu
 .doc-toolbar.doc-ribbon .nx-docb-used button.nx-docb-vars-lib { width: 100%; height: auto; display: block; padding: 7px 9px; }
 .doc-toolbar.doc-ribbon .nx-docb-lhpanel button, .doc-toolbar.doc-ribbon .nx-docb-mergepanel button { width: auto; height: auto; justify-content: flex-start; }
 .doc-toolbar.doc-ribbon .nx-docb-lhpanel > button, .doc-toolbar.doc-ribbon .nx-docb-lhpanel > div > button { width: 100%; }
+
+/* The Variable Library (11/11/2026): a flyout under Variables > Variable
+   Library (AnchoredMenu places it), or the old panel at the right edge. */
+.nx-varlib { display: flex; flex-direction: column; min-height: 0; background: var(--card); font-family: Inter, sans-serif; }
+.nx-varlib.is-flyout { width: 340px; max-height: min(560px, 70vh); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-lg); overflow: hidden; padding: 0; }
+.nx-varlib.is-flyout.is-pinned { box-shadow: var(--shadow-lg), 0 0 0 2px hsla(var(--color-green), 0.28); }
+.nx-varlib.is-panel { position: fixed; top: 0; right: 0; bottom: 0; width: 330px; z-index: 1200; border-left: 1px solid var(--line); box-shadow: var(--shadow-lg); }
+.nx-varlib-head { padding: 12px 12px 8px 14px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.nx-varlib-title { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.nx-varlib-title strong { flex: 1; }
+button.nx-varlib-icon { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; background: none; border-radius: 6px; color: var(--muted); cursor: pointer; }
+button.nx-varlib-icon:hover, button.nx-varlib-icon[aria-pressed="true"] { background: var(--mist); color: var(--ink); }
+.nx-varlib-search { display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); }
+.nx-varlib-search:focus-within { border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 2px hsla(var(--color-blue), 0.15); }
+.nx-varlib-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: 400 12.5px Inter, sans-serif; color: var(--ink); }
+.nx-varlib-cats { display: flex; flex-wrap: wrap; gap: 5px; }
+.nx-varlib-cats button { font: 500 11px Inter, sans-serif; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+.nx-varlib-cats button.is-on { background: var(--wk-brand, hsl(var(--color-green))); border-color: var(--wk-brand, hsl(var(--color-green))); color: #fff; }
+.nx-varlib-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 6px 8px; }
+.nx-varlib-group h4 { margin: 10px 8px 4px; font-size: 11px; font-weight: 600; color: var(--muted); }
+button.nx-varlib-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px 6px 4px; background: none; border: 1px solid transparent; border-radius: 7px; text-align: left; cursor: grab; font-family: Inter, sans-serif; color: var(--ink); }
+button.nx-varlib-row:hover, button.nx-varlib-row:focus-visible { background: var(--mist); border-color: var(--line); outline: none; }
+button.nx-varlib-row:active { cursor: grabbing; }
+.nx-varlib-grip { color: var(--line); flex-shrink: 0; }
+button.nx-varlib-row:hover .nx-varlib-grip { color: var(--muted); }
+.nx-varlib-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.nx-varlib-label { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-varlib-token { font-size: 10.5px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-varlib-desc { font-size: 10.5px; color: var(--muted); margin-top: 2px; line-height: 1.35; }
+.nx-varlib-used { font-size: 10.5px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.nx-varlib-foot { margin: 0; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); flex-shrink: 0; }

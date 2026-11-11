@@ -39,7 +39,7 @@ describe('the Variable Library', () => {
     setup();
     await waitFor(() => expect(screen.getByText('Principal Amount')).toBeTruthy());
     for (const group of ['Person', 'Company', 'Principal', 'Agreement']) {
-      expect(screen.getByText(group), group).toBeTruthy();
+      expect(screen.getByRole('heading', { name: group }), group).toBeTruthy();
     }
     // The token is shown next to the label, so the author can see the name
     // that will end up in the document.
@@ -97,6 +97,44 @@ describe('the Variable Library', () => {
     getDocVariables.mockRejectedValue(new Error('Network down'));
     setup();
     await waitFor(() => expect(screen.getByText('Network down')).toBeTruthy());
+  });
+
+  // The redesign (Neil, 11/11/2026): category chips, what is already in the
+  // document, and a pin that keeps the flyout open while you work.
+  it('narrows to one category from its chip', async () => {
+    setup();
+    await waitFor(() => expect(screen.getByText('Principal Amount')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Company' }));
+    expect(screen.getByText('Company legal name')).toBeTruthy();
+    expect(screen.queryByText('Principal Amount')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(screen.getByText('Principal Amount')).toBeTruthy();
+  });
+
+  it('says how many places a variable is already used', async () => {
+    setup({ used: { 'principal.amount': 2 } });
+    await waitFor(() => expect(screen.getByText('Principal Amount')).toBeTruthy());
+    expect(screen.getByText('Principal Amount').closest('button').textContent).toMatch(/In Use · 2 Places/);
+  });
+
+  it('as a flyout, closes on a click away unless it is pinned', async () => {
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const anchorRef = { current: anchor };
+    const onClose = vi.fn();
+    const onPin = vi.fn();
+    const { rerender } = render(<VariableLibrary open anchorRef={anchorRef} onClose={onClose} onInsert={() => {}} onPin={onPin} />);
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Variable library' })).toBeTruthy());
+    fireEvent.pointerDown(document.body);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Pin the library' }));
+    expect(onPin).toHaveBeenCalledWith(true);
+    rerender(<VariableLibrary open pinned anchorRef={anchorRef} onClose={onClose} onInsert={() => {}} onPin={onPin} />);
+    fireEvent.pointerDown(document.body);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+    anchor.remove();
   });
 
   it('renders nothing at all while closed', () => {
