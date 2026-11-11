@@ -87,7 +87,6 @@ import {
   CalendarDays,
   CalendarOff,
   PenTool,
-  BadgeCheck,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -138,7 +137,6 @@ const PacketsModal = lazy(() => import('../components/HiringPacket').then(m => (
 const QuestionnairesModal = lazy(() => import('../components/Interviews').then(m => ({ default: m.QuestionnairesModal })));
 const ChecklistLibrary = lazy(() => import('../components/HrChecklists').then(m => ({ default: m.ChecklistLibrary })));
 const EmployeeCustomFieldsSettings = lazy(() => import('../components/EmployeeCustomFieldsSettings'));
-const CredentialTypesSettings = lazy(() => import('../components/CredentialTypesSettings'));
 // Probation (Oct 27 2026): the length, the reminder and the letters - a default, and each company's own.
 const ProbationSettings = lazy(() => import('../components/HrProbation').then(m => ({ default: m.ProbationSettings })));
 // Headcount Requests: off per company until turned on (Neil, Oct 30 2026).
@@ -348,12 +346,6 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
     sub: 'Extra fields on employee records - text, number, date, dropdown or checkbox - and who sees each: HR only, or the employee too. Archiving hides a field and keeps its values.',
     keywords: 'custom fields more details employee record extra field dropdown checkbox hr only employee can see employee can edit required archive merge variable documents' },
-  // Licenses & Certifications (Neil, 11/11/2026, Deputy parity): the kinds
-  // people hold; a shift type can need one; the daily check reminds before expiry.
-  { id: 'credential-types', subject: 'access', face: 'both', scope: 'org', icon: BadgeCheck, title: 'Licenses & Certifications', flush: true,
-    needs: { role: 'administrator', grant: ['hr', 'editor'], people: true },
-    sub: 'The licenses and certifications people hold - how long each is good for and whether it expires. HR adds a person\'s on their Job tab; a shift type can need one, and the planner warns when the person placed has none valid.',
-    keywords: 'licenses certifications credentials training records qualifications driver forklift osha cpr first aid expiry expire renew deputy' },
   // Security
   { id: 'sign-in-sessions', subject: 'security', face: 'org', scope: 'org', icon: ShieldCheck, title: 'Sign-In & Sessions',
     needs: { role: 'administrator' },
@@ -2098,7 +2090,6 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
       case 'ops-unit-rules':       return <LazyPanelSection key={key} id={id} Panel={UnitRulesPanel} chrome={chrome} />;
       case 'app-ratings':          return <LazyPanelSection key={key} id={id} Panel={AppRatingsPanel} chrome={chrome} />;
       case 'employee-custom-fields': return <LazyPanelSection key={key} id={id} Panel={EmployeeCustomFieldsSettings} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
-      case 'credential-types':     return <LazyPanelSection key={key} id={id} Panel={CredentialTypesSettings} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'performance-scorecards': return <LazyPanelSection key={key} id={id} Panel={ScorecardSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'performance-bonus':      return <LazyPanelSection key={key} id={id} Panel={BonusPlanSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'performance-reminders': return <LazyPanelSection key={key} id={id} Panel={PerformanceReminderSettings} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;

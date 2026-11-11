@@ -6525,9 +6525,6 @@ class ShiftIn(BaseModel):
     # The teams this type is for (11/04/2026); [] = every team. None = leave
     # as is on an edit.
     group_ids: Optional[List[str]] = None
-    # The licenses / certifications this type needs (11/11/2026,
-    # hr_credentials.py); [] = none. None = leave as is on an edit.
-    required_credentials: Optional[List[str]] = None
 
 
 def _shift_group_ids(s) -> list:
@@ -6664,21 +6661,7 @@ def _shift_dict(s: Shift) -> dict:
     return {"id": s.id, "name": s.name, "code": s.code or "", "start": s.start_hhmm,
             "end": s.end_hhmm, "days": s.days, "graceMin": s.grace_min, "color": s.color,
             "timezone": s.timezone or "America/Los_Angeles", "breakMin": int(getattr(s, "break_min", 0) or 0),
-            "companyId": getattr(s, "company_id", "") or "", "groupIds": _shift_group_ids(s),
-            "requiredCredentials": _required_credentials(s)}
-
-
-def _required_credentials(s) -> list:
-    import hr_credentials
-    return hr_credentials.required_ids(s)
-
-
-def _clean_required_credentials(db: Session, ids, current=None) -> str:
-    import hr_credentials
-    try:
-        return hr_credentials.clean_required(db, ids, keep=hr_credentials.required_ids(current) if current is not None else ())
-    except hr_credentials.CredentialError as e:
-        raise HTTPException(400, str(e)) from None
+            "companyId": getattr(s, "company_id", "") or "", "groupIds": _shift_group_ids(s)}
 
 
 @router.get("/shifts")
@@ -6709,18 +6692,7 @@ def list_shifts(company: str = "", user: dict = Depends(require_team_read), db: 
             # Whether this caller may add / edit / delete shift types at all
             # (company-wide, or for at least one company) - a plain manager
             # cannot since Phase 0, and the screen hides the controls.
-            "canManage": can_manage_shifts(user) and (manage is None or bool(manage)),
-            # Licenses & Certifications a type may need (11/11/2026): names only,
-            # the live types of the companies the caller sees - no People grant needed.
-            "credentialTypes": _credential_type_choices(db, admit)}
-
-
-def _credential_type_choices(db: Session, admit) -> list:
-    from models import HrCredentialType
-    return [{"id": t.id, "name": t.name, "companyId": t.company_id or ""}
-            for t in db.query(HrCredentialType).filter(HrCredentialType.archived == 0)
-            .order_by(func.lower(HrCredentialType.name)).all()
-            if _company_admitted(t.company_id or "", admit)]
+            "canManage": can_manage_shifts(user) and (manage is None or bool(manage))}
 
 
 @router.post("/shifts")
@@ -6737,7 +6709,6 @@ def create_shift(body: ShiftIn, user: dict = Depends(require_shift_manage), db: 
               color=(body.color or "#2563eb")[:9], timezone=_valid_tz(body.timezone),
               break_min=_clamp_break(body.break_min), company_id=company_id,
               group_ids=_clean_shift_groups(db, body.group_ids),
-              required_credentials=_clean_required_credentials(db, body.required_credentials),
               created_by=user["email"], created_at=_now_iso())
     db.add(s)
     db.commit()
@@ -6767,8 +6738,6 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shif
     s.break_min = _clamp_break(body.break_min)   # new placements only; placed shifts keep theirs
     if body.group_ids is not None:
         s.group_ids = _clean_shift_groups(db, body.group_ids)
-    if body.required_credentials is not None:
-        s.required_credentials = _clean_required_credentials(db, body.required_credentials, current=s)
     db.commit()
     return _shift_dict(s)
 
@@ -7960,13 +7929,9 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
         # sentences, so the dot shows both and a reader can tell them apart.
         import shift_rules
         rules = shift_rules.rule_warnings(db, list(by_person.keys()), start, end, presets=presets) if by_person else {}
-        # Licenses & Certifications the shift's type needs (11/11/2026,
-        # hr_credentials.py) - rule warnings like the others: a reason at Share.
-        import hr_credentials
-        creds = hr_credentials.shift_warnings(db, [s for s in scheduled if s["email"] and not s["pendingDelete"]], presets)
         for s in scheduled:
             if s["email"] and not s["pendingDelete"]:
-                s["ruleWarnings"] = rules.get(s["id"], []) + creds.get(s["id"], [])
+                s["ruleWarnings"] = rules.get(s["id"], [])
                 if s["ruleWarnings"]:
                     s["conflicts"] = list(s.get("conflicts") or []) + s["ruleWarnings"]
 
@@ -8213,7 +8178,6 @@ def _budget_company(db: Session, user: dict, rows: list, people: dict) -> str:
 
 @router.get("/schedule/check")
 def check_scheduled(email: str, date: str, start: str, end: str, exclude_id: str = "", break_min: int = None,
-                    shift_id: str = "",
                     user: dict = Depends(require_schedule_write), db: Session = Depends(get_db)):
     """The warnings a shift WOULD have - what the Add/Edit Shift dialog shows
     live as the manager picks a day and times. Looks a day either side, so an
@@ -8257,12 +8221,6 @@ def check_scheduled(email: str, date: str, start: str, end: str, exclude_id: str
             "paidMin": max(0, _shift_minutes(start[:5], end[:5]) - _clamp_break(brk or 0)), "tz": hypo_tz}
     rules = shift_rules.rule_warnings(db, [em], date[:10], date[:10], extra=[hypo],
                                       exclude_ids=[exclude_id] if exclude_id else None).get(hypo["id"], [])
-    # The licenses the picked shift type needs (11/11/2026, hr_credentials.py).
-    # `shift_id` is the type on screen; '' = custom times, nothing needed.
-    import hr_credentials
-    rules = rules + hr_credentials.shift_warnings(
-        db, [{"id": hypo["id"], "email": em, "date": date[:10], "shiftId": (shift_id or "").strip()}], presets
-    ).get(hypo["id"], [])
     return {"warnings": conflicts + rules, "conflicts": conflicts, "ruleWarnings": rules}
 
 
@@ -9425,15 +9383,6 @@ def save_my_availability(body: AvailIn, user: dict = Depends(get_current_user), 
     A part not sent is left alone. The schedule grid warns a scheduler who
     places a shift outside it - it never blocks them."""
     em = (user.get("email") or "").lower()
-    save_availability_for(db, em, body)
-    db.commit()
-    return _my_availability_payload(db, em)
-
-
-def save_availability_for(db: Session, em: str, body: AvailIn) -> None:
-    """The one availability save: the person's own (above) and HR's on their
-    behalf from People (routers/hr_scheduling.py, 11/11/2026). The caller
-    commits."""
     now = _now_iso()
     if body.days is not None:
         clean = {}
@@ -9503,6 +9452,8 @@ def save_availability_for(db: Session, em: str, body: AvailIn) -> None:
                 raise HTTPException(400, f"Hours a week are 0 to {_AVAIL_HOURS_MAX}.")
             setattr(p, attr, val)
         p.updated_at = now
+    db.commit()
+    return _my_availability_payload(db, em)
 
 
 # ── Excel import (Sep 29, Teams parity) ──────────────────────────────────
@@ -15298,16 +15249,6 @@ def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "
                 # another shift is shown and tagged but never demands a reason
                 # (hardening pass, Oct 15): `soft`.
                 warnings.append({**base, "text": text, "kind": "conflict", "soft": _soft_conflict(text)})
-        # Licenses & Certifications (11/11/2026): a shared shift whose type
-        # needs one the person does not hold - a rule, so a reason is asked.
-        import hr_credentials
-        for sid, texts in hr_credentials.shift_warnings(db, [{**eff, "id": r.id} for eff, r in shared], presets).items():
-            eff = next((e for e, r in shared if r.id == sid), None)
-            if eff is None:
-                continue
-            base = {"email": eff["email"], "name": names.get(eff["email"], eff["email"]), "date": eff["date"], "shiftId": sid}
-            for text in texts:
-                warnings.append({**base, "text": text, "kind": "rule", "soft": False})
         rule_rows = shift_rules.publish_warnings(db, emails_on, d0, d1, [r.id for _, r in shared], presets=presets)
         # Scoped to the share (Neil, Oct 30 2026): a warning on a shift outside
         # [d0, d1] counts only when that shift is one the team already sees as

@@ -216,13 +216,12 @@ function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people,
     if (!cell.email || !effStart || !effEnd) return undefined;
     let live = true;
     const t = setTimeout(() => {
-      // The shift type travels too (11/11/2026): the licenses it needs.
-      api.timeSchedCheck({ email: cell.email, date: cell.date, start: effStart, end: effEnd, exclude_id: ex?.id || '', break_min: effBreak, shift_id: shiftId || '' })
+      api.timeSchedCheck({ email: cell.email, date: cell.date, start: effStart, end: effEnd, exclude_id: ex?.id || '', break_min: effBreak })
         .then((r) => { if (live) setWarnings(r?.warnings || []); })
         .catch(() => { if (live) setWarnings([]); });
     }, 300);
     return () => { live = false; clearTimeout(t); };
-  }, [cell.email, cell.date, effStart, effEnd, effBreak, ex?.id, shiftId]);
+  }, [cell.email, cell.date, effStart, effEnd, effBreak, ex?.id]);
 
   const payload = () => ({
     id: ex?.id, employee_email: cell.email || '', work_date: cell.date, shift_id: shiftId,

@@ -99,45 +99,8 @@ def _int(cfg: dict, key: str) -> int:
         return 0
 
 
-LIMIT_KEYS = ("maxHoursDay", "maxHoursWeek", "maxShiftsWeek", "minRestHours", "maxDaysInRow")
-
-
-def clean_limits(raw) -> dict:
-    """A person's Work Limits as stored: known keys with a positive whole
-    number only (0 / blank = no limit, left out). Raises ValueError with the
-    sentence to show."""
-    if not isinstance(raw, dict):
-        raise ValueError("Work limits must be an object.")
-    bounds = {"maxHoursDay": 24, "maxHoursWeek": 168, "maxShiftsWeek": 21, "minRestHours": 24, "maxDaysInRow": 14}
-    words = {"maxHoursDay": "Hours a day", "maxHoursWeek": "Hours a week", "maxShiftsWeek": "Shifts a week",
-             "minRestHours": "Rest between shifts", "maxDaysInRow": "Days in a row"}
-    out = {}
-    for k in LIMIT_KEYS:
-        v = raw.get(k)
-        if v in (None, ""):
-            continue
-        if isinstance(v, bool):
-            raise ValueError(f"{words[k]} must be a whole number.")
-        try:
-            n = int(v)
-        except (TypeError, ValueError):
-            raise ValueError(f"{words[k]} must be a whole number.") from None
-        if n != v and str(n) != str(v).strip():
-            raise ValueError(f"{words[k]} must be a whole number.")
-        if not 0 <= n <= bounds[k]:
-            raise ValueError(f"{words[k]} is 0 to {bounds[k]}.")
-        if n:
-            out[k] = n
-    return out
-
-
-def _tighter_max(a: int, b: int) -> int:
-    """The tighter of two caps where 0 = none: the smaller positive one."""
-    return min(x for x in (a, b) if x > 0) if (a > 0 or b > 0) else 0
-
-
 def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "monday",
-             max_hours_week: int = 0, limits: dict = None) -> dict:
+             max_hours_week: int = 0) -> dict:
     """One person's shifts across a window -> {shift id: [warning sentences]}.
     Each shift: {id, date (YYYY-MM-DD), start, end (HH:MM), paidMin, cancelled,
     tz (optional IANA zone)}. `week_start` is the DISPLAY week and bounds
@@ -145,10 +108,7 @@ def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "mo
     (OT_WEEK_START). `max_hours_week` is the person's OWN cap
     (ShiftAvailabilityPref, Phase 3b; 0 = none): the tighter of it and the
     company's ruleMaxWeekHours is the week cap, and the sentence says whose
-    it was. `limits` are the Work Limits HR set for this person
-    (NexusEmployee.work_limits, Neil 11/11/2026, Deputy's stress profile):
-    each one tightens the company's matching rule and still applies to a
-    salaried person; maxHoursDay and maxShiftsWeek are theirs alone."""
+    it was."""
     out = {}
 
     def warn(sid, text):
@@ -176,14 +136,12 @@ def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "mo
     if cfg.get("_salaried"):
         rule = "none"
         cfg = {**cfg, "ruleMinRestHours": 0, "ruleMaxDaysInRow": 0, "ruleMaxWeekHours": 0}
-    lim = limits or {}
-    lim_int = lambda k: _int(lim, k)  # noqa: E731
 
     # Rest between WORKDAYS (Neil, Oct 30 2026): measured from the latest end
     # of an earlier work date to the first start of the next one. The parts
     # of one day's split shift (7-11a and 4-8p) are one workday - the break
     # between them is not rest and never warns.
-    rest_h = max(_int(cfg, "ruleMinRestHours"), lim_int("minRestHours"))
+    rest_h = _int(cfg, "ruleMinRestHours")
     if rest_h > 0:
         latest, latest_day = None, None
         for i in worked:
@@ -198,7 +156,7 @@ def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "mo
                 latest, latest_day = i["iv"], i["d"]
 
     # Days in a row: every worked day past the limit.
-    max_days = _tighter_max(_int(cfg, "ruleMaxDaysInRow"), lim_int("maxDaysInRow"))
+    max_days = _int(cfg, "ruleMaxDaysInRow")
     if max_days > 0:
         streak, prev = 0, None
         for d in sorted({i["d"] for i in worked}):
@@ -208,18 +166,6 @@ def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "mo
                 for i in worked:
                     if i["d"] == d:
                         warn(i["id"], f"{_ordinal(streak)} day in a row ({max_days} is the most).")
-
-    # Their own hours-a-day limit (Work Limits) - any rule, salaried too.
-    day_cap = lim_int("maxHoursDay")
-    if day_cap > 0:
-        by_day = {}
-        for i in worked:
-            by_day[i["d"]] = by_day.get(i["d"], 0) + i["paid"]
-        for d, tot in by_day.items():
-            if tot > day_cap * 60:
-                for i in worked:
-                    if i["d"] == d:
-                        warn(i["id"], f"{_hm(tot)} scheduled this day (their limit is {day_cap}h).")
 
     # Daily overtime (California only).
     daily = _int(cfg, "ruleDailyOtHours")
@@ -242,16 +188,9 @@ def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "mo
         own_wk = max(0, int(max_hours_week or 0))
     except (TypeError, ValueError):
         own_wk = 0
-    # The person's own cap applies when it is the only one, or the tighter
-    # one; a Work Limit HR set is a cap of the same kind.
-    hr_wk = lim_int("maxHoursWeek")
-    max_wk = _tighter_max(_tighter_max(company_wk, own_wk), hr_wk)
-    if max_wk and max_wk == hr_wk and hr_wk != company_wk:
-        cap_text = "(their limit is {n}h)"
-    elif max_wk and max_wk == own_wk and own_wk != company_wk:
-        cap_text = "(they asked for at most {n}h)"
-    else:
-        cap_text = "({n}h is the most)"
+    # The person's own cap applies when it is the only one, or the tighter one.
+    max_wk, own_cap = (own_wk, True) if own_wk > 0 and (company_wk <= 0 or own_wk < company_wk) else (company_wk, False)
+    cap_text = "(they asked for at most {n}h)" if own_cap else "({n}h is the most)"
     for limit, anchor, text in ((weekly, OT_WEEK_START, "(over {n}h is overtime)"),
                                 (max_wk, week_start, cap_text)):
         if limit <= 0:
@@ -266,19 +205,6 @@ def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "mo
                 cum += i["paid"]
                 if tot > limit * 60 and cum > limit * 60:
                     warn(i["id"], f"{_hm(tot)} scheduled this week {text.format(n=limit)}.")
-
-    # Shifts a week (Work Limits) on the display week: each shift past the
-    # limit warns, in order.
-    shifts_cap = lim_int("maxShiftsWeek")
-    if shifts_cap > 0:
-        by_week = {}
-        for i in worked:
-            by_week.setdefault(week_of(i["d"], week_start), []).append(i)
-        for lst in by_week.values():
-            if len(lst) > shifts_cap:
-                for n, i in enumerate(lst, start=1):
-                    if n > shifts_cap:
-                        warn(i["id"], f"{len(lst)} shifts this week (their limit is {shifts_cap}).")
     return out
 
 
@@ -404,22 +330,6 @@ def own_caps_for(db, emails) -> dict:
             if int(p.max_hours_week or 0) > 0}
 
 
-def limits_for(db, emails) -> dict:
-    """{email: Work Limits} for the people HR set limits for (non-empty
-    NexusEmployee.work_limits); nobody else has a key."""
-    from sqlalchemy import func
-    from models import NexusEmployee
-    emails = sorted({(e or "").lower() for e in emails if e})
-    if not emails:
-        return {}
-    out = {}
-    for em, lim in (db.query(NexusEmployee.work_email, NexusEmployee.work_limits)
-                    .filter(func.lower(NexusEmployee.work_email).in_(emails)).all()):
-        if em and isinstance(lim, dict) and lim:
-            out[em.lower()] = lim
-    return out
-
-
 def _evaluate_people(db, emails, start: str, end: str, extra: list = None, exclude_ids=None,
                      view: str = "effective", report=None, presets: dict = None):
     """The engine behind rule_warnings / publish_warnings: ({shift id:
@@ -450,12 +360,10 @@ def _evaluate_people(db, emails, start: str, end: str, extra: list = None, exclu
         shifts.setdefault(x["email"].strip().lower(), []).append(rs)
     conf = config_for(db, emails)
     caps = own_caps_for(db, emails)
-    lims = limits_for(db, emails)
     out, where = {}, {}
     for em, lst in shifts.items():
         cfg, rule = conf.get(em) or ({}, "ca")
-        found = evaluate(lst, cfg, rule, cfg.get("weekStart") or "monday", max_hours_week=caps.get(em, 0),
-                         limits=lims.get(em))
+        found = evaluate(lst, cfg, rule, cfg.get("weekStart") or "monday", max_hours_week=caps.get(em, 0))
         dated = {s["id"]: s["date"] for s in lst}
         for sid, texts in found.items():
             day = (dated.get(sid) or "")[:10]

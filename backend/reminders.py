@@ -500,42 +500,6 @@ def run_daily_scan() -> int:
                         action=act,
                     )
 
-        # 4b. Licenses & Certifications (Neil, 11/11/2026, hr_credentials.py):
-        #     the person, their manager and HR, on the configured days before
-        #     the expiry and after it lapsed - only the newest record of each
-        #     type counts, so a renewal already on file stops the reminders.
-        cred_cfg = rcfg.get("credentialExpiry") or {}
-        if cred_cfg.get("enabled"):
-            import hr_credentials
-            by_id = {e.id: e for e in employees}
-            for eid, recs in hr_credentials.live_for(db, list(by_id)).items():
-                e = by_id[eid]
-                newest = {}
-                for c in recs:
-                    k = c.type_id or c.name
-                    if k not in newest or (c.expires_on or "9999") > (newest[k].expires_on or "9999"):
-                        newest[k] = c
-                for c in newest.values():
-                    if not c.expires_on:
-                        continue
-                    d = _days_until(c.expires_on)
-                    if not _fires(cred_cfg, d):
-                        continue
-                    name = f"{e.first_name} {e.last_name}".strip()
-                    what = c.name or "License"
-                    when = (f"expired {abs(d)} day{'s' if abs(d) != 1 else ''} ago ({_us_day(c.expires_on)})" if d < 0
-                            else "expires today" if d == 0
-                            else f"expires in {d} day{'s' if d != 1 else ''} ({_us_day(c.expires_on)})")
-                    title = "License Expired" if d < 0 else "License Expiring"
-                    me = (e.work_email or "").lower()
-                    if me:
-                        sent += _notify(db, "hr_credential_expiry", me, title,
-                                        f"Your {what} {when}. Send the renewed one to HR.",
-                                        ref_id=c.id, action={"view": "myhr"})
-                    for r in set(hr_team + ([e.manager_email.lower()] if e.manager_email else [])) - {me}:
-                        sent += _notify(db, "hr_credential_expiry", r, title,
-                                        f"{name}'s {what} {when}.", ref_id=c.id, action=act)
-
         # 5. Interviews today (candidate owner)
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         for c in db.query(HrCandidate).filter(HrCandidate.interview_at != "").all():

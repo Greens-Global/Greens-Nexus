@@ -39,12 +39,7 @@ const SUB = { fontSize: 12, fontWeight: 700, color: 'var(--ink)', margin: '12px 
 const HINT = { fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 };
 const INPUT = { width: 'auto', fontSize: 12.5, padding: '4px 8px' };
 
-// People (11/11/2026, Deputy parity): the same panel on a person's Time &
-// Scheduling tab - `employeeId` reads and saves THEIR availability through
-// /hr/employees/{id}/availability (the same rows and rules); `canEdit` off
-// shows it read only (a manager, or HR without edit).
-export default function MyAvailability({ employeeId = '', canEdit = true, title = 'My Availability' }) {
-  const theirs = !!employeeId;
+export default function MyAvailability() {
   const [week, setWeek] = useState(null);
   const [dates, setDates] = useState([]);
   const [prefs, setPrefs] = useState(toPrefs(null));
@@ -63,11 +58,11 @@ export default function MyAvailability({ employeeId = '', canEdit = true, title 
   useEffect(() => {
     let live = true;
     setError(null);
-    (theirs ? api.hrAvailability(employeeId) : api.availabilityMine())
+    api.availabilityMine()
       .then((r) => { if (live) { setWeek(toWeek(r?.days)); setDates(toDates(r?.dates)); setPrefs(toPrefs(r?.prefs)); setServerToday(typeof r?.today === 'string' ? r.today : ''); } })
-      .catch((e) => { if (live) setError(e?.message || 'Could not load the availability.'); });
+      .catch((e) => { if (live) setError(e?.message || 'Could not load your availability.'); });
     return () => { live = false; };
-  }, [tick, theirs, employeeId]);
+  }, [tick]);
 
   const set = (i, patch) => setEdit((e) => ({ ...e, days: e.days.map((d, j) => (j === i ? { ...d, ...patch } : d)) }));
   const setDate = (i, patch) => setEdit((e) => ({ ...e, dates: e.dates.map((d, j) => (j === i ? { ...d, ...patch } : d)) }));
@@ -88,7 +83,7 @@ export default function MyAvailability({ employeeId = '', canEdit = true, title 
     if (bad) return;
     setBusy(true); setMsg('');
     try {
-      const r = await (theirs ? (d) => api.hrAvailabilitySave(employeeId, d) : api.availabilitySave)({
+      const r = await api.availabilitySave({
         days: edit.days.map((d) => ({ weekday: d.weekday, kind: d.kind, start: d.start, end: d.end, note: d.note })),
         dates: edit.dates.map((d) => ({ ...(d.id ? { id: d.id } : {}), date: d.date, kind: d.kind, start: d.kind === 'available' ? d.start : '', end: d.kind === 'available' ? d.end : '', note: d.note })),
         prefs: { preferredHoursWeek: edit.prefs.preferredHoursWeek, maxHoursWeek: edit.prefs.maxHoursWeek },
@@ -97,8 +92,8 @@ export default function MyAvailability({ employeeId = '', canEdit = true, title 
       setDates(r && 'dates' in r ? toDates(r.dates) : [...pastDates, ...edit.dates]);
       setPrefs(r && 'prefs' in r ? toPrefs(r.prefs) : { ...edit.prefs });
       if (typeof r?.today === 'string') setServerToday(r.today);
-      setEdit(null); setMsg(theirs ? 'Availability saved. The planner warns on it from now on.' : 'Availability saved. Your manager sees it when scheduling.');
-    } catch (e) { setMsg(e?.message || 'Could not save the availability.'); }
+      setEdit(null); setMsg('Availability saved. Your manager sees it when scheduling.');
+    } catch (e) { setMsg(e?.message || 'Could not save your availability.'); }
     setBusy(false);
   }
 
@@ -111,14 +106,14 @@ export default function MyAvailability({ employeeId = '', canEdit = true, title 
   );
 
   return (
-    <div style={theirs ? { marginTop: 6 } : { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '14px 16px', marginTop: 14, boxShadow: 'var(--wk-shadow)' }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '14px 16px', marginTop: 14, boxShadow: 'var(--wk-shadow)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        {!theirs && <CalendarClock size={15} color="var(--muted)" />}
-        <span style={{ fontSize: theirs ? 12.5 : 14, fontWeight: theirs ? 600 : 800, flex: 1, color: theirs ? 'var(--muted)' : undefined }}>{theirs ? 'Set by the person in My Workday > Shifts; HR can set it for them.' : title}</span>
-        {!edit && week && canEdit && <button type="button" className="secondary-btn" onClick={startEdit} style={{ fontSize: 12 }}>Edit Availability</button>}
+        <CalendarClock size={15} color="var(--muted)" />
+        <span style={{ fontSize: 14, fontWeight: 800, flex: 1 }}>My Availability</span>
+        {!edit && week && <button type="button" className="secondary-btn" onClick={startEdit} style={{ fontSize: 12 }}>Edit Availability</button>}
       </div>
       {error ? (
-        <ErrorBanner message={theirs ? 'Their availability could not be loaded right now.' : 'Your availability could not be loaded right now.'} onRetry={() => setTick((t) => t + 1)} />
+        <ErrorBanner message="Your availability could not be loaded right now." onRetry={() => setTick((t) => t + 1)} />
       ) : !week ? (
         <SkeletonBlocks count={1} height={44} borderRadius={10} />
       ) : !edit ? (
@@ -209,7 +204,7 @@ export default function MyAvailability({ employeeId = '', canEdit = true, title 
                 onChange={(e) => setPref('maxHoursWeek', e.target.value)} style={{ width: 90, fontSize: 12.5, padding: '4px 8px' }} />
             </label>
           </div>
-          {badPrefs && <div style={{ fontSize: 11.5, color: 'hsl(var(--color-red))' }}>Preferred hours cannot be more than {theirs ? 'the' : 'your'} most hours.</div>}
+          {badPrefs && <div style={{ fontSize: 11.5, color: 'hsl(var(--color-red))' }}>Preferred hours cannot be more than your most hours.</div>}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button type="button" className="secondary-btn" onClick={() => setEdit(null)}>Cancel</button>
