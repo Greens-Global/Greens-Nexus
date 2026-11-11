@@ -313,9 +313,15 @@ def _entity(db: Session, emp: NexusEmployee):
     return db.query(HrEntity).filter(HrEntity.id == emp.company).first() if emp.company else None
 
 
+def hr_contacts(db: Session, emp: NexusEmployee) -> list:
+    """The company's HR contact(s) - one email or a comma list (hr_access)."""
+    import hr_access
+    return hr_access.hr_contacts(db, emp.company or "")
+
+
 def hr_contact(db: Session, emp: NexusEmployee) -> str:
-    e = _entity(db, emp)
-    return ((e.hr_contact_email if e else "") or "").strip().lower()
+    """The first HR contact - the name a letter prints."""
+    return next(iter(hr_contacts(db, emp)), "")
 
 
 def _in_hr_scope(db: Session, user: dict, emp: NexusEmployee) -> bool:
@@ -333,7 +339,7 @@ def is_hr_plus(db: Session, user: dict, emp: NexusEmployee) -> bool:
     me = (user.get("email") or "").strip().lower()
     if not me or me == (emp.work_email or "").strip().lower():
         return False
-    if me == hr_contact(db, emp):
+    if me in hr_contacts(db, emp):
         return True
     if not _in_hr_scope(db, user, emp):
         return False
@@ -1071,9 +1077,9 @@ def _close_bells(db: Session, emp: NexusEmployee) -> None:
 def hr_recipients(db: Session, emp: NexusEmployee) -> list:
     """The company HR contact; none set - the Global Admins (the last stop
     everywhere else in HR)."""
-    hr = hr_contact(db, emp)
+    hr = hr_contacts(db, emp)
     if hr:
-        return [hr]
+        return hr
     import hr_checklists as hc
     return list(hc.global_admins(db))
 

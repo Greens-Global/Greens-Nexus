@@ -102,6 +102,7 @@ class EmployeeIn(BaseModel):
 
 class EmployeeUpdate(BaseModel):
     first_name:      Optional[str] = None
+    employee_code:   Optional[str] = None   # Overview's Employee Code (unique, checked in apply_profile_update)
     last_name:       Optional[str] = None
     work_email:      Optional[str] = None
     personal_email:  Optional[str] = None
@@ -369,6 +370,10 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
     scope = hr_scope(user, db)
     if scope is not None and (body.company or "").strip() not in scope:
         raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
+    new_email = (body.work_email or "").strip().lower()
+    if new_email and (db.query(NexusEmployee.id)
+                        .filter(func.lower(NexusEmployee.work_email) == new_email).first()):
+        raise HTTPException(409, f"{new_email} is already the work email of another person in People")
     now = datetime.now(timezone.utc).isoformat()
     row = NexusEmployee(
         id=str(uuid.uuid4()),
@@ -420,6 +425,44 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
     return _with_backup(db, _serialize(row, db=db))
 
 
+def _check_identity_fields(db: Session, row: NexusEmployee, fields: dict, scope) -> None:
+    """What a profile save may not do to the fields that identify a person or
+    open someone else's reach (People review, 11/11/2026):
+    - Employee Code: never blank, never one another person holds (removed
+      people count - they can be restored, as in _next_code).
+    - Work email: never one another live person holds - walls, HR rights and
+      pay all find a person by it, so two rows with one email mix them up.
+    - Manager / Backup Manager: a person inside the caller's People access,
+      as the Workflows action already requires - naming a manager in another
+      company would open this person's record and pay to them."""
+    code = fields.get("employee_code")
+    if code is not None and code.strip() != (row.employee_code or ""):
+        code = code.strip()
+        if not code:
+            raise HTTPException(400, "Employee Code cannot be empty")
+        taken = (db.query(NexusEmployee.id)
+                   .filter(NexusEmployee.employee_code == code, NexusEmployee.id != row.id)
+                   .execution_options(include_deleted=True).first())
+        if taken:
+            raise HTTPException(409, f"Employee Code {code} is already used by another person")
+    email = fields.get("work_email")
+    if email and email.strip().lower() != (row.work_email or "").strip().lower():
+        email = email.strip().lower()
+        if (db.query(NexusEmployee.id)
+              .filter(func.lower(NexusEmployee.work_email) == email, NexusEmployee.id != row.id).first()):
+            raise HTTPException(409, f"{email} is already the work email of another person in People")
+    if scope is None or is_team_scope(scope):
+        return
+    for key in ("manager_email", "backup_manager_email"):
+        mgr_email = (fields.get(key) or "").strip().lower()
+        if not mgr_email or mgr_email == (getattr(row, key, "") or "").strip().lower():
+            continue
+        mgr = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == mgr_email).first()
+        if mgr is not None and not _in_scope(mgr, scope):
+            label = "Manager" if key == "manager_email" else "Backup Manager"
+            raise HTTPException(403, f"{label}: that person is outside your People access")
+
+
 def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: dict, *, scope,
                          source: str = "") -> dict:
     """The People screen's profile save, shared by PATCH /hr/employees/{eid}
@@ -449,6 +492,7 @@ def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: di
     first_name = fields.get("first_name")
     if first_name is not None and not first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
+    _check_identity_fields(db, row, fields, scope)
     changes: dict = {}
     old_start = row.start_date or ""
     is_external = (row.identity_type or "internal") in ("guest", "external")
@@ -490,7 +534,9 @@ def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: di
             import json as _json
             from models import AuditLog
             # "compliance", not "pan": that substring is in "company". The PAN sits inside that JSON.
-            _mask = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation", "account", "compliance")
+            # "contractor" too: its JSON carries the contractor's rate and billing rate.
+            _mask = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation", "account",
+                     "compliance", "contractor")
             shown = {k: ("(changed)" if any(m in k.lower() for m in _mask)
                          else [None if v[0] is None else str(v[0])[:120], None if v[1] is None else str(v[1])[:120]])
                      for k, v in changes.items()}
@@ -1868,6 +1914,29 @@ def _req_in_scope(db: Session, r: HrSelfRequest, scope) -> HrSelfRequest:
     return r
 
 
+def _hr_reads_request(db: Session, user: dict, r: HrSelfRequest, memo: Optional[dict] = None) -> bool:
+    """Ask HR is HR's (People review, 11/11/2026): an old Ask HR request - many
+    now confidential HR tickets - is read only by HR for the requester's
+    company (hr_access: its HR contact, an administrator, Full People), the
+    rule ticket_confidential.may_read applies to the ticket. A People viewer
+    or editor grant alone no longer opens them."""
+    import hr_access
+    emp = (db.query(NexusEmployee.company)
+           .filter(func.lower(NexusEmployee.work_email) == (r.employee_email or "").lower()).first())
+    company = (emp[0] or "") if emp else ""
+    if memo is not None and company in memo:
+        return memo[company]
+    ok = hr_access.is_hr_for_company(db, user, company)
+    if memo is not None:
+        memo[company] = ok
+    return ok
+
+
+def _assert_hr_reads_request(db: Session, user: dict, r: HrSelfRequest) -> None:
+    if not _hr_reads_request(db, user, r):
+        raise HTTPException(404, "Request not found")
+
+
 @router.get("/requests")
 def list_self_requests(status: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     scope = hr_scope(user, db)
@@ -1879,6 +1948,8 @@ def list_self_requests(status: str = "", user: dict = Depends(require_hr_read), 
     if status:
         q = q.filter(HrSelfRequest.status == status)
     rows = q.order_by(HrSelfRequest.created_at.desc()).limit(200).all()
+    memo: dict = {}
+    rows = [r for r in rows if _hr_reads_request(db, user, r, memo)]
     return [{"id": r.id, "email": r.employee_email, "name": r.employee_name,
              "type": r.type, "message": r.message, "status": r.status,
              "attachmentName": r.attachment_name or "",
@@ -1893,6 +1964,7 @@ def self_request_attachment_url(rid: str, user: dict = Depends(require_hr_read),
     if not r or not r.attachment_path:
         raise HTTPException(404, "No attachment")
     _req_in_scope(db, r, hr_scope(user, db))
+    _assert_hr_reads_request(db, user, r)
     resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{r.attachment_path}",
                       headers=_storage_headers(), json={"expiresIn": 300}, timeout=15)
     if not resp.is_success:
@@ -1913,10 +1985,11 @@ def attach_request_to_employee(rid: str, body: AttachToEmployeeIn,
     if not r or not r.attachment_path:
         raise HTTPException(404, "No attachment on this request")
     emp = (db.query(NexusEmployee)
-           .filter(func.lower(NexusEmployee.work_email) == r.employee_email.lower()).first())
+           .filter(func.lower(NexusEmployee.work_email) == (r.employee_email or "").lower()).first())
     if not emp:
         raise HTTPException(404, "No employee record for this request")
     _assert_scope(emp, hr_scope(user, db))
+    _assert_hr_reads_request(db, user, r)
     kind = body.kind if body.kind in _DOC_KINDS else "other"
     fname = r.attachment_name or "document"
     dest = f"{emp.id}/{uuid.uuid4()}-{re.sub(r'[^a-zA-Z0-9._-]', '_', fname)}"
@@ -1947,6 +2020,7 @@ def resolve_self_request(rid: str, body: ResolveRequestIn,
     if not r:
         raise HTTPException(404, "Request not found")
     _req_in_scope(db, r, hr_scope(user, db))
+    _assert_hr_reads_request(db, user, r)
     if r.ticket_id:
         raise HTTPException(409, "This request moved into an HR ticket - answer it on the ticket.")
     r.status = "resolved"
@@ -2814,7 +2888,7 @@ def _welcome_html(emp: NexusEmployee, upn: str) -> str:
             ("Your name", f"{emp.first_name} {emp.last_name}".strip()),
             ("Role", role_line),
             ("Work email", upn),
-            ("Start date", emp.start_date or "We'll confirm shortly"),
+            ("Start date", __import__("hr_probation").us_date(emp.start_date) or "We'll confirm shortly"),
             ("Location", emp.location or ""),
         ) if value
     )
@@ -5164,6 +5238,15 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
     if body.compensation is not None:
         incoming = dict(body.compensation or {})
         current = dict(row.compensation or {})
+        eff_in = str(incoming.get("effectiveDate") or "").strip()
+        if eff_in:
+            # The rate history compares days as text: anything but YYYY-MM-DD
+            # (e.g. 11/05/2026) would sort before every day and apply since always.
+            try:
+                datetime.strptime(eff_in, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(400, "Effective Date must be a date, e.g. 11/05/2026")
+            incoming["effectiveDate"] = eff_in
         # Auto-snapshot the prior base into history when the base pay changes.
         old_base, new_base = str(current.get("base", "")), str(incoming.get("base", ""))
         history = list(incoming.get("history") or current.get("history") or [])
@@ -5595,6 +5678,7 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
     only changes the other statuses (or re-runs an M365 step on a leaver)."""
     now = datetime.now(timezone.utc).isoformat()
     did_change = body.status != row.status
+    prev_status = row.status or ""
     # An offboarding always carries the termination date (Neil, Teams
     # 11/02/2026: "Make sure on offboarded people there is a termination
     # date"). The Offboard flow (hr_life_events) validates its last day
@@ -5615,14 +5699,15 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
     if (off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested")
             or off.get("freeUpLicense") or off.get("handoverTo")):
         off_block = {
-            "mailboxAction":   (off.get("mailboxAction") or "").strip(),
-            "delegateTo":      [e.strip().lower() for e in (off.get("delegateTo") or []) if e and e.strip()],
+            "mailboxAction":   str(off.get("mailboxAction") or "").strip(),
+            "delegateTo":      [e.strip().lower() for e in (off.get("delegateTo") if isinstance(off.get("delegateTo"), list) else [])
+                                if isinstance(e, str) and e.strip()],
             "exportRequested": bool(off.get("exportRequested")),
             "freeUpLicense":   bool(off.get("freeUpLicense")),
             # Who inherits the person's task work, and whether their finished
             # tasks come along. Recorded on the log entry as the audit trail for
             # a bulk reassignment nobody gets a notification about.
-            "handoverTo":      (off.get("handoverTo") or "").strip().lower(),
+            "handoverTo":      str(off.get("handoverTo") or "").strip().lower(),
             "handoverIncludeCompleted": bool(off.get("handoverIncludeCompleted")),
             "done":            False,   # flips true once an admin completes the M365 steps
         }
@@ -5735,8 +5820,11 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
             m365["nexusSessions"] = dropped
         except Exception as e:
             print(f"[hr] Nexus session revoke failed for {row.id}: {e}")
-    if did_change and row.m365_id and body.status in ("active", "onboarding"):
-        # Coming back from inactive/left - restore sign-in (best-effort).
+    if did_change and row.m365_id and body.status in ("active", "onboarding") \
+            and prev_status in ("inactive", "offboarded"):
+        # Coming back from inactive/left - restore sign-in (best-effort). Only
+        # then: Staged / Onboarding -> Active must not undo a sign-in block IT
+        # set in Entra (People review, 11/11/2026).
         try:
             _graph_set_signin(_graph_token(), row.m365_id, True)
             m365 = {"signIn": "re-enabled"}
@@ -5875,6 +5963,14 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
         db.close()
 
 
+def _audit_mailbox(db: Session, user: dict, emp: NexusEmployee, action: str) -> None:
+    from models import AuditLog
+    db.add(AuditLog(timestamp=datetime.now(timezone.utc).isoformat(), user_email=user["email"],
+                    user_role=str(user.get("role") or ""), action=action,
+                    resource_type="employee", resource_id=emp.id,
+                    details=json.dumps({"employee": emp.work_email or ""})))
+
+
 @router.post("/employees/{eid}/mailbox-export")
 def start_mailbox_export(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
@@ -5883,10 +5979,18 @@ def start_mailbox_export(eid: str, user: dict = Depends(require_hr_write), db: S
     _assert_scope(emp, hr_scope(user, db))
     if not emp.m365_id:
         raise HTTPException(400, "No linked M365 account to export from")
+    # A mailbox export belongs to offboarding only (Neil, Oct 22 2026) - the
+    # screens start it from Offboard / Change Status; this route re-runs one
+    # for someone already Inactive or Left, never for a working colleague.
+    if (emp.status or "") not in ("inactive", "offboarded"):
+        raise HTTPException(409, "A mailbox export is part of offboarding - offboard this person or set them "
+                                 "to Inactive first.")
     now = datetime.now(timezone.utc).isoformat()
     job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=eid, requested_by=user["email"],
                           status="pending", created_at=now, updated_at=now)
-    db.add(job); db.commit(); db.refresh(job)
+    db.add(job)
+    _audit_mailbox(db, user, emp, "Started a mailbox export")
+    db.commit(); db.refresh(job)
     threading.Thread(target=_run_mailbox_export, args=(job.id, emp.m365_id), daemon=True).start()
     return _ser_export(job)
 
@@ -5913,11 +6017,15 @@ def mailbox_export_url(job_id: str, user: dict = Depends(require_hr_read), db: S
     job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
     if not job or not job.storage_path:
         raise HTTPException(404, "No export file yet")
-    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == job.employee_id).first(), hr_scope(user, db))
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == job.employee_id).first()
+    _assert_scope(emp, hr_scope(user, db))
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/sign/{_EXPORT_BUCKET}/{job.storage_path}",
         headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,
     )
     if not resp.is_success:
         raise HTTPException(502, f"Could not sign URL: {resp.text[:200]}")
+    if emp is not None:   # every open of someone's whole mailbox is on the record
+        _audit_mailbox(db, user, emp, "Downloaded a mailbox export")
+        db.commit()
     return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}

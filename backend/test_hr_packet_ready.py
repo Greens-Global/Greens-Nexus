@@ -85,7 +85,10 @@ class ReadyTests(ReviewCase):
 
     def test_an_unpublished_template_points_at_itself(self):
         def unpublish(db):
-            db.query(models.DocTemplate).filter_by(id="t-nda").update({"published_version": 0})
+            # A draft: an ACTIVE template never published is released as it
+            # stands on first use (Neil, 10/31/2026 - published_snapshot), so
+            # it is ready; only a draft (or archived) one stops the packet.
+            db.query(models.DocTemplate).filter_by(id="t-nda").update({"published_version": 0, "status": "draft"})
         self._edit(unpublish)
         c = _ready(self.client)["documents"]
         self.assertFalse(c["ok"])
