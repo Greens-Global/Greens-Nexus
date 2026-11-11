@@ -25,6 +25,7 @@ vi.mock('@excalidraw/excalidraw', () => {
     exportToBlob: vi.fn(async (o) => { calls.blob.push(o); return new Blob(['png'], { type: 'image/png' }); }),
     exportToSvg: vi.fn(async (o) => { calls.svg.push(o); const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('width', '10'); return s; }),
     exportToClipboard: vi.fn(async (o) => { calls.clip.push(o); }),
+    convertToExcalidrawElements: vi.fn((skeleton) => skeleton),   // the skeleton as the adapter wrote it
   };
 });
 vi.mock('@excalidraw/excalidraw/index.css', () => ({}));
@@ -122,5 +123,40 @@ describe('engine adapter: the drawing package behind the contract', () => {
   it('a read-only Canvas is the engine\'s view mode with no image tool', async () => {
     await act(async () => { render(<engine.Canvas scene={emptyScene('clean')} onChange={() => {}} look="clean" readOnly />); });
     expect(screen.getByTestId('engine').dataset.view).toBe('true');
+  });
+});
+
+describe('diagram.build (11/08/2026): groups, arrow kinds, glyphs, elbow arrows', () => {
+  it('draws a group box its members share, elbow arrows tied to their boxes, and vector glyphs', async () => {
+    const { parseText, layout } = await import('../diagram/graph');
+    const placed = layout(parseText('Site | building:\n  Office | building => Gate | lock\nGate -.nightly.-> Cameras'));
+    const out = engine.diagram.build(placed, { look: 'clean' });
+    const box = out.find((e) => e.customData?.nexusGroup);
+    expect(box).toMatchObject({ type: 'rectangle', id: 'g1:box', groupIds: ['g1'], roundness: { type: 3, value: 8 }, strokeWidth: 1 });
+    expect(box.customData.nexusGroup).toEqual({ gid: 'g1', label: 'Site', glyph: 'building', parent: '' });
+    expect(out.find((e) => e.customData?.nexusGroupLabel === 'g1')).toMatchObject({ type: 'text', text: 'Site', groupIds: ['g1'] });
+    expect(out.filter((e) => e.customData?.nexusGlyphOf === 'g1').length).toBeGreaterThan(0);
+    const office = out.find((e) => e.id === 'n1');
+    expect(office.groupIds).toEqual(['n1:glyph', 'g1']);
+    expect(office.customData.nexusGlyph).toBe('building');
+    const glyph = out.filter((e) => e.customData?.nexusGlyphOf === 'n1');
+    expect(glyph.length).toBeGreaterThan(0);
+    for (const g of glyph) {
+      expect(g.groupIds).toEqual(['n1:glyph', 'g1']);
+      expect(g.roughness).toBe(0);
+      expect(String(g.strokeColor)).not.toMatch(/^var\(/);
+    }
+    const arrows = out.filter((e) => e.type === 'arrow');
+    expect(arrows.map((a) => [a.customData.nexusEdge, a.elbowed, a.roundness, a.start.id, a.end.id])).toEqual([
+      ['main', true, null, 'n1', 'n2'], ['dashed', true, null, 'n2', 'n3'],
+    ]);
+    expect(arrows[0]).toMatchObject({ strokeColor: '#15803d', strokeWidth: 3, strokeStyle: 'solid', groupIds: ['g1'] });
+    expect(arrows[1]).toMatchObject({ strokeStyle: 'dashed', groupIds: [] });
+    expect(arrows[1].label.text).toBe('nightly');
+    for (const a of arrows) {
+      for (let i = 0; i + 1 < a.points.length; i += 1) {
+        expect(a.points[i][0] === a.points[i + 1][0] || a.points[i][1] === a.points[i + 1][1]).toBe(true);
+      }
+    }
   });
 });

@@ -393,6 +393,9 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN application VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN service_area VARCHAR DEFAULT ''",
             "ALTER TABLE external_links ADD COLUMN service_area VARCHAR DEFAULT ''",
+            # Links usage and health (11/08/2026): last open, down since.
+            "ALTER TABLE external_links ADD COLUMN last_opened_at VARCHAR DEFAULT ''",
+            "ALTER TABLE external_links ADD COLUMN unreachable_since VARCHAR DEFAULT ''",
             # The desk filters and groups on these two, and ADD COLUMN alone
             # leaves the model's index=True unhonored on a table create_all has
             # already made. Named exactly as SQLAlchemy names them, so a fresh
@@ -1604,6 +1607,12 @@ def _run_migrations():
             # Kudos thanks (Neil, 11/08/2026): the value tag and the recipient's first look. models.PerfKudos.
             "ALTER TABLE hr_perf_kudos ADD COLUMN value VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_kudos ADD COLUMN seen_at VARCHAR DEFAULT ''",
+            # Automatic scheduling + project health (Neil 11/08/2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN schedule_mode VARCHAR DEFAULT 'manual'",
+            "ALTER TABLE tasks ADD COLUMN dependency_lags JSON DEFAULT '{}'",
+            "ALTER TABLE task_projects ADD COLUMN status_note VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects ADD COLUMN status_set_by VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects ADD COLUMN status_set_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1777,6 +1786,9 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS application TEXT DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS service_area TEXT DEFAULT ''",
         "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS service_area TEXT DEFAULT ''",
+        # Links usage and health (11/08/2026): last open, down since.
+        "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS last_opened_at TEXT DEFAULT ''",
+        "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS unreachable_since TEXT DEFAULT ''",
         # See the SQLite list: ADD COLUMN does not honor the model's index=True
         # on an existing table. Named as SQLAlchemy names them so create_all on
         # a fresh database and this line converge on one index, not two.
@@ -3827,6 +3839,19 @@ def _run_migrations():
         "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS value VARCHAR DEFAULT ''",
         "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE perf_kudos_thanks ENABLE ROW LEVEL SECURITY",
+        # Automatic scheduling (Neil, 11/08/2026): a task's mode and its lags
+        # per predecessor - every existing task stays manual. models.Task,
+        # task_schedule.py.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS schedule_mode VARCHAR DEFAULT 'manual'",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS dependency_lags JSON DEFAULT '{}'",
+        # Project health (Neil, 11/08/2026): who set a project's status, when
+        # and why. models.TaskProject.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS status_note VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS status_set_by VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS status_set_at VARCHAR DEFAULT ''",
+        # Schedule baselines (Neil, 11/08/2026): a new table, explicit RLS.
+        # models.TaskProjectBaseline.
+        "ALTER TABLE task_project_baselines ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5898,3 +5923,5 @@ from routers import construction_subs as construction_subs_router  # noqa: E402 
 app.include_router(construction_subs_router.router)  # Construction: subs on a job (Intacct vendors through Accounting) and their papers (Round Two item 7, 11/05/2026)
 from routers import construction_drawings as construction_drawings_router  # noqa: E402 - construction_drawings: create_all + explicit RLS line
 app.include_router(construction_drawings_router.router)  # Construction: the drawing register, current set and superseded revisions (Round Two item 9, 11/06/2026)
+from routers import notes_diagram as notes_diagram_router  # noqa: E402 - one nexus_settings row, no new table
+app.include_router(notes_diagram_router.router)  # Notes boards: Diagram From a Sentence - OFF unless AI is on for Nexus AND a Super Administrator turns it on (Neil, 11/08/2026)

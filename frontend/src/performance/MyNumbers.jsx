@@ -1,6 +1,7 @@
 // My Numbers (Neil, Oct 29 2026: "it needs to provide some real metrics from
 // Nexus"): a row of tiles from what Nexus already records - arrival, hours,
-// time sheets, tasks, tickets, training - for This Month, This Quarter or
+// time sheets, tasks, tickets, training - for This Month, This Quarter,
+// This Year, All Time (from their start date, three years at most) or
 // This Review. Nobody types them; a number that does not apply to the person
 // is not shown (backend/perf_metrics.py).
 import { useEffect, useState } from 'react';
@@ -8,7 +9,25 @@ import { BarChart3 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { formatDate } from '../lib/datetime';
+import { tenureLabel } from '../lib/workdayStats';
+import { offlineRead } from '../lib/offline/read';
 import { PERIODS, card, cardHead, HD, muted } from './lib';
+
+// Time With Us (Neil, 11/08/2026: moved here from the Workday Overview tile):
+// one quiet line under My Numbers' head on the self view - "With us since
+// MM/DD/YYYY · 2.7y", from the start date on the person's HR record, the
+// same figure the tile showed. Nothing without a start date.
+function WithUs() {
+  const [since, setSince] = useState('');
+  useEffect(() => {
+    let live = true;
+    offlineRead('myhr:profile', () => api.myHrProfile()).then(p => { if (live) setSince(p?.startDate || ''); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const tenure = tenureLabel(since);
+  if (!tenure) return null;
+  return <div data-with-us style={{ ...muted, marginTop: -6, marginBottom: 10 }}>With us since {formatDate(since)} · {tenure}</div>;
+}
 
 export function Segmented({ value, onChange, options, label }) {
   return (
@@ -43,7 +62,7 @@ export function NumberTiles({ metrics }) {
 }
 
 // `email` ''= me. `start`/`end` fix the period (the review form); else the
-// person picks This Month / This Quarter / This Review.
+// person picks This Month / This Quarter / This Year / All Time / This Review.
 export default function MyNumbers({ email = '', start = '', end = '', title = 'My Numbers', bare = false, initialPeriod = 'quarter' }) {
   const fixed = !!(start && end);
   const [period, setPeriod] = useState(initialPeriod);
@@ -78,6 +97,7 @@ export default function MyNumbers({ email = '', start = '', end = '', title = 'M
         {span && <span style={{ ...muted, fontSize: 12 }}>{span}</span>}
         {!fixed && <span style={{ marginLeft: 'auto' }}><Segmented value={period} onChange={setPeriod} options={PERIODS} label="Period" /></span>}
       </div>
+      {!email && <WithUs />}
       {body}
     </section>
   );

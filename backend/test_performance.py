@@ -396,6 +396,16 @@ class GoalTests(PerfCase):
                 api.scorecard(EMP, "", start, end, U(EMP), self.db)
             self.assertEqual(e.exception.status_code, 400)
 
+    def test_this_year_and_all_time(self):
+        from datetime import date
+        today = date.fromisoformat(perf.local_today())
+        year = api.scorecard(EMP, "year", "", "", U(EMP), self.db)
+        self.assertEqual(year["period"]["start"], today.replace(month=1, day=1).isoformat())
+        self.assertEqual(year["periodKind"], "year")
+        everything = api.scorecard(EMP, "all", "", "", U(EMP), self.db)
+        self.assertGreaterEqual(everything["period"]["start"], (today - timedelta(days=3 * 366)).isoformat())
+        self.assertEqual(everything["period"]["end"], today.isoformat())
+
     def test_the_team_reads_its_numbers_in_one_pass(self):
         import perf_metrics
         calls = []

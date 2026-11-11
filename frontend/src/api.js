@@ -949,6 +949,12 @@ export const api = {
   updatePersonalLink: (id, data) => req(`/personal-links/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deletePersonalLink: (id) => req(`/personal-links/${id}`, { method: "DELETE" }),
   clickPersonalLink: (id) => req(`/personal-links/${id}/click`, { method: "PATCH" }),
+  // Request a Link + link health (11/08/2026)
+  createLinkRequest: (data) => req("/external-links/requests", { method: "POST", body: JSON.stringify(data) }),
+  getLinkRequests: () => req("/external-links/requests"),
+  declineLinkRequest: (id) => req(`/external-links/requests/${id}/decline`, { method: "POST" }),
+  markLinkRequestAdded: (id, linkId) => req(`/external-links/requests/${id}`, { method: "PATCH", body: JSON.stringify({ link_id: linkId }) }),
+  checkExternalLink: (id) => req(`/external-links/${id}/check`, { method: "POST" }),
 
   // Link Layout - per-user Links Module personalization (ordering, folders,
   // favorites), backend-persisted so it follows the account across devices
@@ -3403,6 +3409,12 @@ export const api = {
   // The weather follows the jobsite (10/30/2026): "+ New Jobsite" in the
   // shift popup - a name and an address make a Construction project.
   createJobsite: (data) => req("/timeclock/jobsites", { method: "POST", body: JSON.stringify(data) }),
+  // Diagram From a Sentence (Neil, 11/08/2026): OFF - the setting reads
+  // { diagramAiEnabled, aiAvailable } and the route answers 403 ai_off unless
+  // AI is on for Nexus AND a Super Administrator turned this on.
+  getDiagramAiSettings: () => req("/notes/diagram/settings"),
+  setDiagramAiSettings: (diagramAiEnabled) => req("/notes/diagram/settings", { method: "PUT", body: JSON.stringify({ diagramAiEnabled }) }),
+  diagramFromSentence: (sentence) => req("/notes/diagram/from-sentence", { method: "POST", body: JSON.stringify({ sentence }), timeoutMs: 90_000 }),
 };
 
 // Workflows' query strings (Oct 28 2026): "" for nothing, "?a=1&b=2" with
@@ -3747,3 +3759,12 @@ async function _attachConstructionMarkup(source, { name, blob }) {
   if (error) throw new Error(error);
   return api.attachConstructionMarkup(source.id, { url: payload.url, storage_path: payload.storage_path || '', mime_type: payload.mime_type || 'image/png', size_bytes: payload.size_bytes || 0, name: name || 'Mark Up' });
 }
+
+// Tasks scheduling (Neil, 11/08/2026): what automatic scheduling would move
+// if a task were saved with these fields (nothing written), and a project's
+// schedule baselines (routers/task_projects.py).
+api.previewTaskSchedule = (id, data) => req(`/tasks/${encodeURIComponent(id)}/schedule-preview`, { method: 'POST', body: JSON.stringify(data || {}) });
+api.getTaskProjectBaselines = (projectId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines`);
+api.takeTaskProjectBaseline = (projectId, name = '') => req(`/task-projects/${encodeURIComponent(projectId)}/baselines`, { method: 'POST', body: JSON.stringify({ name }) });
+api.getTaskProjectBaselineDiff = (projectId, baselineId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}/diff`);
+api.deleteTaskProjectBaseline = (projectId, baselineId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}`, { method: 'DELETE' });

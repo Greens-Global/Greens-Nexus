@@ -141,9 +141,52 @@ def _scheduled_groups(db: Session, email: str) -> list:
 SHIFT_MANAGE_LEVEL = 3
 SHIFT_MANAGE_DENIED = "Only managers and above can change shifts."
 
+# The Shift Planner grant (Pranshu, 11/10/2026): an Access Group grant on
+# module "shifts" lets someone BELOW Manager run the planner without the
+# Manager role. Viewer opens the planner for the teams they are named
+# Scheduler on; Editor adds, edits and shares those teams' shifts; Full also
+# clears and imports and changes who is on those teams; Owner acts as a
+# manager inside Shifts for their company's people (swap / offer / open-shift
+# decisions, weather calls, renaming and archiving their teams). Never Time
+# Sheets, pay, labor cost, shift types or Settings. The rank rides the user
+# dict as `_shift_rank`, set only by the shift dependencies below and only
+# for callers under Manager - a Manager's path is unchanged.
+SHIFT_GRANT = "shifts"
+GRANT_EDITOR, GRANT_FULL, GRANT_OWNER = (_MODULE_LEVEL_RANK[k] for k in ("editor", "full", "owner"))
+
+
+def _shift_rank(user: dict) -> int:
+    return int(user.get("_shift_rank", 0) or 0)
+
+
+def _grant_only(user: dict) -> bool:
+    """Shift rights that come from the Shift Planner grant alone."""
+    return int(user.get("level", 0)) < SHIFT_MANAGE_LEVEL and _shift_rank(user) > 0
+
 
 def can_manage_shifts(user: dict) -> bool:
-    return int(user.get("level", 0)) >= SHIFT_MANAGE_LEVEL
+    return int(user.get("level", 0)) >= SHIFT_MANAGE_LEVEL or _shift_rank(user) >= GRANT_OWNER
+
+
+def can_build_schedule(user: dict) -> bool:
+    """May add, edit and share shifts (inside the caller's write scope)."""
+    return can_manage_shifts(user) or _shift_rank(user) >= GRANT_EDITOR
+
+
+def require_shift_rank(user: dict, rank: int) -> None:
+    """403 for a grant-only caller below `rank` (Full: Clear Week, Import)."""
+    if _grant_only(user) and _shift_rank(user) < rank:
+        raise HTTPException(status_code=403, detail="Your Shift Planner access does not include this.")
+
+
+def require_own_team(db: Session, user: dict, group_id: str) -> None:
+    """A Shift Planner Viewer / Editor / Full touches team-wide things (a day
+    note, an open shift) only on the teams they are named Scheduler on; ''
+    (every team) is never theirs. Managers and Owners are unchanged."""
+    if not _grant_only(user) or _shift_rank(user) >= GRANT_OWNER:
+        return
+    if (group_id or "") not in {g.id for g in _scheduled_groups(db, user["email"])}:
+        raise HTTPException(status_code=403, detail="That team is not one you schedule.")
 
 
 def require_shift_manage(user: dict = Depends(get_current_user)):
@@ -152,34 +195,84 @@ def require_shift_manage(user: dict = Depends(get_current_user)):
     return user
 
 
+def _company_people(db: Session, user: dict) -> set:
+    """Everyone in the caller's companies - a Shift Planner Owner's reach.
+    The walls' scope when they are on, else the caller's own company."""
+    from auth import company_scope
+    cs = company_scope(user, db)
+    if cs is None:
+        me = db.query(NexusEmployee.company).filter(
+            func.lower(NexusEmployee.work_email) == (user.get("email") or "").lower()).first()
+        cs = {me.company} if me and me.company else set()
+    if not cs:
+        return set()
+    return {(e.work_email or "").lower() for e in
+            db.query(NexusEmployee.work_email).filter(NexusEmployee.company.in_(list(cs))).all() if e.work_email}
+
+
+def _with_shift_scope(user: dict, db: Session, threshold: int):
+    """The caller with their schedule reach, or None when they have none:
+    the team audience (Manager, or an HR grant at `threshold`), plus the
+    members of the groups they are named Scheduler on (`_sched_extra`), plus
+    their company's people for a Shift Planner Owner. `_group_scheduler` =
+    the reach comes ONLY from groups / the grant."""
+    by_role = int(user.get("level", 0)) >= SHIFT_MANAGE_LEVEL
+    rank = 0 if by_role or user.get("external") else _module_level(user["email"], SHIFT_GRANT, db)
+    if rank:
+        user = {**user, "_shift_rank": rank}
+    team = by_role or _module_level(user["email"], "hr", db) >= threshold
+    gids = [g.id for g in _scheduled_groups(db, user["email"])]
+    if not gids and not rank:
+        return user if team else None
+    members = {(m.employee_email or "").lower() for m in
+               db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id.in_(gids)).all()
+               if m.employee_email} if gids else set()
+    if rank >= GRANT_OWNER:
+        members |= _company_people(db, user)
+    # A grant holder's reach is their teams (and company for an Owner) -
+    # never widened by an HR grant they also hold (review, 11/10/2026).
+    return {**user, "_sched_extra": members, "_group_scheduler": not team or bool(rank)}
+
+
 def _schedule_dep(team_level: str):
     """Schedule access (Sep 29, Teams "scheduling owner" per team): the team
     audience as before, PLUS anyone named a scheduler on a shift group, for
-    that group's members only. The user dict carries `_sched_extra` (those
-    members), which _visible_emails adds to the caller's scope - only on the
-    schedule routes that use this dependency, never on timesheets or payroll.
-    `_group_scheduler` = schedule rights come ONLY from groups.
+    that group's members only, PLUS a Shift Planner grant holder (see
+    SHIFT_GRANT). The user dict carries `_sched_extra`, which _visible_emails
+    adds to the caller's scope - only on the schedule routes that use this
+    dependency, never on timesheets or payroll.
 
-    WRITE ("editor") additionally requires a manager (can_manage_shifts): a
-    group scheduler or HR-grant holder below manager keeps read-only access
-    to the published schedule."""
+    WRITE ("editor") additionally requires a manager or a Shift Planner
+    Editor (can_build_schedule): a group scheduler or HR-grant holder
+    without either keeps read-only access to the published schedule."""
     threshold = _MODULE_LEVEL_RANK[team_level]
     write = team_level == "editor"
 
     def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-        manage = can_manage_shifts(user)
-        if write and not manage:
+        scoped = _with_shift_scope(user, db, threshold)
+        if write and not can_build_schedule(scoped or user):
             raise HTTPException(status_code=403, detail=SHIFT_MANAGE_DENIED)
-        team = manage or _module_level(user["email"], "hr", db) >= threshold
-        gids = [g.id for g in _scheduled_groups(db, user["email"])]
-        if not gids:
-            if team:
-                return user
+        if scoped is None:
             raise HTTPException(status_code=401, detail="Insufficient permissions")
-        members = {(m.employee_email or "").lower() for m in
-                   db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id.in_(gids)).all() if m.employee_email}
-        return {**user, "_sched_extra": members, "_group_scheduler": not (manage or team)}
+        return scoped
     return _check
+
+
+def _shift_grant_dep(rank: int):
+    """A Manager (unchanged), or a Shift Planner grant at `rank` or above
+    carrying their schedule reach - for the team actions the grant opens."""
+    def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+        if int(user.get("level", 0)) >= SHIFT_MANAGE_LEVEL:
+            return user
+        scoped = _with_shift_scope(user, db, _MODULE_LEVEL_RANK["editor"])
+        if scoped is None or _shift_rank(scoped) < rank:
+            raise HTTPException(status_code=403, detail=SHIFT_MANAGE_DENIED)
+        return scoped
+    return _check
+
+
+require_shift_owner = _shift_grant_dep(GRANT_OWNER)   # acts as a manager inside Shifts
+require_shift_full = _shift_grant_dep(GRANT_FULL)     # changes who is on their teams
 
 
 require_schedule_read = _schedule_dep("viewer")
@@ -6809,7 +6902,11 @@ def _ordered_groups(db: Session) -> list:
 def _group_editable(db: Session, user: dict, g) -> bool:
     """May this caller change a team's name, members or archive state (Neil,
     Sep 30: "Add members", the team's ... menu)? A manager with company-wide
-    team access, or a manager named as that team's scheduler."""
+    team access, or a manager named as that team's scheduler. A Shift
+    Planner grant (Full or Owner) counts only on the teams it is named
+    Scheduler on."""
+    if _grant_only(user):
+        return _shift_rank(user) >= GRANT_FULL and (user.get("email") or "").lower() in _schedulers(g)
     if not can_manage_shifts(user):
         return False
     plain = {k: v for k, v in user.items() if k not in ("_sched_extra", "_group_scheduler")}
@@ -6828,13 +6925,13 @@ def _clean_deciders(db: Session, emails: list, existing: list = ()) -> str:
     since left People or lost Manage access stays on the list - so any other
     edit to the group still saves - and the weather routing skips them
     (weather_watch.deciders_for / weather_call.may_decide)."""
-    from auth import level_for
     out = list(dict.fromkeys(e.strip().lower() for e in emails if e and e.strip()))
     kept = set(existing or ())
     added = [em for em in out if em not in kept]
     _check_people(db, added, " (weather deciders)", roster=False)
-    for em in added:
-        if level_for(em, db) < SHIFT_MANAGE_LEVEL:
+    from auth import level_in_module
+    for em in added:   # a Shift Planner Owner counts as a manager here
+        if level_in_module(em, SHIFT_GRANT, SHIFT_MANAGE_LEVEL, db) < SHIFT_MANAGE_LEVEL:
             raise HTTPException(400, WEATHER_DECIDER_DENIED.format(who=em))
     return json.dumps(out)
 
@@ -7062,7 +7159,7 @@ class GroupMembersIn(BaseModel):
 
 
 @router.post("/shift-groups/{group_id}/members")
-def change_group_members(group_id: str, body: GroupMembersIn, user: dict = Depends(require_shift_manage),
+def change_group_members(group_id: str, body: GroupMembersIn, user: dict = Depends(require_shift_full),
                          db: Session = Depends(get_db)):
     """Add people to a team or take them off it, right from the schedule
     (Neil, Sep 30: "Add members"; dragging a person to another team is a
@@ -7075,6 +7172,10 @@ def change_group_members(group_id: str, body: GroupMembersIn, user: dict = Depen
     have = {(m.employee_email or "").lower() for m in
             db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).all()}
     add = _clean_members(db, body.add, have)
+    if _grant_only(user):   # never someone from outside their company (review, 11/10/2026)
+        mine = _company_people(db, user)
+        if any(em not in have and em not in mine for em in add):
+            raise HTTPException(403, "You can add only people of your own company to this team.")
     for em in add:
         if em not in have:
             db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=group_id, employee_email=em))
@@ -7095,7 +7196,7 @@ class GroupMetaIn(BaseModel):
 
 
 @router.patch("/shift-groups/{group_id}/meta")
-def change_group_meta(group_id: str, body: GroupMetaIn, user: dict = Depends(require_shift_manage),
+def change_group_meta(group_id: str, body: GroupMetaIn, user: dict = Depends(require_shift_owner),
                       db: Session = Depends(get_db)):
     """Rename a team, or archive / restore it (Teams "archived teams": an
     archived team leaves the active list and the grid, its data stays)."""
@@ -7634,10 +7735,10 @@ def _can_write_schedule(user: dict, db: Session) -> bool:
     unpublished DRAFT shifts and can publish them. Everyone else reading the
     grid sees only published shifts, which matches Teams Shifts: staff see a
     schedule only once the manager shares it."""
-    # Managers only (Sep 29) - the same rule as require_schedule_write. A
-    # group scheduler or HR editor below manager now reads the PUBLISHED
-    # schedule, like staff, and sees no drafts.
-    return can_manage_shifts(user)
+    # Managers, or a Shift Planner Editor (11/10/2026) - the same rule as
+    # require_schedule_write. A group scheduler or HR editor without either
+    # reads the PUBLISHED schedule, like staff, and sees no drafts.
+    return can_build_schedule(user)
 
 
 def _open_row_mine(row, scope, user) -> bool:
@@ -7683,7 +7784,7 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     # _group_editable's rule, worked out once: a manager whose own scope
     # (without the group-scheduler extra) is the whole company, or a
     # manager named that team's scheduler.
-    if not can_manage_shifts(user):
+    if not can_manage_shifts(user) or _grant_only(user):
         wide_editor = False
     elif "_sched_extra" in user or "_group_scheduler" in user:
         wide_editor = _visible_emails(db, {k: v for k, v in user.items() if k not in ("_sched_extra", "_group_scheduler")}) is None
@@ -7725,7 +7826,8 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     sites = _site_map(db)
     groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                "archived": bool(getattr(g, "archived", 0)), "sortOrder": int(getattr(g, "sort_order", 0) or 0),
-               "canEdit": wide_editor or (can_manage_shifts(user) and me_email in _schedulers(g)),
+               "canEdit": wide_editor or (me_email in _schedulers(g) and (
+                   _shift_rank(user) >= GRANT_FULL if _grant_only(user) else can_manage_shifts(user))),
                **_group_weather(g, sites), **_group_flags(g)}
               for g in all_groups]
     if scope is not None:
@@ -7874,6 +7976,9 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
             "timeoff": timeoff, "holidays": holidays, "weather": weather, "jobsites": jobsite_list,
             "dayNotes": day_notes, "canManage": can_write, "availability": avail,
             "groupScheduler": bool(user.get("_group_scheduler")), "usual": usual,
+            # The caller's Shift Planner grant rank when it is all they have
+            # (0 for a manager) - the toolbar hides Clear Week / Import below Full.
+            "shiftGrant": _shift_rank(user) if _grant_only(user) else 0,
             "me": (user.get("email") or "").lower(),
             "weekStart": cfg.get("weekStart") or "monday", "timeZone": team_tz,
             # Teams "last shared" + the unshared count across the WHOLE
@@ -7963,6 +8068,8 @@ def schedule_labor(start: str, end: str, user: dict = Depends(require_schedule_w
     pay (_pay_hidden): they get hours only, `payHidden: true`. People paid in
     more than one currency: `cost` is null, `currency` '', `costs` per
     currency (a sum across currencies is not a number)."""
+    if _grant_only(user):   # the Shift Planner grant never opens labor (11/10/2026)
+        raise HTTPException(403, "Scheduled labor is for managers and HR.")
     d0 = _parse_day(start, "start date")
     d1 = _parse_day(end, "end date")
     if d1 < d0:
@@ -8428,6 +8535,8 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_schedu
     if not em:
         slots = max(1, slots)   # an open shift needs at least one slot
     gid = _resolve_group(db, body.group_id, em, open_shift=not em)
+    if not em:
+        require_own_team(db, user, gid)
     preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
     start = (body.start_hhmm or (preset.start_hhmm if preset else "09:00"))[:5]
     end = (body.end_hhmm or (preset.end_hhmm if preset else "17:00"))[:5]
@@ -9028,6 +9137,7 @@ def clear_schedule(body: ClearScheduleIn, user: dict = Depends(require_schedule_
     as removing one (QA D2): a draft is deleted, a PUBLISHED shift is only
     marked for removal - staff keep it until the next publish, and Discard
     Changes brings it back."""
+    require_shift_rank(user, GRANT_FULL)
     d0, d1 = _parse_day(body.start_date, "start date"), _parse_day(body.end_date, "end date")
     if d1 < d0:
         raise HTTPException(400, "End date is before the start date.")
@@ -9376,6 +9486,7 @@ def import_schedule(body: ImportIn, user: dict = Depends(require_schedule_write)
     row becomes a DRAFT; a bad row is reported and skipped, never guessed at,
     and a shift already on the schedule (same person, day and times) is not
     added twice - so importing the same file again is harmless."""
+    require_shift_rank(user, GRANT_FULL)
     if not body.rows:
         raise HTTPException(400, "The file has no shifts in it.")
     if len(body.rows) > _IMPORT_MAX:
@@ -9481,6 +9592,7 @@ def save_day_note(body: DayNoteIn, user: dict = Depends(require_schedule_write),
     gid = (body.group_id or "").strip()
     if gid and not db.query(ShiftGroup.id).filter(ShiftGroup.id == gid).first():
         raise HTTPException(400, "Team not found.")
+    require_own_team(db, user, gid)
     text = (body.note or "").strip()[:200]
     row = (db.query(ScheduleDayNote)
            .filter(ScheduleDayNote.work_date == day, ScheduleDayNote.group_id == gid).first())
@@ -9535,6 +9647,8 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
     # The team and the zone are not what staff see - they change in place.
     if body.group_id is not None:
         row.group_id = _resolve_group(db, body.group_id, row.employee_email, open_shift=not row.employee_email)
+        if not row.employee_email:
+            require_own_team(db, user, row.group_id)
     if body.timezone is not None and (body.timezone or "").strip():
         row.timezone = _placement_tz(body.timezone, None, "")
     jobsite_was = getattr(row, "jobsite", "") or ""
@@ -9596,6 +9710,9 @@ def create_jobsite(body: JobsiteIn, user: dict = Depends(require_schedule_write)
     address make a Construction project in one step, its address looked up
     for the weather. The same address or name returns the project already
     there instead of a second one. Answers the picker's row for it."""
+    # A new Construction project is a manager's call; a Shift Planner Editor /
+    # Full picks an existing jobsite (review, 11/10/2026).
+    require_shift_rank(user, GRANT_OWNER)
     import jobsites
     try:
         p = jobsites.create_project(db, (user.get("email") or "").lower(), body.name, body.address,
@@ -12926,6 +13043,19 @@ def _is_confidential(r) -> bool:
     return bool(getattr(r, "confidential", 0))
 
 
+# Principals decide their own time off (Neil, 11/07/2026: "a managing
+# principal, a principal, and the founding principal are people that can
+# approve their own time off by default, with a backup being HR" - this
+# overrides the 09/30 "nobody approves their own" rule for these titles
+# only). Their usual approver (the manager, else the company's HR contact,
+# else the administrators) can still decide it as the backup.
+SELF_APPROVING_TITLES = {"managing principal", "principal", "founding principal"}
+
+
+def _self_approves(emp) -> bool:
+    return ((getattr(emp, "job_title", "") or "").strip().lower() in SELF_APPROVING_TITLES) if emp else False
+
+
 class _TimeoffPrivacy:
     """Who may read a confidential request, for ONE caller - built once per
     request so a 300-row list costs one employee load, not 300.
@@ -13032,8 +13162,12 @@ class _TimeoffPrivacy:
 
     def can_decide(self, r) -> bool:
         em = (r.employee_email or "").strip().lower()
-        if not self.viewer or self.viewer == em:
+        if not self.viewer:
             return False
+        if self.viewer == em:
+            # Only a principal, and only the first level - HR's second
+            # approval stays HR's.
+            return not _awaiting_hr(r) and _self_approves(self._emp(em))
         if _awaiting_hr(r):
             # The manager's level is done: only HR decides now, and never the
             # person who approved the first level.
@@ -13237,7 +13371,7 @@ def _leave_balance_note(db: Session, email: str, row) -> str:
         if not b.get("live"):
             return ""
         have = float(b[bucket]["available"]) - float(b[bucket]["upcoming"])
-        need = leave_balances.request_hours(row, float(b["policy"].get("hoursPerDay") or 8))
+        need = leave_balances.request_hours(row, float(b["policy"].get("hoursPerDay") or 8), db)
         left = have - need
         tail = f"{left:g} h after this" if left >= 0 else f"{-left:g} h more than they have - the rest would be unpaid"
         return f" {bucket.title()} balance: {have:g} h, {tail}."
@@ -13319,7 +13453,7 @@ def my_timeoff(user: dict = Depends(get_current_user), db: Session = Depends(get
     rows = (db.query(TimeOffRequest).filter(TimeOffRequest.employee_email == user["email"])
             .order_by(TimeOffRequest.created_at.desc()).limit(50).all())
     priv = _TimeoffPrivacy(db, user["email"])
-    return [_ser_timeoff(r, priv=priv) for r in rows]
+    return _with_holidays(db, rows, [_ser_timeoff(r, priv=priv) for r in rows])
 
 
 _TIMEOFF_LIST_LIMIT = 2000
@@ -13363,13 +13497,31 @@ def list_timeoff(status: str = "", from_: str = Query("", alias="from"), to: str
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
     priv = _TimeoffPrivacy(db, user["email"])
-    return _mark_for(db, user, [_ser_timeoff(r, names, priv) for r in rows], "email")
+    return _mark_for(db, user, _with_holidays(db, rows, [_ser_timeoff(r, names, priv) for r in rows]), "email")
 
 
 class TimeOffDecision(BaseModel):
     status: str                      # approved | rejected
     note: Optional[str] = ""
     remove_shifts: bool = False      # approving: mark the published shifts inside the leave for removal
+
+
+def _with_holidays(db: Session, rows: list, out: list) -> list:
+    """Each full-day request carries `holidays`: the person's own company
+    holidays inside it (ISO dates), so the screen's Days count skips them
+    like the balance does (Neil, 11/07/2026). One holiday read per list."""
+    full = [(r, o) for r, o in zip(rows, out) if r.start_date and not (r.start_time and r.end_time)]
+    if not full:
+        return out
+    lo = min(r.start_date[:10] for r, _o in full)
+    hi = max((r.end_date or r.start_date)[:10] for r, _o in full)
+    per = {}
+    for e, d in _holiday_days(db, {r.employee_email for r, _o in full}, lo, hi):
+        per.setdefault(e, []).append(d)
+    for r, o in full:
+        a, b = r.start_date[:10], (r.end_date or r.start_date)[:10]
+        o["holidays"] = sorted(d for d in per.get((r.employee_email or "").lower(), []) if a <= d <= b)
+    return out
 
 
 def _timeoff_shift_conflicts(db: Session, row: TimeOffRequest) -> list:
@@ -13433,7 +13585,8 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     # Nobody decides their own time off (a manager's scope includes themself),
     # and a confidential request is decided only by its approvers.
     priv = _TimeoffPrivacy(db, user["email"])
-    if (row.employee_email or "").strip().lower() == (user.get("email") or "").strip().lower():
+    own = (row.employee_email or "").strip().lower() == (user.get("email") or "").strip().lower()
+    if own and not priv.can_decide(row):
         raise HTTPException(403, "You can't approve or reject your own time off - your manager or HR decides it.")
     if not priv.can_decide(row):
         raise HTTPException(403, f"This request is confidential - only {priv.reviewer_names(row) or 'the approver'} can decide it.")

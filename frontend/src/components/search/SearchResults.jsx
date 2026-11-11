@@ -32,7 +32,7 @@ export default function SearchResults({ query, groups, rows, searching, activeId
             const row = (
               <button key={r.key} className={`gs-row${r.more ? ' gs-more' : ''}`} data-active={i === activeIdx}
                 onMouseEnter={() => onActive?.(i)} onClick={() => onPick(r)}>
-                {r.Icon && <r.Icon size={15} style={{ color: r.done ? 'var(--ok, #16a34a)' : 'var(--muted)', flexShrink: 0 }} />}
+                {r.icon || (r.Icon && <r.Icon size={15} style={{ color: r.done ? 'var(--ok, #16a34a)' : 'var(--muted)', flexShrink: 0 }} />)}
                 <span className="gs-row-title" style={r.done ? { textDecoration: 'line-through' } : undefined}>{r.title}</span>
                 {r.tag && <span className="gs-row-tag">{r.tag}</span>}
                 {r.detail && <span className="gs-row-detail">{r.detail}</span>}

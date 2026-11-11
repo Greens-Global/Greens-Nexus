@@ -39,6 +39,7 @@ import ColorRulesEditor from './ColorRulesEditor';
 // Stable identity for a project with no color rules (see useRowColorScope).
 const NO_RULES = [];
 import ProjectFollowControl from './ProjectFollow';
+import { ProjectStatusChip } from './projectStatus';
 
 // Import from CSV / Excel (Oct 22 2026): its own chunk - opened rarely, and
 // it brings the file reader with it.
@@ -345,6 +346,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               {lockedProject.portfolioId && portfolioById(lockedProject.portfolioId) && (
                 <span style={chip(NX.purple, NX.border2)}>{portfolioById(lockedProject.portfolioId).name}</span>
               )}
+              {/* The project's health (Neil, 11/08/2026) - set from the Projects list; editors change it here too. */}
+              <ProjectStatusChip project={lockedProject} nameOf={nameOf}
+                onSave={canEditColors ? (p, data) => store.updateProject(p.id, data) : null} />
             </>
           ) : title}
         </div>
@@ -493,7 +497,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           <CalendarView tasks={visible} store={store} lockedProjectId={lockedProjectId} dueFiltered={dueFilterHidesUndated(filter)} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
         ) : view === 'timeline' ? (
           <TimelineView tasks={timelineTasks} onOpen={setOpenId} nameOf={nameOf} taskById={store.taskById}
-            showSubtasks={showTimelineSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('timeline')} />
+            showSubtasks={showTimelineSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('timeline')}
+            projectId={lockedProjectId} projectRole={lockedProject ? projectRoleWithTeams(lockedProject, myEmail, teams, canManage) : null} />
         ) : view === 'files' ? (
           <FilesView tasks={visible} onOpen={setOpenId} nameOf={nameOf} />
         ) : (view === 'workload' && showWorkload) ? (

@@ -284,6 +284,16 @@ class MetricsCase(unittest.TestCase):
         self.assertEqual(pm.quarter_period(TODAY), ("2026-10-01", "2026-10-29"))
         self.assertEqual(pm.month_period(TODAY), ("2026-10-01", "2026-10-29"))
 
+    def test_this_year_and_all_time(self):
+        self.assertEqual(pm.year_period(TODAY), ("2026-01-01", "2026-10-29"))
+        # All Time starts at the start date, never more than three years back.
+        self.assertEqual(pm.all_time_period(TODAY, "2025-03-15"), ("2025-03-15", "2026-10-29"))
+        floor = (TODAY - timedelta(days=3 * 366)).isoformat()
+        self.assertEqual(pm.all_time_period(TODAY, "2015-01-01"), (floor, "2026-10-29"))
+        self.assertEqual(pm.all_time_period(TODAY, ""), (floor, "2026-10-29"))
+        self.assertEqual(pm.all_time_period(TODAY, "not a date"), (floor, "2026-10-29"))
+        self.assertEqual(pm.all_time_period(TODAY, "2027-01-01"), ("2026-10-29", "2026-10-29"))
+
     def test_never_leave_pay_or_hr(self):
         keys = " ".join(pm.METRICS)
         for word in ("sick", "leave", "pto", "vacation", "pay", "salary", "hr_"):

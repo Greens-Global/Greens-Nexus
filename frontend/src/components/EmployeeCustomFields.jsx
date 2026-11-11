@@ -11,7 +11,7 @@ import { changedValues, fieldError, formValue, formatFieldValue, VISIBILITY_LABE
 // reaches anyone who is not HR for the person - so this only draws it.
 // A save sends just the fields that changed.
 
-const LBL = { fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' };
+const LBL = { fontSize: 12, fontWeight: 500, color: 'var(--muted)' };
 
 export function FieldInput({ field, value, onChange, error, id }) {
   const common = { id, 'aria-label': field.label, 'aria-invalid': error ? true : undefined };
@@ -160,11 +160,9 @@ export function EmployeeMoreDetails({ employee, readOnly = false, toastOk, toast
   const save = useCallback((changes) => api.hrEmployeeCustomFieldsSave(eid, changes), [eid]);
   return (
     <div>
-      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
-        The fields set up in Settings &gt; People &amp; Access for {employee?.firstName || 'this person'}&apos;s company.
-      </div>
+      {/* One quiet line when the company has no extra fields (11/08/2026). */}
       <MoreDetailsBody load={load} save={save} readOnly={readOnly} showVisibility
-        emptyText="Nothing to show here yet. HR sets up these fields in Settings > People & Access."
+        emptyText={`No extra fields for ${employee?.firstName || 'this person'}'s company. HR sets them up in Settings > People & Access.`}
         toastOk={toastOk} toastErr={toastErr} />
     </div>
   );

@@ -41,10 +41,10 @@ beforeEach(() => { seen.value = {}; getToursSeen.mockClear(); markTourSeen.mockC
 describe('Documents tour', () => {
   it('opens by itself on the first visit, and closing it marks it seen', async () => {
     render(<Documents activeSub="documents-browse" onSubChange={() => {}} />);
-    expect(await screen.findByText('Welcome to Documents')).toBeTruthy();
+    expect(await screen.findByText('Welcome to Files')).toBeTruthy();
     fireEvent.click(screen.getByText('Skip'));
     await waitFor(() => expect(markTourSeen).toHaveBeenCalledWith('documents'));
-    expect(screen.queryByText('Welcome to Documents')).toBeNull();
+    expect(screen.queryByText('Welcome to Files')).toBeNull();
   });
 
   it('does not open again once seen', async () => {
@@ -52,7 +52,7 @@ describe('Documents tour', () => {
     render(<Documents activeSub="documents-browse" onSubChange={() => {}} />);
     await waitFor(() => expect(getToursSeen).toHaveBeenCalled());
     await act(async () => {});
-    expect(screen.queryByText('Welcome to Documents')).toBeNull();
+    expect(screen.queryByText('Welcome to Files')).toBeNull();
   });
 
   it('replays from the profile menu (nexus:documents-tour)', async () => {
@@ -60,20 +60,20 @@ describe('Documents tour', () => {
     render(<Documents activeSub="documents-browse" onSubChange={() => {}} />);
     await act(async () => {});
     act(() => { window.dispatchEvent(new CustomEvent('nexus:documents-tour')); });
-    expect(await screen.findByText('Welcome to Documents')).toBeTruthy();
+    expect(await screen.findByText('Welcome to Files')).toBeTruthy();
   });
 
   it('never nags when "seen" cannot be read', async () => {
     getToursSeen.mockImplementationOnce(() => Promise.reject(new Error('offline')));
     render(<Documents activeSub="documents-browse" onSubChange={() => {}} />);
     await act(async () => {});
-    expect(screen.queryByText('Welcome to Documents')).toBeNull();
+    expect(screen.queryByText('Welcome to Files')).toBeNull();
   });
 
   it('walks every tab in order, and Done marks it seen', async () => {
     const go = vi.fn();
     render(<Documents activeSub="documents-browse" onSubChange={go} />);
-    await screen.findByText('Welcome to Documents');
+    await screen.findByText('Welcome to Files');
     for (let i = 0; i < 20; i += 1) {
       const done = screen.queryByRole('button', { name: /Done/ });
       if (done) { fireEvent.click(done); break; }

@@ -663,6 +663,15 @@ keep the diff minimal.
   else the company's `defaultGraceMin`; zone placement -> shift type -> the
   company's team zone). `timeclock._shift_start_for`, My Team, the Workforce
   Scorecard and the no-show scan all read it - never add a second rule.
+  **Shift Planner grant (Pranshu, 11/10/2026):** below Manager, the
+  Access Group module `shifts` runs the planner (`SHIFT_GRANT` in
+  `routers/timeclock.py`): Viewer / Editor / Full act only on the teams the
+  person is named Scheduler on (Editor builds and shares, Full adds Clear
+  Week, Import and team members), Owner acts as a manager inside Shifts for
+  their company's people (swap decisions, weather calls, rename / archive).
+  The rank rides the user dict (`_shift_rank`) from the shift dependencies
+  only; it never opens Time Sheets, pay, labor, shift types or Settings.
+  `test_shift_planner_grant.py` pins it.
   Shift settings are PER COMPANY (`routers/shift_requests.get_settings(db,
   company_id)` = defaults <- tenant row <- sparse company override;
   `settings_for(db, email)` for a person) and shift types / groups carry

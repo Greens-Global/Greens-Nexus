@@ -50,7 +50,9 @@ const RANGE_KEY = 'nexus.shifts.teamRange';
 // `focusConfirm` (Phase 3a): the publish a bell or email asked to have
 // confirmed - its banner goes in front; the email's link is
 // /shifts/mine?confirm=<publish id>, read once on mount.
-export default function MyShifts({ part: partProp = 'mine', embedded = false, focusConfirm = '' }) {
+// `trail` (Neil, 11/08/2026): what Workday appends to the week line - the
+// year's time off, since its tile went.
+export default function MyShifts({ part: partProp = 'mine', embedded = false, focusConfirm = '', trail = null }) {
   const [partState, setPart] = useState(partProp);
   const part = embedded ? partState : partProp;
   const mine = part !== 'team';
@@ -68,8 +70,15 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   const [teamId, setTeamId] = useState('');
   const [range, setRangeState] = useState(() => { try { return localStorage.getItem(RANGE_KEY) === 'month' ? 'month' : 'week'; } catch { return 'week'; } });
   const setRange = (r) => { setRangeState(r); try { localStorage.setItem(RANGE_KEY, r); } catch { /* private mode */ } };
+  // Team > Shifts for someone in no shift group (Neil, 11/08/2026): the week
+  // still draws (EmptyWeek) with one line saying why, Month is not offered
+  // and a remembered Month is ignored. Kept as state from the answer, not
+  // derived from `data`: a derived flag would flip back while the week
+  // re-fetches and loop the range between month and week.
+  const [groupless, setGroupless] = useState(false);
+  const noGroup = !mine && groupless;
   // Month is Team > Shifts only: My Week (and the Workday card) stays a week.
-  const monthView = !mine && !embedded && range === 'month';
+  const monthView = !mine && !embedded && range === 'month' && !groupless;
   const monthDays = useMemo(() => (monthView ? viewDays('month', cursor) : null), [monthView, cursor]);
   const first = useMemo(() => weekStartOf(cursor, weekStart), [cursor, weekStart]);
   // Month loads just its own days: the calendar leaves the days around it blank.
@@ -93,6 +102,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
     api.timeMySchedule(start, end).then((r) => {
       if (!live) return;
       setData(r);
+      setGroupless(!(r?.teams || []).length);
       if (r?.weekStart === 'sunday' || r?.weekStart === 'monday') setWeekStartPref(r.weekStart);
     }).catch((e) => { if (live) setError(e?.message || 'Your shifts could not be loaded.'); });
     return () => { live = false; };
@@ -251,6 +261,8 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
 
   // At a glance: the shift they are on (or the next one), the week's paid
   // hours, and time off. A whole approved day off takes its shifts out.
+  // A week with no shift at all keeps its day boxes short (Neil, 11/08/2026).
+  const anyShift = days.some((d) => d.shifts.length);
   const glance = useMemo(() => {
     if (!data) return null;
     let on = null, next = null;
@@ -344,7 +356,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
             the year and week under it; a click picks a week from a month calendar. */}
         <DateBlock view={monthView ? 'month' : 'week'} first={start} last={end} weekStart={weekStart} compact={phone} onPick={(ds) => setCursor(parseIso(ds))} />
         {/* Week | Month on Team > Shifts, the planner's view switch. Phones too, as the planner offers Month there. */}
-        {!mine && !embedded && (
+        {!mine && !embedded && !noGroup && (
           <div role="group" aria-label="View" style={{ marginLeft: 'auto', display: 'inline-flex', border: '1px solid var(--line)', borderRadius: 9, overflow: 'hidden', background: 'var(--card)' }}>
             {[['week', 'Week'], ['month', 'Month']].map(([k, label]) => {
               const on = (monthView ? 'month' : 'week') === k;
@@ -415,6 +427,12 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
           {glance.late > 0 && <> · <b style={{ color: 'hsl(var(--color-orange))' }}>{glance.late} late</b></>}
         </div>
       )}
+      {/* The year's time off (Workday's `trail`) is its own line: it never
+          waits on the shifts fetch, the Team toggle or an error, and it does
+          not read "That week: ... Time off this year" when stepping weeks. */}
+      {trail && (
+        <div data-trail style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>{trail}</div>
+      )}
       {mine && glance && !error && calPrefs && (
         <CalendarRow prefs={calPrefs} companyOn={calPrefs.companyOutlookCalendar === true} hasMailbox={calPrefs.hasMailbox !== false}
           onToggle={setShiftCalendar} onFlash={setFlash} />
@@ -428,7 +446,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
         <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : embedded ? 'repeat(7, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
           {days.map((d, i) => (
             <div key={d.key} style={{
-              background: 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 12, padding: '10px 11px', minHeight: phone ? 0 : 96,
+              background: 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 12, padding: '10px 11px', minHeight: phone ? 0 : anyShift ? 96 : 56,
               boxShadow: d.isToday ? '0 0 0 3px var(--wk-brand-tint)' : 'var(--wk-shadow)', display: 'flex', flexDirection: 'column', gap: 5,
             }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
@@ -499,8 +517,12 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
               people={Object.fromEntries(teamRows.map((r) => [String(r.email || '').toLowerCase(), { name: r.name, photoUrl: r.photoUrl }]))}
               weekStart={weekStart} teamZone={teamZone} showHours={false} onOpenDay={(ds) => { setCursor(parseIso(ds)); setRange('week'); }} />
           ) : null} />
-      ) : data && teamZoneLabel ? (
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>
+      ) : data ? (
+        <div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Your manager shares shifts here. Swaps and open-shift requests are in Workday &gt; Time Off.</div>
+          <EmptyWeek days={days} phone={phone} embedded={embedded} />
+          {teamZoneLabel && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>}
+        </div>
       ) : null}
 
       {mine && embedded && (
@@ -511,12 +533,11 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       )}
       {mine && (!embedded || availOpen) && <MyAvailability />}
 
-      {!embedded && <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
+      {!embedded && !noGroup && <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
         <Info size={13} style={{ flexShrink: 0 }} />
         <span>
           Shifts are set by your manager. Only shifts they have shared appear here - ask them if something looks wrong.
           {mine && data?.shift && ' Usual hours are your regular schedule, shown on days with no shared shift.'}
-          {!mine && data && teams.length === 0 && ' Your group will show here once your manager adds you to one.'}
           {' '}Swaps, offers{canRelease ? ', releases' : ''} and open-shift requests are in Workday &gt; Time Off.
         </span>
       </div>}
@@ -527,6 +548,30 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
           Text me when a weather call changes my shift{prefs.phone ? '' : ' (no phone number on file - ask HR to add one)'}
         </label>
       )}
+    </div>
+  );
+}
+
+// The group's week for someone in no shift group (Neil, 11/08/2026): seven
+// day cells - the day, a company holiday's name, else "No shifts". Nothing
+// personal (own shifts, time off, Request, actuals): a group view, not My Week.
+function EmptyWeek({ days, phone, embedded }) {
+  return (
+    <div data-empty-week="" style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : embedded ? 'repeat(7, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
+      {days.map((d, i) => (
+        <div key={d.key} style={{
+          background: 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 12, padding: '10px 11px', minHeight: phone ? 0 : 96,
+          boxShadow: d.isToday ? '0 0 0 3px var(--wk-brand-tint)' : 'var(--wk-shadow)', display: 'flex', flexDirection: 'column', gap: 5,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+            <span style={{ fontSize: 13.5, fontWeight: 800, color: d.isToday ? 'var(--wk-brand)' : 'var(--ink)', whiteSpace: 'nowrap' }}>{dayShort(d.date)}</span>
+            {(i === 0 || d.date.getDate() === 1) && <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>{formatMonthDay(d.date).replace(/ \d+$/, '')}</span>}
+            {d.isToday && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand)', marginLeft: 'auto' }}>Today</span>}
+          </div>
+          {d.holiday ? <div style={{ fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={11} /> {d.holiday}</div>
+            : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shifts</div>}
+        </div>
+      ))}
     </div>
   );
 }

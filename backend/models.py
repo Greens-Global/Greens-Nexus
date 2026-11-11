@@ -147,6 +147,15 @@ class Task(Base):
     # Cubby. The sync state lives on cubby_task_links; this is the pointer
     # every list row and the drawer read.
     cubby_task_id     = Column(String, default="", index=True)
+    # Automatic scheduling (Neil, 11/08/2026, task_schedule.py): "manual" -
+    # every task until somebody switches it, the engine never moves it - or
+    # "auto": its start follows its predecessors (blocked_by_ids, each due +
+    # lag + 1 working day) keeping its length, or its subtasks' span when it
+    # has subtasks. Nothing in production moves until a task is switched.
+    schedule_mode     = Column(String, default="manual")
+    # {predecessor task id: lag in WORKING days}, negative allowed; a
+    # predecessor not listed has lag 0. Keyed like dependency_types.
+    dependency_lags   = Column(JSON, default=dict)
 
 
 class PurchaseRequest(Base):
@@ -274,6 +283,11 @@ class ExternalLink(Base):
     # where the app is added - and a ticket copies the value at intake.
     # A key from SERVICE_AREA_KEYS below; "" reads as "general".
     service_area = Column(String, default="")
+    # Usage and health (11/08/2026): when anyone last opened it (the click
+    # endpoint stamps it; Manage shows it and flags 90 quiet days), and since
+    # when the weekly links_health pass found the site down ("" = reachable).
+    last_opened_at = Column(String, default="")
+    unreachable_since = Column(String, default="")
 
 
 class ExternalLinkTaxonomy(Base):
@@ -3342,6 +3356,14 @@ class TaskProject(Base):
     # validated by task_color_rules.clean_rules, written only through
     # PUT /task-projects/{id}/color-rules under the row lock.
     color_rules   = Column(JSON, default=list)
+    # Project health (Neil, 11/08/2026): `status` above now also carries
+    # not_started | on_track | at_risk | off_track | finished, set by hand
+    # from the Projects list; these say who set it and when, and why. A
+    # project with no status_set_at has never been set and shows no chip
+    # (the column's old default / legacy values stay hidden).
+    status_note   = Column(String, default="")
+    status_set_by = Column(String, default="")
+    status_set_at = Column(String, default="")
 
 
 class TaskPortfolio(Base):
@@ -10238,3 +10260,38 @@ class KbRefresherItem(Base):
     wrong_count      = Column(Integer, default=0)
     last_answered_at = Column(String, default="")
     created_at       = Column(String, default="")
+
+
+class ExternalLinkRequest(Base):
+    """Request a Link (11/08/2026): any signed-in person asks for a company
+    link; the links admins see the open ones at the top of Manage and Add
+    (the create form prefilled, then this row marked added with the link's
+    id) or Decline. New table - create_all builds it; RLS comes from
+    main._enable_rls_everywhere on dev and prod."""
+    __tablename__ = "external_link_requests"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    url = Column(String, nullable=False)
+    note = Column(String, default="")
+    requested_by = Column(String, nullable=False, index=True)
+    created_at = Column(String, default="")
+    status = Column(String, default="open", index=True)   # open | added | declined
+    decided_by = Column(String, default="")
+    decided_at = Column(String, default="")
+    link_id = Column(Integer, default=None)
+
+
+class TaskProjectBaseline(Base):
+    """A project's schedule as it stood one day (Neil, 11/08/2026): every
+    task in the project, subtasks included, with its dates and assignee, so
+    the Timeline can draw where each bar was and say how far it slipped
+    (routers/task_projects baselines). New table - create_all builds it; RLS
+    comes from main._enable_rls_everywhere on dev and prod."""
+    __tablename__ = "task_project_baselines"
+    id         = Column(String, primary_key=True)
+    project_id = Column(String, default="", index=True)
+    company_id = Column(String, default="")
+    name       = Column(String, default="")
+    taken_at   = Column(String, default="")
+    taken_by   = Column(String, default="")
+    snapshot   = Column(JSON, default=list)   # [{id, title, start, due, assignee}]

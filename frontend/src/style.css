@@ -966,6 +966,7 @@ h1,h2,h3,h4,h5,h6,
   transition: background var(--transition-fast);
 }
 .hud-item:hover { background: var(--sidebar-hover-bg); }
+.hud-item:disabled { opacity: .55; cursor: default; }
 .hud-signout { color: hsl(var(--color-red)); }
 .hud-signout:hover { background: hsla(var(--color-red), 0.08); }
 
@@ -2559,7 +2560,29 @@ html { overflow-x: hidden; }
   animation: menuIn 0.45s cubic-bezier(.32,.72,0,1);
 }
 .mobile-menu.closing { animation: menuOut 0.36s cubic-bezier(.55,0,.85,.36) forwards; }
-@media (min-width: 901px) { .mobile-menu { display: none; } }
+@media (min-width: 901px) { .mobile-menu, .mobile-menu-scrim { display: none; } }
+/* 75/25 (Neil, 11/10/2026): the menu takes 75% of the width and the page
+   stays in view on the right under a dark scrim; a tap on the scrim closes
+   it, the X stays. A module's sub-screen opens inside the same 75%. */
+.mobile-menu, .mobile-menu .mobile-submenu {
+  right: auto;
+  width: min(75vw, 420px);
+  border-radius: 0 18px 18px 0;
+}
+.mobile-menu {
+  box-shadow: 6px 0 32px rgba(0,0,0,.28);
+}
+.mobile-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 2699;
+  background: rgba(8, 14, 11, .62);
+  animation: menuScrimIn 0.3s ease-out;
+}
+.mobile-menu-scrim.closing { animation: menuScrimOut 0.36s ease-in forwards; }
+@keyframes menuScrimIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes menuScrimOut { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .mobile-menu-scrim { animation: none; } }
 @keyframes menuIn { from { transform: translateX(-100%); } to { transform: none; } }
 @keyframes menuOut { from { transform: none; } to { transform: translateX(-100%); } }
 
@@ -2613,6 +2636,37 @@ html { overflow-x: hidden; }
 .mobile-menu-rows.secondary .mobile-menu-row { font-size: 13.5px; font-weight: 500; color: var(--muted); padding: 12px 16px; }
 .mobile-menu-row.signout { color: hsl(var(--color-red)); }
 .mobile-menu-divider { height: 1px; background: var(--line); margin: 4px 20px; }
+
+/* Shorter menu (Neil, 11/10/2026: "feels too long"). A group's label IS
+   its line ("Operations ───", no separate hairline row); the groups after
+   Work fold to that same row, which then carries a chevron, its modules'
+   icons and their waiting count (MobileMenu FOLD_AT). Rows keep a 44px tap
+   target. Help, Legal and Sign Out share one footer line. */
+.mobile-menu .mm-kicker { display: flex; align-items: center; gap: 10px; padding: 14px 16px 4px; }
+.mobile-menu .mm-kicker::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.mobile-menu-rows > .mm-kicker:first-child { padding-top: 4px; }
+.mobile-menu .mm-group {
+  width: 100%; min-height: 44px; margin-top: 4px; padding: 8px 16px;
+  background: none; border: none; border-radius: 10px; cursor: pointer;
+  font-family: var(--wk-font); text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile-menu .mm-group::after { display: none; }
+.mobile-menu .mm-group:active { background: var(--mist); }
+.mobile-menu .mm-group > span:first-child { color: var(--ink); font-size: 13px; font-weight: 600; }
+.mm-group-icons { display: inline-flex; gap: 6px; color: var(--wk-faint, var(--muted)); }
+.mm-group-icons svg { color: inherit; }
+.mm-group-line { flex: 1; height: 1px; background: var(--line); min-width: 12px; }
+.mm-group .nav-count { margin: 0; }
+.mm-group-chev { color: var(--muted); flex-shrink: 0; transition: transform .2s var(--ease-out, ease-out); }
+.mm-group.open .mm-group-chev { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .mm-group-chev { transition: none; } }
+.mobile-menu-rows:not(.secondary) .mobile-menu-row { min-height: 44px; padding-top: 9px; padding-bottom: 9px; }
+.mobile-menu-rows.secondary { flex-direction: row; align-items: center; gap: 2px; padding: 4px 8px calc(16px + env(safe-area-inset-bottom)); }
+.mobile-menu-rows.secondary .mobile-menu-row { padding: 10px 12px; min-height: 44px; }
+.mobile-menu-rows.secondary .mobile-menu-row-label { gap: 8px; }
+.mobile-menu-rows.secondary .mobile-menu-row-label svg { width: 17px !important; height: 17px !important; }
+.mobile-menu-rows.secondary .mobile-menu-row.signout { margin-left: auto; gap: 8px; justify-content: flex-end; }
 
 /* ── Mobile usability polish ────────────────────────────────────────────────
    Full-width drawers, toasts above the tab bar, comfortable touch targets,
@@ -4579,6 +4633,16 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   user-select: none;
 }
 .sidebar.collapsed .nav-kicker { display: none; }
+/* The label IS the section line (Neil, 11/10/2026: the rail "feels too
+   long"): "Operations ───" in one short row instead of a hairline and then
+   a heading row - about 10px back per section, the groups still named. */
+.sidebar .nav-kicker {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; line-height: 14px;
+  padding: 8px 10px 3px;
+}
+.sidebar .nav-kicker::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.sidebar .nav-kicker:first-child, .sidebar .nav-pill + .nav-pill + .nav-kicker { padding-top: 2px; }
 .sidebar .nav-divider { margin: 3px 6px; }
 
 /* Dark theme still works on the shell (legacy tokens drive it) - but the
@@ -4979,7 +5043,6 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 .dk-dot--off { background: #b91c1c; opacity: .75; }   /* red = off the clock (Neil, Oct 14 2026: green working, amber break, red not) */
 
 /* stat cards */
-.dk-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .dk-stat {
   background: var(--wk-card);
   border: 1px solid var(--wk-line2);
@@ -5046,6 +5109,36 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   width: 26px; height: 26px; padding: 5px;
 }
 [data-theme="dark"] .dk-stat--hero { background: linear-gradient(135deg, #3a4cd9, #2436b8); }
+
+/* The stat BAND (Neil, 11/08/2026): Home's one hero tile, as wide as the
+   attention queue under it (.dk-col holds both, so the rail starts level
+   with it). Open Tasks on the left; on the right the three counts that were
+   white tiles (Checked Out, Equipment, To Sign) as stat items - a 12px label
+   over an 18px number, each a button. The band itself is not a button: no
+   pointer, no hover lift - the buttons inside keep theirs. */
+.dk-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.dk-hero { padding: 0; flex-direction: row; align-items: stretch; min-height: 104px; position: relative; cursor: default; }
+.dk-hero:hover { transform: none; box-shadow: 0 10px 26px rgba(43, 69, 225, .28); }
+.dk-hero-main {
+  display: flex; align-items: center; gap: 14px; flex: 1 1 auto; min-width: 0;
+  padding: 14px 18px;
+  background: none; border: none; border-radius: var(--wk-r) 0 0 var(--wk-r);
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.dk-hero-text { display: flex; flex-direction: column; min-width: 0; }
+.dk-hero .dk-stat-num { margin-top: 0; }
+.dk-hero .dk-stat-label { margin-top: 0; }
+.dk-hero .dk-stat-arrow { position: absolute; top: 12px; right: 12px; }
+.dk-hero-main:focus-visible, .dk-hero-link:focus-visible { outline: 2px solid #fff; outline-offset: -3px; border-radius: 6px; }
+.dk-hero-links { display: flex; align-items: center; gap: 26px; padding: 14px 50px 14px 18px; flex-shrink: 0; }
+.dk-hero-link {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  background: none; border: none; padding: 0; margin: 0; color: #fff;
+  font: inherit; cursor: pointer; white-space: nowrap;
+}
+.dk-hero-k { font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, .72); line-height: 1.3; }
+.dk-hero-n { font-size: 18px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.dk-hero-link:hover .dk-hero-k { color: #fff; }
 
 /* Action Tile (Oct 11) - one action per tile, an app-icon face: the colored
    chip large and centered with the name under it, the whole tile the button.
@@ -5247,19 +5340,23 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .dk-main { grid-template-columns: 1fr 300px; }
 }
 @media (max-width: 980px) {
-  .dk-board { grid-template-columns: repeat(2, 1fr); }
   .dk-main { grid-template-columns: 1fr; }
   .dk-head-right { align-items: flex-start; }
   /* Left-aligned here, so the big clock leads and the small zones follow. */
   .dk-clock-row { flex-direction: row-reverse; justify-content: flex-end; }
 }
 @media (max-width: 560px) {
-  .dk-board { grid-template-columns: 1fr 1fr; gap: 10px; }
   .dk-stat { padding: 13px 14px 12px; }
   .dk-stat-num { font-size: 26px; }
   .dk-home { gap: 14px; }
   .dk-main { gap: 14px; }
   .dk-rail { gap: 14px; }
+  /* The band stacks: number and label on top, the three counts as one row. */
+  .dk-col { gap: 14px; }
+  .dk-hero { padding: 0; flex-direction: column; min-height: 0; }
+  .dk-hero-main { padding: 13px 40px 10px 14px; border-radius: var(--wk-r) var(--wk-r) 0 0; }
+  .dk-hero-links { gap: 0; padding: 10px 14px 12px; border-top: 1px solid rgba(255, 255, 255, .18); }
+  .dk-hero-link { flex: 1 1 0; min-width: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -8404,16 +8501,15 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .hc-page--phone .view-header { margin-bottom: 0; }
 }
 
-/* Favorite links on the dashboard (dashboard/favoriteLinks.jsx, Oct 28 2026):
-   equal grid cells, one tile height (40px icon + a two-line name box), so
-   rows and columns line up whatever the names are. No hover scale - the grid
-   scrolls inside its card and a scaled tile would clip at the edge. */
-.nx-fav-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px 4px; }
-.nx-fav-grid > li { min-width: 0; }
-.nx-fav-tile { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 10px 4px 8px; border-radius: 10px; color: var(--ink); text-decoration: none; transition: background var(--transition-fast); }
-.nx-fav-tile:hover { background: var(--mist); }
-.nx-fav-tile:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
-.nx-fav-name { width: 100%; height: 2.5em; font-size: 11.5px; font-weight: 600; line-height: 1.25; text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+/* Favorite links on the dashboard (dashboard/favoriteLinks.jsx; Neil,
+   11/08/2026): the Links page's own .app-grid / .app-tile at 56px. These
+   only trim what a scrolling card cannot take - the hover scale and the
+   two-line name box (the name is one line with an ellipsis). */
+.dk-fav-grid { list-style: none; margin: 0; padding: 0; gap: 8px 4px; }
+.dk-fav-grid > li { min-width: 0; }
+.dk-fav-tile { text-decoration: none; color: inherit; }
+.dk-fav-tile:hover, .dk-fav-tile:focus-visible, .dk-fav-tile:active { transform: none; }
+.dk-fav-tile .app-tile-name { display: block; width: 100%; height: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; word-break: normal; }
 .dk-fav-body { padding: 10px 12px 12px; max-height: 330px; overflow-y: auto; scrollbar-width: thin; }
 .dk-fav-open { margin-left: auto; border: none; background: none; padding: 0; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; color: var(--wk-brand); }
 .dk-fav-open:hover { text-decoration: underline; }
@@ -9905,4 +10001,215 @@ a[data-type="recordLink"][data-ref]:hover { background: var(--wk-hover); }
 @media (prefers-reduced-motion: reduce) {
   .nx-copy-icon > svg, .nx-reorder.is-dragging .nx-reorder-row { transition: none; }
   .nx-lbtn-face, .nx-newpill, .nx-fieldnote { animation: none !important; }
+}
+
+/* ── People > person record (pass of 11/08/2026) ───────────────────────────
+   A label column in the canon beside the value, hairline rows, a reading
+   width for the sections. The phone stacks label over value.
+   .pp-*: the three short cards on top of People (11/08/2026). */
+.pp-cards { display: grid; gap: 12px; margin-bottom: 14px; align-items: stretch; }
+.pp-hero { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; padding: 14px 18px; border: none; border-radius: 12px; text-align: left; font-family: inherit; cursor: pointer; color: #fff; background: linear-gradient(135deg, #4256e8 0%, var(--wk-brand) 100%); box-shadow: var(--wk-shadow); }
+.pp-hero-label { font-size: 13px; font-weight: 500; color: rgba(255,255,255,.82); }
+.pp-hero-n { font-size: 34px; font-weight: 700; letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+.pp-hero-sub { font-size: 12px; color: rgba(255,255,255,.7); line-height: 1.4; }
+.pp-card { min-width: 0; padding: 12px 16px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--wk-shadow); display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+.pp-card-title { font-size: 13px; font-weight: 600; color: var(--ink); display: flex; align-items: baseline; gap: 8px; }
+.pp-card-meta { font-size: 12px; font-weight: 500; color: var(--muted); }
+.pp-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.pp-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 0; border: none; background: none; font: inherit; text-align: left; cursor: pointer; }
+.pp-stat:disabled { cursor: default; }
+.pp-stat-label { font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.pp-stat:not(:disabled):hover .pp-stat-label { color: var(--ink); }
+.pp-stat b { font-size: 20px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.pp-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 14px; flex: 1; min-width: 0; font-size: 12.5px; color: var(--muted); }
+.pp-legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0; }
+.pp-legend-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pp-legend-empty { grid-column: 1 / -1; white-space: normal; color: var(--muted); }
+.pp-legend i { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.pp-legend b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  /* Phone (Neil, 11/08/2026): tighter hero, the counts as two columns of
+     label / number rows, a smaller ring with a one-column legend. */
+  .pp-cards { gap: 10px; margin-bottom: 12px; }
+  .pp-hero { padding: 12px 14px; gap: 2px; }
+  .pp-hero-n { font-size: 28px; }
+  .pp-card { padding: 12px 14px; gap: 8px; }
+  .pp-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; }
+  .pp-stat { flex-direction: row; align-items: baseline; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+  /* the last ROW loses its hairline: the last item, and the one beside it when the count is even */
+  .pp-stat:last-child, .pp-stat:nth-last-child(2):nth-child(odd) { border-bottom: none; }
+  .pp-stat b { font-size: 15px; }
+  .pp-donut { width: 72px; height: 72px; }
+  .pp-legend { gap: 2px 12px; font-size: 12px; }
+}
+.pr-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 4px 16px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); min-height: 40px; box-sizing: border-box; }
+.pr-row-label { font-size: 12px; font-weight: 500; color: var(--muted); line-height: 1.35; }
+.pr-row-value { font-size: 13.5px; color: var(--ink); min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
+.pr-row-value .form-input, .pr-row-value select.form-input { height: 34px; padding: 0 10px; font-size: 13.5px; border-radius: 8px; }
+.pr-row-value textarea.form-input { height: auto; padding: 7px 10px; }
+.pr-link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.pr-link:hover { text-decoration-color: var(--muted); }
+.pr-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; flex-wrap: wrap; }
+.pr-section-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink); flex: 1; }
+.pr-section { max-width: 780px; }
+.pr-body { margin-top: 18px; }
+.pr-body > .pr-main { min-width: 0; }
+.pr-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+.pr-tab { padding: 8px 12px; font-size: 13px; font-weight: 500; font-family: inherit; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; white-space: nowrap; }
+.pr-tab[aria-current="page"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--wk-brand, var(--pine)); }
+.pr-h3 { margin: 26px 0 8px; font-size: 14px; font-weight: 600; color: var(--ink); }
+.pr-status-btn { background: none; border: none; padding: 0; cursor: pointer; display: inline-flex; }
+@media (max-width: 640px) {
+  .pr-row { grid-template-columns: 1fr; gap: 2px; padding: 8px 0; }
+}
+
+/* ── Workday cleanup (Neil, 11/08/2026) ──
+   Less on Overview: the clock card, one row of action pills, then the cards.
+   A widget with nothing in it is ONE line - its title, the empty words in
+   muted 12.5px on the same line, its icon or button at the end - and the
+   year's time off is a figure on My Schedule's week line, not a tile. */
+.dash-card.wd-oneline { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 14px 16px; }
+.wd-oneline .dash-card-title { flex-shrink: 0; }
+.wd-oneline-text { flex: 1; min-width: 0; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.wd-trail-link { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: none; background: none; cursor: pointer; font: inherit; font-weight: 700; color: var(--ink);
+  text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; vertical-align: baseline; }
+.wd-trail-link:hover { text-decoration-color: var(--muted); }
+
+/* ── Ribbon menus, pickers and the one-row ribbon (Neil, 11/10/2026) ───────
+   A ribbon menu renders at the top of the page (AnchoredMenu, docRibbon/ui.jsx)
+   carrying `doc-toolbar doc-ribbon` so the ribbon's own button rules style what
+   is inside it; this block gives the panel back its own shape. */
+.doc-toolbar.doc-ribbon.doc-ribbon-panel {
+  display: flex; flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 1px;
+  min-height: 0; margin: 0; padding: 6px; min-width: 170px;
+  background: var(--card); border: 1px solid var(--line); border-top: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.06);
+}
+.doc-ribbon-panel button.doc-ribbon-item, .doc-ribbon-panel label.doc-ribbon-item {
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; height: auto; min-height: 30px;
+  text-align: left; background: none; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer;
+  font-size: 12.5px; color: var(--ink); font-family: Inter, sans-serif; white-space: nowrap;
+}
+.doc-ribbon-panel button.doc-ribbon-item:hover, .doc-ribbon-panel button.doc-ribbon-item:focus-visible { background: var(--mist); outline: none; }
+.doc-ribbon-panel button.doc-ribbon-item.is-active { background: hsla(var(--color-blue), 0.12); color: hsl(var(--color-blue)); }
+.doc-ribbon-panel button.doc-ribbon-item:disabled { opacity: 0.45; cursor: default; background: none; }
+.doc-ribbon-item-hint { margin-left: auto; padding-left: 16px; font-size: 11px; color: var(--muted); }
+
+/* The ribbon is ONE row: groups that do not fit go into More, in order. */
+.doc-toolbar.doc-ribbon.doc-ribbon-bar { flex-wrap: nowrap; }   /* no overflow clip: the Link, Drawing and Signature pop-ups hang below their group */
+.doc-ribbon-bar > .is-overflow { display: none !important; }
+.doc-ribbon-bar > .doc-ribbon-group { flex: 0 0 auto; }
+.doc-ribbon-bar > .doc-ribbon-more { margin-left: auto; border-left: 1px solid var(--line); border-right: none; }
+.doc-toolbar.doc-ribbon.doc-ribbon-panel.doc-ribbon-overflow { padding: 8px 4px; max-width: min(760px, calc(100vw - 16px)); }
+.doc-ribbon-overflow-body { display: flex; flex-wrap: wrap; align-items: stretch; row-gap: 10px; }
+.doc-ribbon-overflow-body > .doc-ribbon-group { border-right: 1px solid var(--line); }
+
+/* Font box, Insert A Variable: a button that names the choice, a searchable list. */
+.doc-toolbar.doc-ribbon button.doc-ribbon-pick, button.doc-ribbon-pick {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; width: 132px; height: 26px; padding: 0 6px 0 8px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); cursor: pointer;
+  font-size: 12px; font-family: Inter, sans-serif; text-align: left;
+}
+.doc-toolbar.doc-ribbon button.doc-ribbon-pick:hover { border-color: hsl(var(--color-blue)); background: var(--card); }
+.doc-toolbar.doc-ribbon button.doc-ribbon-pick[aria-expanded="true"] { border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 2px hsla(var(--color-blue), 0.15); }
+.doc-ribbon-pick-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.doc-ribbon-pick-search { display: flex; align-items: center; gap: 6px; padding: 2px 8px 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); color: var(--muted); position: sticky; top: -6px; background: var(--card); z-index: 1; }
+.doc-ribbon-pick-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: 12.5px; font-family: Inter, sans-serif; color: var(--ink); padding: 4px 0; }
+.doc-ribbon-pick-head { font-size: 11px; font-weight: 600; color: var(--muted); padding: 8px 10px 3px; }
+.doc-ribbon-pick-none { font-size: 12px; color: var(--muted); padding: 8px 10px; }
+.doc-toolbar.doc-ribbon.doc-ribbon-panel.doc-ribbon-picklist { max-height: min(420px, 70vh); }
+
+/* Word's size box: type it, or open the list. */
+.doc-ribbon-sizebox { display: inline-flex; align-items: center; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
+.doc-ribbon-sizebox:focus-within { border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 2px hsla(var(--color-blue), 0.15); }
+.doc-ribbon-sizebox input { width: 34px; height: 24px; border: none; outline: none; background: transparent; text-align: center; font-size: 12px; font-family: Inter, sans-serif; color: var(--ink); padding: 0; }
+.doc-toolbar.doc-ribbon .doc-ribbon-sizebox button.doc-ribbon-sizebox-btn { width: 16px; height: 24px; border-radius: 0 6px 6px 0; }
+
+/* The Document Builder header, Word / Google Docs style (Neil, 11/10/2026):
+   Close, the file's mark, its name typed in place, the save state, actions. */
+.nx-docb-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 8px; }
+.nx-docb-mark {
+  display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex: 0 0 30px;
+  border-radius: 8px; background: var(--wk-brand-tint, hsla(var(--color-green), 0.12)); color: var(--wk-brand, hsl(var(--color-green)));
+}
+.nx-docb-mark.is-template { background: var(--mist); color: var(--muted); }
+input.nx-docb-title {
+  flex: 1 1 240px; min-width: 160px; height: 32px; padding: 0 8px; margin-left: -2px;
+  font: 700 16px Inter, sans-serif; color: var(--ink); background: transparent;
+  border: 1px solid transparent; border-radius: 7px; text-overflow: ellipsis;
+}
+input.nx-docb-title:hover:not(:read-only) { border-color: var(--line); }
+input.nx-docb-title:focus { outline: none; border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 2px hsla(var(--color-blue), 0.15); background: var(--card); }
+input.nx-docb-title::placeholder { color: var(--muted); font-weight: 600; opacity: 1; }
+.nx-docb-save { display: inline-flex; align-items: center; gap: 4px; min-width: 64px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+button.nx-docb-hbtn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+  font: 600 12.5px Inter, sans-serif; color: var(--ink); white-space: nowrap; transition: background .12s, border-color .12s;
+}
+button.nx-docb-hbtn:hover:not(:disabled) { background: var(--mist); }
+button.nx-docb-hbtn:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; }
+button.nx-docb-hbtn:disabled { opacity: 0.55; cursor: default; }
+button.nx-docb-hbtn.is-icon { width: 32px; padding: 0; }
+.nx-docb-head .primary-btn { height: 32px; }
+
+/* New Document's split button: a blank draft at once, the arrow for a template or a file. */
+.nx-dl-split { display: inline-flex; align-items: stretch; }
+.nx-dl-split > .primary-btn { display: inline-flex; align-items: center; gap: 6px; }
+.nx-dl-split > .primary-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.nx-dl-split > .primary-btn.nx-dl-split-arrow { border-top-left-radius: 0; border-bottom-left-radius: 0; padding-left: 8px; padding-right: 8px; margin-left: 1px; }
+/* A narrower window keeps the header on one row: Share, Import and Full
+   Screen become their icons (the name stays in the title and for readers). */
+@media (max-width: 1360px) {
+  .nx-docb-head button.nx-docb-hbtn.nx-docb-compact { font-size: 0; gap: 0; width: 32px; padding: 0; }
+  input.nx-docb-title { flex-basis: 160px; }
+}
+
+/* The menu bar under the document's name, Google Docs style (Neil, 11/10/2026). */
+.nx-docb-titlecol { flex: 1 1 320px; min-width: 200px; display: flex; flex-direction: column; gap: 0; }
+.nx-docb-titlerow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.nx-docb-titlerow input.nx-docb-title { flex: 1 1 auto; height: 28px; }
+.nx-docb-head:has(.doc-mb) .nx-docb-mark { width: 36px; height: 36px; flex-basis: 36px; }
+.doc-mb { display: flex; align-items: center; gap: 1px; min-width: 0; flex-wrap: nowrap; margin-left: -2px; }
+button.doc-mb-top {
+  height: 26px; padding: 0 8px; border: none; border-radius: 6px; background: none; cursor: pointer;
+  font: 500 13px Inter, sans-serif; color: var(--ink); white-space: nowrap;
+}
+button.doc-mb-top:hover, button.doc-mb-top.is-open { background: var(--mist); }
+button.doc-mb-top:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: -2px; }
+.doc-mb-search {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; height: 26px; margin-left: 6px; padding: 0 6px;
+  width: 28px; flex: 0 0 28px; overflow: hidden; cursor: text;
+  border: 1px solid transparent; border-radius: 6px; color: var(--wk-dim, var(--ink)); background: none; transition: width .16s ease, background .12s;
+}
+.doc-mb-search:hover { background: var(--mist); }
+.doc-mb-search.is-open, .doc-mb-search:focus-within {
+  width: 230px; flex-basis: 230px; z-index: 2; background: var(--card); border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 2px hsla(var(--color-blue), 0.15);
+}
+.doc-mb-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: 400 12.5px Inter, sans-serif; color: var(--ink); }
+.doc-mb-search input::placeholder { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .doc-mb-search { transition: none; } }
+button.doc-mb-search-clear { display: inline-flex; border: none; background: none; padding: 2px; cursor: pointer; color: var(--muted); border-radius: 4px; }
+
+/* A menu: icon column, label, hint or shortcut on the right, chevron for a submenu. */
+.doc-toolbar.doc-ribbon.doc-ribbon-panel.doc-mb-panel { min-width: 250px; padding: 6px 4px; }
+.doc-mb-panel button.doc-ribbon-item.doc-mb-item { gap: 10px; padding: 6px 10px 6px 8px; min-height: 30px; }
+.doc-mb-panel button.doc-mb-item.is-open { background: var(--mist); }
+.doc-mb-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; flex: 0 0 18px; color: var(--muted); }
+.doc-mb-item[aria-checked="true"] .doc-mb-icon { color: hsl(var(--color-blue)); }
+.doc-mb-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: flex; flex-direction: column; }
+.doc-mb-path { font-size: 11px; color: var(--muted); }
+.doc-mb-hint { color: var(--muted); font-size: 11.5px; }
+kbd.doc-mb-key { margin-left: auto; padding-left: 18px; font: 500 11.5px Inter, sans-serif; color: var(--muted); background: none; border: none; letter-spacing: 0.01em; }
+.doc-mb-chev { color: var(--muted); flex: 0 0 auto; }
+
+/* Help > Keyboard Shortcuts: a centered card (a question-sized popup). */
+.doc-mb-keys { width: min(640px, calc(100vw - 32px)); max-height: min(80vh, 720px); display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.doc-mb-keys-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.doc-mb-keys-body { overflow-y: auto; padding: 8px 16px 16px; columns: 2 260px; column-gap: 28px; }
+.doc-mb-keys-body section { break-inside: avoid; margin-bottom: 12px; }
+.doc-mb-keys-body h4 { margin: 10px 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.doc-mb-keys-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 12.5px; color: var(--ink); }
+@media (max-width: 1200px) {
+  .nx-docb-head button.nx-docb-hbtn.nx-docb-compact-md { font-size: 0; gap: 0; width: 32px; padding: 0; }
 }

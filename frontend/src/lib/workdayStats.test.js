@@ -12,6 +12,10 @@ describe('leave days', () => {
     expect(leaveRequestDays({ startDate: '2026-09-25', endDate: '2026-09-28' })).toBe(2);
     // a full Mon-Fri week plus the weekend after it
     expect(leaveRequestDays({ startDate: '2026-09-21', endDate: '2026-09-27' })).toBe(5);
+    // 11/16 - 11/30/2026 with Thanksgiving and Black Friday off: 9, not 11
+    // (a holiday outside the range or on a weekend changes nothing)
+    expect(leaveRequestDays({ startDate: '2026-11-16', endDate: '2026-11-30',
+      holidays: ['2026-11-26', '2026-11-27', '2026-11-28', '2026-12-25'] })).toBe(9);
   });
 
   it('counts a single weekday as one day and a weekend day as zero', () => {

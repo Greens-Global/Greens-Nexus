@@ -2,6 +2,15 @@ import { plannerToday } from './shifts/nowLine';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
+// The clock is pinned to a Thursday noon (11/05/2026) so "today", the week and
+// the day strip agree whatever the machine's zone - the CI runner is UTC and
+// between Sunday 4 PM and midnight Pacific it is already Monday there, which
+// put the team's today outside the shown week (fix of 11/08/2026, same as
+// PayrollTimecard.salaried). Only Date is faked; timers stay real.
+vi.useFakeTimers({ toFake: ['Date'] });
+vi.setSystemTime(new Date(2026, 10, 5, 12, 0, 0));
+
+
 // Shifts > My Shifts (Oct 2026; decluttered 10/02): one line that says the
 // week, my shared shifts as one-line blocks, time off BESIDE a shift (a
 // partial day with its hours), the group grid laid out like Teams Shifts
@@ -310,6 +319,29 @@ describe('MyShifts Team > Shifts Month view (Neil, 11/04/2026)', () => {
     fireEvent.click(today);
     await screen.findByRole('table', { name: 'Store schedule' });
     expect(screen.getByRole('button', { name: 'Week' }).getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+// Team > Shifts for someone in no shift group (Neil, 11/08/2026): the week
+// still draws - seven cells, a holiday's name or "No shifts" - with one line
+// saying why; nothing personal (own shifts, Request), no Month, and a
+// remembered Month is ignored (the week is fetched, not 28-42 days).
+describe('MyShifts Team > Shifts with no group (Neil, 11/08/2026)', () => {
+  it('draws an empty week with one line, no Month toggle, no Request, no own shifts', async () => {
+    localStorage.setItem('nexus.shifts.teamRange', 'month');
+    timeMySchedule.mockResolvedValue({ ...sched, teams: [], holidays: [{ date: DAY, name: 'Founders Day' }] });
+    render(<MyShifts part="team" />);
+    await screen.findByText(/Your manager shares shifts here\. Swaps and open-shift requests are in Workday > Time Off\./);
+    await waitFor(() => expect(document.querySelectorAll('[data-empty-week] > div').length).toBe(7));
+    expect(screen.getAllByText('No shifts').length).toBe(6);
+    expect(screen.getByText('Founders Day')).toBeTruthy();
+    expect(screen.getByText(/^Times in /)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Month' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Request/ })).toBeNull();
+    expect(screen.queryByText('Front Desk')).toBeNull();   // my own shift is My Week's, not the group's
+    expect(screen.queryByText(/Your group will show here/)).toBeNull();
+    const [from, to] = timeMySchedule.mock.calls.at(-1);
+    expect((new Date(to) - new Date(from)) / 86400000).toBe(6);   // the week, whatever Month was remembered
   });
 });
 

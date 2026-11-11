@@ -1518,7 +1518,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
           else setPanel({ cell: { email: firstPerson, date }, mode: kind === 'timeoff' ? 'timeoff' : 'shift' });
         }}
         onShare={() => { setShareGroup(groupFilter || ''); setOpen('share'); }}
-        actions={{ canTimeOff, canOpen: groups.some((g) => g.openShifts && (!groupFilter || g.id === groupFilter)), copy: () => setOpen('copy'), fill: () => setOpen('fill'), clear: () => setOpen('clear'), importFile: () => setOpen('import'),
+        actions={{ canTimeOff, bulk: !(data?.shiftGrant > 0 && data.shiftGrant < 3), canOpen: groups.some((g) => g.openShifts && (!groupFilter || g.id === groupFilter)), copy: () => setOpen('copy'), fill: () => setOpen('fill'), clear: () => setOpen('clear'), importFile: () => setOpen('import'),
           exportFile: exportSchedule, print: printView, viewOptions: () => setOpen('view'), discard: discardAll, shortcuts: () => setKeysOpen(true) }} />
 
       {weatherNote.length > 0 && !weatherSetupHidden && (

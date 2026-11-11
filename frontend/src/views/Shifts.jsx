@@ -52,7 +52,9 @@ const TABS = [
 export default function Shifts({ activeSub, onSubChange }) {
   const role = useRole();
   const { can } = role;
-  const canManage = can('manager');
+  // The Shift Planner grant opens the planner tab below Manager (11/10/2026);
+  // the server decides what it may change.
+  const canManage = can('manager') || (!role.isExternal && role.canAccessModule('shifts', 'manager'));
   const canAnalytics = canOpenWorkforceAnalytics(role);
   const [keepsRoles, setKeepsRoles] = useState(false);
   useEffect(() => {

@@ -37,7 +37,10 @@ export const MODULES = [
   { id: 'investor-relations',  label: 'Investor Relations' },
   { id: 'hr',                  label: 'People' },
   { id: 'hr_comp',             label: 'People - Compensation (salary/bank)' },
-  { id: 'documents',           label: 'Documents' },
+  // Files (Neil, 11/10/2026): the module took in the Egnyte browser. This
+  // label is the module's name everywhere (the header reads it); the grant
+  // opens its Documents, Templates, Forms, Sign and PDF Tools tabs.
+  { id: 'documents',           label: 'Files' },
   { id: 'marketing',           label: 'Marketing' },
   { id: 'external-links',      label: 'Links' },
   { id: 'inventory',           label: 'Item Management' },
@@ -46,7 +49,7 @@ export const MODULES = [
   { id: 'support',             label: 'Help Center' },
   { id: 'testing',             label: 'Testing' },
   { id: 'credvault',           label: 'Credentials' },
-  { id: 'egnyte',              label: 'Files' },
+  { id: 'egnyte',              label: 'Files - Browse Files' },   // the Files module's Egnyte tabs (Browse Files, Wiring)
   // Workforce Analytics > Scorecard + the weekly manager email (Neil, 10/10):
   // viewer = their own reporting line, full = the whole company.
   { id: 'workforce-scorecard', label: 'Workforce Scorecard' },
@@ -56,6 +59,10 @@ export const MODULES = [
   // Workflows (Oct 28 2026): viewer reads, editor builds and publishes its
   // own, full manages every workflow in scope (routers/workflows.py).
   { id: 'workflows',           label: 'Workflows' },
+  // Shift Planner (Pranshu, 11/10/2026): runs Team > Shift Planner without the
+  // Manager role, on the teams the person is named Scheduler on; owner acts
+  // as a manager inside Shifts for their company (routers/timeclock.py SHIFT_GRANT).
+  { id: 'shifts',              label: 'Shift Planner' },
 ];
 
 // Per-module permission levels an Access Group can grant - mirrors a

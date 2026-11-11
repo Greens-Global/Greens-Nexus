@@ -351,7 +351,15 @@ const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE
 // first paint is unchanged at ~1.6 MB. 800 KB of headroom so the next few
 // features do not silently break the dev deploy again (Neil, 11/04/2026:
 // raise it when needed).
-const TOTAL_KB     = 20400 + (NX_SRC_ON ? 350 : 0);
+// Nov 10, 2026: 20400 -> 21400. Same failure as 11/04, again: dev.nexus has
+// served the 11/08 build (#1090) since #1089 - every Verify Deploy since then
+// read the old /version.json. CI's clean install measures dev at ~20,400 KB,
+// right at the cap, and Cloudflare's build runs ~200 KB above CI, so every
+// Cloudflare build of dev failed here and left the old frontend up (#1089,
+// #1091, #1092, #1098-#1100). All lazy app code; first paint unchanged at
+// ~1.75 MB (FIRST_PAINT_KB guards it). 1 MB of headroom over CI (~800 KB over
+// Cloudflare), per Neil's 11/04 "raise it when needed".
+const TOTAL_KB     = 21400 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

@@ -1,11 +1,9 @@
 ﻿// Workday's My Tickets tile (Construction plan phase 5, Neil 11/03/2026;
-// "My Work" until 11/04/2026, when Neil made it a full-size tile in the stat
-// row, left of the compact Ask HR / Reimbursements rows, beside Time With
-// Us). Shows when there is maintenance work for the person (GET
+// "My Work" until 11/04/2026; since 11/08/2026 one of the action pills under
+// the clock card, the same anatomy as Ask HR - Neil's Workday cleanup). Shows when there is maintenance work for the person (GET
 // /maintenance/my-work), and always - at 0, "Nothing open" - for someone on a
 // maintenance team (`onTeam`, Neil 11/04/2026); the list is the lazy sheet.
-// The page reads the work once through useMyMaintenanceWork, so its grid
-// knows whether to make room for the tile.
+// The page reads the work once through useMyMaintenanceWork.
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { ArrowRight, Wrench } from 'lucide-react';
 import { api } from '../api';
@@ -29,22 +27,25 @@ export function useMyMaintenanceWork() {
 export default function MyWorkTile({ work, count = 0, show = count > 0, reload }) {
   const [open, setOpen] = useState(false);
   if (!show && !open) return null;
-  const sub = work?.overdue ? `${work.overdue} overdue` : work?.preventive ? `${work.preventive} preventive`
-    : count ? 'Assigned to you' : 'Nothing open';
+  // Short enough for five pills across 1440 (Neil, 11/08/2026): the count,
+  // the overdue after it only when there is one.
+  const sub = count ? `${count} open${work?.overdue ? ` · ${work.overdue} overdue` : ''}` : 'Nothing open';
   const close = () => { setOpen(false); reload?.(); };
   return (
     <>
       {show && (
-        <button type="button" data-my-tickets className="dk-stat wd-stat" onClick={() => setOpen(true)}
+        <button type="button" data-my-tickets className="dk-stat wd-stat wd-askhr wd-mywork" onClick={() => setOpen(true)}
           title="The maintenance tickets assigned to you, preventive first. Opens My Tickets."
           aria-label={`My Tickets, ${count} open${work?.overdue ? `, ${work.overdue} overdue` : ''}`}>
-          <span className="dk-chip dk-chip--blue"><Wrench /></span>
-          <span className="wd-stat-text">
-            <span className="dk-stat-num">{count}</span>
-            <span className="dk-stat-label">My Tickets</span>
-            <span className="dk-stat-sub" style={work?.overdue ? { color: 'hsl(var(--color-red))', fontWeight: 700 } : undefined}>{sub}</span>
+          <span className="wd-askhr-badge" aria-hidden="true">
+            <Wrench size={18} />
+            {work?.overdue > 0 && <span className="wd-askhr-dot" />}
           </span>
-          <ArrowRight size={16} className="dk-stat-arrow" aria-hidden="true" />
+          <span className="wd-stat-text">
+            <span className="wd-askhr-title">My Tickets</span>
+            <span className={`wd-askhr-sub${work?.overdue ? ' wd-askhr-sub--new' : ''}`}>{sub}</span>
+          </span>
+          <ArrowRight className="wd-askhr-go" size={15} aria-hidden="true" />
         </button>
       )}
       {open && (

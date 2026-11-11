@@ -742,8 +742,10 @@ def _shift_requests(db: Session, user: dict, ctx: dict) -> list:
     """The Team > Requests inbox's `pending` rule (shift_requests.inbox /
     _decidable), never a request the caller is part of."""
     from routers.shift_requests import _decidable, _live_dicts, _team_names, _when
-    from routers.timeclock import _visible_emails, require_schedule_write
+    from routers.timeclock import _visible_emails, require_schedule_write, can_manage_shifts
     u = require_schedule_write(user={**user}, db=db)
+    if not can_manage_shifts(u):   # a Shift Planner Editor / Full decides nothing
+        return []
     scope, me, cache = _visible_emails(db, u), u["email"].lower(), {}
     mine = [r for r in (db.query(models.ShiftRequest).filter(models.ShiftRequest.status == "pending_manager")
                         .order_by(models.ShiftRequest.created_at).all())

@@ -15,8 +15,11 @@ export function canReadDoc(doc, { can, myGrantedModules, isExternal }) {
   // A menu item may open on another module's grant (its `grant` field) or
   // on any of several (`grants`, Oct 10) - read it the same way the left
   // menu does.
+  // A page about one half of a module carries that half's own `grant`
+  // (Files, Neil 11/10/2026: the Browse Files page needs 'egnyte', the
+  // Documents page 'documents', though either grant opens the module).
   const item = NAV.find((n) => n.view === doc.view);
-  const grants = item?.grants || [item?.grant || doc.view];
+  const grants = doc.grant ? [doc.grant] : (item?.grants || [item?.grant || doc.view]);
   const granted = grants.some((g) => !!myGrantedModules?.has(g));
   if (isExternal) return granted;
   return !item?.minRole || !!can?.('administrator') || granted;

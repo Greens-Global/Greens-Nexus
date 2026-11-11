@@ -65,6 +65,8 @@ const CAMEL_TO_SNAKE = {
   requesterId: 'requester_email', linkedTaskId: 'linked_task_id', slaDueOn: 'sla_due_on', typeFields: 'type_fields',
   companyId: 'company_id', hrDepartmentId: 'hr_department_id', hrDepartmentName: 'hr_department_name',
   watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
+  // Automatic scheduling + project status (Neil, 11/08/2026).
+  scheduleMode: 'schedule_mode', dependencyLags: 'dependency_lags', statusNote: 'status_note',
   taskIds: 'task_ids', subtaskTitles: 'subtask_titles', serviceArea: 'service_area',
   resolutionNote: 'resolution_note',
   // Project default view + shared dashboard charts (Oct 2026).
@@ -442,8 +444,12 @@ export function TasksProvider({ children }) {
     const keys = Object.keys(patch || {});
     patchLocalTask(id, patch);                     // optimistic
     try {
-      const saved = await api.updateTask(id, toBody(patch));
+      // `moved` (11/08/2026): the tasks automatic scheduling placed again
+      // with this edit, each with its row - put in place here, and said.
+      const { moved, ...saved } = (await api.updateTask(id, toBody(patch))) || {};
       setTasks((prev) => prev.map((t) => (t.id === id ? saved : t)));
+      for (const m of moved || []) if (m?.task?.id) patchLocalTask(m.task.id, m.task);
+      if (moved?.length) offerRef.current?.(`${moved.length} task${moved.length === 1 ? '' : 's'} moved to follow this change`, null);
       announceHeld([saved], patch);
       return saved;
     } catch (e) {

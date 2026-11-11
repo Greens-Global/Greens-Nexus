@@ -343,12 +343,14 @@ def deciders_for(db: Session, g, company_id: str) -> tuple:
     """(deciders, everyone_told): the people who make the call, and the full
     advisory audience - deciders (else the group's schedulers) plus the
     company's managers. Only active people in People."""
-    from auth import level_for
-    from routers.timeclock import _schedulers, _weather_deciders, SHIFT_MANAGE_LEVEL
+    from auth import level_in_module
+    from routers.timeclock import _schedulers, _weather_deciders, SHIFT_MANAGE_LEVEL, SHIFT_GRANT
     people = _people(db)
     # A named decider who has since lost Manage access to Shifts stays on the
     # group (its save only checks new names) but is skipped here (Oct 12).
-    named = [e for e in _weather_deciders(g) if e in people and level_for(e, db) >= SHIFT_MANAGE_LEVEL]
+    # A Shift Planner Owner holds Manage access (11/10/2026).
+    named = [e for e in _weather_deciders(g) if e in people
+             and level_in_module(e, SHIFT_GRANT, SHIFT_MANAGE_LEVEL, db) >= SHIFT_MANAGE_LEVEL]
     deciders = named or [e for e in _schedulers(g) if e in people]
     managers = [e for e in company_managers(db, company_id) if e in people]
     return deciders, list(dict.fromkeys(deciders + managers))

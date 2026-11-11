@@ -18,6 +18,8 @@ import SheetVariablesDialog, { useSheetVariables } from './SheetVariables';
 import SheetHistoryDialog from './SheetHistory';
 import { caretColor } from '../notes/useNoteCollab';
 import { reportError } from '../lib/errorReporter';
+import { dialog } from '../ui/dialog';
+import { isUntitled, askForName, UNTITLED_SHEET } from '../lib/untitled';
 import './docLive.css';
 
 const SAVE_MS = 1200;
@@ -59,7 +61,8 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, empl
   const [full, toggleFull] = useFullScreen('documents-sheet');
 
   const load = useCallback(() => api.getDocument(docId)
-    .then((r) => { setRow(r); setTitle(r.title || ''); setError(''); })
+    // An unnamed sheet shows an empty name box saying "Untitled Sheet" (lib/untitled.js).
+    .then((r) => { setRow(r); setTitle(isUntitled(r.title) ? '' : r.title || ''); setError(''); })
     .catch((e) => setError(e?.message || 'Could not open this sheet.')), [docId]);
   useEffect(() => { load(); }, [load]);
 
@@ -115,13 +118,25 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, empl
     if (canEdit) { try { await api.documentCollabReset(docId); } catch { /* the reload still rereads */ } live.restart(); }
     await load();
   };
-  const close = async () => { try { await flush(); } catch { /* the toast said so */ } onClose?.(); };
+  // Still unnamed (Neil, 11/10/2026): an editor names it before leaving;
+  // Keep Editing stays on the sheet.
+  const close = async () => {
+    if (canEdit && isUntitled(title.trim() || row?.title)) {
+      const name = await askForName(dialog, { kind: 'sheet' });
+      if (!name) return;
+      try { const out = await api.updateDocument(docId, { title: name }); setRow((r) => ({ ...r, title: out.title })); setTitle(out.title); }
+      catch (e) { toastErr?.(e?.message || 'Could not rename the sheet.'); return; }
+    }
+    try { await flush(); } catch { /* the toast said so */ }
+    onClose?.();
+  };
 
   const saveTitle = async () => {
     const t = title.trim();
-    if (!t || !row || t === row.title) { setTitle(row?.title || ''); return; }
+    const shown = isUntitled(row?.title) ? '' : row?.title || '';
+    if (!t || !row || t === row.title) { setTitle(t && row && t === row.title ? t : shown); return; }
     try { const out = await api.updateDocument(docId, { title: t }); setRow((r) => ({ ...r, title: out.title })); }
-    catch (e) { toastErr?.(e?.message || 'Could not rename the sheet.'); setTitle(row.title); }
+    catch (e) { toastErr?.(e?.message || 'Could not rename the sheet.'); setTitle(isUntitled(row.title) ? '' : row.title); }
   };
 
   if (error) return <div style={{ padding: 20 }}><ErrorBanner message={error} /><button type="button" className="secondary-btn" onClick={onClose} style={{ marginTop: 12 }}>Back</button></div>;
@@ -134,9 +149,9 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, empl
     <div className="dl-sheet-page">
       <div className="dl-sheet-head">
         <button type="button" className="dl-icon-btn" aria-label="Back to Documents" title="Back to Documents" onClick={close}><ArrowLeft size={18} /></button>
-        <input className="dl-sheet-title" value={title} disabled={!canEdit} aria-label="Sheet name" maxLength={200}
+        <input className="dl-sheet-title" value={title} disabled={!canEdit} aria-label="Sheet name" maxLength={200} placeholder={UNTITLED_SHEET}
           onChange={(e) => setTitle(e.target.value)} onBlur={saveTitle}
-          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setTitle(row.title); e.currentTarget.blur(); } }} />
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setTitle(isUntitled(row.title) ? '' : row.title); e.currentTarget.blur(); } }} />
         <span className="dl-sheet-save" aria-live="polite">{word}</span>
         {canEdit && <LivePeople peers={live.peers} status={live.status} />}
         <button type="button" className="secondary-btn" onClick={() => setVarsOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

@@ -349,7 +349,7 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Overview', desc: 'Opens with one row of tiles: Hours This Week, Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours), Time With Us (from the start date on your HR record - ask HR if it is wrong) and Ask HR at the right end - the confidential HR desk: New Request offers Request a Letter (employment verification, salary, visa and more, when your company offers HR letters), Update a Document, Profile Change, Question for HR and Something Else. A request is a confidential HR ticket that only you, the people you add and HR can see. My Requests lists them with the answers from HR and your letters, and a red dot on Ask HR means HR has updated one you have not looked at yet (the request is marked Updated by HR). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Schedule and My Documents (signed documents, the files HR keeps for you and your paystubs, by folder). Only you see this page.' },
+      { name: 'Overview', desc: 'Opens on the Time Clock, then one row of actions: My Tickets when maintenance work is assigned to you, Ask HR, Reimbursements, Purchase Request and Fill a Form when a form is yours to fill. Ask HR is the confidential HR desk: New Request offers Request a Letter (employment verification, salary, visa and more, when your company offers HR letters), Update a Document, Profile Change, Question for HR and Something Else. A request is a confidential HR ticket that only you, the people you add and HR can see. My Requests lists them with the answers from HR and your letters, and a red dot on Ask HR means HR has updated one you have not looked at yet (the request is marked Updated by HR). Under the row: your profile card (who you report to, your start date, and your contact and emergency details with Edit), assigned equipment and checkouts, My Schedule (its week line carries Time off this year - click the figure for the Time Off tab; how long you have been with us is on the Performance tab) and My Documents (signed documents, the files HR keeps for you and your paystubs, by folder). Only you see this page.' },
       { name: 'Documents to Sign', desc: 'At the top of Overview whenever a Nexus Sign document is waiting on your signature (an offer letter, a policy, an HR form). Click Review & Sign to sign it right here - the bell and the email open it for you. Time Sheets to sign stay on the Time Sheet tab.' },
       { name: 'Time Clock', desc: 'On Overview: Punch In, Start Break, End Break and Punch Out with a live dial for the shift you are on and where the punch was recorded. Beside it, your hours with a Today / This Week / Pay Period switch (it opens on Today and remembers your pick on this browser) - the total, days worked, daily average and breaks, then the punches of the day on a timeline or daily bars against an 8-hour line. Time Sheet opens every punch, day by day.' },
       { name: 'My Schedule', desc: 'On the Overview (your own shifts moved here from the Shifts module on 10/13/2026): a line that sums the week up - shifts, paid hours, time off and your next shift - then your days one by one; Request under a shift asks to swap, offer or release it (when your company allows it), Confirm shows when a manager asks you to confirm a newly shared schedule, past shifts show On Time, Late, Left Early or No-Show (tap to read), In your Outlook calendar (when your company has it on) and Subscribe in another calendar put your shifts in your calendar, weather calls on your days wait here for you to acknowledge (Text me when a weather call changes my shift turns your texts off), and My Availability opens under the week. The My Week | Team switch shows your group\'s week in the same card (it is also Team > Shifts).' },
@@ -570,6 +570,14 @@ export const DOCS = [
           'To keep a group in step with a department, pick it under Department: everyone in that department joins the group by themselves and leaves it when they leave the department. People you add by hand stay.',
           'Open shifts are off for a new group. Tick Open Shifts on a group that posts unfilled shifts (Ops, retail); office teams leave it off. Open shifts already posted stay on the schedule.',
           'To send the group\'s BOD, EOD and break messages to Microsoft Teams, choose Group Chat or Channel under Microsoft Teams. Click Bind A Chat (or Bind A Channel, then pick the team\'s channel) and Save. Members must be in that chat, or in that team and channel, for their messages to post; in a channel each message is a new post. Every message Nexus posts to Teams (BOD, EOD, break and ticket updates) goes out as the person and ends with a small gray "Sent by Nexus" line, so it is easy to tell apart from something typed by hand.',
+        ],
+      },
+      {
+        title: "Let Someone Build a Team's Schedule Without Being a Manager",
+        steps: [
+          'Name the person a Scheduler on the team: Settings > Shifts & Scheduling > Groups, open the group, add them under Schedulers and Save.',
+          'Give them the Shift Planner access in an Access Group. Viewer opens Team > Shift Planner and shows the shared schedule of the teams they schedule. Editor also adds, edits, moves and deletes the shifts of those teams and shares the week. Full also clears a week, imports a file and changes who is on those teams. Owner acts as a manager inside Shifts for their whole company: every team, swap and open-shift decisions and weather calls.',
+          'They stay an Employee. No level opens Time Sheets, pay, scheduled labor, shift types or Settings.',
         ],
       },
       {
@@ -901,10 +909,10 @@ export const DOCS = [
     ],
   },
   {
-    id: 'files', name: 'Files', group: 'Work', icon: 'HardDrive', view: 'egnyte',
+    id: 'files', name: 'Files', group: 'Work', icon: 'HardDrive', view: 'documents', sub: 'documents-files', grant: 'egnyte',
     tagline: 'Browse, upload and search the company Egnyte drive without leaving Nexus.',
-    where: 'Left menu > Files',
-    access: 'Supervisors and above with the Files grant',
+    where: 'Left menu > Files > Browse Files',
+    access: 'Supervisors and above with the Files - Browse Files grant',
     purpose: 'Files is a window onto Egnyte, the company file store. Egnyte stays the one true copy. Nexus lists, previews, uploads and links files in place, using your own Egnyte permissions, so you see exactly what you would see in Egnyte itself.',
     gains: [
       'Find and open company files without switching apps.',
@@ -951,10 +959,10 @@ export const DOCS = [
     tips: ['If a folder is missing, you probably do not have access to it in Egnyte. Ask the folder owner.'],
   },
   {
-    id: 'documents', name: 'Documents', group: 'Work', icon: 'FileText', view: 'documents',
+    id: 'documents', name: 'Documents', group: 'Work', icon: 'FileText', view: 'documents', sub: 'documents-browse', grant: 'documents',
     tagline: 'Create documents from templates, send them for e-signature and edit PDFs.',
-    where: 'Left menu > Documents',
-    access: 'Supervisors and above with the Documents grant',
+    where: 'Left menu > Files > Documents',
+    access: 'Supervisors and above with the Files grant',
     purpose: 'Documents is where company paperwork gets made and signed. Build a document from a template with merge fields filled in, send it through Nexus Sign for signature (inside or outside the company), and fix up PDFs with PDF Tools. Every signature has an audit trail.',
     gains: [
       'Offer letters, agreements and forms in minutes, not hours.',
@@ -1131,7 +1139,7 @@ export const DOCS = [
     ],
   },
   {
-    id: 'workflows', name: 'Workflows', group: 'Work', icon: 'Workflow', view: 'workflows',
+    id: 'workflows', name: 'Workflows', group: 'System', icon: 'Workflow', view: 'workflows',
     tagline: 'When something happens in Nexus, do something about it - without a developer.',
     where: 'Left menu > Workflows',
     access: 'Anyone with the Workflows grant. Viewer sees workflows and their runs; Editor builds and publishes their own; Full manages every workflow in their scope.',

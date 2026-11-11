@@ -90,6 +90,7 @@ def push_dependents(db: Session, root: models.Task, *, actor: str,
     original_due: dict[str, str] = {}   # where each moved task's due stood before this drag
     hist_before: dict[str, dict] = {}   # field history: each moved task before this drag
     pushes: dict[str, int] = {}
+    seen_auto: set = set()
     queue = deque([root])
     hops = 0
     while queue and hops < MAX_CHAIN:
@@ -103,6 +104,14 @@ def push_dependents(db: Session, root: models.Task, *, actor: str,
                 .all())
         for dep in deps:
             if dep.id == root.id or dep.completed:
+                continue
+            if is_auto(dep):
+                # Automatic scheduling owns this one (reschedule_successors
+                # placed it before the cascade ran); its own dependents still
+                # answer to the cascade from where it now stands, once.
+                if dep.id not in seen_auto:
+                    seen_auto.add(dep.id)
+                    queue.append(dep)
                 continue
             dep_type = (dep.dependency_types or {}).get(blocker.id, "FS")
             delta = required_shift(blocker, dep, dep_type)
@@ -137,3 +146,287 @@ def push_dependents(db: Session, root: models.Task, *, actor: str,
         # The start date's history (the due date's is the line above).
         task_history.record(db, dep, hist_before[tid], actor, only={"startOn"})
     return list(moved.values()), list(skipped.values())
+
+
+# ── Automatic scheduling (Neil, 11/08/2026) ──────────────────────────────────
+# OpenProject's model. A task in "auto" mode is PLACED by the engine: its start
+# is the latest of its predecessors' (due + lag + 1 working day), keeping its
+# own length in working days, or - when it has subtasks - it spans them (first
+# start to last due). A "manual" task is never moved; the Timeline marks a
+# manual successor that starts too early (the amber bracket) and leaves it.
+# Every task starts manual, so nothing moves until somebody switches one.
+#
+# Working days are Monday to Friday minus the project company's mandatory
+# holidays, read through the same holiday_policies rule every other holiday
+# reader uses; a task with no project counts weekends only.
+AUTO = "auto"
+MAX_AUTO_TASKS = 500
+# shortcut: holidays are read for one window around today (a year back, three
+# ahead); a chain scheduled beyond it counts weekends only. Widen if a project
+# is ever planned further out.
+_HOLIDAY_WINDOW = (365, 3 * 365)
+
+
+def is_auto(t) -> bool:
+    return (getattr(t, "schedule_mode", "") or "manual") == AUTO
+
+
+class Calendar:
+    """Working days: Monday to Friday minus `off` (ISO dates)."""
+
+    def __init__(self, off=None):
+        self.off = set(off or ())
+
+    def is_working(self, d: date) -> bool:
+        return d.weekday() < 5 and d.isoformat() not in self.off
+
+    def add_working(self, d: date, n: int) -> date:
+        """`n` working days on from `d` (back when `n` is negative); a `d`
+        that is not a working day first moves to the next (previous) one."""
+        step = 1 if n >= 0 else -1
+        while not self.is_working(d):
+            d += timedelta(days=step)
+        for _ in range(abs(n)):
+            d += timedelta(days=step)
+            while not self.is_working(d):
+                d += timedelta(days=step)
+        return d
+
+    def span(self, d0: date, d1: date) -> int:
+        """Working days from d0 to d1 inclusive - a task's length; at least 1."""
+        if d1 < d0:
+            d0, d1 = d1, d0
+        return max(1, sum(1 for i in range((d1 - d0).days + 1) if self.is_working(d0 + timedelta(days=i))))
+
+    def between(self, d0: date, d1: date) -> int:
+        """Signed working days from d0 to d1 - how far a due date slipped."""
+        if d0 == d1:
+            return 0
+        lo, hi = (d0, d1) if d1 > d0 else (d1, d0)
+        n = sum(1 for i in range(1, (hi - lo).days + 1) if self.is_working(lo + timedelta(days=i)))
+        return n if d1 > d0 else -n
+
+
+def company_holidays(db: Session, company_id: str) -> set:
+    """The company's mandatory holidays (ISO dates): the same rows and the
+    same country rule the schedule's Fill Automatically reads
+    (timeclock._company_holidays_for_many -> holiday_policies), applied to
+    the company itself rather than to one person."""
+    if not company_id:
+        return set()
+    import holiday_policies
+    today = date.today()
+    lo = (today - timedelta(days=_HOLIDAY_WINDOW[0])).isoformat()
+    hi = (today + timedelta(days=_HOLIDAY_WINDOW[1])).isoformat()
+    rows = (db.query(models.HrCompanyHoliday)
+            .filter(models.HrCompanyHoliday.company_id == company_id,
+                    models.HrCompanyHoliday.date >= lo, models.HrCompanyHoliday.date <= hi).all())
+    if not rows:
+        return set()
+    country = holiday_policies.company_countries(db, [company_id]).get(company_id, "")
+    return {d for d, h in holiday_policies.holidays_by_date(rows, country).items()
+            if (h.get("type") or "mandatory") != "optional"}
+
+
+def calendar_for(db: Session, project) -> Calendar:
+    """The working-day calendar of a project's company; weekends only without a project."""
+    if project is None:
+        return Calendar()
+    from routers.task_util import row_company
+    return Calendar(company_holidays(db, row_company(db, project)))
+
+
+def _calendar_for_task(db: Session, t: models.Task, cache: dict) -> Calendar:
+    """The task's working-day calendar - its project read once per project id
+    (a subtask reaches its project through its parent), the holidays once."""
+    key = t.project_id or ""
+    project = None
+    if not key and t.parent_task_id:
+        from routers.task_util import project_for_task
+        project = project_for_task(db, t)
+        key = project.id if project is not None else ""
+    if key not in cache:
+        if key and project is None:
+            project = db.query(models.TaskProject).filter(models.TaskProject.id == key).first()
+        cache[key] = calendar_for(db, project)
+    return cache[key]
+
+
+def _live(db: Session, ids) -> list:
+    ids = [i for i in (ids or []) if i]
+    return db.query(models.Task).filter(models.Task.id.in_(ids)).all() if ids else []
+
+
+def _int(v) -> int:
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _pool_for(db: Session, changed: models.Task) -> dict:
+    """Every live task of the changed task's project - its own rows and their
+    subtasks, one read plus one per subtask level - so a chain inside one
+    project costs no per-task reads. Tasks outside it are read by id as the
+    walk reaches them."""
+    pid = changed.project_id or ""
+    if not pid and changed.parent_task_id:
+        from routers.task_util import project_for_task
+        p = project_for_task(db, changed)
+        pid = p.id if p is not None else ""
+    pool = {changed.id: changed}
+    if not pid:
+        return pool
+    pool.update({r.id: r for r in db.query(models.Task).filter(models.Task.project_id == pid).all()
+                 if r.id != changed.id})
+    frontier = list(pool)
+    while frontier:
+        kids = db.query(models.Task).filter(models.Task.parent_task_id.in_(frontier)).all()
+        frontier = [k.id for k in kids if k.id not in pool]
+        pool.update({k.id: k for k in kids if k.id not in pool})
+    return pool
+
+
+def _start_by(cal: Calendar, kind: str, p: models.Task, lag: int, span: int) -> date:
+    """Where a dependency of `kind` on predecessor `p` with `lag` working days
+    puts a task `span` working days long - its START:
+      FS  start = p.due + lag + 1      SS  start = p.start + lag
+      FF  due = p.due + lag            SF  due = p.start + lag   (start = due - span + 1)"""
+    p_start = _day(p.start_on) or _day(p.due_on)
+    p_due = _day(p.due_on) or _day(p.start_on)
+    if kind == "SS":
+        return cal.add_working(p_start, lag)
+    if kind == "FF":
+        return cal.add_working(cal.add_working(p_due, lag), -(span - 1))
+    if kind == "SF":
+        return cal.add_working(cal.add_working(p_start, lag), -(span - 1))
+    return cal.add_working(p_due, lag + 1)
+
+
+def _place(db: Session, t: models.Task, cache: dict, actor: str, kids: list, preds: list):
+    """Compute and write `t`'s dates from its dated subtasks (`kids`), else its
+    dated predecessors (`preds`, each by its dependency type and lag - the
+    latest start wins). None when nothing changes or there is nothing to
+    place it by; else {id, title, cause, causeId, from, to}, with the due
+    history (source auto, no agreement or extension change) and the start
+    date's field history written."""
+    old_start, old_due = _day(t.start_on), _day(t.due_on)
+    kids = [k for k in kids if _day(k.start_on) or _day(k.due_on)]
+    preds = [p for p in preds if _day(p.start_on) or _day(p.due_on)]
+    if kids:
+        start = min(_day(k.start_on) or _day(k.due_on) for k in kids)
+        due = max(_day(k.due_on) or _day(k.start_on) for k in kids)
+        cause, note = None, "Moved with its subtasks"
+    elif preds:
+        cal = _calendar_for_task(db, t, cache)
+        span = cal.span(old_start, old_due) if old_start and old_due else 1
+        lags = t.dependency_lags if isinstance(t.dependency_lags, dict) else {}
+        kinds = t.dependency_types if isinstance(t.dependency_types, dict) else {}
+        best = None
+        for p in preds:
+            lag = _int(lags.get(p.id, 0))
+            s = _start_by(cal, str(kinds.get(p.id) or "FS").upper(), p, lag, span)
+            if best is None or s > best[0]:
+                best = (s, p, lag)
+        start, cause, lag = best
+        due = cal.add_working(start, span - 1)
+        note = f"Moved by {cause.title}" + (f" ({lag:+d} working day{'s' if abs(lag) != 1 else ''})" if lag else "")
+    else:
+        return None
+    if start == old_start and due == old_due:
+        return None
+    hist_before = task_history.snapshot(t)
+    frm = {"start": t.start_on or "", "due": (t.due_on or "")[:10]}
+    t.start_on, t.due_on = start.isoformat(), due.isoformat()
+    t.modified_at = now_iso()
+    entry = task_due.record_due_change(db, t, frm["due"], t.due_on, actor=actor, source="auto", note=note, auto=True)
+    if entry is not None and cause is not None:
+        entry["cause"] = cause.id   # the dict already sits in the new due_history list
+    task_history.record(db, t, hist_before, actor, only={"startOn"})
+    return {"id": t.id, "title": t.title, "cause": cause.title if cause is not None else "its subtasks",
+            "causeId": cause.id if cause is not None else "", "from": frm,
+            "to": {"start": t.start_on, "due": t.due_on}}
+
+
+def _blockers_first(ids: list, rows: dict) -> list:
+    """`ids` with every task after the tasks it waits on that are in the same
+    list, so one pass places a predecessor before its successor; a loop
+    among them keeps its order."""
+    pending = [i for i in ids if i in rows]
+    out, placed = [], set()
+    while pending:
+        ready = [i for i in pending if not any(b in rows and b in pending for b in (rows[i].blocked_by_ids or []) if b != i)]
+        if not ready:
+            ready = pending[:1]
+        out += ready
+        placed.update(ready)
+        pending = [i for i in pending if i not in placed]
+    return out
+
+
+def reschedule_successors(db: Session, changed: models.Task, *, actor: str, also=(), can_edit=None) -> list[dict]:
+    """Place every auto task that `changed` reaches: `changed` itself when it
+    is auto, then level by level through the tasks it blocks (blocking_ids)
+    and its parent, each task once, MAX_AUTO_TASKS in all, going no further
+    past a manual task, one that did not move, or one `can_edit` refuses
+    (the actor's editor check - a task that is not theirs to move is left
+    where it is and the walk stops there). `also` is extra ids to start from
+    (the parent a subtask just left). Runs inside the caller's transaction -
+    flushed first so its queries see the edit that caused it - with the
+    project's tasks read once up front (_pool_for) and each level's other
+    rows in one query; writes only rows, the caller commits and tells people
+    (routers/tasks._announce_auto_moves). Returns the moves."""
+    db.flush()
+    moves: list[dict] = []
+    cache: dict = {}
+    # The project's tasks are read in one go the first time a level holds an
+    # auto task - an ordinary edit of a manual task with no auto successor
+    # never pays for it.
+    pool: dict = {changed.id: changed}
+    pooled: set = set()          # tasks whose subtasks the pool already holds
+    children: dict = {}
+    visited: set = set()
+    frontier = [(changed.id, True)] + [(i, True) for i in also if i]
+    while frontier and len(visited) < MAX_AUTO_TASKS:
+        ids, roots = [], set()
+        for tid, root in frontier:
+            if tid and tid not in visited and tid not in ids:
+                ids.append(tid)
+            if root:
+                roots.add(tid)
+        ids = ids[:MAX_AUTO_TASKS - len(visited)]
+        visited.update(ids)
+        # This level's rows, then what its auto tasks are placed by - the
+        # subtasks and predecessors not already in hand - one query each.
+        missing = [i for i in ids if i not in pool]
+        pool.update({r.id: r for r in _live(db, missing)})
+        autos = [pool[i] for i in ids if i in pool and is_auto(pool[i]) and not pool[i].completed]
+        if autos and not pooled:
+            for r in _pool_for(db, changed).values():
+                pool.setdefault(r.id, r)
+            pooled = set(pool)
+            for r in pool.values():
+                if r.parent_task_id:
+                    children.setdefault(r.parent_task_id, []).append(r)
+        for k in (db.query(models.Task).filter(models.Task.parent_task_id.in_([a.id for a in autos if a.id not in pooled])).all()
+                  if any(a.id not in pooled for a in autos) else []):
+            children.setdefault(k.parent_task_id, []).append(k)
+        need = {p for a in autos for p in (a.blocked_by_ids or []) if p and p not in pool}
+        pool.update({r.id: r for r in _live(db, list(need))})
+        nxt = []
+        for tid in _blockers_first(ids, pool):
+            t = pool[tid]
+            moved = None
+            if is_auto(t) and not t.completed:
+                if can_edit is not None and tid != changed.id and not can_edit(t):
+                    continue
+                moved = _place(db, t, cache, actor, children.get(t.id, []),
+                               [pool[p] for p in (t.blocked_by_ids or []) if p in pool])
+                if moved is not None:
+                    moves.append(moved)
+            if tid in roots or moved is not None:
+                nxt += [(s, False) for s in (t.blocking_ids or []) if s]
+                if t.parent_task_id:
+                    nxt.append((t.parent_task_id, False))
+        frontier = nxt
+    return moves

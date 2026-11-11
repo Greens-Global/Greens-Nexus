@@ -40,7 +40,9 @@ const minutesOf = (hhmm) => {
 
 // Working days one request takes. A partial-day request (start + end time on a
 // single day) counts as its share of an 8-hour day; a full-day request counts
-// Mon-Fri days only. `year` (optional) clips the range to that calendar year.
+// Mon-Fri days only, less the person's company holidays the server sent in
+// `holidays` (Neil, 11/07/2026: Thanksgiving counted as vacation). `year`
+// (optional) clips the range to that calendar year.
 export function leaveRequestDays(r, year) {
   if (!r) return 0;
   const start = r.startDate ?? r.start_date;
@@ -60,7 +62,9 @@ export function leaveRequestDays(r, year) {
     // A partial day on a weekend is still time the person asked off.
     return Math.min(1, mins / 480);
   }
-  return weekdaysBetween(a, b);
+  const hol = (r.holidays || []).map(parseIsoDay)
+    .filter(d => d && d >= a && d <= b && d.getDay() !== 0 && d.getDay() !== 6).length;
+  return Math.max(0, weekdaysBetween(a, b) - hol);
 }
 
 // Approved working days of leave inside `year`, rounded to 2 decimals.

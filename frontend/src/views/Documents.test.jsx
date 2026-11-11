@@ -79,7 +79,8 @@ beforeEach(() => {
 
 describe('Documents module', () => {
   it('opens on the library, with the six tabs (Neil, 10/31/2026; Forms 11/02/2026; Filing & Sorting 11/04/2026)', async () => {
-    roleNow.current = { can: () => false, canAccessModule: () => false };
+    // A Files - Documents grant alone: the Documents half, no Browse Files.
+    roleNow.current = { can: () => false, canAccessModule: (m) => m === 'documents' };
     try {
       renderDocs('');
       // The module title band was removed (Sep 17) - the tab strip is the proof
@@ -91,7 +92,7 @@ describe('Documents module', () => {
 
   it('Hiring Documents opens the same setup as Settings for whoever may set it up (Pranshu, 11/04/2026)', async () => {
     renderDocs('documents-hiring');
-    expect(publishedTabs()).toBe('Documents|Templates|Hiring Documents|Forms|Filing & Sorting|Nexus Sign|PDF Tools');
+    expect(publishedTabs()).toBe('Browse Files|Documents|Templates|Hiring Documents|Forms|Filing & Sorting|Nexus Sign|PDF Tools|Wiring');
     expect(await screen.findByText('hiring documents panel')).toBeTruthy();
     expect(screen.getByText(/same setup as Settings/)).toBeTruthy();
   });
@@ -104,10 +105,36 @@ describe('Documents module', () => {
     expect(screen.getByRole('button', { name: /Scan Now/ })).toBeTruthy();
   });
 
-  it.each(['documents-not-a-real-tab', 'documents-dashboard', 'documents-hr-records'])('%s lands on the library', async (sub) => {
+  it.each(['documents-dashboard', 'documents-hr-records'])('%s lands on the library', async (sub) => {
     render(<Documents activeSub={sub} onSubChange={() => {}} />);
     expect(await screen.findByText('New Document')).toBeTruthy();
     await waitFor(() => expect(getDocumentLibrary).toHaveBeenCalled());
+  });
+
+  it('an unknown tab lands on the first tab the person has', async () => {
+    roleNow.current = { can: () => false, canAccessModule: (m) => m === 'documents' };
+    try {
+      render(<Documents activeSub="documents-not-a-real-tab" onSubChange={() => {}} />);
+      expect(await screen.findByText('New Document')).toBeTruthy();
+    } finally { roleNow.current = { can: () => true }; }
+  });
+
+  // Files (Neil, 11/10/2026): the Egnyte browser moved in as Browse Files,
+  // first, with Wiring last for managers; each half needs its own grant.
+  it('leads with Browse Files and ends with Wiring for a manager with both grants', () => {
+    roleNow.current = { can: (r) => r !== 'administrator', canAccessModule: (m) => m === 'documents' || m === 'egnyte' };
+    try {
+      renderDocs('documents-browse');
+      expect(publishedTabs()).toBe('Browse Files|Documents|Templates|Forms|Filing & Sorting|Nexus Sign|PDF Tools|Wiring');
+    } finally { roleNow.current = { can: () => true }; }
+  });
+
+  it('shows only Browse Files to someone with the Files - Browse Files grant alone', () => {
+    roleNow.current = { can: () => false, canAccessModule: (m) => m === 'egnyte' };
+    try {
+      renderDocs('');
+      expect(publishedTabs()).toBe('Browse Files');
+    } finally { roleNow.current = { can: () => true }; }
   });
 
   it('renders the library', async () => {

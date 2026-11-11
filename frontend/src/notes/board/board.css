@@ -335,6 +335,11 @@
 .nx-dg-nlabel { font: 600 15px Inter, system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; fill: #1c2420; }
 .nx-dg-elabel { font: 500 13px Inter, system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; fill: #475569; paint-order: stroke; stroke: #f8faf8; stroke-width: 4px; }
 .nx-dg-empty { font-size: 13.5px; color: var(--muted, #6b7570); }
+/* 11/08/2026: group labels, the quiet notes, Group By Company, From a Sentence */
+.nx-dg-glabel { font: 600 12px Inter, system-ui, sans-serif; dominant-baseline: middle; }
+.nx-dg-note { color: var(--muted, #6b7570); font-style: italic; }
+.nx-dg-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
+.nx-dg-sentence { min-height: 110px; flex: 0 0 auto; }
 .nx-dg-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
 .nx-dg-count { flex: 1; font-size: 13px; color: var(--muted, #6b7570); }
 @media (max-width: 640px) {

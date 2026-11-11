@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import AnchoredMenu from './AnchoredMenu';
+import { UNTITLED_DOCUMENT, UNTITLED_SHEET } from '../lib/untitled';
 import { generateJSON } from '@tiptap/core';
-import { Search, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown, Sheet as SheetIcon } from 'lucide-react';
+import { Search, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown, Sheet as SheetIcon, LayoutTemplate } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -119,8 +121,9 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
     setEgnyteOpen(false);
   };
 
+  // The name is optional (Neil, 11/10/2026): blank is "Untitled Document" and
+  // the editor asks for a real one on Close (lib/untitled.js).
   const create = async () => {
-    if (!shownTitle.trim()) return;
     // Required-field guard mirrors the server's own check (documents.py
     // create_document) - client-side so the user sees it inline instead of
     // a rejected request, not a substitute for it.
@@ -141,7 +144,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
           .map(fd => [fd.token, formatFieldValue(fd, fillValues[fd.token])])
       );
       created = await api.createDocument({
-        title: shownTitle.trim(), folderId, templateId: importFile ? '' : templateId,
+        title: shownTitle.trim() || UNTITLED_DOCUMENT, folderId, templateId: importFile ? '' : templateId,
         ...(person ? { employeeId: person.id } : {}),
         ...(entityId ? { entityId } : {}),
         ...(Object.keys(fillPayload).length ? { fillValues: fillPayload } : {}),
@@ -178,9 +181,9 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700 }}>New Document</div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Title</label>
-            <input className="form-input" style={{ width: '100%' }} autoFocus value={shownTitle}
-              onChange={e => { setTitle(e.target.value); setTitleTyped(true); }} placeholder="e.g. Q3 Vendor Agreement"
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Name (optional)</label>
+            <input className="form-input" style={{ width: '100%' }} autoFocus value={shownTitle} aria-label="Name"
+              onChange={e => { setTitle(e.target.value); setTitleTyped(true); }} placeholder="Untitled Document - you can name it later"
               onKeyDown={e => e.key === 'Enter' && create()} />
           </div>
           <div>
@@ -266,7 +269,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-          <button className="primary-btn" disabled={!shownTitle.trim() || busy} onClick={create} style={{ opacity: (!shownTitle.trim() || busy) ? 0.6 : 1 }}>
+          <button className="primary-btn" disabled={busy} onClick={create} style={{ opacity: busy ? 0.6 : 1 }}>
             {busy ? (importFile ? 'Importing…' : 'Creating…') : (templateId && !importFile ? 'Make Document' : 'Create Draft')}
           </button>
         </div>
@@ -431,7 +434,6 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
 
   useEffect(() => { load(); }, []);
   useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
-  useEffect(() => { if (openCreateSignal) setCreateOpen(true); }, [openCreateSignal]);
 
   const all = useMemo(() => rows || [], [rows]);
   const visible = useMemo(() => sortRows(searchRows(rowsInView(all, view), search, folders), sort.key, sort.dir),
@@ -459,14 +461,36 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
     if (all.find((r) => r.id === id)?.docKind === 'sheet') setEditingSheet(id);
     else setEditingDoc(id);
   };
+  // A new file lands in the folder that is open, like a file made in an Explorer folder.
+  const openFolderId = String(view || '').startsWith('folder:') ? view.slice(7) : '';
+  // New Document (Neil, 11/10/2026): no name, no popup - a blank draft opens
+  // in the editor at once; the editor asks for a name on Close. A template, a
+  // person or a file go through New Document's arrow (CreateDocModal).
+  const [makingDoc, setMakingDoc] = useState(false);
+  const newDocument = async () => {
+    if (makingDoc) return;
+    setMakingDoc(true);
+    try {
+      const made = await api.createDocument({ title: UNTITLED_DOCUMENT, ...(openFolderId ? { folderId: openFolderId } : {}) });
+      setEditingDoc(made.id);
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not make the document.');
+    } finally {
+      setMakingDoc(false);
+    }
+  };
+  // The header's + > New Document lands here: the same blank draft, at once.
+  useEffect(() => { if (openCreateSignal) newDocument(); }, [openCreateSignal]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const newMenuRef = useRef(null);
   // New Sheet, or a spreadsheet file picked in Import: a sheet row, then open it.
   const newSheet = async (file = null) => {
     setMakingSheet(true);
     try {
       const engine = await import('../sheets');
       const content = file ? await engine.importSheetFile(file) : engine.newSheetContent();
-      const title = file ? file.name.replace(/\.[^.]+$/, '') : 'Untitled Sheet';
-      const made = await api.createDocument({ title, kind: 'sheet', content });
+      const title = file ? file.name.replace(/\.[^.]+$/, '') : UNTITLED_SHEET;
+      const made = await api.createDocument({ title, kind: 'sheet', content, ...(openFolderId ? { folderId: openFolderId } : {}) });
       toastOk?.(file ? 'Sheet imported' : 'Sheet created');
       setEditingSheet(made.id);
     } catch (e) {
@@ -525,9 +549,32 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
           <button type="button" className="secondary-btn" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
             Send For Signature
           </button>
-          <button type="button" className="primary-btn" data-tour="documents-new-document" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <FilePlus2 size={14} /> New Document
-          </button>
+          {/* New Document opens a blank draft at once; its arrow offers a template or a file. */}
+          <span className="nx-dl-split" role="group" aria-label="New Document">
+            <button type="button" className="primary-btn" data-tour="documents-new-document" disabled={makingDoc} onClick={newDocument}>
+              <FilePlus2 size={14} /> {makingDoc ? 'Opening...' : 'New Document'}
+            </button>
+            <button ref={newMenuRef} type="button" className="primary-btn nx-dl-split-arrow" aria-label="More ways to start a document" title="More ways to start a document"
+              aria-haspopup="menu" aria-expanded={newMenuOpen} onClick={() => setNewMenuOpen((o) => !o)}>
+              <ChevronDown size={14} />
+            </button>
+          </span>
+          <AnchoredMenu anchorRef={newMenuRef} open={newMenuOpen} onClose={() => setNewMenuOpen(false)} align="end"
+            className="doc-toolbar doc-ribbon doc-ribbon-panel" style={{ width: 230 }}>
+            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); newDocument(); }}>
+              <FilePlus2 size={14} /><span>Blank Document</span>
+            </button>
+            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); newSheet(); }}>
+              <SheetIcon size={14} /><span>Blank Sheet</span>
+            </button>
+            <div className="doc-ribbon-sep" role="separator" />
+            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); setCreateOpen(true); }}>
+              <LayoutTemplate size={14} /><span>From a Template...</span>
+            </button>
+            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); importRef.current?.click(); }}>
+              <Upload size={14} /><span>Import a File...</span>
+            </button>
+          </AnchoredMenu>
           <button type="button" className="secondary-btn" disabled={makingSheet} onClick={() => newSheet()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <SheetIcon size={14} /> {makingSheet ? 'Making...' : 'New Sheet'}
           </button>
@@ -544,7 +591,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
               <FileText size={32} aria-hidden="true" />
               <p>{search.trim() ? 'Nothing matches that search.' : viewEmpty}</p>
               {!search.trim() && view !== 'needs' && view !== 'hr' && (
-                <button type="button" className="primary-btn" onClick={() => setCreateOpen(true)}>New Document</button>
+                <button type="button" className="primary-btn" disabled={makingDoc} onClick={newDocument}>New Document</button>
               )}
             </div>
           }
