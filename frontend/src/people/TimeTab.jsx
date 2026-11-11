@@ -14,6 +14,8 @@ import { fmtLeave } from '../components/LeaveBalances';
 import { isoDate, shiftTimeText } from '../components/shifts/shiftLib';
 import { Row, SectionHead } from './shared';
 import { fullName, goTo } from './lib';
+import MyAvailability from '../components/MyAvailability';
+import WorkLimitsSection from './WorkLimitsSection';
 
 // Time & Scheduling (11/03/2026; it was the Work Mode tab - the old
 // 'location' key still lands here): whether the person is on the schedule,
@@ -52,6 +54,15 @@ export default function TimeTab({ e, onSchedule = true, onScheduleChange, canEdi
       <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />
 
       <ShiftFacts email={email} />
+
+      {/* Deputy parity (Neil, 11/11/2026): when they can work and the limits
+          the planner holds them to, on the record where a scheduler looks. */}
+      <SectionHead icon={CalendarClock} title="Availability" />
+      {email
+        ? <MyAvailability employeeId={e.id} canEdit={canEdit} />
+        : <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>Needs a work email first - the schedule keys off it.</div>}
+
+      <WorkLimitsSection employee={e} toastOk={toastOk} toastErr={toastErr} />
 
       <SectionHead icon={Clock} title="Time Tracking" />
       <TimeTrackingRow employeeId={e.id} canSeeComp={canSeeComp} />

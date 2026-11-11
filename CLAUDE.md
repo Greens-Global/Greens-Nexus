@@ -581,6 +581,25 @@ keep the diff minimal.
   HR letters (`hr_letters.py`) are signed by the company signatory only and
   the employee never signs (Neil, Oct 27 2026) - a letter is the company's
   statement, not a pre-signed document sent for the employee's signature.
+- **Licenses & Certifications and Work Limits (Neil, 11/11/2026, Deputy
+  parity, `hr_credentials.py`, `routers/hr_credentials.py`,
+  `routers/hr_scheduling.py`):** a credential TYPE (`hr_credential_types`,
+  Settings > People & Access, '' company = every company, archived never
+  deleted) and a person's RECORD (`hr_credentials`, the Job tab; only the
+  LAST FOUR of a number are stored; proof = an `HrDocument`; removing stamps
+  `removed_at`). `hr_credentials.state` is the one rule for Valid / Expiring
+  Soon (30 days) / Expired / No Expiry. A shift type's
+  `required_credentials` makes the planner WARN (grid, Add / Edit Shift,
+  Share - a rule, so a reason is asked), never block -
+  `hr_credentials.shift_warnings` is the only check. Expiry reminders are
+  `credentialExpiry` in `hr_reminder_config` (person, manager, HR); an
+  expired one is a Records Audit gap. Work Limits (`nexus_employees.
+  work_limits`: hours a day / week, shifts a week, rest, days in a row) are
+  set by HR per person and read ONLY by `shift_rules.evaluate` - the tighter
+  of theirs and the company's, salaried people included. HR may set someone's
+  availability from People through `timeclock.save_availability_for` (the
+  same save as My Workday). Managers read all three for their team. Both new
+  tables need RLS on dev and prod.
 - Probation (Neil, Oct 27 2026, `hr_probation.py`): JSON on the person
   (`nexus_employees.probation`); `{}` = Not Tracked. Only new employees, by
   start date: new hires (a hired candidate, or added in People with a start

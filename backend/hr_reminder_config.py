@@ -54,6 +54,9 @@ DEFAULTS = {
     # sent, a Verify And Send not done, a packet that never started - one bell
     # per person once a step is this many days quiet, again every this many days.
     "hiringStalled":  {"enabled": True, "afterDays": 3},
+    # Licenses & Certifications (Neil, 11/11/2026, hr_credentials.py): a
+    # person's record close to its expiry, and the week after it lapsed.
+    "credentialExpiry": {"enabled": True, "daysBefore": [60, 30, 14, 7, 1, 0], "daysAfter": [1, 7]},
 }
 
 # Which list fields each type accepts.
@@ -63,6 +66,7 @@ _LIST_FIELDS = {
     "newStarter": ("daysBefore",),
     "documentExpiry": ("daysBefore",),
     "esignExpiring": ("daysBefore",),
+    "credentialExpiry": ("daysBefore", "daysAfter"),
 }
 
 _LABELS = {
@@ -74,6 +78,7 @@ _LABELS = {
     "esignChase": "Signature chase",
     "recordAudit": "Records audit",
     "hiringStalled": "Hiring steps waiting",
+    "credentialExpiry": "License or certification expiry",
 }
 
 

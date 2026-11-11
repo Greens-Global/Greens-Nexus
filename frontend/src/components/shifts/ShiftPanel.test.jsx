@@ -115,7 +115,7 @@ describe('ShiftPanel live check', () => {
     // grid would never show once the shift was saved.
     open({ email: 'amy@x.com', date: '2026-10-20', existing: { ...existing, breakMin: 30 } });
     await waitFor(() => expect(timeSchedCheck).toHaveBeenCalled());
-    expect(timeSchedCheck).toHaveBeenLastCalledWith({ email: 'amy@x.com', date: '2026-10-20', start: '07:00', end: '15:30', exclude_id: 's1', break_min: 30 });
+    expect(timeSchedCheck).toHaveBeenLastCalledWith({ email: 'amy@x.com', date: '2026-10-20', start: '07:00', end: '15:30', exclude_id: 's1', break_min: 30, shift_id: expect.any(String) });
   });
 
   it('takes a new shift\'s break from its shift type', async () => {

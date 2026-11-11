@@ -14,6 +14,7 @@ const DEFAULTS = {
   esignChase: { enabled: true, firstNudgeAfterDays: 3, maxNudges: 3 },
   recordAudit: { enabled: true },
   hiringStalled: { enabled: true, afterDays: 3 },
+  credentialExpiry: { enabled: true, daysBefore: [90, 21], daysAfter: [2] },
 };
 const clone = (o) => JSON.parse(JSON.stringify(o));
 

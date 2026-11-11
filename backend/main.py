@@ -1613,6 +1613,9 @@ def _run_migrations():
             "ALTER TABLE task_projects ADD COLUMN status_note VARCHAR DEFAULT ''",
             "ALTER TABLE task_projects ADD COLUMN status_set_by VARCHAR DEFAULT ''",
             "ALTER TABLE task_projects ADD COLUMN status_set_at VARCHAR DEFAULT ''",
+            # Licenses & Certifications + Work Limits (Neil, 11/11/2026) - see the Postgres list.
+            "ALTER TABLE shifts ADD COLUMN required_credentials VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN work_limits JSON DEFAULT '{}'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3852,6 +3855,14 @@ def _run_migrations():
         # Schedule baselines (Neil, 11/08/2026): a new table, explicit RLS.
         # models.TaskProjectBaseline.
         "ALTER TABLE task_project_baselines ENABLE ROW LEVEL SECURITY",
+        # Licenses & Certifications (Neil, 11/11/2026, Deputy parity): two new
+        # tables - explicit RLS - and the credentials a shift type needs.
+        # Work Limits: one person's own scheduling limits. models.HrCredentialType
+        # / HrCredential / Shift.required_credentials / NexusEmployee.work_limits.
+        "ALTER TABLE hr_credential_types ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_credentials ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS required_credentials VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_limits JSON DEFAULT '{}'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5925,3 +5936,8 @@ from routers import construction_drawings as construction_drawings_router  # noq
 app.include_router(construction_drawings_router.router)  # Construction: the drawing register, current set and superseded revisions (Round Two item 9, 11/06/2026)
 from routers import notes_diagram as notes_diagram_router  # noqa: E402 - one nexus_settings row, no new table
 app.include_router(notes_diagram_router.router)  # Notes boards: Diagram From a Sentence - OFF unless AI is on for Nexus AND a Super Administrator turns it on (Neil, 11/08/2026)
+from routers import hr_credentials as hr_credentials_router  # noqa: E402 - hr_credential_types / hr_credentials: create_all + explicit RLS lines
+app.include_router(hr_credentials_router.router)     # People: Licenses & Certifications - types, a person's records, the report (Neil, 11/11/2026, Deputy parity)
+app.include_router(hr_credentials_router.my_router)  # My HR: the caller's own licenses and certifications, read only
+from routers import hr_scheduling as hr_scheduling_router  # noqa: E402 - nexus_employees.work_limits: migration lines above
+app.include_router(hr_scheduling_router.router)  # People: a person's Work Limits and availability (Neil, 11/11/2026, Deputy parity)

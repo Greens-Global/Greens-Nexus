@@ -895,6 +895,13 @@ TEAM_ALLOWED_HR_ROUTES = frozenset({
     # (hr_probation.actor_role checks each record).
     ("GET", "/hr/employees/{eid}/probation"),
     ("POST", "/hr/employees/{eid}/probation/decision"),
+    # Scheduling facts a manager needs about their own team (Neil, 11/11/2026,
+    # Deputy parity): licenses and certifications, availability and work
+    # limits - read only; HR adds and changes them.
+    ("GET", "/hr/employees/{eid}/credentials"),
+    ("GET", "/hr/credential-types"),
+    ("GET", "/hr/employees/{eid}/availability"),
+    ("GET", "/hr/employees/{eid}/work-limits"),
 })
 
 

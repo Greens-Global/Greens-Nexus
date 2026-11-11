@@ -3768,3 +3768,17 @@ api.getTaskProjectBaselines = (projectId) => req(`/task-projects/${encodeURIComp
 api.takeTaskProjectBaseline = (projectId, name = '') => req(`/task-projects/${encodeURIComponent(projectId)}/baselines`, { method: 'POST', body: JSON.stringify({ name }) });
 api.getTaskProjectBaselineDiff = (projectId, baselineId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}/diff`);
 api.deleteTaskProjectBaseline = (projectId, baselineId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}`, { method: 'DELETE' });
+// People - Licenses & Certifications, Work Limits, availability (Neil, 11/11/2026, Deputy parity).
+api.hrCredentialTypes = (includeArchived = false) => req(`/hr/credential-types${includeArchived ? '?include_archived=true' : ''}`);
+api.createHrCredentialType = (data) => req('/hr/credential-types', { method: 'POST', body: JSON.stringify(data) });
+api.updateHrCredentialType = (id, data) => req(`/hr/credential-types/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
+api.hrPersonCredentials = (eid) => req(`/hr/employees/${encodeURIComponent(eid)}/credentials`);
+api.addHrCredential = (eid, data) => req(`/hr/employees/${encodeURIComponent(eid)}/credentials`, { method: 'POST', body: JSON.stringify(data) });
+api.updateHrCredential = (id, data) => req(`/hr/credentials/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
+api.removeHrCredential = (id) => req(`/hr/credentials/${encodeURIComponent(id)}`, { method: 'DELETE' });
+api.hrCredentialsReport = (state = '', typeId = '') => req(`/hr/credentials?${new URLSearchParams({ state, type_id: typeId }).toString()}`);
+api.myCredentials = () => req('/myhr/credentials');
+api.hrWorkLimits = (eid) => req(`/hr/employees/${encodeURIComponent(eid)}/work-limits`);
+api.saveHrWorkLimits = (eid, limits) => req(`/hr/employees/${encodeURIComponent(eid)}/work-limits`, { method: 'PUT', body: JSON.stringify({ limits }) });
+api.hrAvailability = (eid) => req(`/hr/employees/${encodeURIComponent(eid)}/availability`);
+api.hrAvailabilitySave = (eid, data) => req(`/hr/employees/${encodeURIComponent(eid)}/availability`, { method: 'PUT', body: JSON.stringify(data) });

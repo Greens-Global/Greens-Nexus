@@ -1037,6 +1037,12 @@ class NexusEmployee(Base):
     # appears in scheduling (planner, fills, Late, no-shows, scorecard, trading);
     # team memberships are kept. NULL / 1 = on, the default for everyone.
     on_schedule              = Column(Integer, default=1)
+    # Work Limits (Neil, 11/11/2026, Deputy's "stress profile"): limits HR
+    # sets for ONE person - {maxHoursDay, maxHoursWeek, maxShiftsWeek,
+    # minRestHours, maxDaysInRow}, each 0 / missing = none. The shift rules
+    # (shift_rules.evaluate) warn past the tighter of these and the
+    # company's; they never block. {} = no limits of their own.
+    work_limits              = Column(JSON, default=dict)
 
 
 class HrRemovedIdentity(Base):
@@ -2718,6 +2724,12 @@ class Shift(Base):
     # its teams' rows; shift_type_teams.py filled it once from what each
     # team already used.
     group_ids  = Column(String, default="")
+    # Licenses & Certifications this shift type needs (Neil, 11/11/2026,
+    # Deputy's "training required for an area"): HrCredentialType ids, JSON
+    # list; '' / [] = none. The planner warns when the person placed has no
+    # valid one on the shift's day (hr_credentials.shift_warnings) - never
+    # blocks.
+    required_credentials = Column(String, default="")
 
 
 class ScheduledShift(Base):
@@ -10295,3 +10307,56 @@ class TaskProjectBaseline(Base):
     taken_at   = Column(String, default="")
     taken_by   = Column(String, default="")
     snapshot   = Column(JSON, default=list)   # [{id, title, start, due, assignee}]
+
+
+class HrCredentialType(Base):
+    """A kind of license or certification a person can hold (Neil,
+    11/11/2026, Deputy parity - "training modules"): Driver's License,
+    Forklift Certification, OSHA 10, CPR / First Aid. `company_id` '' =
+    every company. `validity_months` fills a new record's expiry from its
+    issue date (0 = the person's own date, or none when `expires` is off).
+    Never deleted - archived, so the records that name it keep their name.
+    New table - create_all builds it; RLS comes from
+    main._enable_rls_everywhere (and the explicit ALTER in the Postgres
+    list) on dev and prod."""
+    __tablename__ = "hr_credential_types"
+    id              = Column(String, primary_key=True)          # uuid
+    name            = Column(String, nullable=False)
+    description     = Column(String, default="")
+    company_id      = Column(String, default="", index=True)   # '' = every company
+    expires         = Column(Integer, default=1)               # 1 = carries an expiry date
+    validity_months = Column(Integer, default=0)               # 0 = no default length
+    archived        = Column(Integer, default=0)
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+    updated_by      = Column(String, default="")
+    updated_at      = Column(String, default="")
+
+
+class HrCredential(Base):
+    """One license or certification a person holds (Neil, 11/11/2026,
+    hr_credentials.py): the type, who issued it, the last four of its number
+    (never the whole number), issued / expires dates and the proof - an
+    HrDocument on the person (private hr-docs bucket). Removing one stamps
+    `removed_at`; the row is kept as the record. New table - create_all
+    builds it; RLS comes from main._enable_rls_everywhere (and the explicit
+    ALTER in the Postgres list) on dev and prod."""
+    __tablename__ = "hr_credentials"
+    id           = Column(String, primary_key=True)             # uuid
+    employee_id  = Column(String, nullable=False, index=True)
+    type_id      = Column(String, default="", index=True)
+    name         = Column(String, default="")                   # the type's name when saved
+    issuer       = Column(String, default="")
+    number_last4 = Column(String, default="")
+    issued_on    = Column(String, default="")                   # YYYY-MM-DD
+    expires_on   = Column(String, default="")                   # YYYY-MM-DD; '' = never
+    document_id  = Column(String, default="")                   # HrDocument.id - the proof
+    note         = Column(String, default="")
+    verified_by  = Column(String, default="")
+    verified_at  = Column(String, default="")
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    updated_by   = Column(String, default="")
+    updated_at   = Column(String, default="")
+    removed_by   = Column(String, default="")
+    removed_at   = Column(String, default="")

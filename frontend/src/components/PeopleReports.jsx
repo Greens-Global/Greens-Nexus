@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react';
 import { Download, Search } from 'lucide-react';
 import { formatDate } from '../lib/datetime';
 import { csvName, downloadCsv } from '../operations/csv';
+import CredentialsReport from '../people/CredentialsReport';
 
 const fullName = e => (e.displayName || [e.firstName, e.lastName].filter(Boolean).join(' ')).trim();
 const isExternal = e => ['guest', 'external'].includes(e?.identityType || 'internal');
@@ -68,6 +69,11 @@ const REPORTS = [
     ],
   },
 ];
+// Licenses & Certifications (Neil, 11/11/2026): its own rows - one per record,
+// read from the server - so it draws its own table (people/CredentialsReport).
+const CREDENTIALS = { key: 'credentials', label: 'Licenses & Certifications',
+  hint: 'Every license and certification on file, soonest expiry first - who needs a renewal, and when.' };
+const TABS = [...REPORTS, CREDENTIALS];
 
 const SELECT = { fontSize: 12.5, padding: '6px 8px' };
 
@@ -79,6 +85,7 @@ export default function PeopleReports({ employees, externals, entities }) {
   const [status, setStatus] = useState('active');
 
   const def = REPORTS.find(r => r.key === report) || REPORTS[0];
+  const shownTab = TABS.find(r => r.key === report) || REPORTS[0];
   const everyone = useMemo(
     () => [...(employees || []), ...(report === 'directory' ? (externals || []) : [])]
       .sort((a, b) => fullName(a).localeCompare(fullName(b))),
@@ -125,7 +132,7 @@ export default function PeopleReports({ employees, externals, entities }) {
     <div>
       {/* Which report - a segmented strip, same grammar as the Time tab's inner lists. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-        {REPORTS.map(r => (
+        {TABS.map(r => (
           <button key={r.key} onClick={() => setReport(r.key)}
             style={{ padding: '7px 14px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, fontFamily: 'Inter,sans-serif',
               border: `1px solid ${report === r.key ? 'var(--pine)' : 'var(--line)'}`, cursor: 'pointer', whiteSpace: 'nowrap',
@@ -135,7 +142,8 @@ export default function PeopleReports({ employees, externals, entities }) {
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>{def.hint}</div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>{shownTab.hint}</div>
+      {report === CREDENTIALS.key ? <CredentialsReport entities={entities} /> : (<>
 
       {/* Filters (Neil asked for them by name) + the export of exactly what shows. */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
@@ -194,6 +202,7 @@ export default function PeopleReports({ employees, externals, entities }) {
           </tbody>
         </table>
       </div>
+      </>)}
     </div>
   );
 }

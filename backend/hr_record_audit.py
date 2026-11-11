@@ -83,6 +83,9 @@ def gaps(db, emp: NexusEmployee, docs: list = None) -> list:
     end = str((emp.contractor or {}).get("contract_end") or "")[:10]
     if _expired(end, today):
         out.append(f"Contract ended {hc.us_date(end)}")
+    # Licenses & Certifications (11/11/2026): a type whose newest record lapsed.
+    import hr_credentials
+    out.extend(hr_credentials.expired_gaps(db, [emp.id]).get(emp.id, []))
     return out
 
 

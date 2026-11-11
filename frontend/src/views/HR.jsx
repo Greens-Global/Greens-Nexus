@@ -77,6 +77,7 @@ import JobTab from '../people/JobTab';
 import TimeTab from '../people/TimeTab';
 import PayTab from '../people/PayTab';
 import ComplianceTab from '../people/ComplianceTab';
+import CredentialsSection from '../people/CredentialsSection';
 import { guardRecordLeave } from '../people/useTabDraft';
 import { daysUntil, INACTIVE_STATUSES, peopleTallies } from '../people/lib';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
@@ -373,6 +374,9 @@ export function WorkLogsSection({ employee }) {
 function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
   const [docs, setDocs] = useState(null);
   const [kind, setKind] = useState('other');
+  // Expires (11/11/2026): the server always took one and the daily check
+  // reminds HR before it - the upload just never asked for it.
+  const [expiresOn, setExpiresOn] = useState('');
   const [uploading, setUploading] = useState(false);
   useEffect(() => { api.getEmployeeDocs(employeeId).then(setDocs).catch(() => setDocs([])); }, [employeeId]);
 
@@ -383,8 +387,10 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
       const form = new FormData();
       form.append('file', file);
       form.append('kind', kind);
+      if (expiresOn) form.append('expires_on', expiresOn);
       const doc = await api.uploadEmployeeDoc(employeeId, form);
       setDocs(prev => [doc, ...(prev || [])]);
+      setExpiresOn('');
       toastOk(`${file.name} uploaded.`);
     } catch (err) { toastErr(err?.message || 'Upload failed.'); }
     setUploading(false);
@@ -410,6 +416,8 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
         <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ padding: '3px 8px', fontSize: 11.5, height: 28 }}>
           {DOC_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
+        <DateField value={expiresOn} onChange={v => setExpiresOn(v || '')} title="Expires (optional)" placeholder="Expires (optional)"
+          style={{ fontSize: 11.5, width: 150, height: 28, padding: '0 8px', border: '1px solid var(--line)', borderRadius: 8 }} />
         <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', padding: '5px 12px' }}>
           {uploading ? <Spinner size={12} /> : <Plus size={12} />} Upload
           <input type="file" hidden onChange={e => { upload(e.target.files?.[0]); e.target.value = ''; }} />
@@ -425,6 +433,7 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
             <button onClick={() => view(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontWeight: 600, fontSize: 12.5, fontFamily: 'Inter,sans-serif', padding: 0, flex: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {d.fileName}
             </button>
+            {d.expiresOn && <span style={{ color: d.expiresOn < new Date().toISOString().slice(0, 10) ? 'hsl(var(--color-red))' : 'var(--muted)', fontSize: 11, flexShrink: 0 }}>Expires {formatDate(d.expiresOn)}</span>}
             <span style={{ color: 'var(--muted)', fontSize: 11, flexShrink: 0 }}>{fmtSize(d.sizeBytes)}</span>
             <button onClick={() => remove(d)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 }}><X size={13} /></button>
           </div>
@@ -1107,6 +1116,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 onOffboard={init => { setOffboardInitial(init); setOffboardOpen(true); }}
                 roleHistoryKey={`${requestsKey}-${eventsKey}-${e.updatedAt || ''}`}
                 onSaved={onEmployeeUpdated} toastOk={toastOk} toastErr={toastErr} />
+              {/* What they are licensed or certified to do (Neil, 11/11/2026, Deputy parity) - managers read their team's. */}
+              {!isRemoved && <CredentialsSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
               {!teamView && (
                 <>
                   <h3 className="pr-h3">Checklists</h3>

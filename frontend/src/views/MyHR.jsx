@@ -21,6 +21,7 @@ import { SHEET_SHADOW, SHEET_EDGE } from '../lib/sheetStack';
 import { useIsMobile } from '../lib/useIsMobile';
 import { PurchaseRequestTile } from '../components/PurchaseRequests';
 import { MyMoreDetails } from '../components/EmployeeCustomFields';
+import MyCredentials from '../people/MyCredentials';
 import { useHrLetters, LetterRequestForm, MyLetterRow, HrLetterQueue, letterIsOpen, letterMark } from '../components/HrLetters';
 import { StatusLabel } from '../components/StatusLabel';
 import { TICKET_STATUS_META, CLOSED_STATES } from '../tickets/ticketMeta';
@@ -619,6 +620,9 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
               {/* More Details (Oct 27 2026): the fields HR shares with employees -
                   nothing at all until there is one. */}
               <MyMoreDetails />
+
+              {/* Licenses & Certifications on file (Neil, 11/11/2026) - nothing until there is one. */}
+              <MyCredentials />
 
               {/* ── My Equipment ── one line while nothing is checked out
                   (Neil, 11/08/2026), the card as before once there is. */}
