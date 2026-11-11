@@ -70,7 +70,17 @@ export const MARKUP_SIZES = Object.freeze([
   { key: 'medium', label: 'Medium', width: 2 },
   { key: 'bold', label: 'Bold', width: 4 },
 ]);
-export const sizeByKey = (key) => MARKUP_SIZES.find((s) => s.key === key) || MARKUP_SIZES[1];
+// A custom width (Neil, 11/10/2026: "not just small medium large") is the
+// number itself, kept in the same `size` pref; a number equal to a preset is that preset.
+export const WIDTH_MIN = 1;
+export const WIDTH_MAX = 24;
+const customWidth = (key) => (typeof key === 'number' && Number.isFinite(key) ? Math.max(WIDTH_MIN, Math.min(WIDTH_MAX, Math.round(key))) : null);
+export const isSizeKey = (key) => MARKUP_SIZES.some((s) => s.key === key) || customWidth(key) !== null;
+export const sizeByKey = (key) => {
+  const w = customWidth(key);
+  if (w === null) return MARKUP_SIZES.find((s) => s.key === key) || MARKUP_SIZES[1];
+  return MARKUP_SIZES.find((s) => s.width === w) || { key: w, label: `Width ${w}`, width: w };
+};
 
 // Red is the reviewer's ink; the highlighter starts yellow the first time.
 export const DEFAULT_MARKUP = Object.freeze({ tool: 'pen', color: 'red', size: 'medium', highlightColor: 'yellow' });

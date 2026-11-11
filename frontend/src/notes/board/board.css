@@ -492,3 +492,10 @@
 .nx-kit-item:hover { border-color: var(--wk-brand, #15803d); }
 .nx-kit-item:disabled { opacity: .6; cursor: default; }
 .nx-kit-item svg { width: 100%; height: auto; }
+
+/* The custom width slider under the three widths (11/10/2026). */
+.nx-mk-range { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted, #8b958f); }
+.nx-mk-range input { flex: 1 1 auto; min-width: 0; margin: 0; accent-color: var(--wk-brand, #15803d); cursor: pointer; }
+.nx-mk-range-value { min-width: 22px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink, #1c2420); }
+.nx-mk.is-phone .nx-mk-range input { height: 32px; }
+.nx-mk-more-sep { height: 1px; margin: 4px 6px; background: var(--line, rgba(0, 0, 0, .08)); }

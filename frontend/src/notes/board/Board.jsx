@@ -48,7 +48,7 @@ import { cardGraph, markCard, taskCards, refreshedCards } from './diagram/record
 import { openRecord } from '../recordLink';
 import { api as nexusApi } from '../../api';
 import {
-  DEFAULT_MARKUP, TOOL_KEYS, MARKUP_COLORS, MARKUP_SIZES, toolByKey, strokeStyle, toolFromEngine,
+  DEFAULT_MARKUP, TOOL_KEYS, MARKUP_COLORS, isSizeKey, toolByKey, strokeStyle, toolFromEngine,
   commentPin, pinMeasurer, nextCommentNumber, stageToBoard, restyle, removeSelected, PLACE_TOOLS, colorByKey,
 } from './markupTools';
 import { sticky, withStickyText, nextSpot, stickyParts, selectedStickies, stickyWords, sortStickies, linkStickies, taskStickies, refreshedStickyFeet, votable, STICKY_SIZE } from './stickies';
@@ -60,6 +60,8 @@ import { createViewStore } from './viewStore';
 import BoardOverlay from './BoardOverlay';
 import MeetBar from './MeetBar';
 import SiteKitSheet, { kitPng, kitImage } from './siteKit';
+import { importable, isPdfFile, importElements, blobToDataURL, placedWords } from './boardImport';
+import { imageSize } from '../../lib/markup';
 import { dataUrlToFile } from '../../tasks/lib';
 import { exportFileName } from '../notesModel';
 import { dialog } from '../../ui/dialog';
@@ -97,13 +99,14 @@ function readMarkupPref() {
       ...base,
       color: okColor(p.color) ? p.color : base.color,
       highlightColor: okColor(p.highlightColor) ? p.highlightColor : base.highlightColor,
-      size: MARKUP_SIZES.some((z) => z.key === p.size) ? p.size : base.size,
+      size: isSizeKey(p.size) ? p.size : base.size,
       inkShape: p.inkShape === true,
+      snap: p.snap !== false,   // Snap and Align: on unless the person turned it off
     };
   } catch { return base; }
 }
 function writeMarkupPref(m) {
-  try { localStorage.setItem(MARKUP_PREF, JSON.stringify({ color: m.color, highlightColor: m.highlightColor, size: m.size, inkShape: !!m.inkShape })); } catch { /* private window */ }
+  try { localStorage.setItem(MARKUP_PREF, JSON.stringify({ color: m.color, highlightColor: m.highlightColor, size: m.size, inkShape: !!m.inkShape, snap: m.snap !== false })); } catch { /* private window */ }
 }
 // Tools the ink and width do not apply to (they draw nothing, or a picture).
 const NO_INK = new Set(['select', 'hand', 'eraser', 'image', 'frame', 'laser', ...PLACE_TOOLS]);
@@ -469,6 +472,11 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     if (style !== styleRef.current) { styleRef.current = style; setStyleOpen(style); }
     const t = toolFromEngine(appState?.activeTool?.type, mkRef.current.tool);
     if (t && t !== mkRef.current.tool) setMk((m) => ({ ...m, tool: t }));
+    const snapOn = appState?.objectsSnapModeEnabled;
+    if (typeof snapOn === 'boolean' && snapOn !== (mkRef.current.snap !== false)) {
+      const m = { ...mkRef.current, snap: snapOn };
+      mkRef.current = m; setMk(m); writeMarkupPref(m);
+    }
     const g = gripFor(elements, appState);
     if (!sameGrip(g, gripRef.current)) { gripRef.current = g; setGrip(g); }
     const st = sel ? stampOf(elements, appState?.selectedElementIds) : null;
@@ -600,6 +608,17 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   }, [api, scheduleSave]);
 
   // ---- The markup bar ---------------------------------------------------
+  // Snap and Align (Neil, 11/10/2026: "make things autosnap and align"): the
+  // engine's object snapping - edges, centers and equal gaps line up with
+  // guides as a shape moves or resizes; Ctrl / Cmd held skips it for one drag.
+  // A per-person pref, set on the engine once it is ready and on every change.
+  useEffect(() => {
+    if (api && markupApi) markupApi.setStyle(api, { objectsSnapModeEnabled: mk.snap !== false });
+  }, [api, markupApi, mk.snap]);
+  const toggleSnap = useCallback(() => {
+    const m = { ...mkRef.current, snap: mkRef.current.snap === false };
+    mkRef.current = m; setMk(m); writeMarkupPref(m);
+  }, []);
   const inkFor = (m, tool = m.tool) => (tool === 'highlight' ? m.highlightColor : m.color);
   const chooseTool = useCallback((key) => {
     if (!api || !markupApi || !TOOL_KEYS.includes(key)) return;
@@ -1022,6 +1041,86 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     setKitOpen(false);
   }, [api, commit, prep, flash, stageCenter]);
 
+  // ---- Import a picture or a PDF to mark up (boardImport.js) ----
+  const [importing, setImporting] = useState(false);
+  const importPictures = useCallback(async (list) => {
+    if (!api || importing) return;
+    const picked = importable(list);
+    if (!picked.length) { flash('Pick a picture or a PDF.', true); return; }
+    setImporting(true);
+    const placed = [], engineFiles = [];
+    const newId = () => `imp-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+    let pages = 0, pictures = 0, left = 0;
+    try {
+      for (const f of picked) {
+        if (isPdfFile(f)) {
+          const { renderPdfPages } = await import('./pdfPage');
+          const r = await renderPdfPages(f);
+          left += r.total - r.pages.length;
+          for (const p of r.pages) {
+            const id = newId();
+            engineFiles.push({ id, dataURL: await blobToDataURL(p.blob), mimeType: 'image/png', created: Date.now() });
+            placed.push({ fileId: id, width: p.width, height: p.height, name: f.name, page: p.page });
+            pages += 1;
+          }
+        } else {
+          const id = newId();
+          const { width, height } = await imageSize(f);
+          engineFiles.push({ id, dataURL: await blobToDataURL(f), mimeType: f.type || 'image/png', created: Date.now() });
+          placed.push({ fileId: id, width, height, name: f.name });
+          pictures += 1;
+        }
+      }
+    } catch {
+      setImporting(false);
+      flash('That file could not be read - is it a picture or a PDF?', true);
+      return;
+    }
+    api.addFiles(engineFiles);
+    const els = prep(importElements(placed, stageCenter()));
+    // Behind everything already drawn, so the markup stays on top.
+    commit([...els, ...api.getSceneElementsIncludingDeleted()], { appState: { selectedElementIds: {} } });
+    setImporting(false);
+    chooseTool('pen');
+    const one = pages + pictures === 1;
+    flash(`${placedWords(pages, pictures)} placed and locked, so you can draw right over ${one ? 'it' : 'them'} - right-click to unlock.${left > 0 ? ` Only the first ${pages} pages of the PDF were placed.` : ''}`);
+  }, [api, importing, flash, prep, stageCenter, commit, chooseTool]);
+  const pastePicture = useCallback(async () => {
+    const files = [];
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((t) => /^image\//.test(t) || t === 'application/pdf');
+        if (type) files.push(new File([await item.getType(type)], type === 'application/pdf' ? 'Pasted.pdf' : 'Pasted Picture', { type }));
+      }
+    } catch {
+      flash('The browser did not let Nexus read the clipboard - click the board and press Ctrl+V instead.', true);
+      return;
+    }
+    if (!files.length) { flash('There is no picture on the clipboard - copy one first.', true); return; }
+    importPictures(files);
+  }, [flash, importPictures]);
+  // A PDF pasted (Ctrl+V) or dropped on the board comes in the same way; a
+  // picture stays the engine's own paste and drop (placed at the pointer).
+  useEffect(() => {
+    const root = stageRef.current;
+    if (!canEdit || !api || !root) return undefined;
+    const pdfs = (dt) => [...(dt?.files || [])].filter(isPdfFile);
+    const typing = (t) => !!t?.closest?.('input, textarea, [contenteditable="true"]');
+    const onPaste = (e) => {
+      const here = root.contains(document.activeElement) || document.activeElement === document.body;
+      if (typing(e.target) || !here) return;
+      const got = pdfs(e.clipboardData);
+      if (got.length) { e.preventDefault(); e.stopPropagation(); importPictures(got); }
+    };
+    const onDrop = (e) => {
+      const got = pdfs(e.dataTransfer);
+      if (got.length) { e.preventDefault(); e.stopPropagation(); importPictures(got); }
+    };
+    document.addEventListener('paste', onPaste, true);
+    root.addEventListener('drop', onDrop, true);
+    return () => { document.removeEventListener('paste', onPaste, true); root.removeEventListener('drop', onDrop, true); };
+  }, [canEdit, api, importPictures]);
+
   // ---- Follow, Bring Everyone Here, the presenter's view ----
   const followRef = useRef('');
   const viewSent = useRef({ at: 0, timer: 0 });
@@ -1258,9 +1357,9 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
           </Suspense>
         )}
         {showBar && !toolsHidden && !present && (
-          <MarkupBar diagram={diagramApi ? { onAction: onDiagram, canTidy: true, canRefresh } : null} phone={isPhone}
+          <MarkupBar importer={{ onFiles: importPictures, onPaste: pastePicture, busy: importing }} diagram={diagramApi ? { onAction: onDiagram, canTidy: true, canRefresh } : null} phone={isPhone}
             meet={{ onAction: onMeet, canSilent: !meet.silent, canSummon: !!(collab?.awareness && followApi && collab?.peers?.length) }}
-            inkShape={{ on: !!mk.inkShape, onToggle: () => { const m = { ...mkRef.current, inkShape: !mkRef.current.inkShape }; mkRef.current = m; setMk(m); writeMarkupPref(m); } }} tool={mk.tool} colorKey={inkFor(mk)} sizeKey={mk.size} hasSelection={hasSelection}
+            snap={{ on: mk.snap !== false, onToggle: toggleSnap }} inkShape={{ on: !!mk.inkShape, onToggle: () => { const m = { ...mkRef.current, inkShape: !mkRef.current.inkShape }; mkRef.current = m; setMk(m); writeMarkupPref(m); } }} tool={mk.tool} colorKey={inkFor(mk)} sizeKey={mk.size} hasSelection={hasSelection}
             onTool={chooseTool} onColor={chooseColor} onSize={chooseSize} onUndo={undo} onRedo={redo} onDelete={deleteSelected}
             styleOpen={styleOpen} onStyle={isPhone ? toggleStyle : undefined}
             onMore={isPhone ? () => setPhoneMore(true) : undefined} onHide={isPhone ? undefined : () => hideTools(true)} />

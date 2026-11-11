@@ -482,6 +482,14 @@ keep the diff minimal.
   Pictures) places the KB drawings (`kb/components/drawings.jsx`) as board
   images stored like any picture (`kit-<name>`). Six more templates: Retro,
   Kickoff, SWOT, Fishbone, Site Walk, Weekly Huddle.
+  Import (the markup bar's Import button, `board/boardImport.js`): a picture
+  or every page of a PDF (`pdfPage.renderPdfPages`, 40 at most) goes in
+  BEHIND the drawing and LOCKED, stacked top to bottom, and the Pen comes up;
+  a PDF pasted or dropped on the board comes the same way, a picture pasted
+  stays the engine's own paste. Widths: Fine / Medium / Bold plus a 1-24
+  custom slider (a number in the same `size` pref). Snap and Align (the
+  engine's object snapping, Alt+S, Ctrl held skips it) is on by default, a
+  per-person pref set through the adapter's `setStyle`.
 - **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
   on the phone (`public/manifest.webmanifest`, `public/sw.js` - push plus the
   offline app shell, see Field offline below) and pushes the BELL: a Web Push

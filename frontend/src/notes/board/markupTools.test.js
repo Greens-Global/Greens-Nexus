@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MARKUP_TOOLS, strokeStyle, toolFromEngine, commentPin, wrapWords, nextCommentNumber, stageToBoard, restyle, removeSelected, colorByKey, PIN_MAX,
+  MARKUP_TOOLS, strokeStyle, toolFromEngine, commentPin, wrapWords, nextCommentNumber, stageToBoard, restyle, removeSelected, colorByKey, PIN_MAX, sizeByKey, isSizeKey,
 } from './markupTools';
 import { FONT_HAND, FONT_SANS } from './scene';
 
@@ -13,6 +13,12 @@ describe('markup tools', () => {
     expect(strokeStyle('highlight', 'yellow', 'fine')).toMatchObject({ currentItemStrokeColor: colorByKey('yellow').color, currentItemStrokeWidth: 4, currentItemOpacity: 35 });
     expect(strokeStyle('pen', 'red', 'bold')).toMatchObject({ currentItemStrokeColor: '#e03131', currentItemStrokeWidth: 4, currentItemOpacity: 100 });
     expect(strokeStyle('box', 'blue', 'fine').currentItemStrokeWidth).toBe(1);
+    expect(strokeStyle('pen', 'red', 9).currentItemStrokeWidth).toBe(9);
+    expect(strokeStyle('pen', 'red', 99).currentItemStrokeWidth).toBe(24);
+    expect(sizeByKey(4)).toBe(sizeByKey('bold'));
+    expect(isSizeKey(7)).toBe(true);
+    expect(isSizeKey('huge')).toBe(false);
+    expect(isSizeKey(NaN)).toBe(false);
   });
 
   it('reads the engine tool back without losing pen vs highlighter or comment', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterEach } from 'vitest';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react';
 
 // jsdom has no canvas, so the engine is a stand-in that exposes what Board
 // hands it and gives Board a fake imperative api.
@@ -863,6 +863,44 @@ describe('Board', () => {
       act(() => { engine.props.onChange(fakeApi.scene, { ...fakeApi.appState, activeTool: { type: 'freedraw' }, newElement: null }, {}); });
       expect(fakeApi.scene.find((e) => e.id === 'ink1').isDeleted).toBe(true);
       expect(fakeApi.scene.find((e) => e.type === 'rectangle')).toMatchObject({ strokeColor: '#e03131', strokeWidth: 2 });
+    });
+
+    it('a custom width: the slider under Fine / Medium / Bold draws the next stroke at that width and is kept', async () => {
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Pen' })); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: /^Ink: / })); });
+      act(() => { fireEvent.change(screen.getByRole('slider', { name: 'Custom Width' }), { target: { value: '9' } }); });
+      expect(fakeApi.updateScene).toHaveBeenLastCalledWith(expect.objectContaining({ appState: expect.objectContaining({ currentItemStrokeWidth: 9 }) }));
+      expect(screen.getByRole('radio', { name: 'Bold' })).toHaveAttribute('aria-checked', 'false');
+      expect(JSON.parse(localStorage.getItem('nx-board-markup')).size).toBe(9);
+      act(() => { fireEvent.change(screen.getByRole('slider', { name: 'Custom Width' }), { target: { value: '4' } }); });
+      expect(screen.getByRole('radio', { name: 'Bold' })).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('Snap and Align is on by default and More Tools turns it off', async () => {
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      expect(fakeApi.updateScene).toHaveBeenCalledWith(expect.objectContaining({ appState: { objectsSnapModeEnabled: true } }));
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'More Tools' })); });
+      const row = screen.getByRole('menuitemcheckbox', { name: /Snap and Align/ });
+      expect(row).toHaveAttribute('aria-checked', 'true');
+      act(() => { fireEvent.click(row); });
+      expect(fakeApi.updateScene).toHaveBeenLastCalledWith(expect.objectContaining({ appState: { objectsSnapModeEnabled: false } }));
+      expect(JSON.parse(localStorage.getItem('nx-board-markup')).snap).toBe(false);
+    });
+
+    it('Import: a picked picture goes in behind the drawing, locked, and the Pen comes up', async () => {
+      vi.useRealTimers();   // jsdom's FileReader finishes on a timer
+      fakeApi.scene = [el({ id: 'old', type: 'rectangle', x: 0, y: 0, width: 10, height: 10 })];
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Import a Picture or PDF' })); });
+      expect(screen.getByRole('menuitem', { name: /Picture or PDF From This Computer/ })).toBeTruthy();
+      const file = new File([new Uint8Array([137, 80, 78, 71])], 'gate.png', { type: 'image/png' });
+      await act(async () => { fireEvent.change(screen.getByTestId('nx-mk-import-file'), { target: { files: [file] } }); });
+      await waitFor(() => expect(fakeApi.addFiles).toHaveBeenCalledWith([expect.objectContaining({ mimeType: 'image/png', dataURL: expect.stringMatching(/^data:image\/png/) })]));
+      const live = fakeApi.scene.filter((e) => !e.isDeleted);
+      expect(live[0]).toMatchObject({ type: 'image', locked: true, customData: { nexusImport: { name: 'gate.png' } } });
+      expect(live[1].id).toBe('old');
+      expect(screen.getByRole('button', { name: 'Pen' })).toHaveAttribute('aria-pressed', 'true');
     });
 
     it('Bring Everyone Here: a fresh summon from someone on the board follows them', async () => {
