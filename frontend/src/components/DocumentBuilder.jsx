@@ -24,7 +24,8 @@ import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS, useDismiss, RibbonBar, PickList, SizeBox } from './docRibbon/ui';
 import StyleGallery from './docRibbon/StyleGallery';
 import StatusBar from './docRibbon/StatusBar';
-import Ruler from './docRibbon/Ruler';
+import { HRuler, VRuler } from './docRibbon/Ruler';
+import { useTableValue } from '../tasks/tableCols';
 import NavigationPane from './docRibbon/NavigationPane';
 import RibbonDisplay from './docRibbon/RibbonDisplay';
 import { WordCountDialog, AccessibilityDialog } from './docRibbon/WordCountDialog';
@@ -658,8 +659,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   // Word's View tab, this browser only: Separate Pages (pagination), Ruler,
   // Navigation pane; Review > Spelling (the browser's own spellcheck).
-  const [viewPrefs, setViewPrefs] = useState({ paginate: true, ruler: false, nav: false, spell: true });
+  const [viewPrefs, setViewPrefs] = useState({ paginate: true, nav: false, spell: true });
   const setPref = (k, v) => setViewPrefs((p) => ({ ...p, [k]: v }));
+  // View > Ruler: on by default, both rulers (Neil, 11/11/2026); turning it
+  // off is remembered in the person's profile, on every computer.
+  const [rulerOn, setRulerOn] = useTableValue('documents', 'ruler', true);
   // View > Navigation (Word's pane, 11/11/2026): Headings, Pages or Results.
   // It floats in the desk margin beside the page and is off until opened -
   // the old always-on Pages rail lives in its Pages tab.
@@ -766,6 +770,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   }, []);
   const rootRef = useRef(null);
   const canvasRef = useRef(null);
+  const rulerPagesElRef = useRef(() => canvasRef.current);
+  const rulerScrollerElRef = useRef(() => canvasRef.current?.closest('.nx-docb-canvas') || null);
   const titleRef = useRef(null);
   const activeEditorRef = useRef(null);
   const trackUser = useMemo(() => {
@@ -2054,6 +2060,9 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     if (all.length) jumpToMatch(all[0]);
   };
   const navShown = !preview && !isMobile && viewPrefs.nav;
+  const showRulers = !preview && !isMobile && !!rulerOn;
+  const rulerPagesEl = rulerPagesElRef.current;
+  const rulerScrollerEl = rulerScrollerElRef.current;
   const commentsShown = !preview && !isMobile && commentsOpen;
   const navResults = (() => {
     const q = navQuery.trim();
@@ -2657,6 +2666,27 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const editing = !preview && !readOnly && !isLocked && !viewingOnly;
   const blockAttrs = ed ? ed.getAttributes(currentBlockType()) : {};
   const curStyle = currentStyle(ed);
+  // The ruler's markers: the paragraph you are in, in points. A level-based
+  // indent (Increase Indent) reads as 18 pt a level, the exporter's measure.
+  const paraIndents = (() => {
+    if (!ed || ed.isDestroyed || !editing) return null;
+    const a = blockAttrs || {};
+    const left = a.indentLeft != null ? Number(a.indentLeft) || 0 : (Number(a.indent) || 0) * 18;
+    return { left, first: Number(a.indentFirst) || 0, right: Number(a.indentRight) || 0 };
+  })();
+  // A ruler drag: every paragraph and heading in the selection takes it. A
+  // measured left indent replaces the level-based one, so the two never add.
+  const applyIndents = (patch) => {
+    if (!ed) return;
+    const attrs = {};
+    for (const [k, v] of Object.entries(patch)) attrs[k] = v ? v : null;
+    if ('indentLeft' in attrs) attrs.indent = 0;
+    ed.chain().focus().updateAttributes('paragraph', attrs).updateAttributes('heading', attrs).run();
+  };
+  // A ruler's margin edge: Page Setup's Custom margins, that one side changed.
+  const setMarginInches = (side, inches) => {
+    updatePageSetup({ margins: 'custom', marginIn: { ...marginsOf(pageSetup), [side]: inches } });
+  };
   const openOnRibbon = (tab, open) => { setRibbonCollapsed(false); setRibbonTab(tab); open?.(); };
   const pageBreak = () => ed?.chain().focus().insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run();
   const linkCmd = () => openOnRibbon('home', toggleLinkPopover);
@@ -2715,7 +2745,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       { label: 'Print Layout', checked: !!viewPrefs.paginate, onClick: () => setPref('paginate', !viewPrefs.paginate) },
       { label: 'Reading View', icon: BookOpen, onClick: () => { setPreview(true); if (isDoc) openPdfPreview(); } },
       '-',
-      { label: 'Show Ruler', checked: !!viewPrefs.ruler, onClick: () => setPref('ruler', !viewPrefs.ruler) },
+      { label: 'Show Ruler', checked: !!rulerOn, onClick: () => setRulerOn(!rulerOn) },
       { label: 'Show Navigation', checked: !!viewPrefs.nav, onClick: () => setPref('nav', !viewPrefs.nav) },
       { label: 'Show Comments', checked: !!commentsOpen, onClick: () => setCommentsOpen((o) => !o) },
       { label: 'Show Header & Footer', checked: !!(headerVisible || footerVisible), onClick: toggleHeaderFooter },
@@ -3920,7 +3950,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             <BigBtn icon={ZoomOut} label="100%" onClick={() => setZoom(1)} active={zoom === 1} />
           </Group>
           <Group label="Show">
-            <BigBtn icon={RulerIcon} label="Ruler" active={viewPrefs.ruler} onClick={() => setPref('ruler', !viewPrefs.ruler)} />
+            <BigBtn icon={RulerIcon} label="Ruler" title="Ruler - both rulers, to set margins, indents and tab stops" active={!!rulerOn} onClick={() => setRulerOn(!rulerOn)} />
             <BigBtn icon={PanelLeft} label="Navigation" active={viewPrefs.nav} onClick={() => setPref('nav', !viewPrefs.nav)} />
             <BigBtn icon={LayoutPanelTop} label="Header & Footer" active={headerVisible || footerVisible} onClick={toggleHeaderFooter} />
             <BigBtn icon={Pilcrow} label="Formatting Marks" active={showMarks} onClick={() => setShowMarks(s => !s)} />
@@ -4123,8 +4153,22 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         style={{ '--nx-page-w': `${Math.round(pageCanvasStyle(pageSetup).maxWidth * zoom) + 48}px` }}>
       <div className="nx-docb-canvas" onContextMenu={onPagesContextMenu}>
       <div ref={canvasRef} className="nx-docb-pagecol">
+      {showRulers && (() => {
+        const pageW = pageCanvasStyle(pageSetup).maxWidth;
+        return (
+          <div className="doc-rulers">
+            <div className="doc-rulers-inner" style={{ width: Math.round(pageW * zoom) }}>
+              <HRuler widthPx={Math.round(pageW * zoom)} zoom={zoom} margins={marginsOf(pageSetup)} para={paraIndents}
+                editable={editing} onMargin={setMarginInches} onIndent={applyIndents} />
+              {viewPrefs.paginate && (
+                <VRuler zoom={zoom} margins={marginsOf(pageSetup)} pageHeightPx={pageCanvasStyle(pageSetup).minHeight} gapPx={SHEET_SPACE_PX}
+                  pagesEl={rulerPagesEl} scrollerEl={rulerScrollerEl} editable={editing} onMargin={setMarginInches} />
+              )}
+            </div>
+          </div>
+        );
+      })()}
       <div style={zoom === 1 ? undefined : { zoom }}>
-      {!preview && !isMobile && viewPrefs.ruler && <Ruler pageSetup={pageSetup} />}
 
       {/* Each page is its own bounded sheet. The letterhead sits at the top of
           page 1's text frame (the exporter reserves the same band); the header
