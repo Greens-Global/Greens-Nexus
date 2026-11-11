@@ -6,11 +6,14 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import JSZip from 'jszip';
 import { convertDocxToTiptap } from './docxToTiptap';
 
-const fixture = (name) => {
-  const buf = readFileSync(resolve(__dirname, '__fixtures__/word', `${name}.docx`));
-  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+// Read through JSZip so the bytes are an ArrayBuffer of the realm the
+// importer's JSZip checks against (a Node Buffer's is not, in a full run).
+const fixture = async (name) => {
+  const zip = await JSZip.loadAsync(readFileSync(resolve(__dirname, '__fixtures__/word', `${name}.docx`)));
+  const ab = await zip.generateAsync({ type: 'arraybuffer' });
   return { name: `${name}.docx`, type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', arrayBuffer: async () => ab };
 };
 const walk = (node, fn) => { if (!node) return; if (Array.isArray(node)) { node.forEach((n) => walk(n, fn)); return; } fn(node); walk(node.content, fn); };
@@ -19,7 +22,7 @@ const text = (node) => { let s = ''; walk(node, (n) => { if (n.type === 'text') 
 
 describe('Word round trip', () => {
   it('an offer letter template: headings, variables, a tab stop, the footer', async () => {
-    const { body, footer, pageSetup } = await convertDocxToTiptap(fixture('offer-letter'), {});
+    const { body, footer, pageSetup } = await convertDocxToTiptap(await fixture('offer-letter'), {});
     expect(all(body, 'heading').map(text)).toEqual(['Offer of Employment']);
     // The MERGEFIELDs come back as variables, not as «token» text.
     expect(all(body, 'mergeField').map((n) => n.attrs.token)).toEqual(['full_name', 'job_title', 'company', 'start_date', 'salary']);
@@ -35,7 +38,7 @@ describe('Word round trip', () => {
   });
 
   it('a policy: footnotes in order, headings, the contents, no watermark text in the body', async () => {
-    const { body } = await convertDocxToTiptap(fixture('policy'), {});
+    const { body } = await convertDocxToTiptap(await fixture('policy'), {});
     expect(all(body, 'footnote').map((n) => n.attrs.text)).toEqual(['Codes change every 90 days.', 'Including sites under construction.']);
     expect(all(body, 'heading').map(text)).toEqual(expect.arrayContaining(['Purpose', 'Scope']));
     expect(text(body)).toContain('Purpose');
@@ -43,7 +46,7 @@ describe('Word round trip', () => {
   });
 
   it('a redlined contract: changes stay tracked, by whom, and the comment comes with its words', async () => {
-    const { body, comments } = await convertDocxToTiptap(fixture('redlined-contract'), {});
+    const { body, comments } = await convertDocxToTiptap(await fixture('redlined-contract'), {});
     const marked = (type) => { const out = []; walk(body, (n) => { if (n.type === 'text' && (n.marks || []).some((m) => m.type === type)) out.push(n); }); return out; };
     const ins = marked('insertion');
     const del = marked('deletion');
@@ -58,7 +61,7 @@ describe('Word round trip', () => {
   });
 
   it('a landscape table: the page, the margins and the merged cell come back', async () => {
-    const { body, pageSetup } = await convertDocxToTiptap(fixture('landscape-table'), {});
+    const { body, pageSetup } = await convertDocxToTiptap(await fixture('landscape-table'), {});
     expect(pageSetup.orientation).toBe('landscape');
     expect(pageSetup.marginIn).toEqual({ top: 0.75, right: 0.75, bottom: 0.75, left: 0.75 });
     const [table] = all(body, 'table');
