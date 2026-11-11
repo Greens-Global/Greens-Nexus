@@ -184,16 +184,27 @@ def _format_signature_phone(raw: str, country_code: str) -> str:
     raw = (raw or "").strip()
     if not raw or raw.startswith("+"):
         return raw
-    digits = re.sub(r"\D", "", raw)
+    # An extension is kept apart, never folded into the number (Nov 2026:
+    # "949-201-9160 x12" printed as +1 (920) 191-6012).
+    m = re.match(r"^(.*?)\s*(?:x|ext\.?|extension|#)\s*(\d+)\s*$", raw, re.IGNORECASE)
+    main, ext = (m.group(1), m.group(2)) if m else (raw, "")
+    tail = f" ext. {ext}" if ext else ""
+    digits = re.sub(r"\D", "", main)
     if not digits:
         return raw
+    if digits.startswith("00"):            # typed with the international 00 prefix
+        return f"+{digits[2:]}{tail}"
     dial = COUNTRY_DIAL.get((country_code or "").upper(), "")
     if not dial:
         return raw
-    if (country_code or "").upper() in NANP_COUNTRIES and len(digits) >= 10:
-        d = digits[-10:]
-        return f"{dial} ({d[0:3]}) {d[3:6]}-{d[6:10]}"
-    return f"{dial} {digits}"
+    if (country_code or "").upper() in NANP_COUNTRIES:
+        if len(digits) == 11 and digits[0] == "1":
+            digits = digits[1:]
+        if len(digits) != 10:
+            return raw                     # not a NANP number - print what was typed
+        return f"{dial} ({digits[0:3]}) {digits[3:6]}-{digits[6:10]}{tail}"
+    # Drop the domestic trunk 0 (India "07595898853" -> +91 7595898853).
+    return f"{dial} {digits.lstrip('0') or digits}{tail}"
 
 
 def _signature_fields(e: NexusEmployee, db: Session) -> dict:
@@ -266,9 +277,16 @@ def _normalize_url(url: str) -> str:
     as the LinkedIn icon in a copied signature pointing at
     "https://dev.nexus.../admin-console/www.linkedin.com/..." instead of
     LinkedIn itself). Defaults a missing scheme to https:// rather than
-    silently producing a broken href."""
+    silently producing a broken href. Any scheme other than http(s) returns
+    '' (no link at all) - the signature is drawn as live HTML in Nexus."""
     url = (url or "").strip()
-    if not url or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", url):
+    if not url:
+        return ""
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", url) and not re.match(r"^https?://", url, re.IGNORECASE):
+        # "host:port/..." has digits after the colon; anything else is a scheme.
+        if not re.match(r"^[^:/]+:\d", url):
+            return ""
+    if re.match(r"^https?://", url, re.IGNORECASE):
         return url
     return f"https://{url}"
 
@@ -309,7 +327,10 @@ def _website_text(f: dict) -> str:
     site instead of relative to wherever the signature was pasted."""
     if not f["website"]:
         return ""
-    return f'<a href="{_normalize_url(f["website"])}" style="color:inherit;text-decoration:none;">{f["website"]}</a>'
+    href = _normalize_url(f["website"])
+    if not href:
+        return f["website"]
+    return f'<a href="{href}" style="color:inherit;text-decoration:none;">{f["website"]}</a>'
 
 
 def _logo_img(f: dict, img_style: str) -> str:
@@ -321,8 +342,9 @@ def _logo_img(f: dict, img_style: str) -> str:
     if not f["logoUrl"]:
         return ""
     img = f'<img src="{f["logoUrl"]}" alt="" style="{img_style}" />'
-    if f["website"]:
-        return f'<a href="{_normalize_url(f["website"])}" style="border:none;">{img}</a>'
+    href = _normalize_url(f["website"])
+    if href:
+        return f'<a href="{href}" style="border:none;">{img}</a>'
     return img
 
 
@@ -338,7 +360,7 @@ def _social_icons(f: dict) -> str:
     they looked fine in our own preview. Table cells keep their background
     everywhere, so this is the standard "bulletproof" email-HTML pattern."""
     links = [(f["facebookUrl"], "f"), (f["linkedinUrl"], "in"), (f["twitterUrl"], "X"), (f["instagramUrl"], "ig")]
-    active = [(_normalize_url(url), label) for url, label in links if url]
+    active = [(u, label) for u, label in ((_normalize_url(url), label) for url, label in links) if u]
     if not active:
         return ""
     cells = "".join(
@@ -413,7 +435,7 @@ def _closing_line(f: dict, style: str) -> str:
 
 def _render_classic(f: dict, field_order=None) -> str:
     rows = "".join(
-        f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
+        f'<tr><td style="padding:2px 0;color:#333333;font-size:13px;line-height:18px;">{v}</td></tr>'
         for v in _ordered_row_values(f, ("role", "phone", "email", "website", "address"), field_order)
     )
     logo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
@@ -426,7 +448,7 @@ def _render_classic(f: dict, field_order=None) -> str:
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
         f'<tr>{logo_cell}<td style="vertical-align:top;">'
         f'{closing}'
-        f'<table style="border-collapse:collapse;"><tr><td style="font-weight:bold;color:#111111;padding-bottom:2px;">{f["name"]}</td></tr>'
+        f'<table style="border-collapse:collapse;"><tr><td style="font-weight:bold;color:#111111;font-size:13px;padding-bottom:2px;">{f["name"]}</td></tr>'
         f'{rows}</table></td></tr>'
         f'{social_row}'
         '</table>'
@@ -456,7 +478,7 @@ def _render_minimal(f: dict, field_order=None) -> str:
     tail = f" &nbsp;-&nbsp; {line}" if line else ""   # a plain hyphen, never an em dash in copy
     social = _social_icons(f)
     social_block = f'<div style="margin-top:4px;">{social}</div>' if social else ""
-    closing = _closing_line(f, "color:#666666;margin-bottom:3px;")
+    closing = _closing_line(f, "font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#666666;margin-bottom:3px;")
     return (
         f'{closing}'
         '<div style="font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#333333;">'
@@ -471,7 +493,7 @@ def _render_bold(f: dict, field_order=None) -> str:
     logo_cell = (f'<td style="padding-right:16px;">{_logo_img(f, "max-height:52px;max-width:150px;")}</td>'
                  if f["logoUrl"] else "")
     rows = "".join(
-        f'<tr><td style="padding:1px 0;color:#444444;font-size:12.5px;">{v}</td></tr>'
+        f'<tr><td style="padding:1px 0;color:#444444;font-size:12.5px;line-height:18px;">{v}</td></tr>'
         for v in _ordered_row_values(f, ("phone", "email", "website", "address"), field_order)
     )
     role_span = (f'<span style="color:#eafff2;font-size:12.5px;"> &nbsp;&middot;&nbsp; {f["role"]}</span>'
@@ -500,7 +522,7 @@ def _render_sincerely(f: dict, field_order=None) -> str:
                  f'{_logo_img(f, "max-height:56px;max-width:120px;")}</td>'
                  if f["logoUrl"] else "")
     rows = "".join(
-        f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
+        f'<tr><td style="padding:2px 0;color:#333333;font-size:13px;line-height:18px;">{v}</td></tr>'
         for v in _ordered_row_values(f, ("phone", "email", "website"), field_order)
     )
     social = _social_icons(f)
@@ -527,7 +549,7 @@ def _render_kind_regards(f: dict, field_order=None) -> str:
                  + (f'<div style="padding-top:8px;">{_social_icons(f)}</div>' if _social_icons(f) else "")
                  + '</td>' if f["logoUrl"] else "")
     rows = "".join(
-        f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
+        f'<tr><td style="padding:2px 0;color:#333333;font-size:13px;line-height:18px;">{v}</td></tr>'
         for v in _ordered_row_values(f, ("phone", "email", "website"), field_order)
     )
     # No logo -> the social row still needs somewhere to live.

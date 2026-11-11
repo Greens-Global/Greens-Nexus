@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Camera, Palette, Check, Copy, Mail, CalendarDays, Signature, User, Info, Smartphone, ShieldCheck } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -74,6 +74,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [sigStatus, setSigStatus] = useState('');
   const [logoBusy, setLogoBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const sigPreviewRef = useRef(null);
   const [dateFmtStatus, setDateFmtStatus] = useState('');
   // Fixed MAX_ZONES slots, '' = unset - a dropdown per slot (Pranshu, Sep 1).
   // Local (the detected system zone) always shows first on the greeting and
@@ -151,8 +152,12 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
     if (!signature?.html) return;
     try {
       if (navigator.clipboard?.write && window.ClipboardItem) {
-        const blob = new Blob([signature.html], { type: 'text/html' });
-        await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })]);
+        // A plain-text copy rides along for boxes that take no formatting.
+        const text = sigPreviewRef.current?.innerText || '';
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/html': new Blob([signature.html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+        })]);
       } else {
         await navigator.clipboard.writeText(signature.html);
       }
@@ -370,7 +375,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             </div>
             {/* The typewriter animation ships inside signature.html itself (backend
                 _TYPEWRITER_CSS) so it travels with a copy/paste into Outlook. */}
-            <div key={signature.html}
+            <div key={signature.html} ref={sigPreviewRef}
               style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 12, background: '#fff', overflow: 'auto' }}
               dangerouslySetInnerHTML={{ __html: signature.html }} />
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>
