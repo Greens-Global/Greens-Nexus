@@ -298,8 +298,8 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
       try {
         const buf = file ? await file.arrayBuffer() : await (await fetch(url)).arrayBuffer();
         const bytes = new Uint8Array(buf);
-        const pdfjs = await import('pdfjs-dist');
-        pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')).default;
         pdfjsRef.current = pdfjs;
         // pdfjs transfers the buffer to its worker (detaching it) - hand it a
         // copy so the original bytes stay intact for the pdf-lib bake.
