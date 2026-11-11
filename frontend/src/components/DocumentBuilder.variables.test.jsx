@@ -51,9 +51,9 @@ async function mountTemplate() {
   return document.querySelector('.doc-page .ProseMirror').editor;
 }
 
-// The list that was the always-on column (Sagar, 11/04/2026) is Variables >
-// Variables Used since the redesign (Neil, 11/11/2026).
-const rail = () => screen.getByRole('group', { name: 'Variables used in this document' });
+// Sagar's rail (11/04/2026) opens on demand since the redesign (Neil,
+// 11/11/2026): Variables > Variables Used, Insert > Variables, the status bar.
+const rail = () => screen.getByRole('complementary', { name: 'Variables used in this document' });
 function openUsed() {
   fireEvent.click(document.querySelector('[data-tab="variables"]'));
   fireEvent.click(screen.getByTitle('Variables Used - every variable placed in this document'));

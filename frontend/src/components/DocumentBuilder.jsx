@@ -32,6 +32,7 @@ import NavigationPane from './docRibbon/NavigationPane';
 import RibbonDisplay from './docRibbon/RibbonDisplay';
 import { ParagraphDialog, FontDialog } from './docRibbon/Dialogs';
 import KeyTips from './docRibbon/KeyTips';
+import VariablesPane from './docRibbon/VariablesPane';
 import { WordCountDialog, AccessibilityDialog } from './docRibbon/WordCountDialog';
 import { countWords, accessibilityIssues, headingsOf } from './docRibbon/docStats';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -56,7 +57,7 @@ import ShareDocumentDialog, { LivePeople } from '../docLive/ShareDocumentDialog'
 import { caretColor } from '../notes/useNoteCollab';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
-import { slugifyToken, variableFromDrop, VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
+import { slugifyToken, variableFromDrop } from '../lib/mergeFieldTypes';
 import { extractVariables, mergeFieldDefs, sharedDefs, tokensInDoc } from '../lib/extractVariables';
 import { Pagination, paginationKey, planBreaks, measureLines, posAtLineStart, marginGrowth, SHEET_SPACE_PX } from '../lib/docBuilderPagination';
 import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, marginsOf, pageCanvasStyle, textFlowPx, sheetPadding, scrollableAncestor } from '../lib/pageSetup';
@@ -608,11 +609,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   // `newTokens` are the ones an import/paste just added, marked NEW in the list.
   const [fieldsPanel, setFieldsPanel] = useState(null);   // null | { newTokens: [] }
   const [mergeFieldModal, setMergeFieldModal] = useState(null); // null | { range?: {from,to}, existingDef?: object, initialLabel?: string }
-  const [variableLibraryOpen, setVariableLibraryOpen] = useState(false);
-  // The library is a flyout under Variables > Variable Library (11/11/2026);
-  // pinned, it stays open while you click and drag on the pages.
-  const [libPinned, setLibPinned] = useState(false);
-  const libBtnRef = useRef(null);
+  // The Variables rail (Sagar, 11/04/2026), on demand (Neil, 11/11/2026):
+  // In This Document or Add More (the library), over the right margin.
+  const [varsOpen, setVarsOpen] = useState(false);
+  const [varsTab, setVarsTab] = useState('used');
   // Variables > Preview Results (Word's Mailings): every chip shows the value
   // the document will print - the same resolution an export uses
   // (GET /documents/{id}/merge-values); a template shows its Merge Data
@@ -1562,7 +1562,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     }
   }, [varLabel, pages, previewResults, previewValues, selectionTick, headerEditor, footerEditor]);
   useEffect(() => {
-    if (!previewResults) return undefined;
+    if (!previewResults && !varsOpen) return undefined;
     let live = true;
     const t = setTimeout(() => {
       if (kind !== 'document') { setPreviewValues({ ...mergeOverrides }); return; }
@@ -1571,7 +1571,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         .catch((e) => { if (live) { setPreviewValues({}); toastErr?.(e.message || 'Could not load the values to preview'); } });
     }, 350);   // a Merge Data change saves first
     return () => { live = false; clearTimeout(t); };
-  }, [previewResults, kind, docId, employeeId, entityId, mergeOverrides]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [previewResults, varsOpen, kind, docId, employeeId, entityId, mergeOverrides]);   // eslint-disable-line react-hooks/exhaustive-deps
   // The insert picker, grouped by WHEN Nexus fills each built-in. Until the
   // library answers, the short list it always had.
   const builtinGroups = useMemo(() => {
@@ -2094,6 +2094,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const rulerPagesEl = rulerPagesElRef.current;
   const rulerScrollerEl = rulerScrollerElRef.current;
   const commentsShown = !preview && !isMobile && commentsOpen;
+  const varsShown = !preview && !isMobile && varsOpen && !commentsOpen;
   const navResults = (() => {
     const q = navQuery.trim();
     if (!navShown || navTab !== 'results' || !q) return null;
@@ -2335,10 +2336,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
 
   // Variables > Previous / Next: select the variable before or after the
   // cursor, in page order, and bring it into view (Word's Go To Field).
-  const stepField = (dir) => {
+  const stepField = (dir, token = null) => {
     const eds = pages.map((p) => [p.id, editorsRef.current.get(p.id)]).filter(([, e]) => e && !e.isDestroyed);
     const all = [];
-    eds.forEach(([, e], pi) => e.state.doc.descendants((n, pos) => { if (n.type.name === 'mergeField') all.push({ e, pos, pi }); }));
+    eds.forEach(([, e], pi) => e.state.doc.descendants((n, pos) => { if (n.type.name === 'mergeField' && (!token || n.attrs.token === token)) all.push({ e, pos, pi }); }));
     if (!all.length) { toastOk?.('There are no variables in this document yet.'); return; }
     const curPi = Math.max(0, eds.findIndex(([pid]) => pid === activePageId));
     const sel = activeEditor?.state.selection;
@@ -2405,7 +2406,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     f.e.chain().focus().setNodeSelection(f.pos).run();
     requestAnimationFrame(() => f.e.view.nodeDOM(f.pos)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }));
   };
-  const openLibrary = () => { setRibbonCollapsed(false); setRibbonTab('variables'); setVariableLibraryOpen(true); };
+  // Opens the Variables rail; Comments, its neighbor on the right, steps aside.
+  const openVars = (tab = 'used') => { setVarsTab(tab); setVarsOpen(true); setCommentsOpen(false); };
+  const toggleVars = (tab) => { if (varsOpen && varsTab === tab) setVarsOpen(false); else openVars(tab); };
+  useEffect(() => { if (commentsOpen) setVarsOpen(false); }, [commentsOpen]);
 
   // Converts every {{token}} already sitting on the page into a real merge
   // field. Import does this automatically; this is for content that arrived
@@ -2933,7 +2937,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       '-',
       { label: 'Special Characters...', icon: Smile, disabled: !editing, onClick: () => openOnRibbon('insert', () => setSymbolPopoverOpen(true)) },
       { label: 'Signature Block...', icon: PenLine, disabled: !editing, onClick: () => openOnRibbon('insert', () => { setSigPopoverOpen(true); setSigDraft((d) => ({ ...d, role: d.role || signerOptions[0]?.key || '' })); }) },
-      { label: 'Variable...', icon: Variable, disabled: !editing, onClick: openLibrary },
+      { label: 'Variable...', icon: Variable, disabled: !editing, onClick: () => openVars('library') },
     ] },
     { label: 'Format', items: [
       { label: 'Font...', icon: Type, shortcut: 'Mod+D', disabled: !editing || !ed, onClick: () => setFontDlg(true) },
@@ -2999,7 +3003,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       canDictate() && { label: dictation.listening ? 'Stop Dictating' : 'Dictate', icon: Mic, checked: dictation.listening, disabled: !editing, onClick: () => (dictation.listening ? dictation.stop() : dictation.start()) },
       '-',
       { label: 'Detect Variables', icon: Wand2, disabled: !editing || detecting, onClick: detectVariables },
-      { label: 'Variable Library', icon: Variable, checked: !!variableLibraryOpen, onClick: () => (variableLibraryOpen ? setVariableLibraryOpen(false) : openLibrary()) },
+      { label: 'Variables', icon: Variable, checked: !!varsOpen, onClick: () => (varsOpen ? setVarsOpen(false) : openVars('used')) },
       { label: 'Preview Results', icon: Eye, checked: previewResults, onClick: () => setPreviewResults((v) => !v) },
       kind === 'template' && { label: 'Template Fields', icon: ListChecks, onClick: () => openFieldsPanel() },
     ] },
@@ -3143,44 +3147,6 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         ...(customVarKeys.length ? [['Custom Fields In This Template', customVarKeys.map(k => [k, varLabel[k] || humanizeKey(k)])]] : []),
       ]}
       onPick={(token) => insertVariable(token)} />
-  );
-  // Variables > Variables Used (was the always-on column, Sagar 11/04/2026):
-  // every variable placed in this document with how many places it is used.
-  // Click inserts it at the cursor, drag drops it where it lands,
-  // double-click edits its field (templates).
-  const usedVarsList = (closeMenu) => (
-    <div className="nx-docb-used" role="group" aria-label="Variables used in this document">
-      <div className="nx-docb-vars-head">
-        <Variable size={13} /> Variables Used
-        <span className="nx-docb-vars-n">{usedVars.length}</span>
-      </div>
-      {usedVars.length === 0 ? (
-        <p className="nx-docb-vars-empty">
-          {kind === 'template'
-            ? 'None yet. Select any text and click Make Variable, or drag one in from the Variable Library.'
-            : 'None yet. Drag one in from the Variable Library.'}
-        </p>
-      ) : usedVars.map((v) => {
-        const def = fieldDefs.find((f) => f.token === v.token);
-        const label = def?.label || varLabel[v.token] || FRIENDLY_MERGE[v.token] || v.token;
-        const meta = builtinSet.has(v.token) && !def ? 'Filled By Nexus' : (def?.type || 'text');
-        return (
-          <button key={v.token} type="button" className="nx-docb-var" draggable role="menuitem"
-            title={`Insert {{${v.token}}} at the cursor${kind === 'template' ? '. Double-click to edit the field.' : ''}`}
-            onClick={() => { insertVariable(v.token); }}
-            onDoubleClick={kind === 'template' ? () => { closeMenu?.(); editVariable(v.token); } : undefined}
-            onDragStart={(e) => {
-              e.dataTransfer.setData(VARIABLE_DRAG_TYPE, v.token);
-              e.dataTransfer.setData('text/plain', `{{${v.token}}}`);
-              e.dataTransfer.effectAllowed = 'copy';
-            }}>
-            <span className="nx-docb-var-label">{label}</span>
-            <span className="nx-docb-var-meta">{meta} · {v.count === 1 ? '1 place' : `${v.count} places`}</span>
-          </button>
-        );
-      })}
-      <button type="button" className="nx-docb-vars-lib" onClick={() => { closeMenu?.(); openLibrary(); }}>Variable Library</button>
-    </div>
   );
   const importPanel = () => (
     <>
@@ -3733,6 +3699,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               </div>
             )}
           </div>
+          <BigBtn icon={Variable} label="Variables" title="Variables - the ones in this document, and the library" active={varsOpen} onClick={() => (varsOpen ? setVarsOpen(false) : openVars('used'))} />
           {insertVariablePick()}
           </Group>
           <Group label="Links">
@@ -4011,10 +3978,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           {shownTab === 'variables' && (
           <>
           <Group label="Insert">
-            <span ref={libBtnRef} style={{ display: 'inline-flex' }}>
-              <BigBtn icon={Variable} label="Variable Library" title="Variable Library - browse every variable and drag one in"
-                active={variableLibraryOpen} onClick={() => setVariableLibraryOpen(o => !o)} />
-            </span>
+            <BigBtn icon={Variable} label="Variable Library" title="Variable Library - browse every variable and drag one in"
+              active={varsOpen && varsTab === 'library'} onClick={() => toggleVars('library')} />
             {insertVariablePick()}
           </Group>
           <Group label="Create">
@@ -4040,10 +4005,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             </Menu>
           </Group>
           <Group label="In This Document">
-            <Menu big icon={Variable} label={`Variables Used (${usedVars.length})`} title="Variables Used - every variable placed in this document" width={300}
-              panelClassName="nx-docb-usedpanel">
-              {(closeMenu) => usedVarsList(closeMenu)}
-            </Menu>
+            <BigBtn icon={ListChecks} label={`Variables Used (${usedVars.length})`} title="Variables Used - every variable placed in this document"
+              active={varsOpen && varsTab === 'used'} onClick={() => toggleVars('used')} />
             <BigBtn icon={ChevronLeft} label="Previous" title="Previous variable" disabled={!usedVars.length} onClick={() => stepField(-1)} />
             <BigBtn icon={ChevronRight} label="Next" title="Next variable" disabled={!usedVars.length} onClick={() => stepField(1)} />
           </Group>
@@ -4293,7 +4256,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           Navigation pane (View > Navigation) and Comments float over the
           margins; they push the page aside only when a margin is too narrow
           for them (style.css ".nx-docb-desk"). */}
-      <div className={`nx-docb-desk${navShown ? ' has-left' : ''}${commentsShown ? ' has-right' : ''}`}
+      <div className={`nx-docb-desk${navShown ? ' has-left' : ''}${commentsShown || varsShown ? ' has-right' : ''}`}
         style={{ '--nx-page-w': `${Math.round(pageCanvasStyle(pageSetup).maxWidth * zoom) + 48}px` }}>
       <div className="nx-docb-canvas" onContextMenu={onPagesContextMenu}>
       <div ref={canvasRef} className="nx-docb-pagecol">
@@ -4391,6 +4354,26 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             results={navResults} activeResult={navHit} onResult={(i) => { setNavHit(i); jumpToMatch(navResults[i]); }} />
         </aside>
       )}
+      {varsShown && (
+        <aside className="nx-docb-pane is-right" aria-label="Variables">
+          <VariablesPane tab={varsTab} onTab={setVarsTab} kind={kind} onClose={() => setVarsOpen(false)}
+            rows={usedVars.map((v) => {
+              const def = fieldDefs.find((f) => f.token === v.token);
+              const value = String((previewValues && previewValues[v.token]) || mergeOverrides[v.token] || '').trim();
+              return {
+                token: v.token, count: v.count, value,
+                label: def?.label || varLabel[v.token] || FRIENDLY_MERGE[v.token] || v.token,
+                meta: builtinSet.has(v.token) && !def ? 'Filled By Nexus' : (def?.type || 'text'),
+              };
+            })}
+            onInsert={insertVariable} onEdit={editVariable} onGo={(token) => stepField(1, token)}
+            library={(
+              <VariableLibrary open embedded onClose={() => setVarsOpen(false)} onInsert={insertVariable} localVariables={customVarKeys}
+                anchorLabel={kind === 'template' ? 'the template' : 'the document'}
+                used={Object.fromEntries(usedVars.map((v) => [v.token, v.count]))} />
+            )} />
+        </aside>
+      )}
       {commentsShown && (
         <aside className="nx-docb-pane is-right" aria-label="Comments">
           <CommentsPane store={commentStore} me={me} isAdmin={myLevel >= 4}
@@ -4418,7 +4401,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           words={countWords([...editorsRef.current.values()]).words} zoom={zoom} setZoom={setZoom}
           onFit={zoomToFit} onPageWidth={zoomToPageWidth} onWordCount={() => setWordCountOpen(true)}
           onPages={!isMobile ? () => openNav(kind === 'document' ? 'pages' : 'headings') : undefined}
-          variables={usedVars.length} onVariables={() => openOnRibbon('variables')}
+          variables={usedVars.length} onVariables={() => (varsOpen ? setVarsOpen(false) : openVars('used'))}
           tracking={tracking} onTracking={() => openOnRibbon('review')}
           view={viewPrefs.paginate ? 'print' : 'web'}
           onView={(v) => { if (v === 'read') { setPreview(true); if (isDoc) openPdfPreview(); } else setPref('paginate', v === 'print'); }} />
@@ -4497,11 +4480,6 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         </div>
       )}
 
-      <VariableLibrary open={variableLibraryOpen} onClose={() => { setVariableLibraryOpen(false); setLibPinned(false); }}
-        onInsert={insertVariable} localVariables={customVarKeys}
-        anchorRef={libBtnRef} pinned={libPinned} onPin={setLibPinned}
-        used={Object.fromEntries(usedVars.map((v) => [v.token, v.count]))}
-        anchorLabel={kind === 'template' ? 'the template' : 'the document'} />
 
       {fieldsPanel && kind === 'template' && (
         <TemplateFieldsPanel

@@ -28,10 +28,11 @@ const SHORT = { person: 'Person', company: 'Company', offer: 'Offer / Hire', pro
 // Where it opens (Neil, 11/11/2026): with an `anchorRef` (the Document
 // Builder's Variables > Variable Library button) it is a flyout under that
 // button, like a Word gallery - it closes when you click away, unless it is
-// pinned, which keeps it floating while you drag several in. Without one it
-// is the old panel at the right edge.
+// pinned, which keeps it floating while you drag several in. `embedded` is
+// the Variables rail's Add More tab. Without either it is the old panel at
+// the right edge.
 
-export default function VariableLibrary({ open, onClose, onInsert, localVariables = [], anchorLabel, anchorRef = null, pinned = false, onPin, used = null }) {
+export default function VariableLibrary({ open, onClose, onInsert, localVariables = [], anchorLabel, anchorRef = null, pinned = false, onPin, used = null, embedded = false }) {
   const [variables, setVariables] = useState(null);
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState('');
@@ -51,11 +52,11 @@ export default function VariableLibrary({ open, onClose, onInsert, localVariable
   useEffect(() => { if (open) searchRef.current?.focus(); }, [open]);
   // The flyout's Escape is AnchoredMenu's; the panel keeps its own.
   useEffect(() => {
-    if (!open || anchorRef) return;
+    if (!open || anchorRef || embedded) return;
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose, anchorRef]);
+  }, [open, onClose, anchorRef, embedded]);
 
   // This document's own variables are merged in even before they reach a
   // saved template - otherwise a variable you just defined is missing from the
@@ -102,7 +103,7 @@ export default function VariableLibrary({ open, onClose, onInsert, localVariable
 
   const head = (
     <header className="nx-varlib-head">
-      <div className="nx-varlib-title">
+      {!embedded && <div className="nx-varlib-title">
         <Variable size={15} style={{ color: 'var(--pine)' }} />
         <strong>Variable Library</strong>
         {flyout && onPin && (
@@ -112,7 +113,7 @@ export default function VariableLibrary({ open, onClose, onInsert, localVariable
           </button>
         )}
         <button type="button" className="nx-varlib-icon" onClick={onClose} title="Close" aria-label="Close"><X size={15} /></button>
-      </div>
+      </div>}
       <label className="nx-varlib-search">
         <Search size={13} aria-hidden="true" />
         <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
@@ -179,6 +180,8 @@ export default function VariableLibrary({ open, onClose, onInsert, localVariable
   );
   const foot = <p className="nx-varlib-foot">Click to insert{anchorLabel ? ` into ${anchorLabel}` : ''} at the cursor, or drag one onto the page.</p>;
 
+  // Inside the Variables rail's Add More tab (DocumentBuilder, 11/11/2026).
+  if (embedded) return <div className="nx-varlib is-embedded">{head}{list}{foot}</div>;
   if (flyout) {
     return (
       <AnchoredMenu anchorRef={anchorRef} open onClose={() => { if (!pinned) onClose(); }} role="dialog" aria-label="Variable library"
