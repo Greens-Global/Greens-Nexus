@@ -15,6 +15,7 @@ import {
   MousePointer2, Hand, PenLine, Highlighter, MoveUpRight, Square, Type, MessageSquarePlus, Eraser,
   Undo2, Redo2, Trash2, MoreHorizontal, Check, Circle, Diamond, Minus, ImagePlus, Frame, Pointer, Shapes, SlidersHorizontal, ChevronDown,
   Workflow, RectangleHorizontal, StickyNote, FileText, Users, ListTree, RefreshCw, ArrowDownNarrowWide, ArrowRightLeft, FileSymlink, Network,
+  Ruler, SquareDashed, Scaling, Warehouse, Vote, Timer, EyeOff, LocateFixed, Wand2,
 } from 'lucide-react';
 import { MARKUP_TOOLS, MORE_TOOLS, MARKUP_COLORS, MARKUP_SIZES, colorByKey, isMoreTool } from './markupTools';
 
@@ -22,6 +23,7 @@ const ICONS = {
   select: MousePointer2, hand: Hand, pen: PenLine, highlight: Highlighter, arrow: MoveUpRight,
   box: Square, text: Type, comment: MessageSquarePlus, eraser: Eraser,
   ellipse: Circle, diamond: Diamond, line: Minus, image: ImagePlus, frame: Frame, laser: Pointer,
+  sticky: StickyNote, measure: Ruler, area: SquareDashed, scale: Scaling,
 };
 
 // The Diagram menu (Neil, 11/06/2026, board/diagram/): boxes that start a
@@ -44,10 +46,26 @@ const DIAGRAM_ROWS = [
   { key: 'tidy:TB', label: 'Tidy Up: Top to Bottom', Icon: ArrowDownNarrowWide, needs: 'tidy' },
   { key: 'tidy:LR', label: 'Tidy Up: Left to Right', Icon: ArrowRightLeft, needs: 'tidy' },
   { key: 'refresh', label: 'Refresh from Source', Icon: RefreshCw, needs: 'refresh' },
+  { kicker: 'Pictures' },
+  { key: 'kit', label: 'Storage Site Kit', Icon: Warehouse },
+];
+
+// Run the Meeting (Neil, 11/10/2026, meet.js): the timer, a named vote,
+// Private Writing and Bring Everyone Here. What each row does is Board.jsx's.
+const MEET_ROWS = [
+  { kicker: 'Timer' },
+  ...[1, 3, 5, 10, 15].map((m) => ({ key: `timer:${m}`, label: `${m} ${m === 1 ? 'Minute' : 'Minutes'}`, Icon: Timer })),
+  { kicker: 'Vote' },
+  ...[3, 5, 10].map((n) => ({ key: `vote:${n}`, label: `Start a Vote: ${n} Each`, Icon: Vote })),
+  { kicker: 'Together' },
+  { key: 'silent', label: 'Private Writing', Icon: EyeOff, needs: 'silent' },
+  { key: 'summon', label: 'Bring Everyone Here', Icon: LocateFixed, needs: 'summon' },
 ];
 
 export default function MarkupBar({
   diagram = null,
+  meet = null,            // { onAction(key), canSilent, canSummon }
+  inkShape = null,        // { on, onToggle } - the pen's Ink to Shape switch
   phone = false, tool, colorKey, sizeKey, hasSelection = false, styleOpen = false,
   onTool, onColor, onSize, onUndo, onRedo, onDelete, onMore, onStyle, onHide,
 }) {
@@ -58,6 +76,8 @@ export default function MarkupBar({
   const trayRef = useRef(null);
   const dgRef = useRef(null);
   const dgBtnRef = useRef(null);
+  const mtRef = useRef(null);
+  const mtBtnRef = useRef(null);
   const dotRef = useRef(null);
   const moreRef = useRef(null);
   const moreBtnRef = useRef(null);
@@ -69,9 +89,9 @@ export default function MarkupBar({
   // A pop-up closes on a tap anywhere else or on Escape.
   useEffect(() => {
     if (!pop) return undefined;
-    const mine = [trayRef, dotRef, moreRef, moreBtnRef, dgRef, dgBtnRef];
+    const mine = [trayRef, dotRef, moreRef, moreBtnRef, dgRef, dgBtnRef, mtRef, mtBtnRef];
     const away = (e) => { if (!mine.some((r) => r.current?.contains(e.target))) setPop(''); };
-    const esc = (e) => { if (e.key === 'Escape') { const back = pop === 'ink' ? dotRef : pop === 'diagram' ? dgBtnRef : moreBtnRef; setPop(''); back.current?.focus(); } };
+    const esc = (e) => { if (e.key === 'Escape') { const back = pop === 'ink' ? dotRef : pop === 'diagram' ? dgBtnRef : pop === 'meet' ? mtBtnRef : moreBtnRef; setPop(''); back.current?.focus(); } };
     document.addEventListener('pointerdown', away, true);
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc); };
@@ -109,6 +129,12 @@ export default function MarkupBar({
               </button>
             ))}
           </div>
+          {inkShape && tool === 'pen' && (
+            <label className="nx-mk-switch">
+              <input type="checkbox" checked={!!inkShape.on} onChange={() => inkShape.onToggle?.()} />
+              <Wand2 size={15} aria-hidden /> <span>Ink to Shape</span>
+            </label>
+          )}
           {sizes.length > 0 && (
             <div className="nx-mk-sizes" role="radiogroup" aria-label="Width">
               {sizes.map((s) => (
@@ -129,7 +155,7 @@ export default function MarkupBar({
             return (
               <button key={t.key} type="button" role="menuitemradio" aria-checked={tool === t.key} className={`nx-mk-more-row${tool === t.key ? ' is-on' : ''}`}
                 onClick={() => { setPop(''); onTool?.(t.key); }} data-tool={t.key}>
-                <Icon size={18} /> <span>{t.label}</span>{!phone && <kbd>{t.hint}</kbd>}
+                <Icon size={18} /> <span>{t.label}</span>{!phone && t.hint && <kbd>{t.hint}</kbd>}
               </button>
             );
           })}
@@ -143,6 +169,19 @@ export default function MarkupBar({
             : (
               <button key={r.key} type="button" role="menuitem" className="nx-mk-more-row" data-diagram={r.key}
                 onClick={() => { setPop(''); diagram.onAction?.(r.key); }}>
+                <r.Icon size={18} /> <span>{r.label}</span>
+              </button>
+            )))}
+        </div>
+      )}
+
+      {pop === 'meet' && meet && (
+        <div className="nx-mk-tray nx-mk-more nx-mk-diagram" ref={mtRef} role="menu" aria-label="Run the Meeting">
+          {MEET_ROWS.filter((r) => !r.needs || (r.needs === 'silent' ? meet.canSilent : meet.canSummon)).map((r) => (r.kicker
+            ? <div key={r.kicker} className="nx-mk-tray-kicker">{r.kicker}</div>
+            : (
+              <button key={r.key} type="button" role="menuitem" className="nx-mk-more-row" data-meet={r.key}
+                onClick={() => { setPop(''); meet.onAction?.(r.key); }}>
                 <r.Icon size={18} /> <span>{r.label}</span>
               </button>
             )))}
@@ -172,6 +211,12 @@ export default function MarkupBar({
           <button ref={dgBtnRef} type="button" className={`nx-mk-btn${pop === 'diagram' ? ' is-on' : ''}`} aria-expanded={pop === 'diagram'} aria-haspopup="menu"
             aria-label="Diagram" title="Diagram" onClick={() => setPop((p) => (p === 'diagram' ? '' : 'diagram'))} data-testid="nx-mk-diagram">
             <Workflow size={phone ? 20 : 18} />
+          </button>
+        )}
+        {meet && (
+          <button ref={mtBtnRef} type="button" className={`nx-mk-btn${pop === 'meet' ? ' is-on' : ''}`} aria-expanded={pop === 'meet'} aria-haspopup="menu"
+            aria-label="Run the Meeting" title="Run the Meeting" onClick={() => setPop((p) => (p === 'meet' ? '' : 'meet'))} data-testid="nx-mk-meet">
+            <Vote size={phone ? 20 : 18} />
           </button>
         )}
         <span className="nx-mk-sep" aria-hidden />

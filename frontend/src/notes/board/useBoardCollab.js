@@ -45,7 +45,8 @@ export function collaboratorsFrom(awareness, myClientId) {
     if (id === myClientId || !s?.user) return;
     const sel = Array.isArray(s.sel) ? s.sel : [];
     out.set(String(id), {
-      id: s.user.email || String(id),
+      // socketId: the engine's follow mode (click an avatar) names who to follow by it
+      id: s.user.email || String(id), socketId: String(id),
       username: s.user.name || s.user.email || 'Someone',
       color: { background: s.user.color || '#64748b', stroke: s.user.color || '#64748b' },
       pointer: s.pointer && Number.isFinite(s.pointer.x) && Number.isFinite(s.pointer.y)
@@ -273,6 +274,11 @@ export function useBoardCollab({ note, canEdit, enabled, me, name }) {
     setHtml: () => true,
     isRemote: () => false,
     encodeState: () => (session ? session.rt.encodeState(session.doc) : ''),
+    // The facilitation kit (meet.js) and follow mode (Board.jsx): the shared
+    // 'meet' map in this same document, and presence for views and summons.
+    meet: session ? session.doc.getMap('meet') : null,
+    awareness: session?.awareness || null,
+    clientId: session ? session.doc.clientID : 0,
     applyState: (b64) => { if (session) session.rt.applyState(session.doc, b64); },
     bindEditor: noop,
   }), [on, phase, status, peers, restart, resync, attach, onChange, pointer, fail, isRemoteElement, session]);

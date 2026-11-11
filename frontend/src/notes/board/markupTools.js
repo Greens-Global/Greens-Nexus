@@ -20,6 +20,8 @@ export const MARKUP_TOOLS = Object.freeze([
   { key: 'hand', label: 'Move Around', hint: 'H', engine: 'hand', locked: true },
   { key: 'pen', label: 'Pen', hint: 'P', engine: 'freedraw', locked: true },
   { key: 'highlight', label: 'Highlighter', hint: 'I', engine: 'freedraw', locked: true },
+  // Ours (Neil, 11/10/2026): a tap places a sticky and opens its words (stickies.js).
+  { key: 'sticky', label: 'Sticky Note', hint: '', engine: 'selection', locked: false },
   { key: 'arrow', label: 'Arrow', hint: 'A', engine: 'arrow', locked: true },
   { key: 'box', label: 'Box', hint: 'R', engine: 'rectangle', locked: true },
   { key: 'text', label: 'Text', hint: 'T', engine: 'text', locked: false },
@@ -37,7 +39,13 @@ export const MORE_TOOLS = Object.freeze([
   { key: 'image', label: 'Image', hint: '9', engine: 'image', locked: false },
   { key: 'frame', label: 'Frame', hint: 'F', engine: 'frame', locked: false },
   { key: 'laser', label: 'Laser Pointer', hint: 'K', engine: 'laser', locked: true },
+  // Measure (Neil, 11/10/2026, measure.js): taps on the stage, ours like Comment.
+  { key: 'measure', label: 'Measure Length', hint: '', engine: 'selection', locked: true },
+  { key: 'area', label: 'Measure Area', hint: '', engine: 'selection', locked: true },
+  { key: 'scale', label: 'Set Scale', hint: '', engine: 'selection', locked: false },
 ]);
+/** Our tools: the engine stays on Select while the board takes the taps (Board's place layer). */
+export const PLACE_TOOLS = new Set(['comment', 'sticky', 'measure', 'area', 'scale']);
 const ALL_TOOLS = [...MARKUP_TOOLS, ...MORE_TOOLS];
 export const TOOL_KEYS = ALL_TOOLS.map((t) => t.key);
 export const isMoreTool = (key) => MORE_TOOLS.some((t) => t.key === key);
@@ -88,8 +96,8 @@ export function strokeStyle(toolKey, colorKey, sizeKey) {
 export function toolFromEngine(engineTool, current) {
   if (!engineTool) return null;
   if (engineTool === 'freedraw') return current === 'highlight' ? 'highlight' : 'pen';
-  if (engineTool === 'selection') return current === 'comment' ? 'comment' : 'select';
-  const hit = ALL_TOOLS.find((t) => t.engine === engineTool && t.key !== 'comment');
+  if (engineTool === 'selection') return PLACE_TOOLS.has(current) ? current : 'select';
+  const hit = ALL_TOOLS.find((t) => t.engine === engineTool && !PLACE_TOOLS.has(t.key));
   return hit ? hit.key : null;
 }
 
@@ -152,25 +160,28 @@ export function pinMeasurer(look = 'clean') {
  * to its words - `measure` (pinMeasurer) is the face's real width - so the
  * engine draws it exactly where it is placed; nothing here imports the engine.
  */
-export function commentPin({ x, y, text, number, colorKey = 'red', look = 'clean', now = Date.now(), measure = roughMeasure }) {
+export function commentPin({ x, y, text, number, colorKey = 'red', look = 'clean', now = Date.now(), measure = roughMeasure, ids = null, thread = null, version = 1 }) {
   const c = colorByKey(colorKey);
   const body = String(text || '').trim().slice(0, PIN_MAX);
-  const label = `${number}. ${body}`;
+  // A thread (threads.js, 11/10/2026) adds its reply count; a resolved one fades.
+  const n = thread?.replies?.length || 0;
+  const label = `${number}. ${body}${n ? `\n${n} ${n === 1 ? 'Reply' : 'Replies'}` : ''}`;
   const lines = wrapWords(label, PIN_TEXT_MAX, measure);
   const textW = Math.ceil(Math.max(...lines.map((l) => measure(l)), 1));
   const textH = Math.round(lines.length * PIN_FONT * PIN_LINE);
   const width = Math.max(PIN_MIN_W, textW + PIN_PAD_X * 2);
   const height = textH + PIN_PAD_Y * 2;
-  const boxId = rid(), textId = rid();
+  const boxId = ids?.box || rid(), textId = ids?.text || rid();
   const base = {
     angle: 0, strokeColor: c.color, fillStyle: 'solid', strokeWidth: 2, strokeStyle: 'solid',
-    roughness: look === 'sketch' ? 1 : 0, opacity: 100, groupIds: [], frameId: null, seed: nonce(),
-    version: 1, versionNonce: nonce(), isDeleted: false, updated: now, link: null, locked: false,
+    roughness: look === 'sketch' ? 1 : 0, opacity: thread?.resolved ? 45 : 100, groupIds: [], frameId: null, seed: nonce(),
+    version, versionNonce: nonce(), isDeleted: false, updated: now, link: null, locked: false,
     customData: { nexusComment: number },
   };
   const box = {
     ...base, id: boxId, type: 'rectangle', x, y, width, height,
     backgroundColor: c.tint, roundness: { type: 3 }, boundElements: [{ id: textId, type: 'text' }],
+    ...(thread ? { customData: { nexusComment: number, nexusThread: thread } } : {}),
   };
   const label_ = {
     ...base, id: textId, type: 'text', x: x + (width - textW) / 2, y: y + PIN_PAD_Y, width: textW, height: textH,

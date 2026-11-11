@@ -502,7 +502,7 @@ class LiveBoundary extends Component {
 }
 
 // The open note.
-function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail, onDuplicate, backTo, onOpen }) {
+function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail, onDuplicate, backTo, onOpen }) {
   const collabRef = useRef(null);
   const sync = useNoteSync(id, { onSaved, collabRef });
   const { note, status, conflict, restored } = sync;
@@ -877,7 +877,9 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                   onLook={(l) => setLookPick(l)}
                   onScene={readOnly ? undefined : (sceneStr) => sync.edit({ scene: sceneStr })}
                   onThumb={readOnly ? undefined : onThumb}
-                  collab={boardCollab.enabled ? boardCollab : null} onApi={setBoardApi} presentSignal={presentTick} />
+                  collab={boardCollab.enabled ? boardCollab : null} onApi={setBoardApi} presentSignal={presentTick}
+                  me={{ email: myEmail, name: myName }} focusPin={focusPin}
+                  people={[note.owner, ...(note.sharedWith || []).map((x) => x.email)].filter(Boolean).map((e) => ({ email: e, name: nameOf(e) === 'You' ? myName : nameOf(e) }))} />
               </Suspense>
             </div>
           ) : eligible && collab.phase !== 'ready' && collab.phase !== 'failed'
@@ -963,7 +965,8 @@ export default function NotesPage({ activeSub, onSubChange }) {
   }, [fit]);
 
   const askNewBoard = activeSub === NEW_BOARD_SUB;
-  const selectedId = (activeSub || '').startsWith('notes:') && !askNewBoard ? activeSub.slice(6) : '';
+  // notes:<id>~<pin>: a board comment's mention bell opens the board at its comment (11/10/2026).
+  const [selectedId, focusPin = ''] = ((activeSub || '').startsWith('notes:') && !askNewBoard ? activeSub.slice(6) : '').split('~');
   // Opening a note is looking at it: its Updated dot goes (the server marks it seen too).
   useEffect(() => {
     if (selectedId) setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === selectedId && x.unseen ? { ...x, unseen: false } : x)) } : d));
@@ -1252,7 +1255,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
             </div>
           )
           : (
-            <NotePane key={selectedId || 'none'} id={selectedId} people={people} onBack={() => select('')} onSaved={onSaved}
+            <NotePane key={selectedId || 'none'} id={selectedId} focusPin={focusPin} people={people} onBack={() => select('')} onSaved={onSaved}
               onTrashChanged={onTrashChanged} full={full} onToggleFull={() => setFull((f) => !f)} isPhone={isPhone} toast={toast} myEmail={myEmail}
               onDuplicate={duplicateNote} backTo={backTo} onOpen={select} />
           ))}

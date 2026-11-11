@@ -1,17 +1,19 @@
 // New Board asks what to start from (11/02/2026): Blank, Grid, Kanban,
-// Timeline, Floor Plan. A question, so the shared Modal stays a centered card
+// Timeline, Floor Plan; and (11/10/2026) Retro, Kickoff, SWOT, Fishbone,
+// Site Walk, Weekly Huddle. A question, so the shared Modal stays a centered card
 // on a desktop (placement="center"); on a phone it is the full-screen sheet
 // the Modal already draws there.
 //
 // Your Templates (Neil, 11/06/2026): the person's own boards marked Use as
 // Template (view=templates) sit above; picking one copies its drawing.
 import { useEffect, useState } from 'react';
-import { LayoutTemplate, Grid3x3, Columns3, CalendarRange, Home, PenTool } from 'lucide-react';
+import { LayoutTemplate, Grid3x3, Columns3, CalendarRange, Home, PenTool, RotateCcw, Flag, LayoutGrid, GitBranch, MapPin, Users } from 'lucide-react';
 import { Modal } from '../../tasks/components';
 import { api } from '../../api';
 import { TEMPLATES } from './templates';
 
-const ICONS = { blank: LayoutTemplate, grid: Grid3x3, kanban: Columns3, timeline: CalendarRange, floorplan: Home };
+const ICONS = { blank: LayoutTemplate, grid: Grid3x3, kanban: Columns3, timeline: CalendarRange, floorplan: Home,
+  retro: RotateCcw, kickoff: Flag, swot: LayoutGrid, fishbone: GitBranch, sitewalk: MapPin, huddle: Users };
 
 export default function TemplatePicker({ onPick, onPickBoard, onClose, busy = false }) {
   const [mine, setMine] = useState([]);

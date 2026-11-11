@@ -6,7 +6,7 @@ import { parseScene, SCENE_TYPE } from './scene';
 
 describe('board templates', () => {
   it('offers Blank, Grid, Kanban, Timeline and Floor Plan, each a parseable nexus-board scene', () => {
-    expect(TEMPLATES.map((t) => t.key)).toEqual(['blank', 'grid', 'kanban', 'timeline', 'floorplan']);
+    expect(TEMPLATES.map((t) => t.key)).toEqual(['blank', 'grid', 'kanban', 'timeline', 'floorplan', 'retro', 'kickoff', 'swot', 'fishbone', 'sitewalk', 'huddle']);
     for (const t of TEMPLATES) {
       const str = templateScene(t.key);
       const s = parseScene(str);
@@ -48,6 +48,40 @@ describe('board templates', () => {
     const texts = parseScene(templateScene('timeline')).elements.filter((e) => e.type === 'text').map((e) => e.text);
     const dates = texts.filter((t) => /^\d{2}\/\d{2}\/\d{4}$/.test(t));
     expect(dates).toHaveLength(7);
+  });
+
+  const frameNames = (key) => parseScene(templateScene(key)).elements.filter((e) => e.type === 'frame').map((f) => f.name);
+  const texts = (key) => parseScene(templateScene(key)).elements.filter((e) => e.type === 'text').map((e) => e.text);
+
+  it('the facilitation templates carry their named frames', () => {
+    expect(frameNames('retro')).toEqual(['What Went Well', 'What Did Not', 'What We Will Try']);
+    expect(frameNames('kickoff')).toEqual(['Goals', 'Scope', 'People and Roles', 'Risks', 'First Milestones']);
+    expect(frameNames('swot')).toEqual(['Strengths', 'Weaknesses', 'Opportunities', 'Threats']);
+    expect(frameNames('sitewalk')).toEqual(['Stop 1', 'Stop 2', 'Stop 3', 'Stop 4', 'Stop 5', 'Stop 6']);
+    expect(frameNames('huddle')).toEqual(['Wins', 'Priorities This Week', 'Blockers', 'Shout-Outs']);
+    for (const key of ['retro', 'kickoff', 'swot', 'sitewalk', 'huddle']) {
+      const frames = parseScene(templateScene(key)).elements.filter((e) => e.type === 'frame');
+      // no two frames overlap
+      expect(new Set(frames.map((f) => `${f.x},${f.y}`)).size, key).toBe(frames.length);
+    }
+  });
+
+  it('Fishbone has a spine, a Problem head and six labeled bones', () => {
+    const els = parseScene(templateScene('fishbone')).elements;
+    expect(els.filter((e) => e.type === 'line')).toHaveLength(7);
+    expect(texts('fishbone')).toEqual(expect.arrayContaining(['Problem', 'People', 'Process', 'Equipment', 'Materials', 'Site', 'Weather', 'Write each cause on a sticky along its bone.']));
+  });
+
+  it('Site Walk and Weekly Huddle are dated in US format', () => {
+    expect(texts('sitewalk').filter((t) => /^\d{2}\/\d{2}\/\d{4}$/.test(t))).toHaveLength(1);
+    expect(texts('sitewalk')).toContain('Drop a photo and a sticky in each stop.');
+    expect(texts('huddle').some((t) => /^Week of \d{2}\/\d{2}\/\d{4}$/.test(t))).toBe(true);
+  });
+
+  it('no template copy uses an em dash', () => {
+    for (const t of TEMPLATES) {
+      expect(`${t.label} ${t.hint} ${texts(t.key).join(' ')}`, t.key).not.toMatch(/—/);
+    }
   });
 
   it('an unknown key falls back to Blank', () => {

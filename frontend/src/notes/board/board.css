@@ -364,3 +364,131 @@
 .nx-rc-detail { margin-left: auto; flex-shrink: 0; font-size: 12px; color: var(--muted); }
 .nx-rc-empty { padding: 12px 10px; font-size: 13px; color: var(--muted); }
 @media (max-width: 640px) { .nx-rc-q { font-size: 16px; } .nx-rc-row { min-height: 44px; } }
+
+/* ---- Meeting kit, stickies, threads, measure (Neil, 11/10/2026) ---- */
+/* The facilitation strip, top center: timer, vote, Private Writing. The running
+   timer is the live accent (in progress, now); a timer that ran out is red, never orange. */
+.nx-meet {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 6; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100% - 24px);
+}
+.nx-meet-item {
+  display: inline-flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; border-radius: 999px; font-size: 13px; color: var(--ink, #1c2420);
+  background: var(--card, #fff); box-shadow: 0 6px 20px rgba(15, 23, 42, .1), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+}
+.nx-meet-item.is-live > svg, .nx-meet-item.is-live .nx-meet-clock { color: var(--wk-live, #ea7a1a); }
+.nx-meet-item.is-up .nx-meet-clock, .nx-meet-item.is-up > svg { color: var(--wk-red, #b91c1c); }
+.nx-meet-clock { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 42px; }
+.nx-meet-dim { color: var(--muted, #8b958f); }
+.nx-meet-btn, .nx-meet-text {
+  display: inline-grid; place-items: center; height: 26px; min-width: 26px; padding: 0 6px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.nx-meet-btn:hover, .nx-meet-text:hover { background: var(--wk-hover, #f1f4f1); }
+.nx-meet-text { padding: 0 10px; font-weight: 600; }
+.nx-meet-text.is-primary { background: var(--wk-brand, #15803d); color: #fff; }
+.nx-meet-text.is-primary:hover { background: var(--wk-brand-hov, #166534); }
+.nx-meet-btn:focus-visible, .nx-meet-text:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
+
+/* Vote dots: one per votable item, at its top-right corner; filled = my vote. */
+.nx-vote-dot {
+  position: absolute; z-index: 6; width: 28px; height: 28px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 2px solid var(--wk-brand, #15803d); background: var(--card, #fff); box-shadow: 0 2px 8px rgba(15, 23, 42, .18);
+  transition: transform 140ms var(--ease-out, ease-out);
+}
+.nx-vote-dot:hover { transform: scale(1.1); }
+.nx-vote-dot.is-on { background: var(--wk-brand, #15803d); box-shadow: inset 0 0 0 4px var(--card, #fff), 0 2px 8px rgba(15, 23, 42, .18); }
+.nx-vote-dot:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
+
+/* The sticky composer and Private Writing's own stickies sit on the canvas. */
+.nx-sticky-compose, .nx-tray-sticky {
+  position: absolute; z-index: 7; box-sizing: border-box; border-radius: 6px; color: #1e1e1e; font-family: var(--wk-font, 'Figtree', 'Inter', sans-serif);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .16);
+}
+.nx-sticky-compose { padding: 16px; border: 2px solid var(--wk-brand, #15803d); resize: none; outline: none; text-align: center; line-height: 1.25; }
+.nx-tray-sticky { padding: 14px; border: 2px dashed rgba(30, 30, 30, .35); display: flex; align-items: center; justify-content: center; text-align: center; overflow: hidden; cursor: text; }
+.nx-tray-words { white-space: pre-wrap; overflow-wrap: anywhere; }
+.nx-tray-tag { position: absolute; left: 10px; bottom: 8px; font-size: 11px; font-weight: 600; color: rgba(30, 30, 30, .6); }
+.nx-tray-x { position: absolute; right: 6px; top: 6px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .7); color: #1e1e1e; cursor: pointer; }
+
+/* The measure preview while a length or an area is drawn. */
+.nx-measure-preview { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 6; pointer-events: none; overflow: visible; }
+
+/* Selected stickies: Make Tasks, Sort - above the markup bar. */
+.nx-sel-pill {
+  position: absolute; left: 50%; bottom: 74px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 2px; padding: 4px;
+  border-radius: 12px; background: var(--card, #fff); box-shadow: 0 8px 24px rgba(15, 23, 42, .12), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+  animation: nx-mk-rise 180ms var(--ease-out, ease-out) both; --nx-mk-x: -50%;
+}
+.nx-sel-pill button {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent;
+  color: var(--ink, #1c2420); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.nx-sel-pill button:hover { background: var(--wk-hover, #f1f4f1); }
+.nx-sel-pill button:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 1px; }
+.nx-sel-count { padding: 0 8px 0 6px; font-size: 12.5px; color: var(--muted, #8b958f); white-space: nowrap; }
+.nx-sel-sort { position: relative; }
+.nx-sel-menu {
+  position: absolute; bottom: calc(100% + 8px); left: 0; display: flex; flex-direction: column; min-width: 170px; padding: 4px; border-radius: 12px;
+  background: var(--card, #fff); box-shadow: 0 10px 28px rgba(15, 23, 42, .14), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+}
+.nx-sel-menu button { justify-content: flex-start; font-weight: 500; }
+.nx-board.is-phone .nx-sel-pill { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+
+/* The ink tray's Ink to Shape switch (the pen only). */
+.nx-mk-switch { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink, #1c2420); cursor: pointer; }
+.nx-mk-switch input { accent-color: var(--wk-brand, #15803d); width: 16px; height: 16px; margin: 0; }
+
+/* A comment's thread, beside its pin; a phone's is a sheet along the bottom. */
+.nx-th {
+  position: absolute; z-index: 7; width: 320px; max-height: 360px; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden;
+  background: var(--card, #fff); color: var(--ink, #1c2420); font-size: 13.5px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, .16), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+  animation: nx-mk-fade 180ms var(--ease-out, ease-out) both;
+}
+.nx-th.is-phone { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-height: 60%; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); z-index: 9; }
+.nx-th-head { display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--line, rgba(0, 0, 0, .08)); }
+.nx-th-title { flex: 1; font-weight: 700; }
+.nx-th-btn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.nx-th-btn.is-icon { width: 28px; padding: 0; justify-content: center; }
+.nx-th-btn:hover { background: var(--wk-hover, #f1f4f1); }
+.nx-th-list { flex: 1 1 auto; overflow-y: auto; padding: 4px 14px; }
+.nx-th-entry { padding: 9px 0; border-bottom: 1px solid var(--line, rgba(0, 0, 0, .06)); }
+.nx-th-entry:last-child { border-bottom: 0; }
+.nx-th-who { display: flex; align-items: baseline; gap: 8px; font-weight: 600; font-size: 12.5px; }
+.nx-th-who time { font-weight: 400; color: var(--muted, #8b958f); font-size: 11.5px; }
+.nx-th-text { margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
+.nx-th-resolved { padding: 8px 0 10px; font-size: 12px; color: var(--muted, #8b958f); }
+.nx-th-compose { position: relative; padding: 10px 12px; border-top: 1px solid var(--line, rgba(0, 0, 0, .08)); }
+.nx-th-compose textarea {
+  width: 100%; box-sizing: border-box; resize: none; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line, rgba(0, 0, 0, .12));
+  background: var(--card, #fff); color: var(--ink, #1c2420); font: inherit; font-size: 13.5px; line-height: 1.4;
+}
+.nx-th-compose textarea:focus { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -1px; border-color: transparent; }
+.nx-th-people {
+  position: absolute; left: 12px; right: 12px; bottom: calc(100% - 6px); display: flex; flex-direction: column; padding: 4px; border-radius: 10px;
+  background: var(--card, #fff); box-shadow: 0 10px 28px rgba(15, 23, 42, .14), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
+}
+.nx-th-people button { text-align: left; height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 13px; cursor: pointer; }
+.nx-th-people button.is-on, .nx-th-people button:hover { background: var(--wk-brand-tint, #e3f3e8); }
+.nx-th-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.nx-th-hint { font-size: 11.5px; color: var(--muted, #8b958f); }
+.nx-th-post { height: 30px; padding: 0 14px; border: 0; border-radius: 8px; background: var(--wk-brand, #15803d); color: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.nx-th-post:disabled { opacity: .45; cursor: default; }
+.nx-board.is-presenting .nx-meet, .nx-board.is-presenting .nx-sel-pill { display: none; }
+
+/* The Storage Site Kit sheet: the KB drawings in the app's tokens. */
+.nx-kit {
+  --kb-green: var(--wk-brand, #15803d); --kb-green-soft: var(--wk-brand-tint, #e3f3e8); --kb-ink: var(--ink, #1c2420); --kb-dim: var(--muted, #8b958f);
+  --kb-line: var(--line, rgba(0, 0, 0, .1)); --kb-card: var(--card, #fff); --kb-paper: var(--wk-hover, #f4f5f7); overflow-y: auto;
+}
+.nx-kit-hint { margin: 0 0 12px; color: var(--muted, #8b958f); font-size: 13px; }
+.nx-kit-group h3 { margin: 14px 0 8px; font-size: 14px; font-weight: 700; }
+.nx-kit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.nx-kit-item {
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 8px; border: 1px solid var(--line, rgba(0, 0, 0, .08)); border-radius: 10px;
+  background: var(--card, #fff); color: var(--ink, #1c2420); font: inherit; font-size: 12.5px; cursor: pointer; text-align: center;
+}
+.nx-kit-item:hover { border-color: var(--wk-brand, #15803d); }
+.nx-kit-item:disabled { opacity: .6; cursor: default; }
+.nx-kit-item svg { width: 100%; height: auto; }

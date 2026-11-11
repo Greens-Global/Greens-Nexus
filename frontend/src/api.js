@@ -3406,6 +3406,9 @@ export const api = {
   // light (a board's carry shapes / words, never its scene); this one
   // carries the board's scene for a preview or a restore.
   noteVersionGet: (noteId, versionId) => req(`/notes/${encodeURIComponent(noteId)}/versions/${encodeURIComponent(versionId)}`),
+  // Board comment @mentions bell the board's own people (Neil, 11/10/2026):
+  // body { pin, text, emails } -> { sent, skipped }.
+  boardMentions: (noteId, body) => req(`/notes/${encodeURIComponent(noteId)}/board-mentions`, { method: "POST", body: JSON.stringify(body) }),
   // The weather follows the jobsite (10/30/2026): "+ New Jobsite" in the
   // shift popup - a name and an address make a Construction project.
   createJobsite: (data) => req("/timeclock/jobsites", { method: "POST", body: JSON.stringify(data) }),

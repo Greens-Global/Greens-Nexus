@@ -6,7 +6,7 @@ import { FONT_HAND, FONT_SANS } from './scene';
 
 describe('markup tools', () => {
   it('offers the reviewer set, in order', () => {
-    expect(MARKUP_TOOLS.map((t) => t.key)).toEqual(['select', 'hand', 'pen', 'highlight', 'arrow', 'box', 'text', 'comment', 'eraser']);
+    expect(MARKUP_TOOLS.map((t) => t.key)).toEqual(['select', 'hand', 'pen', 'highlight', 'sticky', 'arrow', 'box', 'text', 'comment', 'eraser']);
   });
 
   it('draws the highlighter wide and see-through, the pen solid at the picked width', () => {
