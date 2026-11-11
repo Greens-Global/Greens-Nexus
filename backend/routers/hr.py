@@ -282,7 +282,14 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
               .filter(NexusEmployee.deleted_at != "", NexusEmployee.deleted_at.isnot(None)))
     rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
     tiers = __import__("auth").tiers_by_email(db)
-    out = [_team_view(_serialize(e, tiers=tiers)) for e in rows] if is_team_scope(scope) else [_serialize(e, tiers=tiers) for e in rows]
+    if is_team_scope(scope):
+        out = [_team_view(_serialize(e, tiers=tiers)) for e in rows]
+    else:
+        sees_pay = _has_comp(user, db)
+        out = [_serialize(e, tiers=tiers) for e in rows]
+        if not sees_pay:
+            for o in out:
+                o["contractor"] = {k: v for k, v in (o.get("contractor") or {}).items() if k not in _CONTRACTOR_PAY}
     # More Details values (Oct 27 2026), filtered per caller - never HR Only for a manager.
     import hr_custom_fields
     hr_custom_fields.attach_list_values(db, user, rows, out)
@@ -298,6 +305,15 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
     for o in out:
         o["backupManager"], o["backupManagerSource"] = backup_manager.resolve(
             (o.get("workEmail") or "").strip().lower(), people, hr_contacts)
+    return out
+
+
+def _pay_view(out: dict, user: dict, db: Session) -> dict:
+    """A serialized person as THIS caller may read it: a contractor's rate,
+    currency and billing rate only with the Pay & Benefits grant (_has_comp) -
+    the rate is pay, like a salary (People review, 11/11/2026)."""
+    if isinstance(out, dict) and isinstance(out.get("contractor"), dict) and not _has_comp(user, db):
+        out["contractor"] = {k: v for k, v in out["contractor"].items() if k not in _CONTRACTOR_PAY}
     return out
 
 
@@ -422,7 +438,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         db.query(HrRemovedIdentity).filter(HrRemovedIdentity.work_email == _wemail).delete()
     db.commit()
     db.refresh(row)
-    return _with_backup(db, _serialize(row, db=db))
+    return _pay_view(_with_backup(db, _serialize(row, db=db)), user, db)
 
 
 def _check_identity_fields(db: Session, row: NexusEmployee, fields: dict, scope) -> None:
@@ -493,6 +509,22 @@ def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: di
     if first_name is not None and not first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
     _check_identity_fields(db, row, fields, scope)
+    # A record block is MERGED, never replaced (People review, 11/11/2026): the
+    # screens send only the keys that changed, so a block read when the page
+    # opened cannot write back a next invoice number a finalized period moved
+    # on, or an emergency contact the person changed in My HR. A key sent as
+    # "" clears it (the normalizers drop an empty PAN / invoice number).
+    for key in ("contractor", "personal", "compliance"):
+        if isinstance(fields.get(key), dict):
+            fields = {**fields, key: {**(getattr(row, key, None) or {}), **fields[key]}}
+    # A contractor's rate is pay (Neil, 11/11/2026: "fix what you think"): only
+    # the Pay & Benefits grant reads or changes it - the same rule as an
+    # employee's salary. Everyone else's save keeps the stored rate.
+    if isinstance(fields.get("contractor"), dict) and not _has_comp(user, db):
+        held = row.contractor or {}
+        for k in _CONTRACTOR_PAY:
+            if str(fields["contractor"].get(k) or "") != str(held.get(k) or ""):
+                raise HTTPException(403, "Only Pay & Benefits changes a contractor's rate.")
     changes: dict = {}
     old_start = row.start_date or ""
     is_external = (row.identity_type or "internal") in ("guest", "external")
@@ -514,6 +546,18 @@ def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: di
             changes[key] = (before, value)
         setattr(row, key, value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
+    if "status" in changes:
+        # A status set by the profile save (or Workflows' Set A Person Detail)
+        # is a status change like Change Status's: it goes in the Status
+        # History and fires "Person Status Changes" (People review, 11/11/2026).
+        old_status, new_status = changes["status"]
+        log = list(row.status_log or [])
+        log.insert(0, {"from": old_status or "", "to": new_status, "reason": source or "Profile Save",
+                       "effectiveDate": "", "by": user["email"].lower(), "at": row.updated_at})
+        row.status_log = log
+        workflows.emit(db, "employee.status_changed", subject=row, actor=user["email"].lower(),
+                       changes={"status": (old_status or "", new_status)},
+                       extra={"reason": source or "Profile Save", "effectiveDate": ""})
     if "work_email" in changes and not changes["work_email"][0]:
         adopt_pending_pay(db, row, user["email"])
     if "start_date" in changes:   # probation follows the start date (hr_probation.py)
@@ -593,7 +637,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     fields = body.model_dump(exclude_unset=True)
     changes = apply_profile_update(db, row, fields, user, scope=hr_scope(user, db))
     out = _with_backup(db, _serialize(row, db=db))
-    return mirror_profile_to_entra(db, row, fields, changes, out)
+    return _pay_view(mirror_profile_to_entra(db, row, fields, changes, out), user, db)
 
 
 @router.post("/employees/{eid}/m365-sync")
@@ -615,7 +659,7 @@ def sync_employee_m365(eid: str, user: dict = Depends(require_hr_write), db: Ses
     except Exception as e:
         raise HTTPException(502, f"Microsoft 365 did not answer: {str(e)[:160]}")
     db.refresh(row)
-    out = _serialize(row, db=db)
+    out = _pay_view(_serialize(row, db=db), user, db)
     out["m365Result"] = result
     out["m365Result"]["writesEnabled"] = _entra_writes_enabled()
     return out
@@ -675,7 +719,7 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
         raise HTTPException(404, "That person no longer exists in Nexus")
     _assert_scope(row, hr_scope(user, db))
     if not row.deleted_at:
-        return {"ok": True, **_serialize(row, db=db)}
+        return {"ok": True, **_pay_view(_serialize(row, db=db), user, db)}
 
     q = db.query(HrRemovedIdentity)
     conds = []
@@ -691,7 +735,7 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     db.refresh(row)
-    return {"ok": True, **_serialize(row, db=db)}
+    return {"ok": True, **_pay_view(_serialize(row, db=db), user, db)}
 
 
 # ── Hiring pipeline (Phase 2) ─────────────────────────────────────────────────
@@ -1357,7 +1401,7 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
     out = _ser_candidate(row)
     if created_employee:
         db.refresh(created_employee)
-        out["createdEmployee"] = _serialize(created_employee, db=db)
+        out["createdEmployee"] = _pay_view(_serialize(created_employee, db=db), user, db)
     return out
 
 
@@ -2373,7 +2417,7 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
         "steps": [{"step": s.step, "status": s.status, "detail": s.detail}
                   for s in sorted(steps.values(), key=lambda x: x.ordinal)],
         "tempPassword": temp_password if user_id else None,
-        "employee": _serialize(emp, db=db),
+        "employee": _pay_view(_serialize(emp, db=db), user, db),
     }
 
 
@@ -2474,7 +2518,7 @@ def upload_photo(eid: str, file: UploadFile = File(...),
     import avatar_files   # the replaced photo leaves storage (11/02/2026)
     avatar_files.forget(db, old, emp.id)
     db.refresh(emp)
-    return _serialize(emp, db=db)
+    return _pay_view(_serialize(emp, db=db), user, db)
 
 
 # The M365 directory import is scoped to the company's own domains only. Guests
@@ -3065,6 +3109,43 @@ def _check_signatory_email(db: Session, email: str) -> str:
     return e
 
 
+def _check_hr_contacts(db: Session, value: str, held: str = "") -> str:
+    """The HR contact: one email or a comma list (hr_access.hr_contacts), each
+    NEW one an active person in Nexus People - never a free email. Ones the
+    company already holds (`held`) are not re-judged, so a save never fails
+    on a contact set before this check."""
+    emails = [e.strip().lower() for e in (value or "").split(",") if e.strip()]
+    kept = {e.strip().lower() for e in (held or "").split(",") if e.strip()}
+    for e in [x for x in emails if x not in kept]:
+        if not (db.query(NexusEmployee.id)
+                  .filter(func.lower(NexusEmployee.work_email) == e,
+                          NexusEmployee.status.in_(("active", "onboarding"))).first()):
+            raise HTTPException(400, f"The HR Contact must be an active person in Nexus People - {e} is not.")
+    return ", ".join(dict.fromkeys(emails))
+
+
+# Holding either of these makes a person HR for the company (hr_access) or its
+# signer: reading confidential HR tickets, final approvals, HR Only fields,
+# finalizing probation. A People editor grant alone must not hand that to
+# anyone - themselves included (People review, Neil 11/11/2026: "fix what you
+# think"). Only wide HR (an Administrator / Super Administrator, or Full
+# People) inside their reach changes them; the form may send its copy back.
+_HR_POWER_FIELDS = {"hr_contact_email": "HR Contact", "signatory_email": "Authorized Signatory"}
+
+
+def _guard_hr_power_fields(db: Session, user: dict, row, fields: dict) -> None:
+    import hr_access
+    if hr_access.wide_hr(db, user):
+        return
+    for key, label in _HR_POWER_FIELDS.items():
+        new = fields.get(key)
+        if new is None:
+            continue
+        norm = lambda v: sorted(e.strip().lower() for e in (v or "").split(",") if e.strip())  # noqa: E731
+        if norm(new) != norm(getattr(row, key, "") if row is not None else ""):
+            raise HTTPException(403, f"Only an Administrator or a Full People grant can set the {label}.")
+
+
 def _norm_manager_emails(manager_email, manager_emails) -> tuple:
     """Normalize whichever of manager_email/manager_emails a caller sent into
     (mirror_email, emails_list) - manager_emails (the list) wins when both are
@@ -3125,6 +3206,8 @@ def list_entities(user: dict = Depends(require_hr_read), db: Session = Depends(g
 @router.post("/entities")
 def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     _require_unrestricted(user, db)
+    _guard_hr_power_fields(db, user, None, {"hr_contact_email": body.hr_contact_email,
+                                            "signatory_email": body.signatory_email})
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     now = datetime.now(timezone.utc).isoformat()
@@ -3144,7 +3227,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         notes=body.notes or "",
         domains=_norm_domains(body.domains or ""),
         manager_email=mgr_email, manager_emails=mgr_emails,
-        hr_contact_email=(body.hr_contact_email or "").strip().lower(),
+        hr_contact_email=_check_hr_contacts(db, body.hr_contact_email or ""),
         it_contact_email=(body.it_contact_email or "").strip().lower(),
         signatory_email=_check_signatory_email(db, body.signatory_email or ""),
         invoice_recipients=_norm_emails(body.invoice_recipients),
@@ -3187,6 +3270,7 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             raise HTTPException(400, "Signature color must be a hex color such as #1f8a4d")
         body.signature_color = email_theme.normalize_hex(color) or ""
     fields = body.model_dump(exclude_unset=True)
+    _guard_hr_power_fields(db, user, row, fields)
     # manager_emails (the list) is the source of truth whenever the request sends
     # it - skip the plain manager_email key entirely so processing order can't
     # make a stale single value win over it (matches _norm_manager_emails).
@@ -3196,7 +3280,9 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             continue
         if key == "domains":
             value = _norm_domains(value)
-        elif key in ("manager_email", "hr_contact_email", "it_contact_email"):
+        elif key == "hr_contact_email":
+            value = _check_hr_contacts(db, value, row.hr_contact_email or "")
+        elif key in ("manager_email", "it_contact_email"):
             value = value.strip().lower()
         elif key == "signatory_email":
             value = _check_signatory_email(db, value)
@@ -5666,7 +5752,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     # here to re-run a mailbox / license step (did_change is False then).
     if body.status == "offboarded" and (row.status or "") != "offboarded":
         raise HTTPException(400, OFFBOARD_ONLY)
-    return apply_status_change(db, row, body, user["email"])
+    return _pay_view(apply_status_change(db, row, body, user["email"]), user, db)
 
 
 def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, actor: str) -> dict:
@@ -5896,11 +5982,39 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
             return
         job.status = "running"; job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
         headers = {"Authorization": f"Bearer {_graph_token()}"}
+
+        def graph_get(url: str, **kw) -> httpx.Response:
+            """One Graph read that survives a long export (People review,
+            11/11/2026): an expired token is renewed once (an app token lasts
+            about an hour, a big mailbox takes longer), and a throttle (429) or
+            a server error is retried with backoff - Retry-After when Graph
+            gives it - before the answer is taken as it is."""
+            renewed, extra = False, kw.get("extra_headers") or {}
+            for attempt in range(5):
+                try:
+                    r = httpx.get(url, headers={**headers, **extra}, timeout=60)
+                except httpx.HTTPError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(2 ** attempt)
+                    continue
+                if r.status_code == 401 and not renewed:
+                    headers["Authorization"] = f"Bearer {_graph_token()}"
+                    renewed = True
+                    continue
+                if r.status_code == 429 or r.status_code >= 500:
+                    if attempt == 4:
+                        return r
+                    wait = r.headers.get("Retry-After", "")
+                    time.sleep(min(int(wait), 60) if wait.isdigit() else 2 ** attempt)
+                    continue
+                return r
+            return r
+
         # Total up front so the UI can show a real progress bar (best-effort - a
         # 401/403 here means Mail.Read isn't consented; the message loop reports it).
         try:
-            cr = httpx.get(f"{_GRAPH}/users/{m365_id}/messages/$count",
-                           headers={**headers, "ConsistencyLevel": "eventual"}, timeout=30)
+            cr = graph_get(f"{_GRAPH}/users/{m365_id}/messages/$count", extra_headers={"ConsistencyLevel": "eventual"})
             if cr.is_success and cr.text.strip().isdigit():
                 job.total = min(int(cr.text.strip()), _EXPORT_MSG_CAP)
                 job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
@@ -5908,11 +6022,16 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
             pass
         tf = tempfile.NamedTemporaryFile(suffix=".zip", delete=False); tf.close(); tmp_path = tf.name
         count = 0
+        skipped = []   # messages Graph would not hand over, even after retries - listed, never silent
+        capped = False
         used = set()   # keep zip entry names unique + readable
         with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
             url = f"{_GRAPH}/users/{m365_id}/messages?$select=id,subject,receivedDateTime,from,toRecipients&$top=100"
-            while url and count < _EXPORT_MSG_CAP:
-                r = httpx.get(url, headers=headers, timeout=60)
+            while url:
+                if count >= _EXPORT_MSG_CAP:
+                    capped = True
+                    break
+                r = graph_get(url)
                 if r.status_code in (401, 403):
                     raise RuntimeError("Graph denied mailbox read - grant the Mail.Read application permission and admin consent.")
                 if not r.is_success:
@@ -5922,29 +6041,57 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
                     mid = m.get("id")
                     if not mid:
                         continue
-                    mime = httpx.get(f"{_GRAPH}/users/{m365_id}/messages/{mid}/$value", headers=headers, timeout=60)
-                    if not mime.is_success:
+                    if count >= _EXPORT_MSG_CAP:
+                        capped = True
+                        break
+                    try:
+                        mime = graph_get(f"{_GRAPH}/users/{m365_id}/messages/{mid}/$value")
+                    except httpx.HTTPError as e:
+                        mime = None
+                        why = type(e).__name__
+                    if mime is None or not mime.is_success:
+                        skipped.append(f"{m.get('receivedDateTime') or ''}\t{(m.get('subject') or '(no subject)')[:200]}"
+                                       f"\t{why if mime is None else mime.status_code}")
                         continue
                     zf.writestr(_export_filename(m, used), mime.content)
                     count += 1
                     # Publish progress every 25 messages so pollers see live movement.
                     if count % 25 == 0:
                         job.count = count; job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
-                    if count >= _EXPORT_MSG_CAP:
-                        break
+                if capped:
+                    break
                 url = data.get("@odata.nextLink")
-        with open(tmp_path, "rb") as fh:
-            content = fh.read()
+            if skipped:
+                zf.writestr("SKIPPED.txt", "Messages Microsoft 365 would not hand over (received, subject, reason):\n"
+                            + "\n".join(skipped) + "\n")
         path = f"exports/{job.employee_id}/{job_id}.zip"
+        size = os.path.getsize(tmp_path)
+
+        def chunks():
+            # Streamed from disk, never read whole into the API's memory.
+            with open(tmp_path, "rb") as fh:
+                while True:
+                    block = fh.read(1 << 20)
+                    if not block:
+                        return
+                    yield block
+
         up = httpx.post(
             f"{_SUPABASE_URL}/storage/v1/object/{_EXPORT_BUCKET}/{path}",
-            headers={**_storage_headers(), "Content-Type": "application/zip", "x-upsert": "true"},
-            content=content, timeout=300,
+            headers={**_storage_headers(), "Content-Type": "application/zip", "x-upsert": "true",
+                     "Content-Length": str(size)},
+            content=chunks(), timeout=600,
         )
         if not up.is_success:
             raise RuntimeError(f"Upload failed: {up.text[:200]}")
         job.storage_path = path; job.count = count; job.status = "done"
-        job.message = f"{count} message{'s' if count != 1 else ''} exported"
+        # The message says what is NOT in the file too - an export is offboarding evidence.
+        parts = [f"{count} message{'s' if count != 1 else ''} exported"]
+        if skipped:
+            parts.append(f"{len(skipped)} could not be read (listed in SKIPPED.txt)")
+        if capped:
+            parts.append(f"stopped at the {_EXPORT_MSG_CAP:,}-message limit")
+        job.message = "; ".join(parts)
         job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
     except Exception as e:
         try:

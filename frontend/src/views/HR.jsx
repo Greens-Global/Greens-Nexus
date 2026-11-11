@@ -1130,6 +1130,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           {shownTab === 'job' && (
             <>
               <JobTab e={e} employees={employees} companyName={companyName} viewerEmail={viewerEmail} canEdit={canEdit} isRemoved={isRemoved}
+                canSeePay={canSeeComp && !teamView}
                 empTypes={EMP_TYPES} statusLabel={isRemoved ? 'Removed' : sm.label}
                 onChangeStatus={!teamView && !isRemoved ? () => setStatusOpen(true) : null}
                 focusProbation={focusProbation} onReload={onReload}
@@ -2594,7 +2595,11 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const blank = { name: '', legal_name: '', country: '', region: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', it_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
-  const { can, hrScope } = useRole();
+  const { can, hrScope, canAccessModule } = useRole();
+  // The HR Contact and the Authorized Signatory make a person HR for the
+  // company / its signer: only an Administrator or a Full People grant sets
+  // them (the server refuses anyone else - People review, 11/11/2026).
+  const setsHrRoles = canAccessModule('hr', 'administrator', 'full');
   // Company-wide People access (hr_scope null). A caller limited to some
   // companies (or to a manager's own team) edits their companies' profiles
   // but never adds or deletes a company, sets the group manager or changes
@@ -2793,7 +2798,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>AUTHORIZED SIGNATORY (PERSON)</label>
                   <PersonSelect value={(f.signatory_email || '').toLowerCase() || null} onChange={v => set('signatory_email', v || '')}
-                    people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"
+                    people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set" disabled={!setsHrRoles}
                     ariaLabel="Authorized Signatory (Person)" style={PICK_BOX} />
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs HR packets for the company when a packet's signing order says Authorized Signatory.</div>
                   {f.signatory_email && f.signatory.trim() && personName(f.signatory_email)
@@ -2832,9 +2837,14 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>HR CONTACT</label>
                   <PersonSelect value={(f.hr_contact_email || '').toLowerCase() || null} onChange={v => set('hr_contact_email', v || '')}
-                    people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"
+                    people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set" disabled={!setsHrRoles}
                     ariaLabel="HR Contact" style={PICK_BOX} />
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
+                  {!setsHrRoles && (
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+                      Only an Administrator or a Full People grant changes the HR Contact and the Authorized Signatory.
+                    </div>
+                  )}
                 </div>
                 {/* Named in the welcome email once a new hire's paperwork is signed (Pranshu, 11/04/2026). */}
                 <div style={{ gridColumn: '1 / -1' }}>

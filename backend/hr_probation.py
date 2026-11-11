@@ -786,6 +786,13 @@ def decline_pending(db: Session, user: dict, emp: NexusEmployee, note: str) -> d
     if not p:
         raise ProbationError("There is no recommendation waiting.", 409)
     rec["pending"] = None
+    # Declined after the end date: HR is deciding this one, so the next
+    # morning's automatic pass must not decide it for them (People review,
+    # 11/11/2026) - it waits for HR's own Confirm / Extend / End. The hold is
+    # for THIS end date only; a new end date lifts it.
+    end = _parse(rec.get("endDate", ""))
+    if end is not None and end < _today():
+        rec["autoPassHeldFor"] = rec.get("endDate", "")
     _log(rec, user["email"], "recommendation_declined", reason=note, note=DECISION_LABELS.get(p.get("decision"), ""))
     _save(emp, rec)
     _close_bells(db, emp)
@@ -1222,6 +1229,8 @@ def _passable(emp: NexusEmployee, today: date) -> bool:
     rec = record(emp)
     if (emp.status or "active") not in LIVE or rec.get("status") not in OPEN or rec.get("pending"):
         return False
+    if rec.get("autoPassHeldFor") and rec.get("autoPassHeldFor") == rec.get("endDate", ""):
+        return False   # HR declined a recommendation past the end: HR decides (decline_pending)
     end = _parse(rec.get("endDate", ""))
     return end is not None and end < today
 

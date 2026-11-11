@@ -6,7 +6,7 @@ import { DateField } from '../tasks/components';
 import { PaperworkStatus } from '../components/HiringPacket';
 import { useTabDraft } from './useTabDraft';
 import { Row, SectionHead, Field, EditButton, TabSaveRow } from './shared';
-import { BOX, DATE_BOX, GRID, HINT, maskId, daysUntil } from './lib';
+import { BOX, DATE_BOX, GRID, HINT, maskId, daysUntil, changedKeys } from './lib';
 
 // ── Right-to-work & compliance (HR Section B - open to HR) ───────────────────
 // Edited in place (11/03/2026). The only editable home of the PAN (India):
@@ -35,7 +35,9 @@ export default function ComplianceTab({ e, canEdit = false, paperworkKey, onSave
     onSave: async (draft) => {
       if (draft.pan && !PAN_RE.test(draft.pan)) return false;
       try {
-        const out = await api.updateEmployee(e.id, { compliance: draft });
+        const body = changedKeys(saved, draft);   // only what changed; the server merges it
+        if (!Object.keys(body).length) return true;
+        const out = await api.updateEmployee(e.id, { compliance: body });
         onSaved?.(out);
         return true;
       } catch (err) { toastErr(err?.message || 'Could not save.'); return false; }

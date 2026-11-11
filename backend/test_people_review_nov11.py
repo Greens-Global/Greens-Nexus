@@ -239,5 +239,145 @@ class PeopleReviewTests(unittest.TestCase):
             db.close()
 
 
+    # ── Neil, 11/11/2026: "fix what you think" ───────────────────────────────
+    def test_only_wide_hr_sets_the_hr_contact_or_signatory(self):
+        self.as_(EDITOR)                                    # People editor, not Full People
+        r = self.client.patch(f"/hr/entities/{A}", json={"hr_contact_email": EDITOR})
+        self.assertEqual(r.status_code, 403, r.text)
+        r = self.client.patch(f"/hr/entities/{A}", json={"signatory_email": EDITOR})
+        self.assertEqual(r.status_code, 403, r.text)
+        r = self.client.patch(f"/hr/entities/{A}", json={"hr_contact_email": f"{ADA},hr1{D}", "notes": "x"})
+        self.assertEqual(r.status_code, 200, r.text)        # the form's own copy back is fine
+        self.as_(SUPER)
+        r = self.client.patch(f"/hr/entities/{A}", json={"hr_contact_email": "nobody@greensglobal.com"})
+        self.assertEqual(r.status_code, 400, r.text)        # an active person in People, never a free email
+        r = self.client.patch(f"/hr/entities/{A}", json={"hr_contact_email": BEN})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def _contractor(self):
+        db = self._db()
+        db.query(models.NexusEmployee).filter_by(id="e-ben").update(
+            {"contractor": {"rate": "85", "rate_type": "hourly", "currency": "USD", "invoice_next_number": 7,
+                            "scope": "Dev"}})
+        db.commit()
+        db.close()
+
+    def test_a_contractors_rate_is_pay(self):
+        self._contractor()
+        self.as_(EDITOR)
+        ben = next(p for p in self.client.get("/hr/employees").json() if p["id"] == "e-ben")
+        self.assertNotIn("rate", ben["contractor"])
+        self.assertEqual(ben["contractor"]["scope"], "Dev")
+        r = self.client.patch("/hr/employees/e-ben", json={"contractor": {"scope": "Ops"}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn("rate", r.json()["contractor"])
+        r = self.client.patch("/hr/employees/e-ben", json={"contractor": {"rate": "120"}})
+        self.assertEqual(r.status_code, 403, r.text)
+        db = self._db()
+        c = db.query(models.NexusEmployee).filter_by(id="e-ben").first().contractor
+        db.close()
+        self.assertEqual((c["rate"], c["scope"]), ("85", "Ops"))   # kept, and the edit landed
+        self.as_(SUPER)
+        ben = next(p for p in self.client.get("/hr/employees").json() if p["id"] == "e-ben")
+        self.assertEqual(ben["contractor"]["rate"], "85")
+
+    def test_a_record_block_is_merged_not_replaced(self):
+        self._contractor()
+        db = self._db()
+        db.query(models.NexusEmployee).filter_by(id="e-ben").update(
+            {"personal": {"dob": "1990-01-01", "emergency": {"name": "Sam"}}})
+        db.commit()
+        db.close()
+        r = self.client.patch("/hr/employees/e-ben", json={"contractor": {"contract_end": "2027-01-31"},
+                                                          "personal": {"gender": "Male"}})
+        self.assertEqual(r.status_code, 200, r.text)
+        db = self._db()
+        e = db.query(models.NexusEmployee).filter_by(id="e-ben").first()
+        c, p = e.contractor, e.personal
+        db.close()
+        self.assertEqual((c["invoice_next_number"], c["contract_end"]), (7, "2027-01-31"))
+        self.assertEqual(p, {"dob": "1990-01-01", "emergency": {"name": "Sam"}, "gender": "Male"})
+
+    def test_a_status_set_by_the_profile_save_is_logged_and_fires(self):
+        with mock.patch("routers.hr.workflows.emit") as emit:
+            r = self.client.patch("/hr/employees/e-ben", json={"status": "inactive"})
+        self.assertEqual(r.status_code, 200, r.text)
+        db = self._db()
+        log = db.query(models.NexusEmployee).filter_by(id="e-ben").first().status_log
+        db.close()
+        self.assertEqual((log[0]["from"], log[0]["to"], log[0]["by"]), ("active", "inactive", SUPER))
+        self.assertIn("employee.status_changed", [c.args[1] for c in emit.call_args_list])
+
+    def test_a_late_declined_recommendation_waits_for_hr(self):
+        import hr_probation
+        from datetime import timedelta
+        past = (datetime.now(ZoneInfo("America/Los_Angeles")).date() - timedelta(days=5)).isoformat()
+        db = self._db()
+        try:
+            ben = db.query(models.NexusEmployee).filter_by(id="e-ben").first()
+            ben.probation = {"status": "in_probation", "startDate": "2026-05-01", "endDate": past,
+                             "pending": {"decision": "confirm", "by": ADA, "at": "2026-11-01T00:00:00"}, "log": []}
+            db.commit()
+            hr_probation.decline_pending(db, {"email": SUPER, "level": 5, "role": "owner"}, ben, "not yet")
+            db.refresh(ben)
+            today = hr_probation._today()
+            self.assertFalse(hr_probation._passable(ben, today))     # no automatic pass tomorrow
+            rec = dict(ben.probation)
+            rec["endDate"] = (datetime.fromisoformat(past) - timedelta(days=1)).date().isoformat()
+            ben.probation = rec
+            db.commit()
+            self.assertTrue(hr_probation._passable(ben, today))      # a new end date lifts the hold
+        finally:
+            db.close()
+
+    def test_a_mailbox_export_retries_and_lists_what_it_could_not_read(self):
+        import httpx
+        import zipfile
+        from routers import hr as hr_router
+        db = self._db()
+        db.add(models.HrMailboxExport(id="job1", employee_id="e-ben", requested_by=SUPER, status="pending",
+                                      created_at="2026-11-11T00:00:00", updated_at="2026-11-11T00:00:00"))
+        db.commit()
+        db.close()
+        calls = {"list": 0}
+        saved = {}
+
+        def get(url, headers=None, timeout=None):
+            req = httpx.Request("GET", url)
+            if url.endswith("$count"):
+                return httpx.Response(200, text="2", request=req)
+            if "/messages?" in url:
+                calls["list"] += 1
+                if calls["list"] == 1:                       # the token ran out mid-export
+                    return httpx.Response(401, request=req)
+                return httpx.Response(200, json={"value": [{"id": "m1", "subject": "Kept"},
+                                                           {"id": "m2", "subject": "Broken"}]}, request=req)
+            if "/m1/" in url:
+                return httpx.Response(200, content=b"mime-1", request=req)
+            return httpx.Response(503, request=req)          # never comes back
+
+        def post(url, headers=None, content=None, timeout=None):
+            saved["bytes"] = b"".join(content)
+            return httpx.Response(200, request=httpx.Request("POST", url))
+
+        with mock.patch.object(hr_router.httpx, "get", side_effect=get), \
+             mock.patch.object(hr_router.httpx, "post", side_effect=post), \
+             mock.patch.object(hr_router, "_graph_token", return_value="tok") as tok, \
+             mock.patch.object(hr_router, "_storage_headers", return_value={}), \
+             mock.patch.object(hr_router, "_SUPABASE_URL", "https://storage.test"), \
+             mock.patch.object(hr_router.time, "sleep"):
+            hr_router._run_mailbox_export("job1", "m-ben")
+        self.assertEqual(tok.call_count, 2)                  # renewed once
+        db = self._db()
+        job = db.query(models.HrMailboxExport).filter_by(id="job1").first()
+        db.close()
+        self.assertEqual(job.status, "done", job.message)
+        self.assertEqual(job.message, "1 message exported; 1 could not be read (listed in SKIPPED.txt)")
+        import io
+        names = zipfile.ZipFile(io.BytesIO(saved["bytes"])).namelist()
+        self.assertIn("SKIPPED.txt", names)
+        self.assertEqual(len(names), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
