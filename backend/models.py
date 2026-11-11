@@ -4878,6 +4878,7 @@ from construction_models import (  # noqa: E402,F401  (import for side effect: t
     VendorCompliance,
     ConstructionDrawing,
     ConstructionCommitment,
+    ConstructionOutsideLink,
 )
 
 

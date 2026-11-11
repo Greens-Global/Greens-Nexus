@@ -45,7 +45,7 @@ export function SetUp({ view, project, onDone }) {
 
 const small = { padding: '6px 12px', fontSize: '0.8rem', minHeight: 36 };
 
-function Row({ t, view, project, onChanged, canVerify, canLog, names, showState = true, local, setLocal, isPunch }) {
+function Row({ t, view, project, onChanged, canVerify, canLog, names, showState = true, local, setLocal, isPunch, subs = [] }) {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const camRef = useRef(null);
@@ -78,6 +78,15 @@ function Row({ t, view, project, onChanged, canVerify, canLog, names, showState 
     if (out) dialog.undo(`Verified: ${t.title}`, () => run('verify', () => markPunchVerified(project.id, t.id, false), { state: 'done' }));
   };
   const who = (t.assigneeIds || []).map((e) => (t.assigneeNames || {})[e] || personName(e, names)).join(', ');
+  // Round Three item 4 (11/11/2026): the sub whose item it is - their punch list link shows it.
+  const subId = over.subVendorId ?? meta.subVendorId ?? '';
+  const subName = subId ? ((subs.find((x) => x.vendorId === subId) || {}).name || subId) : '';
+  const giveTo = async (vendorId) => {
+    setBusy('sub'); setError('');
+    try { await api.setPunchSub(t.id, vendorId); remember({ subVendorId: vendorId }); onChanged(); }
+    catch (e) { setError(e.message || 'Could not give it to that sub.'); }
+    setBusy('');
+  };
   return (
     <div data-punch-row={t.id} style={{
       display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '12px 14px',
@@ -97,14 +106,21 @@ function Row({ t, view, project, onChanged, canVerify, canLog, names, showState 
           </div>
         )}
         <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-          {[who || 'No one assigned', t.dueOn ? `Due ${formatDate(t.dueOn, t.dueOn)}` : '',
+          {[subName ? `Sub: ${subName}` : (who || 'No one assigned'), t.dueOn ? `Due ${formatDate(t.dueOn, t.dueOn)}` : '',
             state === 'verified' && meta.verifiedByName ? `Verified by ${meta.verifiedByName}${meta.verifiedAt ? ` ${formatDateTime(meta.verifiedAt, '')}` : ''}` : ''].filter(Boolean).join(' · ')}
         </div>
         {error && <div role="alert" style={{ fontSize: '0.78rem', color: 'hsl(var(--color-red))', marginTop: 4 }}>{error}</div>}
       </div>
       {over.entryId && <SyncState id={over.entryId} />}
       {showState && <StatusLabel size="sm" label={label.label} color={label.color} />}
-      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+      <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+        {isPunch && canVerify && subs.length > 0 && state === 'open' && (
+          <select className="form-input" aria-label={`Sub for ${t.title}`} value={subId} disabled={!!busy}
+            onChange={(e) => giveTo(e.target.value)} style={{ ...small, width: 'auto', maxWidth: 200 }}>
+            <option value="">Our Crew</option>
+            {subs.map((x) => <option key={x.vendorId} value={x.vendorId}>{x.name}</option>)}
+          </select>
+        )}
         {canLog && state === 'open' && (
           <button className="secondary-btn" disabled={!!busy} style={small} onClick={askDone}>
             {isPunch && !photo ? <><Camera size={14} />Mark Done</> : 'Mark Done'}
@@ -177,6 +193,9 @@ export default function PunchTab({ project }) {
   const [who, setWho] = useState('');
   const [local, setLocal] = useState({});
   const [pending, setPending] = useState([]);   // items added with no signal, until the list has them
+  // The job's subs (Round Three item 4): a punch item may be given to one. Read quietly - offline or
+  // unreadable, the list simply offers no sub.
+  const { data: subsData } = useLoad(() => api.getJobSubs(project.id).catch(() => ({ subs: [] })), project.id);
   const isWorkOrder = project.jobType === 'work_order';
   const parts = useMemo(() => splitSchedule(view), [view]);
   const filterBy = (list) => (who ? list.filter((t) => (t.assigneeIds || []).includes(who)) : list);
@@ -207,7 +226,7 @@ export default function PunchTab({ project }) {
     border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: on ? 'color-mix(in srgb, var(--wk-brand, #2b45e1) 10%, transparent)' : 'var(--bg-card)',
     color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)',
   });
-  const rowProps = { view, project, onChanged: reload, names: project.names, local, setLocal };
+  const rowProps = { view, project, onChanged: reload, names: project.names, local, setLocal, subs: subsData?.subs || [] };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>

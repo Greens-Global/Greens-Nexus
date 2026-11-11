@@ -215,16 +215,20 @@ class RequestRateLimit(BaseHTTPMiddleware):
                           "/unit-map/",   # customer unit map: a signed link, no login (Oct 20 2026)
                           "/documents/word-file/",   # Open in Word: a signed 15-minute link, no login (11/05/2026)
                           "/dev-notes/tokens",   # Build Mode: mints Build Tokens (credential-minting, Oct 24 2026)
-                          "/careers/apply/")   # public job application: personal data + a resume, no login (Oct 27 2026)
+                          "/careers/apply/",   # public job application: personal data + a resume, no login (Oct 27 2026)
+                          "/construction-outside/")   # Construction outside links: one RFI or one sub's punch list, no login (11/11/2026)
     # Routes whose path IS the credential: the trip log names the prefix,
     # never the token (the security log is durable).
-    TOKEN_PATH_PREFIXES = ("/timeclock/ical/", "/task-changelog-feed/", "/unit-map/", "/documents/word-file/")
+    TOKEN_PATH_PREFIXES = ("/timeclock/ical/", "/task-changelog-feed/", "/unit-map/", "/documents/word-file/",
+                           "/construction-outside/")
     SHARED_SOURCE_PER_MIN = int(os.getenv("NEXUS_RL_SHARED", "120"))
     SHARED_SOURCE_PREFIXES = ("/mail-actions/", "/briefing-actions/", "/webhooks/github")
     EXEMPT_PREFIXES = ("/health", "/version")
     # Public uploads refused by Content-Length before the body is read: the
     # careers resume is capped at 10 MB, the multipart form around it is small.
-    BODY_CAPS_BYTES = (("/careers/apply/", 11 * 1024 * 1024),)
+    BODY_CAPS_BYTES = (("/careers/apply/", 11 * 1024 * 1024),
+                       # an outside answer or a Done photo: up to 4 files of 25 MB
+                       ("/construction-outside/", 101 * 1024 * 1024))
     BODY_CAPS = tuple(p for p, _ in BODY_CAPS_BYTES)
     ENABLED = os.getenv("NEXUS_RATE_LIMIT", "on").strip().lower() not in ("off", "0", "false", "no")
     MAX_KEYS = 20000                 # bound memory under spoofed floods

@@ -1623,6 +1623,8 @@ def _run_migrations():
             "ALTER TABLE construction_commitments ADD COLUMN cost_code VARCHAR DEFAULT ''",
             "ALTER TABLE construction_projects ADD COLUMN labor_codes JSON DEFAULT '[]'",
             "ALTER TABLE time_punches ADD COLUMN cost_code VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_punch_meta ADD COLUMN sub_vendor_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_rfis ADD COLUMN answered_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3880,6 +3882,13 @@ def _run_migrations():
         # models.ConstructionProject / TimePunch.
         "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS labor_codes JSON DEFAULT '[]'",
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS cost_code VARCHAR DEFAULT ''",
+        # Outside parties (Round Three item 4, 11/11/2026): a punch item's sub
+        # and who answered an RFI through a link (existing tables), and the
+        # link table itself - a new table, explicit RLS.
+        # models.ConstructionPunchMeta / ConstructionRfi / ConstructionOutsideLink.
+        "ALTER TABLE construction_punch_meta ADD COLUMN IF NOT EXISTS sub_vendor_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_rfis ADD COLUMN IF NOT EXISTS answered_by VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_outside_links ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5951,5 +5960,8 @@ from routers import construction_subs as construction_subs_router  # noqa: E402 
 app.include_router(construction_subs_router.router)  # Construction: subs on a job (Intacct vendors through Accounting) and their papers (Round Two item 7, 11/05/2026)
 from routers import construction_drawings as construction_drawings_router  # noqa: E402 - construction_drawings: create_all + explicit RLS line
 app.include_router(construction_drawings_router.router)  # Construction: the drawing register, current set and superseded revisions (Round Two item 9, 11/06/2026)
+from routers import construction_outside as construction_outside_router  # noqa: E402 - construction_outside_links: create_all + explicit RLS line
+app.include_router(construction_outside_router.router)  # Construction: outside links - send, list, revoke (Round Three item 4, 11/11/2026)
+app.include_router(construction_outside_router.public_router)  # Construction: an outside link's page - one RFI or one sub's punch list, no login (11/11/2026)
 from routers import notes_diagram as notes_diagram_router  # noqa: E402 - one nexus_settings row, no new table
 app.include_router(notes_diagram_router.router)  # Notes boards: Diagram From a Sentence - OFF unless AI is on for Nexus AND a Super Administrator turns it on (Neil, 11/08/2026)

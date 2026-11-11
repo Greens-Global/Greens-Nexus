@@ -1192,6 +1192,22 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   `<job folder>/Drawings`); a new revision of a sheet number marks the current
   one Superseded (kept), bells the crew and managers once per sheet in place
   and emits `drawing.revised`. Never hard-deleted.
+- **Outside parties (Round Three item 4, Neil, 11/11/2026,
+  `routers/construction_outside.py`):** a LINK for a one-off action, an Entra
+  GUEST for someone who works in Nexus regularly. A link
+  (`construction_outside_links`, RLS) reaches ONE RFI to answer or ONE sub's
+  punch list (items given to their VENDORID, `construction_punch_meta.
+  sub_vendor_id`) on one job; the token is shown once and only its SHA-256
+  is kept; it expires (60 days at most), can be turned off, and every write
+  runs AS THE SENDER (re-checked at each use) with the outside person's name
+  on the activity. Files go up through the server into the job's folder.
+  Public routes are `/construction-outside/` (SENSITIVE_PREFIXES,
+  TOKEN_PATH_PREFIXES, a body cap); the page is `/outside/<token>`. A guest
+  reaches Construction only through an Operations grant and is then kept to
+  the jobs they are on (`_may_read`); a guest is never a job manager.
+  Labor cost codes (item 3): `construction_projects.labor_codes`, picked at
+  punch-in on the Time Clock page, kept on the IN punch only when
+  `construction_labor.check_cost_code` agrees - never a refused punch.
 - **Commitments and lien waivers (Round Two item 8, 11/06/2026,
   `construction_commitments`, `construction_money.commitments_view`):** a
   subcontract or purchase order is one row per Intacct VENDORID on the job,

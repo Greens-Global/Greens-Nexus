@@ -496,6 +496,9 @@ class ConstructionRfi(Base):
     # sheet the question is about - construction-media links in this job's
     # folder, checked like a submittal's.
     document_urls = Column(JSON, default=list)
+    # Who answered through an outside link (Round Three item 4): "Name
+    # <email>" of the architect or engineer; '' = answered inside Nexus.
+    answered_by   = Column(String, default="")
     created_at    = Column(String, default="")
     modified_at   = Column(String, default="")
     deleted_at    = Column(String, default="")
@@ -613,6 +616,10 @@ class ConstructionPunchMeta(Base):
     verified_by    = Column(String, default="")
     verified_at    = Column(String, default="")
     modified_at    = Column(String, default="")
+    # The sub whose item it is (Round Three item 4, 11/11/2026): an Intacct
+    # VENDORID that is a sub on the job - their punch list link shows it and
+    # they mark it Done with a photo. '' = our own crew's.
+    sub_vendor_id  = Column(String, default="", index=True)
 
 
 class ConstructionFieldTicket(Base):
@@ -821,3 +828,34 @@ class ConstructionCommitment(Base):
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     modified_at     = Column(String, default="")
+
+
+class ConstructionOutsideLink(Base):
+    """A link for someone outside the company (Round Three item 4, Neil,
+    11/11/2026): one record, no login. kind `rfi` - an architect or engineer
+    reads one RFI and answers it (ref_id = the RFI); kind `sub` - a
+    subcontractor sees their open punch items on one job and marks each Done
+    with a photo (ref_id = their Intacct VENDORID, a sub on the job).
+
+    The token is random and shown once; only its SHA-256 is kept
+    (`token_hash`), so a database read never yields a working link. A link
+    expires (`expires_at`) and may be revoked (`revoked_at`); every use is
+    counted and every action is on the job's activity with the outside
+    person's name. Actions run as the person who sent the link
+    (`created_by`), the way a workflow runs as its owner - Verify stays
+    inside. Never deleted."""
+    __tablename__ = "construction_outside_links"
+    id           = Column(String, primary_key=True)
+    project_id   = Column(String, nullable=False, index=True)
+    kind         = Column(String, nullable=False)              # rfi | sub
+    ref_id       = Column(String, nullable=False, index=True)
+    name         = Column(String, default="")                  # who it is for
+    email        = Column(String, default="")
+    token_hash   = Column(String, nullable=False, index=True)
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    expires_at   = Column(String, default="")                  # UTC ISO
+    revoked_at   = Column(String, default="")
+    revoked_by   = Column(String, default="")
+    last_used_at = Column(String, default="")
+    uses         = Column(Integer, default=0)

@@ -36,6 +36,7 @@ import { isOverdue, daysOpen, browserTodayISO } from './lib/registers';
 import { filesFromPaste, uploadJobDocument } from './lib/upload';
 import { clientId } from './lib/job';
 import { usd } from './lib/money';
+import { SendLinkSheet } from './OutsideLinks';
 
 // What a status MEANS to a manager scanning the list, the same palette across
 // both: red is "someone is blocked or a date was missed", yellow is "at
@@ -83,7 +84,7 @@ const REGISTERS = {
       r.ballInCourt && `Ball in court: ${r.ballInCourt}`,
       r.responderEmail && `Answered by ${personName(r.responderEmail, names)}`,
       r.dueOn && `Due ${formatDate(r.dueOn, r.dueOn)}`,
-      r.answeredOn && `Answered ${formatDate(r.answeredOn, r.answeredOn)}`,
+      r.answeredOn && `Answered ${formatDate(r.answeredOn, r.answeredOn)}${r.answeredBy ? ` by ${r.answeredBy.replace(/\s*<[^>]*>$/, '')} (outside link)` : ''}`,
       r.costImpact ? `${usd(r.costImpact)} cost impact` : '',
       r.scheduleImpactDays ? `${r.scheduleImpactDays} day schedule impact` : '',
       r.changeOrder?.number && `On change order ${r.changeOrder.number}`,
@@ -318,6 +319,8 @@ function RegisterSheet({ kind, row, project, canReview, canSeeCost, today, onClo
   // the server prefills it from the RFI and refuses a second while one lives.
   const canPrice = kind === 'rfis' && canReview && canSeeCost;
   const [making, setMaking] = useState(false);
+  // Round Three item 4 (11/11/2026): the architect or engineer answers through an outside link.
+  const [sendOpen, setSendOpen] = useState(false);
   const makeChangeOrder = async () => {
     setMaking(true); setError('');
     try {
@@ -358,6 +361,16 @@ function RegisterSheet({ kind, row, project, canReview, canSeeCost, today, onClo
         {late && <StatusLabel size="sm" label="Overdue" color={TONE.red} />}
         {open != null && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{open} day{open === 1 ? '' : 's'} open</span>}
       </div>
+      {kind === 'rfis' && canReview && row.status === 'open' && (
+        <div data-rfi-outside style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+          <span>Does someone outside the company owe the answer? Send them a link - no sign-in.</span>
+          <button type="button" className="secondary-btn" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => setSendOpen(true)}>Send to Answer</button>
+        </div>
+      )}
+      {sendOpen && (
+        <SendLinkSheet project={project} kind="rfi" refId={row.id} what={cfg.title(row)} defaultName={row.ballInCourt || ''}
+          onClose={() => setSendOpen(false)} />
+      )}
       {canPrice && (row.changeOrder || ['answered', 'closed'].includes(row.status)) && (
         <div data-rfi-change-order style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
           <FileSignature size={15} aria-hidden="true" />

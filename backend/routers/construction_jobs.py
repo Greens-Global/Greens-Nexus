@@ -133,7 +133,9 @@ def _project_view(db: Session, p, user: dict) -> dict:
                             "doneMediaId": m.done_media_id or "", "doneBy": m.done_by or "",
                             "doneByName": mnames.get(m.done_by or "", ""), "doneAt": m.done_at or "",
                             "verifiedBy": m.verified_by or "", "verifiedByName": mnames.get(m.verified_by or "", ""),
-                            "verifiedAt": m.verified_at or ""} for tid, m in meta.items()},
+                            "verifiedAt": m.verified_at or "",
+                            # Round Three item 4: the sub whose item it is (an Intacct VENDORID).
+                            "subVendorId": getattr(m, "sub_vendor_id", "") or ""} for tid, m in meta.items()},
     }
 
 

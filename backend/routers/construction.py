@@ -436,6 +436,17 @@ def _validate(db: Session, user: dict, p, data: dict) -> dict:
     had = set() if p is None else (_emails(p.manager_emails) | _emails(p.worker_emails))
     _check_people(db, user, [e for k in ("manager_emails", "worker_emails")
                              for e in (out.get(k) or []) if e not in had])
+    # Outside parties (Round Three item 4, 11/11/2026): a guest or external
+    # person may be on the crew - the reads keep them to the jobs they are
+    # on - but never a manager: a job's managers see its money.
+    new_mgrs = [e for e in (out.get("manager_emails") or [])
+                if p is None or e not in _emails(p.manager_emails)]
+    if new_mgrs:
+        E = models.NexusEmployee
+        from sqlalchemy import func
+        for (em, kind) in db.query(E.work_email, E.identity_type).filter(func.lower(E.work_email).in_(new_mgrs)).all():
+            if (kind or "internal") in ("guest", "external"):
+                raise HTTPException(422, f"{em} is a guest - a guest can be on the crew, not a manager.")
     # Executives: an outside address (an investor) is allowed - it only ever
     # gets the published report by email - but one that is a Nexus person
     # passes the same wall as the crew and the managers (review, 11/03/2026).
@@ -1296,6 +1307,7 @@ def rfi_to_dict(r: models.ConstructionRfi) -> dict:
         "scheduleImpactDays": r.schedule_impact_days or 0,
         "responderEmail": _nz(getattr(r, "responder_email", "")),
         "documentUrls": list(getattr(r, "document_urls", None) or []),
+        "answeredBy": getattr(r, "answered_by", "") or "",
         "createdAt": r.created_at or "",
     }
 
