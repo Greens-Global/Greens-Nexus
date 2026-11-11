@@ -272,7 +272,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   // viewer = read only; commenter = comment, attach, log time; editor and
   // up = everything. Unknown (project not loaded) keeps every control, as
   // before - the server stays the authority either way.
-  const taskManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'owner');
+  const taskManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'full');
   const myRole = taskRoleFor(task, { projects, teams, taskById, email: myEmail, isManager: taskManager });
   const canEdit = myRole == null || roleAtLeast(myRole, 'editor');
   const canComment = myRole == null || roleAtLeast(myRole, 'commenter');

@@ -43,7 +43,7 @@ regions; those names are the join key for campaigns, reviews, GBP locations, GA4
 goals and keyword URLs.
 
 **Permissions are not enforced.** The view is gated at `supervisor` (`App.jsx:129`) and
-`moduleCapabilities.js` describes viewer/editor/full/owner, but nothing in `marketing/` checks
+`moduleCapabilities.js` describes viewer/editor/full, but nothing in `marketing/` checks
 them - every viewer can do every write.
 
 **Backend is a stub.** `routers/marketing.py` is one `GET /marketing-campaigns` over

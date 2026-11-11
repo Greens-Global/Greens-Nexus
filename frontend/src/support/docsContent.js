@@ -42,7 +42,6 @@ export const ACCESS_LEVELS = [
   { name: 'Viewer', desc: 'See and use the screen normally.' },
   { name: 'Editor', desc: 'Also create and edit records.' },
   { name: 'Full', desc: 'Also delete records.' },
-  { name: 'Owner', desc: 'Full access, plus decide who else gets access.' },
 ];
 
 // A feature may carry `tour`: the on-screen label(s) the page's guided tour
@@ -127,7 +126,7 @@ export const DOCS = [
       points: [
         'Your role tier (Employee, Supervisor, Manager, Administrator, Super Administrator) sets what you can approve.',
         'Your job role gives you a standard set of modules. Access Groups add extra modules on top.',
-        'Each module grant has a level: Viewer, Editor, Full or Owner.',
+        'Each module grant has a level: Viewer, Editor or Full - each includes the ones below it. In the role editor, What does this unlock? beside a module opens the Level Guide, which spells out the three levels and what still needs a tier.',
         'Admins set job roles per company in Settings > People & Access with the company picked, and everything else there with Applies To on Every Company. See the Settings page of this guide.',
       ],
     },
@@ -576,7 +575,7 @@ export const DOCS = [
         title: "Let Someone Build a Team's Schedule Without Being a Manager",
         steps: [
           'Name the person a Scheduler on the team: Settings > Shifts & Scheduling > Groups, open the group, add them under Schedulers and Save.',
-          'Give them Team access in an Access Group. Viewer opens Team > Shift Planner and shows the shared schedule of the teams they schedule. Editor also adds, edits, moves and deletes the shifts of those teams and shares the week. Full also clears a week, imports a file and changes who is on those teams. Owner acts as a manager inside Shifts for their whole company: every team, swap and open-shift decisions and weather calls.',
+          'Give them Team access in an Access Group. Viewer opens Team > Shift Planner and shows the shared schedule of the teams they schedule. Editor also adds, edits, moves and deletes the shifts of those teams and shares the week. Full also clears a week, imports a file, changes who is on those teams, decides swaps, offers and weather calls, and renames and archives their teams.',
           'They stay an Employee. No level opens Time Sheets, pay, scheduled labor, shift types or Settings.',
         ],
       },
@@ -804,7 +803,7 @@ export const DOCS = [
     manager: {
       title: 'Manage (Managers and Above)',
       points: [
-        'The Manage button appears for Managers and above, and for anyone who holds Tasks at Owner level. Changes there affect the module for everyone.',
+        'The Manage button appears for Managers and above, and for anyone who holds Tasks at Full level. Changes there affect the module for everyone.',
         'Custom Fields and Custom Statuses extend what a task holds. Scope them to the projects that need them, and tick Required for a project to make the field required there.',
         'Templates decide how new work starts. Automation Rules react to changes on their own (for example, when a task is completed).',
         'Data Quality lists every open task missing a due date, project, priority or team, editable in the same table as the Task List.',
@@ -1502,7 +1501,7 @@ export const DOCS = [
           'Open the asset and go to Records > Plans & Docs. Documents in Egnyte sits at the top.',
           'Not connected yet? If you edit the asset, click Connect Egnyte Folder in the Plans & Documents table. Egnyte opens the way it does in Files - browse the folder tree (Shared, then your entities) or paste the folder\'s path or Egnyte link - open the folder and click Use This Folder. You only do this once.',
           'From then on everyone who can open the asset - viewers too - sees that folder\'s files right here: open a subfolder, search the folder, click a file to preview it, or download it. You do not need an Egnyte account of your own.',
-          'Once connected, only an Asset Management Owner can change the folder (Change Folder, or Egnyte Folder on Details). Everyone else sees it locked.',
+          'Once connected, only Asset Management at Full level can change the folder (Change Folder, or Egnyte Folder on Details). Everyone else sees it locked.',
         ],
       },
       {
@@ -1519,7 +1518,7 @@ export const DOCS = [
       { name: 'Overview', desc: 'The asset\'s health in three cards - Needs Attention, Data Gaps and Recent Activity - then Details, its full spec sheet (parcel and zoning, units, financials, loans, insurance and title for a property; make, model and home base for a vehicle or equipment).' },
       { name: 'Records', desc: 'A property\'s Warranties, Inspections, Documents, Utilities, AHJ (Authority Having Jurisdiction), Vendors and Permits; a vehicle\'s or equipment\'s Service, Odometer and Documents - one segment each. Warranties show Current, Due Soon, Expired or Lapsed.' },
       { name: 'Maintenance', desc: 'Properties: Needs Action (resolved tickets waiting for the asset manager), Open Tickets, Closed Tickets and Preventive Maintenance (schedules that file tickets on their own, with what is overdue) for every ticket raised for the property and its parcels, the Maintenance Log with Total Spend, and Recommended Maintenance. With units set up (Set Up Units), the log can be scoped to one unit or Common Areas. A ticket closed as Duplicate or Won\'t Fix is listed under Closed Without Work.' },
-      { name: 'Documents in Egnyte', desc: 'Plans & Docs shows the files in the asset\'s connected Egnyte folder, read only, to everyone who can open the asset. An editor connects the folder once; after that only an Asset Management Owner can change it.' },
+      { name: 'Documents in Egnyte', desc: 'Plans & Docs shows the files in the asset\'s connected Egnyte folder, read only, to everyone who can open the asset. An editor connects the folder once; after that only Asset Management at Full level can change it.' },
       { name: 'Timeline', desc: 'A property\'s milestones and their status, searchable on their own.' },
       { name: 'Private', desc: 'Mark Private (company officers only) hides an asset from everyone but the officers; Make Public shows it again.' },
       { name: 'Files', desc: 'Photos and documents are uploaded straight to private storage and open through a signed link; paste an image with Ctrl+V.' },
@@ -2431,7 +2430,7 @@ export const DOCS = [
           'Open Settings and click People & Access in the subject list.',
           'Pick a person.',
           'Add them to an Access Group that grants the module, or click Change Role to give them a new job role (only their company\'s roles and shared roles are offered). Write the reason - it is kept in their Role History - and the change takes effect right away.',
-          'Pick the access level (Viewer, Editor, Full or Owner). Access Group and level changes save right away.',
+          'Pick the access level (Viewer, Editor or Full). Access Group and level changes save right away.',
         ],
       },
       {
@@ -2449,7 +2448,7 @@ export const DOCS = [
       { name: 'Companies', desc: 'Every legal entity and the group manager above them all. Pick a company in the Applies To box for its profile and logo, managers (Nexus People or external users) and HR contact, contractor invoice recipients, email domains, departments and holiday calendar.' },
       { name: 'Scope', desc: 'The box at the top of Settings. Every company shows what applies to all of Nexus; a company shows what is set for it alone - its profile, locations, roles, checklists and workforce analytics policy. Subjects with nothing to set for one company sit under For Every Company in the list and switch the scope back.' },
       { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there. A role\'s Checklists tab holds the extra onboarding, promotion, offboarding and leave steps for people in that role (a shared role has a Checklists button).' },
-      { name: 'People & Access', desc: 'Each person\'s effective access, Access Groups (extras on top of a job role), the roles shared by every company and the Matrix (everyone\'s access at once). With a company picked: that company\'s job roles.' },
+      { name: 'People & Access', desc: 'Each person\'s effective access, Access Groups (extras on top of a job role), the roles shared by every company and the Matrix (everyone\'s access at once, with the Level Guide above it: pick a module to read what Viewer, Editor and Full unlock and what still needs a tier). With a company picked: that company\'s job roles.' },
       { name: 'Tools', desc: 'Actions rather than settings: the Microsoft 365 directory sync. Act As is in the profile menu.' },
       { name: 'Logs', desc: 'Every access and settings change, with who and when.' },
     ],

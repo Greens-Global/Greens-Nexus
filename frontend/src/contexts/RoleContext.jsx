@@ -29,7 +29,6 @@ export const MODULES = [
   { id: 'it',                  label: 'IT' },
   { id: 'ops',                 label: 'Construction' },
   { id: 'operations',          label: 'Operations' },
-  { id: 'development',         label: 'Development' },
   { id: 'property-asset',      label: 'Asset Management' },
   { id: 'accounting',          label: 'Accounting' },
   { id: 'accounting-app',      label: 'Nexus Accounting App' },
@@ -60,21 +59,29 @@ export const MODULES = [
   // own, full manages every workflow in scope (routers/workflows.py).
   { id: 'workflows',           label: 'Workflows' },
   // Shift Planner (Pranshu, 11/10/2026): runs Team > Shift Planner without the
-  // Manager role, on the teams the person is named Scheduler on; owner acts
-  // as a manager inside Shifts for their company (routers/timeclock.py SHIFT_GRANT).
+  // Manager role, on the teams the person is named Scheduler on; full also
+  // clears and imports weeks and decides swaps on those teams (routers/timeclock.py SHIFT_GRANT).
   { id: 'shifts',              label: 'Team' },
 ];
 
 // Per-module permission levels an Access Group can grant - mirrors a
-// folder-permission row (Viewer/Editor/Full/Owner): visibility and capability
+// folder-permission row (Viewer/Editor/Full): visibility and capability
 // are decided together, as one explicit, auditable choice per screen.
 // Rank order matters - a higher level always implies everything lower grants.
+// Owner was retired (11/2026): the API reads a stored 'owner' as 'full' and
+// never returns it; grantLevel() covers an old cached row.
 export const MODULE_LEVELS = {
   viewer: { label: 'Viewer', rank: 1, description: 'See and use the screen normally' },
   editor: { label: 'Editor', rank: 2, description: 'Also create and edit records' },
   full:   { label: 'Full',   rank: 3, description: 'Also delete records' },
-  owner:  { label: 'Owner',  rank: 4, description: 'Full access + manage who else has it' },
 };
+
+// A grant level as the API may still send it: legacy 'owner' is Full, anything
+// unknown is Viewer.
+export function grantLevel(level) {
+  if (level === 'owner') return 'full';
+  return MODULE_LEVELS[level] ? level : 'viewer';
+}
 
 // How an EXTERNAL (B2B guest) account's tier renders wherever a role/tier
 // label is shown - topbar chip, account dropdown, mobile menu, person cards
@@ -407,9 +414,10 @@ export function RoleProvider({ children }) {
     const map = new Map();
     groups.forEach(g => {
       if (!g.members?.includes(myEmail)) return;
-      (g.allowed_modules || []).forEach(({ id, level }) => {
+      (g.allowed_modules || []).forEach(({ id, level: raw }) => {
+        const level = grantLevel(raw);
         const prevRank = MODULE_LEVELS[map.get(id)]?.rank ?? 0;
-        const nextRank = MODULE_LEVELS[level]?.rank ?? MODULE_LEVELS.viewer.rank;
+        const nextRank = MODULE_LEVELS[level].rank;
         if (nextRank > prevRank) map.set(id, level);
       });
     });
@@ -431,8 +439,9 @@ export function RoleProvider({ children }) {
   // (e.g. canAccessModule('inventory', 'manager', 'editor')).
   const canAccessModule = (moduleId, minRole, minModuleLevel = 'viewer') => {
     if (!minRole || can(minRole)) return true;
-    const grantedRank = MODULE_LEVELS[myGrantedModules.get(moduleId)]?.rank ?? 0;
-    return grantedRank >= (MODULE_LEVELS[minModuleLevel]?.rank ?? 1);
+    const granted = myGrantedModules.get(moduleId);
+    const grantedRank = granted ? MODULE_LEVELS[grantLevel(granted)].rank : 0;
+    return grantedRank >= MODULE_LEVELS[grantLevel(minModuleLevel)].rank;
   };
 
   return (

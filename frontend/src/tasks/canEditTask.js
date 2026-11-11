@@ -11,7 +11,7 @@ import { taskRoleFor, roleAtLeast } from './lib';
 export function useCanEditTask(store) {
   const { projects, teams, taskById, myEmail } = store || {};
   const { canAccessModule } = useRole() || {};
-  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'owner');
+  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'full');
   return useCallback((t) => {
     const r = taskRoleFor(t, { projects, teams, taskById, email: myEmail, isManager });
     return r == null || roleAtLeast(r, 'editor');

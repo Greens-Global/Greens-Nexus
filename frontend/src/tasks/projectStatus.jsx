@@ -38,7 +38,7 @@ export function healthTitle(p, nameOf) {
 export function useProjectStatusEditor() {
   const store = useTasks() || {};
   const { canAccessModule } = useRole() || {};
-  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'owner');
+  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'full');
   return {
     canSet: (p) => !!p && roleAtLeast(projectRoleWithTeams(p, store.myEmail, store.teams || [], isManager), 'editor'),
     save: (p, data) => store.updateProject(p.id, data),
