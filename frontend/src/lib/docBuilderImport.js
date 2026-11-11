@@ -93,8 +93,8 @@ async function importDocx(file, uploadImage) {
 // recoverable (documented scope boundary, still true for anything more
 // complex than this).
 async function importPdf(file) {
-  const pdfjs = await import('pdfjs-dist');
-  pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')).default;
   const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
 
   const rows = []; // { page, y, size, bold, segments: [{text, x, endX}] }
