@@ -97,7 +97,21 @@ function Marker({ kind, x, active, title, onPointerDown }) {
 // ── Horizontal ────────────────────────────────────────────────────────────
 // widthPx: the page's drawn width. margins: { left, right } inches.
 // para: { left, first, right } points, or null outside a paragraph.
-export function HRuler({ widthPx, zoom = 1, margins, para, editable = true, onMargin, onIndent }) {
+// The four tab-stop marks, as Word draws them.
+const TAB_SHAPES = {
+  left: <path d="M1 0 V7 H8" />,
+  right: <path d="M8 0 V7 H1" />,
+  center: <path d="M4.5 0 V7 M0.5 7 H8.5" />,
+  decimal: <><path d="M4.5 0 V7 M0.5 7 H8.5" /><circle cx="7.2" cy="3.5" r="0.9" /></>,
+};
+export const TAB_LABEL = { left: 'Left Tab', center: 'Center Tab', right: 'Right Tab', decimal: 'Decimal Tab' };
+export function TabGlyph({ align, size = 9 }) {
+  return <svg className="doc-tab-glyph" width={size} height={size * 0.8} viewBox="0 0 9 7.5" aria-hidden="true">{TAB_SHAPES[align] || TAB_SHAPES.left}</svg>;
+}
+
+// tabs: the paragraph's stops [{ pos (pt from the margin), align }];
+// tabType: what a click on the ruler adds; onTabs(next) writes them back.
+export function HRuler({ widthPx, zoom = 1, margins, para, editable = true, onMargin, onIndent, tabs = [], tabType = 'left', onTabs }) {
   const ppi = PX_PER_IN * zoom;
   const [drag, setDrag] = useState(null);   // { kind, x }
   const mL = (drag?.kind === 'marginL' ? drag.x : margins.left * ppi);
@@ -152,10 +166,51 @@ export function HRuler({ widthPx, zoom = 1, margins, para, editable = true, onMa
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
-  const guide = drag ? drag.x : null;
+  // A click on the ruler between the margins sets a tab stop of the kind
+  // chosen in the corner box; a stop drags along it, and off it to remove.
+  const addTab = (e) => {
+    if (!editable || !para || !onTabs || e.button > 0) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    const x = snap(e.clientX - box.left, e);
+    if (x <= margins.left * ppi + 2 || x >= widthPx - margins.right * ppi - 2) return;
+    onTabs([...tabs, { pos: Math.round(((x - margins.left * ppi) / ptx) * 2) / 2, align: tabType }]);
+  };
+  const startTab = (i) => (e) => {
+    if (!editable || e.button > 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const box = e.currentTarget.closest('.doc-hruler').getBoundingClientRect();
+    let last = null, off = false;
+    const move = (ev) => {
+      last = Math.max(margins.left * ppi, Math.min(snap(ev.clientX - box.left, ev), widthPx - margins.right * ppi));
+      off = Math.abs(ev.clientY - (box.top + box.height / 2)) > 28;
+      setDrag({ kind: 'tab', i, x: last, off });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setDrag(null);
+      if (last == null) return;
+      if (off) { onTabs?.(tabs.filter((_, j) => j !== i)); return; }
+      onTabs?.(tabs.map((t, j) => (j === i ? { ...t, pos: Math.round(((last - margins.left * ppi) / ptx) * 2) / 2 } : t)));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const guide = drag && !drag.off ? drag.x : null;
   return (
     <div className={`doc-hruler${editable ? '' : ' is-readonly'}`} style={{ width: widthPx }} aria-label="Ruler">
-      <canvas ref={canvasRef} className="doc-ruler-canvas" aria-hidden="true" />
+      <canvas ref={canvasRef} className="doc-ruler-canvas" aria-hidden="true" onPointerDown={addTab}
+        title={para && editable && onTabs ? `Click to set a ${TAB_LABEL[tabType] || 'Left Tab'} stop` : undefined} />
+      {para && (tabs || []).map((t, i) => {
+        const x = drag?.kind === 'tab' && drag.i === i ? drag.x : margins.left * ppi + t.pos * ptx;
+        return (
+          <span key={`${t.pos}-${i}`} className={`doc-ruler-tab${drag?.kind === 'tab' && drag.i === i ? (drag.off ? ' is-removing' : ' is-dragging') : ''}`}
+            style={{ left: x - 1 }} role="slider" aria-label={`${TAB_LABEL[t.align] || 'Left Tab'} at ${(t.pos / 72).toFixed(2)} inches`}
+            title={`${TAB_LABEL[t.align] || 'Left Tab'} - drag to move, drag off the ruler to remove`} onPointerDown={startTab(i)}>
+            <TabGlyph align={t.align} />
+          </span>
+        );
+      })}
       {editable && <span className="doc-ruler-edge" style={{ left: mL - 4 }} title="Left Margin" onPointerDown={start('marginL')} />}
       {editable && <span className="doc-ruler-edge" style={{ left: widthPx - mR - 4 }} title="Right Margin" onPointerDown={start('marginR')} />}
       {para && editable && (
@@ -170,7 +225,8 @@ export function HRuler({ widthPx, zoom = 1, margins, para, editable = true, onMa
         <>
           <span className="doc-ruler-guide" style={{ left: guide }} aria-hidden="true" />
           <span className="doc-ruler-tip" style={{ left: guide }}>
-            {drag.kind === 'marginL' ? `${(guide / ppi).toFixed(2)}" Margin`
+            {drag.kind === 'tab' ? `${TAB_LABEL[tabs[drag.i]?.align] || 'Tab'} ${((guide - margins.left * ppi) / ppi).toFixed(2)}"`
+              : drag.kind === 'marginL' ? `${(guide / ppi).toFixed(2)}" Margin`
               : drag.kind === 'marginR' ? `${((widthPx - guide) / ppi).toFixed(2)}" Margin`
                 : `${((guide - margins.left * ppi) / ppi).toFixed(2)}"`}
           </span>

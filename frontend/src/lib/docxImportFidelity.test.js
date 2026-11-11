@@ -618,3 +618,20 @@ describe('the editor canvas renders those sizes at true scale', () => {
     expect(approxCharsPerLine).toBeLessThan(130);
   });
 });
+
+// Word's tabs (Neil, 11/11/2026): a w:tab is a real tab now, not four
+// spaces, and a paragraph's w:tabs are its stops (positions from the margin).
+describe('Word import keeps tabs and tab stops', () => {
+  it('reads a right tab stop and the tab that reaches it; a style\'s stop can be cleared', async () => {
+    const styles = `<?xml version="1.0"?><w:styles ${DOC_NS}><w:style w:type="paragraph" w:styleId="Sig"><w:pPr><w:tabs><w:tab w:val="left" w:pos="2880"/></w:tabs></w:pPr></w:style></w:styles>`;
+    const body = '<w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="9360"/><w:tab w:val="center" w:pos="4680"/></w:tabs></w:pPr>'
+      + '<w:r><w:t>Employee</w:t></w:r><w:r><w:tab/><w:t>Date</w:t></w:r></w:p>'
+      + '<w:p><w:pPr><w:pStyle w:val="Sig"/><w:tabs><w:tab w:val="clear" w:pos="2880"/><w:tab w:val="decimal" w:pos="5760"/></w:tabs></w:pPr><w:r><w:t>Total</w:t><w:tab/><w:t>12.50</w:t></w:r></w:p>';
+    const { body: doc } = await convertDocxToTiptap(await docxFile(body, { styles }), {});
+    const [p1, p2] = doc.content;
+    expect(p1.attrs.tabStops).toEqual([{ pos: 234, align: 'center' }, { pos: 468, align: 'right' }]);
+    expect(p1.content.map((n) => n.type)).toEqual(['text', 'tab', 'text']);
+    expect(p2.attrs.tabStops).toEqual([{ pos: 288, align: 'decimal' }]);
+    expect(JSON.stringify(p2)).not.toContain('    ');
+  });
+});

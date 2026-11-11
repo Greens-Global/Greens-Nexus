@@ -23,8 +23,8 @@
 // importer could preserve them without a different editor): footnotes and
 // endnotes, per-section headers/footers beyond the first section, tracked
 // changes and comments (insertions are kept, deletions are dropped - i.e.
-// imported "as if accepted"), tab stops (a tab becomes four spaces),
-// floating shapes/WordArt/embedded objects, drop caps and kerning.
+// imported "as if accepted"), floating shapes/WordArt/embedded objects, drop
+// caps and kerning. Tabs and tab stops come through since 11/11/2026.
 
 const NS = {
   w: 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
@@ -339,6 +339,22 @@ function paraPropsFrom(pPr, inherited = {}) {
   const fill = shd && attr(shd, 'w', 'fill');
   if (fill && fill !== 'auto') out.backgroundColor = `#${fill}`;
   const pbb = toggle(pPr, 'pageBreakBefore'); if (pbb !== undefined) out.pageBreakBefore = pbb;
+  // Tab stops (w:tabs, positions from the page margin in twips). A style's
+  // stops are inherited; a paragraph's "clear" takes one of them away.
+  const tabsEl = firstChild(pPr, 'w', 'tabs');
+  if (tabsEl) {
+    let stops = Array.isArray(inherited.tabStops) ? [...inherited.tabStops] : [];
+    for (const t of els(tabsEl, 'w', 'tab')) {
+      const pos = twipsPt(attr(t, 'w', 'pos'));
+      if (pos == null) continue;
+      const val = attr(t, 'w', 'val') || 'left';
+      stops = stops.filter((st) => Math.abs(st.pos - pos) >= 0.5);
+      if (val === 'clear' || val === 'bar' || val === 'num' || pos <= 0) continue;
+      const align = val === 'right' || val === 'end' ? 'right' : val === 'center' ? 'center' : val === 'decimal' ? 'decimal' : 'left';
+      stops.push({ pos: round1(pos), align });
+    }
+    out.tabStops = stops.sort((a, b) => a.pos - b.pos);
+  }
   return out;
 }
 
@@ -348,6 +364,7 @@ function paragraphAttrsFrom(props, { isListItem } = {}) {
   if (props.spacingAfter != null) attrs.spacingAfter = props.spacingAfter;
   if (props.lineHeight) attrs.lineHeight = props.lineHeight;
   if (props.backgroundColor) attrs.backgroundColor = props.backgroundColor;
+  if (Array.isArray(props.tabStops) && props.tabStops.length) attrs.tabStops = props.tabStops;
   // A list paragraph's indent is the list's own (Word's "List Paragraph" says
   // left 720, hanging 360 for the bullet); the editor's list already indents.
   if (!isListItem) {
@@ -594,7 +611,7 @@ async function runToNodes(runEl, styleRunProps, link, ctx, state) {
     } else if (tag === 't' || tag === 'delText') {
       if (!state.pageField) pushText(child.textContent);
     } else if (tag === 'tab') {
-      pushText('    ');
+      nodes.push({ type: 'tab' });   // a real tab, laid out to its stop (lib/docTabs.js)
     } else if (tag === 'br') {
       const brType = attr(child, 'w', 'type');
       if (brType === 'page') nodes.push({ type: '__pageBreak__' }); // hoisted to block level by the caller

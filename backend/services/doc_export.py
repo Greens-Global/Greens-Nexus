@@ -176,6 +176,10 @@ def _text_runs(nodes, merge: dict) -> list:
             runs.append(run)
         elif t == "hardBreak":
             runs.append({"text": "\n", "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE})
+        elif t == "tab":
+            # A real tab (Word's w:tab): the PDF lays the text out at the
+            # paragraph's stops (_tab_row), Word gets its own <w:tab/>.
+            runs.append({"text": "\t", "tab": True, "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE})
         elif t == "image":
             # An INLINE picture - the editor's image node is inline, because
             # Word puts a picture inside the run where it sits (a meeting
@@ -192,6 +196,30 @@ def _text_runs(nodes, merge: dict) -> list:
         else:
             runs.extend(_text_runs(n.get("content"), merge))
     return runs
+
+
+# Word's tab stops (Neil, 11/11/2026): a paragraph's [{pos, align}], `pos` in
+# points from the left margin - what the editor stores (lib/docTabs.js) and
+# what Word writes as w:tabs (twips / 20).
+_TAB_ALIGNS = ("left", "center", "right", "decimal")
+_DEFAULT_TAB_PT = 36
+
+
+def _clean_tab_stops(raw) -> list:
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for st in raw:
+        if not isinstance(st, dict):
+            continue
+        pos = _num(st.get("pos"))
+        if not pos or pos <= 0 or pos > 1584:
+            continue
+        pos = round(pos * 2) / 2
+        if any(abs(o["pos"] - pos) < 0.5 for o in out):
+            continue
+        out.append({"pos": pos, "align": st.get("align") if st.get("align") in _TAB_ALIGNS else "left"})
+    return sorted(out, key=lambda x: x["pos"])
 
 
 def _num(v):
@@ -216,6 +244,7 @@ def _para_layout(attrs: dict) -> dict:
         "indentFirst": _num(attrs.get("indentFirst")),
         "indentRight": _num(attrs.get("indentRight")),
         "background": attrs.get("backgroundColor"),
+        "tabStops": _clean_tab_stops(attrs.get("tabStops")),
     }
 
 
@@ -624,6 +653,9 @@ def _runs_to_markup(runs: list) -> str:
             if markup:
                 parts.append(markup)
             continue
+        if r.get("tab"):
+            parts.append("&nbsp;" * 6)
+            continue
         t = _esc(_pdf_text(r.get("text") or "")).replace("\n", "<br/>")
         if r.get("bold"):
             t = f"<b>{t}</b>"
@@ -890,6 +922,96 @@ def _signature_flow(b: dict, body_style, content_width: float, anchors) -> list:
     return [box]
 
 
+def _tab_row(b: dict, style, content_width: float):
+    """A paragraph with tabs, laid out as Word does: each piece of text after
+    a tab starts at the next stop past the text before it (left), ends there
+    (right, decimal) or is centered on it (center); past the last stop Word's
+    defaults fall every half inch. Drawn as one borderless row of cells at
+    those positions. None when the pieces will not fit - the caller then
+    prints the paragraph with a plain gap for each tab."""
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.platypus import Paragraph, Table, TableStyle
+    segs = [[]]
+    for r in b.get("runs") or []:
+        if r.get("tab"):
+            segs.append([])
+        else:
+            segs[-1].append(r)
+    if len(segs) < 2:
+        return None
+    stops = b.get("tabStops") or []
+    base = style.fontSize
+
+    def width(runs):
+        total = 0.0
+        for r in runs:
+            if r.get("image"):
+                return None
+            face = style.fontName
+            try:
+                total += stringWidth(r.get("text") or "", face, _font_size_num(r.get("fontSize")) or base)
+            except Exception:
+                total += len(r.get("text") or "") * base * 0.5
+        return total
+
+    start = (b.get("indentLeft") or 0) + (b.get("indentFirst") or 0)
+    w0 = width(segs[0])
+    if w0 is None:
+        return None
+    cells = [{"lo": 0.0, "hi": None, "align": "left", "runs": segs[0]}]
+    x = start + w0
+    for seg in segs[1:]:
+        w = width(seg)
+        if w is None:
+            return None
+        stop = next((st for st in stops if st["pos"] > x + 0.5), None)
+        if stop is None:
+            pos, align = (int((x + 0.5) // _DEFAULT_TAB_PT) + 1) * _DEFAULT_TAB_PT, "left"
+        else:
+            pos, align = stop["pos"], stop["align"]
+        prev = cells[-1]
+        if align == "left":
+            lo, hi, end = pos, None, pos + w
+        elif align == "center":
+            lo = max(x, pos - w / 2)
+            hi, end = lo + 2 * (pos - lo), pos + w / 2
+        else:   # right, decimal
+            lo, hi, end = x, pos, pos
+        if prev["hi"] is None:
+            prev["hi"] = lo
+        cells.append({"lo": lo, "hi": hi, "align": align, "runs": seg})
+        x = end
+    if cells[-1]["hi"] is None:
+        cells[-1]["hi"] = content_width
+    cols, row, cur = [], [], 0.0
+    for c in cells:
+        lo, hi = max(c["lo"], cur), min(c["hi"], content_width)
+        if lo > cur + 0.5:
+            cols.append(lo - cur)
+            row.append("")
+        if hi - lo < 1:
+            return None
+        ta = {"left": TA_LEFT, "center": TA_CENTER}.get(c["align"], TA_RIGHT)
+        cs = style.clone(f"{style.name}_tab{len(cols)}", alignment=ta, leftIndent=0, firstLineIndent=0, rightIndent=0,
+                         spaceBefore=0, spaceAfter=0)
+        row.append(Paragraph(_runs_to_markup(c["runs"]) or "&nbsp;", cs))
+        cols.append(hi - lo)
+        cur = hi
+    if cur < content_width - 0.5:
+        cols.append(content_width - cur)
+        row.append("")
+    table = Table([row], colWidths=cols, hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    table.spaceBefore = getattr(style, "spaceBefore", 0) or 0
+    table.spaceAfter = getattr(style, "spaceAfter", 0) or 0
+    return table
+
+
 def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anchors=None) -> list:
     from reportlab.lib import colors
     from reportlab.lib.units import mm
@@ -903,6 +1025,10 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anch
             style = _pdf_align_style(body_style, b.get("align"))
             style = _para_style_for_runs(style, b["runs"])
             style = _para_layout_style(style, b)
+            row = _tab_row(b, style, content_width) if any(r.get("tab") for r in b["runs"]) else None
+            if row is not None:
+                flow.append(row)
+                continue
             para = Paragraph(_runs_to_markup(b["runs"]) or "&nbsp;", style)
             boxed = b.get("border") or b.get("background")
             flow.append(_bordered_para(para, content_width, b.get("border"), b.get("background")) if boxed else para)
@@ -911,6 +1037,10 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anch
             style = _pdf_align_style(styles[f"Heading{level}"], b.get("align"))
             style = _para_style_for_runs(style, b["runs"])
             style = _para_layout_style(style, b)
+            row = _tab_row(b, style, content_width) if any(r.get("tab") for r in b["runs"]) else None
+            if row is not None:
+                flow.append(row)
+                continue
             para = Paragraph(_runs_to_markup(b["runs"]), style)
             boxed = b.get("border") or b.get("background")
             flow.append(_bordered_para(para, content_width, b.get("border"), b.get("background")) if boxed else para)
@@ -1470,6 +1600,12 @@ def _apply_docx_para_extras(paragraph, b: dict) -> None:
         pf.first_line_indent = Pt(b["indentFirst"])
     if b.get("indentRight"):
         pf.right_indent = Pt(b["indentRight"])
+    if b.get("tabStops"):
+        from docx.enum.text import WD_TAB_ALIGNMENT
+        kinds = {"left": WD_TAB_ALIGNMENT.LEFT, "center": WD_TAB_ALIGNMENT.CENTER,
+                 "right": WD_TAB_ALIGNMENT.RIGHT, "decimal": WD_TAB_ALIGNMENT.DECIMAL}
+        for st in b["tabStops"]:
+            pf.tab_stops.add_tab_stop(Pt(st["pos"]), kinds.get(st["align"], WD_TAB_ALIGNMENT.LEFT))
     if b.get("background"):
         _shade_docx_paragraph(paragraph, b["background"])
     if b.get("border"):

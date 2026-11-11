@@ -52,4 +52,17 @@ describe('the horizontal ruler', () => {
     render(<HRuler widthPx={816} margins={MARGINS} para={null} editable={false} onMargin={onMargin} />);
     expect(screen.queryByTitle('Right Margin')).toBeNull();
   });
+
+  it('sets a tab stop where the ruler is clicked, of the kind chosen, and removes one dragged off it', () => {
+    const onTabs = vi.fn();
+    const { container, rerender } = render(<HRuler widthPx={816} margins={MARGINS} para={{ left: 0, first: 0, right: 0 }} tabs={[]} tabType="right" onTabs={onTabs} />);
+    fireEvent.pointerDown(container.querySelector('canvas'), { button: 0, clientX: 96 + 288 });   // 3" from the margin
+    expect(onTabs).toHaveBeenLastCalledWith([{ pos: 216, align: 'right' }]);
+    rerender(<HRuler widthPx={816} margins={MARGINS} para={{ left: 0, first: 0, right: 0 }} tabs={[{ pos: 216, align: 'right' }]} tabType="right" onTabs={onTabs} />);
+    const stop = screen.getByRole('slider', { name: /Right Tab at 3.00 inches/ });
+    fireEvent.pointerDown(stop, { button: 0, clientX: 384 });
+    fireEvent.pointerMove(window, { clientX: 384, clientY: 80 });   // well below the ruler
+    fireEvent.pointerUp(window, { clientX: 384, clientY: 80 });
+    expect(onTabs).toHaveBeenLastCalledWith([]);
+  });
 });

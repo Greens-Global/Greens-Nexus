@@ -10386,3 +10386,20 @@ svg.doc-ruler-marker:hover, svg.doc-ruler-marker.is-dragging { fill: hsl(var(--c
   .doc-rulers { top: calc(var(--nx-announce-h, 0px) + 64px); }
   .doc-vruler { display: none; }
 }
+
+/* Word's tabs (lib/docTabs.js): a tab is an inline box whose width the
+   editor sets to reach the next stop; Show/Hide ¶ draws its arrow. */
+.doc-editor .doc-tab { display: inline-block; min-width: 2px; height: 1em; vertical-align: baseline; white-space: pre; overflow: hidden; color: transparent; user-select: none; }
+.doc-editor.show-marks .doc-tab { position: relative; }
+.doc-editor.show-marks .doc-tab::after { content: '\2192'; position: absolute; left: 50%; top: 0; transform: translateX(-50%); color: #93a3b8; line-height: 1; font-size: 0.85em; }
+/* The ruler's tab stops and the tab-type box in its corner. */
+.doc-ruler-tab { position: absolute; bottom: 1px; width: 10px; height: 9px; z-index: 2; cursor: ew-resize; display: flex; color: var(--ink); }
+.doc-ruler-tab svg, .doc-ruler-corner svg { fill: none; stroke: currentColor; stroke-width: 1.6; overflow: visible; }
+.doc-ruler-tab .doc-tab-glyph circle, .doc-ruler-corner .doc-tab-glyph circle { fill: currentColor; stroke: none; }
+.doc-ruler-tab.is-dragging { color: hsl(var(--color-blue)); }
+.doc-ruler-tab.is-removing { opacity: 0.35; }
+button.doc-ruler-corner { position: absolute; left: -28px; top: 0; width: 20px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 3px; background: var(--card); box-shadow: 0 0 0 1px var(--line); color: var(--ink); cursor: pointer; }
+button.doc-ruler-corner:hover:not(:disabled) { background: var(--mist); }
+button.doc-ruler-corner:disabled { opacity: 0.5; cursor: default; }
+button.doc-ruler-corner:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; }
+@media (max-width: 900px) { button.doc-ruler-corner { display: none; } }

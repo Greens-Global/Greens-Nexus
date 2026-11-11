@@ -24,7 +24,8 @@ import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS, useDismiss, RibbonBar, PickList, SizeBox } from './docRibbon/ui';
 import StyleGallery from './docRibbon/StyleGallery';
 import StatusBar from './docRibbon/StatusBar';
-import { HRuler, VRuler } from './docRibbon/Ruler';
+import { HRuler, VRuler, TabGlyph, TAB_LABEL } from './docRibbon/Ruler';
+import { cleanTabStops, TAB_ALIGNS } from '../lib/docTabs';
 import { useTableValue } from '../tasks/tableCols';
 import NavigationPane from './docRibbon/NavigationPane';
 import RibbonDisplay from './docRibbon/RibbonDisplay';
@@ -664,6 +665,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   // View > Ruler: on by default, both rulers (Neil, 11/11/2026); turning it
   // off is remembered in the person's profile, on every computer.
   const [rulerOn, setRulerOn] = useTableValue('documents', 'ruler', true);
+  // The tab stop a click on the ruler sets - the box in the rulers' corner.
+  const [tabType, setTabType] = useState('left');
   // View > Navigation (Word's pane, 11/11/2026): Headings, Pages or Results.
   // It floats in the desk margin beside the page and is off until opened -
   // the old always-on Pages rail lives in its Pages tab.
@@ -2683,6 +2686,14 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     if ('indentLeft' in attrs) attrs.indent = 0;
     ed.chain().focus().updateAttributes('paragraph', attrs).updateAttributes('heading', attrs).run();
   };
+  // The ruler's tab stops: the paragraph you are in; a change is written to
+  // every paragraph and heading in the selection.
+  const paraTabs = paraIndents ? cleanTabStops(blockAttrs.tabStops) : [];
+  const applyTabStops = (next) => {
+    if (!ed) return;
+    const v = cleanTabStops(next);
+    ed.chain().focus().updateAttributes('paragraph', { tabStops: v.length ? v : null }).updateAttributes('heading', { tabStops: v.length ? v : null }).run();
+  };
   // A ruler's margin edge: Page Setup's Custom margins, that one side changed.
   const setMarginInches = (side, inches) => {
     updatePageSetup({ margins: 'custom', marginIn: { ...marginsOf(pageSetup), [side]: inches } });
@@ -4158,8 +4169,14 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         return (
           <div className="doc-rulers">
             <div className="doc-rulers-inner" style={{ width: Math.round(pageW * zoom) }}>
+              <button type="button" className="doc-ruler-corner" disabled={!editing}
+                title={`${TAB_LABEL[tabType]} - click the ruler to set one. Click here for another kind.`} aria-label={`Tab stop type: ${TAB_LABEL[tabType]}`}
+                onClick={() => setTabType((t) => TAB_ALIGNS[(TAB_ALIGNS.indexOf(t) + 1) % TAB_ALIGNS.length])}>
+                <TabGlyph align={tabType} size={11} />
+              </button>
               <HRuler widthPx={Math.round(pageW * zoom)} zoom={zoom} margins={marginsOf(pageSetup)} para={paraIndents}
-                editable={editing} onMargin={setMarginInches} onIndent={applyIndents} />
+                editable={editing} onMargin={setMarginInches} onIndent={applyIndents}
+                tabs={paraTabs} tabType={tabType} onTabs={applyTabStops} />
               {viewPrefs.paginate && (
                 <VRuler zoom={zoom} margins={marginsOf(pageSetup)} pageHeightPx={pageCanvasStyle(pageSetup).minHeight} gapPx={SHEET_SPACE_PX}
                   pagesEl={rulerPagesEl} scrollerEl={rulerScrollerEl} editable={editing} onMargin={setMarginInches} />
