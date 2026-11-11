@@ -34,8 +34,8 @@ async function extractDocx(file) {
 }
 
 async function extractPdf(file) {
-  const pdfjs = await import('pdfjs-dist');
-  pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')).default;
   const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
   const parts = [];
   for (let p = 1; p <= doc.numPages; p += 1) {
