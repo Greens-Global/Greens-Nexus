@@ -289,6 +289,7 @@ def void_field_ticket(ticket_id: str, user: dict = Depends(get_current_user), db
 class COBody(BaseModel):
     id: Optional[str] = None
     field_ticket_id: Optional[str] = None
+    rfi_id: Optional[str] = None
     title: Optional[str] = None
     reason: Optional[str] = None
     description: Optional[str] = None
@@ -353,7 +354,8 @@ def _apply_co(db, user, p, c, data: dict) -> None:
 @router.post("/projects/{job_id}/change-orders", status_code=201)
 def create_change_order(job_id: str, body: COBody, user: dict = Depends(get_current_user),
                         db: Session = Depends(get_db), idem: Idem = Depends(idempotency)):
-    """A Draft change order - from a signed field ticket (prefilled from it) or blank."""
+    """A Draft change order - from a signed field ticket or an answered RFI
+    (prefilled from it) or blank."""
     hit = _replayed(idem, db, user)
     if hit is not None:
         return hit
@@ -381,6 +383,8 @@ def create_change_order(job_id: str, body: COBody, user: dict = Depends(get_curr
         c.title = (t.description or "").split("\n")[0][:120] or f"Extra work on {t.work_date}"
         c.description = t.description or ""
         c.signer_name, c.signer_email = t.customer_name or t.signed_name or "", t.customer_email or ""
+    if body.rfi_id and t is None:
+        _from_rfi(db, p, c, body.rfi_id)
     _apply_co(db, user, p, c, body.model_dump(exclude_unset=True))
     if not (c.title or "").strip():
         raise HTTPException(422, "Give the change order a title.")
@@ -389,6 +393,30 @@ def create_change_order(job_id: str, body: COBody, user: dict = Depends(get_curr
         t.status, t.change_order_id, t.modified_at = "priced", c.id, cc.now()
     cc._activity(db, p, c, "created", _me(user), f"wrote change order {c.number}")
     return _finish(idem, db, user, cc.co_to_dict(c), 201)
+
+
+def _from_rfi(db, p, c, rfi_id: str) -> None:
+    """Prefill a draft from an answered RFI (Round Three, 11/11/2026): its
+    number and subject as the title, the question and answer as the
+    description, its cost and schedule impact as the amount and days. ONE
+    live change order per RFI - a second is refused while one is not void."""
+    R, C = models.ConstructionRfi, models.ConstructionChangeOrder
+    r = db.query(R).filter(R.id == rfi_id, R.deleted_at == "").first()
+    if r is None or r.project_id != p.id:
+        raise HTTPException(422, "Pick an RFI from this job.")
+    if (r.status or "open") not in ("answered", "closed"):
+        raise HTTPException(409, "Only an answered RFI can become a change order.")
+    was = (db.query(C).filter(C.rfi_id == r.id, C.deleted_at == "", C.status != "void").first())
+    if was is not None:
+        raise HTTPException(409, f"This RFI is already on change order {was.number}.")
+    c.rfi_id = r.id
+    c.reason = "design"
+    c.title = " ".join(x for x in ((r.number or "").strip(), (r.subject or "").strip()) if x)[:200]
+    c.description = "\n\n".join(x for x in (
+        f"Question: {r.question.strip()}" if (r.question or "").strip() else "",
+        f"Answer: {r.answer.strip()}" if (r.answer or "").strip() else "") if x)[:6000]
+    c.amount = round(float(r.cost_impact or 0), 2)
+    c.schedule_impact_days = int(r.schedule_impact_days or 0)
 
 
 def _co(db, co_id: str, user):
@@ -411,6 +439,7 @@ def update_change_order(co_id: str, body: COBody, user: dict = Depends(get_curre
         raise HTTPException(409, "Only a draft change order can be changed.")
     data = body.model_dump(exclude_unset=True)
     data.pop("field_ticket_id", None)
+    data.pop("rfi_id", None)
     _apply_co(db, user, p, c, data)
     # Review M3: a changed draft is not what anyone approved.
     c.approved_by, c.approved_at = "", ""

@@ -1613,6 +1613,9 @@ def _run_migrations():
             "ALTER TABLE task_projects ADD COLUMN status_note VARCHAR DEFAULT ''",
             "ALTER TABLE task_projects ADD COLUMN status_set_by VARCHAR DEFAULT ''",
             "ALTER TABLE task_projects ADD COLUMN status_set_at VARCHAR DEFAULT ''",
+            # Construction Round Three fixes (Neil, 11/11/2026) - see the Postgres list.
+            "ALTER TABLE construction_rfis ADD COLUMN document_urls JSON DEFAULT '[]'",
+            "ALTER TABLE construction_change_orders ADD COLUMN rfi_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3852,6 +3855,11 @@ def _run_migrations():
         # Schedule baselines (Neil, 11/08/2026): a new table, explicit RLS.
         # models.TaskProjectBaseline.
         "ALTER TABLE task_project_baselines ENABLE ROW LEVEL SECURITY",
+        # Construction Round Three fixes (Neil, 11/11/2026): files on an RFI,
+        # and the RFI a change order was made from. Existing tables, no new
+        # RLS. models.ConstructionRfi / ConstructionChangeOrder.
+        "ALTER TABLE construction_rfis ADD COLUMN IF NOT EXISTS document_urls JSON DEFAULT '[]'",
+        "ALTER TABLE construction_change_orders ADD COLUMN IF NOT EXISTS rfi_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

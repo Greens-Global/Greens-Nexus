@@ -1286,6 +1286,7 @@ def rfi_to_dict(r: models.ConstructionRfi) -> dict:
         "costImpact": r.cost_impact or 0.0,
         "scheduleImpactDays": r.schedule_impact_days or 0,
         "responderEmail": _nz(getattr(r, "responder_email", "")),
+        "documentUrls": list(getattr(r, "document_urls", None) or []),
         "createdAt": r.created_at or "",
     }
 
@@ -1316,7 +1317,7 @@ _REGISTER_FIELDS = {
     "milestones": {"name", "description", "target_date", "actual_date", "status", "critical"},
     "rfis": {"number", "subject", "question", "answer", "status", "ball_in_court",
              "submitted_by", "submitted_on", "due_on", "answered_on",
-             "cost_impact", "schedule_impact_days", "responder_email"},
+             "cost_impact", "schedule_impact_days", "responder_email", "document_urls"},
     "submittals": {"number", "title", "spec_section", "status", "revision",
                    "submitted_by", "submitted_on", "due_on", "returned_on",
                    "document_urls", "approver_email"},
@@ -1410,10 +1411,42 @@ def _register(kind: str):
     return _REGISTERS[kind]
 
 
+# Per-job numbers (Round Three, 11/11/2026): RFI-001 / SUB-001 when the
+# person leaves Number empty - the way field tickets and change orders are
+# numbered (construction_changes.next_number, never reused). A number the
+# architect assigned is still typed in and kept as typed.
+_REGISTER_PREFIX = {"rfis": "RFI", "submittals": "SUB"}
+
+
+def _register_out(db: Session, user: dict, p, kind: str, rows: list) -> list:
+    """The register rows as the caller may read them. An RFI's Cost Impact is
+    a dollar figure, so it follows the contract value (_may_see_cost): None
+    for everyone else (Round Three, 11/11/2026). An RFI made into a change
+    order carries `changeOrder` {id, number} - the number only, never the
+    amount - so the sheet says where it went instead of offering a second."""
+    to_dict = _REGISTERS[kind][1]
+    out = [to_dict(r) for r in rows]
+    if kind != "rfis":
+        return out
+    cost = _may_see_cost(db, user, p)
+    ids = [r["id"] for r in out]
+    made = {}
+    if ids:
+        C = models.ConstructionChangeOrder
+        for c in (db.query(C).filter(C.rfi_id.in_(ids), C.deleted_at == "", C.status != "void")
+                  .order_by(C.created_at).all()):
+            made.setdefault(c.rfi_id, {"id": c.id, "number": c.number or ""})
+    for d in out:
+        if not cost:
+            d["costImpact"] = None
+        d["changeOrder"] = made.get(d["id"])
+    return out
+
+
 @router.get("/projects/{project_id}/register/{kind}")
 def list_register(project_id: str, kind: str, user: dict = Depends(get_current_user),
                   db: Session = Depends(get_db)):
-    model, to_dict, _ = _register(kind)
+    model, _, _ = _register(kind)
     p = _project(db, project_id, user)
     if not _may_read(db, user, p):
         raise HTTPException(403, "You do not have access to this project.")
@@ -1425,18 +1458,20 @@ def list_register(project_id: str, kind: str, user: dict = Depends(get_current_u
     key = ((lambda r: (r.target_date or "9999", r.name or ""))
            if kind == "milestones" else
            (lambda r: (r.created_at or "", r.number or "")))
-    return [to_dict(r) for r in sorted(rows, key=key)]
+    return _register_out(db, user, p, kind, sorted(rows, key=key))
 
 
 @router.post("/projects/{project_id}/register/{kind}", status_code=201)
 def create_register(project_id: str, kind: str, body: dict,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    model, to_dict, entity = _register(kind)
+    model, _, entity = _register(kind)
     p = _project(db, project_id, user)
     if not _may_review(db, user, p):
         raise HTTPException(403, f"Only a project manager can add {kind}.")
     data = _register_data(kind, body, p)
     _register_person(db, user, data, p)
+    if "cost_impact" in data and not _may_see_cost(db, user, p):
+        raise HTTPException(403, "Only a manager who can see the job's money can set a cost impact.")
     if kind == "milestones" and not (data.get("name") or "").strip():
         raise HTTPException(422, "Milestone name is required")
     now = now_iso()
@@ -1447,7 +1482,10 @@ def create_register(project_id: str, kind: str, body: dict,
         if was is not None:
             if was.project_id != p.id:
                 raise HTTPException(409, "That id is taken.")
-            return to_dict(was)
+            return _register_out(db, user, p, kind, [was])[0]
+    if kind in _REGISTER_PREFIX and not str(data.get("number") or "").strip():
+        import construction_changes
+        data["number"] = construction_changes.next_number(db, model, p.id, _REGISTER_PREFIX[kind])
     row = model(id=rid or gen_id(), project_id=p.id, created_at=now, modified_at=now, **data)
     db.add(row)
     _log_activity(db, project_id=p.id, entity_kind=entity, entity_id=row.id,
@@ -1456,13 +1494,13 @@ def create_register(project_id: str, kind: str, body: dict,
     _register_events(db, kind, row, user, p, created=True, before={})
     db.commit()
     db.refresh(row)
-    return to_dict(row)
+    return _register_out(db, user, p, kind, [row])[0]
 
 
 @router.patch("/register/{kind}/{row_id}")
 def update_register(kind: str, row_id: str, body: dict,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    model, to_dict, entity = _register(kind)
+    model, _, entity = _register(kind)
     row = db.query(model).filter(model.id == row_id, model.deleted_at == "").first()
     if not row:
         raise HTTPException(404, "Not found")
@@ -1479,6 +1517,8 @@ def update_register(kind: str, row_id: str, body: dict,
         if "status" in data and data["status"] not in (("answered",) if kind == "rfis" else SUBMITTAL_DECISIONS):
             raise HTTPException(403, "Only a project manager can set that status.")
     _register_person(db, user, data, p)
+    if "cost_impact" in data and not _may_see_cost(db, user, p):
+        raise HTTPException(403, "Only a manager who can see the job's money can set a cost impact.")
     before = {"status": row.status or "",
               "person": (getattr(row, "responder_email", "") if kind == "rfis"
                          else getattr(row, "approver_email", "") if kind == "submittals" else "") or ""}
@@ -1495,7 +1535,7 @@ def update_register(kind: str, row_id: str, body: dict,
     _register_events(db, kind, row, user, p, created=False, before=before)
     db.commit()
     db.refresh(row)
-    return to_dict(row)
+    return _register_out(db, user, p, kind, [row])[0]
 
 
 @router.delete("/register/{kind}/{row_id}", status_code=204)

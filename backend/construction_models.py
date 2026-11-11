@@ -476,6 +476,10 @@ class ConstructionRfi(Base):
     # their Approvals inbox ("RFI responses due to me"). Ball In Court stays
     # the party in words (the architect, the GC); '' = no one named.
     responder_email = Column(String, default="", index=True)
+    # Files on the RFI (Round Three, 11/11/2026): the marked-up photo or
+    # sheet the question is about - construction-media links in this job's
+    # folder, checked like a submittal's.
+    document_urls = Column(JSON, default=list)
     created_at    = Column(String, default="")
     modified_at   = Column(String, default="")
     deleted_at    = Column(String, default="")
@@ -648,6 +652,9 @@ class ConstructionChangeOrder(Base):
     amount           = Column(Float, default=0.0)        # + adds to the contract, - credits it
     schedule_impact_days = Column(Integer, default=0)
     field_ticket_id  = Column(String, default="", index=True)
+    # The RFI it was made from (Round Three, 11/11/2026): an answered RFI
+    # with a cost or schedule impact becomes ONE change order. '' = none.
+    rfi_id           = Column(String, default="", index=True)
     status           = Column(String, default="draft", index=True)
     approver_email   = Column(String, default="", index=True)   # internal approval first ('' = none)
     approved_by      = Column(String, default="")
