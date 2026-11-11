@@ -71,7 +71,7 @@ export function ModuleActions({ children }) {
 }
 
 // Phones (<= 900px) have no bar in the header; they keep the in-page strip.
-function useNarrow() {
+export function useNarrow() {
   const q = () => !!window.matchMedia?.(PHONE_QUERY).matches;
   const [narrow, setNarrow] = useState(q);
   useEffect(() => {

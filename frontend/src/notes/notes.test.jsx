@@ -29,7 +29,7 @@ import NotesPage from './NotesPage';
 import NotesWidget from './NotesWidget';
 import QuickNotePanel from './QuickNotePanel';
 import { HOLD_RECORD_MS } from '../ui/HoldButton';
-import { isQuickNoteKey, htmlToMarkdown, markdownToHtml, groupByDay, dayHeading, addDays } from './notesModel';
+import { isQuickNoteKey, htmlToMarkdown, markdownToHtml, groupByDay, dayHeading, addDays, personShort } from './notesModel';
 
 beforeEach(() => {
   localStorage.clear();
@@ -111,7 +111,10 @@ describe('Notes page', () => {
   it('a note shared to read shows who shared it and no editing controls', async () => {
     apiMock.noteGet.mockResolvedValue(note({ mine: false, can: 'read', owner: 'bob@greensglobal.com', pinned: false }));
     render(<NotesPage activeSub="notes:note_1" onSubChange={vi.fn()} />);
-    expect(await screen.findByText(/Shared by bob@greensglobal.com · Can Read/)).toBeTruthy();
+    // Their picture and "First L." - never the whole name or the email (Neil, 11/10/2026).
+    await waitFor(() => expect(document.querySelector('.nt-sharer')?.textContent).toMatch(/^Shared by .*Bob B\. · Can Read$/));
+    expect(document.querySelector('.nt-sharer [data-avatar]')).toBeTruthy();
+    expect(document.querySelector('.nt-meta').textContent).not.toContain('bob@greensglobal.com');
     expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
     expect(screen.queryByRole('toolbar', { name: 'Formatting' })).toBeNull();
   });
@@ -186,6 +189,28 @@ describe('Quick Note', () => {
     expect(apiMock.noteCreate).not.toHaveBeenCalled();
   });
 
+  it('the first words are never lost while the scratchpad is being made (Neil, 11/10/2026)', async () => {
+    apiMock.noteDaily.mockResolvedValue({ note: null });
+    let made;
+    apiMock.noteCreate.mockImplementation(() => new Promise((res) => { made = res; }));
+    apiMock.noteUpdate.mockImplementation(async (id, patch) => note({ id, kind: 'daily', title: '', rev: 2, ...patch }));
+    render(<QuickNotePanel onClose={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector('.ProseMirror')?.editor).toBeTruthy());
+    const pm = document.querySelector('.ProseMirror');
+    const type = (text) => act(async () => { pm.editor.chain().focus('end').setMeta('noteEdited', true).insertContent(text).run(); });
+    await type('Walked');
+    await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledTimes(1));
+    await type(' the north side');                       // typed while the create is still out
+    const daily = note({ id: 'daily_1', kind: 'daily', title: '', body: '<p>Walked</p>', rev: 1 });
+    apiMock.noteGet.mockResolvedValue(daily);
+    await act(async () => { made(daily); });
+    await type(' of the building');
+    expect(document.querySelector('.ProseMirror')).toBe(pm);   // one editor the whole time - no remount
+    expect(pm.textContent).toBe('Walked the north side of the building');
+    await waitFor(() => expect(JSON.stringify(apiMock.noteUpdate.mock.calls.at(-1))).toContain('Walked the north side of the building'), { timeout: 4000 });
+    expect(apiMock.noteCreate).toHaveBeenCalledTimes(1);
+  });
+
   it('Escape closes it', async () => {
     apiMock.noteDaily.mockResolvedValue({ note: null });
     const onClose = vi.fn();
@@ -252,5 +277,31 @@ describe('Seen By (11/07/2026)', () => {
     apiMock.noteGet.mockResolvedValue(note({ sharedWith: [{ email: 'bob@greensglobal.com', can: 'read' }], seenBy: [] }));
     render(<NotesPage activeSub="notes:note_1" onSubChange={vi.fn()} />);
     expect(await screen.findByText('Not opened yet')).toBeTruthy();
+  });
+});
+
+describe('a shared note on a phone (Neil, 11/10/2026)', () => {
+  const realMatch = window.matchMedia;
+  afterEach(() => { window.matchMedia = realMatch; });
+  it('says who shared it on one tight line: picture, "First L.", access and when', async () => {
+    window.matchMedia = (q) => ({ matches: q === '(max-width: 768px)', media: q, addEventListener() {}, removeEventListener() {} });
+    apiMock.noteGet.mockResolvedValue(note({ mine: false, can: 'edit', owner: 'bob@greensglobal.com', editedBy: 'bob@greensglobal.com', pinned: false }));
+    render(<NotesPage activeSub="notes:note_1" onSubChange={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector('.nt-meta.is-phone .nt-sharer')).toBeTruthy());
+    const meta = document.querySelector('.nt-meta.is-phone');
+    expect(meta.querySelector('.nt-sharer').textContent).toMatch(/Bob B\. · Can Edit · /);
+    expect(meta.textContent).not.toMatch(/Shared by|words|characters|Edited by|bob@/);   // the header has the date; said once
+    expect(document.querySelector('.nt-qn-sub').textContent).toBe(document.querySelector('.nt-qn-sub').textContent.match(/^\d\d\/\d\d\/\d{4}$/)?.[0]);
+  });
+});
+
+describe('personShort', () => {
+  it('is first name and last initial, from Nexus People or else the email', () => {
+    const people = [{ email: 'samantha.rivera@greensglobal.com', name: 'Samantha Rivera' }, { email: 'm@x.com', name: 'Mary Ann de la Cruz' }];
+    expect(personShort(people, 'Samantha.Rivera@greensglobal.com')).toBe('Samantha R.');
+    expect(personShort(people, 'm@x.com')).toBe('Mary C.');
+    expect(personShort([], 'sam.rivera@greensglobal.com')).toBe('Sam R.');
+    expect(personShort([], 'neil@greensglobal.com')).toBe('Neil');
+    expect(personShort(people, '')).toBe('Someone');
   });
 });

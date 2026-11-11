@@ -189,3 +189,35 @@ describe('Profile - Security (Neil, 11/02/2026)', () => {
     await waitFor(() => expect(screen.getByText(/Signed out 1 other device\./)).toBeTruthy());
   });
 });
+
+describe('Profile - Email Signature (Neil, 11/11/2026)', () => {
+  const SAVED = { html: '<b>Saved Sig</b>', displayNameOverride: '', phoneOverride: '', closingOverride: '', linkedinOverride: '',
+    logoUrl: '', logoUrlOverride: '', closingPresets: ['', 'Sincerely'] };
+  function arm() {
+    apiSpies.mySignature = vi.fn(() => Promise.resolve(SAVED));
+    apiSpies.mySignaturePreview = vi.fn(() => Promise.resolve({ html: '<b>Draft Sig</b>' }));
+    apiSpies.mySignatureLogoUpload = vi.fn(() => Promise.resolve(SAVED));
+  }
+
+  it('the preview follows the boxes as you type, and Discard goes back to the saved one', async () => {
+    arm();
+    render(<MyProfileModal onClose={() => {}} initialSection="signature" />);
+    await waitFor(() => expect(screen.getByText('Saved Sig')).toBeTruthy());
+    expect(screen.getByText(/Shows your saved signature/)).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('Shown alongside your full name'), { target: { value: 'Sam' } });
+    await waitFor(() => expect(screen.getByText('Draft Sig')).toBeTruthy());
+    expect(apiSpies.mySignaturePreview).toHaveBeenCalledWith(expect.objectContaining({ display_name: 'Sam' }));
+    expect(screen.getByText(/Shows your changes/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Discard/ }));
+    await waitFor(() => expect(screen.getByText('Saved Sig')).toBeTruthy());
+  });
+
+  it('a pasted image uploads as the logo', async () => {
+    arm();
+    render(<MyProfileModal onClose={() => {}} initialSection="signature" />);
+    await waitFor(() => expect(screen.getByText('Saved Sig')).toBeTruthy());
+    const file = new File(['x'], 'logo.png', { type: 'image/png' });
+    fireEvent.paste(screen.getByText(/press Ctrl\+V/), { clipboardData: { items: [{ type: 'image/png', getAsFile: () => file }] } });
+    await waitFor(() => expect(apiSpies.mySignatureLogoUpload).toHaveBeenCalled());
+  });
+});

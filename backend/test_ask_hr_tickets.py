@@ -361,9 +361,20 @@ class AskHrTicketTests(unittest.TestCase):
     def test_is_hr_for_rules(self):
         self.assertTrue(TC.is_hr_for(self.db, dict(HR), CO))
         self.assertFalse(TC.is_hr_for(self.db, dict(HR), OTHER_CO))
-        # Neil, 11/02/2026: an Administrator is company-walled; only a Super Administrator passes the walls.
+        # An Administrator is company-walled once the walls are on (11/11/2026);
+        # with them off they reach every company. A Super Administrator always does.
         self.assertTrue(TC.is_hr_for(self.db, dict(ADMIN), CO))
-        self.assertFalse(TC.is_hr_for(self.db, dict(ADMIN), OTHER_CO))
+        self.assertTrue(TC.is_hr_for(self.db, dict(ADMIN), OTHER_CO))
+        import cache
+        self.db.add(models.NexusSetting(key="company_walls", value="on")); self.db.commit()
+        cache.settings_config.invalidate()
+        try:
+            self.assertTrue(TC.is_hr_for(self.db, dict(ADMIN), CO))
+            self.assertFalse(TC.is_hr_for(self.db, dict(ADMIN), OTHER_CO))
+        finally:
+            self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+            self.db.commit()
+            cache.settings_config.invalidate()
         self.assertTrue(TC.is_hr_for(self.db, dict(SUPER), OTHER_CO))
         self.assertTrue(TC.is_hr_for(self.db, dict(HRFULL), CO))
         self.assertFalse(TC.is_hr_for(self.db, dict(HRSCOPED), CO))

@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from './AsyncState';
-import { X, Search, Variable, Plus } from 'lucide-react';
+import { X, Search, Variable, Plus, Pin, PinOff, GripVertical } from 'lucide-react';
 import { api } from '../api';
 import { tokenGroup, groupLabel, VARIABLE_DRAG_TYPE, FILLED_WHEN } from '../lib/mergeFieldTypes';
+import AnchoredMenu from './AnchoredMenu';
 
 // A built-in files under WHEN Nexus fills it, like the toolbar's insert picker.
 const WHEN = Object.fromEntries(FILLED_WHEN.map(([k, label, where]) => [k, { label, where }]));
+// The category chips' short names for those groups.
+const SHORT = { person: 'Person', company: 'Company', offer: 'Offer / Hire', promotion: 'Promotion', separation: 'Separation', signers: 'Signers', document: 'Document' };
 
 // ── Variable Library (requirement 5.2) ───────────────────────────────────────
 // "Browse available variables. Select a variable. Insert it into the template.
@@ -21,10 +24,18 @@ const WHEN = Object.fromEntries(FILLED_WHEN.map(([k, label, where]) => [k, { lab
 // Insertion is a mergeField NODE, never typed text: the chip carries the token
 // and survives editing, which is what makes "{{principal.amount}}" impossible
 // to typo into a document that then silently never populates.
+//
+// Where it opens (Neil, 11/11/2026): with an `anchorRef` (the Document
+// Builder's Variables > Variable Library button) it is a flyout under that
+// button, like a Word gallery - it closes when you click away, unless it is
+// pinned, which keeps it floating while you drag several in. `embedded` is
+// the Variables rail's Add More tab. Without either it is the old panel at
+// the right edge.
 
-export default function VariableLibrary({ open, onClose, onInsert, localVariables = [], anchorLabel }) {
+export default function VariableLibrary({ open, onClose, onInsert, localVariables = [], anchorLabel, anchorRef = null, pinned = false, onPin, used = null, embedded = false }) {
   const [variables, setVariables] = useState(null);
   const [query, setQuery] = useState('');
+  const [cat, setCat] = useState('');
   const [error, setError] = useState('');
   const searchRef = useRef(null);
 
@@ -39,129 +50,149 @@ export default function VariableLibrary({ open, onClose, onInsert, localVariable
   }, [open]);
 
   useEffect(() => { if (open) searchRef.current?.focus(); }, [open]);
+  // The flyout's Escape is AnchoredMenu's; the panel keeps its own.
   useEffect(() => {
-    if (!open) return;
+    if (!open || anchorRef || embedded) return;
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, onClose, anchorRef, embedded]);
 
   // This document's own variables are merged in even before they reach a
   // saved template - otherwise a variable you just defined is missing from the
   // library you are looking at.
-  const groups = useMemo(() => {
-    const all = [...(variables || [])];
-    const known = new Set(all.map(v => v.token));
+  const all = useMemo(() => {
+    const out = [...(variables || [])];
+    const known = new Set(out.map(v => v.token));
     for (const token of localVariables) {
       if (!known.has(token)) {
-        all.push({ token, label: humanize(token), group: displayGroup(token), source: 'document', usedBy: [] });
+        out.push({ token, label: humanize(token), group: displayGroup(token), source: 'document', usedBy: [] });
       }
     }
+    return out;
+  }, [variables, localVariables]);
+  const groupOf = (v) => (v.source === 'builtin' && WHEN[v.when]?.label) || v.group || 'Other';
+  const shortOf = (g) => {
+    const when = FILLED_WHEN.find(([, label]) => label === g);
+    return when ? SHORT[when[0]] || g : g;
+  };
+  const cats = useMemo(() => {
+    const order = (g) => { const i = FILLED_WHEN.findIndex(([, label]) => label === g); return i < 0 ? FILLED_WHEN.length : i; };
+    return [...new Set(all.map(groupOf))].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+  }, [all]);
+  const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const matched = q
-      ? all.filter(v => v.token.toLowerCase().includes(q)
-                     || (v.label || '').toLowerCase().includes(q)
-                     || (v.description || '').toLowerCase().includes(q)
-                     || (v.group || '').toLowerCase().includes(q))
-      : all;
+    const matched = all.filter((v) => (!cat || groupOf(v) === cat) && (!q
+      || v.token.toLowerCase().includes(q)
+      || (v.label || '').toLowerCase().includes(q)
+      || (v.description || '').toLowerCase().includes(q)
+      || (v.group || '').toLowerCase().includes(q)));
     const out = new Map();
     for (const v of matched) {
-      const g = (v.source === 'builtin' && WHEN[v.when]?.label) || v.group || 'Other';
+      const g = groupOf(v);
       if (!out.has(g)) out.set(g, []);
       out.get(g).push(v);
     }
     return [...out.entries()];
-  }, [variables, localVariables, query]);
+  }, [all, query, cat]);
 
   if (!open) return null;
 
   const total = groups.reduce((n, [, items]) => n + items.length, 0);
+  const flyout = !!anchorRef;
 
-  return (
-    <aside style={{
-      position: 'fixed', top: 0, right: 0, bottom: 0, width: 330, zIndex: 1200,
-      background: 'var(--card)', borderLeft: '1px solid var(--line)',
-      boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column',
-    }} aria-label="Variable library">
-      <header style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Variable size={16} style={{ color: 'var(--pine)' }} />
-          <strong style={{ fontSize: 14, flex: 1 }}>Variable Library</strong>
-          <button onClick={onClose} title="Close" aria-label="Close"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
-            <X size={16} />
+  const head = (
+    <header className="nx-varlib-head">
+      {!embedded && <div className="nx-varlib-title">
+        <Variable size={15} style={{ color: 'var(--pine)' }} />
+        <strong>Variable Library</strong>
+        {flyout && onPin && (
+          <button type="button" className="nx-varlib-icon" onClick={() => onPin(!pinned)} aria-pressed={pinned}
+            title={pinned ? 'Unpin - close when I click away' : 'Pin - keep it open while I work'} aria-label={pinned ? 'Unpin the library' : 'Pin the library'}>
+            {pinned ? <PinOff size={14} /> : <Pin size={14} />}
           </button>
+        )}
+        <button type="button" className="nx-varlib-icon" onClick={onClose} title="Close" aria-label="Close"><X size={15} /></button>
+      </div>}
+      <label className="nx-varlib-search">
+        <Search size={13} aria-hidden="true" />
+        <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
+          placeholder="Search variables…" aria-label="Search variables" />
+      </label>
+      {cats.length > 1 && (
+        <div className="nx-varlib-cats" role="group" aria-label="Show">
+          <button type="button" className={!cat ? 'is-on' : ''} aria-pressed={!cat} onClick={() => setCat('')}>All</button>
+          {cats.map((g) => (
+            <button key={g} type="button" className={cat === g ? 'is-on' : ''} aria-pressed={cat === g} onClick={() => setCat(cat === g ? '' : g)} title={g}>{shortOf(g)}</button>
+          ))}
         </div>
-        <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>
-          Click to insert{anchorLabel ? ` into ${anchorLabel}` : ''}, or drag one onto the page.
-        </p>
-        <div style={{ position: 'relative', marginTop: 10 }}>
-          <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-          <input ref={searchRef} className="form-input" value={query} onChange={e => setQuery(e.target.value)}
-            placeholder="Search variables…"
-            style={{ width: '100%', fontSize: 12.5, padding: '6px 8px 6px 27px' }} />
-        </div>
-      </header>
+      )}
+    </header>
+  );
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 10px 16px' }}>
-        {variables === null && (
-          <LoadingState compact label="Loading variables…" />
-        )}
-        {error && (
-          <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', padding: 12 }}>{error}</p>
-        )}
-        {variables !== null && total === 0 && !error && (
-          <p style={{ fontSize: 12, color: 'var(--muted)', padding: 12 }}>
-            {query ? `No variable matches "${query}".` : 'No variables yet.'}
-          </p>
-        )}
-        {groups.map(([group, items]) => (
-          <section key={group} style={{ marginBottom: 14 }}>
-            <h4 style={{
-              fontSize: 10.5, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase',
-              color: 'var(--muted)', margin: '6px 0 6px 6px',
-            }}>{group}</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {items.map(v => (
-                <button key={v.token} type="button" draggable
-                  onClick={() => onInsert(v.token)}
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData(VARIABLE_DRAG_TYPE, v.token);
-                    // A plain-text fallback so a drop outside the editor (a
-                    // comment box, another app) still says something useful.
-                    e.dataTransfer.setData('text/plain', `{{${v.token}}}`);
-                    e.dataTransfer.effectAllowed = 'copy';
-                  }}
-                  title={describe(v)}
-                  style={{
-                    textAlign: 'left', background: 'none', border: '1px solid transparent',
-                    borderRadius: 7, padding: '6px 8px', cursor: 'grab', display: 'flex',
-                    alignItems: 'center', gap: 8, fontFamily: 'Inter, sans-serif',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; e.currentTarget.style.borderColor = 'var(--line)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.borderColor = 'transparent'; }}>
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {v.label || v.token}
-                    </span>
-                    <span style={{ display: 'block', fontSize: 10.5, color: 'var(--muted)', fontFamily: 'ui-monospace, Consolas, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {v.token}
-                    </span>
-                    {v.description && (
-                      /* Requirement 5: a variable carries a description, so
-                         browsing tells you what it MEANS, not just its name. */
-                      <span style={{ display: 'block', fontSize: 10.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>
-                        {v.description}
-                      </span>
-                    )}
-                  </span>
-                  <Plus size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                </button>
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
+  const list = (
+    <div className="nx-varlib-list">
+      {variables === null && (
+        <LoadingState compact label="Loading variables…" />
+      )}
+      {error && (
+        <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', padding: 12 }}>{error}</p>
+      )}
+      {variables !== null && total === 0 && !error && (
+        <p style={{ fontSize: 12, color: 'var(--muted)', padding: 12 }}>
+          {query ? `No variable matches "${query}".` : 'No variables yet.'}
+        </p>
+      )}
+      {groups.map(([group, items]) => (
+        <section key={group} className="nx-varlib-group">
+          <h4>{group}</h4>
+          {items.map(v => {
+            const n = used?.[v.token] || 0;
+            return (
+              <button key={v.token} type="button" draggable className="nx-varlib-row"
+                onClick={() => onInsert(v.token)}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(VARIABLE_DRAG_TYPE, v.token);
+                  // A plain-text fallback so a drop outside the editor (a
+                  // comment box, another app) still says something useful.
+                  e.dataTransfer.setData('text/plain', `{{${v.token}}}`);
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
+                title={describe(v)}>
+                <GripVertical size={13} className="nx-varlib-grip" aria-hidden="true" />
+                <span className="nx-varlib-text">
+                  <span className="nx-varlib-label">{v.label || v.token}</span>
+                  <span className="nx-varlib-token">{v.token}</span>
+                  {v.description && (
+                    /* Requirement 5: a variable carries a description, so
+                       browsing tells you what it MEANS, not just its name. */
+                    <span className="nx-varlib-desc">{v.description}</span>
+                  )}
+                </span>
+                {n > 0 ? <span className="nx-varlib-used">In Use · {n === 1 ? '1 Place' : `${n} Places`}</span>
+                  : <Plus size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+              </button>
+            );
+          })}
+        </section>
+      ))}
+    </div>
+  );
+  const foot = <p className="nx-varlib-foot">Click to insert{anchorLabel ? ` into ${anchorLabel}` : ''} at the cursor, or drag one onto the page.</p>;
+
+  // Inside the Variables rail's Add More tab (DocumentBuilder, 11/11/2026).
+  if (embedded) return <div className="nx-varlib is-embedded">{head}{list}{foot}</div>;
+  if (flyout) {
+    return (
+      <AnchoredMenu anchorRef={anchorRef} open onClose={() => { if (!pinned) onClose(); }} role="dialog" aria-label="Variable library"
+        className={`nx-varlib is-flyout${pinned ? ' is-pinned' : ''}`} minWidth={340}>
+        {head}{list}{foot}
+      </AnchoredMenu>
+    );
+  }
+  return (
+    <aside className="nx-varlib is-panel" aria-label="Variable library">
+      {head}{list}{foot}
     </aside>
   );
 }

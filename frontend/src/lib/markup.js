@@ -78,7 +78,7 @@ export function imageElement(fileId, box) {
   };
 }
 
-function imageSize(blob) {
+export function imageSize(blob) {
   return new Promise((resolve) => {
     if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof Image === 'undefined') { resolve({ width: 0, height: 0 }); return; }
     const url = URL.createObjectURL(blob);

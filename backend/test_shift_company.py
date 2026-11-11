@@ -416,13 +416,12 @@ class ShiftCompanyTests(unittest.TestCase):
         self.assertEqual(self.client.get(SETTINGS).status_code, 200, "the tenant row still reads (it is their fallback)")
         self._as(BOSS)
         self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 200, "a Super Administrator reads every company")
-        # Walls OFF: the Administrator (level 4) is walled all the same
-        # (Neil, 11/02/2026); the Super Administrator is not.
+        # Walls OFF: the Administrator (level 4) works every company, like
+        # levels 1-3 (11/11/2026).
         self._walls(False)
         self._as(ADMIN_A)
-        self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 404)
-        self.assertEqual(self.client.put(f"{SETTINGS}?company={CO_B}", json={"swaps": True}).status_code, 403)
-        self.assertEqual(self.client.put(SETTINGS, json={"swaps": True}).status_code, 403)
+        self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 200)
+        self.assertEqual(self.client.put(f"{SETTINGS}?company={CO_B}", json={"swaps": True}).status_code, 200)
         self.assertEqual(self.client.put(f"{SETTINGS}?company={CO_A}", json={"swaps": True}).status_code, 200)
         self._as(BOSS)
         self.assertEqual(self.client.put(f"{SETTINGS}?company={CO_B}", json={"swaps": True}).status_code, 200)

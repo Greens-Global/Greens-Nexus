@@ -131,7 +131,7 @@ function ProjectOverflowRow({ projects }) {
   );
 }
 
-export default function PortfoliosView({ onNavigate }) {
+export default function PortfoliosView({ onNavigate, actions }) {
   const isMobile = useIsMobile();
   const store = useTasks();
   const { portfolios, projects, tasks, projectById, nameOf, createPortfolio, updatePortfolio, deletePortfolio, moveProjectsToPortfolio } = store;
@@ -255,7 +255,7 @@ export default function PortfoliosView({ onNavigate }) {
       <PortfolioDetail
         pf={pf} store={store} rollup={rollup} people={people}
         onBack={() => setDetailId(null)} onNavigate={onNavigate}
-        onEdit={() => setEditing(pf)}
+        onEdit={() => setEditing(pf)} actions={actions}
       />
     );
   }
@@ -271,6 +271,8 @@ export default function PortfoliosView({ onNavigate }) {
             <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 800, letterSpacing: '-0.02em' }}>Portfolios</div>
             {!isMobile && <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 4 }}>Group projects to track their combined progress.</div>}
           </div>
+          {/* The module's Manage / Create (views/Tasks.jsx), on a computer. */}
+          {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions(null)}</div>}
         </div>
         {/* Search · Show archived - one line on mobile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
@@ -849,7 +851,7 @@ export function PortfolioCreateModal({ onClose, onCreated }) {
 }
 
 // ── Detail view: member projects + add/remove/reorder ─────────────────────────
-function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit }) {
+function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit, actions }) {
   // The page trail names the list above this portfolio (TASKS / PORTFOLIOS).
   useTrailCrumbs([{ label: 'Portfolios', onClick: onBack }], onBack);
   const { projectById, updatePortfolio } = store;
@@ -898,6 +900,7 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
           </div>
           <button onClick={onEdit} style={btn('outline')}><Pencil size={15} />Edit Portfolio</button>
           <button onClick={() => setManaging(true)} style={btn('primary')}><FolderKanban size={15} />Manage Projects</button>
+          {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions(null)}</div>}
         </div>
         {ids.length > 0 && (
           <div style={{ position: 'relative', maxWidth: 340 }}>

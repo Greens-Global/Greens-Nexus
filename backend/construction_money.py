@@ -176,6 +176,69 @@ def actual_from_buckets(rows: list, labels: dict | None = None, chart: dict | No
             "rows": out, "left": sorted((v for v in left.values() if v["amount"]), key=lambda a: a["account_no"])}
 
 
+# ── The client side (Round Three item 2, Neil, 11/11/2026) ─────────────────
+# Read from the SAME ledger read as Actual (the job's Project-Job on its
+# entity, by item), so it costs no extra call: what was billed to the client
+# is the job's revenue lines (credits less debits on revenue and other
+# income); what the client paid is the credits on the job's receivable
+# lines, and what they still owe is those lines' balance. A payment posted
+# without the job's Project-Job does not show here - the screen says so.
+INCOME_SECTIONS = ("revenue", "other_income")
+_RECEIVABLE = re.compile(r"\b(receivables?|a/?r|retainage\s+receivable)\b", re.I)
+
+
+def _section(row: dict, chart: dict | None) -> tuple[str, dict | None]:
+    acct = chart.get(str(row.get("account_no") or "")) if chart else None
+    return str((acct or {}).get("section") or row.get("section") or "").lower(), acct
+
+
+def is_receivable(row: dict, chart: dict | None = None) -> bool:
+    section, acct = _section(row, chart)
+    if section != "asset" or (acct is not None and (acct.get("statistical") or acct.get("bank_kind"))):
+        return False
+    words = " ".join(str((acct or row).get(k) or "") for k in ("category", "group", "account_type", "title"))
+    return bool(_RECEIVABLE.search(words))
+
+
+def client_side(rows: list, chart: dict | None = None) -> dict:
+    """{billed, received, open} from a `/reports/buckets?by=item` answer on the
+    job's Project-Job. billed / received carry `accounts` (account_no, title,
+    amount) so each opens its ledger lines; `open` is worked out."""
+    billed: dict[str, dict] = {}
+    recv: dict[str, dict] = {}
+    invoiced = 0.0
+    for r in rows or []:
+        section, acct = _section(r, chart)
+        if acct is not None and acct.get("statistical"):
+            continue
+        k = str(r.get("account_no") or "")
+        title = (acct or {}).get("title") or r.get("title") or ""
+        if section in INCOME_SECTIONS:
+            a = billed.setdefault(k, {"account_no": k, "title": title, "section": section, "amount": 0.0})
+            a["amount"] = round(a["amount"] + float(r.get("credit") or 0) - float(r.get("debit") or 0), 2)
+        elif is_receivable(r, chart):
+            a = recv.setdefault(k, {"account_no": k, "title": title, "section": section, "amount": 0.0})
+            a["amount"] = round(a["amount"] + float(r.get("credit") or 0), 2)
+            invoiced = round(invoiced + float(r.get("debit") or 0), 2)
+    b = sorted((a for a in billed.values() if a["amount"]), key=lambda a: a["account_no"])
+    rc = sorted((a for a in recv.values() if a["amount"]), key=lambda a: a["account_no"])
+    received = round(sum(a["amount"] for a in rc), 2)
+    return {"billed": {"amount": round(sum(a["amount"] for a in b), 2), "accounts": b},
+            "received": {"amount": received, "accounts": rc},
+            "open": round(invoiced - received, 2) if recv else None}
+
+
+def committed_by_code(commitments) -> dict:
+    """{cost code: committed} over the job's live commitments ('' = not coded)."""
+    out: dict[str, float] = {}
+    for c in commitments or []:
+        if (c.status or "active") == "void":
+            continue
+        k = (getattr(c, "cost_code", "") or "").strip()
+        out[k] = round(out.get(k, 0.0) + float(c.amount or 0), 2)
+    return out
+
+
 def cost_by_project(rows: list, chart: dict | None = None) -> dict:
     """{project code: actual cost} from a `/reports/buckets?by=project` answer
     (the dashboard's Over Budget flag - one read per entity)."""
@@ -435,6 +498,7 @@ def commitments_view(commitments, billed: dict | None) -> dict:
                 "vendorId": vid, "vendorName": c.vendor_name or vid, "title": c.title or "",
                 "originalAmount": round(float(c.original_amount or 0), 2), "amount": amount,
                 "retainagePct": float(c.retainage_pct or 0), "status": c.status or "active",
+                "costCode": getattr(c, "cost_code", "") or "",
                 "contractUrl": c.contract_url or "", "contractName": c.contract_name or "", "notes": c.notes or "",
                 "billed": b, "billedAccounts": (got or {}).get("accounts", []), "sharedVendor": shared,
                 "remaining": remaining,

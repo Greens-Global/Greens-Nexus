@@ -42,8 +42,9 @@ export default function FieldTicketSheet({ project, today, onClose, onSent }) {
   const [fromPunches, setFromPunches] = useState(false);
   const [materials, setMaterials] = useState([{ description: '', quantity: '', unit: '' }]);
   const [photos, setPhotos] = useState([]);           // File[]
-  const [customer, setCustomer] = useState('');
-  const [email, setEmail] = useState('');
+  // Round Three (11/11/2026): who signs starts as the job's client contact - change it on site if someone else signs.
+  const [customer, setCustomer] = useState(project?.clientContactName || '');
+  const [email, setEmail] = useState(project?.clientContactEmail || '');
   const [signature, setSignature] = useState(null);   // { file, preview, name }
   const [padOpen, setPadOpen] = useState(false);
   const [busy, setBusy] = useState(false);

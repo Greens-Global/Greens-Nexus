@@ -995,6 +995,16 @@ def company_scope(user: dict, db: Session):
     return own
 
 
+def bound_by_super_rules(user: dict, db: Session) -> bool:
+    """An Administrator below Super Administrator. company_scope() says only
+    what they SEE (everything while the walls are off); the Super-only rules
+    on the walls themselves - entity scope rows, their own or another
+    Administrator's limits, shared groups and job roles - bind them whatever
+    the switch says, so nothing set up with the walls off widens their reach
+    once the walls are armed (11/11/2026)."""
+    return int(user.get("level", 0) or 0) >= _LEVELS["administrator"] and not is_global_admin(user, db)
+
+
 def acting_capped(user: dict, db: Session) -> bool:
     """True while `user` is an Act As identity whose real actor is walled."""
     if not (user.get("acting_as") and user.get("real_email")):
@@ -1013,11 +1023,10 @@ def _own_company_scope(user: dict, db: Session):
     The rule by tier (Neil, 11/02/2026):
       - Level 5 (Super Administrator) and a member of a group flagged
         is_global_admin are NEVER walled - `is_global_admin`.
-      - Level 4 (Administrator) is ALWAYS walled to their companies, whether
-        or not the `company_walls` switch is on - an Administrator runs
-        their company, never the organization.
-      - Levels 1-3 keep the switch's meaning exactly as before: unrestricted
-        while the walls are off, confined to their companies once armed.
+      - Levels 1-4 follow the `company_walls` switch: unrestricted while
+        the walls are off, confined to their companies once armed (Pranshu,
+        11/11/2026 - an Administrator was walled with the switch off too,
+        which hid every untagged record, e.g. most of the Items catalog).
 
     An Administrator whose own People record has no company (and who holds
     no entity scope or company group) gets an EMPTY AdminScope: they see no
@@ -1032,9 +1041,8 @@ def _own_company_scope(user: dict, db: Session):
     level = int(user.get("level", 0) or 0)
     if level >= _LEVELS["owner"]:
         return None
-    # Levels 1-3 with the walls off: unrestricted before any query (the
-    # settings flag is cached), as it always was.
-    if level < _LEVELS["administrator"] and not _company_walls_on(db):
+    # Walls off: unrestricted before any query (the settings flag is cached).
+    if not _company_walls_on(db):
         return None
     if is_global_admin(user, db):
         return None

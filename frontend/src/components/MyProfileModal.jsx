@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Camera, Palette, Check, Copy, Mail, CalendarDays, Signature, User, Info, Smartphone, ShieldCheck } from 'lucide-react';
 import { api } from '../api';
+import { imageFromPaste } from '../inventory/ui/upload';
 import { dialog } from '../ui/dialog';
 import { StatusLabel } from './StatusLabel';
 import PhotoEditorModal from './PhotoEditorModal';
@@ -74,6 +75,20 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [sigStatus, setSigStatus] = useState('');
   const [logoBusy, setLogoBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const sigPreviewRef = useRef(null);
+  const [liveSigHtml, setLiveSigHtml] = useState(null);   // the unsaved draft, rendered by the server
+  // The preview follows the boxes as you type (Neil, 11/11/2026) - the same
+  // render as a save, nothing stored (POST /myhr/signature/preview).
+  useEffect(() => {
+    if (Object.keys(sig).every(k => sig[k] === sigSaved[k])) return undefined;
+    let live = true;
+    const t = setTimeout(() => {
+      api.mySignaturePreview({ display_name: sig.name, phone: sig.phone, closing: sig.closing, linkedin_url: sig.linkedin })
+        .then(r => { if (live) setLiveSigHtml(r.html); })
+        .catch(() => {});
+    }, 350);
+    return () => { live = false; clearTimeout(t); };
+  }, [sig, sigSaved]);
   const [dateFmtStatus, setDateFmtStatus] = useState('');
   // Fixed MAX_ZONES slots, '' = unset - a dropdown per slot (Pranshu, Sep 1).
   // Local (the detected system zone) always shows first on the greeting and
@@ -130,7 +145,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
     setSigBusy(true); setSigStatus('');
     try {
       const s = await api.mySignatureSave({ display_name: sig.name, phone: sig.phone, closing: sig.closing, linkedin_url: sig.linkedin });
-      setSignature(s); const v = fromSignature(s); setSig(v); setSigSaved(v); setSigStatus('Saved.');
+      setSignature(s); const v = fromSignature(s); setSig(v); setSigSaved(v); setLiveSigHtml(null); setSigStatus('Saved.');
     } catch (e) { setSigStatus(e?.message || 'Could not save.'); }
     setSigBusy(false);
   }
@@ -148,13 +163,18 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   }
 
   async function copySignature() {
-    if (!signature?.html) return;
+    const html = shownSigHtml;
+    if (!html) return;
     try {
       if (navigator.clipboard?.write && window.ClipboardItem) {
-        const blob = new Blob([signature.html], { type: 'text/html' });
-        await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })]);
+        // A plain-text copy rides along for boxes that take no formatting.
+        const text = sigPreviewRef.current?.innerText || '';
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+        })]);
       } else {
-        await navigator.clipboard.writeText(signature.html);
+        await navigator.clipboard.writeText(html);
       }
       setCopied(true); setTimeout(() => setCopied(false), 2000);
     } catch { setSigStatus('Could not copy - select the preview and copy manually.'); }
@@ -178,6 +198,11 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const initials = profile ? `${(profile.firstName || '')[0] || ''}${(profile.lastName || '')[0] || ''}`.toUpperCase() : '';
   const fullName = profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() : '';
   const sigDirty = Object.keys(sig).some((k) => sig[k] !== sigSaved[k]);
+  const shownSigHtml = sigDirty ? (liveSigHtml ?? signature?.html) : signature?.html;
+  function onSigPaste(e) {
+    const file = imageFromPaste(e);
+    if (file && !logoBusy) { e.preventDefault(); uploadSignatureLogo(file); }
+  }
   const field = (key, label, placeholder, extra) => (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2, var(--muted))' }}>{label}</span>
@@ -327,7 +352,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
         <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 14 }}>
           Your name, role and company email come from your directory record, and the design is set by your administrator. These are yours to change.
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)', gap: 22, alignItems: 'start' }}>
+        <div onPaste={onSigPaste} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)', gap: 22, alignItems: 'start' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {field('name', 'Preferred Name', 'Shown alongside your full name')}
             {field('phone', 'Phone', 'Defaults to your profile phone')}
@@ -358,6 +383,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
                   </button>
                 )}
               </span>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or press Ctrl+V to paste one</span>
             </div>
           </div>
           <div>
@@ -368,18 +394,17 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
                 {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy Signature'}
               </button>
             </div>
-            {/* The typewriter animation ships inside signature.html itself (backend
-                _TYPEWRITER_CSS) so it travels with a copy/paste into Outlook. */}
-            <div key={signature.html}
+            <div ref={sigPreviewRef}
               style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 12, background: '#fff', overflow: 'auto' }}
-              dangerouslySetInnerHTML={{ __html: signature.html }} />
+              dangerouslySetInnerHTML={{ __html: shownSigHtml }} />
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>
-              Shows what was last saved. Paste it into Outlook: Settings, Mail, Compose and Reply, Signatures.
+              {sigDirty ? 'Shows your changes. Save keeps them here for next time.' : 'Shows your saved signature.'}
+              {' '}Paste it into Outlook under Settings, Mail, Compose and Reply, Signatures, then pick Keep Source Formatting from the paste button so the fonts stay. In Gmail it goes under Settings, See All Settings, General, Signature.
             </div>
           </div>
         </div>
         <SaveRow dirty={sigDirty} busy={sigBusy} onSave={saveSignature}
-          onDiscard={() => { setSig(sigSaved); setSigStatus(''); }}
+          onDiscard={() => { setSig(sigSaved); setLiveSigHtml(null); setSigStatus(''); }}
           note={sigStatus && <span style={{ color: /Could not/.test(sigStatus) ? 'hsl(var(--color-red))' : 'var(--wk-brand)' }}>{sigStatus}</span>} />
       </>
     ),

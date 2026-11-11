@@ -82,6 +82,7 @@ const PublicCareers       = lazy(() => import("./views/PublicCareers"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const PublicUnitFinder    = lazy(() => import("./views/PublicUnitFinder"));
 const PublicFindUnit      = lazy(() => import("./views/PublicFindUnit"));   // /find/<token>: one customer's unit + route (Oct 20)
+const PublicOutside       = lazy(() => import("./views/PublicOutside"));    // /outside/<token>: a construction outside link (11/11/2026)
 const ExternalActivate    = lazy(() => import("./views/ExternalActivate"));
 const PrivacyPolicy       = lazy(() => import("./views/PrivacyPolicy"));
 const TermsConditions     = lazy(() => import("./views/TermsConditions"));
@@ -604,6 +605,17 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicUnitFinder propertyId={pid} />
+      </Suspense>
+    );
+  }
+  // A construction outside link (/outside/<token>, Round Three item 4, 11/11/2026):
+  // the architect answering one RFI or a sub marking their punch items done have
+  // no login; the token in the URL is the credential.
+  if (parsePath().view === 'outside') {
+    const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
+        <PublicOutside token={token} />
       </Suspense>
     );
   }

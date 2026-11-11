@@ -106,7 +106,7 @@ function useTemplates() {
 }
 
 function NewProjectModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ name: '', address: '', phase: '', general_contractor: '' });
+  const [form, setForm] = useState({ name: '', address: '', phase: '' });
   const [jobType, setJobType] = useState('project');
   const [propertyId, setPropertyId] = useState('');
   const [templateId, setTemplateId] = useState('');
@@ -139,7 +139,7 @@ function NewProjectModal({ onClose, onCreated }) {
     }
   };
 
-  const dirty = !!(form.name.trim() || form.address.trim() || form.phase.trim() || form.general_contractor.trim() || hasPoint || crew.length || managers.length);
+  const dirty = !!(form.name.trim() || form.address.trim() || form.phase.trim() || hasPoint || crew.length || managers.length);
   const guard = useUnsavedGuard(dirty, onClose, form.name.trim() ? () => save({ preventDefault() {} }) : undefined);
   const status = hasPoint
     ? `${loc.adjusted ? 'Pin fine-tuned on the map.' : 'Placed from the Google Maps link.'} The weather is read at this exact point.`
@@ -197,17 +197,11 @@ function NewProjectModal({ onClose, onCreated }) {
                     style={{ color: 'var(--wk-brand, #2b45e1)', fontWeight: 600, whiteSpace: 'nowrap' }}>Open in Google Maps <ExternalLink size={10} /></a></>
                 )}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
-                <div>
-                  <label className="form-label">Phase</label>
-                  <input className="form-input" value={form.phase}
-                    onChange={(e) => setForm({ ...form, phase: e.target.value })} placeholder="Foundation" />
-                </div>
-                <div>
-                  <label className="form-label">General Contractor</label>
-                  <input className="form-input" value={form.general_contractor}
-                    onChange={(e) => setForm({ ...form, general_contractor: e.target.value })} placeholder="Optional" />
-                </div>
+              {/* Round Three (11/11/2026): the client is an Intacct customer, picked on Edit Job once the job exists. */}
+              <div style={{ marginTop: 14 }}>
+                <label className="form-label">Phase</label>
+                <input className="form-input" value={form.phase}
+                  onChange={(e) => setForm({ ...form, phase: e.target.value })} placeholder="Foundation" />
               </div>
               <label className="form-label" style={{ marginTop: 14 }} htmlFor="new-job-property">Property</label>
               <select id="new-job-property" className="form-input" value={propertyId} disabled={properties === null}

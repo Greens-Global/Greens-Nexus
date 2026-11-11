@@ -1114,7 +1114,7 @@
         "answer": [
           0
         ],
-        "explanation": "An Administrator is always walled. Only a Super Administrator, or a member of a group flagged as global, crosses.",
+        "explanation": "Once the walls are on, an Administrator stays inside their company. Only a Super Administrator, or a member of a group flagged as global, crosses.",
         "lesson": "11-access-settings-and-the-leaders-record.md"
       },
       {

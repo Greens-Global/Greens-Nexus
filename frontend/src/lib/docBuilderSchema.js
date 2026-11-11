@@ -14,6 +14,8 @@ import { MergeField, PageBreak, DocShape, DocTextbox, ResizableImage, Bookmark, 
 import { boldTextNode } from './markdownBold';
 import { CommentMark } from './docCommentMark';
 import { TrackChanges } from './docTrackChanges';
+import { Tab, TAB_STOPS_ATTR } from './docTabs';
+import { Footnote } from './docFootnote';
 
 // Word-style cell shading - TipTap's stock TableCell/TableHeader carry no
 // background-color attribute, so both are extended identically with one
@@ -83,6 +85,8 @@ const PARAGRAPH_STYLE_ATTRS = {
     parseHTML: (el) => (el.style.marginRight && /pt$/.test(el.style.marginRight) ? parseFloat(el.style.marginRight) : null),
     renderHTML: (attrs) => (attrs.indentRight ? { style: `margin-right: ${attrs.indentRight}pt` } : {}),
   },
+  // Word's tab stops (lib/docTabs.js): [{ pos (pt from the margin), align }].
+  ...TAB_STOPS_ATTR,
 };
 
 // Word's bullet gallery (disc, circle, square) - the list's own marker style.
@@ -135,7 +139,7 @@ export const BODY_EXTENSIONS = [
   StyledTable.configure({ resizable: true }),
   TableRow, TableHeader, TableCell,
   MergeField, PageBreak, DocShape, DocTextbox, Bookmark, SectionBox,
-  SignatureBlock,
+  SignatureBlock, Tab, Footnote,
   TextStyleKit,
   Subscript, Superscript, Highlight.configure({ multicolor: true }),
   TextAlign.configure({ types: ['paragraph', 'heading'] }),

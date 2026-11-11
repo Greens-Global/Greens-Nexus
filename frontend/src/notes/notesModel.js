@@ -91,6 +91,23 @@ export function noteHeadings(html) {
   return out;
 }
 
+/**
+ * A person as a note's chrome names them (Neil, 11/10/2026): first name and
+ * last initial - "Samantha R." - never the whole name or the email. The
+ * name comes from Nexus People; someone not in it is read off their email
+ * ("sam.rivera@..." -> "Sam R.").
+ */
+export function personShort(people, email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return 'Someone';
+  const known = (people || []).find((p) => (p.email || '').toLowerCase() === e)?.name;
+  const name = String(known || e.split('@')[0].replace(/[._-]+/g, ' ')).trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'Someone';
+  const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
+  return parts.length === 1 ? cap(parts[0]) : `${cap(parts[0])} ${parts[parts.length - 1].charAt(0).toUpperCase()}.`;
+}
+
 export const countWords = (text) => (String(text || '').trim().match(/\S+/g) || []).length;
 
 // "edited 3 min ago" / "edited 10/27/2026"

@@ -1633,6 +1633,8 @@ class HrEntity(Base):
     # Signature template (Sep 16, Pranshu): an admin-picked, company-wide
     # default in Settings - not a per-employee choice (myhr.SIGNATURE_TEMPLATES).
     signature_template = Column(String, default="classic")
+    # The signature's accent color, hex; '' = Greens green (Neil, 11/11/2026).
+    signature_color    = Column(String, default="")
     # signature_closing here is ALSO VESTIGIAL (Sep 19) - sign-off moved to
     # the employee too (NexusEmployee.signature_closing): "Admin should not
     # have the control of Sign off... it should be employee specific."
@@ -2479,6 +2481,12 @@ class TimePunch(Base):
     # another record (its batch is batch_id -> time_entry_batches). '' = as
     # `source` says.
     entry_source      = Column(String, default="")
+    # The cost code the hours are for (Construction Round Three item 3, Neil,
+    # 11/11/2026): an Intacct item from the job's labor codes, picked at
+    # punch-in, on the IN punch only. construction_labor's hook keeps it only
+    # when the punch's stamped jobsite is that job and the code is one of
+    # its labor codes; '' = not coded. Hours only - never a rate.
+    cost_code         = Column(String, default="")
 
 
 class TimeScreenshot(Base):
@@ -4872,6 +4880,7 @@ from construction_models import (  # noqa: E402,F401  (import for side effect: t
     VendorCompliance,
     ConstructionDrawing,
     ConstructionCommitment,
+    ConstructionOutsideLink,
 )
 
 

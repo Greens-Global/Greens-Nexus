@@ -8,7 +8,7 @@
   - The labor budget is HR++'s: stripped from every other caller, never
     changed by them, never dropped by their reset.
   - Organization-wide records need company-wide access; a walled
-    Administrator reads only their own companies' pay rules, leave
+    Administrator (the walls are armed for every case here) reads only their own companies' pay rules, leave
     balances, logs and recipients.
   - Read-modify-write settings merge into what is stored NOW under the row
     lock (scoped_settings.merge_save) - a stale copy never wins, the first
@@ -81,6 +81,8 @@ class _Harness(unittest.TestCase):
                                              company=co, status="active"))
         for em, role in ((SUPER, "owner"), (ADMIN, "administrator"), (MGR, "manager")):
             self.db.add(models.NexusRole(email=em, role=role, assigned_by="test"))
+        # Armed: an Administrator is walled only once the walls are on (11/11/2026).
+        self.db.add(models.NexusSetting(key="company_walls", value="on"))
         self.db.commit()
         _settle()
         self._as(SUPER)
@@ -99,9 +101,7 @@ class _Harness(unittest.TestCase):
         auth.invalidate_role_cache()
 
     def _walls_on(self):
-        self.db.add(models.NexusSetting(key="company_walls", value="on"))
-        self.db.commit()
-        _settle()
+        _settle()   # already armed by setUp
 
     def _setting(self, key):
         self.db.expire_all()

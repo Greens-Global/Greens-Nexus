@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterEach } from 'vitest';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react';
 
 // jsdom has no canvas, so the engine is a stand-in that exposes what Board
 // hands it and gives Board a fake imperative api.
@@ -675,26 +675,38 @@ describe('Board', () => {
       expect(onScene).toHaveBeenCalled();
     });
 
-    it('Comment: a tap asks for the words and drops a numbered pin there, then back to Select', async () => {
+    it('Comment: a tap opens a new thread beside the spot; posting drops a numbered pin there, then Reply and Resolve', async () => {
       const onScene = vi.fn();
-      prompt.mockResolvedValue('Raise the railing');
-      await act(async () => { render(<Board note={note()} onScene={onScene} />); });
+      await act(async () => { render(<Board note={note()} onScene={onScene} me={{ email: 'neil@greensglobal.com', name: 'Neil Kadakia' }} />); });
       act(() => { fireEvent.click(screen.getByRole('button', { name: 'Comment' })); });
-      const layer = screen.getByTestId('nx-markup-place');
-      await act(async () => { fireEvent.click(layer, { clientX: 120, clientY: 80 }); });
-      expect(prompt).toHaveBeenCalledWith('What should change here?', expect.objectContaining({ title: 'Add Comment', required: true }));
-      const pin = fakeApi.scene.filter((e) => e.customData?.nexusComment === 1);
-      expect(pin.map((e) => e.type).sort()).toEqual(['rectangle', 'text']);
-      expect(pin.find((e) => e.type === 'text').text).toBe('1. Raise the railing');
-      expect(screen.queryByTestId('nx-markup-place')).toBeNull();
+      await act(async () => { fireEvent.click(screen.getByTestId('nx-markup-place'), { clientX: 120, clientY: 80 }); });
+      expect(screen.getByRole('button', { name: 'Select' })).toHaveAttribute('aria-pressed', 'true');
+      const panel = screen.getByRole('dialog', { name: 'New Comment' });
+      act(() => { fireEvent.change(panel.querySelector('textarea'), { target: { value: 'Raise the railing' } }); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Add Comment' })); });
+      const pin = () => fakeApi.scene.filter((e) => e.customData?.nexusComment === 1);
+      expect(pin().map((e) => e.type).sort()).toEqual(['rectangle', 'text']);
+      expect(pin().find((e) => e.type === 'text').text).toBe('1. Raise the railing');
+      expect(pin().find((e) => e.type === 'rectangle').customData.nexusThread).toMatchObject({ text: 'Raise the railing', name: 'Neil Kadakia', replies: [] });
+      expect(pin().find((e) => e.type === 'rectangle')).toMatchObject({ x: 120, y: 80 });
+      // the thread stays open on the new pin: a reply, then Resolve
+      act(() => { fireEvent.change(screen.getByRole('textbox', { name: 'Reply' }), { target: { value: 'Done on site' } }); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Reply' })); });
+      expect(pin().find((e) => e.type === 'text').text).toBe('1. Raise the railing\n1 Reply');
+      expect(pin().find((e) => e.type === 'rectangle').customData.nexusThread.replies[0]).toMatchObject({ text: 'Done on site' });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: /Resolve/ })); });
+      expect(pin().every((e) => e.opacity === 45)).toBe(true);
+      expect(screen.getByText(/Resolved by Neil Kadakia/)).toBeTruthy();
       act(() => { vi.advanceTimersByTime(800); });
       expect(onScene).toHaveBeenCalled();
     });
 
-    it('Comment cancelled places nothing', async () => {
+    it('Comment closed before posting places nothing', async () => {
       await act(async () => { render(<Board note={note()} />); });
       act(() => { fireEvent.click(screen.getByRole('button', { name: 'Comment' })); });
-      await act(async () => { fireEvent.click(screen.getByTestId("nx-markup-place"), { clientX: 1, clientY: 1 }); });
+      await act(async () => { fireEvent.click(screen.getByTestId('nx-markup-place'), { clientX: 1, clientY: 1 }); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Close' })); });
+      expect(screen.queryByTestId('nx-thread')).toBeNull();
       expect(fakeApi.scene).toEqual([]);
     });
 
@@ -726,6 +738,182 @@ describe('Board', () => {
       const sheet = screen.getByRole('dialog', { name: 'Board Options' });
       expect(sheet).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'All Tools' })).toBeNull();
+    });
+  });
+
+  describe('meeting kit, stickies, measure and ink (11/10/2026)', () => {
+    const me = { email: 'neil@greensglobal.com', name: 'Neil Kadakia' };
+    const stickiesOf = () => fakeApi.scene.filter((e) => !e.isDeleted && e.customData?.nexusSticky);
+    const wordsOf = (box) => fakeApi.scene.find((e) => e.containerId === box.id)?.originalText;
+    const open = (menu, item) => {
+      act(() => { fireEvent.click(screen.getByRole('button', { name: menu })); });
+      act(() => { fireEvent.click(screen.getByRole('menuitem', { name: item })); });
+    };
+    const write = (words, key = 'Escape') => act(() => {
+      const b = screen.getByRole('textbox', { name: 'Sticky Note' });
+      fireEvent.change(b, { target: { value: words } });
+      fireEvent.keyDown(b, { key });
+    });
+    const tapSticky = (x, y) => {
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Sticky Note' })); });
+      act(() => { fireEvent.click(screen.getByTestId('nx-markup-place'), { clientX: x, clientY: y }); });
+    };
+    beforeEach(() => { try { localStorage.clear(); } catch { /* none */ } });
+
+    it('Sticky Note: a tap places a sticky with its author line; Tab writes the next one beside it', async () => {
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      tapSticky(300, 300);
+      expect(stickiesOf()).toHaveLength(1);
+      expect(stickiesOf()[0]).toMatchObject({ x: 200, y: 200, width: 200, height: 200 });
+      expect(fakeApi.scene.find((e) => e.customData?.nexusStickyFoot)?.text).toBe('Neil Kadakia');
+      write('Fix the gate', 'Tab');
+      expect(stickiesOf()).toHaveLength(2);
+      expect(stickiesOf()[1]).toMatchObject({ x: 424, y: 200 });
+      write('Paint unit doors');
+      expect(stickiesOf().map(wordsOf)).toEqual(['Fix the gate', 'Paint unit doors']);
+      expect(screen.getByRole('button', { name: 'Select' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('an empty sticky closed with no words goes away', async () => {
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      tapSticky(100, 100);
+      write('');
+      expect(stickiesOf()).toHaveLength(0);
+    });
+
+    it('selected stickies offer Make Tasks and Sort; By Color puts them in labeled columns', async () => {
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      tapSticky(100, 100);
+      write('A', 'Tab');
+      write('B');
+      const ids = Object.fromEntries(stickiesOf().map((e) => [e.id, true]));
+      fakeApi.appState = { ...fakeApi.appState, selectedElementIds: ids, activeTool: { type: 'selection' } };
+      act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); });
+      expect(screen.getByRole('button', { name: 'Make Tasks' })).toBeTruthy();
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Sort' })); });
+      act(() => { fireEvent.click(screen.getByRole('menuitem', { name: 'By Color' })); });
+      const head = fakeApi.scene.find((e) => e.customData?.nexusSortHead);
+      expect(head.text).toBe('Pink (2)');
+      expect(new Set(stickiesOf().map((e) => e.x)).size).toBe(1);
+    });
+
+    it('the shared timer: Run the Meeting starts it for everyone, Stop ends it', async () => {
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      open('Run the Meeting', '5 Minutes');
+      expect(screen.getByTestId('nx-meet').textContent).toContain('5:00');
+      act(() => { vi.advanceTimersByTime(61_000); });
+      expect(screen.getByTestId('nx-meet').textContent).toContain('3:59');
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Stop Timer' })); });
+      expect(screen.queryByTestId('nx-meet')).toBeNull();
+    });
+
+    it('a named vote: dots on stickies, Show Results stamps the count and the names', async () => {
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      tapSticky(100, 100);
+      write('Paint');
+      open('Run the Meeting', 'Start a Vote: 3 Each');
+      expect(screen.getByTestId('nx-meet').textContent).toContain('3 of 3 Votes Left');
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Vote for This' })); });
+      expect(screen.getByTestId('nx-meet').textContent).toContain('2 of 3 Votes Left');
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Show Results' })); });
+      expect(stickiesOf()[0].customData.nexusVotes).toEqual({ count: 1, names: ['Neil Kadakia'] });
+      expect(fakeApi.scene.find((e) => e.customData?.nexusVoteLine)?.text).toBe('1 Vote - Neil');
+      expect(screen.queryByTestId('nx-meet')).toBeNull();
+    });
+
+    it('Private Writing keeps new stickies off the board until Reveal Stickies', async () => {
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      open('Run the Meeting', 'Private Writing');
+      tapSticky(100, 100);
+      write('Secret idea');
+      expect(stickiesOf()).toHaveLength(0);
+      expect(screen.getByText('Secret idea')).toBeTruthy();
+      expect(screen.getByTestId('nx-meet').textContent).toContain('1 of yours hidden');
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Reveal Stickies' })); });
+      expect(stickiesOf().map(wordsOf)).toEqual(['Secret idea']);
+    });
+
+    it('Measure: Set Scale over a known length, then lengths read in feet', async () => {
+      prompt.mockResolvedValue("10'");
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'More Tools' })); });
+      act(() => { fireEvent.click(screen.getByRole('menuitemradio', { name: /Set Scale/ })); });
+      act(() => { fireEvent.click(screen.getByTestId('nx-markup-place'), { clientX: 0, clientY: 0 }); });
+      await act(async () => { fireEvent.click(screen.getByTestId('nx-markup-place'), { clientX: 120, clientY: 0 }); });
+      expect(prompt).toHaveBeenCalledWith('How long is this line in real life?', expect.objectContaining({ title: 'Set Scale' }));
+      expect(fakeApi.scene.find((e) => e.customData?.nexusMeasure)?.customData.nexusMeasure).toMatchObject({ kind: 'scale', pxPerFt: 12 });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'More Tools' })); });
+      act(() => { fireEvent.click(screen.getByRole('menuitemradio', { name: /Measure Length/ })); });
+      act(() => { fireEvent.click(screen.getByTestId('nx-markup-place'), { clientX: 0, clientY: 50 }); });
+      await act(async () => { fireEvent.click(screen.getByTestId('nx-markup-place'), { clientX: 66, clientY: 50 }); });
+      const labels = fakeApi.scene.filter((e) => e.customData?.nexusMeasureLabel).map((e) => e.text);
+      expect(labels).toEqual(["10'", `5' 6"`]);
+    });
+
+    it('Ink to Shape: a pen stroke that reads as a box becomes a clean box', async () => {
+      localStorage.setItem('nx-board-markup', JSON.stringify({ inkShape: true }));
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Pen' })); });
+      const pts = [];
+      const edge = (ax, ay, bx, by) => { for (let i = 0; i < 20; i += 1) pts.push([ax + ((bx - ax) * i) / 20, ay + ((by - ay) * i) / 20]); };
+      edge(0, 0, 200, 0); edge(200, 0, 200, 120); edge(200, 120, 0, 120); edge(0, 120, 0, 0); pts.push([0, 1]);
+      const ink = el({ id: 'ink1', type: 'freedraw', x: 50, y: 50, width: 200, height: 120, points: pts, strokeColor: '#e03131', strokeWidth: 2, angle: 0 });
+      fakeApi.scene = [ink];
+      act(() => { engine.props.onChange(fakeApi.scene, { ...fakeApi.appState, activeTool: { type: 'freedraw' }, newElement: ink }, {}); });
+      act(() => { engine.props.onChange(fakeApi.scene, { ...fakeApi.appState, activeTool: { type: 'freedraw' }, newElement: null }, {}); });
+      expect(fakeApi.scene.find((e) => e.id === 'ink1').isDeleted).toBe(true);
+      expect(fakeApi.scene.find((e) => e.type === 'rectangle')).toMatchObject({ strokeColor: '#e03131', strokeWidth: 2 });
+    });
+
+    it('a custom width: the slider under Fine / Medium / Bold draws the next stroke at that width and is kept', async () => {
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Pen' })); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: /^Ink: / })); });
+      act(() => { fireEvent.change(screen.getByRole('slider', { name: 'Custom Width' }), { target: { value: '9' } }); });
+      expect(fakeApi.updateScene).toHaveBeenLastCalledWith(expect.objectContaining({ appState: expect.objectContaining({ currentItemStrokeWidth: 9 }) }));
+      expect(screen.getByRole('radio', { name: 'Bold' })).toHaveAttribute('aria-checked', 'false');
+      expect(JSON.parse(localStorage.getItem('nx-board-markup')).size).toBe(9);
+      act(() => { fireEvent.change(screen.getByRole('slider', { name: 'Custom Width' }), { target: { value: '4' } }); });
+      expect(screen.getByRole('radio', { name: 'Bold' })).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('Snap and Align is on by default and More Tools turns it off', async () => {
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      expect(fakeApi.updateScene).toHaveBeenCalledWith(expect.objectContaining({ appState: { objectsSnapModeEnabled: true } }));
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'More Tools' })); });
+      const row = screen.getByRole('menuitemcheckbox', { name: /Snap and Align/ });
+      expect(row).toHaveAttribute('aria-checked', 'true');
+      act(() => { fireEvent.click(row); });
+      expect(fakeApi.updateScene).toHaveBeenLastCalledWith(expect.objectContaining({ appState: { objectsSnapModeEnabled: false } }));
+      expect(JSON.parse(localStorage.getItem('nx-board-markup')).snap).toBe(false);
+    });
+
+    it('Import: a picked picture goes in behind the drawing, locked, and the Pen comes up', async () => {
+      vi.useRealTimers();   // jsdom's FileReader finishes on a timer
+      fakeApi.scene = [el({ id: 'old', type: 'rectangle', x: 0, y: 0, width: 10, height: 10 })];
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Import a Picture or PDF' })); });
+      expect(screen.getByRole('menuitem', { name: /Picture or PDF From This Computer/ })).toBeTruthy();
+      const file = new File([new Uint8Array([137, 80, 78, 71])], 'gate.png', { type: 'image/png' });
+      await act(async () => { fireEvent.change(screen.getByTestId('nx-mk-import-file'), { target: { files: [file] } }); });
+      await waitFor(() => expect(fakeApi.addFiles).toHaveBeenCalledWith([expect.objectContaining({ mimeType: 'image/png', dataURL: expect.stringMatching(/^data:image\/png/) })]));
+      const live = fakeApi.scene.filter((e) => !e.isDeleted);
+      expect(live[0]).toMatchObject({ type: 'image', locked: true, customData: { nexusImport: { name: 'gate.png' } } });
+      expect(live[1].id).toBe('old');
+      expect(screen.getByRole('button', { name: 'Pen' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('Bring Everyone Here: a fresh summon from someone on the board follows them', async () => {
+      const listeners = [];
+      const states = new Map([[1, { user: { name: 'Me' } }]]);
+      const awareness = { getStates: () => states, on: (_, f) => listeners.push(f), off: vi.fn(), setLocalStateField: vi.fn() };
+      const collab = { attach: vi.fn(), onChange: vi.fn(), pointer: vi.fn(), isRemoteElement: () => false, meet: null, awareness, clientId: 1, peers: [{ name: 'Ana' }] };
+      await act(async () => { render(<Board note={note()} me={me} collab={collab} />); });
+      states.set(7, { user: { name: 'Ana Ruiz' }, summon: { at: Date.now() }, view: [0, 0, 100, 100] });
+      act(() => { listeners.forEach((f) => f()); });
+      expect(fakeApi.updateScene).toHaveBeenCalledWith(expect.objectContaining({ appState: { userToFollow: { socketId: '7', username: 'Ana Ruiz' } } }));
+      open('Run the Meeting', 'Bring Everyone Here');
+      expect(awareness.setLocalStateField).toHaveBeenCalledWith('summon', expect.objectContaining({ at: expect.any(Number) }));
     });
   });
 });

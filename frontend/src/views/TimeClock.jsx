@@ -19,6 +19,7 @@ import TimeSheetAdvances, { useTimeSheetAdvances } from '../components/TimeSheet
 import BodModal from '../components/BodModal';
 import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending, utcStamp, holdPunch, signedIn } from '../lib/punchQueue';
+import PunchCostCode from '../construction/PunchCostCode';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { formatTime, formatDate, formatDateTime, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
@@ -1301,6 +1302,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               {/* The punch row is its own grid cell: under the status on a
                   desktop, the full width of the card on a phone. */}
               <div className="wd-punch-row">
+                  {/* Construction Round Three (11/11/2026): the cost code for a punch-in, a full-width
+                      line above the buttons, only when today's shift is on a job with labor codes. */}
+                  {(status.allowed || []).includes('in') && <PunchCostCode />}
                   {(status.allowed || []).map(kind => {
                     const M = KIND_META[kind];
                     return (

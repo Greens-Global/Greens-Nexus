@@ -21,7 +21,7 @@ import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useIsMobile } from '../lib/useIsMobile';
 import { formatDate, formatDateTime } from '../lib/datetime';
-import { Modal, DateField, usePeople, Avatar, useEscapeLayer } from '../tasks/components';
+import { Modal, DateField, usePeople, Avatar, AvatarName, useEscapeLayer } from '../tasks/components';
 import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
 import { useScrollLock } from '../lib/useScrollLock';
 import { useBackToClose } from '../lib/useBackToClose';
@@ -48,7 +48,7 @@ import { BOARD_THUMB_FOLDER, NEW_BOARD_SUB, boardCameFrom } from './newBoard';
 import {
   NOTE_COLORS, colorCss, localDay, monthOf, shiftMonth, monthLabel, dayHeading, groupByDay, noteTitle, isBoard, htmlToText,
   countWords, editedLabel, htmlToMarkdown, markdownToHtml, exportFileName, downloadText, printNote, rememberLastNote, quickNoteKeys,
-  noteHeadings,
+  noteHeadings, personShort,
 } from './notesModel';
 import './notes.css';
 
@@ -446,6 +446,12 @@ function ShortcutsPop({ open, onClose }) {
 // same full-screen sheet as "+" > New Note, over the list, which stays where
 // it was scrolled. The note's actions ride in the sheet's head, the save
 // status in its foot; closing it (or Back) is the list again.
+// Who a note came from (Neil, 11/10/2026): their picture and "First L.",
+// never the whole name or the email - in the note's meta line and the list.
+function Sharer({ email, people, size = 18 }) {
+  return <AvatarName email={email} name={personShort(people, email)} size={size} style={{ gap: 5 }} />;
+}
+
 function PhoneSheet({ title, sub, color, actions, foot, onClose, children }) {
   const ref = useRef(null);
   useEscapeLayer(onClose);
@@ -496,7 +502,7 @@ class LiveBoundary extends Component {
 }
 
 // The open note.
-function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail, onDuplicate, backTo, onOpen }) {
+function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail, onDuplicate, backTo, onOpen }) {
   const collabRef = useRef(null);
   const sync = useNoteSync(id, { onSaved, collabRef });
   const { note, status, conflict, restored } = sync;
@@ -576,6 +582,8 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   const text = htmlToText(note.body);
   const words = countWords(text);
   const mine = note.mine;
+  // The person who shared it made the last change: said once, beside their name.
+  const ownerEdited = !mine && !!note.updatedAt && (note.editedBy || '').toLowerCase() === (note.owner || '').toLowerCase();
   const board = isBoard(note);
   const look = lookPick || scene?.look || 'clean';
   const shapes = scene ? scene.elements.filter((el) => !el.isDeleted).length : 0;
@@ -802,15 +810,22 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
             </div>
           )}
 
-          <div className="nt-meta">
+          <div className={`nt-meta${isPhone ? ' is-phone' : ''}`}>
+            {/* A phone (Neil, 11/10/2026): one tight line - the sheet's header
+                already carries the date, and the counts are for a computer. */}
             {mine && !trashed ? (
               <DateField value={note.day} compact title="The day this note belongs to"
                 onChange={(v) => { if (v) sync.setMeta({ day: v }); }} />
-            ) : <span>{note.day ? formatDate(note.day) : ''}</span>}
-            {board
+            ) : !isPhone && <span>{note.day ? formatDate(note.day) : ''}</span>}
+            {!isPhone && (board
               ? <span>{shapes} {shapes === 1 ? 'shape' : 'shapes'}</span>
-              : <span>{words} {words === 1 ? 'word' : 'words'} · {text.length} characters</span>}
-            {!mine && <span>Shared by {note.owner}{note.can === 'read' ? ' · Can Read' : ' · Can Edit'}</span>}
+              : <span>{words} {words === 1 ? 'word' : 'words'} · {text.length} characters</span>)}
+            {!mine && (
+              <span className="nt-sharer">
+                {!isPhone && 'Shared by '}<Sharer email={note.owner} people={people} />
+                <span>{note.can === 'read' ? ' · Can Read' : ' · Can Edit'}{ownerEdited ? ` · ${editedLabel(note.updatedAt).replace(/^edited /i, isPhone ? '' : 'edited ')}` : ''}</span>
+              </span>
+            )}
             {mine && note.sharedWith?.length > 0 && (
               <button type="button" className="nt-tag" onClick={() => setDialog('share')}>
                 Shared with {note.sharedWith.length} {note.sharedWith.length === 1 ? 'person' : 'people'}
@@ -827,8 +842,8 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
               );
             })()}
             {mine && note.sharedWith?.length > 0 && !(note.seenBy?.length) && <span>Not opened yet</span>}
-            {note.editedBy && note.editedBy !== (myEmail || '').toLowerCase() && note.updatedAt && (
-              <span>Edited by {nameOf(note.editedBy)} {editedLabel(note.updatedAt).replace(/^edited /i, '')}</span>
+            {note.editedBy && note.editedBy !== (myEmail || '').toLowerCase() && note.updatedAt && !ownerEdited && (
+              <span>Edited by {personShort(people, note.editedBy)} {editedLabel(note.updatedAt).replace(/^edited /i, '')}</span>
             )}
             <PresenceLine people={sync.people} peers={board ? boardCollab.peers : collab.peers} live={board ? boardCollab.live : collab.live} nameOf={nameOf} />
             {!readOnly && !isPhone && <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} problem={sync.problem} />}
@@ -862,7 +877,9 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
                   onLook={(l) => setLookPick(l)}
                   onScene={readOnly ? undefined : (sceneStr) => sync.edit({ scene: sceneStr })}
                   onThumb={readOnly ? undefined : onThumb}
-                  collab={boardCollab.enabled ? boardCollab : null} onApi={setBoardApi} presentSignal={presentTick} />
+                  collab={boardCollab.enabled ? boardCollab : null} onApi={setBoardApi} presentSignal={presentTick}
+                  me={{ email: myEmail, name: myName }} focusPin={focusPin}
+                  people={[note.owner, ...(note.sharedWith || []).map((x) => x.email)].filter(Boolean).map((e) => ({ email: e, name: nameOf(e) === 'You' ? myName : nameOf(e) }))} />
               </Suspense>
             </div>
           ) : eligible && collab.phase !== 'ready' && collab.phase !== 'failed'
@@ -892,7 +909,7 @@ function NotePane({ id, people, onBack, onSaved, onTrashChanged, full, onToggleF
   if (isPhone) {
     return (
       <PhoneSheet title={note.kind === 'daily' ? 'Daily Scratchpad' : board ? 'Board' : 'Note'} onClose={onBack} actions={actions} color={note.color ? colorCss(note.color) : ''}
-        sub={[note.day ? formatDate(note.day) : '', !mine ? `Shared by ${note.owner}` : ''].filter(Boolean).join(' · ')}
+        sub={note.day ? formatDate(note.day) : ''}
         foot={readOnly ? <span>{trashed ? 'In the Trash' : 'Read Only'}</span> : <StatusLine status={status} note={note} merged={sync.merged} nameOf={nameOf} problem={sync.problem} />}>
         {doc}
         {dialogs}
@@ -948,7 +965,8 @@ export default function NotesPage({ activeSub, onSubChange }) {
   }, [fit]);
 
   const askNewBoard = activeSub === NEW_BOARD_SUB;
-  const selectedId = (activeSub || '').startsWith('notes:') && !askNewBoard ? activeSub.slice(6) : '';
+  // notes:<id>~<pin>: a board comment's mention bell opens the board at its comment (11/10/2026).
+  const [selectedId, focusPin = ''] = ((activeSub || '').startsWith('notes:') && !askNewBoard ? activeSub.slice(6) : '').split('~');
   // Opening a note is looking at it: its Updated dot goes (the server marks it seen too).
   useEffect(() => {
     if (selectedId) setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === selectedId && x.unseen ? { ...x, unseen: false } : x)) } : d));
@@ -1197,7 +1215,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
                         : n.preview && <span className="nt-row-preview">{n.preview}</span>}
                       <span className="nt-row-meta">
                         {isBoard(n) ? 'Board · ' : ''}{view === 'trash' && n.trashedAt ? `Trashed ${formatDate(n.trashedAt)}` : editedLabel(n.updatedAt)}
-                        {!n.mine ? ` · from ${n.owner}` : ''}{n.tags?.length ? ` · #${n.tags.join(' #')}` : ''}
+                        {!n.mine && <> · <Sharer email={n.owner} people={people} size={16} /></>}{n.tags?.length ? ` · #${n.tags.join(' #')}` : ''}
                       </span>
                     </button>
                   ))}
@@ -1230,14 +1248,14 @@ export default function NotesPage({ activeSub, onSubChange }) {
                       ? <img className="nt-board-card-pic" src={n.thumbUrl} alt="" loading="lazy" />
                       : <span className="nt-board-card-pic is-empty" aria-hidden="true"><PenTool size={20} /></span>}
                     <span className="nt-board-card-title">{noteTitle(n)}</span>
-                    <span className="nt-board-card-meta">{editedLabel(n.updatedAt)}{!n.mine ? ` · from ${n.owner}` : ''}</span>
+                    <span className="nt-board-card-meta">{editedLabel(n.updatedAt)}{!n.mine && <> · <Sharer email={n.owner} people={people} size={16} /></>}</span>
                   </button>
                 ))}
               </div>
             </div>
           )
           : (
-            <NotePane key={selectedId || 'none'} id={selectedId} people={people} onBack={() => select('')} onSaved={onSaved}
+            <NotePane key={selectedId || 'none'} id={selectedId} focusPin={focusPin} people={people} onBack={() => select('')} onSaved={onSaved}
               onTrashChanged={onTrashChanged} full={full} onToggleFull={() => setFull((f) => !f)} isPhone={isPhone} toast={toast} myEmail={myEmail}
               onDuplicate={duplicateNote} backTo={backTo} onOpen={select} />
           ))}

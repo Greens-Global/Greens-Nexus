@@ -208,6 +208,14 @@ describe('Toolbar: one row, seven controls', () => {
     expect(within(d).getByRole('checkbox', { name: 'Show coverage' }).checked).toBe(true);
     expect(within(d).getByRole('checkbox', { name: 'Show people without shifts' }).checked).toBe(true);
   });
+  it('hides Clear Week and Import from a Shift Planner Editor (Full needed, 11/10/2026)', async () => {
+    timeSchedule.mockResolvedValue({ ...data([shift()]), shiftGrant: 2 });
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    const items = within(screen.getByRole('menu', { name: 'More' })).getAllByRole('menuitem').map((b) => b.textContent.trim());
+    expect(items).toEqual(['Customize', 'Export to Excel', 'Copy Week', 'Keyboard Shortcuts']);
+  });
 
   it('shows an error with Retry when the schedule cannot load, with nothing offered on it', async () => {
     timeSchedule.mockRejectedValueOnce(new Error('API error 500')).mockResolvedValue(data([shift()]));

@@ -34,38 +34,47 @@ function Status({ status, note }) {
 }
 
 // Today has no scratchpad yet: the first words (or a voice note or video)
-// make it. The hand-over to SyncedNote swaps the editor, so it waits while
-// this one is recording, listening or saving a clip - what changes
-// meanwhile goes into the note's local draft, which SyncedNote saves.
-export const hasContent = (html) => /<(audio|video)\b/i.test(html) || !!html.replace(/<[^>]+>/g, '').trim();
+// make it. The SAME editor then stays on as that note's editor (Neil,
+// 11/10/2026): it used to hand over to a fresh SyncedNote, and the letters
+// typed while that one started up were lost - "Walked the north side of the
+// building" was kept as "...of the bu". While the new note loads, what is
+// typed goes into its local draft, which useNoteSync reads and saves when it
+// arrives; after that, edits go through useNoteSync like any note.
+export const hasContent = (html) => /<(audio|video|img)\b/i.test(html) || !!html.replace(/<[^>]+>/g, '').trim();
 
-function FirstWrite({ day, people, onMade }) {
+function FirstWrite({ day, people, onMade, onNote, onMakeTask }) {
   const latest = useRef('');
   const making = useRef(false);
   const made = useRef(null);     // { id, rev, title } once the note exists
-  const busy = useRef(false);
+  const [madeId, setMadeId] = useState(null);
+  const sync = useNoteSync(madeId);
+  const loaded = !!madeId && sync.status !== 'loading' && !!sync.note;
   const [error, setError] = useState('');
-  const handOver = () => { if (made.current && !busy.current) onMade(made.current.id); };
+  useEffect(() => { if (madeId) onNote({ note: sync.note, status: sync.status }); }, [madeId, sync.note, sync.status, onNote]);
   const onChange = async (html) => {
     latest.current = html;
+    if (loaded) { sync.edit({ body: html }); return; }
     if (made.current) { writeDraft(made.current.id, { ...made.current, body: html }); return; }
     if (making.current || !hasContent(html)) return;
     making.current = true;
     try {
       const n = await api.noteCreate({ kind: 'daily', day, body: html });
       made.current = { id: n.id, rev: n.rev, title: n.title };
-      // Whatever was typed while it was being made is saved by the hand-over.
+      // Whatever was typed while it was being made is saved when it loads.
       writeDraft(n.id, { ...made.current, body: latest.current });
-      handOver();
+      setMadeId(n.id);
+      onMade(n.id);
     } catch (e) {
       making.current = false;
       setError(e.message || 'Could not start today\'s scratchpad');
     }
   };
-  const onBusy = (b) => { busy.current = b; if (!b) handOver(); };
   return (<>
     {error && <ErrorBanner message={error} />}
-    <NoteEditor value="" onChange={onChange} onBusy={onBusy} people={people} compact autoFocus
+    {/* `value` stays '' until the note has loaded; then it is the note's body,
+        which is what this editor already shows, so nothing is replaced. */}
+    <NoteEditor value={loaded ? sync.note.body || '' : ''} onChange={onChange} people={people} compact autoFocus
+      onMakeTask={loaded ? (line) => onMakeTask(line, sync.note) : undefined}
       placeholder="Today's scratchpad. Type / for blocks, [ ] for a checklist." />
   </>);
 }
@@ -94,6 +103,7 @@ export default function QuickNotePanel({ onClose }) {
   const panelRef = useRef(null);
   const last = lastNoteId();
   const [dailyId, setDailyId] = useState(null);   // null = loading, '' = none yet
+  const [madeHere, setMadeHere] = useState('');   // today's note, made by FirstWrite - which keeps editing it
   const [error, setError] = useState('');
   const [mode, setMode] = useState('today');
   const [shown, setShown] = useState({ note: null, status: 'loading' });
@@ -152,14 +162,17 @@ export default function QuickNotePanel({ onClose }) {
         {showLast && (
           <div className="nt-qn-switch" role="tablist" aria-label="Which note">
             <button type="button" role="tab" aria-selected={mode === 'today'} className={`nt-view${mode === 'today' ? ' is-on' : ''}`} onClick={() => setMode('today')}>Today</button>
-            <button type="button" role="tab" aria-selected={mode === 'last'} className={`nt-view${mode === 'last' ? ' is-on' : ''}`} onClick={() => setMode('last')}>Last Opened</button>
+            <button type="button" role="tab" aria-selected={mode === 'last'} className={`nt-view${mode === 'last' ? ' is-on' : ''}`} onClick={() => { setMode('last'); setMadeHere(''); }}>Last Opened</button>
           </div>
         )}
         <div className="nt-qn-body">
           {error && <div style={{ paddingTop: 12 }}><ErrorBanner message={error} /></div>}
           {dailyId === null && mode === 'today' && <div style={{ paddingTop: 14 }}><SkeletonBlocks count={3} height={56} /></div>}
-          {dailyId === '' && mode === 'today' && !error && <FirstWrite day={day} people={people} onMade={setDailyId} />}
-          {id && <SyncedNote key={id} id={id} people={people} onNote={setShown} onMakeTask={makeTask} />}
+          {(dailyId === '' || (madeHere && dailyId === madeHere)) && mode === 'today' && !error && (
+            <FirstWrite day={day} people={people} onNote={setShown} onMakeTask={makeTask}
+              onMade={(madeId) => { setMadeHere(madeId); setDailyId(madeId); }} />
+          )}
+          {id && !(mode === 'today' && id === madeHere) && <SyncedNote key={id} id={id} people={people} onNote={setShown} onMakeTask={makeTask} />}
         </div>
         <div className="nt-qn-foot" aria-live="polite">
           {said ? (

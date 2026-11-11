@@ -29,7 +29,7 @@ import weather_call
 import weather_scope
 from auth import get_current_user
 from database import SessionLocal, get_db
-from routers.timeclock import require_shift_manage, _parse_day
+from routers.timeclock import require_shift_owner, _parse_day
 
 router = APIRouter(prefix="/weather-call", tags=["weather-call"])
 
@@ -180,7 +180,7 @@ def save_my_prefs(body: PrefsIn, user: dict = Depends(get_current_user), db: Ses
 # ── The call ──────────────────────────────────────────────────────────────
 
 @router.get("/{group_id}/{day}")
-def read_screen(group_id: str, day: str, place: str = "", user: dict = Depends(require_shift_manage),
+def read_screen(group_id: str, day: str, place: str = "", user: dict = Depends(require_shift_owner),
                 db: Session = Depends(get_db)):
     g = _group_or_404(db, group_id)
     day = _parse_day(day, "date").isoformat()
@@ -190,7 +190,7 @@ def read_screen(group_id: str, day: str, place: str = "", user: dict = Depends(r
 
 
 @router.post("/{decision_id}/reinstate")
-def reinstate_call(decision_id: str, bt: BackgroundTasks, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
+def reinstate_call(decision_id: str, bt: BackgroundTasks, user: dict = Depends(require_shift_owner), db: Session = Depends(get_db)):
     d = _decision_or_404(db, decision_id)
     g = _group_or_404(db, d.group_id)
     _require_decider(db, user, g, d.company)
@@ -201,7 +201,7 @@ def reinstate_call(decision_id: str, bt: BackgroundTasks, user: dict = Depends(r
 
 
 @router.post("/{decision_id}/remind")
-def remind_call(decision_id: str, bt: BackgroundTasks, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
+def remind_call(decision_id: str, bt: BackgroundTasks, user: dict = Depends(require_shift_owner), db: Session = Depends(get_db)):
     d = _decision_or_404(db, decision_id)
     g = _group_or_404(db, d.group_id)
     _require_decider(db, user, g, d.company)
@@ -225,7 +225,7 @@ class DecideIn(BaseModel):
 
 @router.post("/{group_id}/{day}")
 def make_call(group_id: str, day: str, body: DecideIn, bt: BackgroundTasks, place: str = "",
-              user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
+              user: dict = Depends(require_shift_owner), db: Session = Depends(get_db)):
     """The shifts, the record and the bells now; the texts, email and Teams
     messages in a background task after the response (Oct 12) - the answer
     says what was queued, and the roster fills in each result as it lands."""

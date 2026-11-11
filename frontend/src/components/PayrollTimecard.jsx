@@ -2243,15 +2243,17 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       <div style={{ flex: 1, minWidth: 0 }}>
       {/* Toolbar: whose sheet, then every action labeled (nothing behind a menu - Neil, 11/04/2026). */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        {/* Your own sheet carries your photo and name like any time sheet
+            (Neil, 11/10/2026) - the same header People > Time draws. */}
         {self
-          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Time Sheet</span>
+          ? (data && <PersonHeader name={data.name || nameFor(myEmail)} email={myEmail} photos={photos} period={isMonthly ? `${periodLabel} (${label})` : label} />)
           : (employeeSidebar || payrollToolbar)
             ? (email && <PersonHeader name={nameFor(email)} email={email} photos={photos} period={isMonthly ? `${periodLabel} (${label})` : label} />)
             : <EmployeeCombobox people={pickable} value={email} onChange={setEmail}
                 labelFor={pickLabel} />}
         {!payrollToolbar && missingOnly}
         {liveSeg && <span className="ts-pill-live" title="Still clocked in">Clocked In · {timeWords(liveSeg.in)}</span>}
-        {!employeeSidebar && !payrollToolbar && periodNav(false)}
+        {!employeeSidebar && !payrollToolbar && periodNav(self && !phone)}
         <div style={{ flex: 1 }} />
         {!self && email && !noEdit && (
         <button data-tour="pr-add-time" onClick={() => setAddTime(true)} title="Add a shift, or several days of them, for someone who did not clock in right"
@@ -2326,7 +2328,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           )}
           {self && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>
-              <Pencil size={12} style={{ flexShrink: 0 }} /> Tap a clock-in or clock-out time to request a change. Your pay stays the same until your approver approves it.
+              <Pencil size={12} style={{ flexShrink: 0 }} /> {phone ? 'Tap' : 'Click'} a clock-in or clock-out time to request a change. Your pay stays the same until your approver approves it.
             </span>
           )}
         </div>

@@ -1038,7 +1038,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                 ))}
               </div>
               <div style={{ marginTop: 14 }}>
-                <div style={LBL}>Schedulers - managers who can build this group's schedule even when its members do not report to them</div>
+                <div style={LBL}>Schedulers - who builds this group's schedule even when its members do not report to them (managers, or anyone with Team access)</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                   {(form.schedulers || []).map((em) => (
                     <button key={em} type="button" style={chip(true)} aria-label={`Remove scheduler ${who(em)}`} onClick={() => setForm({ ...form, schedulers: form.schedulers.filter((x) => x !== em) })}>{who(em)} ×</button>

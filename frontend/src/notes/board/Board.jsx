@@ -27,8 +27,9 @@
 //
 // Lazy: NotesPage imports this file with React.lazy; the engine's chunk is
 // fetched only when a board opens.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, X, Presentation, ChevronLeft, ChevronRight, ChevronUp, Plus } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as Y from 'yjs';
+import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, X, Presentation, ChevronLeft, ChevronRight, ChevronUp, Plus, ListPlus, ArrowDownWideNarrow } from 'lucide-react';
 import './board.css';
 import { loadEngine, CAPTURE } from './engine';
 import BoardFallback, { EngineBoundary, BoardLoading } from './engine/fallback';
@@ -47,14 +48,28 @@ import { cardGraph, markCard, taskCards, refreshedCards } from './diagram/record
 import { openRecord } from '../recordLink';
 import { api as nexusApi } from '../../api';
 import {
-  DEFAULT_MARKUP, TOOL_KEYS, MARKUP_COLORS, MARKUP_SIZES, toolByKey, strokeStyle, toolFromEngine,
-  commentPin, pinMeasurer, nextCommentNumber, stageToBoard, restyle, removeSelected, PIN_MAX,
+  DEFAULT_MARKUP, TOOL_KEYS, MARKUP_COLORS, isSizeKey, toolByKey, strokeStyle, toolFromEngine,
+  commentPin, pinMeasurer, nextCommentNumber, stageToBoard, restyle, removeSelected, PLACE_TOOLS, colorByKey,
 } from './markupTools';
+import { sticky, withStickyText, nextSpot, stickyParts, selectedStickies, stickyWords, sortStickies, linkStickies, taskStickies, refreshedStickyFeet, votable, STICKY_SIZE } from './stickies';
+import { MEET, readMeet, startTimer, pauseTimer, resumeTimer, addMinute, stopTimer, startVote, myVotes, toggleVote, tally, castCount, clearVotes, stampVotes, startSilent, endSilent } from './meet';
+import { pinParts, selectedPin, threadOf, withThread, newThread, withReply, withResolved } from './threads';
+import { recognizeInk, shapeFromInk } from './inkShape';
+import { parseLength, scaleAt, dimension, area as areaShape, refreshMeasures } from './measure';
+import { createViewStore } from './viewStore';
+import BoardOverlay from './BoardOverlay';
+import MeetBar from './MeetBar';
+import SiteKitSheet, { kitPng, kitImage } from './siteKit';
+import { importable, isPdfFile, importElements, blobToDataURL, placedWords } from './boardImport';
+import { imageSize } from '../../lib/markup';
 import { dataUrlToFile } from '../../tasks/lib';
 import { exportFileName } from '../notesModel';
 import { dialog } from '../../ui/dialog';
 import { useKeyboardInset } from '../../lib/useVisualViewport';
 import { formatDateTime } from '../../lib/datetime';
+
+// Stickies to Tasks loads the Tasks store - only when someone asks for it.
+const StickyTasks = lazy(() => import('./StickyTasks'));
 
 const SAVE_MS = 800;
 const THUMB_MS = 3000;
@@ -84,15 +99,29 @@ function readMarkupPref() {
       ...base,
       color: okColor(p.color) ? p.color : base.color,
       highlightColor: okColor(p.highlightColor) ? p.highlightColor : base.highlightColor,
-      size: MARKUP_SIZES.some((z) => z.key === p.size) ? p.size : base.size,
+      size: isSizeKey(p.size) ? p.size : base.size,
+      inkShape: p.inkShape === true,
+      snap: p.snap !== false,   // Snap and Align: on unless the person turned it off
     };
   } catch { return base; }
 }
 function writeMarkupPref(m) {
-  try { localStorage.setItem(MARKUP_PREF, JSON.stringify({ color: m.color, highlightColor: m.highlightColor, size: m.size })); } catch { /* private window */ }
+  try { localStorage.setItem(MARKUP_PREF, JSON.stringify({ color: m.color, highlightColor: m.highlightColor, size: m.size, inkShape: !!m.inkShape, snap: m.snap !== false })); } catch { /* private window */ }
 }
 // Tools the ink and width do not apply to (they draw nothing, or a picture).
-const NO_INK = new Set(['select', 'hand', 'eraser', 'image', 'frame', 'laser']);
+const NO_INK = new Set(['select', 'hand', 'eraser', 'image', 'frame', 'laser', ...PLACE_TOOLS]);
+// The ink dot picks a sticky's paper too: each ink has its paper.
+const STICKY_FOR_INK = { ink: 'yellow', red: 'pink', amber: 'orange', yellow: 'yellow', green: 'green', blue: 'blue' };
+// Private Writing keeps a person's stickies in this browser until the reveal (meet.js).
+const trayKey = (noteId, me) => `nx-board-tray:${noteId}:${String(me || '').toLowerCase()}`;
+function readTray(key) { try { const v = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } }
+function writeTray(key, items) { try { if (items.length) localStorage.setItem(key, JSON.stringify(items)); else localStorage.removeItem(key); } catch { /* private window */ } }
+const VIEW_MS = 150;
+const SUMMON_FRESH_MS = 60_000;
+const votableItems = (elements) => {
+  const bound = new Set((elements || []).filter((e) => e && !e.isDeleted && e.type === 'text' && e.containerId).map((e) => e.containerId));
+  return (elements || []).filter((e) => votable(e, bound.has(e?.id))).map((e) => ({ id: e.id, x: e.x, y: e.y, w: e.width, h: e.height }));
+};
 const anySelected = (ids) => !!ids && Object.keys(ids).some((k) => ids[k]);
 
 // The + buttons on a selected box (board/diagram/): where the box sits on
@@ -152,7 +181,7 @@ function useEngine() {
   return { engine, error, attempt, retry };
 }
 
-export default function Board({ note, isPhone = false, look: lookProp, onLook, onScene, onThumb, collab = null, onApi, presentSignal = 0 }) {
+export default function Board({ note, isPhone = false, look: lookProp, onLook, onScene, onThumb, collab = null, onApi, presentSignal = 0, people = [], me = null, focusPin = '' }) {
   const canEdit = !!note?.canEdit;
   const theme = useAppTheme();
   const kbInset = useKeyboardInset(isPhone);
@@ -179,13 +208,18 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   const [hasSelection, setHasSelection] = useState(false);
   // Diagrams (board/diagram/): the sheet open, the + buttons' box, Refresh.
   const diagramApi = canEdit ? engine?.diagram : null;
-  const [dgSheet, setDgSheet] = useState(null);     // 'text' | 'org' | 'workflow' | 'tasks' | 'record'
+  const [dgSheet, setDgSheet] = useState(null);
+  const [kitOpen, setKitOpen] = useState(false);   // the Storage Site Kit sheet     // 'text' | 'org' | 'workflow' | 'tasks' | 'record'
   const [grip, setGrip] = useState(null);
   const gripRef = useRef(null);
   const [canRefresh, setCanRefresh] = useState(false);
   const canRefreshRef = useRef(false);
   const selRef = useRef(false);
   const [phoneMore, setPhoneMore] = useState(false);
+  // Where the canvas is scrolled (the overlays read it) and the facilitation
+  // kit's hooks into the engine's onChange (filled further down).
+  const viewStore = useMemo(() => createViewStore(), []);
+  const hookRef = useRef({});
   const [styleOpen, setStyleOpen] = useState(false);
   const styleRef = useRef(false);
   // File meta the scene keeps (id -> {id, mimeType, url, created}); uploads add to it.
@@ -438,17 +472,25 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     if (style !== styleRef.current) { styleRef.current = style; setStyleOpen(style); }
     const t = toolFromEngine(appState?.activeTool?.type, mkRef.current.tool);
     if (t && t !== mkRef.current.tool) setMk((m) => ({ ...m, tool: t }));
+    const snapOn = appState?.objectsSnapModeEnabled;
+    if (typeof snapOn === 'boolean' && snapOn !== (mkRef.current.snap !== false)) {
+      const m = { ...mkRef.current, snap: snapOn };
+      mkRef.current = m; setMk(m); writeMarkupPref(m);
+    }
     const g = gripFor(elements, appState);
     if (!sameGrip(g, gripRef.current)) { gripRef.current = g; setGrip(g); }
     const st = sel ? stampOf(elements, appState?.selectedElementIds) : null;
     if (!!st !== canRefreshRef.current) { canRefreshRef.current = !!st; setCanRefresh(!!st); }
     storeNewFiles(files, elements);
+    viewStore.set(appState);
+    hookRef.current.seen?.(elements, appState);
     // Into the shared document first (the others see it as it is drawn),
     // then the save timer.
     collabRef.current?.onChange?.(elements, filesMeta.current, appState?.selectedElementIds);
     if (onlyRemote(elements)) return;
+    if (hookRef.current.local?.(elements, appState)) return;   // it changed the board again; that change saves
     scheduleSave();
-  }, [storeNewFiles, scheduleSave, onlyRemote]);
+  }, [storeNewFiles, scheduleSave, onlyRemote, viewStore]);
   // Where the pointer is, for the others' cursors (the session throttles it).
   const onPointerUpdate = useCallback((payload) => { collabRef.current?.pointer?.(payload); }, []);
 
@@ -489,6 +531,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     const p = { slides, i: 0, fs };
     presentRef.current = p;
     setPresent(p);
+    try { collabRef.current?.awareness?.setLocalStateField('presenting', true); } catch { /* no session */ }
     showSlide(slides[0]);
   }, [api, showSlide]);
   const stepSlide = useCallback((d) => {
@@ -505,6 +548,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     if (!p) return;
     presentRef.current = null;
     setPresent(null);
+    try { collabRef.current?.awareness?.setLocalStateField('presenting', false); } catch { /* no session */ }
     if (p.fs && document.fullscreenElement) { try { document.exitFullscreen().catch(() => {}); } catch { /* already out */ } }
     fit();
   }, [fit]);
@@ -564,6 +608,17 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   }, [api, scheduleSave]);
 
   // ---- The markup bar ---------------------------------------------------
+  // Snap and Align (Neil, 11/10/2026: "make things autosnap and align"): the
+  // engine's object snapping - edges, centers and equal gaps line up with
+  // guides as a shape moves or resizes; Ctrl / Cmd held skips it for one drag.
+  // A per-person pref, set on the engine once it is ready and on every change.
+  useEffect(() => {
+    if (api && markupApi) markupApi.setStyle(api, { objectsSnapModeEnabled: mk.snap !== false });
+  }, [api, markupApi, mk.snap]);
+  const toggleSnap = useCallback(() => {
+    const m = { ...mkRef.current, snap: mkRef.current.snap === false };
+    mkRef.current = m; setMk(m); writeMarkupPref(m);
+  }, []);
   const inkFor = (m, tool = m.tool) => (tool === 'highlight' ? m.highlightColor : m.color);
   const chooseTool = useCallback((key) => {
     if (!api || !markupApi || !TOOL_KEYS.includes(key)) return;
@@ -607,24 +662,6 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     selRef.current = false; setHasSelection(false);
     scheduleSave();
   }, [api, scheduleSave]);
-  // Comment: the next tap on the stage drops a numbered pin there, with the
-  // words asked for first (a cancel places nothing); then back to Select.
-  const placeComment = useCallback(async (e) => {
-    if (!api || !markupApi) return;
-    const rect = stageRef.current?.getBoundingClientRect?.();
-    const at = stageToBoard(e, rect, api.getAppState());
-    const words = await dialog.prompt('What should change here?', {
-      title: 'Add Comment', confirmText: 'Add Comment', placeholder: 'Make this railing taller', multiline: true, required: true,
-    });
-    chooseTool('select');
-    const text = String(words || '').trim().slice(0, PIN_MAX);
-    if (!text) return;
-    const els = api.getSceneElementsIncludingDeleted();
-    const pin = markupApi.prepare(commentPin({ x: at.x, y: at.y, text, number: nextCommentNumber(els), colorKey: mkRef.current.color, look: lookRef.current, measure: pinMeasurer(lookRef.current) }));
-    api.updateScene({ elements: [...els, ...pin], captureUpdate: CAPTURE.IMMEDIATELY });
-    scheduleSave();
-  }, [api, markupApi, chooseTool, scheduleSave]);
-
   // ---- Diagrams ------------------------------------------------------------
   // One diagram notice at a time; never over the board's too-large warning.
   const flashTimer = useRef(0);
@@ -708,10 +745,12 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   useEffect(() => {
     if (!api || !canEdit || cardsChecked.current) return;
     cardsChecked.current = true;
-    const ids = [...new Set(taskCards(api.getSceneElementsIncludingDeleted()).map((c) => c.taskId))].slice(0, 50);
+    const els0 = api.getSceneElementsIncludingDeleted();
+    const ids = [...new Set([...taskCards(els0), ...taskStickies(els0)].map((c) => c.taskId))].slice(0, 50);
     if (!ids.length) return;
     nexusApi.taskStates(ids).then((res) => {
-      const changed = refreshedCards(api.getSceneElementsIncludingDeleted(), res?.tasks);
+      const now = api.getSceneElementsIncludingDeleted();
+      const changed = [...refreshedCards(now, res?.tasks), ...refreshedStickyFeet(now, res?.tasks)];
       if (!changed.length) return;
       const byId = new Map(changed.map((e) => [e.id, e]));
       api.updateScene({ elements: api.getSceneElementsIncludingDeleted().map((e) => byId.get(e.id) || e), captureUpdate: CAPTURE.NEVER });
@@ -725,8 +764,454 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
       flash(isPhone ? 'Double-tap to type in it, or + to add the next box.' : 'Press Enter to type in it, or + to add the next box.');
     } else if (key.startsWith('tidy:')) tidy(key.slice(5));
     else if (key === 'refresh') refreshDiagram();
+    else if (key === 'kit') setKitOpen(true);
     else setDgSheet(key);
   }, [placeGraph, tidy, refreshDiagram, flash, isPhone]);
+
+  // ---- Meeting kit, stickies, threads, measure, ink (Neil, 11/10/2026) -----
+  const chooseToolRef = useRef(null);
+  chooseToolRef.current = chooseTool;
+  const who = useMemo(() => ({ email: (me?.email || '').toLowerCase(), name: me?.name || me?.email || '' }), [me?.email, me?.name]);
+  const followApi = engine?.follow || null;
+  const measureFn = useMemo(() => pinMeasurer(look), [look]);
+  const prep = useCallback((els) => (markupApi ? markupApi.prepare(els) : els), [markupApi]);
+  const stageCenter = useCallback(() => {
+    const r = stageRef.current?.getBoundingClientRect?.();
+    return stageToBoard({ clientX: (r?.left || 0) + (r?.width || 0) / 2, clientY: (r?.top || 0) + (r?.height || 0) / 2 }, r, api?.getAppState());
+  }, [api]);
+  // An open thread reads the board as it is drawn: a change to its pin (here or from someone else) draws it again.
+  const [, setDrawn] = useState(0);
+  const commit = useCallback((elements, extra = {}) => {
+    api.updateScene({ elements, captureUpdate: CAPTURE.IMMEDIATELY, ...extra });
+    scheduleSave();
+    setDrawn((n) => n + 1);
+  }, [api, scheduleSave]);
+
+  // The shared 'meet' map: the live session's, else this browser's own.
+  const localMeet = useMemo(() => new Y.Doc().getMap(MEET), []);
+  const meetMap = collab?.meet || localMeet;
+  const [, setMeetTick] = useState(0);
+  useEffect(() => {
+    const f = () => setMeetTick((n) => n + 1);
+    meetMap.observe(f);
+    f();
+    return () => meetMap.unobserve(f);
+  }, [meetMap]);
+  const meet = readMeet(meetMap);
+  const votesNow = meet.vote ? tally(meetMap, meet.vote) : null;
+  const mine = meet.vote ? myVotes(meetMap, meet.vote, who.email) : [];
+  const [voteItems, setVoteItems] = useState([]);
+  const voteOpenRef = useRef(false);
+  voteOpenRef.current = !!meet.vote;
+  useEffect(() => { if (meet.vote && api) setVoteItems(votableItems(api.getSceneElements())); }, [meet.vote?.id, api]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onMeet = useCallback((key) => {
+    if (key.startsWith('timer:')) startTimer(meetMap, Number(key.slice(6)) * 60, who);
+    else if (key.startsWith('vote:')) { startVote(meetMap, { perPerson: Number(key.slice(5)), ...who }); flash('Voting is open - click the dot on a sticky or box to vote.'); }
+    else if (key === 'silent') { startSilent(meetMap, who); flash('Private Writing is on - new stickies stay hidden until they are revealed.'); }
+    else if (key === 'summon') {
+      try { collabRef.current?.awareness?.setLocalStateField('summon', { at: Date.now() }); flash('Everyone on the board is now following you.'); } catch { /* no session */ }
+    }
+  }, [meetMap, who, flash]);
+  const onTimer = useCallback((a) => {
+    if (a === 'pause') pauseTimer(meetMap); else if (a === 'resume') resumeTimer(meetMap);
+    else if (a === 'add') addMinute(meetMap); else stopTimer(meetMap);
+  }, [meetMap]);
+  const onVote = useCallback((a) => {
+    const vote = meetMap.get('vote');
+    if (a === 'results' && vote && api) {
+      const results = tally(meetMap, vote);
+      if (results.size) commit(stampVotes(api.getSceneElementsIncludingDeleted(), results));
+      flash(results.size ? 'The votes are on the board.' : 'Nobody voted - nothing was added.');
+    }
+    clearVotes(meetMap);
+  }, [meetMap, api, commit, flash]);
+  const castVote = useCallback((id) => {
+    if (!toggleVote(meetMap, meetMap.get('vote'), who, id)) flash('You have used all your votes - take one back to move it.');
+  }, [meetMap, who, flash]);
+
+  // ---- Stickies: the composer, Private Writing's tray ----
+  const tKey = trayKey(note?.id || '', who.email);
+  const [tray, setTray] = useState(() => readTray(tKey));
+  const setTrayBoth = useCallback((fn) => setTray((cur) => { const next = fn(cur); writeTray(tKey, next); return next; }), [tKey]);
+  const [composer, setComposer] = useState(null);   // { key, boxId | trayId, x, y, text, colorKey }
+  const stickyInk = () => STICKY_FOR_INK[mkRef.current.color] || 'yellow';
+  const newStickyAt = useCallback((x, y, colorKey) => {
+    if (meetMap.get('silent')) {
+      const id = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      setTrayBoth((cur) => [...cur, { id, x, y, text: '', colorKey }]);
+      setComposer({ key: id, trayId: id, x, y, text: '', colorKey });
+      return;
+    }
+    const els = api.getSceneElementsIncludingDeleted();
+    const built = prep(sticky({ x, y, colorKey, by: who.email, name: who.name, look: lookRef.current }));
+    commit([...els, ...built], { appState: { selectedElementIds: {} } });
+    setComposer({ key: built[0].id, boxId: built[0].id, x, y, text: '', colorKey });
+  }, [api, prep, who, commit, meetMap, setTrayBoth]);
+  const placeSticky = useCallback((e) => {
+    if (!api) return;
+    const at = stageToBoard(e, stageRef.current?.getBoundingClientRect?.(), api.getAppState());
+    newStickyAt(at.x - STICKY_SIZE / 2, at.y - STICKY_SIZE / 2, stickyInk());
+  }, [api, newStickyAt]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const commitSticky = useCallback((text, dir) => {
+    const c = composer;
+    if (!c || !api) return;
+    setComposer(null);
+    const words = String(text || '').trim();
+    if (c.trayId) {
+      setTrayBoth((cur) => (words ? cur.map((t) => (t.id === c.trayId ? { ...t, text: words } : t)) : cur.filter((t) => t.id !== c.trayId)));
+    } else {
+      const els = api.getSceneElementsIncludingDeleted();
+      const part = stickyParts(els).get(c.boxId);
+      if (part && !words && !stickyWords(part)) commit(removeSelected(els, { [c.boxId]: true }));
+      else if (part && words !== stickyWords(part)) commit(withStickyText(els, c.boxId, words, { look: lookRef.current, measureAt: (t, size) => measureFn(t) * (size / 16) }));
+    }
+    if (dir && words) {
+      const at = c.trayId ? { x: c.x + (dir === 'down' ? 0 : STICKY_SIZE + 24), y: c.y + (dir === 'down' ? STICKY_SIZE + 24 : 0) }
+        : nextSpot({ x: c.x, y: c.y }, dir, api.getSceneElementsIncludingDeleted());
+      newStickyAt(at.x, at.y, c.colorKey);
+    } else if (mkRef.current.tool === 'sticky') chooseToolRef.current?.('select');
+  }, [composer, api, commit, newStickyAt, setTrayBoth, measureFn]);
+  // The reveal: Private Writing ended - this person's hidden stickies go on the board.
+  useEffect(() => {
+    if (meet.silent || !api || !canEdit || !tray.length) return;
+    const words = tray.filter((t) => String(t.text || '').trim());
+    setTrayBoth(() => []);
+    setComposer((c) => (c?.trayId ? null : c));
+    if (!words.length) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    const built = words.flatMap((t) => prep(sticky({ x: t.x, y: t.y, text: t.text, colorKey: t.colorKey, by: who.email, name: who.name, look: lookRef.current, measureAt: (x, size) => measureFn(x) * (size / 16) })));
+    commit([...els, ...built]);
+    flash(`Your ${words.length} ${words.length === 1 ? 'sticky is' : 'stickies are'} on the board.`);
+  }, [meet.silent, api, canEdit, tray.length]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- Selected stickies: Make Tasks, Sort ----
+  const [selStickies, setSelStickies] = useState(0);
+  const [tasksFor, setTasksFor] = useState(null);   // { lines, boxIds }
+  const makeTasks = useCallback(() => {
+    if (!api) return;
+    const parts = selectedStickies(api.getSceneElementsIncludingDeleted(), api.getAppState()?.selectedElementIds).filter((p) => stickyWords(p));
+    if (!parts.length) { flash('Write something on the stickies first.'); return; }
+    setTasksFor({ lines: parts.map(stickyWords), boxIds: parts.map((p) => p.box.id) });
+  }, [api, flash]);
+  const tasksDone = useCallback((r) => {
+    const f = tasksFor;
+    const ids = r?.topLevelIds || [];
+    if (!f || !api) return;
+    if (ids.length === f.boxIds.length) {
+      commit(linkStickies(api.getSceneElementsIncludingDeleted(), f.boxIds.map((boxId, i) => ({ boxId, taskId: ids[i] }))));
+      flash(`${ids.length} ${ids.length === 1 ? 'task' : 'tasks'} made - each sticky now opens its task.`);
+    } else if (ids.length) flash(`${ids.length} ${ids.length === 1 ? 'task' : 'tasks'} made. The list changed, so the stickies were not linked to them.`);
+  }, [tasksFor, api, commit, flash]);
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortBy = useCallback((by) => {
+    setSortOpen(false);
+    if (!api) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    const next = sortStickies(els, api.getAppState()?.selectedElementIds, by, { look: lookRef.current });
+    if (next === els) { flash('Select two or more stickies to sort.'); return; }
+    commit(next);
+  }, [api, commit, flash]);
+
+  // ---- Comment threads ----
+  const [threadAt, setThreadAt] = useState(null);   // { pin } | { isNew, x, y }
+  const closedPin = useRef('');
+  const threadPinRef = useRef('');
+  const threadVerRef = useRef(0);
+  threadPinRef.current = threadAt?.pin || '';
+  const mentionable = useMemo(() => (people || []).filter((p) => p?.email && p.email.toLowerCase() !== who.email), [people, who.email]);
+  const sendMentions = useCallback((pin, text, emails) => {
+    if (!emails.length || !note?.id) return;
+    nexusApi.boardMentions(note.id, { pin, text, emails })
+      .then((r) => {
+        const sent = (r?.sent || []).map((e) => mentionable.find((p) => p.email.toLowerCase() === e)?.name || e);
+        if (sent.length) flash(`Notified ${sent.join(', ')}.`);
+        if (r?.skipped?.length) flash(`${r.skipped.length === 1 ? 'One person' : `${r.skipped.length} people`} mentioned cannot open this board, so nobody told them.`, true);
+      })
+      .catch(() => flash('The mention was not sent - the comment is saved.', true));
+  }, [note?.id, mentionable, flash]);
+  const placeComment = useCallback((e) => {
+    if (!api) return;
+    const at = stageToBoard(e, stageRef.current?.getBoundingClientRect?.(), api.getAppState());
+    chooseToolRef.current?.('select');
+    setThreadAt({ isNew: true, x: at.x, y: at.y });
+  }, [api]);
+  const postThread = useCallback((text, emails) => {
+    if (!api || !markupApi || !threadAt) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    if (threadAt.isNew) {
+      const thread = newThread(text, who);
+      const pin = markupApi.prepare(commentPin({ x: threadAt.x, y: threadAt.y, text: thread.text, number: nextCommentNumber(els), colorKey: mkRef.current.color, look: lookRef.current, measure: measureFn, thread }));
+      commit([...els, ...pin], { appState: { selectedElementIds: { [pin[0].id]: true } } });
+      setThreadAt({ pin: pin[0].id });
+      sendMentions(pin[0].id, text, emails);
+      return;
+    }
+    const part = pinParts(els).get(threadAt.pin);
+    if (!part) return;
+    commit(withThread(els, threadAt.pin, withReply(threadOf(part), text, who), { look: lookRef.current, measure: measureFn, prepare: markupApi.prepare }));
+    sendMentions(threadAt.pin, text, emails);
+  }, [api, markupApi, threadAt, who, measureFn, commit, sendMentions]);
+  const resolveThread = useCallback((on) => {
+    if (!api || !markupApi || !threadAt?.pin) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    const part = pinParts(els).get(threadAt.pin);
+    if (part) commit(withThread(els, threadAt.pin, withResolved(threadOf(part), on, who), { look: lookRef.current, measure: measureFn, prepare: markupApi.prepare }));
+  }, [api, markupApi, threadAt, who, measureFn, commit]);
+  const closeThread = useCallback(() => { closedPin.current = threadAt?.pin || ''; setThreadAt(null); }, [threadAt]);
+  // A bell's link (notes:<id>~<pin>) opens the board at its comment.
+  const focused = useRef('');
+  useEffect(() => {
+    if (!api || !focusPin || focused.current === focusPin) return;
+    focused.current = focusPin;
+    const part = pinParts(api.getSceneElements()).get(focusPin);
+    if (!part) return;
+    api.updateScene({ appState: { selectedElementIds: { [focusPin]: true } }, captureUpdate: CAPTURE.NEVER });
+    api.scrollToContent([part.box], { fitToContent: false, animate: true });
+    setThreadAt({ pin: focusPin });
+  }, [api, focusPin]);
+
+  // ---- Measure ----
+  const [measurePts, setMeasurePts] = useState({ points: [], hover: null });
+  const imageUnder = (els, x, y) => [...els].reverse().find((e) => e && !e.isDeleted && e.type === 'image' && x >= e.x && x <= e.x + e.width && y >= e.y && y <= e.y + e.height);
+  const finishMeasure = useCallback(async (points, tool) => {
+    setMeasurePts({ points: [], hover: null });
+    if (!api) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    const color = colorByKey(mkRef.current.color).color;
+    if (tool === 'area') {
+      const px = scaleAt(els, { x: points[0][0], y: points[0][1] });
+      if (!px) { flash('Set the scale first: choose Set Scale and draw over a length you know.', true); return; }
+      commit([...els, ...prep(areaShape({ points, pxPerFt: px, color, look: lookRef.current }))]);
+      return;
+    }
+    const [[x1, y1], [x2, y2]] = points;
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    if (len < 4) return;
+    let px = tool === 'scale' ? null : scaleAt(els, { x: x1, y: y1 });
+    let kind = 'length', on = '', onW = 0;
+    if (!px) {
+      const answer = await dialog.prompt('How long is this line in real life?', {
+        title: 'Set Scale', confirmText: 'Set Scale', placeholder: '24\' 6"', required: true,
+      });
+      if (answer == null) return;
+      const ft = parseLength(answer);
+      if (!ft) { flash('That length was not understood - try 24\' 6" or 7.5 m.', true); return; }
+      px = len / ft;
+      kind = 'scale';
+      const img = imageUnder(els, (x1 + x2) / 2, (y1 + y2) / 2);
+      if (img) { on = img.id; onW = img.width; }
+      flash(img ? 'Scale set for this picture. Measure Length and Measure Area now read in feet.' : 'Scale set for the board. Measure Length and Measure Area now read in feet.');
+    }
+    commit([...api.getSceneElementsIncludingDeleted(), ...prep(dimension({ x1, y1, x2, y2, pxPerFt: px, color, kind, on, onW, look: lookRef.current }))]);
+    if (tool === 'scale') chooseToolRef.current?.('select');
+  }, [api, commit, prep, flash]);
+  const measureTap = useCallback((e, dbl = false) => {
+    if (!api) return;
+    const tool = mkRef.current.tool;
+    const at = stageToBoard(e, stageRef.current?.getBoundingClientRect?.(), api.getAppState());
+    const pts = measurePts.points;
+    if (tool === 'area') {
+      const z = Number(api.getAppState()?.zoom?.value) || 1;
+      const nearFirst = pts.length >= 3 && Math.hypot(at.x - pts[0][0], at.y - pts[0][1]) * z < 12;
+      if ((dbl || nearFirst) && pts.length >= 3) { finishMeasure(pts, 'area'); return; }
+      if (!dbl) setMeasurePts({ points: [...pts, [at.x, at.y]], hover: null });
+      return;
+    }
+    if (dbl) return;
+    if (!pts.length) setMeasurePts({ points: [[at.x, at.y]], hover: null });
+    else finishMeasure([pts[0], [at.x, at.y]], tool);
+  }, [api, measurePts.points, finishMeasure]);
+  const measureMove = useCallback((e) => {
+    if (!api || !measurePts.points.length) return;
+    const at = stageToBoard(e, stageRef.current?.getBoundingClientRect?.(), api.getAppState());
+    setMeasurePts((m) => ({ ...m, hover: [at.x, at.y] }));
+  }, [api, measurePts.points.length]);
+
+  // ---- Storage Site Kit ----
+  const placeKit = useCallback(async (name) => {
+    if (!api) return;
+    let dataURL;
+    try { dataURL = await kitPng(name); } catch { flash('That drawing could not be drawn here - try again.', true); return; }
+    const fileId = `kit-${name}`;
+    if (!filesMeta.current[fileId]) api.addFiles([{ id: fileId, dataURL, mimeType: 'image/png', created: Date.now() }]);
+    const c = stageCenter();
+    const el = kitImage({ name, x: c.x - 100, y: c.y - 55 });
+    commit([...api.getSceneElementsIncludingDeleted(), ...prep([el])], { appState: { selectedElementIds: { [el.id]: true } } });
+    setKitOpen(false);
+  }, [api, commit, prep, flash, stageCenter]);
+
+  // ---- Import a picture or a PDF to mark up (boardImport.js) ----
+  const [importing, setImporting] = useState(false);
+  const importPictures = useCallback(async (list) => {
+    if (!api || importing) return;
+    const picked = importable(list);
+    if (!picked.length) { flash('Pick a picture or a PDF.', true); return; }
+    setImporting(true);
+    const placed = [], engineFiles = [];
+    const newId = () => `imp-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+    let pages = 0, pictures = 0, left = 0;
+    try {
+      for (const f of picked) {
+        if (isPdfFile(f)) {
+          const { renderPdfPages } = await import('./pdfPage');
+          const r = await renderPdfPages(f);
+          left += r.total - r.pages.length;
+          for (const p of r.pages) {
+            const id = newId();
+            engineFiles.push({ id, dataURL: await blobToDataURL(p.blob), mimeType: 'image/png', created: Date.now() });
+            placed.push({ fileId: id, width: p.width, height: p.height, name: f.name, page: p.page });
+            pages += 1;
+          }
+        } else {
+          const id = newId();
+          const { width, height } = await imageSize(f);
+          engineFiles.push({ id, dataURL: await blobToDataURL(f), mimeType: f.type || 'image/png', created: Date.now() });
+          placed.push({ fileId: id, width, height, name: f.name });
+          pictures += 1;
+        }
+      }
+    } catch {
+      setImporting(false);
+      flash('That file could not be read - is it a picture or a PDF?', true);
+      return;
+    }
+    api.addFiles(engineFiles);
+    const els = prep(importElements(placed, stageCenter()));
+    // Behind everything already drawn, so the markup stays on top.
+    commit([...els, ...api.getSceneElementsIncludingDeleted()], { appState: { selectedElementIds: {} } });
+    setImporting(false);
+    chooseTool('pen');
+    const one = pages + pictures === 1;
+    flash(`${placedWords(pages, pictures)} placed and locked, so you can draw right over ${one ? 'it' : 'them'} - right-click to unlock.${left > 0 ? ` Only the first ${pages} pages of the PDF were placed.` : ''}`);
+  }, [api, importing, flash, prep, stageCenter, commit, chooseTool]);
+  const pastePicture = useCallback(async () => {
+    const files = [];
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((t) => /^image\//.test(t) || t === 'application/pdf');
+        if (type) files.push(new File([await item.getType(type)], type === 'application/pdf' ? 'Pasted.pdf' : 'Pasted Picture', { type }));
+      }
+    } catch {
+      flash('The browser did not let Nexus read the clipboard - click the board and press Ctrl+V instead.', true);
+      return;
+    }
+    if (!files.length) { flash('There is no picture on the clipboard - copy one first.', true); return; }
+    importPictures(files);
+  }, [flash, importPictures]);
+  // A PDF pasted (Ctrl+V) or dropped on the board comes in the same way; a
+  // picture stays the engine's own paste and drop (placed at the pointer).
+  useEffect(() => {
+    const root = stageRef.current;
+    if (!canEdit || !api || !root) return undefined;
+    const pdfs = (dt) => [...(dt?.files || [])].filter(isPdfFile);
+    const typing = (t) => !!t?.closest?.('input, textarea, [contenteditable="true"]');
+    const onPaste = (e) => {
+      const here = root.contains(document.activeElement) || document.activeElement === document.body;
+      if (typing(e.target) || !here) return;
+      const got = pdfs(e.clipboardData);
+      if (got.length) { e.preventDefault(); e.stopPropagation(); importPictures(got); }
+    };
+    const onDrop = (e) => {
+      const got = pdfs(e.dataTransfer);
+      if (got.length) { e.preventDefault(); e.stopPropagation(); importPictures(got); }
+    };
+    document.addEventListener('paste', onPaste, true);
+    root.addEventListener('drop', onDrop, true);
+    return () => { document.removeEventListener('paste', onPaste, true); root.removeEventListener('drop', onDrop, true); };
+  }, [canEdit, api, importPictures]);
+
+  // ---- Follow, Bring Everyone Here, the presenter's view ----
+  const followRef = useRef('');
+  const viewSent = useRef({ at: 0, timer: 0 });
+  const peerSeen = useRef(new Map());   // clientId -> { summon, presenting, view }
+  const fitTo = useCallback((view) => { if (api && followApi && Array.isArray(view) && view.length === 4) followApi.fit(api, view); }, [api, followApi]);
+  const startFollow = useCallback((id, name) => {
+    if (!api || !followApi) return;
+    followRef.current = String(id);
+    followApi.follow(api, String(id), name || '');
+    fitTo(collabRef.current?.awareness?.getStates()?.get(Number(id))?.view);
+  }, [api, followApi, fitTo]);
+  useEffect(() => {
+    const aw = collab?.awareness;
+    if (!aw || !api || !followApi) return undefined;
+    const mineId = collab.clientId;
+    // What is already there when we join is not a fresh summon.
+    aw.getStates().forEach((st, id) => { peerSeen.current.set(id, { summon: st?.summon?.at || 0, presenting: !!st?.presenting, view: st?.view }); });
+    const onAware = () => {
+      aw.getStates().forEach((st, id) => {
+        if (id === mineId || !st?.user) return;
+        const was = peerSeen.current.get(id) || {};
+        const now = { summon: st.summon?.at || 0, presenting: !!st.presenting, view: st.view };
+        peerSeen.current.set(id, now);
+        if (now.summon > (was.summon || 0) && Date.now() - now.summon < SUMMON_FRESH_MS) startFollow(id, st.user.name);
+        else if (now.presenting && !was.presenting) startFollow(id, st.user.name);
+        else if (!now.presenting && was.presenting && followRef.current === String(id)) { followRef.current = ''; followApi.follow(api, null); }
+        if (followRef.current === String(id) && now.view && String(now.view) !== String(was.view)) fitTo(now.view);
+      });
+    };
+    aw.on('change', onAware);
+    return () => aw.off('change', onAware);
+  }, [collab?.awareness, collab?.clientId, api, followApi, startFollow, fitTo]);
+
+  // What the engine's onChange tells the kit: `seen` for every change, `local`
+  // for this person's own (it returns true when it changed the board again).
+  const inkPending = useRef('');
+  const selSeen = useRef('');
+  hookRef.current.seen = (elements, appState) => {
+    // follow mode: the engine's own avatar click sets who; fit to them at once
+    const f = appState?.userToFollow?.socketId || '';
+    if (f !== followRef.current) { followRef.current = f; if (f) fitTo(collabRef.current?.awareness?.getStates()?.get(Number(f))?.view); }
+    // my view, for whoever follows me
+    const aw = collabRef.current?.awareness;
+    if (aw && followApi) {
+      const send = () => { viewSent.current.timer = 0; viewSent.current.at = Date.now(); try { aw.setLocalStateField('view', followApi.view(api.getAppState())); } catch { /* closing */ } };
+      if (!viewSent.current.timer) viewSent.current.timer = setTimeout(send, Math.max(0, VIEW_MS - (Date.now() - viewSent.current.at)));
+    }
+    // the selection: stickies (Make Tasks, Sort) and a comment's thread
+    const ids = appState?.selectedElementIds || {};
+    const key = Object.keys(ids).filter((k) => ids[k]).sort().join(',');
+    if (key !== selSeen.current) {
+      selSeen.current = key;
+      setSelStickies(key ? selectedStickies(elements, ids).length : 0);
+      const pin = key ? selectedPin(elements, ids) : '';
+      if (pin && pin !== closedPin.current) setThreadAt({ pin });
+      else if (!pin) { closedPin.current = ''; setThreadAt((t) => (t?.isNew ? t : null)); }
+    }
+    const open = threadPinRef.current && elements.find((e) => e.id === threadPinRef.current);
+    if (open && open.version !== threadVerRef.current) { threadVerRef.current = open.version; setDrawn((n) => n + 1); }
+    if (voteOpenRef.current) {
+      const items = votableItems(elements);
+      setVoteItems((cur) => (JSON.stringify(cur) === JSON.stringify(items) ? cur : items));
+    }
+  };
+  hookRef.current.local = (elements, appState) => {
+    if (!api || !propsRef.current.canEdit) return false;
+    // Ink to Shape: a pen stroke just finished - a clean shape if it reads as one
+    const drawing = appState?.newElement;
+    if (drawing?.type === 'freedraw') inkPending.current = drawing.id;
+    else if (inkPending.current && mkRef.current.inkShape && mkRef.current.tool === 'pen') {
+      const id = inkPending.current;
+      inkPending.current = '';
+      const ink = elements.find((e) => e.id === id && !e.isDeleted);
+      const rec = ink ? recognizeInk(ink) : null;
+      if (rec) {
+        const shapes = prep(shapeFromInk(ink, rec));
+        const next = elements.map((e) => (e.id === id ? { ...e, isDeleted: true, version: (e.version || 0) + 1, versionNonce: nonce(), updated: Date.now() } : e));
+        commit([...next, ...shapes]);
+        return true;
+      }
+    } else inkPending.current = '';
+    // a measure that was stretched reads its new length
+    const changed = refreshMeasures(elements);
+    if (changed.length) {
+      const byId = new Map(changed.map((e) => [e.id, e]));
+      api.updateScene({ elements: elements.map((e) => byId.get(e.id) || e), captureUpdate: CAPTURE.NEVER });
+      scheduleSave();
+      return true;
+    }
+    return false;
+  };
 
   const lookToggle = (
     <div className="nx-board-look" role="group" aria-label="Look">
@@ -806,14 +1291,75 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
                 />
               </EngineBoundary>
             )}
-        {showBar && mk.tool === 'comment' && (
-          <div className="nx-mk-place" data-testid="nx-markup-place" role="button" tabIndex={0} aria-label="Tap where the comment goes"
-            onClick={placeComment} onKeyDown={(e) => { if (e.key === 'Escape') chooseTool('select'); }}>
-            <span className="nx-mk-place-hint">Tap where the comment goes</span>
+        {showBar && PLACE_TOOLS.has(mk.tool) && !composer && !threadAt?.isNew && (() => {
+          const t = mk.tool;
+          const n = measurePts.points.length;
+          const hint = t === 'comment' ? 'Tap where the comment goes'
+            : t === 'sticky' ? 'Tap where the sticky goes'
+              : t === 'area' ? (n < 3 ? 'Tap each corner of the area' : 'Tap the first corner again, or double-tap, to finish')
+                : t === 'scale' ? (n ? 'Tap the other end' : 'Tap both ends of a length you know')
+                  : (n ? 'Tap the end of the line' : 'Tap the start of the line');
+          const tap = t === 'comment' ? placeComment : t === 'sticky' ? placeSticky : (e) => measureTap(e);
+          return (
+            <div className="nx-mk-place" data-testid="nx-markup-place" role="button" tabIndex={0} aria-label={hint}
+              onClick={tap} onDoubleClick={t === 'area' ? (e) => measureTap(e, true) : undefined}
+              onPointerMove={t === 'measure' || t === 'area' || t === 'scale' ? measureMove : undefined}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { setMeasurePts({ points: [], hover: null }); chooseTool('select'); }
+                else if (e.key === 'Enter' && t === 'area' && n >= 3) finishMeasure(measurePts.points, 'area');
+              }}>
+              <span className="nx-mk-place-hint">{hint}</span>
+            </div>
+          );
+        })()}
+        {api && (
+          <BoardOverlay store={viewStore} phone={isPhone}
+            stageSize={{ w: stageRef.current?.clientWidth || 0, h: stageRef.current?.clientHeight || 0 }}
+            votes={meet.vote && canEdit && !present ? { items: voteItems, mine: new Set(mine), onToggle: castVote } : null}
+            tray={tray.length ? { items: tray.filter((t) => t.id !== composer?.trayId), onEdit: (t) => setComposer({ key: `${t.id}e`, trayId: t.id, x: t.x, y: t.y, text: t.text, colorKey: t.colorKey }), onRemove: (id) => setTrayBoth((cur) => cur.filter((t) => t.id !== id)) } : null}
+            composer={composer ? { ...composer, onCommit: commitSticky } : null}
+            measure={['measure', 'area', 'scale'].includes(mk.tool) && measurePts.points.length ? { ...measurePts, closed: mk.tool === 'area' } : null}
+            thread={(() => {
+              if (!threadAt || present) return null;
+              if (threadAt.isNew) return { box: { x: threadAt.x, y: threadAt.y, w: 0, h: 0 }, number: 0, thread: null, canEdit, people: mentionable, onPost: postThread, onClose: () => setThreadAt(null) };
+              const part = pinParts(api.getSceneElements()).get(threadAt.pin);
+              if (!part) return null;
+              return {
+                box: { x: part.box.x, y: part.box.y, w: part.box.width, h: part.box.height }, number: part.box.customData.nexusComment, thread: threadOf(part),
+                canEdit, people: mentionable, onPost: postThread, onResolve: resolveThread, onClose: closeThread,
+              };
+            })()} />
+        )}
+        <MeetBar state={meet} canEdit={canEdit} myLeft={meet.vote ? meet.vote.perPerson - mine.length : 0} cast={votesNow ? castCount(votesNow) : 0}
+          tray={tray.length} onTimer={onTimer} onVote={onVote} onReveal={() => endSilent(meetMap)} />
+        {showBar && !toolsHidden && !present && selStickies > 0 && mk.tool === 'select' && (
+          <div className="nx-sel-pill" role="toolbar" aria-label="Selected Stickies">
+            <span className="nx-sel-count">{selStickies} {selStickies === 1 ? 'Sticky' : 'Stickies'}</span>
+            <button type="button" onClick={makeTasks}><ListPlus size={15} aria-hidden /> Make {selStickies === 1 ? 'a Task' : 'Tasks'}</button>
+            {selStickies > 1 && (
+              <span className="nx-sel-sort">
+                <button type="button" aria-expanded={sortOpen} onClick={() => setSortOpen((v) => !v)}><ArrowDownWideNarrow size={15} aria-hidden /> Sort</button>
+                {sortOpen && (
+                  <span className="nx-sel-menu" role="menu">
+                    <button type="button" role="menuitem" onClick={() => sortBy('color')}>By Color</button>
+                    <button type="button" role="menuitem" onClick={() => sortBy('author')}>By Author</button>
+                    <button type="button" role="menuitem" onClick={() => sortBy('word')}>By Shared Word</button>
+                  </span>
+                )}
+              </span>
+            )}
           </div>
         )}
+        {kitOpen && <SiteKitSheet onPick={placeKit} onClose={() => setKitOpen(false)} />}
+        {tasksFor && (
+          <Suspense fallback={null}>
+            <StickyTasks lines={tasksFor.lines} onDone={tasksDone} onClose={() => setTasksFor(null)} />
+          </Suspense>
+        )}
         {showBar && !toolsHidden && !present && (
-          <MarkupBar diagram={diagramApi ? { onAction: onDiagram, canTidy: true, canRefresh } : null} phone={isPhone} tool={mk.tool} colorKey={inkFor(mk)} sizeKey={mk.size} hasSelection={hasSelection}
+          <MarkupBar importer={{ onFiles: importPictures, onPaste: pastePicture, busy: importing }} diagram={diagramApi ? { onAction: onDiagram, canTidy: true, canRefresh } : null} phone={isPhone}
+            meet={{ onAction: onMeet, canSilent: !meet.silent, canSummon: !!(collab?.awareness && followApi && collab?.peers?.length) }}
+            snap={{ on: mk.snap !== false, onToggle: toggleSnap }} inkShape={{ on: !!mk.inkShape, onToggle: () => { const m = { ...mkRef.current, inkShape: !mkRef.current.inkShape }; mkRef.current = m; setMk(m); writeMarkupPref(m); } }} tool={mk.tool} colorKey={inkFor(mk)} sizeKey={mk.size} hasSelection={hasSelection}
             onTool={chooseTool} onColor={chooseColor} onSize={chooseSize} onUndo={undo} onRedo={redo} onDelete={deleteSelected}
             styleOpen={styleOpen} onStyle={isPhone ? toggleStyle : undefined}
             onMore={isPhone ? () => setPhoneMore(true) : undefined} onHide={isPhone ? undefined : () => hideTools(true)} />

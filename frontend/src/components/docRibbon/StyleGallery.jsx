@@ -1,5 +1,6 @@
 // Word's Home > Styles gallery: the current paragraph style is named on the
 // button, and one click sets both the block type and its look.
+import { ChevronDown } from 'lucide-react';
 import { Menu } from './ui';
 
 export const STYLES = [
@@ -28,18 +29,36 @@ export function currentStyle(editor) {
   return STYLES[0];
 }
 
-export default function StyleGallery({ editor }) {
+// The gallery's first row (Neil, 11/11/2026: "a real Styles gallery"): each
+// tile drawn in its own style, the current one outlined; the chevron opens
+// every style. In the Simplified ribbon only the chevron's list shows.
+const GALLERY = ['normal', 'h1', 'h2'];
+
+export default function StyleGallery({ editor, compact = false }) {
   const cur = currentStyle(editor);
+  const apply = (s) => s.apply(editor.chain().focus()).run();
   return (
-    <Menu label={cur.label} title={`Styles - ${cur.label}`} width={300}>
-      {(close) => (
-        <div className="doc-ribbon-styles">
-          {STYLES.map((s) => (
-            <button key={s.key} type="button" className={`doc-ribbon-style doc-ribbon-style-${s.key}${cur.key === s.key ? ' is-active' : ''}`}
-              onClick={() => { s.apply(editor.chain().focus()).run(); close(); }}>{s.label}</button>
-          ))}
-        </div>
-      )}
-    </Menu>
+    <div className="doc-style-gallery">
+      {!compact && GALLERY.map((key) => {
+        const s = STYLES.find((x) => x.key === key);
+        return (
+          <button key={key} type="button" className={`doc-style-tile doc-style-tile-${key}${cur.key === key ? ' is-active' : ''}`}
+            title={`${s.label} Style`} aria-pressed={cur.key === key} onMouseDown={(e) => e.preventDefault()} onClick={() => apply(s)}>
+            <span className="doc-style-sample">AaBbCc</span>
+            <span className="doc-style-name">{s.label}</span>
+          </button>
+        );
+      })}
+      <Menu label={compact ? cur.label : ''} icon={compact ? undefined : ChevronDown} title={`Styles - ${cur.label}`} width={300}>
+        {(close) => (
+          <div className="doc-ribbon-styles">
+            {STYLES.map((s) => (
+              <button key={s.key} type="button" className={`doc-ribbon-style doc-ribbon-style-${s.key}${cur.key === s.key ? ' is-active' : ''}`}
+                onClick={() => { apply(s); close(); }}>{s.label}</button>
+            ))}
+          </div>
+        )}
+      </Menu>
+    </div>
   );
 }

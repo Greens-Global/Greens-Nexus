@@ -160,9 +160,15 @@ keep the diff minimal.
   the words people see are Employee, Supervisor, Manager, **Administrator**
   (4) and **Super Administrator** (5) - never "Global Admin" / "IT Admin"
   (`frontend/scripts/check-role-copy.mjs` fails the lint). An Administrator
-  is ALWAYS company-walled (`auth.company_scope`, walls switch on or off);
-  only level 5 or a member of a group flagged `is_global_admin` passes the
-  walls (`auth.is_global_admin` - no level-4 fallback).
+  is company-walled only while the walls switch is ON (`auth.company_scope`;
+  Pranshu, 11/11/2026 - walled with the switch off hid every untagged
+  record, e.g. most of the Items catalog); once armed, only level 5 or a
+  member of a group flagged `is_global_admin` passes the walls
+  (`auth.is_global_admin` - no level-4 fallback). With the walls off
+  an Administrator still never adds an entity scope row, changes their own
+  or another Administrator's limits, or changes a shared group / job role
+  (`auth.bound_by_super_rules`) - nothing set up then widens their reach
+  once the walls are armed.
   Exception - TICKETS (hotfix 11/04/2026, Pranshu with Neil's approval):
   an Administrator sees and works every company's tickets; ticket code reads
   `ticket_roles.company_scope` / `ticket_roles.assert_company`, never
@@ -454,6 +460,42 @@ keep the diff minimal.
   frame, laser pointer) are under More Tools; a computer keeps the engine's
   hints and properties panel, a phone opens that panel above the dock from
   Style. Never bring back a second tool strip.
+  **Running a meeting on a board** (Neil, 11/10/2026: "copy from the best of
+  the best"; "comment - yes, votes - named, measure - yes"): every piece is
+  ordinary board elements or the board's own live document - no new table, no
+  second channel. Sticky Note is a tool (`board/stickies.js`: paper + words +
+  author line, `customData.nexusSticky`; Tab writes the next one beside it;
+  Sort by color / author / word into labeled columns; Make Tasks sends the
+  selected stickies through `AddSeveralModal` - the import engine, never a
+  loop - and links each sticky to its task). The meeting kit
+  (`board/meet.js`, Run the Meeting) lives in the board's Yjs map `meet`: a
+  shared timer (the starter's clock), NAMED dot votes (one map row per voter;
+  each person sees only their own dots until Show Results stamps
+  `customData.nexusVotes` and a "2 Votes - Ana, Bo" line), Private Writing
+  (new stickies stay in the author's own tray, this browser only, until the
+  host reveals them) and Bring Everyone Here (awareness `summon`; people
+  follow the presenter's `view` through the adapter's `follow` member).
+  Comment pins are THREADS (`board/threads.js`, `customData.nexusThread`:
+  replies, Resolve / Reopen); an @mention of someone who can open the board
+  sends a bell through `POST /notes/{id}/board-mentions` (one rollup per pin,
+  link `notes:<id>~<pin>`) - the ONE exception to Notes' "a mention notifies
+  nobody", board comments only. Measure (`board/measure.js`, More Tools):
+  Set Scale over a known length, then Measure Length / Measure Area label in
+  feet and inches from the nearest scale; the numbers live on the elements
+  and refresh when one is moved. Ink to Shape (`board/inkShape.js`, a switch
+  in the pen's tray) turns a pen stroke that reads as a line, box, circle,
+  diamond or triangle into the clean shape. The Storage Site Kit (Diagram >
+  Pictures) places the KB drawings (`kb/components/drawings.jsx`) as board
+  images stored like any picture (`kit-<name>`). Six more templates: Retro,
+  Kickoff, SWOT, Fishbone, Site Walk, Weekly Huddle.
+  Import (the markup bar's Import button, `board/boardImport.js`): a picture
+  or every page of a PDF (`pdfPage.renderPdfPages`, 40 at most) goes in
+  BEHIND the drawing and LOCKED, stacked top to bottom, and the Pen comes up;
+  a PDF pasted or dropped on the board comes the same way, a picture pasted
+  stays the engine's own paste. Widths: Fine / Medium / Bold plus a 1-24
+  custom slider (a number in the same `size` pref). Snap and Align (the
+  engine's object snapping, Alt+S, Ctrl held skips it) is on by default, a
+  per-person pref set through the adapter's `setStyle`.
 - **Frontline reach (Neil, 11/02/2026, from the Pebb audit):** Nexus installs
   on the phone (`public/manifest.webmanifest`, `public/sw.js` - push plus the
   offline app shell, see Field offline below) and pushes the BELL: a Web Push
@@ -663,6 +705,15 @@ keep the diff minimal.
   else the company's `defaultGraceMin`; zone placement -> shift type -> the
   company's team zone). `timeclock._shift_start_for`, My Team, the Workforce
   Scorecard and the no-show scan all read it - never add a second rule.
+  **Shift Planner grant (Pranshu, 11/10/2026):** below Manager, the
+  Access Group module `shifts` runs the planner (`SHIFT_GRANT` in
+  `routers/timeclock.py`): Viewer / Editor / Full act only on the teams the
+  person is named Scheduler on (Editor builds and shares, Full adds Clear
+  Week, Import and team members), Owner acts as a manager inside Shifts for
+  their company's people (swap decisions, weather calls, rename / archive).
+  The rank rides the user dict (`_shift_rank`) from the shift dependencies
+  only; it never opens Time Sheets, pay, labor, shift types or Settings.
+  `test_shift_planner_grant.py` pins it.
   Shift settings are PER COMPANY (`routers/shift_requests.get_settings(db,
   company_id)` = defaults <- tenant row <- sparse company override;
   `settings_for(db, email)` for a person) and shift types / groups carry
@@ -826,6 +877,14 @@ keep the diff minimal.
   makes it usable, a document is made from the published wording
   (`_released`) exactly as an HR packet prints it, and a template live since
   before this is released as it stands on first use or first edit.
+  **Nothing asks for a name before it exists** (Neil, 11/11/2026): New
+  Document and New Template open a blank draft in the builder at once; the
+  name (and a template's category) is asked on Close in
+  `docRibbon/NameOnClose.jsx`, filled in with the first line or
+  "Document - MM/DD/YYYY" (`lib/untitled.js`), and a blank, unnamed draft
+  that is the caller's own (`mine` on the GET) is not kept. The rest of the
+  ways in (a sheet, a template, a file, Word, starters, Letterheads) sit under
+  the split button's arrow - one primary button per toolbar.
 
 - **Sheets and live editing (Neil, 11/05/2026, `routers/documents.py`
   "Working together", `frontend/src/sheets/`, `frontend/src/docLive/`).** A
@@ -1192,6 +1251,22 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   `<job folder>/Drawings`); a new revision of a sheet number marks the current
   one Superseded (kept), bells the crew and managers once per sheet in place
   and emits `drawing.revised`. Never hard-deleted.
+- **Outside parties (Round Three item 4, Neil, 11/11/2026,
+  `routers/construction_outside.py`):** a LINK for a one-off action, an Entra
+  GUEST for someone who works in Nexus regularly. A link
+  (`construction_outside_links`, RLS) reaches ONE RFI to answer or ONE sub's
+  punch list (items given to their VENDORID, `construction_punch_meta.
+  sub_vendor_id`) on one job; the token is shown once and only its SHA-256
+  is kept; it expires (60 days at most), can be turned off, and every write
+  runs AS THE SENDER (re-checked at each use) with the outside person's name
+  on the activity. Files go up through the server into the job's folder.
+  Public routes are `/construction-outside/` (SENSITIVE_PREFIXES,
+  TOKEN_PATH_PREFIXES, a body cap); the page is `/outside/<token>`. A guest
+  reaches Construction only through an Operations grant and is then kept to
+  the jobs they are on (`_may_read`); a guest is never a job manager.
+  Labor cost codes (item 3): `construction_projects.labor_codes`, picked at
+  punch-in on the Time Clock page, kept on the IN punch only when
+  `construction_labor.check_cost_code` agrees - never a refused punch.
 - **Commitments and lien waivers (Round Two item 8, 11/06/2026,
   `construction_commitments`, `construction_money.commitments_view`):** a
   subcontract or purchase order is one row per Intacct VENDORID on the job,

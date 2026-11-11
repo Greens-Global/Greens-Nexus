@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { generateJSON, generateHTML } from '@tiptap/core';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -21,11 +21,18 @@ import {
   FlipHorizontal, FlipVertical, Frame, Replace, Image as ImageIcon, Move, Crop,
 } from 'lucide-react';
 import { NodeSelection, TextSelection } from '@tiptap/pm/state';
-import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS, useDismiss } from './docRibbon/ui';
+import { Group, BigBtn, SmallBtn, Menu, ColorGrid, TableGrid, THEME_COLORS, STANDARD_COLORS, HIGHLIGHT_COLORS, useDismiss, RibbonBar, PickList, SizeBox } from './docRibbon/ui';
 import StyleGallery from './docRibbon/StyleGallery';
 import StatusBar from './docRibbon/StatusBar';
-import Ruler from './docRibbon/Ruler';
+import { HRuler, VRuler, TabGlyph, TAB_LABEL } from './docRibbon/Ruler';
+import { cleanTabStops, TAB_ALIGNS } from '../lib/docTabs';
+import { numberFootnotes } from '../lib/docFootnote';
+import { useTableValue } from '../tasks/tableCols';
 import NavigationPane from './docRibbon/NavigationPane';
+import RibbonDisplay from './docRibbon/RibbonDisplay';
+import { ParagraphDialog, FontDialog } from './docRibbon/Dialogs';
+import KeyTips from './docRibbon/KeyTips';
+import VariablesPane from './docRibbon/VariablesPane';
 import { WordCountDialog, AccessibilityDialog } from './docRibbon/WordCountDialog';
 import { countWords, accessibilityIssues, headingsOf } from './docRibbon/docStats';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -36,6 +43,10 @@ import { useRole } from '../contexts/RoleContext';
 import { canDictate, useDictation, spokenAfter } from '../lib/voice';
 import { listChanges } from '../lib/docTrackChanges';
 import { dialog } from '../ui/dialog';
+import { isUntitled, suggestName, defaultName, UNTITLED_DOCUMENT, UNTITLED_TEMPLATE } from '../lib/untitled';
+import NameOnClose from './docRibbon/NameOnClose';
+import MenuBar, { ShortcutsCard } from './docRibbon/MenuBar';
+import { STYLES as PARA_STYLES, currentStyle } from './docRibbon/StyleGallery';
 import FullScreenButton, { useFullScreen } from './FullScreenButton';
 import { api, API_BASE } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
@@ -47,7 +58,7 @@ import ShareDocumentDialog, { LivePeople } from '../docLive/ShareDocumentDialog'
 import { caretColor } from '../notes/useNoteCollab';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
-import { slugifyToken, variableFromDrop, VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
+import { slugifyToken, variableFromDrop } from '../lib/mergeFieldTypes';
 import { extractVariables, mergeFieldDefs, sharedDefs, tokensInDoc } from '../lib/extractVariables';
 import { Pagination, paginationKey, planBreaks, measureLines, posAtLineStart, marginGrowth, SHEET_SPACE_PX } from '../lib/docBuilderPagination';
 import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, marginsOf, pageCanvasStyle, textFlowPx, sheetPadding, scrollableAncestor } from '../lib/pageSetup';
@@ -72,7 +83,7 @@ const FONT_GROUPS = {
 // Does this content say anything at all? Text, a picture, a variable chip, a
 // shape or a table all count; a lone empty paragraph does not. Used to refuse
 // a save that would blank a document that had content a moment ago.
-const SUBSTANTIVE = new Set(['image', 'mergeField', 'docShape', 'docTextbox', 'table', 'pageBreak', 'bookmark', 'signatureBlock']);
+const SUBSTANTIVE = new Set(['image', 'mergeField', 'docShape', 'docTextbox', 'table', 'pageBreak', 'bookmark', 'signatureBlock', 'footnote']);
 
 // Who signs, when a template has no Signers list yet (Oct 14).
 const DEFAULT_SIGNERS = [{ key: 'employee', label: 'Employee', order: 1 }, { key: 'company', label: 'Company', order: 2 }];
@@ -99,6 +110,8 @@ export function isEmptyContent(content) {
 const TOKEN_IN_PAGE_RE = /\{\{\s*[A-Za-z0-9_.]+\s*\}\}/;
 
 const FONT_SIZES = ['10', '11', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48'];
+// Word's ribbon tabs (11/11/2026). Variables is Word's Mailings for Nexus.
+const RIBBON_TABS = [['home', 'Home'], ['insert', 'Insert'], ['design', 'Design'], ['layout', 'Layout'], ['references', 'References'], ['variables', 'Variables'], ['review', 'Review'], ['view', 'View']];
 const SYMBOL_CHARS = [
   '©', '®', '™', '°', '§', '¶', '†', '‡', '•', '…', '–', '—', '«', '»', '‹', '›', '“', '”', '‘', '’', '„', '¡', '¿', '‰', '№', '¦',
   '±', '×', '÷', '≈', '≠', '≤', '≥', '∞', '√', '∑', '∏', '∫', '∂', '∆', '∇', '∈', '∉', '∩', '∪', '⊂', '⊃', '∧', '∨', '¬', '∝', '∴', '∵', '∠', '⊥', '∥', '‖', '⁄', '¹', '²', '³', '½', '¼', '¾', '⅓', '⅔', '⅛', '⅜', '⅝', '⅞', 'µ',
@@ -456,15 +469,6 @@ function ContextMenu({ x, y, items, onClose }) {
   );
 }
 
-function ToolbarBtn({ onClick, active, disabled, title, children }) {
-  return (
-    <button type="button" title={title} onClick={onClick} disabled={disabled}
-      className={active ? 'is-active' : ''}
-      style={{ opacity: disabled ? 0.4 : 1 }}>
-      {children}
-    </button>
-  );
-}
 
 function DocumentBuilderInner({ docId, kind = 'document', employees = [], entities = [], onClose, toastOk, toastErr, quickSections = [], onContentSaved, live = null, readOnly = false }) {
   const { get: apiGet, update: apiUpdate, nameKey, getVersions, getVersion } = KIND_API[kind];
@@ -526,7 +530,6 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const [letterheads, setLetterheads] = useState([]);
   const [letterheadId, setLetterheadId] = useState('');
   const [requiresLetterhead, setRequiresLetterhead] = useState(false);
-  const [lhPickerOpen, setLhPickerOpen] = useState(false);
   // Add-a-letterhead (any user, not just admins - see routers/documents.py
   // create_letterhead) - a small inline form inside the same dropdown rather
   // than a separate admin screen, so a custom letterhead is one click away
@@ -542,7 +545,6 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const [mergeOverrides, setMergeOverrides] = useState({});
   const [newVarName, setNewVarName] = useState('');
   const [newVarValue, setNewVarValue] = useState('');
-  const [mergePickerOpen, setMergePickerOpen] = useState(false);
   const [exporting, setExporting] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [versions, setVersions] = useState(null);
@@ -608,7 +610,17 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   // `newTokens` are the ones an import/paste just added, marked NEW in the list.
   const [fieldsPanel, setFieldsPanel] = useState(null);   // null | { newTokens: [] }
   const [mergeFieldModal, setMergeFieldModal] = useState(null); // null | { range?: {from,to}, existingDef?: object, initialLabel?: string }
-  const [variableLibraryOpen, setVariableLibraryOpen] = useState(false);
+  // The Variables rail (Sagar, 11/04/2026), on demand (Neil, 11/11/2026):
+  // In This Document or Add More (the library), over the right margin.
+  const [varsOpen, setVarsOpen] = useState(false);
+  const [varsTab, setVarsTab] = useState('used');
+  // Variables > Preview Results (Word's Mailings): every chip shows the value
+  // the document will print - the same resolution an export uses
+  // (GET /documents/{id}/merge-values); a template shows its Merge Data
+  // defaults. Highlight Fields: Word's gray field shading, on by default.
+  const [previewResults, setPreviewResults] = useState(false);
+  const [previewValues, setPreviewValues] = useState(null);
+  const [fieldShading, setFieldShading] = useState(true);
   // The variables placed in THIS document, in page order, each with how many
   // places it is used (Sagar, 11/04/2026: "whatever variable is used in that
   // particular document it should be listed at right side so we can reuse the
@@ -643,8 +655,23 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   // Word's View tab, this browser only: Separate Pages (pagination), Ruler,
   // Navigation pane; Review > Spelling (the browser's own spellcheck).
-  const [viewPrefs, setViewPrefs] = useState({ paginate: true, ruler: false, nav: false, spell: true });
+  const [viewPrefs, setViewPrefs] = useState({ paginate: true, nav: false, spell: true });
   const setPref = (k, v) => setViewPrefs((p) => ({ ...p, [k]: v }));
+  // View > Ruler: on by default, both rulers (Neil, 11/11/2026); turning it
+  // off is remembered in the person's profile, on every computer.
+  const [rulerOn, setRulerOn] = useTableValue('documents', 'ruler', true);
+  // The tab stop a click on the ruler sets - the box in the rulers' corner.
+  const [tabType, setTabType] = useState('left');
+  // Word's dialog launchers: Font (Ctrl+D) and Paragraph.
+  const [fontDlg, setFontDlg] = useState(false);
+  const [paraDlg, setParaDlg] = useState(false);
+  // View > Navigation (Word's pane, 11/11/2026): Headings, Pages or Results.
+  // It floats in the desk margin beside the page and is off until opened -
+  // the old always-on Pages rail lives in its Pages tab.
+  const [navTab, setNavTab] = useState('headings');
+  const [navQuery, setNavQuery] = useState('');
+  const [navHit, setNavHit] = useState(-1);
+  const openNav = (tab) => { setNavTab(tab); setPref('nav', true); };
   // Review > Track Changes (Pranshu, 11/05/2026), as Word Online has it:
   // Off / For Everyone (saved with the document, so whoever opens it next
   // keeps tracking) / Just Mine (this browser only); Markup On Page shows the
@@ -689,8 +716,87 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   }, [commentStore.comments, commentStore.loading]);
   const [a11yIssues, setA11yIssues] = useState(null);
   const [full, toggleFull] = useFullScreen('documents');
+  // The menu bar's two of its own (Neil, 11/10/2026): the shortcuts card, and
+  // Word's Collapse Ribbon (Ctrl+F1) - the tabs stay, the buttons fold away;
+  // remembered in this browser.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Ribbon Display Options (Word's, 11/11/2026): Classic (the full ribbon),
+  // Simplified (one line of the most used buttons, as Word Online) or Show
+  // Tabs Only (Ctrl+F1 - the old Collapse Ribbon). Remembered in this browser;
+  // the old collapsed flag still reads as Tabs Only.
+  const [ribbonMode, setRibbonModeState] = useState(() => {
+    try {
+      const m = localStorage.getItem('nexus.docRibbonMode');
+      if (m === 'classic' || m === 'simplified' || m === 'tabs') return m;
+      return localStorage.getItem('nexus.docRibbonCollapsed') === '1' ? 'tabs' : 'classic';
+    } catch { return 'classic'; }
+  });
+  const lastOpenModeRef = useRef(ribbonMode === 'tabs' ? 'classic' : ribbonMode);
+  const setRibbonMode = useCallback((m) => {
+    if (m !== 'tabs') lastOpenModeRef.current = m;
+    setRibbonModeState(m);
+    try { localStorage.setItem('nexus.docRibbonMode', m); } catch { /* private mode: this visit only */ }
+  }, []);
+  const ribbonCollapsed = ribbonMode === 'tabs';
+  const setRibbonCollapsed = useCallback((v) => setRibbonMode(v ? 'tabs' : lastOpenModeRef.current), [setRibbonMode]);
+  const toggleRibbon = useCallback(() => setRibbonModeState((cur) => {
+    const next = cur === 'tabs' ? lastOpenModeRef.current : 'tabs';
+    if (cur !== 'tabs') lastOpenModeRef.current = cur;
+    try { localStorage.setItem('nexus.docRibbonMode', next); } catch { /* private mode */ }
+    return next;
+  }), []);
+  // Shortcuts the menus list that the editor did not already have, live only
+  // while focus is inside this document (the header's Ctrl+F search stays
+  // the app's). Handlers are read through a ref so the listener is set once.
+  const menuKeysRef = useRef({});
+  useEffect(() => {
+    const onKey = (e) => {
+      const root = rootRef.current;
+      if (!root || !root.contains(e.target)) return;
+      const k = menuKeysRef.current;
+      const key = e.key.toLowerCase();
+      const hit = (fn) => { e.preventDefault(); e.stopPropagation(); fn?.(); };
+      // Word's own, while typing on a page (11/11/2026). Ctrl+1/2/5 and
+      // Ctrl+Shift+N are the browser's and cannot be taken over.
+      const onPage = !!e.target.closest?.('.ProseMirror');
+      if (onPage && e.key === 'F3' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) { if (k.cycleCase) hit(k.cycleCase); return; }
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (onPage && !e.altKey && k.word) {
+        const w = k.word;
+        if (!e.shiftKey && key === 'e') { hit(() => w.align('center')); return; }
+        if (!e.shiftKey && key === 'l') { hit(() => w.align('left')); return; }
+        if (!e.shiftKey && key === 'r') { hit(() => w.align('right')); return; }
+        if (!e.shiftKey && key === 'j') { hit(() => w.align('justify')); return; }
+        if (!e.shiftKey && e.key === ']') { hit(() => w.size(1)); return; }
+        if (!e.shiftKey && e.key === '[') { hit(() => w.size(-1)); return; }
+        if (e.shiftKey && (e.key === '>' || e.key === '.')) { hit(() => w.size(1)); return; }
+        if (e.shiftKey && (e.key === '<' || e.key === ',')) { hit(() => w.size(-1)); return; }
+        if (key === 'm') { hit(() => w.indent(e.shiftKey ? -1 : 1)); return; }
+        if (key === 't') { hit(() => w.hanging(e.shiftKey ? -1 : 1)); return; }
+        if (!e.shiftKey && key === 'q') { hit(w.clearParagraph); return; }
+        if (!e.shiftKey && e.key === ' ') { hit(w.clearCharacter); return; }
+      }
+      if (key === 'h' && !e.shiftKey && !e.altKey) hit(k.find);
+      else if (key === 'k' && !e.shiftKey && !e.altKey) hit(k.link);
+      else if (key === 'enter' && !e.shiftKey && !e.altKey) hit(k.pageBreak);
+      else if (key === 'm' && e.altKey) hit(k.comment);
+      else if (key === '\\' && !e.shiftKey) hit(k.clearFormatting);
+      else if (key === '/' && !e.shiftKey && !e.altKey) hit(k.shortcuts);
+      else if (key === 'c' && e.shiftKey && !e.altKey) hit(k.wordCount);
+      else if (key === 'd' && !e.shiftKey && !e.altKey) hit(k.font);
+      else if (key === 'f' && e.altKey && !e.shiftKey) hit(k.footnote);
+      else if (e.key === 'F1') hit(k.collapseRibbon);
+    };
+    // Capture: Ctrl+Enter must reach this before the editor makes it a line break.
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
   const rootRef = useRef(null);
+  // KeyTips open a tab through this (stable, so its key listener is set once).
+  const keyTipTabRef = useRef((tab) => { setRibbonModeState((m) => (m === 'tabs' ? lastOpenModeRef.current : m)); setRibbonTab(tab); });
   const canvasRef = useRef(null);
+  const rulerPagesElRef = useRef(() => canvasRef.current);
+  const rulerScrollerElRef = useRef(() => canvasRef.current?.closest('.nx-docb-canvas') || null);
   const titleRef = useRef(null);
   const activeEditorRef = useRef(null);
   const trackUser = useMemo(() => {
@@ -1042,7 +1148,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     apiGet(docId).then(d => {
       if (cancelled) return;
       setDoc(d);
-      setTitle(d[nameKey]);
+      // An unnamed document shows an empty title box saying "Untitled Document" (lib/untitled.js).
+      setTitle(isUntitled(d[nameKey]) ? '' : d[nameKey]);
       setLetterheadId(d.letterheadId || '');
       setRequiresLetterhead(!!d.requiresLetterhead);
       setEmployeeId(d.employeeId || '');
@@ -1263,10 +1370,40 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   useEffect(() => { trackingRef.current = tracking; }, [tracking]);
   const setTrackingModeRef = useRef(() => {});
 
+  // Blank is never saved: the box goes back to the name it had (or stays
+  // empty on a still-unnamed document). The saved name is kept on `doc` so
+  // the next comparison - and the name check on Close - read the real one.
   const saveTitle = () => {
     const t = title.trim();
-    if (!t || t === doc?.[nameKey]) return;
-    apiUpdate(docId, { [nameKey]: t }).catch(e => toastErr?.(e.message || 'Failed to rename'));
+    if (!t) { if (!isUntitled(doc?.[nameKey])) setTitle(doc?.[nameKey] || ''); return Promise.resolve(); }
+    if (t === doc?.[nameKey]) return Promise.resolve();
+    return apiUpdate(docId, { [nameKey]: t })
+      .then(() => setDoc((d) => (d ? { ...d, [nameKey]: t } : d)))
+      .catch(e => toastErr?.(e.message || 'Failed to rename'));
+  };
+
+  // Who is asked to name an unnamed document or template on Close: an editor
+  // of a draft.
+  const mayName = (kind === 'document' || kind === 'template') && !readOnly && !isLocked && doc?.access !== 'view';
+  // "Name This Document" (Neil, 11/10/2026, and templates since 11/11/2026):
+  // an unnamed one cannot be closed without a name; Keep Editing stays put.
+  // The name is filled in already - the first line, else "Document - <date>".
+  const [nameAsk, setNameAsk] = useState(null);   // { suggestion, resolve }
+  const askName = async () => {
+    const text = pages.map((p) => editorsRef.current.get(p.id)?.getText?.({ blockSeparator: '\n' }) || '').join('\n');
+    const answer = await new Promise((resolve) => setNameAsk({ suggestion: suggestName(text) || defaultName(kind), resolve }));
+    setNameAsk(null);
+    if (!answer || isUntitled(answer.name)) return false;
+    const name = answer.name;
+    try {
+      await apiUpdate(docId, { [nameKey]: name, ...(kind === 'template' && answer.category ? { category: answer.category } : {}) });
+      setTitle(name);
+      setDoc((d) => (d ? { ...d, [nameKey]: name, ...(kind === 'template' && answer.category ? { category: answer.category } : {}) } : d));
+      return true;
+    } catch (e) {
+      toastErr?.(e.message || 'Failed to rename');
+      return false;
+    }
   };
 
   const close = () => {
@@ -1277,18 +1414,35 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     if (kind === 'document' && preview) {
       setPreview(false);
       closePdfPreview();
-      return;
+      return Promise.resolve(false);
+    }
+    // Still unnamed and nothing written in it: a draft somebody opened and
+    // closed again is not kept, so the list does not fill with empty
+    // "Untitled" rows (11/11/2026). Only the owner's own unshared draft.
+    // `mine` is the server's word (GET /documents/{id}, /templates/{id}).
+    const mine = doc?.mine === true;
+    if (mayName && mine && !(doc?.sharedWith || []).length && isUntitled(title.trim() || doc?.[nameKey])
+        && doc?.status === 'draft' && !doc?.publishedVersion && isEmptyContent(currentContentRef.current?.())) {
+      if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+      return (kind === 'template' ? api.deleteDocTemplate(docId) : api.deleteDocument(docId))
+        .then(() => toastOk?.(`Nothing was written, so the blank ${kind} was not kept.`))
+        .catch(() => {})
+        .then(() => { onClose?.(); return true; });
+    }
+    // Still unnamed: ask for a name first; Keep Editing cancels the close.
+    // Resolves true once it really closed (File > New Document waits on it).
+    if (mayName && isUntitled(title.trim() || doc?.[nameKey])) {
+      return askName().then((named) => (named ? Promise.resolve(flushPendingSave()).finally(() => onClose?.()).then(() => true) : false));
     }
     // Wait for the pending write before unmounting. This used to fire doSave()
     // and call onClose() in the same breath: the component went away while the
     // request was still in flight, which is what "it says Saved and then
     // discards everything" looked like from the outside.
-    Promise.resolve(flushPendingSave()).finally(() => onClose?.());
+    return Promise.resolve(flushPendingSave()).finally(() => onClose?.()).then(() => true);
   };
 
   const changeLetterhead = (id) => {
     setLetterheadId(id);
-    setLhPickerOpen(false);
     apiUpdate(docId, { letterheadId: id }).catch(e => toastErr?.(e.message || 'Failed to update letterhead'));
   };
 
@@ -1408,15 +1562,35 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     return out;
   }, [fieldDefs]);
   const shared = useMemo(() => sharedDefs(variables, docId), [variables, docId]);
-  // The chips on the page say what the field definition calls them.
+  // The chips on the page say what the field definition calls them - or,
+  // with Preview Results on, the value the document will print. The chip's
+  // own label (what the node renders) is kept in data-base to come back to.
   useEffect(() => {
-    for (const ed of editorsRef.current.values()) {
+    const eds = [...editorsRef.current.values(), headerEditor, footerEditor].filter((e) => e && !e.isDestroyed);
+    for (const ed of eds) {
       ed.view.dom.querySelectorAll('.tpl-chip[data-merge-token]').forEach((el) => {
-        const label = varLabel[el.getAttribute('data-merge-token')];
-        if (label && el.textContent !== label) el.textContent = label;
+        if (el.dataset.base == null) el.dataset.base = el.textContent;
+        const token = el.getAttribute('data-merge-token');
+        const label = varLabel[token] || el.dataset.base;
+        const value = previewResults && previewValues ? String(previewValues[token] ?? '').trim() : '';
+        const text = value || label;
+        if (el.textContent !== text) el.textContent = text;
+        el.classList.toggle('is-value', !!value);
+        el.classList.toggle('is-missing', previewResults && !value);
       });
     }
-  }, [varLabel, pages]);
+  }, [varLabel, pages, previewResults, previewValues, selectionTick, headerEditor, footerEditor]);
+  useEffect(() => {
+    if (!previewResults && !varsOpen) return undefined;
+    let live = true;
+    const t = setTimeout(() => {
+      if (kind !== 'document') { setPreviewValues({ ...mergeOverrides }); return; }
+      api.documentMergeValues(docId)
+        .then((r) => { if (live) setPreviewValues({ ...(r?.values || {}), ...mergeOverrides }); })
+        .catch((e) => { if (live) { setPreviewValues({}); toastErr?.(e.message || 'Could not load the values to preview'); } });
+    }, 350);   // a Merge Data change saves first
+    return () => { live = false; clearTimeout(t); };
+  }, [previewResults, varsOpen, kind, docId, employeeId, entityId, mergeOverrides]);   // eslint-disable-line react-hooks/exhaustive-deps
   // The insert picker, grouped by WHEN Nexus fills each built-in. Until the
   // library answers, the short list it always had.
   const builtinGroups = useMemo(() => {
@@ -1450,7 +1624,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const doExport = (format) => {
     setExporting(format);
     flushPendingSave()
-      .then(() => (format === 'pdf' ? api.exportDocumentPdf(docId) : api.exportDocumentDocx(docId)))
+      .then(() => (format === 'pdf' ? api.exportDocumentPdf(docId)
+        : kind === 'template' ? api.exportTemplateDocx(docId) : api.exportDocumentDocx(docId)))
       .then(downloadBlob).catch(e => toastErr?.(e.message || 'Export failed')).finally(() => setExporting(''));
   };
 
@@ -1711,7 +1886,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     const current = parseFloat(activeEditor.getAttributes('textStyle').fontSize || '12') || 12;
     const idx = FONT_SIZES.findIndex(s => Number(s) >= current);
     const nextIdx = Math.max(0, Math.min(FONT_SIZES.length - 1, (idx === -1 ? FONT_SIZES.length - 1 : idx) + delta));
-    activeEditor.chain().focus().setFontSize(`${FONT_SIZES[nextIdx]}px`).run();
+    activeEditor.chain().focus().setFontSize(`${FONT_SIZES[nextIdx]}pt`).run();
   };
 
   // Word's Home > Font > Change Case. ProseMirror has no "transform selected
@@ -1928,6 +2103,34 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     setFindIndex(all.length ? 0 : -1);
     if (all.length) jumpToMatch(all[0]);
   };
+  // Word's contextual tabs show while their object is selected; a tab whose
+  // object is gone falls back to Home.
+  const inTable = !!activeEditor?.isActive('table');
+  const shapeType = activeEditor?.isActive('docShape') ? 'docShape' : activeEditor?.isActive('docTextbox') ? 'docTextbox' : null;
+  const shownTab = (ribbonTab === 'picture' && !imgAttrs) || (/^table/.test(ribbonTab) && !inTable) || (ribbonTab === 'shape' && !shapeType) ? 'home' : ribbonTab;
+  const navShown = !preview && !isMobile && viewPrefs.nav;
+  const showRulers = !preview && !isMobile && !!rulerOn;
+  const rulerPagesEl = rulerPagesElRef.current;
+  const rulerScrollerEl = rulerScrollerElRef.current;
+  const commentsShown = !preview && !isMobile && commentsOpen;
+  const varsShown = !preview && !isMobile && varsOpen && !commentsOpen;
+  const navResults = (() => {
+    const q = navQuery.trim();
+    if (!navShown || navTab !== 'results' || !q) return null;
+    const out = [];
+    pages.forEach((pg) => {
+      const ed = editorsRef.current.get(pg.id);
+      if (!ed || ed.isDestroyed) return;
+      const size = ed.state.doc.content.size;
+      findInEditor(ed, q).forEach((m) => {
+        if (out.length >= 200) return;
+        const before = ed.state.doc.textBetween(Math.max(0, m.from - 32), m.from, ' ');
+        const after = ed.state.doc.textBetween(m.to, Math.min(size, m.to + 48), ' ');
+        out.push({ pageId: pg.id, from: m.from, to: m.to, before: (m.from - 32 > 0 ? '…' : '') + before, match: ed.state.doc.textBetween(m.from, m.to, ' '), after });
+      });
+    });
+    return out;
+  })();
   const findStep = (dir) => {
     if (!findMatches.length) return;
     const next = (findIndex + dir + findMatches.length) % findMatches.length;
@@ -2112,7 +2315,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   // via the same create endpoint the Templates library itself uses.
   const [savingTemplate, setSavingTemplate] = useState(false);
   const saveAsTemplate = async () => {
-    const name = ((await dialog.prompt('Template name', { defaultValue: title || 'Untitled Template' })) || '').trim();
+    const name = ((await dialog.prompt('Template name', { defaultValue: title || UNTITLED_TEMPLATE })) || '').trim();
     if (!name) return;
     setSavingTemplate(true);
     api.createDocTemplate({ name, category: 'general', requiresLetterhead, letterheadId, content: currentContent() })
@@ -2141,13 +2344,6 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       .finally(() => setRestoringId(''));
   };
 
-  const insertMergeField = (e) => {
-    const token = e.target.value;
-    if (!token) return;
-    insertVariable(token);
-    e.target.value = '';
-  };
-
   // One way in for every variable insertion - the toolbar picker, the library
   // panel and a drag-and-drop all land here, so a variable is always a
   // mergeField NODE and never typed "{{token}}" text that silently never
@@ -2156,6 +2352,83 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     if (!token) return;
     activeEditor?.chain().focus().insertContent({ type: 'mergeField', attrs: { token } }).run();
   };
+
+  // Variables > Previous / Next: select the variable before or after the
+  // cursor, in page order, and bring it into view (Word's Go To Field).
+  const stepField = (dir, token = null) => {
+    const eds = pages.map((p) => [p.id, editorsRef.current.get(p.id)]).filter(([, e]) => e && !e.isDestroyed);
+    const all = [];
+    eds.forEach(([, e], pi) => e.state.doc.descendants((n, pos) => { if (n.type.name === 'mergeField' && (!token || n.attrs.token === token)) all.push({ e, pos, pi }); }));
+    if (!all.length) { toastOk?.('There are no variables in this document yet.'); return; }
+    const curPi = Math.max(0, eds.findIndex(([pid]) => pid === activePageId));
+    const sel = activeEditor?.state.selection;
+    const curPos = sel ? sel.from : -1;
+    const after = (f) => f.pi > curPi || (f.pi === curPi && f.pos > curPos);
+    const before = (f) => f.pi < curPi || (f.pi === curPi && f.pos < curPos);
+    let f = dir > 0 ? all.find(after) : [...all].reverse().find(before);
+    if (!f) f = dir > 0 ? all[0] : all[all.length - 1];
+    f.e.chain().focus().setNodeSelection(f.pos).run();
+    requestAnimationFrame(() => f.e.view.nodeDOM(f.pos)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }));
+  };
+  // References > Footnotes (Word's): numbered across every page, in order.
+  useEffect(() => { numberFootnotes(pages.map((pg) => editorsRef.current.get(pg.id))); }, [pages, selectionTick]);
+  const footnoteList = () => {
+    const out = [];
+    pages.forEach((pg) => {
+      const e = editorsRef.current.get(pg.id);
+      if (!e || e.isDestroyed) return;
+      e.state.doc.descendants((n, pos) => { if (n.type.name === 'footnote') out.push({ e, pos, text: n.attrs.text || '' }); });
+    });
+    return out;
+  };
+  const insertFootnote = async () => {
+    const e = activeEditor;
+    if (!e) return;
+    const at = e.state.selection.to;
+    const text = await dialog.prompt('Footnote', { defaultValue: '', confirmText: 'Insert', required: true, placeholder: 'The note at the foot of the page' });
+    if (!text || !text.trim() || e.isDestroyed) return;
+    e.chain().focus().insertContentAt(at, { type: 'footnote', attrs: { text: text.trim() } }).run();
+  };
+  const editFootnote = async (e, pos) => {
+    const node = e.state.doc.nodeAt(pos);
+    if (!node || node.type.name !== 'footnote') return;
+    const text = await dialog.prompt('Footnote', { defaultValue: node.attrs.text || '', confirmText: 'Save' });
+    if (text == null || e.isDestroyed) return;
+    const cur = e.state.doc.nodeAt(pos);
+    if (!cur || cur.type.name !== 'footnote') return;
+    if (!text.trim()) e.chain().focus().deleteRange({ from: pos, to: pos + cur.nodeSize }).run();
+    else e.chain().focus().command(({ tr }) => { tr.setNodeMarkup(pos, undefined, { ...cur.attrs, text: text.trim() }); return true; }).run();
+  };
+  const editFootnoteRef = useRef(editFootnote);
+  editFootnoteRef.current = editFootnote;
+  useEffect(() => {
+    const onClick = (ev) => {
+      const el = ev.target.closest?.('sup.doc-footnote');
+      if (!el || !el.closest('.doc-page')) return;
+      for (const e of editorsRef.current.values()) {
+        if (!e.view.dom.contains(el)) continue;
+        if (!e.isEditable) return;
+        editFootnoteRef.current(e, e.view.posAtDOM(el, 0));
+        return;
+      }
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, []);
+  const stepFootnote = () => {
+    const list = footnoteList();
+    if (!list.length) { toastOk?.('There are no footnotes in this document yet.'); return; }
+    const curPos = activeEditor?.state.selection.from ?? -1;
+    const pageOrder = pages.map((pg) => editorsRef.current.get(pg.id));
+    const ai = pageOrder.indexOf(activeEditor);
+    const f = list.find((x) => pageOrder.indexOf(x.e) > ai || (x.e === activeEditor && x.pos > curPos)) || list[0];
+    f.e.chain().focus().setNodeSelection(f.pos).run();
+    requestAnimationFrame(() => f.e.view.nodeDOM(f.pos)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }));
+  };
+  // Opens the Variables rail; Comments, its neighbor on the right, steps aside.
+  const openVars = (tab = 'used') => { setVarsTab(tab); setVarsOpen(true); setCommentsOpen(false); };
+  const toggleVars = (tab) => { if (varsOpen && varsTab === tab) setVarsOpen(false); else openVars(tab); };
+  useEffect(() => { if (commentsOpen) setVarsOpen(false); }, [commentsOpen]);
 
   // Converts every {{token}} already sitting on the page into a real merge
   // field. Import does this automatically; this is for content that arrived
@@ -2337,12 +2610,18 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   // Pages panel actions - each page is a real array entry (see the `pages`
   // state comment above), so these are ordinary array splices, not
   // ProseMirror position math against one shared document.
-  const addPage = () => {
+  const addPage = (at = null) => {
     const id = genPageId();
     pendingFocusId.current = id;
-    setPages(prev => [...prev, { id, json: null }]);
+    setPages(prev => {
+      if (at == null || at >= prev.length) return [...prev, { id, json: null }];
+      const next = [...prev]; next.splice(Math.max(0, at), 0, { id, json: null }); return next;
+    });
     scheduleSave(); // new page mounts with content already in place, which never fires onUpdate on its own
   };
+  // Insert > Blank Page: Word's - a new page right after the one you are on.
+  const activeIdx = () => Math.max(0, pages.findIndex((pg) => pg.id === activePageId));
+  const blankPage = () => addPage(activeIdx() + 1);
   const duplicatePage = (idx, withContent) => {
     const src = pages[idx];
     if (!src) return;
@@ -2411,7 +2690,31 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     if (!isEmpty && !(await dialog.confirm('This will replace the current document content. Continue?', { confirmText: 'Replace' }))) return;
     setImporting(true);
     try {
-      const { html, json: directJson, pageSetup: importedPageSetup, header: importedHeader, footer: importedFooter, warnings } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
+      const { html, json: rawJson, pageSetup: importedPageSetup, header: rawHeader, footer: rawFooter, warnings, comments: importedComments } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
+      // A Word file's comments become this document's Review threads (Neil,
+      // 11/11/2026: "fully word compatible"); the marks are pointed at them.
+      // Each says who wrote it in Word - the thread itself is the importer's.
+      const commentIds = {};
+      for (const c of importedComments || []) {
+        try {
+          const who = c.author ? `${c.author} (in Word): ` : 'From Word: ';
+          const made = await commentStore.add(`${who}${c.text}`, c.quote);
+          if (made?.id) commentIds[c.id] = made.id;
+        } catch { /* the words stay; the mark goes below */ }
+      }
+      const pointComments = (node) => {
+        if (!node || typeof node !== 'object') return node;
+        const out = { ...node };
+        if (Array.isArray(out.marks)) {
+          out.marks = out.marks.flatMap((m) => (m.type !== 'comment' ? [m] : commentIds[m.attrs?.id] ? [{ ...m, attrs: { ...m.attrs, id: commentIds[m.attrs.id] } }] : []));
+          if (!out.marks.length) delete out.marks;
+        }
+        if (Array.isArray(out.content)) out.content = out.content.map(pointComments);
+        return out;
+      };
+      const directJson = rawJson ? pointComments(rawJson) : rawJson;
+      const importedHeader = rawHeader ? pointComments(rawHeader) : rawHeader;
+      const importedFooter = rawFooter ? pointComments(rawFooter) : rawFooter;
       const json = directJson || generateJSON(html || '<p></p>', BODY_EXTENSIONS);
       // The imported doc still carries pageBreak markers (docxToTiptap.js
       // preserves Word's own page breaks) - split it into real pages the same
@@ -2460,8 +2763,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       const found = tokens.length
         ? ` ${tokens.length} variable${tokens.length === 1 ? '' : 's'} detected${added.length ? `, ${added.length} added to this template` : ''}.`
         : '';
-      if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}${found}`);
-      else toastOk?.(`Imported - review formatting before sending.${found}`);
+      const filed = Object.keys(commentIds).length;
+      if (filed) { setCommentsOpen(true); }
+      const commentNote = filed ? ` ${filed} comment${filed === 1 ? '' : 's'} from Word ${filed === 1 ? 'is' : 'are'} on the Review tab.` : '';
+      if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}${found}${commentNote}`);
+      else toastOk?.(`Imported - review formatting before sending.${found}${commentNote}`);
       setImportPopoverOpen(false);
       scheduleSave();
     } catch (e) {
@@ -2488,26 +2794,525 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     </div>
   );
 
+  // The menu bar (Neil, 11/10/2026): every command, by menu, with its icon
+  // and shortcut - the ribbon's own actions, nothing new behind them.
+  const ed = activeEditor;
+  const isDoc = kind === 'document';
+  const editing = !preview && !readOnly && !isLocked && !viewingOnly;
+  const blockAttrs = ed ? ed.getAttributes(currentBlockType()) : {};
+  const curStyle = currentStyle(ed);
+  // The ruler's markers: the paragraph you are in, in points. A level-based
+  // indent (Increase Indent) reads as 18 pt a level, the exporter's measure.
+  const paraIndents = (() => {
+    if (!ed || ed.isDestroyed || !editing) return null;
+    const a = blockAttrs || {};
+    const left = a.indentLeft != null ? Number(a.indentLeft) || 0 : (Number(a.indent) || 0) * 18;
+    return { left, first: Number(a.indentFirst) || 0, right: Number(a.indentRight) || 0 };
+  })();
+  // A ruler drag: every paragraph and heading in the selection takes it. A
+  // measured left indent replaces the level-based one, so the two never add.
+  const applyIndents = (patch) => {
+    if (!ed) return;
+    const attrs = {};
+    for (const [k, v] of Object.entries(patch)) attrs[k] = v ? v : null;
+    if ('indentLeft' in attrs) attrs.indent = 0;
+    ed.chain().focus().updateAttributes('paragraph', attrs).updateAttributes('heading', attrs).run();
+  };
+  // The ruler's tab stops: the paragraph you are in; a change is written to
+  // every paragraph and heading in the selection.
+  const paraTabs = paraIndents ? cleanTabStops(blockAttrs.tabStops) : [];
+  const applyTabStops = (next) => {
+    if (!ed) return;
+    const v = cleanTabStops(next);
+    ed.chain().focus().updateAttributes('paragraph', { tabStops: v.length ? v : null }).updateAttributes('heading', { tabStops: v.length ? v : null }).run();
+  };
+  // A ruler's margin edge: Page Setup's Custom margins, that one side changed.
+  const setMarginInches = (side, inches) => {
+    updatePageSetup({ margins: 'custom', marginIn: { ...marginsOf(pageSetup), [side]: inches } });
+  };
+  const openOnRibbon = (tab, open) => { setRibbonCollapsed(false); setRibbonTab(tab); open?.(); };
+  const keyTipTab = keyTipTabRef.current;
+  const pageBreak = () => ed?.chain().focus().insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run();
+  const linkCmd = () => openOnRibbon('insert', toggleLinkPopover);
+  const commentCmd = () => { if (ed && !ed.state.selection.empty) startComment(); else toastOk?.('Select the words to comment on first.'); };
+  const clearFormatting = () => ed?.chain().focus().unsetAllMarks().clearNodes().run();
+  const spacing = (label, v) => ({ label, checked: blockAttrs.lineHeight === v, onClick: () => setLineHeight(v), disabled: !editing });
+  const mark = (label, name, toggle, icon, shortcut) => ({ label, icon, shortcut, checked: !!ed?.isActive(name), disabled: !editing || !ed, onClick: () => ed?.chain().focus()[toggle]().run() });
+  const align = (label, v, icon, shortcut) => ({ label, icon, shortcut, cardLabel: `Align ${label}`, checked: !!ed?.isActive({ textAlign: v }), disabled: !editing || !ed, onClick: () => ed?.chain().focus().setTextAlign(v).run() });
+  menuKeysRef.current = {
+    find: () => setFindOpen(true), link: editing ? linkCmd : null, pageBreak: editing ? pageBreak : null, comment: commentCmd,
+    clearFormatting: editing ? clearFormatting : null, shortcuts: () => setShortcutsOpen(true), wordCount: () => setWordCountOpen(true), collapseRibbon: toggleRibbon,
+    font: editing && ed ? () => setFontDlg(true) : null,
+    footnote: editing && ed ? insertFootnote : null,
+    cycleCase: editing && ed ? () => {
+      const { from, to, empty } = ed.state.selection;
+      if (empty) return;
+      const t = ed.state.doc.textBetween(from, to, '\n');
+      changeCase(t === t.toUpperCase() ? 'lower' : t === t.toLowerCase() ? 'title' : 'upper');   // Word's Shift+F3 cycle
+    } : null,
+    word: editing && ed ? {
+      align: (v) => ed.chain().focus().setTextAlign(v).run(),
+      size: stepFontSize,
+      indent: changeIndent,
+      // Ctrl+T: a hanging indent half an inch deeper (Ctrl+Shift+T undoes one).
+      hanging: (dir) => {
+        const a = paraIndents || { left: 0, first: 0 };
+        const left = Math.max(0, a.left + 36 * dir);
+        applyIndents({ indentLeft: left, indentFirst: left ? Math.min(0, a.first - 36 * dir) : 0 });
+      },
+      clearParagraph: () => ed.chain().focus().updateAttributes('paragraph', { textAlign: null, indent: 0, indentLeft: null, indentFirst: null, indentRight: null, spacingBefore: null, spacingAfter: null, lineHeight: null, tabStops: null }).updateAttributes('heading', { textAlign: null, indentLeft: null, indentFirst: null, indentRight: null }).run(),
+      clearCharacter: () => ed.chain().focus().unsetAllMarks().run(),
+    } : null,
+  };
+  const docMenus = [
+    { label: 'File', items: [
+      { label: 'New Document', icon: FilePlus, onClick: () => close().then((ok) => { if (ok) window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-new' } })); }) },
+      { label: 'Rename', icon: Type, disabled: readOnly || isLocked, onClick: () => { titleRef.current?.focus(); titleRef.current?.select(); } },
+      isDoc && doc?.access && { label: 'Share...', icon: Users, onClick: () => setShareOpen(true) },
+      '-',
+      !preview && { label: 'Import a File...', icon: Upload, disabled: !editing, onClick: () => setImportPopoverOpen(true) },
+      { label: 'Version History', icon: History, onClick: openHistory },
+      '-',
+      isDoc && { label: 'Download', icon: FileDown, items: [
+        { label: 'PDF Document (.pdf)', disabled: !!exporting, onClick: () => doExport('pdf') },
+        { label: 'Word Document (.docx)', disabled: !!exporting, onClick: () => doExport('docx') },
+      ] },
+      !isDoc && { label: 'Download as Word (.docx)', icon: FileDown, hint: 'Variables as merge fields', disabled: !!exporting, onClick: () => doExport('docx') },
+      isDoc && { label: 'Open in Word', icon: PageIcon, disabled: !!exporting, onClick: openInWord },
+      isDoc && { label: 'Save as Template', icon: FileStack, disabled: savingTemplate, onClick: saveAsTemplate },
+      isDoc && { label: 'Preview & Send', icon: Send, onClick: () => { setPreview(true); openPdfPreview(); } },
+      '-',
+      { label: 'Page Setup...', icon: FileStack, onClick: () => openOnRibbon('layout', () => setPageSetupOpen(true)) },
+      { label: 'Print', icon: Printer, shortcut: 'Mod+P', onClick: () => window.print() },
+      '-',
+      { label: 'Close', icon: X, onClick: close },
+    ] },
+    { label: 'Edit', items: [
+      { label: 'Undo', icon: Undo, shortcut: 'Mod+Z', disabled: !editing || !ed?.can().undo(), onClick: () => ed?.chain().focus().undo().run() },
+      { label: 'Redo', icon: Redo, shortcut: 'Mod+Y', disabled: !editing || !ed?.can().redo(), onClick: () => ed?.chain().focus().redo().run() },
+      '-',
+      { label: 'Cut', icon: Scissors, shortcut: 'Mod+X', disabled: !editing, onClick: () => clipboardAction('cut') },
+      { label: 'Copy', icon: ClipboardCopy, shortcut: 'Mod+C', onClick: () => clipboardAction('copy') },
+      { label: 'Paste', icon: ClipboardPaste, shortcut: 'Mod+V', disabled: !editing, onClick: () => clipboardAction('paste') },
+      { label: 'Paste Without Formatting', shortcut: 'Mod+Shift+V', disabled: !editing, onClick: pasteTextOnly },
+      '-',
+      { label: 'Select All', icon: MousePointerSquareDashed, shortcut: 'Mod+A', onClick: () => ed?.chain().focus().selectAll().run() },
+      { label: 'Format Painter', icon: Paintbrush, checked: !!painterActive, disabled: !editing, onClick: () => toggleFormatPainter(false) },
+      '-',
+      { label: 'Find and Replace', icon: Search, shortcut: 'Mod+H', onClick: () => setFindOpen(true) },
+    ] },
+    { label: 'View', items: [
+      { label: 'Mode', icon: docMode === 'Viewing' ? EyeOff : docMode === 'Reviewing' ? PenLine : Type, hint: docMode, items: [
+        { label: 'Editing', checked: docMode === 'Editing', onClick: () => { setViewingOnly(false); if (tracking !== 'off') setTrackingMode('off'); } },
+        { label: 'Reviewing', checked: docMode === 'Reviewing', onClick: () => { setViewingOnly(false); setTrackingMode('everyone'); } },
+        { label: 'Viewing', checked: docMode === 'Viewing', onClick: () => setViewingOnly(true) },
+      ] },
+      '-',
+      { label: 'Print Layout', checked: !!viewPrefs.paginate, onClick: () => setPref('paginate', !viewPrefs.paginate) },
+      { label: 'Reading View', icon: BookOpen, onClick: () => { setPreview(true); if (isDoc) openPdfPreview(); } },
+      '-',
+      { label: 'Show Ruler', checked: !!rulerOn, onClick: () => setRulerOn(!rulerOn) },
+      { label: 'Show Navigation', checked: !!viewPrefs.nav, onClick: () => setPref('nav', !viewPrefs.nav) },
+      { label: 'Show Comments', checked: !!commentsOpen, onClick: () => setCommentsOpen((o) => !o) },
+      { label: 'Show Header & Footer', checked: !!(headerVisible || footerVisible), onClick: toggleHeaderFooter },
+      { label: 'Show Formatting Marks', checked: !!showMarks, onClick: () => setShowMarks((v) => !v) },
+      '-',
+      { label: 'Zoom', icon: ZoomIn, hint: `${Math.round(zoom * 100)}%`, items: [
+        ...[50, 75, 100, 125, 150, 200].map((n) => ({ label: `${n}%`, checked: Math.round(zoom * 100) === n, onClick: () => setZoom(n / 100) })),
+        '-', { label: 'Page Width', onClick: zoomToPageWidth }, { label: 'Fit Page', onClick: zoomToFit },
+      ] },
+      '-',
+      { label: 'Collapse Ribbon', shortcut: 'Mod+F1', checked: ribbonCollapsed, onClick: toggleRibbon },
+      { label: 'Full Screen', checked: !!full, onClick: toggleFull },
+    ] },
+    { label: 'Insert', items: [
+      { label: 'Picture', icon: ImagePlus, disabled: !editing, items: [
+        { label: 'From This Device...', onClick: () => fileInputRef.current?.click() },
+        { label: 'From the Clipboard', onClick: () => toastOk?.('Click where the picture goes and press Ctrl+V with it on the clipboard.') },
+      ] },
+      { label: 'Table', icon: TableIcon, disabled: !editing || !ed, items: [
+        ...[[2, 2], [3, 3], [4, 4], [3, 5], [5, 5]].map(([c, rr]) => ({ label: `${c} x ${rr} Table`, onClick: () => ed?.chain().focus().insertTable({ rows: rr, cols: c, withHeaderRow: false }).run() })),
+        '-', { label: 'Other Sizes...', onClick: () => openOnRibbon('insert') },
+      ] },
+      { label: 'Drawing', icon: Shapes, disabled: !editing, onClick: () => openOnRibbon('insert', () => setShapePopoverOpen(true)) },
+      { label: 'Text Box', icon: Type, disabled: !editing, onClick: insertTextbox },
+      '-',
+      { label: 'Link', icon: Link2, shortcut: 'Mod+K', disabled: !editing, onClick: linkCmd },
+      { label: 'Bookmark', icon: Bookmark, disabled: !editing, onClick: () => openOnRibbon('insert', () => setBookmarkPopoverOpen(true)) },
+      { label: 'Table of Contents', icon: ListTree, disabled: !editing, items: [
+        { label: 'Insert Table of Contents', onClick: insertTableOfContents },
+        { label: 'Update Table of Contents', onClick: insertTableOfContents, disabled: !findTocRange() },
+        { label: 'Remove Table of Contents', onClick: removeTableOfContents, disabled: !findTocRange() },
+      ] },
+      { label: 'Comment', icon: MessageSquare, shortcut: 'Mod+Alt+M', onClick: commentCmd },
+      '-',
+      { label: 'Header & Footer', icon: LayoutPanelTop, checked: !!(headerVisible || footerVisible), onClick: toggleHeaderFooter },
+      { label: 'Page Numbers', icon: Hash, items: [
+        ...[['bottom-left', 'Bottom Left'], ['bottom-center', 'Bottom Center'], ['bottom-right', 'Bottom Right'], ['top-right', 'Top Right']].map(([v, l]) => ({ label: l, checked: pageSetup.pageNumbers === v, onClick: () => updatePageSetup({ pageNumbers: v }) })),
+        '-', { label: 'Remove Page Numbers', onClick: () => updatePageSetup({ pageNumbers: 'none' }) },
+      ] },
+      { label: 'Page Break', icon: SeparatorHorizontal, shortcut: 'Mod+Enter', disabled: !editing || !ed, onClick: pageBreak },
+      isDoc && { label: 'Blank Page', icon: FilePlus, disabled: !editing, onClick: blankPage },
+      '-',
+      { label: 'Special Characters...', icon: Smile, disabled: !editing, onClick: () => openOnRibbon('insert', () => setSymbolPopoverOpen(true)) },
+      { label: 'Signature Block...', icon: PenLine, disabled: !editing, onClick: () => openOnRibbon('insert', () => { setSigPopoverOpen(true); setSigDraft((d) => ({ ...d, role: d.role || signerOptions[0]?.key || '' })); }) },
+      { label: 'Variable...', icon: Variable, disabled: !editing, onClick: () => openVars('library') },
+    ] },
+    { label: 'Format', items: [
+      { label: 'Font...', icon: Type, shortcut: 'Mod+D', disabled: !editing || !ed, onClick: () => setFontDlg(true) },
+      { label: 'Paragraph...', icon: Pilcrow, disabled: !editing || !ed, onClick: () => setParaDlg(true) },
+      '-',
+      { label: 'Text', icon: Bold, items: [
+        mark('Bold', 'bold', 'toggleBold', Bold, 'Mod+B'),
+        mark('Italic', 'italic', 'toggleItalic', Italic, 'Mod+I'),
+        mark('Underline', 'underline', 'toggleUnderline', Underline, 'Mod+U'),
+        mark('Strikethrough', 'strike', 'toggleStrike', Strikethrough, 'Mod+Shift+S'),
+        '-',
+        mark('Superscript', 'superscript', 'toggleSuperscript', SuperscriptIcon, 'Mod+.'),
+        mark('Subscript', 'subscript', 'toggleSubscript', SubscriptIcon, 'Mod+,'),
+        '-',
+        { label: 'Grow Font', shortcut: 'Mod+]', onClick: () => stepFontSize(1), disabled: !editing },
+        { label: 'Shrink Font', shortcut: 'Mod+[', onClick: () => stepFontSize(-1), disabled: !editing },
+        { label: 'Change Case', shortcut: 'Shift+F3', onClick: () => menuKeysRef.current.cycleCase?.(), disabled: !editing },
+        { label: 'Clear Character Formatting', shortcut: 'Mod+Space', onClick: () => ed?.chain().focus().unsetAllMarks().run(), disabled: !editing },
+      ] },
+      { label: 'Paragraph Styles', icon: Pilcrow, hint: curStyle?.label, disabled: !editing || !ed, items: PARA_STYLES.map((st) => ({
+        label: st.label, cardLabel: st.key === 'normal' ? 'Normal Text' : undefined, checked: curStyle?.key === st.key,
+        shortcut: st.key === 'normal' ? 'Mod+Alt+0' : /^h[1-4]$/.test(st.key) ? `Mod+Alt+${st.key[1]}` : undefined,
+        onClick: () => st.apply(ed.chain().focus()).run(),
+      })) },
+      { label: 'Align', icon: AlignLeft, disabled: !editing || !ed, items: [
+        align('Left', 'left', AlignLeft, 'Mod+L'), align('Center', 'center', AlignCenter, 'Mod+E'), align('Right', 'right', AlignRight, 'Mod+R'), align('Justified', 'justify', AlignJustify, 'Mod+J'),
+      ] },
+      { label: 'Line & Paragraph Spacing', icon: AlignVerticalSpaceAround, disabled: !editing || !ed, items: [
+        spacing('Single', '1.2'), spacing('1.15', '1.38'), spacing('1.5', '1.8'), spacing('Double', '2.4'), '-',
+        blockAttrs.spacingBefore ? { label: 'Remove Space Before Paragraph', onClick: () => setParaAttr({ spacingBefore: null }) } : { label: 'Add Space Before Paragraph', onClick: () => setParaAttr({ spacingBefore: 12 }) },
+        blockAttrs.spacingAfter ? { label: 'Remove Space After Paragraph', onClick: () => setParaAttr({ spacingAfter: null }) } : { label: 'Add Space After Paragraph', onClick: () => setParaAttr({ spacingAfter: 12 }) },
+      ] },
+      { label: 'Bullets & Numbering', icon: List, disabled: !editing || !ed, items: [
+        { label: 'Bulleted List', icon: List, shortcut: 'Mod+Shift+8', checked: !!ed?.isActive('bulletList'), onClick: () => ed?.chain().focus().toggleBulletList().run() },
+        { label: 'Numbered List', icon: ListOrdered, shortcut: 'Mod+Shift+7', checked: !!ed?.isActive('orderedList'), onClick: () => ed?.chain().focus().toggleOrderedList().run() },
+        '-',
+        { label: 'Increase Indent', icon: Indent, shortcut: 'Mod+M', onClick: () => changeIndent(1) },
+        { label: 'Decrease Indent', icon: Outdent, shortcut: 'Mod+Shift+M', onClick: () => changeIndent(-1) },
+        { label: 'Hanging Indent', shortcut: 'Mod+T', onClick: () => menuKeysRef.current.word?.hanging(1) },
+        { label: 'Clear Paragraph Formatting', shortcut: 'Mod+Q', onClick: () => menuKeysRef.current.word?.clearParagraph() },
+      ] },
+      { label: 'Change Case', icon: Type, disabled: !editing || !ed, items: [
+        { label: 'Sentence case', onClick: () => changeCase('sentence') }, { label: 'lowercase', onClick: () => changeCase('lower') },
+        { label: 'UPPERCASE', onClick: () => changeCase('upper') }, { label: 'Capitalize Each Word', onClick: () => changeCase('title') },
+      ] },
+      { label: 'Columns', icon: Columns2, disabled: !editing, items: [[1, 'One'], [2, 'Two'], [3, 'Three']].map(([n, l]) => ({ label: l, checked: (pageSetup.columns || 1) === n, onClick: () => updatePageSetup({ columns: n }) })) },
+      '-',
+      { label: 'Clear Formatting', icon: Eraser, shortcut: 'Mod+\\', disabled: !editing || !ed, onClick: clearFormatting },
+    ] },
+    { label: 'Tools', items: [
+      { label: 'Spelling', icon: SpellCheck, checked: !!viewPrefs.spell, onClick: () => setPref('spell', !viewPrefs.spell) },
+      { label: 'Word Count', icon: FileSearch, shortcut: 'Mod+Shift+C', onClick: () => setWordCountOpen(true) },
+      { label: 'Check Accessibility', icon: Accessibility, onClick: () => setA11yIssues(accessibilityIssues([...editorsRef.current.values()])) },
+      '-',
+      { label: 'Track Changes', icon: PenLine, hint: tracking === 'off' ? 'Off' : tracking === 'mine' ? 'Just Mine' : 'For Everyone', items: [
+        { label: 'Off', checked: tracking === 'off', onClick: () => setTrackingMode('off') },
+        { label: 'For Everyone', cardLabel: 'Track Changes On / Off', checked: tracking === 'everyone', shortcut: 'Mod+Shift+E', onClick: () => setTrackingMode('everyone') },
+        { label: 'Just Mine', checked: tracking === 'mine', onClick: () => setTrackingMode('mine') },
+        '-',
+        { label: 'Accept All Changes', disabled: !changeCount, onClick: () => resolveAll(true) },
+        { label: 'Reject All Changes', disabled: !changeCount, onClick: () => resolveAll(false) },
+      ] },
+      canDictate() && { label: dictation.listening ? 'Stop Dictating' : 'Dictate', icon: Mic, checked: dictation.listening, disabled: !editing, onClick: () => (dictation.listening ? dictation.stop() : dictation.start()) },
+      '-',
+      { label: 'Detect Variables', icon: Wand2, disabled: !editing || detecting, onClick: detectVariables },
+      { label: 'Variables', icon: Variable, checked: !!varsOpen, onClick: () => (varsOpen ? setVarsOpen(false) : openVars('used')) },
+      { label: 'Preview Results', icon: Eye, checked: previewResults, onClick: () => setPreviewResults((v) => !v) },
+      kind === 'template' && { label: 'Template Fields', icon: ListChecks, onClick: () => openFieldsPanel() },
+    ] },
+    { label: 'Help', items: [
+      { label: 'Documents Guide', icon: HelpCircle, onClick: openHelp },
+      { label: 'Keyboard Shortcuts', icon: BookOpen, shortcut: 'Mod+/', onClick: () => setShortcutsOpen(true) },
+      { label: 'Search the Menus', icon: Search, shortcut: 'Alt+/', onClick: () => document.querySelector('.doc-mb-search input')?.focus() },
+    ] },
+  ].map((m) => ({ ...m, items: m.items.filter(Boolean).filter((it, i, a) => it !== '-' || (i > 0 && a[i - 1] !== '-' && i < a.length - 1)) }));
+
+  // The title row's old popovers, now drawn in the ribbon (Design > Letterhead,
+  // Variables > Merge Data) and in File > Import a File... (11/11/2026).
+  const letterheadPanel = () => (
+    <div className="nx-docb-lhpanel" style={{ width: newLhOpen ? 260 : 220, padding: 2 }}>
+      {!newLhOpen ? (<>
+        <button onClick={() => changeLetterhead('')}
+          style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>No Letterhead</button>
+        {letterheads.map(l => (
+          <button key={l.id} onClick={() => changeLetterhead(l.id)}
+            style={{ display: 'block', width: '100%', textAlign: 'left', background: l.id === letterheadId ? 'var(--mist)' : 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>
+            {l.name}{l.isDefault ? ' (default)' : ''}
+          </button>
+        ))}
+        <div style={{ borderTop: '1px solid var(--line)', margin: '4px 0' }} />
+        <button onClick={() => setNewLhOpen(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+          <Plus size={13} /> Add Letterhead…
+        </button>
+      </>) : (
+        <div style={{ padding: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700 }}>New Letterhead</span>
+            <button onClick={() => setNewLhOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><X size={14} /></button>
+          </div>
+          <input value={newLhName} onChange={e => setNewLhName(e.target.value)} placeholder="Name (e.g. IT Department)"
+            style={{ width: '100%', fontSize: 12.5, padding: '7px 9px', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 6, fontFamily: 'Inter, sans-serif' }} />
+          <input value={newLhAddress} onChange={e => setNewLhAddress(e.target.value)} placeholder="Address (optional)"
+            style={{ width: '100%', fontSize: 12.5, padding: '7px 9px', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 8, fontFamily: 'Inter, sans-serif' }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', marginBottom: 10 }}>
+            {newLhLogoUrl ? <img src={newLhLogoUrl} alt="" style={{ height: 26, maxWidth: 90, objectFit: 'contain' }} />
+              : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--muted)' }}>{newLhLogoBusy ? <Spinner size={13} /> : <Upload size={13} />} Upload logo (optional)</span>}
+            <input type="file" accept="image/*" style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) uploadLhLogo(f); e.target.value = ''; }} />
+          </label>
+          <button disabled={newLhBusy || newLhLogoBusy} onClick={createLetterhead}
+            style={{ width: '100%', background: 'var(--ink)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 0', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            {newLhBusy ? <Spinner size={13} /> : <Check size={13} />} Add & Use
+          </button>
+        </div>
+      )}
+    </div>
+  );
+  const mergeDataPanel = () => (
+    <div className="nx-docb-mergepanel" style={{ width: 300, padding: 6, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {kind === 'document' && (
+        <>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Employee (merge subject)</label>
+            <PersonSelect value={employeeRows.find(r => r.id === employeeId)?.email || null}
+              onChange={v => { const id = employeeRows.find(r => r.email === v)?.id || ''; if (id !== employeeId) changeEmployee(id); }}
+              people={employeeRows} placeholder="None" noneLabel="None" ariaLabel="Employee (merge subject)"
+              style={{ height: 36, padding: '0 13px', borderRadius: 10, fontSize: 12.5, fontWeight: 400 }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Entity (company)</label>
+            <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={entityId} onChange={e => changeEntity(e.target.value)}>
+              <option value="">None</option>
+              {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          </div>
+        </>
+      )}
+      {kind === 'template' && (
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+          Default values set here are copied onto every new document created from this template.
+        </div>
+      )}
+
+      <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+        <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
+          Field values (overrides the auto-filled value; leave blank to use the auto-filled value)
+        </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {MERGE_TOKENS.map(t => (
+            <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)', width: 100, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={FRIENDLY_MERGE[t]}>{FRIENDLY_MERGE[t]}</span>
+              <input key={`${t}-${mergeOverrides[t] || ''}`} className="form-input" defaultValue={mergeOverrides[t] || ''}
+                placeholder="auto" style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }}
+                onBlur={e => setOverrideValue(t, e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && e.target.blur()} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+        <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Custom variables</label>
+        {customVarKeys.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 }}>
+            {customVarKeys.map(key => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: 'var(--muted)', width: 100, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={key}>{varLabel[key] || humanizeKey(key)}</span>
+                <input key={`${key}-${mergeOverrides[key]}`} className="form-input" defaultValue={mergeOverrides[key] || ''}
+                  placeholder={varLabel[key] ? 'asked for on create' : ''}
+                  style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }}
+                  onBlur={e => setOverrideValue(key, e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && e.target.blur()} />
+                {/* A variable the template DEFINES is removed by deleting its
+                    field, not by clearing a default here - so the X only
+                    appears for a plain typed-in default. */}
+                {mergeOverrides[key] !== undefined && (
+                  <button onClick={() => removeOverride(key)} title="Clear this default value"
+                    style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 5 }}>
+          <input className="form-input" placeholder="variable_name" value={newVarName}
+            onChange={e => setNewVarName(e.target.value)} style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }} />
+          <input className="form-input" placeholder="Value" value={newVarValue}
+            onChange={e => setNewVarValue(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addCustomVariable()}
+            style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }} />
+          <button onClick={addCustomVariable} disabled={!newVarName.trim() || !newVarValue.trim()}
+            style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 600, opacity: (!newVarName.trim() || !newVarValue.trim()) ? 0.5 : 1 }}>
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+  // Insert A Variable: the searchable pick list on Insert > Nexus and on Variables.
+  const insertVariablePick = () => (
+    <PickList ariaLabel="Insert a variable" label="Insert A Variable" placeholder="Insert A Variable" width={280} buttonWidth={170} value=""
+      groups={[
+        ...builtinGroups.map(([label, items]) => [label, items.map(([t, l]) => [t, l])]),
+        ...(customVarKeys.length ? [['Custom Fields In This Template', customVarKeys.map(k => [k, varLabel[k] || humanizeKey(k)])]] : []),
+      ]}
+      onPick={(token) => insertVariable(token)} />
+  );
+  const importPanel = () => (
+    <>
+      <div style={{ fontSize: 15, fontWeight: 700 }}>Import a File</div>
+      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+        A Word file (.docx) keeps its formatting; a PDF brings in its text only. The file replaces what is on the pages now.
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button onClick={() => importInputRef.current?.click()} disabled={importing}
+          style={{ background: 'none', border: '1px dashed var(--line)', borderRadius: 8, padding: '10px 12px', flex: 1, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--ink)', display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+          <Upload size={13} /> Choose File…
+        </button>
+        <button onClick={() => setEgnyteOpen(true)} disabled={importing}
+          style={{ background: 'none', border: '1px dashed var(--line)', borderRadius: 8, padding: '10px 12px', flex: 1, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--ink)', display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+          <Cloud size={13} /> Egnyte…
+        </button>
+      </div>
+      <input ref={importInputRef} type="file" accept=".docx,.doc,.pdf,.txt" onChange={onPickImportFile} style={{ display: 'none' }} />
+      {egnyteOpen && <EgnyteBrowser onPick={onPickEgnyteFile} onClose={() => setEgnyteOpen(false)} />}
+    </>
+  );
+
+  // View > Navigation > Pages: the thumbnails the old Pages rail drew.
+  const pageThumbs = () => {
+    const canvas = pageCanvasStyle(pageSetup);
+    const thumbW = 92, thumbH = Math.round(thumbW * (canvas.minHeight / canvas.maxWidth));
+    const scale = thumbW / canvas.maxWidth;
+    return (
+      <div className="nx-docb-thumbs">
+        {/* One thumbnail per SHEET as the browser lays the pages out. The
+            exported PDF is rendered by a different engine, so a long
+            document can differ by a page - the note says so. */}
+        <p className="nx-docb-thumbs-note">Where the pages fall in this browser. The PDF can differ by a page on a long document.</p>
+        {(() => { let sheetNo = 0; return pages.map((p, i) => {
+          const ed = editorsRef.current.get(p.id);
+          const json = ed ? ed.getJSON() : (p.json || { type: 'doc', content: [{ type: 'paragraph' }] });
+          const html = generateHTML(json, BODY_EXTENSIONS);
+          // The sheet's own geometry, reproduced so the slices line up with
+          // what the editor is actually showing: the thumbnail used to
+          // render the body at the FULL page width with no margins, so its
+          // line breaks - and therefore its height - never matched the page.
+          const { padV, padH } = sheetPadding(canvas);
+          const sheet = textFlowPx(pageSetup);
+          const spans = Math.max(1, pageSpans[p.id] || 1);
+          return Array.from({ length: spans }, (_, slice) => {
+            sheetNo += 1;
+            const label = sheetNo;
+            // Only the first slice carries the page menu and the selected
+            // outline: duplicate/delete act on the EDITOR page, and a slice
+            // is not one.
+            const isFirst = slice === 0;
+            return (
+          <div key={`${p.id}:${slice}`} style={{ position: 'relative' }}>
+            <div onClick={() => goToSheet(p.id, slice)}
+              onContextMenu={isFirst ? (e) => { e.preventDefault(); e.stopPropagation(); setPageMenuOpen(p.id); } : undefined}
+              style={{ width: thumbW, height: thumbH, border: (isFirst && p.id === activePageId) ? '2px solid hsl(var(--color-blue))' : '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', background: '#fff', boxShadow: 'var(--shadow-sm)', cursor: 'pointer' }}>
+              <div style={{ width: canvas.maxWidth, boxSizing: 'border-box', padding: `${padV}px ${padH}px`,
+                  transform: `scale(${scale}) translateY(${-slice * sheet}px)`, transformOrigin: 'top left', pointerEvents: 'none' }}
+                dangerouslySetInnerHTML={{ __html: html }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3, gap: 2 }}>
+              <span onClick={() => goToSheet(p.id, slice)} style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, cursor: 'pointer' }}>Page {label}</span>
+              {isFirst && (
+              <button ref={pageMenuOpen === p.id ? pageMenuBtn : undefined} onClick={() => setPageMenuOpen(pageMenuOpen === p.id ? '' : p.id)} title="Page options"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 1, color: 'var(--muted)', flex: '0 0 auto' }}>
+                <MoreVertical size={13} />
+              </button>
+              )}
+            </div>
+            {/* Portaled: the thumbnail rail scrolls, which clipped the
+                old in-place menu. Closes on an outside tap or Escape. */}
+            {isFirst && pageMenuOpen === p.id && (
+              <AnchoredMenu anchorRef={pageMenuBtn} open onClose={() => setPageMenuOpen('')} align="end" minWidth={190}
+                style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 9, boxShadow: 'var(--shadow-lg)', padding: 5 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Duplicate page</div>
+                <button onClick={() => duplicatePage(i, true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>
+                  <Copy size={13} /> With all contents
+                </button>
+                <button onClick={() => duplicatePage(i, false)} title="Keeps headings/tables/lists, clears the actual text and images"
+                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>
+                  <PageIcon size={13} /> With format only (layout, no text)
+                </button>
+                {pages.length > 1 && (<>
+                  <div style={{ borderTop: '1px solid var(--line)', margin: '4px 0' }} />
+                  <button onClick={() => deletePage(i)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'hsl(var(--color-red))' }}>
+                    <Trash2 size={13} /> Delete page
+                  </button>
+                </>)}
+              </AnchoredMenu>
+            )}
+          </div>
+            );
+          });
+        }); })()}
+        <button onClick={() => addPage()}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: thumbW, height: 40, border: '1px dashed var(--line)', borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
+          <Plus size={14} /> Add page
+        </button>
+      </div>
+    );
+  };
+
   return (
-    <div className={`nx-docb${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: preview ? 6 : 8, flexWrap: 'wrap' }}>
-        <button onClick={close} title="Close"
-          style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
+    <div className={`nx-docb${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}${fieldShading ? '' : ' doc-fields-plain'}${previewResults ? ' doc-previewing' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
+      {/* The header, Word / Google Docs style (Neil, 11/10/2026): Close, the
+          file's mark, its name (typed in place; "Untitled Document" until it
+          has one), the save state, then the actions. */}
+      <div className="nx-docb-head" style={{ marginBottom: preview ? 6 : 8 }}>
+        <button onClick={close} title="Close" aria-label="Close" className="nx-docb-hbtn is-icon">
           <X size={16} />
         </button>
-        <input ref={titleRef} className="nx-inline-edit" value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
-          onKeyDown={e => e.key === 'Enter' && e.target.blur()}
-          style={{ flex: '1 1 260px', fontSize: 16, fontWeight: 700, border: 'none', fontFamily: 'Inter, sans-serif', color: 'var(--ink)' }} />
-        <span style={{ fontSize: 11.5, color: saveStatus === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 70 }}>
+        <span className={`nx-docb-mark is-${kind}`} aria-hidden="true">{kind === 'template' ? <FileStack size={16} /> : <PageIcon size={16} />}</span>
+        <div className="nx-docb-titlecol">
+        <div className="nx-docb-titlerow">
+        <input ref={titleRef} className="nx-inline-edit nx-docb-title" value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
+          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setTitle(isUntitled(doc?.[nameKey]) ? '' : doc?.[nameKey] || ''); e.target.blur(); } }}
+          placeholder={kind === 'document' ? UNTITLED_DOCUMENT : UNTITLED_TEMPLATE} aria-label={kind === 'document' ? 'Document name' : 'Template name'}
+          readOnly={readOnly || isLocked} />
+        <span className="nx-docb-save" style={{ color: saveStatus === 'error' ? 'hsl(var(--color-red))' : undefined }}>
           {saveStatus === 'saving' && <Spinner size={12} />}
           {saveStatus === 'saved' && <Check size={12} />}
           {saveStatus === 'error' && <AlertCircle size={12} />}
           {SAVE_LABEL[saveStatus]}
         </span>
+        {/* Word's Quick Access: Undo and Redo beside the name (11/11/2026). */}
+        {!preview && activeEditor && (
+          <span className="nx-docb-qat" role="group" aria-label="Quick Access">
+            <button type="button" className="nx-docb-qbtn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!editing || !activeEditor.can().undo()}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => activeEditor.chain().focus().undo().run()}><Undo size={15} /></button>
+            <button type="button" className="nx-docb-qbtn" title="Redo (Ctrl+Y)" aria-label="Redo" disabled={!editing || !activeEditor.can().redo()}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => activeEditor.chain().focus().redo().run()}><Redo size={15} /></button>
+          </span>
+        )}
+        </div>
+        {!preview && activeEditor && <MenuBar menus={docMenus} />}
+        </div>
         {live && <LivePeople peers={live.peers} status={live.status} />}
+        {!preview && !isMobile && (
+          <button type="button" className={`nx-docb-hbtn nx-docb-compact${commentsOpen ? ' is-on' : ''}`} title="Comments" aria-pressed={commentsOpen}
+            onClick={() => setCommentsOpen((o) => !o)}>
+            <MessageSquare size={14} /> Comments
+          </button>
+        )}
         {kind === 'document' && doc?.access && (
-          <button type="button" className="secondary-btn" onClick={() => setShareOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '6px 10px' }}>
+          <button type="button" className="nx-docb-hbtn nx-docb-compact" title="Share" onClick={() => setShareOpen(true)}>
             <Users size={14} /> Share
           </button>
         )}
@@ -2544,178 +3349,6 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             )}
           </span>
         )}
-        {!preview && kind === 'template' && (
-          <label style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            <input type="checkbox" checked={requiresLetterhead} onChange={toggleRequiresLetterhead} /> Requires Letterhead
-          </label>
-        )}
-        {!preview && (
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => setLhPickerOpen(o => !o)}
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
-              <Award size={14} /> {activeLetterhead ? activeLetterhead.name : 'No Letterhead'}
-            </button>
-            {lhPickerOpen && (
-              <div style={{ position: 'absolute', top: '110%', right: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, width: newLhOpen ? 260 : 200, padding: 6 }}>
-                {!newLhOpen ? (<>
-                  <button onClick={() => changeLetterhead('')}
-                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>No Letterhead</button>
-                  {letterheads.map(l => (
-                    <button key={l.id} onClick={() => changeLetterhead(l.id)}
-                      style={{ display: 'block', width: '100%', textAlign: 'left', background: l.id === letterheadId ? 'var(--mist)' : 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>
-                      {l.name}{l.isDefault ? ' (default)' : ''}
-                    </button>
-                  ))}
-                  <div style={{ borderTop: '1px solid var(--line)', margin: '4px 0' }} />
-                  <button onClick={() => setNewLhOpen(true)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
-                    <Plus size={13} /> Add Letterhead…
-                  </button>
-                </>) : (
-                  <div style={{ padding: 4 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 700 }}>New Letterhead</span>
-                      <button onClick={() => setNewLhOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><X size={14} /></button>
-                    </div>
-                    <input value={newLhName} onChange={e => setNewLhName(e.target.value)} placeholder="Name (e.g. IT Department)"
-                      style={{ width: '100%', fontSize: 12.5, padding: '7px 9px', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 6, fontFamily: 'Inter, sans-serif' }} />
-                    <input value={newLhAddress} onChange={e => setNewLhAddress(e.target.value)} placeholder="Address (optional)"
-                      style={{ width: '100%', fontSize: 12.5, padding: '7px 9px', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 8, fontFamily: 'Inter, sans-serif' }} />
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', marginBottom: 10 }}>
-                      {newLhLogoUrl ? <img src={newLhLogoUrl} alt="" style={{ height: 26, maxWidth: 90, objectFit: 'contain' }} />
-                        : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--muted)' }}>{newLhLogoBusy ? <Spinner size={13} /> : <Upload size={13} />} Upload logo (optional)</span>}
-                      <input type="file" accept="image/*" style={{ display: 'none' }}
-                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadLhLogo(f); e.target.value = ''; }} />
-                    </label>
-                    <button disabled={newLhBusy || newLhLogoBusy} onClick={createLetterhead}
-                      style={{ width: '100%', background: 'var(--ink)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 0', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                      {newLhBusy ? <Spinner size={13} /> : <Check size={13} />} Add & Use
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        {!preview && (
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => setMergePickerOpen(o => !o)}
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
-              <Users size={14} /> {activeEmployee ? empLabel(activeEmployee) : 'Merge Data'}
-            </button>
-            {mergePickerOpen && (
-              <div style={{ position: 'absolute', top: '110%', right: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, width: 300, maxHeight: '70vh', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {kind === 'document' && (
-                  <>
-                    <div>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Employee (merge subject)</label>
-                      <PersonSelect value={employeeRows.find(r => r.id === employeeId)?.email || null}
-                        onChange={v => { const id = employeeRows.find(r => r.email === v)?.id || ''; if (id !== employeeId) changeEmployee(id); }}
-                        people={employeeRows} placeholder="None" noneLabel="None" ariaLabel="Employee (merge subject)"
-                        style={{ height: 36, padding: '0 13px', borderRadius: 10, fontSize: 12.5, fontWeight: 400 }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Entity (company)</label>
-                      <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={entityId} onChange={e => changeEntity(e.target.value)}>
-                        <option value="">None</option>
-                        {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                      </select>
-                    </div>
-                  </>
-                )}
-                {kind === 'template' && (
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    Default values set here are copied onto every new document created from this template.
-                  </div>
-                )}
-
-                <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
-                    Field values (overrides the auto-filled value; leave blank to use the auto-filled value)
-                  </label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    {MERGE_TOKENS.map(t => (
-                      <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 11, color: 'var(--muted)', width: 100, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={FRIENDLY_MERGE[t]}>{FRIENDLY_MERGE[t]}</span>
-                        <input key={`${t}-${mergeOverrides[t] || ''}`} className="form-input" defaultValue={mergeOverrides[t] || ''}
-                          placeholder="auto" style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }}
-                          onBlur={e => setOverrideValue(t, e.target.value)}
-                          onKeyDown={e => e.key === 'Enter' && e.target.blur()} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Custom variables</label>
-                  {customVarKeys.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 }}>
-                      {customVarKeys.map(key => (
-                        <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 11, color: 'var(--muted)', width: 100, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={key}>{varLabel[key] || humanizeKey(key)}</span>
-                          <input key={`${key}-${mergeOverrides[key]}`} className="form-input" defaultValue={mergeOverrides[key] || ''}
-                            placeholder={varLabel[key] ? 'asked for on create' : ''}
-                            style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }}
-                            onBlur={e => setOverrideValue(key, e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && e.target.blur()} />
-                          {/* A variable the template DEFINES is removed by deleting its
-                              field, not by clearing a default here - so the X only
-                              appears for a plain typed-in default. */}
-                          {mergeOverrides[key] !== undefined && (
-                            <button onClick={() => removeOverride(key)} title="Clear this default value"
-                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
-                              <X size={13} />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: 5 }}>
-                    <input className="form-input" placeholder="variable_name" value={newVarName}
-                      onChange={e => setNewVarName(e.target.value)} style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }} />
-                    <input className="form-input" placeholder="Value" value={newVarValue}
-                      onChange={e => setNewVarValue(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && addCustomVariable()}
-                      style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }} />
-                    <button onClick={addCustomVariable} disabled={!newVarName.trim() || !newVarValue.trim()}
-                      style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 600, opacity: (!newVarName.trim() || !newVarValue.trim()) ? 0.5 : 1 }}>
-                      Add
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        {!preview && (
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => setImportPopoverOpen(o => !o)} disabled={importing} title="Import Document"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: importing ? 0.6 : 1 }}>
-              {importing ? <Spinner size={14} /> : <Upload size={14} />} {importing ? 'Importing…' : 'Import'}
-            </button>
-            {importPopoverOpen && (
-              <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 12, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 260 }}>
-                <div style={{ fontSize: 12, fontWeight: 700 }}>Import from Word, PDF, or text</div>
-                <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  .docx keeps full formatting; .pdf imports text only. This replaces the current document body.
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => importInputRef.current?.click()} disabled={importing}
-                    style={{ background: 'none', border: '1px dashed var(--line)', borderRadius: 8, padding: '10px 12px', flex: 1, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--ink)', display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-                    <Upload size={13} /> Choose file…
-                  </button>
-                  <button onClick={() => setEgnyteOpen(true)} disabled={importing}
-                    style={{ background: 'none', border: '1px dashed var(--line)', borderRadius: 8, padding: '10px 12px', flex: 1, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--ink)', display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-                    <Cloud size={13} /> Egnyte…
-                  </button>
-                </div>
-                <input ref={importInputRef} type="file" accept=".docx,.doc,.pdf,.txt" onChange={onPickImportFile} style={{ display: 'none' }} />
-                {egnyteOpen && <EgnyteBrowser onPick={onPickEgnyteFile} onClose={() => setEgnyteOpen(false)} />}
-              </div>
-            )}
-          </div>
-        )}
         {kind === 'document' && !preview && (
           <button onClick={() => { setPreview(true); openPdfPreview(); }} disabled={pdfPreviewLoading}
             className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: pdfPreviewLoading ? 0.6 : 1 }}>
@@ -2725,23 +3358,23 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         {kind === 'document' && preview && (
           <>
             <button onClick={() => window.print()} title="Print"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+              className="nx-docb-hbtn">
               <Printer size={14} /> Print
             </button>
             <button onClick={saveAsTemplate} disabled={savingTemplate} title="Save as Template"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: savingTemplate ? 0.6 : 1 }}>
+              className="nx-docb-hbtn" style={{ opacity: savingTemplate ? 0.6 : 1 }}>
               {savingTemplate ? <Spinner size={14} /> : <FileStack size={14} />} Save as Template
             </button>
             <button onClick={() => doExport('pdf')} disabled={!!exporting} title="Export PDF"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
+              className="nx-docb-hbtn" style={{ opacity: exporting ? 0.6 : 1 }}>
               <FileDown size={14} /> {exporting === 'pdf' ? 'Exporting…' : 'Export PDF'}
             </button>
             <button onClick={() => doExport('docx')} disabled={!!exporting} title="Export DOCX"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
+              className="nx-docb-hbtn" style={{ opacity: exporting ? 0.6 : 1 }}>
               <FileDown size={14} /> {exporting === 'docx' ? 'Exporting…' : 'Export DOCX'}
             </button>
             <button onClick={openInWord} disabled={!!exporting} title="Open in Word on this computer to keep editing"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
+              className="nx-docb-hbtn" style={{ opacity: exporting ? 0.6 : 1 }}>
               <PageIcon size={14} /> {exporting === 'word' ? 'Opening…' : 'Open in Word'}
             </button>
             <button onClick={doSendForSignature} disabled={!!exporting} title="Send for Signature"
@@ -2749,22 +3382,21 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               <Send size={14} /> {exporting === 'send' ? 'Preparing…' : 'Send for Signature'}
             </button>
             <button onClick={() => { setPreview(false); closePdfPreview(); }} title="Back to Edit"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+              className="nx-docb-hbtn">
               <EyeOff size={14} /> Back to Edit
             </button>
           </>
         )}
         {kind !== 'document' && (
           <button onClick={() => setPreview(p => !p)}
-            style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+            className="nx-docb-hbtn">
             {preview ? <EyeOff size={14} /> : <Eye size={14} />} {preview ? 'Edit' : 'Preview'}
           </button>
         )}
-        <button onClick={openHistory} title="Version History"
-          style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
+        <button onClick={openHistory} title="Version History" aria-label="Version History" className="nx-docb-hbtn is-icon">
           <History size={16} />
         </button>
-        <FullScreenButton on={full} onToggle={toggleFull} />
+        <FullScreenButton on={full} onToggle={toggleFull} className="nx-docb-hbtn nx-docb-compact" />
       </div>
 
       {kind === 'document' && preview ? (
@@ -2788,18 +3420,27 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       {!preview && activeEditor && (
         <div className="doc-ribbon-sticky">
           <div className="doc-ribbon-tabs" role="tablist">
-            {[['file', 'File'], ['home', 'Home'], ['insert', 'Insert'], ['layout', 'Layout'], ['references', 'References'], ['review', 'Review'], ['view', 'View'], ['help', 'Help']].map(([key, label]) => (
-              <button key={key} type="button" role="tab" data-tab={key} aria-selected={ribbonTab === key} onClick={() => setRibbonTab(key)}
-                className={`doc-ribbon-tab${ribbonTab === key ? ' is-active' : ''}`}>
+            {/* Word's tabs (11/11/2026). File and Help are the menu bar's: its
+                File and Help menus hold every command those two tabs had. */}
+            {RIBBON_TABS.map(([key, label]) => (
+              <button key={key} type="button" role="tab" data-tab={key} aria-selected={shownTab === key} onClick={() => { if (ribbonCollapsed && shownTab === key) setRibbonCollapsed(false); else setRibbonTab(key); }}
+                className={`doc-ribbon-tab${shownTab === key ? ' is-active' : ''}`}>
                 {label}
               </button>
             ))}
-            {activeEditor?.isActive('table') && <span className="doc-ribbon-tab is-context" title="The Table tools show under the ribbon while the cursor is in a table">Table</span>}
+            {inTable && [['tableDesign', 'Table Design'], ['tableLayout', 'Table Layout']].map(([key, label]) => (
+              <button key={key} type="button" role="tab" data-tab={key} aria-selected={shownTab === key} onClick={() => { setRibbonCollapsed(false); setRibbonTab(key); }}
+                className={`doc-ribbon-tab is-context${shownTab === key ? ' is-active' : ''}`}>{label}</button>
+            ))}
             {imgAttrs && (
-              <button type="button" role="tab" data-tab="picture" aria-selected={ribbonTab === 'picture'} onClick={() => setRibbonTab('picture')}
-                className={`doc-ribbon-tab is-context${ribbonTab === 'picture' ? ' is-active' : ''}`}>Picture Format</button>
+              <button type="button" role="tab" data-tab="picture" aria-selected={shownTab === 'picture'} onClick={() => setRibbonTab('picture')}
+                className={`doc-ribbon-tab is-context${shownTab === 'picture' ? ' is-active' : ''}`}>Picture Format</button>
             )}
-            {(activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && <span className="doc-ribbon-tab is-context">Shape Format</span>}
+            {shapeType && (
+              <button type="button" role="tab" data-tab="shape" aria-selected={shownTab === 'shape'} onClick={() => { setRibbonCollapsed(false); setRibbonTab('shape'); }}
+                className={`doc-ribbon-tab is-context${shownTab === 'shape' ? ' is-active' : ''}`}>Shape Format</button>
+            )}
+            <RibbonDisplay mode={ribbonMode} onMode={setRibbonMode} onToggle={toggleRibbon} />
           </div>
         {isLocked && (
           /* Requirement 7 made visible. The server refuses the write either
@@ -2831,38 +3472,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             </button>
           </div>
         )}
-        <div className="doc-toolbar doc-ribbon" role="toolbar" aria-label={`${ribbonTab} ribbon`}>
-          {ribbonTab === 'file' && (
+        {/* One row, never wrapped (Neil, 11/10/2026): groups that do not fit
+            go into More at the end (docRibbon/ui.jsx RibbonBar). */}
+        {!ribbonCollapsed && <RibbonBar tabKey={shownTab} className={ribbonMode === 'simplified' ? 'is-simplified' : ''} role="toolbar" aria-label={`${shownTab} ribbon`} render={() => (<>
+          {shownTab === 'home' && (
           <>
-          <Group label="Document">
-            <BigBtn icon={FilePlus} label="New" title="New Document - opens the Documents list" onClick={() => { close(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-browse' } })); }} />
-            <BigBtn icon={Type} label="Rename" onClick={() => { titleRef.current?.focus(); titleRef.current?.select(); }} />
-            <BigBtn icon={History} label="Version History" onClick={openHistory} />
-            <BigBtn icon={FileStack} label="Page Setup" onClick={() => { setRibbonTab('layout'); setPageSetupOpen(true); }} />
-          </Group>
-          <Group label="Share">
-            {kind === 'document' && <BigBtn icon={FileStack} label="Save as Template" onClick={saveAsTemplate} disabled={savingTemplate} />}
-            {kind === 'document' && <BigBtn icon={FileDown} label="Export PDF" onClick={() => doExport('pdf')} disabled={!!exporting} />}
-            {kind === 'document' && <BigBtn icon={FileDown} label="Export DOCX" onClick={() => doExport('docx')} disabled={!!exporting} />}
-            {kind === 'document' && <BigBtn icon={PageIcon} label="Open in Word" onClick={openInWord} disabled={!!exporting} />}
-            {kind === 'document' && <BigBtn icon={Send} label="Preview & Send" onClick={() => { setPreview(true); openPdfPreview(); }} />}
-            <BigBtn icon={Printer} label="Print" onClick={() => window.print()} />
-          </Group>
-          <Group label="Info">
-            <div style={{ fontSize: 12, lineHeight: 1.5, padding: '4px 6px' }}>
-              <div style={{ fontWeight: 700 }}>{title || 'Untitled'}</div>
-              <div style={{ color: 'var(--muted)' }}>{kind === 'template' ? 'Template' : 'Document'}{doc.status ? ` · ${String(doc.status).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}` : ''}{SAVE_LABEL[saveStatus] ? ` · ${SAVE_LABEL[saveStatus]}` : ''}</div>
-            </div>
-          </Group>
-          </>
-          )}
-
-          {ribbonTab === 'home' && (
-          <>
-          <Group label="Undo">
-            <SmallBtn icon={Undo} title="Undo" disabled={!activeEditor?.can().undo()} onClick={() => activeEditor?.chain().focus().undo().run()} />
-            <SmallBtn icon={Redo} title="Redo" disabled={!activeEditor?.can().redo()} onClick={() => activeEditor?.chain().focus().redo().run()} />
-          </Group>
           <Group label="Clipboard">
             <Menu big icon={ClipboardPaste} label="Paste" items={[{ label: 'Paste', onClick: () => clipboardAction('paste') }, { label: 'Keep Text Only', onClick: pasteTextOnly }]} />
             <div className="doc-ribbon-stack">
@@ -2871,27 +3485,20 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             </div>
             <BigBtn icon={Paintbrush} label="Format Painter" title="Format Painter - click, then select or click the text to copy the formatting onto. Double-click to paint several places; Esc stops." active={!!painterActive} onClick={() => toggleFormatPainter(false)} onDoubleClick={() => toggleFormatPainter(true)} />
           </Group>
-          <Group label="Font">
+          <Group label="Font" onLaunch={() => setFontDlg(true)} launchTitle="Font (Ctrl+D)">
             <div className="doc-ribbon-stack">
               <div className="doc-ribbon-row">
-                <select onChange={e => { const v = e.target.value; if (v) activeEditor.chain().focus().setFontFamily(v).run(); else activeEditor.chain().focus().unsetFontFamily().run(); }}
-                  value={activeEditor.getAttributes('textStyle').fontFamily || ''} title="Font" aria-label="Font"
-                  style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '4px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', maxWidth: 124 }}>
-                  <option value="">Font</option>
-                  {Object.entries(FONT_GROUPS).map(([group, fonts]) => (
-                    <optgroup key={group} label={group}>
-                      {fonts.map(f => <option key={f} value={f}>{f}</option>)}
-                    </optgroup>
-                  ))}
-                </select>
-                <select onChange={e => { const v = e.target.value; if (v) activeEditor.chain().focus().setFontSize(`${v}px`).run(); else activeEditor.chain().focus().unsetFontSize().run(); }}
-                  // Strips whatever unit the size carries - this control writes px,
-                  // but an imported document states its sizes in pt.
-                  value={(activeEditor.getAttributes('textStyle').fontSize || '').replace(/(px|pt)$/, '')} title="Font Size" aria-label="Font Size"
-                  style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '4px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', width: 58 }}>
-                  <option value="">Size</option>
-                  {FONT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                {/* Word's Font box: each name shown in its own face, searchable (Neil, 11/10/2026). */}
+                <PickList ariaLabel="Font" placeholder="Font" emptyLabel="Default Font" width={230}
+                  value={activeEditor.getAttributes('textStyle').fontFamily || ''}
+                  label={activeEditor.getAttributes('textStyle').fontFamily || 'Default Font'}
+                  groups={Object.entries(FONT_GROUPS).map(([group, fonts]) => [group, fonts.map(f => [f, f])])}
+                  preview={(f) => ({ fontFamily: `"${f}", Inter, sans-serif` })}
+                  onPick={(v) => { if (v) activeEditor.chain().focus().setFontFamily(v).run(); else activeEditor.chain().focus().unsetFontFamily().run(); }} />
+                {/* Type a size and press Enter, or pick one. Points, as in Word and as the
+                    exporter prints them (11/11/2026; it wrote px, which showed a 12 as 9 pt). */}
+                <SizeBox sizes={FONT_SIZES} value={(activeEditor.getAttributes('textStyle').fontSize || '').replace(/(px|pt)$/, '')}
+                  onPick={(v) => { if (v) activeEditor.chain().focus().setFontSize(`${v}pt`).run(); else activeEditor.chain().focus().unsetFontSize().run(); }} />
                 <SmallBtn title="Grow Font" onClick={() => stepFontSize(1)}><span style={{ fontSize: 13, fontWeight: 700 }}>A↑</span></SmallBtn>
                 <SmallBtn title="Shrink Font" onClick={() => stepFontSize(-1)}><span style={{ fontSize: 11, fontWeight: 700 }}>A↓</span></SmallBtn>
                 <Menu label="Aa" title="Change Case" items={[
@@ -2919,7 +3526,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               </div>
             </div>
           </Group>
-          <Group label="Paragraph">
+          <Group label="Paragraph" onLaunch={() => setParaDlg(true)} launchTitle="Paragraph Settings">
             <div className="doc-ribbon-stack">
               <div className="doc-ribbon-row">
                 <Menu icon={List} title="Bullets" active={activeEditor.isActive('bulletList')} items={[
@@ -2973,23 +3580,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               </div>
             </div>
           </Group>
-          <Group label="Styles"><StyleGallery editor={activeEditor} /></Group>
+          <Group label="Styles"><StyleGallery editor={activeEditor} compact={ribbonMode === 'simplified'} /></Group>
           <Group label="Editing">
             <BigBtn icon={Search} label="Find" title="Find & Replace" active={findOpen} onClick={() => setFindOpen(o => !o)} />
+            <BigBtn icon={Replace} label="Replace" title="Replace (Ctrl+H)" onClick={() => { setFindOpen(true); requestAnimationFrame(() => document.querySelector('.nx-docb input[placeholder="Replace with"]')?.focus()); }} />
             <BigBtn icon={MousePointerSquareDashed} label="Select All" onClick={() => activeEditor.chain().focus().selectAll().run()} />
-            <div style={{ position: 'relative' }}>
-              <BigBtn icon={Link2} label="Link" active={activeEditor.isActive('link')} onClick={toggleLinkPopover} />
-              {linkPopoverOpen && (
-                <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <input className="form-input" style={{ fontSize: 12, width: 180 }} placeholder="https://…" value={linkUrlDraft}
-                    onChange={e => setLinkUrlDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && applyLink()} autoFocus />
-                  <button onClick={applyLink} className="primary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }}>Apply</button>
-                  {activeEditor.isActive('link') && (
-                    <button onClick={removeLink} title="Remove Link" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: 5, cursor: 'pointer', display: 'flex' }}><Link2Off size={13} /></button>
-                  )}
-                </div>
-              )}
-            </div>
           </Group>
           {canDictate() && (
             <Group label="Voice">
@@ -3000,11 +3595,17 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'insert' && (
+          {shownTab === 'insert' && (
           <>
           <Group label="Pages">
             <BigBtn icon={SeparatorHorizontal} label="Page Break" title="Start the next line on a new page" onClick={() => activeEditor.chain().focus().insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run()} />
-            {kind === 'document' && <BigBtn icon={PageIcon} label="New Page" title="Add a page at the end" onClick={addPage} />}
+            {kind === 'document' && <BigBtn icon={FilePlus} label="Blank Page" title="Add a blank page after this one" onClick={blankPage} />}
+            {kind === 'document' && (
+              <Menu big icon={Copy} label="Duplicate Page" title="Duplicate this page" items={[
+                { label: 'With All Contents', onClick: () => duplicatePage(activeIdx(), true) },
+                { label: 'With Format Only (Layout, No Text)', onClick: () => duplicatePage(activeIdx(), false) },
+              ]} />
+            )}
           </Group>
           <Group label="Tables">
             <Menu big icon={TableIcon} label="Table" width={220}>
@@ -3117,31 +3718,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               </div>
             )}
           </div>
-          {kind === 'template' && (
-            <BigBtn icon={Sparkles} label="Make Variable" title="Select text, then click to convert it into a named merge field" onClick={openConvertToMergeField} />
-          )}
-          <BigBtn icon={detecting ? Spinner : Wand2} label="Detect" title="Find {{variables}} written on the page and turn them into real merge fields"
-            disabled={detecting} onClick={detectVariables} />
-          {kind === 'template' && (
-            <BigBtn icon={ListChecks} label="Fields" title="Template Fields - set the type of answer each variable takes"
-              active={!!fieldsPanel} onClick={() => openFieldsPanel()} />
-          )}
-          <BigBtn icon={Variable} label="Library" title="Variable Library - browse every variable and drag one in"
-            active={variableLibraryOpen} onClick={() => setVariableLibraryOpen(o => !o)} />
-          <select onChange={insertMergeField} defaultValue="" aria-label="Insert a variable"
-            style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
-            <option value="">Insert A Variable…</option>
-            {builtinGroups.map(([label, items]) => (
-              <optgroup key={label} label={label}>
-                {items.map(([t, l]) => <option key={t} value={t}>{l}</option>)}
-              </optgroup>
-            ))}
-            {customVarKeys.length > 0 && (
-              <optgroup label="Custom Fields In This Template">
-                {customVarKeys.map(k => <option key={k} value={k}>{varLabel[k] || humanizeKey(k)}</option>)}
-              </optgroup>
-            )}
-          </select>
+          <BigBtn icon={Variable} label="Variables" title="Variables - the ones in this document, and the library" active={varsOpen} onClick={() => (varsOpen ? setVarsOpen(false) : openVars('used'))} />
+          {insertVariablePick()}
           </Group>
           <Group label="Links">
           <div style={{ position: 'relative' }}>
@@ -3220,9 +3798,45 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'layout' && (
+          {shownTab === 'design' && (
           <>
-          <Group label="Page Setup">
+          <Group label="Letterhead">
+            <Menu big icon={Award} label={activeLetterhead ? activeLetterhead.name : 'Letterhead'} title={`Letterhead: ${activeLetterhead ? activeLetterhead.name : 'None'}`}
+              width={newLhOpen ? 276 : 236} onOpenChange={(o) => { if (!o) setNewLhOpen(false); }}>
+              {() => letterheadPanel()}
+            </Menu>
+            {kind === 'template' && (
+              <BigBtn icon={BadgeCheck} label="Requires Letterhead" title="Documents made from this template always carry a letterhead"
+                active={requiresLetterhead} onClick={toggleRequiresLetterhead} />
+            )}
+          </Group>
+          <Group label="Page Background">
+            <Menu big icon={PaintBucket} label="Page Color" width={260}>
+              <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]} current={pageSetup.pageColor}
+                onPick={hex => updatePageSetup({ pageColor: hex })} onNone={() => updatePageSetup({ pageColor: null })} />
+            </Menu>
+            <Menu big icon={Stamp} label="Watermark" width={220}>
+              {(closeMenu) => (
+                <>
+                  {['DRAFT', 'CONFIDENTIAL', 'SAMPLE', 'DO NOT COPY'].map(w => (
+                    <button key={w} type="button" className={`doc-ribbon-item${pageSetup.watermark === w ? ' is-active' : ''}`} onClick={() => { updatePageSetup({ watermark: w }); closeMenu(); }}>{w}</button>
+                  ))}
+                  <form className="doc-ribbon-field" style={{ padding: '4px 6px', gap: 6 }} onSubmit={(e) => { e.preventDefault(); updatePageSetup({ watermark: e.currentTarget.text.value.trim().slice(0, 40) || null }); closeMenu(); }}>
+                    <input name="text" defaultValue={pageSetup.watermark || ''} placeholder="Custom text" aria-label="Custom watermark" style={{ width: 120 }} />
+                    <button type="submit" className="primary-btn" style={{ fontSize: 11.5, padding: '4px 9px' }}>Set</button>
+                  </form>
+                  <div className="doc-ribbon-sep" />
+                  <button type="button" className="doc-ribbon-item" onClick={() => { updatePageSetup({ watermark: null }); closeMenu(); }}>Remove Watermark</button>
+                </>
+              )}
+            </Menu>
+          </Group>
+          </>
+          )}
+
+          {shownTab === 'layout' && (
+          <>
+          <Group label="Page Setup" onLaunch={() => setPageSetupOpen(true)} launchTitle="Page Setup">
           <Menu big icon={RectangleHorizontal} label="Margins" items={[
             { label: 'Normal - 1" all around', onClick: () => updatePageSetup({ margins: 'normal' }), active: pageSetup.margins === 'normal' },
             { label: 'Narrow - 0.5" all around', onClick: () => updatePageSetup({ margins: 'narrow' }), active: pageSetup.margins === 'narrow' },
@@ -3330,7 +3944,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             )}
           </div>
           </Group>
-          <Group label="Paragraph">
+          <Group label="Paragraph" onLaunch={() => setParaDlg(true)} launchTitle="Paragraph Settings">
             <div className="doc-ribbon-stack">
               <div className="doc-ribbon-row">
                 {[['indentLeft', 'Indent Left', 'Left indent, in points'], ['indentRight', 'Indent Right', 'Right indent, in points']].map(([key, label, hint]) => (
@@ -3352,43 +3966,73 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               </div>
             </div>
           </Group>
-          <Group label="Page Background">
-            <Menu big icon={PaintBucket} label="Page Color" width={260}>
-              <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]} current={pageSetup.pageColor}
-                onPick={hex => updatePageSetup({ pageColor: hex })} onNone={() => updatePageSetup({ pageColor: null })} />
-            </Menu>
-            <Menu big icon={Stamp} label="Watermark" width={220}>
-              {(closeMenu) => (
-                <>
-                  {['DRAFT', 'CONFIDENTIAL', 'SAMPLE', 'DO NOT COPY'].map(w => (
-                    <button key={w} type="button" className={`doc-ribbon-item${pageSetup.watermark === w ? ' is-active' : ''}`} onClick={() => { updatePageSetup({ watermark: w }); closeMenu(); }}>{w}</button>
-                  ))}
-                  <form className="doc-ribbon-field" style={{ padding: '4px 6px', gap: 6 }} onSubmit={(e) => { e.preventDefault(); updatePageSetup({ watermark: e.currentTarget.text.value.trim().slice(0, 40) || null }); closeMenu(); }}>
-                    <input name="text" defaultValue={pageSetup.watermark || ''} placeholder="Custom text" aria-label="Custom watermark" style={{ width: 120 }} />
-                    <button type="submit" className="primary-btn" style={{ fontSize: 11.5, padding: '4px 9px' }}>Set</button>
-                  </form>
-                  <div className="doc-ribbon-sep" />
-                  <button type="button" className="doc-ribbon-item" onClick={() => { updatePageSetup({ watermark: null }); closeMenu(); }}>Remove Watermark</button>
-                </>
-              )}
-            </Menu>
-          </Group>
           </>
           )}
 
-          {ribbonTab === 'references' && (
+          {shownTab === 'references' && (
           <>
           <Group label="Table of Contents">
             <BigBtn icon={ListTree} label={findTocRange() ? 'Update Table' : 'Table of Contents'} title="Table of Contents - lists every heading with its page number" onClick={insertTableOfContents} />
             <BigBtn icon={Trash2} label="Remove" title="Remove Table of Contents" onClick={removeTableOfContents} disabled={!findTocRange()} />
           </Group>
           <Group label="Footnotes">
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', padding: '0 4px', maxWidth: 220 }}>Footnotes, endnotes and citations are not in this editor yet. Use a bookmark and a link for a cross-reference.</span>
+            <BigBtn icon={SuperscriptIcon} label="Insert Footnote" title="Insert Footnote (Ctrl+Alt+F) - a numbered note at the foot of the page" disabled={!editing} onClick={insertFootnote} />
+            <BigBtn icon={ChevronRight} label="Next Footnote" title="Next footnote" onClick={stepFootnote} />
+            <Menu big icon={ListOrdered} label="Notes" title="Every footnote in this document" width={300}>
+              {(closeMenu) => {
+                const list = footnoteList();
+                return list.length ? list.map((f, i) => (
+                  <button key={`${i}-${f.pos}`} type="button" className="doc-ribbon-item" title="Edit this footnote"
+                    onClick={() => { closeMenu(); editFootnote(f.e, f.pos); }}>
+                    <span style={{ fontWeight: 700, minWidth: 18 }}>{i + 1}</span>
+                    <span style={{ whiteSpace: 'normal' }}>{f.text}</span>
+                  </button>
+                )) : <div className="doc-ribbon-pick-none">No footnotes yet.</div>;
+              }}
+            </Menu>
           </Group>
           </>
           )}
 
-          {ribbonTab === 'review' && (
+          {shownTab === 'variables' && (
+          <>
+          <Group label="Insert">
+            <BigBtn icon={Variable} label="Variable Library" title="Variable Library - browse every variable and drag one in"
+              active={varsOpen && varsTab === 'library'} onClick={() => toggleVars('library')} />
+            {insertVariablePick()}
+          </Group>
+          <Group label="Create">
+            {kind === 'template' && (
+              <BigBtn icon={Sparkles} label="Make Variable" title="Select text, then click to convert it into a named merge field" onClick={openConvertToMergeField} />
+            )}
+            <BigBtn icon={detecting ? Spinner : Wand2} label="Detect" title="Find {{variables}} written on the page and turn them into real merge fields"
+              disabled={detecting} onClick={detectVariables} />
+            {kind === 'template' && (
+              <BigBtn icon={ListChecks} label="Fields" title="Template Fields - set the type of answer each variable takes"
+                active={!!fieldsPanel} onClick={() => openFieldsPanel()} />
+            )}
+          </Group>
+          <Group label="Preview">
+            <BigBtn icon={Eye} label="Preview Results" title="Preview Results - show the values this document will print in place of the variable names"
+              active={previewResults} onClick={() => setPreviewResults((v) => !v)} />
+            <BigBtn icon={Highlighter} label="Highlight Fields" title="Highlight Fields - Word's gray shading on every variable"
+              active={fieldShading} onClick={() => setFieldShading((v) => !v)} />
+          </Group>
+          <Group label="Values">
+            <Menu big icon={Users} label="Merge Data" title={`Merge Data: ${activeEmployee ? empLabel(activeEmployee) : 'Nobody picked'}`} width={316}>
+              {() => mergeDataPanel()}
+            </Menu>
+          </Group>
+          <Group label="In This Document">
+            <BigBtn icon={ListChecks} label={`Variables Used (${usedVars.length})`} title="Variables Used - every variable placed in this document"
+              active={varsOpen && varsTab === 'used'} onClick={() => toggleVars('used')} />
+            <BigBtn icon={ChevronLeft} label="Previous" title="Previous variable" disabled={!usedVars.length} onClick={() => stepField(-1)} />
+            <BigBtn icon={ChevronRight} label="Next" title="Next variable" disabled={!usedVars.length} onClick={() => stepField(1)} />
+          </Group>
+          </>
+          )}
+
+          {shownTab === 'review' && (
           <>
           <Group label="Proofing">
             <BigBtn icon={SpellCheck} label="Spelling" title="Underline misspelled words (the browser's own spelling check)" active={viewPrefs.spell} onClick={() => setPref('spell', !viewPrefs.spell)} />
@@ -3432,7 +4076,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'view' && (
+          {shownTab === 'view' && (
           <>
           <Group label="Views">
             <BigBtn icon={PageIcon} label="Separate Pages" title="Lay the document out as pages" active={viewPrefs.paginate} onClick={() => setPref('paginate', !viewPrefs.paginate)} />
@@ -3445,7 +4089,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             <BigBtn icon={ZoomOut} label="100%" onClick={() => setZoom(1)} active={zoom === 1} />
           </Group>
           <Group label="Show">
-            <BigBtn icon={RulerIcon} label="Ruler" active={viewPrefs.ruler} onClick={() => setPref('ruler', !viewPrefs.ruler)} />
+            <BigBtn icon={RulerIcon} label="Ruler" title="Ruler - both rulers, to set margins, indents and tab stops" active={!!rulerOn} onClick={() => setRulerOn(!rulerOn)} />
             <BigBtn icon={PanelLeft} label="Navigation" active={viewPrefs.nav} onClick={() => setPref('nav', !viewPrefs.nav)} />
             <BigBtn icon={LayoutPanelTop} label="Header & Footer" active={headerVisible || footerVisible} onClick={toggleHeaderFooter} />
             <BigBtn icon={Pilcrow} label="Formatting Marks" active={showMarks} onClick={() => setShowMarks(s => !s)} />
@@ -3453,15 +4097,77 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </>
           )}
 
-          {ribbonTab === 'help' && (
+          {shownTab === 'tableDesign' && inTable && (
           <>
-          <Group label="Help">
-            <BigBtn icon={HelpCircle} label="Help" title="Open the Documents guide" onClick={openHelp} />
-            <BigBtn icon={BookOpen} label="Shortcuts" title="Keyboard shortcuts" onClick={() => toastOk?.('Ctrl+B bold, Ctrl+I italic, Ctrl+U underline, Ctrl+Z undo, Ctrl+Y redo, Ctrl+K link, Ctrl+Shift+V paste as text.')} />
+          <Group label="Table Style Options">
+            <BigBtn icon={Rows} label="Header Row" title="Toggle header row" active={activeEditor.isActive('tableHeader')} onClick={() => activeEditor.chain().focus().toggleHeaderRow().run()} />
+            <BigBtn icon={Columns} label="First Column" title="Toggle header column" onClick={() => activeEditor.chain().focus().toggleHeaderColumn().run()} />
+          </Group>
+          <Group label="Table Styles">
+            <Menu big icon={PaintBucket} label="Shading" title="Shade the current cell" width={260}>
+              <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]}
+                current={activeEditor.getAttributes(activeEditor.isActive('tableHeader') ? 'tableHeader' : 'tableCell').backgroundColor}
+                onPick={(hex) => activeEditor.chain().focus().updateAttributes(activeEditor.isActive('tableHeader') ? 'tableHeader' : 'tableCell', { backgroundColor: hex }).run()}
+                onNone={() => activeEditor.chain().focus().updateAttributes(activeEditor.isActive('tableHeader') ? 'tableHeader' : 'tableCell', { backgroundColor: null }).run()} />
+            </Menu>
+            <Menu big icon={RectangleHorizontal} label="Borders" title="Table borders" items={[
+              { label: 'All Borders', active: activeEditor.getAttributes('table').borders !== 'none', onClick: () => activeEditor.chain().focus().updateAttributes('table', { borders: null }).run() },
+              { label: 'No Border', active: activeEditor.getAttributes('table').borders === 'none', onClick: () => activeEditor.chain().focus().updateAttributes('table', { borders: 'none' }).run() },
+            ]} />
           </Group>
           </>
           )}
-          {ribbonTab === 'picture' && imgAttrs && (
+
+          {shownTab === 'tableLayout' && inTable && (
+          <>
+          <Group label="Rows & Columns">
+            <BigBtn icon={Rows} label="Insert Above" title="Add row above" onClick={() => activeEditor.chain().focus().addRowBefore().run()} />
+            <BigBtn icon={Rows} label="Insert Below" title="Add row below" onClick={() => activeEditor.chain().focus().addRowAfter().run()} />
+            <BigBtn icon={Columns} label="Insert Left" title="Add column left" onClick={() => activeEditor.chain().focus().addColumnBefore().run()} />
+            <BigBtn icon={Columns} label="Insert Right" title="Add column right" onClick={() => activeEditor.chain().focus().addColumnAfter().run()} />
+            <Menu big icon={Trash2} label="Delete" title="Delete cells, rows, columns or the table" items={[
+              { label: 'Delete Row', onClick: () => activeEditor.chain().focus().deleteRow().run() },
+              { label: 'Delete Column', onClick: () => activeEditor.chain().focus().deleteColumn().run() },
+              { label: 'Delete Table', onClick: () => activeEditor.chain().focus().deleteTable().run() },
+            ]} />
+          </Group>
+          <Group label="Merge">
+            <BigBtn icon={Combine} label="Merge Cells" title="Merge cells" onClick={() => activeEditor.chain().focus().mergeCells().run()} />
+            <BigBtn icon={SquareSplitHorizontal} label="Split Cell" title="Split cell" onClick={() => activeEditor.chain().focus().splitCell().run()} />
+          </Group>
+          </>
+          )}
+
+          {shownTab === 'shape' && shapeType && (() => {
+            const attrs = activeEditor.getAttributes(shapeType);
+            const rotate = (delta) => activeEditor.chain().focus().updateAttributes(shapeType, { rotation: ((attrs.rotation || 0) + delta + 360) % 360 }).run();
+            const fillKey = 'fillColor';
+            const lineKey = shapeType === 'docShape' ? 'strokeColor' : 'borderColor';
+            return (
+              <>
+              <Group label="Shape Styles">
+                <Menu big icon={PaintBucket} label={shapeType === 'docShape' ? 'Shape Fill' : 'Fill'} title="Fill color" width={260}>
+                  <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]} current={attrs[fillKey]}
+                    onPick={(hex) => activeEditor.chain().focus().updateAttributes(shapeType, { [fillKey]: hex }).run()}
+                    onNone={() => activeEditor.chain().focus().updateAttributes(shapeType, { [fillKey]: 'transparent' }).run()} />
+                </Menu>
+                <Menu big icon={RectangleHorizontal} label={shapeType === 'docShape' ? 'Shape Outline' : 'Border'} title="Outline color" width={260}>
+                  <ColorGrid rows={[THEME_COLORS.map(h => [h]), STANDARD_COLORS.map(h => [h])]} current={attrs[lineKey]}
+                    onPick={(hex) => activeEditor.chain().focus().updateAttributes(shapeType, { [lineKey]: hex }).run()} more />
+                </Menu>
+              </Group>
+              <Group label="Arrange">
+                <Menu big icon={Move} label="Wrap Text" title="Wrap text around it" items={WRAP_MODES.map((w) => ({
+                  label: w.label, active: (attrs.wrapMode || 'inline') === w.value, onClick: () => activeEditor.chain().focus().updateAttributes(shapeType, { wrapMode: w.value }).run(),
+                }))} />
+                <BigBtn icon={RotateCcw} label="Rotate Left" title="Rotate left 90°" onClick={() => rotate(-90)} />
+                <BigBtn icon={RotateCw} label="Rotate Right" title="Rotate right 90°" onClick={() => rotate(90)} />
+              </Group>
+              </>
+            );
+          })()}
+
+          {shownTab === 'picture' && imgAttrs && (
           <>
           <Group label="Picture Styles">
             <Menu big icon={Frame} label="Styles" title="Picture style" items={[
@@ -3515,8 +4221,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </Group>
           </>
           )}
-          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={onPickImage} style={{ display: 'none' }} />
-        </div>
+        </>)} />}
+        <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={onPickImage} style={{ display: 'none' }} />
 
         {findOpen && (
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, margin: '4px 0 10px', padding: '8px 10px', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8 }}
@@ -3549,89 +4255,6 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         </div>
       )}
 
-      {/* Contextual toolbars - appear only while the cursor/selection is
-          inside the relevant node, mirroring Word's "click a table/picture/
-          shape and its own ribbon shows up" behavior instead of cluttering
-          the main toolbar with buttons that only apply some of the time. */}
-      {!preview && activeEditor?.isActive('table') && (
-        <div className="doc-toolbar" style={{ marginTop: -8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', paddingLeft: 4 }}>Table:</span>
-          <ToolbarBtn title="Add row above" onClick={() => activeEditor.chain().focus().addRowBefore().run()}><Rows size={15} /><span style={{ fontSize: 10 }}>↑+</span></ToolbarBtn>
-          <ToolbarBtn title="Add row below" onClick={() => activeEditor.chain().focus().addRowAfter().run()}><Rows size={15} /><span style={{ fontSize: 10 }}>↓+</span></ToolbarBtn>
-          <ToolbarBtn title="Delete row" onClick={() => activeEditor.chain().focus().deleteRow().run()}><Rows size={15} /><Trash2 size={11} /></ToolbarBtn>
-          <span className="doc-toolbar-sep" />
-          <ToolbarBtn title="Add column left" onClick={() => activeEditor.chain().focus().addColumnBefore().run()}><Columns size={15} /><span style={{ fontSize: 10 }}>←+</span></ToolbarBtn>
-          <ToolbarBtn title="Add column right" onClick={() => activeEditor.chain().focus().addColumnAfter().run()}><Columns size={15} /><span style={{ fontSize: 10 }}>→+</span></ToolbarBtn>
-          <ToolbarBtn title="Delete column" onClick={() => activeEditor.chain().focus().deleteColumn().run()}><Columns size={15} /><Trash2 size={11} /></ToolbarBtn>
-          <span className="doc-toolbar-sep" />
-          <ToolbarBtn title="Merge cells" onClick={() => activeEditor.chain().focus().mergeCells().run()}><Combine size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Split cell" onClick={() => activeEditor.chain().focus().splitCell().run()}><SquareSplitHorizontal size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Toggle header row" active={activeEditor.isActive('tableHeader')} onClick={() => activeEditor.chain().focus().toggleHeaderRow().run()}>H</ToolbarBtn>
-          <span className="doc-toolbar-sep" />
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted)' }} title="Shade the current cell">
-            Shade
-            <input type="color" defaultValue="#f3f4f6"
-              onChange={(e) => {
-                const attrName = activeEditor.isActive('tableHeader') ? 'tableHeader' : 'tableCell';
-                activeEditor.chain().focus().updateAttributes(attrName, { backgroundColor: e.target.value }).run();
-              }}
-              style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
-          </label>
-          <ToolbarBtn title="Delete table" onClick={() => activeEditor.chain().focus().deleteTable().run()}><Trash2 size={15} /></ToolbarBtn>
-        </div>
-      )}
-
-      {!preview && (activeEditor?.isActive('docShape') || activeEditor?.isActive('docTextbox')) && (
-        <div className="doc-toolbar" style={{ marginTop: -8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', paddingLeft: 4 }}>
-            {activeEditor.isActive('docShape') ? 'Shape:' : 'Text box:'}
-          </span>
-          {(() => {
-            const type = activeEditor.isActive('docShape') ? 'docShape' : 'docTextbox';
-            const attrs = activeEditor.getAttributes(type);
-            const rotate = (delta) => activeEditor.chain().focus().updateAttributes(type, { rotation: ((attrs.rotation || 0) + delta + 360) % 360 }).run();
-            return (
-              <>
-                <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  Wrap
-                  <select value={attrs.wrapMode || 'inline'} onChange={(e) => activeEditor.chain().focus().updateAttributes(type, { wrapMode: e.target.value }).run()}
-                    style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '4px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
-                    {WRAP_MODES.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
-                  </select>
-                </label>
-                <ToolbarBtn title="Rotate left 90°" onClick={() => rotate(-90)}><RotateCcw size={15} /></ToolbarBtn>
-                <ToolbarBtn title="Rotate right 90°" onClick={() => rotate(90)}><RotateCw size={15} /></ToolbarBtn>
-                {type === 'docShape' && (
-                  <>
-                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      Fill <input type="color" value={attrs.fillColor || '#dbeafe'} onChange={(e) => activeEditor.chain().focus().updateAttributes('docShape', { fillColor: e.target.value }).run()}
-                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
-                    </label>
-                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      Stroke <input type="color" value={attrs.strokeColor || '#2563eb'} onChange={(e) => activeEditor.chain().focus().updateAttributes('docShape', { strokeColor: e.target.value }).run()}
-                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
-                    </label>
-                  </>
-                )}
-                {type === 'docTextbox' && (
-                  <>
-                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      Border <input type="color" value={attrs.borderColor || '#9ca3af'} onChange={(e) => activeEditor.chain().focus().updateAttributes('docTextbox', { borderColor: e.target.value }).run()}
-                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
-                    </label>
-                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      Fill <input type="color" value={attrs.fillColor && attrs.fillColor !== 'transparent' ? attrs.fillColor : '#ffffff'}
-                        onChange={(e) => activeEditor.chain().focus().updateAttributes('docTextbox', { fillColor: e.target.value }).run()}
-                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
-                    </label>
-                  </>
-                )}
-              </>
-            );
-          })()}
-        </div>
-      )}
-
       {imgMenu && imgAttrs && (
         <ContextMenu x={imgMenu.x} y={imgMenu.y} onClose={() => setImgMenu(null)} items={[
           { label: 'Cut', icon: Scissors, hint: 'Ctrl+X', onClick: () => clipboardAction('cut') },
@@ -3648,99 +4271,36 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           { label: 'Delete Picture', icon: Trash2, onClick: () => activeEditor.chain().focus().deleteSelection().run() },
         ]} />
       )}
-      <div className="nx-docb-canvas" style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }} onContextMenu={onPagesContextMenu}>
-      {kind === 'document' && !preview && !isMobile && (() => {
-        const canvas = pageCanvasStyle(pageSetup);
-        const thumbW = 92, thumbH = Math.round(thumbW * (canvas.minHeight / canvas.maxWidth));
-        const scale = thumbW / canvas.maxWidth;
+      {/* The desk (11/11/2026): the page alone, centered on the gray. The
+          Navigation pane (View > Navigation) and Comments float over the
+          margins; they push the page aside only when a margin is too narrow
+          for them (style.css ".nx-docb-desk"). */}
+      <div className={`nx-docb-desk${navShown ? ' has-left' : ''}${commentsShown || varsShown ? ' has-right' : ''}`}
+        style={{ '--nx-page-w': `${Math.round(pageCanvasStyle(pageSetup).maxWidth * zoom) + 48}px` }}>
+      <div className="nx-docb-canvas" onContextMenu={onPagesContextMenu}>
+      <div ref={canvasRef} className="nx-docb-pagecol">
+      {showRulers && (() => {
+        const pageW = pageCanvasStyle(pageSetup).maxWidth;
         return (
-          <div className="nx-docb-rail" style={{ flex: '0 0 116px', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: 10, alignSelf: 'flex-start' }}>
-            {/* "Pages" here means EDITOR pages - the sheets you added with
-                Add page, each its own TipTap instance. It is not the exported
-                page count: the canvas is one continuous unpaginated box (see
-                the DocPage note above), and reportlab decides the real page
-                breaks at export. A one-sheet document printing to six PDF
-                pages is correct, and looked like a bug without this label. */}
-            <div title="Where the pages fall as the browser lays this out. The exported PDF is rendered by a different engine, so a long document can differ by a page."
-              style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Pages
+          <div className="doc-rulers">
+            <div className="doc-rulers-inner" style={{ width: Math.round(pageW * zoom) }}>
+              <button type="button" className="doc-ruler-corner" disabled={!editing}
+                title={`${TAB_LABEL[tabType]} - click the ruler to set one. Click here for another kind.`} aria-label={`Tab stop type: ${TAB_LABEL[tabType]}`}
+                onClick={() => setTabType((t) => TAB_ALIGNS[(TAB_ALIGNS.indexOf(t) + 1) % TAB_ALIGNS.length])}>
+                <TabGlyph align={tabType} size={11} />
+              </button>
+              <HRuler widthPx={Math.round(pageW * zoom)} zoom={zoom} margins={marginsOf(pageSetup)} para={paraIndents}
+                editable={editing} onMargin={setMarginInches} onIndent={applyIndents}
+                tabs={paraTabs} tabType={tabType} onTabs={applyTabStops} />
+              {viewPrefs.paginate && (
+                <VRuler zoom={zoom} margins={marginsOf(pageSetup)} pageHeightPx={pageCanvasStyle(pageSetup).minHeight} gapPx={SHEET_SPACE_PX}
+                  pagesEl={rulerPagesEl} scrollerEl={rulerScrollerEl} editable={editing} onMargin={setMarginInches} />
+              )}
             </div>
-            {(() => { let sheetNo = 0; return pages.map((p, i) => {
-              const ed = editorsRef.current.get(p.id);
-              const json = ed ? ed.getJSON() : (p.json || { type: 'doc', content: [{ type: 'paragraph' }] });
-              const html = generateHTML(json, BODY_EXTENSIONS);
-              // The sheet's own geometry, reproduced so the slices line up with
-              // what the editor is actually showing: the thumbnail used to
-              // render the body at the FULL page width with no margins, so its
-              // line breaks - and therefore its height - never matched the page.
-              const { padV, padH } = sheetPadding(canvas);
-              const sheet = textFlowPx(pageSetup);
-              const spans = Math.max(1, pageSpans[p.id] || 1);
-              return Array.from({ length: spans }, (_, slice) => {
-                sheetNo += 1;
-                const label = sheetNo;
-                // Only the first slice carries the page menu and the selected
-                // outline: duplicate/delete act on the EDITOR page, and a slice
-                // is not one.
-                const isFirst = slice === 0;
-                return (
-              <div key={`${p.id}:${slice}`} style={{ position: 'relative' }}>
-                <div onClick={() => goToSheet(p.id, slice)}
-                  style={{ width: thumbW, height: thumbH, border: (isFirst && p.id === activePageId) ? '2px solid hsl(var(--color-blue))' : '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', background: '#fff', boxShadow: 'var(--shadow-sm)', cursor: 'pointer' }}>
-                  <div style={{ width: canvas.maxWidth, boxSizing: 'border-box', padding: `${padV}px ${padH}px`,
-                      transform: `scale(${scale}) translateY(${-slice * sheet}px)`, transformOrigin: 'top left', pointerEvents: 'none' }}
-                    dangerouslySetInnerHTML={{ __html: html }} />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3, gap: 2 }}>
-                  <span onClick={() => goToSheet(p.id, slice)} style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, cursor: 'pointer' }}>Page {label}</span>
-                  {isFirst && (
-                  <button ref={pageMenuOpen === p.id ? pageMenuBtn : undefined} onClick={() => setPageMenuOpen(pageMenuOpen === p.id ? '' : p.id)} title="Page options"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 1, color: 'var(--muted)', flex: '0 0 auto' }}>
-                    <MoreVertical size={13} />
-                  </button>
-                  )}
-                </div>
-                {/* Portaled: the thumbnail rail scrolls, which clipped the
-                    old in-place menu. Closes on an outside tap or Escape. */}
-                {isFirst && pageMenuOpen === p.id && (
-                  <AnchoredMenu anchorRef={pageMenuBtn} open onClose={() => setPageMenuOpen('')} align="end" minWidth={190}
-                    style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 9, boxShadow: 'var(--shadow-lg)', padding: 5 }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Duplicate page</div>
-                    <button onClick={() => duplicatePage(i, true)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>
-                      <Copy size={13} /> With all contents
-                    </button>
-                    <button onClick={() => duplicatePage(i, false)} title="Keeps headings/tables/lists, clears the actual text and images"
-                      style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>
-                      <PageIcon size={13} /> With format only (layout, no text)
-                    </button>
-                    {pages.length > 1 && (<>
-                      <div style={{ borderTop: '1px solid var(--line)', margin: '4px 0' }} />
-                      <button onClick={() => deletePage(i)}
-                        style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'hsl(var(--color-red))' }}>
-                        <Trash2 size={13} /> Delete page
-                      </button>
-                    </>)}
-                  </AnchoredMenu>
-                )}
-              </div>
-                );
-              });
-            }); })()}
-            <button onClick={addPage}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: thumbW, height: 40, border: '1px dashed var(--line)', borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
-              <Plus size={14} /> Add page
-            </button>
           </div>
         );
       })()}
-      {!preview && !isMobile && viewPrefs.nav && (
-        <NavigationPane headings={headingsOf(editorsRef.current, pages)} onGo={goToHeading} onClose={() => setPref('nav', false)} />
-      )}
-      <div ref={canvasRef} style={{ flex: 1, minWidth: 0, background: 'var(--mist)', borderRadius: 12, padding: '10px 24px 4px',
-        overflowX: zoom > 1 ? 'auto' : 'visible' }}>
       <div style={zoom === 1 ? undefined : { zoom }}>
-      {!preview && !isMobile && viewPrefs.ruler && <Ruler pageSetup={pageSetup} />}
 
       {/* Each page is its own bounded sheet. The letterhead sits at the top of
           page 1's text frame (the exporter reserves the same band); the header
@@ -3781,60 +4341,65 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             </div>
           </div>
         ) : null;
+        // Between two pages (and after the last), a "+ Add Page" that shows
+        // on hover - zero height, so it never moves the pagination.
+        const gap = kind === 'document' && !preview && !isMobile && !isLocked && !viewingOnly && !readOnly && (
+          <div className="nx-docb-pagegap">
+            <button type="button" onClick={() => addPage(i + 1)} title={isLast ? 'Add a page at the end' : `Add a page after page ${i + 1}`}>
+              <Plus size={12} /> Add Page
+            </button>
+          </div>
+        );
         return (
-          <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked && !viewingOnly && !readOnly} live={live} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
+          <Fragment key={p.id}>
+          <DocPage pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked && !viewingOnly && !readOnly} live={live} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
             firstSheetPx={isFirst ? firstSheetPx : undefined} showMarks={showMarks}
             bandInfo={bandInfo} sheetBase={sheetStarts[i]} onSheets={onSheets} paginate={viewPrefs.paginate}
             topSlot={topSlot} headerSlot={headerSlot} footerSlot={footerSlot}
             onReady={registerPageEditor} onUpdate={onPageUpdate}
             onActivity={onPageActivity} onPaste={onBodyPaste} onVariableDrop={onVariableDrop} onTocClick={goToTocLink} />
+          {gap}
+          </Fragment>
         );
       })}
       </div>
       </div>
-      {/* Variables Used - the third column of the pages row, sticky under the
-          top header (style.css ".nx-docb-vars") so it stays while the pages
-          scroll. Click inserts the variable at the cursor, drag drops it
-          where it lands, double-click edits its field (templates). */}
-      {!preview && !isMobile && commentsOpen && (
-        <CommentsPane store={commentStore} me={me} isAdmin={myLevel >= 4}
-          ownerEmail={String(doc?.ownerEmail || doc?.createdBy || '').toLowerCase()}
-          activeId={activeComment} onSelect={selectComment}
-          draft={commentDraft} onDraftSaved={onCommentSaved} onDraftCancel={() => setCommentDraft(null)}
-          onClose={() => setCommentsOpen(false)} />
+      </div>
+      {navShown && (
+        <aside className="nx-docb-pane is-left" aria-label="Navigation">
+          <NavigationPane tab={navTab} onTab={setNavTab} headings={headingsOf(editorsRef.current, pages)} onGo={goToHeading}
+            pages={kind === 'document' ? pageThumbs() : null} onClose={() => setPref('nav', false)}
+            query={navQuery} onQuery={(q) => { setNavQuery(q); setNavHit(-1); }}
+            results={navResults} activeResult={navHit} onResult={(i) => { setNavHit(i); jumpToMatch(navResults[i]); }} />
+        </aside>
       )}
-      {!preview && !isMobile && (
-        <aside className="nx-docb-vars" aria-label="Variables used in this document">
-          <div className="nx-docb-vars-head">
-            <Variable size={13} /> Variables Used
-            <span className="nx-docb-vars-n">{usedVars.length}</span>
-          </div>
-          {usedVars.length === 0 ? (
-            <p className="nx-docb-vars-empty">
-              {kind === 'template'
-                ? 'None yet. Select any text and click Make Variable, or drag one in from the Variable Library.'
-                : 'None yet. Drag one in from the Variable Library.'}
-            </p>
-          ) : usedVars.map((v) => {
-            const def = fieldDefs.find((f) => f.token === v.token);
-            const label = def?.label || varLabel[v.token] || FRIENDLY_MERGE[v.token] || v.token;
-            const meta = builtinSet.has(v.token) && !def ? 'Filled By Nexus' : (def?.type || 'text');
-            return (
-              <button key={v.token} type="button" className="nx-docb-var" draggable
-                title={`Insert {{${v.token}}} at the cursor${kind === 'template' ? '. Double-click to edit the field.' : ''}`}
-                onClick={() => insertVariable(v.token)}
-                onDoubleClick={kind === 'template' ? () => editVariable(v.token) : undefined}
-                onDragStart={(e) => {
-                  e.dataTransfer.setData(VARIABLE_DRAG_TYPE, v.token);
-                  e.dataTransfer.setData('text/plain', `{{${v.token}}}`);
-                  e.dataTransfer.effectAllowed = 'copy';
-                }}>
-                <span className="nx-docb-var-label">{label}</span>
-                <span className="nx-docb-var-meta">{meta} · {v.count === 1 ? '1 place' : `${v.count} places`}</span>
-              </button>
-            );
-          })}
-          <button type="button" className="nx-docb-vars-lib" onClick={() => setVariableLibraryOpen(true)}>Variable Library</button>
+      {varsShown && (
+        <aside className="nx-docb-pane is-right" aria-label="Variables">
+          <VariablesPane tab={varsTab} onTab={setVarsTab} kind={kind} onClose={() => setVarsOpen(false)}
+            rows={usedVars.map((v) => {
+              const def = fieldDefs.find((f) => f.token === v.token);
+              const value = String((previewValues && previewValues[v.token]) || mergeOverrides[v.token] || '').trim();
+              return {
+                token: v.token, count: v.count, value,
+                label: def?.label || varLabel[v.token] || FRIENDLY_MERGE[v.token] || v.token,
+                meta: builtinSet.has(v.token) && !def ? 'Filled By Nexus' : (def?.type || 'text'),
+              };
+            })}
+            onInsert={insertVariable} onEdit={editVariable} onGo={(token) => stepField(1, token)}
+            library={(
+              <VariableLibrary open embedded onClose={() => setVarsOpen(false)} onInsert={insertVariable} localVariables={customVarKeys}
+                anchorLabel={kind === 'template' ? 'the template' : 'the document'}
+                used={Object.fromEntries(usedVars.map((v) => [v.token, v.count]))} />
+            )} />
+        </aside>
+      )}
+      {commentsShown && (
+        <aside className="nx-docb-pane is-right" aria-label="Comments">
+          <CommentsPane store={commentStore} me={me} isAdmin={myLevel >= 4}
+            ownerEmail={String(doc?.ownerEmail || doc?.createdBy || '').toLowerCase()}
+            activeId={activeComment} onSelect={selectComment}
+            draft={commentDraft} onDraftSaved={onCommentSaved} onDraftCancel={() => setCommentDraft(null)}
+            onClose={() => setCommentsOpen(false)} />
         </aside>
       )}
       </div>
@@ -3853,7 +4418,12 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       {!preview && (
         <StatusBar page={(sheetStarts[pages.findIndex(p => p.id === activePageId)] || 0) + 1} pages={totalSheets}
           words={countWords([...editorsRef.current.values()]).words} zoom={zoom} setZoom={setZoom}
-          onFit={zoomToFit} onPageWidth={zoomToPageWidth} onWordCount={() => setWordCountOpen(true)} />
+          onFit={zoomToFit} onPageWidth={zoomToPageWidth} onWordCount={() => setWordCountOpen(true)}
+          onPages={!isMobile ? () => openNav(kind === 'document' ? 'pages' : 'headings') : undefined}
+          variables={usedVars.length} onVariables={() => (varsOpen ? setVarsOpen(false) : openVars('used'))}
+          tracking={tracking} onTracking={() => openOnRibbon('review')}
+          view={viewPrefs.paginate ? 'print' : 'web'}
+          onView={(v) => { if (v === 'read') { setPreview(true); if (isDoc) openPdfPreview(); } else setPref('paginate', v === 'print'); }} />
       )}
       {wordCountOpen && <WordCountDialog stats={countWords([...editorsRef.current.values()])} pages={totalSheets} onClose={() => setWordCountOpen(false)} />}
       {a11yIssues && <AccessibilityDialog issues={a11yIssues} onClose={() => setA11yIssues(null)} />}
@@ -3893,9 +4463,42 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         </div>
       )}
 
-      <VariableLibrary open={variableLibraryOpen} onClose={() => setVariableLibraryOpen(false)}
-        onInsert={insertVariable} localVariables={customVarKeys}
-        anchorLabel={kind === 'template' ? 'the template' : 'the document'} />
+      {paraDlg && ed && (
+        <ParagraphDialog attrs={blockAttrs} onClose={() => setParaDlg(false)}
+          onApply={(patch) => ed.chain().focus().updateAttributes('paragraph', patch).updateAttributes('heading', patch).run()} />
+      )}
+      {fontDlg && ed && (() => {
+        const ts = ed.getAttributes('textStyle');
+        return (
+          <FontDialog fonts={FONT_GROUPS} onClose={() => setFontDlg(false)}
+            marks={{ fontFamily: ts.fontFamily, fontSize: ts.fontSize, color: ts.color, bold: ed.isActive('bold'), italic: ed.isActive('italic'), underline: ed.isActive('underline'), strike: ed.isActive('strike'), superscript: ed.isActive('superscript'), subscript: ed.isActive('subscript') }}
+            onApply={(m) => {
+              let c = ed.chain().focus();
+              c = m.fontFamily ? c.setFontFamily(m.fontFamily) : c.unsetFontFamily();
+              c = m.fontSize ? c.setFontSize(m.fontSize) : c.unsetFontSize();
+              c = m.color ? c.setColor(m.color) : c.unsetColor();
+              c = m.bold ? c.setBold() : c.unsetBold();
+              c = m.italic ? c.setItalic() : c.unsetItalic();
+              c = m.underline ? c.setUnderline() : c.unsetUnderline();
+              c = m.strike ? c.setStrike() : c.unsetStrike();
+              c = m.superscript ? c.setSuperscript() : c.unsetSuperscript();
+              c = m.subscript ? c.setSubscript() : c.unsetSubscript();
+              c.run();
+            }} />
+        );
+      })()}
+      {importPopoverOpen && !preview && (
+        <div className="modal-overlay" onClick={() => { if (!importing) setImportPopoverOpen(false); }}>
+          <div className="modal-content nx-popup nx-center nx-docb-import" role="dialog" aria-label="Import a File" onClick={(e) => e.stopPropagation()}>
+            {importPanel()}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center' }}>
+              {importing && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', marginRight: 'auto' }}><Spinner size={13} /> Importing…</span>}
+              <button type="button" className="secondary-btn" disabled={importing} onClick={() => setImportPopoverOpen(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {fieldsPanel && kind === 'template' && (
         <TemplateFieldsPanel
@@ -3915,6 +4518,9 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           onCancel={() => setMergeFieldModal(null)}
         />
       )}
+      {shortcutsOpen && <ShortcutsCard menus={docMenus} onClose={() => setShortcutsOpen(false)} />}
+      {nameAsk && <NameOnClose kind={kind} suggestion={nameAsk.suggestion} category={doc?.category} onDone={nameAsk.resolve} />}
+      {!preview && !isMobile && <KeyTips rootRef={rootRef} onTab={keyTipTab} />}
     </div>
   );
 }
