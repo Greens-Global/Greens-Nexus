@@ -78,7 +78,7 @@ export default function VariableLibrary({ open, onClose, onInsert, localVariable
   const cats = useMemo(() => {
     const order = (g) => { const i = FILLED_WHEN.findIndex(([, label]) => label === g); return i < 0 ? FILLED_WHEN.length : i; };
     return [...new Set(all.map(groupOf))].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
-  }, [all]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [all]);
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matched = all.filter((v) => (!cat || groupOf(v) === cat) && (!q
@@ -93,7 +93,7 @@ export default function VariableLibrary({ open, onClose, onInsert, localVariable
       out.get(g).push(v);
     }
     return [...out.entries()];
-  }, [all, query, cat]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [all, query, cat]);
 
   if (!open) return null;
 
