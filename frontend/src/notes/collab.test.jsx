@@ -80,7 +80,7 @@ describe('an open note follows the others', () => {
     await waitFor(() => expect(prose()?.textContent).toContain('Old words'));
     expect(await screen.findByText('Bob Brown is editing', {}, { timeout: 3000 })).toBeTruthy();
     await waitFor(() => expect(prose()?.textContent).toContain('New from Bob'));
-    expect(screen.getByText(/Edited by Bob Brown/)).toBeTruthy();
+    expect(screen.getByText(/Edited by Bob B\./)).toBeTruthy();   // first name and last initial (Neil, 11/10/2026)
     expect(apiMock.notePresence).toHaveBeenCalledWith('note_1', 'viewing');
   });
 
