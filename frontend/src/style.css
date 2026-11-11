@@ -3943,10 +3943,25 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .doc-ruler-tick.is-major { height: 10px; background: #6b7280; }
 .doc-ruler-tick em { position: absolute; bottom: 9px; left: 3px; font-style: normal; font-size: 9px; color: #6b7280; font-family: Inter, sans-serif; }
 
-/* View > Navigation: the headings, beside the page rail. */
-.doc-navpane { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px; align-self: flex-start; max-height: 70vh; overflow-y: auto; }
-.doc-navpane-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
-.doc-navpane-empty { font-size: 12px; color: var(--muted); margin: 4px 0; }
+/* View > Navigation (11/11/2026): Headings, Pages, Results, in a pane that
+   floats over the desk's left margin (.nx-docb-pane). */
+.doc-navpane { display: flex; flex-direction: column; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 12px 8px; min-height: 0; height: 100%; box-sizing: border-box; box-shadow: var(--shadow-lg); font-family: Inter, sans-serif; }
+.doc-navpane-head { display: flex; align-items: center; justify-content: space-between; font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.doc-navpane-search { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 8px; padding: 0 9px; height: 32px; color: var(--muted); background: var(--card); }
+.doc-navpane-search:focus-within { border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 2px hsla(var(--color-blue), 0.15); }
+.doc-navpane-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: 400 12.5px Inter, sans-serif; color: var(--ink); }
+.doc-navpane-tabs { display: flex; gap: 14px; border-bottom: 1px solid var(--line); }
+.doc-navpane-tabs button { background: none; border: none; padding: 6px 0; margin-bottom: -1px; cursor: pointer; font: 500 12.5px Inter, sans-serif; color: var(--muted); border-bottom: 2px solid transparent; }
+.doc-navpane-tabs button:hover { color: var(--ink); }
+.doc-navpane-tabs button.is-on { color: var(--ink); font-weight: 600; border-bottom-color: var(--wk-brand, hsl(var(--color-green))); }
+.doc-navpane-tabs button:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 2px; border-radius: 3px; }
+.doc-navpane-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin: 0 -4px; padding: 0 4px 4px; }
+.doc-navpane-empty { font-size: 12px; color: var(--muted); margin: 4px 0; line-height: 1.45; }
+.doc-navpane-count { font-size: 11.5px; color: var(--muted); margin: 2px 0 4px; }
+.doc-navpane-result { text-align: left; background: none; border: 1px solid transparent; border-radius: 7px; padding: 6px 8px; cursor: pointer; font: 400 12px/1.45 Inter, sans-serif; color: var(--muted); overflow-wrap: anywhere; }
+.doc-navpane-result mark { background: rgba(250, 204, 21, 0.45); color: var(--ink); border-radius: 2px; padding: 0 1px; }
+.doc-navpane-result:hover { background: var(--mist); }
+.doc-navpane-result.is-on { border-color: var(--line); background: var(--mist); }
 .doc-navpane-item { text-align: left; background: none; border: none; cursor: pointer; font-size: 12.5px; color: var(--ink); padding: 5px 8px; border-radius: 6px; font-family: Inter, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-navpane-item:hover { background: var(--mist); }
 
@@ -10214,3 +10229,84 @@ kbd.doc-mb-key { margin-left: auto; padding-left: 18px; font: 500 11.5px Inter, 
 @media (max-width: 1200px) {
   .nx-docb-head button.nx-docb-hbtn.nx-docb-compact-md { font-size: 0; gap: 0; width: 32px; padding: 0; }
 }
+
+/* ── Document Builder redesign (Neil, 11/11/2026, plan
+   https://claude.ai/artifact/AB3yPHWobzZCUJFwpjzvVd) ───────────────────────
+   The desk: the page alone, centered on the gray. Navigation (left) and
+   Comments (right) float over the margins and push the page aside only when
+   a margin is narrower than they are: the page column's side padding grows
+   by exactly what the pane would otherwise cover. --nx-page-w is the page's
+   drawn width (the builder sets it with the zoom). */
+.nx-docb-desk { position: relative; display: flex; flex-direction: column; min-width: 0; --nx-pane-l: 0px; --nx-pane-r: 0px; --nx-page-w: 864px; }
+.nx-docb-desk.has-left { --nx-pane-l: 270px; }    /* the pane (252) and its gaps */
+.nx-docb-desk.has-right { --nx-pane-r: 334px; }   /* Comments (316) and its gaps */
+.nx-docb-canvas { background: var(--mist); border-radius: 12px; min-width: 0; }
+/* The page's left edge x = clamp(left pane, centered, room before the right
+   pane): centered while both margins hold their panes, else as close to
+   center as the panes allow; when even that does not fit, the column grows
+   past the desk and the desk scrolls sideways, so a pane never covers the
+   page. All percentages are the desk's width. */
+.nx-docb-pagecol {
+  --nx-x: clamp(var(--nx-pane-l), calc((100% - var(--nx-page-w)) / 2), calc(100% - var(--nx-pane-r) - var(--nx-page-w)));
+  box-sizing: border-box; padding: 10px 0 4px;
+  padding-left: var(--nx-x);
+  padding-right: max(var(--nx-pane-r), calc(100% - var(--nx-x) - var(--nx-page-w)));
+  min-width: calc(var(--nx-x) + var(--nx-page-w) + var(--nx-pane-r));
+}
+.nx-docb-canvas { overflow-x: auto; }
+.nx-docb-pane { position: absolute; top: 10px; bottom: 10px; z-index: 4; display: flex; flex-direction: column; min-height: 0; }
+.nx-docb-pane.is-left { left: 10px; width: 252px; }
+.nx-docb-pane.is-right { right: 10px; width: 316px; }
+.nx-docb-pane .doc-comments-pane { flex: 1; min-height: 0; max-height: none; position: static; width: auto; box-shadow: var(--shadow-lg); }
+@media (min-width: 901px) {
+  .nx-docb:not(.is-preview) .nx-docb-desk { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) {
+  .nx-docb-pane { bottom: auto; max-height: 75vh; }
+  .nx-docb-pane > * { max-height: 75vh; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nx-docb-pane { animation: nx-docb-pane-in 180ms var(--ease-out, ease-out); }
+  .nx-docb-pagecol { transition: padding 180ms var(--ease-out, ease-out); }
+}
+@keyframes nx-docb-pane-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+.nx-docb-pane.is-right { animation-name: nx-docb-pane-in-r; }
+@keyframes nx-docb-pane-in-r { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+
+/* View > Navigation > Pages: the sheets as thumbnails. */
+.nx-docb-thumbs { display: grid; grid-template-columns: repeat(auto-fill, 92px); justify-content: center; gap: 12px 16px; padding: 4px 0 8px; }
+.nx-docb-thumbs-note { grid-column: 1 / -1; margin: 0; font-size: 11px; line-height: 1.4; color: var(--muted); }
+
+/* Quick Access: Undo / Redo beside the name. */
+.nx-docb-qat { display: inline-flex; align-items: center; gap: 1px; margin-left: 2px; }
+button.nx-docb-qbtn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: none; border-radius: 7px; background: none; color: var(--ink); cursor: pointer; }
+button.nx-docb-qbtn:hover:not(:disabled) { background: var(--mist); }
+button.nx-docb-qbtn:disabled { color: var(--muted); opacity: 0.45; cursor: default; }
+button.nx-docb-qbtn:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; }
+button.nx-docb-hbtn.is-on { background: var(--mist); border-color: var(--ink); }
+
+/* Ribbon Display Options at the right end of the tab row. */
+.doc-ribbon-display { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding-bottom: 3px; }
+button.doc-ribbon-display-btn { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); font: 500 12px Inter, sans-serif; color: var(--ink); cursor: pointer; white-space: nowrap; }
+button.doc-ribbon-display-fold { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); cursor: pointer; }
+button.doc-ribbon-display-btn:hover, button.doc-ribbon-display-fold:hover { background: var(--mist); }
+button.doc-ribbon-display-btn:focus-visible, button.doc-ribbon-display-fold:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; }
+.doc-ribbon-display-tick { display: inline-flex; width: 16px; flex: 0 0 16px; color: hsl(var(--color-blue)); }
+
+/* Variables > Variables Used: the old column's list, in its menu. */
+.nx-docb-used { display: flex; flex-direction: column; gap: 6px; padding: 4px; max-height: 60vh; overflow-y: auto; }
+.nx-docb-used .nx-docb-var { cursor: grab; }
+
+/* File > Import a File...: a small centered card. */
+.modal-content.nx-docb-import { width: min(420px, calc(100vw - 32px)); height: auto; min-height: 0; max-height: none; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+
+/* Status bar: Word's three views. */
+.doc-status-views { display: inline-flex; align-items: center; gap: 2px; margin-right: 8px; }
+.doc-status-views .doc-status-btn[aria-pressed="true"] { background: var(--mist); box-shadow: inset 0 0 0 1px var(--line); }
+@media (max-width: 1100px) { .doc-status-lang { display: none; } }
+/* The ribbon's own button shape (.doc-toolbar button) stays off these lists. */
+.doc-toolbar.doc-ribbon .nx-docb-used button.nx-docb-var { width: 100%; height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; padding: 7px 9px; gap: 2px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); text-align: left; }
+.doc-toolbar.doc-ribbon .nx-docb-used button.nx-docb-var:hover { border-color: var(--pine); background: var(--card); }
+.doc-toolbar.doc-ribbon .nx-docb-used button.nx-docb-vars-lib { width: 100%; height: auto; display: block; padding: 7px 9px; }
+.doc-toolbar.doc-ribbon .nx-docb-lhpanel button, .doc-toolbar.doc-ribbon .nx-docb-mergepanel button { width: auto; height: auto; justify-content: flex-start; }
+.doc-toolbar.doc-ribbon .nx-docb-lhpanel > button, .doc-toolbar.doc-ribbon .nx-docb-lhpanel > div > button { width: 100%; }

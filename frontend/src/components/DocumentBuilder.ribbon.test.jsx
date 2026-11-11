@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, waitFor, fireEvent, screen } from '@testing-library/react';
 
 // The Word-style ribbon (Pranshu, Nov 4 2026): all eight tabs mount with
-// their groups, and the Word Count box opens from Review.
+// their groups, and the Word Count box opens from Review. Since the
+// redesign (Neil, 11/11/2026) File and Help are the menu bar's, Design and
+// Variables are tabs, and Undo / Redo sit beside the document's name.
 
 const CONTENT = {
   pages: [{
@@ -59,15 +61,17 @@ describe('DocumentBuilder ribbon', () => {
   it('has the eight Word tabs, each with its groups', async () => {
     await mountTemplate();
     const expected = {
-      File: ['Document', 'Share', 'Info'],
-      Home: ['Undo', 'Clipboard', 'Font', 'Paragraph', 'Styles', 'Editing'],
+      Home: ['Clipboard', 'Font', 'Paragraph', 'Styles', 'Editing'],
       Insert: ['Pages', 'Tables', 'Illustrations', 'Nexus', 'Links', 'Comments', 'Header & Footer', 'Symbols'],
-      Layout: ['Page Setup', 'Paragraph', 'Page Background'],
+      Design: ['Letterhead', 'Page Background'],
+      Layout: ['Page Setup', 'Paragraph'],
       References: ['Table of Contents', 'Footnotes'],
+      Variables: ['Insert', 'Create', 'Values', 'In This Document'],
       Review: ['Proofing', 'Comments', 'Tracking'],
       View: ['Views', 'Zoom', 'Show'],
-      Help: ['Help'],
     };
+    expect(document.querySelector('[data-tab="file"]')).toBeNull();
+    expect(document.querySelector('[data-tab="help"]')).toBeNull();
     for (const [tab, groups] of Object.entries(expected)) {
       expect(document.querySelector(`[data-tab="${tab.toLowerCase()}"]`)).toBeTruthy();
       fireEvent.click(screen.getByRole('tab', { name: tab }));
@@ -81,11 +85,15 @@ describe('DocumentBuilder ribbon', () => {
       home: ['Cut', 'Copy', 'Paste', /^Format Painter/, 'Bold', 'Italic', 'Underline', 'Strikethrough', 'Subscript', 'Superscript', 'Font', 'Font Size',
         'Grow Font', 'Shrink Font', 'Change Case', 'Font Color', 'Text Highlight Color', /^Styles - /, 'Align Left', 'Center', 'Align Right', 'Justify',
         'Link', 'Bullets', 'Numbering', 'Decrease Indent', 'Increase Indent', 'Line and Paragraph Spacing', 'Shading', 'Borders',
-        'Sort A to Z (list items)', 'Sort Z to A (list items)', 'Show/Hide ¶', 'Find & Replace', 'Select All', 'Undo', 'Redo'],
-      insert: ['Table', 'Picture', 'Shapes', 'Text Box', 'Signature Block - where a signer signs', 'Select text, then click to convert it into a named merge field',
-        /^Find \{\{variables\}\}/, /^Template Fields/, /^Variable Library/, 'Bookmarks', 'Table of Contents', 'Symbol / Emoji', 'Start the next line on a new page'],
-      layout: ['Margins', 'Orientation', 'Size', 'Columns', 'Breaks', 'Line Numbers', 'Page Setup', 'Space before paragraph, in points', 'Space after paragraph, in points', 'Page Color', 'Watermark'],
+        'Sort A to Z (list items)', 'Sort Z to A (list items)', 'Show/Hide ¶', 'Find & Replace', 'Select All'],
+      insert: ['Table', 'Picture', 'Shapes', 'Text Box', 'Signature Block - where a signer signs', 'Bookmarks', 'Table of Contents', 'Symbol / Emoji', 'Start the next line on a new page'],
+      design: [/^Letterhead/, 'Page Color', 'Watermark'],
+      layout: ['Margins', 'Orientation', 'Size', 'Columns', 'Breaks', 'Line Numbers', 'Page Setup', 'Space before paragraph, in points', 'Space after paragraph, in points'],
+      variables: ['Select text, then click to convert it into a named merge field', /^Find \{\{variables\}\}/, /^Template Fields/, /^Variable Library/, /^Merge Data/, /^Variables Used/],
     };
+    // Undo and Redo moved up beside the document's name (Word's Quick Access).
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeTruthy();
     for (const [tab, titles] of Object.entries(onTab)) {
       fireEvent.click(document.querySelector(`[data-tab="${tab}"]`));
       for (const t of titles) expect(screen.getAllByTitle(t).length, String(t)).toBeGreaterThan(0);
@@ -96,6 +104,15 @@ describe('DocumentBuilder ribbon', () => {
     expect(nexus.textContent).toMatch(/Signature/);
     // Insert A Variable is a searchable pick list now, not a browser select (11/10/2026).
     expect(nexus.querySelector('button[aria-label="Insert a variable"]')).toBeTruthy();
+    // The File and Help tabs' commands are all in the menu bar's File and Help menus.
+    fireEvent.click(screen.getByRole('menuitem', { name: 'File' }));
+    for (const name of ['New Document', 'Rename', 'Version History', 'Page Setup...', 'Print', 'Import a File...']) {
+      expect(await screen.findByRole('menuitem', { name: new RegExp(`^${name.replace(/[.]/g, '\\.')}`) })).toBeTruthy();
+    }
+    fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Help' }));
+    expect(await screen.findByRole('menuitem', { name: /Documents Guide/ })).toBeTruthy();
+    expect(await screen.findByRole('menuitem', { name: /Keyboard Shortcuts/ })).toBeTruthy();
   });
 
   it('shows the fields Word has: a styles gallery naming the current style, galleries and menus', async () => {
