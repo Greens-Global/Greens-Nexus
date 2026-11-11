@@ -71,10 +71,27 @@ const TILES = [
   { key: 'inProgress', label: 'In Progress', Icon: Loader, tone: NX.green, title: 'Show tasks in progress' },
 ];
 
-export function FocusTiles({ counts, focus, onPick, active }) {
+// `actions` (a computer, Neil 11/10/2026): the module's buttons ride the box's
+// first line, the dashboard's number on its left - the bar above held nothing
+// else, so it cost a row.
+export function FocusTiles({ counts, focus, onPick, active, actions = null }) {
   const note = myTasksFootnote({ my_open_tasks_undated: focus.undated, my_open_tasks_recurring: focus.recurring });
+  // The dashboard's number and its two footnotes - the same rule
+  // (homeRules.focusBucket = backend my_work.task_focus_bucket).
+  const needLine = (style) => (
+    <div style={{ fontSize: 12.5, color: NX.faint, ...style }} title={`${MY_TASKS_RULE}, or repeating and due`}>
+      <strong style={{ color: NX.dim, fontWeight: 600 }}>{needsYouNow(focus.focus)}</strong>
+      {note ? ` · ${note}` : ''}
+    </div>
+  );
   return (
     <div style={{ ...card, borderRadius: 16, padding: 16, marginBottom: 16 }}>
+      {actions && (
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+          {needLine({ flex: 1, minWidth: 0, fontSize: 13.5 })}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions}</div>
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
         {TILES.map(({ key, label, Icon, tone, title }) => {
           const on = active === key;
@@ -96,12 +113,7 @@ export function FocusTiles({ counts, focus, onPick, active }) {
           );
         })}
       </div>
-      {/* The dashboard's number and its two footnotes - the same rule
-          (homeRules.focusBucket = backend my_work.task_focus_bucket). */}
-      <div style={{ marginTop: 10, fontSize: 12.5, color: NX.faint }} title={`${MY_TASKS_RULE}, or repeating and due`}>
-        <strong style={{ color: NX.dim, fontWeight: 600 }}>{needsYouNow(focus.focus)}</strong>
-        {note ? ` · ${note}` : ''}
-      </div>
+      {!actions && needLine({ marginTop: 10 })}
     </div>
   );
 }

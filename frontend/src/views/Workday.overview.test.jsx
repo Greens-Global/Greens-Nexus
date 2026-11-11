@@ -54,7 +54,7 @@ async function renderWorkday(sub) {
 }
 
 describe('Workday Overview with the Time Clock', () => {
-  it('opens on the clock widget with Punch In, above the action row', async () => {
+  it('opens on the clock widget with Punch In, under the action row', async () => {
     await renderWorkday('overview');
     expect(await screen.findByRole('region', { name: 'Time Clock' })).toBeTruthy();
     expect(await screen.findByRole('button', { name: /Punch In/ })).toBeTruthy();
@@ -66,10 +66,11 @@ describe('Workday Overview with the Time Clock', () => {
     // card and the card is wrapped so the phone stylesheet can lead with it.
     expect(screen.getByRole('button', { name: /Punch In/ }).closest('.wd-punch-row')).toBeTruthy();
     expect(document.querySelector('.wd-overview > .wd-clock-wrap .wd-clock')).toBeTruthy();
-    // The clock card comes first, the action pills right under it (11/08/2026);
-    // the compact profile card (name, Reports to, Start date, no work email or
+    // The action pills come first, the clock card right under them (Neil,
+    // 11/10/2026; a phone still leads with the clock - order: -1); the compact
+    // profile card (name, Reports to, Start date, no work email or
     // employment) heads the left column.
-    expect(document.querySelector('.wd-overview > .wd-clock-wrap + .wd-actions')).toBeTruthy();
+    expect(document.querySelector('.wd-overview > .wd-actions + .wd-clock-wrap')).toBeTruthy();
     expect(await screen.findByText('Amy Test')).toBeTruthy();
     expect(screen.getByText('Reports to')).toBeTruthy();
     expect(screen.getByText('01/15/2024')).toBeTruthy();

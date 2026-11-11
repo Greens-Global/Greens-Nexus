@@ -472,11 +472,10 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{toast.t}</div>
       )}
 
-      {/* Top of the page: the clock card with its Today / This Week / Pay
-          Period summary, then the Workday actions - neither waits on the HR
-          profile. */}
-      {clockParts ? clockParts.card : clock}
-      {/* The actions (Neil, 11/08/2026): ONE row of pill tiles under the clock
+      {/* Top of the page: the Workday actions, then the clock card with its
+          Today / This Week / Pay Period summary (Neil, 11/10/2026: the actions
+          lead) - neither waits on the HR profile. */}
+      {/* The actions (Neil, 11/08/2026): ONE row of pill tiles over the clock
           card - My Tickets when there is work (first - Neil), Ask HR,
           Reimbursements, Purchase Request, Fill a Form when there is one -
           equal widths, 2 x 2 on a narrow window, a stack on a phone
@@ -516,6 +515,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
             {/* Fill a Form (Forms & Checklists, Neil 11/02/2026): the forms this person may fill, in the fill sheet. Shows only when there is one. `openForm` is the "form:<id>" / "form:pick" deep link. */}
             <FormsTile autoOpen={openForm} flash={flash} />
       </div>
+      {clockParts ? clockParts.card : clock}
       {/* No checklist steps on Workday (Oct 28 2026): an owner's steps are
           subtasks on their My Tasks. */}
       {/* No salary advance card on Workday (Neil, Oct 29 2026): an advance is
