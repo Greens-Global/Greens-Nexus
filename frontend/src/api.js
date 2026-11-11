@@ -2054,6 +2054,15 @@ export const api = {
   revokeIrPortalAccess: (investorId, fundId) => req(`/investor-relations/portal-access/${investorId}/${fundId}`, { method: "DELETE" }),
   getIrPortalMyDeals:   ()       => req("/investor-relations/portal/my-deals"),
   getIrPortalDeal:      (fundId) => req(`/investor-relations/portal/deals/${fundId}`),
+  // Live from Intacct (Neil, 11/11/2026): deal = entity, investor = partner equity accounts.
+  getIrBookEntities:    ()       => req("/investor-relations/books/entities"),
+  getIrBookPartners:    ()       => req("/investor-relations/books/partners"),
+  linkIrFundBooks:      (fundId, entity) => req(`/investor-relations/funds/${fundId}/books`, { method: "PUT", body: JSON.stringify({ entity }) }),
+  linkIrInvestorBooks:  (investorId, accounts) => req(`/investor-relations/investors/${investorId}/books`, { method: "PUT", body: JSON.stringify({ accounts }) }),
+  getIrFundBooks:       (fundId) => req(`/investor-relations/funds/${fundId}/books`),
+  getIrFundsBooks:      ()       => req("/investor-relations/funds-books"),
+  getIrInvestorBooks:   (investorId) => req(`/investor-relations/investors/${investorId}/books`),
+  importIrFromBooks:    (entity) => req("/investor-relations/books/import", { method: "POST", body: JSON.stringify({ entity }) }),
 
   // ── Construction module ────────────────────────────────────────────────────
   // Media bytes are NOT in this list on purpose: the browser uploads straight to

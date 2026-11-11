@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Landmark, Megaphone, Pin, Sprout } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Download, Landmark, Megaphone, Pin, Sprout } from 'lucide-react';
 import { api } from '../api';
 import { formatCurrency, formatDate, formatMultiple, formatPercent, statusColor, statusLabel } from './lib/format';
 import { EmptyState, ErrorState, LoadingState, StatusText, useIrLoad } from './lib/ui';
@@ -9,6 +9,8 @@ import { Spinner } from '../components/AsyncState';
 // attention next (upcoming calls, recent distributions, latest updates).
 export default function DashboardTab({ onOpenTab }) {
   const { data, loading, error, reload } = useIrLoad(() => api.getIrDashboard(), []);
+  // Live from Intacct over the linked deals; nothing shows without Accounting access.
+  const { data: live } = useIrLoad(() => api.getIrFundsBooks().catch(() => null), []);
   const [seeding, setSeeding] = useState(false);
   const [seedErr, setSeedErr] = useState('');
 
@@ -33,9 +35,14 @@ export default function DashboardTab({ onOpenTab }) {
       <EmptyState icon={Landmark} title="No Deals Yet"
         sub="Create your first deal from the Deals tab, or load a sample portfolio to explore every screen in this module.">
         {seedErr && <div style={{ color: 'hsl(var(--color-red))', fontSize: 12.5, marginBottom: 10 }}>{seedErr}</div>}
-        <button className="primary-btn" disabled={seeding} onClick={seed} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          {seeding ? <Spinner size={14} /> : <Sprout size={14} />} Load Sample Portfolio
-        </button>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button className="primary-btn" onClick={() => onOpenTab('investor-funds')} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+            <Download size={14} /> Import From Intacct
+          </button>
+          <button className="secondary-btn" disabled={seeding} onClick={seed} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+            {seeding ? <Spinner size={14} /> : <Sprout size={14} />} Load Sample Portfolio
+          </button>
+        </div>
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
           Demo / sample data for local review - deals, investors, commitments, capital calls, and distributions.
         </div>
@@ -56,6 +63,13 @@ export default function DashboardTab({ onOpenTab }) {
     ['card-blue',   'Avg MOIC',            formatMultiple(d.avgMoic),          'Multiple on invested capital'],
   ];
 
+  const liveRows = live?.allowed ? Object.values(live.deals || {}).filter(x => !x.error) : [];
+  const liveKpis = liveRows.length ? {
+    count: liveRows.length,
+    partnerCapital: liveRows.reduce((t, x) => t + (x.partnerCapital || 0), 0),
+    bookEquity: liveRows.reduce((t, x) => t + (x.bookEquity || 0), 0),
+    cash: liveRows.reduce((t, x) => t + (x.cash || 0), 0),
+  } : null;
   const calls = d.upcomingCapitalCalls || [];
   const dists = d.recentDistributions || [];
   const updates = d.recentUpdates || [];
@@ -74,6 +88,23 @@ export default function DashboardTab({ onOpenTab }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {liveKpis && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 8 }}>
+            Live From Intacct - {liveKpis.count} linked deal{liveKpis.count === 1 ? '' : 's'}, as of {formatDate(live.asOf)}
+          </div>
+          <div className="kpi-grid">
+            {[['Partner Capital', liveKpis.partnerCapital, 'Members\' capital accounts'], ['Book Equity', liveKpis.bookEquity, 'Assets less liabilities'], ['Cash', liveKpis.cash, 'Bank accounts']].map(([label, value, sub]) => (
+              <div key={label} className="kpi-card card-green">
+                <div className="kpi-label">{label}</div>
+                <div className="kpi-value">{formatCurrency(value)}</div>
+                <div className="kpi-delta">{sub}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="kpi-grid">
         {kpis.map(([cls, label, value, sub]) => (
           <div key={label} className={`kpi-card ${cls}`}>

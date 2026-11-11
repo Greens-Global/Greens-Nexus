@@ -676,6 +676,17 @@ keep the diff minimal.
   `locations` only when there are several. Anything that only exists
   consolidated (the dashboard tabs, the accounting app) takes
   `require_unlimited`.
+- **Investor Relations reads Intacct live** (Neil, 11/11/2026,
+  `investor_books.py`, `routers/investor_books.py`, `investor/Books.jsx`): a
+  deal IS an Intacct entity (`ir_funds.intacct_entity`, e.g. 67000 Greens
+  Austin, LLC) and an investor IS their own partner equity accounts
+  (`ir_investors.intacct_accounts`: 300xx "(E&C)", 310xx "(Contribution)",
+  320xx "(Distribution)", one family per NAME - the numbers do not line up).
+  Capital, cash, book equity and revenue are read through the accounting
+  proxy, never keyed or stored; a figure needs the IR read gate AND the
+  Accounting grant AND the entity in the caller's entity access. Import
+  makes the deal and a linked profile per member and never invents a
+  commitment. The portal still shows only Nexus's own records.
 - Personal financial statements (`routers/pfs.py`, Sep 2026) are the most
   sensitive records in Nexus: owners and the explicit `pfs` grant only
   (`bypass_level="owner"` - an administrator's role does NOT open them). Never

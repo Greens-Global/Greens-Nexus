@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Index
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Index, text
 from database import Base
 
 
@@ -4583,6 +4583,9 @@ class ActAsSession(Base):
 
 class IrFund(Base):
     __tablename__ = "ir_funds"
+    # One Intacct entity is one deal (unlinked deals carry '').
+    __table_args__ = (Index("ux_ir_funds_intacct_entity", "intacct_entity", unique=True,
+                            sqlite_where=text("intacct_entity <> ''"), postgresql_where=text("intacct_entity <> ''")),)
     id                    = Column(String, primary_key=True)
     name                  = Column(String, nullable=False)
     entity_name           = Column(String, default="")   # the single-purpose LLC's legal name
@@ -4594,6 +4597,10 @@ class IrFund(Base):
     # string, not a FK: the two modules stay independent, and a stale/deleted
     # property id just makes the link disappear rather than erroring anything.
     property_asset_id     = Column(String, default="")
+    # The Intacct entity (location code) this deal IS - e.g. 67000 Greens
+    # Austin, LLC. Its live figures and members' capital are read from that
+    # entity's books (investor_books.py, Neil 11/11/2026). '' = not linked.
+    intacct_entity        = Column(String, default="")
     status                = Column(String, default="raising")  # raising|active|exited
     target_raise          = Column(Float, default=0)
     minimum_investment    = Column(Float, default=0)
@@ -4626,6 +4633,10 @@ class IrInvestor(Base):
     tax_id_on_file             = Column(Boolean, default=False)
     relationship_owner_email   = Column(String, default="")
     notes                      = Column(String, default="")
+    # The investor's own partner equity accounts in Intacct, comma-separated
+    # (300xx E&C, 310xx Contribution, 320xx Distribution - investor_books.py,
+    # Neil 11/11/2026). '' = not linked.
+    intacct_accounts           = Column(String, default="")
     status                     = Column(String, default="active")      # active|inactive|prospect
     created_by                 = Column(String, default="")
     created_at                 = Column(String, default="")
