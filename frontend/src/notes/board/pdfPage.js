@@ -66,15 +66,28 @@ function canvasToBlob(canvas) {
   });
 }
 
-/** One page (1-based) rendered to a PNG: { blob, width, height }. */
-export async function renderPdfPage(src, pageNumber = 1, scale = PDF_RENDER_SCALE) {
-  const pdf = await open(src);
-  const n = Math.min(Math.max(1, Number(pageNumber) || 1), pdf.numPages || 1);
+async function drawPage(pdf, n, scale) {
   const page = await pdf.getPage(n);
   const vp = page.getViewport({ scale });
   const canvas = document.createElement('canvas');
   canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
   await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
   const blob = await canvasToBlob(canvas);
-  return { blob, width: canvas.width, height: canvas.height, page: n, pages: pdf.numPages || 1 };
+  return { blob, width: canvas.width, height: canvas.height, page: n };
+}
+
+/** One page (1-based) rendered to a PNG: { blob, width, height }. */
+export async function renderPdfPage(src, pageNumber = 1, scale = PDF_RENDER_SCALE) {
+  const pdf = await open(src);
+  const n = Math.min(Math.max(1, Number(pageNumber) || 1), pdf.numPages || 1);
+  return { ...(await drawPage(pdf, n, scale)), pages: pdf.numPages || 1 };
+}
+
+/** The first `max` pages, the PDF read once (Import on a Board): { pages: [{ blob, width, height, page }], total }. */
+export async function renderPdfPages(src, { max = PDF_PAGES_MAX, scale = PDF_RENDER_SCALE } = {}) {
+  const pdf = await open(src);
+  const total = pdf.numPages || 1;
+  const pages = [];
+  for (let n = 1; n <= Math.min(total, max); n += 1) pages.push(await drawPage(pdf, n, scale));
+  return { pages, total };
 }

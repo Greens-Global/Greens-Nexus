@@ -45,7 +45,7 @@ export const DEPT_COLORS = [
   '#4f46e5', '#ca8a04', '#65a30d', '#475569',
 ];
 
-export default function TeamsView({ onNavigate }) {
+export default function TeamsView({ onNavigate, actions }) {
   const { teams, projects, memberRequests, tasks, nameOf, teamName, deleteTeam, decideMemberRequest } = useTasks();
   const [editing, setEditing] = useState(null); // team object, or {} for new, or null
   const [detailId, setDetailId] = useState(null);
@@ -86,7 +86,7 @@ export default function TeamsView({ onNavigate }) {
       <TeamDetail
         team={team} teamProjects={projectsOf(team)}
         onBack={() => setDetailId(null)}
-        onEdit={() => setEditing(team)} onNavigate={onNavigate}
+        onEdit={() => setEditing(team)} onNavigate={onNavigate} actions={actions}
       />
     );
   }
@@ -95,9 +95,12 @@ export default function TeamsView({ onNavigate }) {
     <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, background: NX.canvas }}>
       {/* Toolbar - creating a new team is a Manage-only action (Manage → Teams);
           this page is for browsing/editing existing ones. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: `1px solid ${NX.border}`, flexWrap: 'wrap', background: NX.surface, flexShrink: 0 }}>
-        <div style={{ fontSize: 17, fontWeight: 700 }}>Teams</div>
-        {!isMobile && <div style={{ fontSize: 13, color: NX.dim }}>Teams group members and their work within a project.</div>}
+      {/* The title block matches Projects and Portfolios (Neil, 11/10/2026). */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: isMobile ? '12px 12px 10px' : '20px 24px 16px', borderBottom: `1px solid ${NX.border}`, flexWrap: 'wrap', background: NX.surface, flexShrink: 0 }}>
+        <div>
+          <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 800, letterSpacing: '-0.02em' }}>Teams</div>
+          {!isMobile && <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 4 }}>Teams group members and their work within a project.</div>}
+        </div>
         {/* Right-hand cluster - see ProjectsView for why the group, and not
             ResetColumnsButton, carries the auto margin. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginLeft: 'auto', flexShrink: 0 }}>
@@ -114,6 +117,8 @@ export default function TeamsView({ onNavigate }) {
           />
           {!isMobile && view === 'list' && <ResetColumnsButton />}
           <ViewToggle view={view} onChange={setView} isMobile={isMobile} />
+          {/* The module's Manage / Create (views/Tasks.jsx), on a computer. */}
+          {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions(null)}</div>}
         </div>
       </div>
 
@@ -660,7 +665,7 @@ const DETAIL_TABS = [
   { key: 'calendar', label: 'Calendar' },
 ];
 
-function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate }) {
+function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate, actions }) {
   // The page trail names the list above this team (TASKS / TEAMS).
   useTrailCrumbs([{ label: 'Teams', onClick: onBack }], onBack);
   const { tasks, nameOf } = useTasks();
@@ -697,6 +702,7 @@ function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate }) {
             is what turns individual grants into team access. */}
         <TeamApprovalAction team={team} />
         <MemberStack members={members} nameOf={nameOf} />
+        {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions(null)}</div>}
       </div>
 
       {/* Tabs */}

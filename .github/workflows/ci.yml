@@ -55,6 +55,11 @@ jobs:
         env:
           NEXUS_SKIP_AUTH: "true"
         run: python -m unittest test_app_boot test_auth_access -v
+      # Word compatibility (Documents redesign, 11/11/2026): the exporter's
+      # Word markup and the round-trip fixtures the frontend imports. These
+      # touch no database, so they share one process safely.
+      - name: Word export + round-trip fixture tests
+        run: python -m unittest test_doc_export_word test_doc_export_tabs test_docx_roundtrip_fixtures -v
       - name: Dependency vulnerability scan
         run: |
           pip install pip-audit

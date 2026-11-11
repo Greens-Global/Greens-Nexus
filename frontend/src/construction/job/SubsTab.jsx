@@ -12,6 +12,7 @@ import { formatDate } from '../../lib/datetime';
 import { CARD } from '../ui';
 import { useLoad } from '../lib/job';
 import VendorCompliance, { PapersLabel } from '../VendorCompliance';
+import { OutsideLinksSection, SendLinkSheet } from '../OutsideLinks';
 
 const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)' };
 
@@ -83,11 +84,15 @@ function AddSub({ project, onAdded }) {
 export default function SubsTab({ project }) {
   const { data, error, reload } = useLoad(() => api.getJobSubs(project.id), project.id);
   const [open, setOpen] = useState('');
+  // Round Three item 4 (11/11/2026): a sub's punch list by an outside link.
+  const [sending, setSending] = useState(null);
+  const [sent, setSent] = useState(0);
   if (error) return <ErrorBanner message={error} onRetry={reload} />;
   if (!data) return <SkeletonBlocks count={2} height={56} borderRadius={8} />;
   const subs = data.subs || [];
   const lapsed = subs.filter((s) => s.compliance?.state === 'expired' || s.compliance?.state === 'missing').length;
   return (
+    <>
     <section style={{ ...CARD, marginBottom: 14 }} aria-label="Subs">
       <h3 style={{ fontSize: '1.05rem', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><HardHat size={16} />Subs</h3>
       <p style={{ ...quiet, margin: '0 0 12px' }}>
@@ -106,6 +111,9 @@ export default function SubsTab({ project }) {
               <button type="button" className="secondary-btn" aria-expanded={open === s.vendorId} onClick={() => setOpen(open === s.vendorId ? '' : s.vendorId)} style={{ padding: '6px 10px', fontSize: '0.8rem' }}>Papers</button>
             )}
             {data.canEdit && (
+              <button type="button" className="secondary-btn" onClick={() => setSending(s)} style={{ padding: '6px 10px', fontSize: '0.8rem' }}>Send Punch List</button>
+            )}
+            {data.canEdit && (
               <HoldButton label="Remove" ariaLabel={`Take ${s.name} off the job`} doneLabel="Removed" holdMs={HOLD_RECORD_MS} size="sm"
                 onConfirm={() => api.endJobSub(s.linkId).then(reload)} fallbackMessage="Take this sub off the job?" />
             )}
@@ -119,5 +127,11 @@ export default function SubsTab({ project }) {
       ))}
       {data.canEdit && <div style={{ borderTop: '1px solid var(--border-color)', marginTop: 8, paddingTop: 12 }}><AddSub project={project} onAdded={reload} /></div>}
     </section>
+    {data.canEdit && <OutsideLinksSection project={project} refresh={sent} />}
+    {sending && (
+      <SendLinkSheet project={project} kind="sub" refId={sending.vendorId} what={`${sending.name}'s punch list`}
+        onClose={() => setSending(null)} onSent={() => setSent((n) => n + 1)} />
+    )}
+    </>
   );
 }

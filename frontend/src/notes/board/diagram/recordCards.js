@@ -42,7 +42,8 @@ export function markCard(built, boxId, ref) {
 export function taskCards(elements) {
   const els = (elements || []).filter((e) => e && !e.isDeleted);
   const textOf = new Map(els.filter((e) => e.type === 'text' && e.containerId).map((e) => [e.containerId, e]));
-  return els.filter((e) => splitRef(e.customData?.nexusRecord?.ref || '').kind === 'task')
+  // a sticky linked to a task keeps its own words (stickies.js refreshes its foot instead)
+  return els.filter((e) => !e.customData?.nexusSticky && splitRef(e.customData?.nexusRecord?.ref || '').kind === 'task')
     .map((box) => ({ box, text: textOf.get(box.id), taskId: splitRef(box.customData.nexusRecord.ref).id }))
     .filter((c) => c.text);
 }

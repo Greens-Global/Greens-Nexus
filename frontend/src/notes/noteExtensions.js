@@ -20,7 +20,7 @@ import Link from '@tiptap/extension-link';
 import CodeBlock from '@tiptap/extension-code-block';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
-import { NoteAudio, NoteVideo } from './noteMedia';
+import { NoteAudio, NoteVideo, NoteImage } from './noteMedia';
 import { BoardEmbed } from './board/BoardEmbed';
 import { RecordLink } from './recordLink';
 import { Callout, Toggle } from './noteBlocks';
@@ -111,7 +111,7 @@ export function buildExtensions(placeholder, collab = null, { strict = false } =
     Table.configure({ resizable: false }),
     TableRow, SafeTableHeader, SafeTableCell,
     Placeholder.configure({ placeholder }),
-    NoteAudio.configure({ strictSrc }), NoteVideo.configure({ strictSrc }),
+    NoteAudio.configure({ strictSrc }), NoteVideo.configure({ strictSrc }), NoteImage.configure({ strictSrc }),
     // A board embedded in the note (Insert Board / Mark Up, 11/02/2026).
     BoardEmbed,
     // A [[ link to a note, task, job or Knowledge Base page (Record Links, 11/06/2026).

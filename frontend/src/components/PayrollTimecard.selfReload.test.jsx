@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // period that was on screen, as HR's card already does with its own key.
 
 const card = () => ({
-  payType: 'hourly', email: 'me@x.com', rate: 25, rateSet: true, days: [],
+  payType: 'hourly', email: 'me@x.com', name: 'Mia Example', rate: 25, rateSet: true, days: [],
   pendingRequests: [], punchMeta: {}, totals: { workedMin: 0, regMin: 0, otMin: 0, totalPay: 0 },
 });
 const calls = [];
@@ -69,5 +69,16 @@ describe('my Time Sheet after a reload', () => {
     await waitFor(() => expect(calls.some((c) => c[0] === 'timePayroll')).toBe(true));
     expect(calls.filter((c) => c[0] === 'timePayroll').map((c) => c[2])).not.toContain('2026-08-09');
     expect(screen.queryByText(/08\/02\/2026/)).toBeNull();
+  });
+});
+
+describe('my Time Sheet header (Neil, 11/10/2026)', () => {
+  it('names the person with their photo slot and pay period, not "My Time Sheet"', async () => {
+    await openSelf();
+    const head = await screen.findByTestId('timesheet-person');
+    expect(head.textContent).toContain('Mia Example');
+    expect(head.textContent).toContain('Pay Period:');
+    expect(screen.queryByText('My Time Sheet')).toBeNull();
+    expect(screen.getByText(/Click a clock-in or clock-out time/)).toBeTruthy();
   });
 });

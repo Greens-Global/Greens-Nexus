@@ -1918,6 +1918,8 @@ export const api = {
   // ── Documents (DMS) - Phase 4: PDF/DOCX export with merge resolution ──
   exportDocumentPdf:  (id) => reqBlob(`/documents/${id}/export/pdf`),
   exportDocumentDocx: (id) => reqBlob(`/documents/${id}/export/docx`),
+  // A template as Word, its variables as MERGEFIELDs (11/11/2026).
+  exportTemplateDocx: (id) => reqBlob(`/documents/templates/${encodeURIComponent(id)}/export/docx`),
   // Open in Word (Nov 2026): a signed path Word on the computer fetches with no sign-in.
   documentWordLink: (id) => req(`/documents/word-link/${encodeURIComponent(id)}`, { method: 'POST' }),
 
@@ -3406,6 +3408,9 @@ export const api = {
   // light (a board's carry shapes / words, never its scene); this one
   // carries the board's scene for a preview or a restore.
   noteVersionGet: (noteId, versionId) => req(`/notes/${encodeURIComponent(noteId)}/versions/${encodeURIComponent(versionId)}`),
+  // Board comment @mentions bell the board's own people (Neil, 11/10/2026):
+  // body { pin, text, emails } -> { sent, skipped }.
+  boardMentions: (noteId, body) => req(`/notes/${encodeURIComponent(noteId)}/board-mentions`, { method: "POST", body: JSON.stringify(body) }),
   // The weather follows the jobsite (10/30/2026): "+ New Jobsite" in the
   // shift popup - a name and an address make a Construction project.
   createJobsite: (data) => req("/timeclock/jobsites", { method: "POST", body: JSON.stringify(data) }),
@@ -3553,6 +3558,27 @@ export const fetchCareersOpening = (slug, id) => _publicCareers(`public/${encode
 // `form` is a FormData: first_name, last_name, email, phone, location,
 // linkedin_url, consent, nx_f2 (the honeypot - always empty) and resume.
 export const submitCareersApplication = (openingId, form) => _publicCareers(`apply/${encodeURIComponent(openingId)}`, { method: 'POST', body: form });
+
+// A construction outside link (/outside/<token>, Round Three item 4, 11/11/2026): the
+// architect answering one RFI or a sub marking their punch items done. No login - the URL
+// token is the credential - so plain fetches with credentials 'omit', like the careers page.
+async function _publicOutside(path, init = {}) {
+  const res = await fetch(`${BASE}/construction-outside/${path}`, { credentials: 'omit', ...init });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    const err = new Error(typeof detail === 'string' && detail ? detail
+      : res.status === 429 ? 'Too many tries - please wait a minute and try again.' : `Could not load this page (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+export const fetchOutsideLink = (token) => _publicOutside(encodeURIComponent(token));
+// `form` is a FormData: answer and up to three files.
+export const submitOutsideAnswer = (token, form) => _publicOutside(`${encodeURIComponent(token)}/answer`, { method: 'POST', body: form });
+// `form` is a FormData: photo and an optional note.
+export const submitOutsideDone = (token, taskId, form) => _publicOutside(`${encodeURIComponent(token)}/done/${encodeURIComponent(taskId)}`, { method: 'POST', body: form });
 
 // Web Push devices (Frontline Reach, Neil 11/02/2026; backend routers/push.py).
 // `pushConfig` says whether the server has keys and which public key the
@@ -3747,6 +3773,21 @@ api.addCommitment = (jobId, data) => _post(`${_jp(jobId)}/commitments`, data);
 api.updateCommitment = (id, data) => req(`/construction/commitments/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
 api.addCommitmentWaiver = (id, data) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers`, data);
 api.removeCommitmentWaiver = (id, waiverId) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers/${encodeURIComponent(waiverId)}/remove`, {});
+// The client and cost codes, read from Intacct (Round Three item 2, 11/11/2026;
+// routers/construction_subs.py and construction_money.py).
+api.searchJobCustomers = (jobId, q) => req(`${_jp(jobId)}/customers?q=${encodeURIComponent(q)}`);
+api.setJobClient = (jobId, data) => req(`${_jp(jobId)}/client`, { method: 'PUT', body: JSON.stringify(data) });
+api.getJobCostCodes = (jobId) => req(`${_jp(jobId)}/cost-codes`);
+// Labor by cost code (Round Three item 3, 11/11/2026): the job's labor codes and the Time Clock's offer.
+api.setJobLaborCodes = (jobId, codes) => req(`${_jp(jobId)}/labor-codes`, { method: 'PUT', body: JSON.stringify({ codes }) });
+api.getMyCostCodes = (date, minute = -1) => req(`/construction/my-cost-codes?date=${encodeURIComponent(date)}&minute=${encodeURIComponent(minute)}`);
+// Outside parties (Round Three item 4, 11/11/2026; routers/construction_outside.py): a job
+// manager sends one person a link for one RFI or one sub's punch list; the URL is in the
+// send answer only. A punch item is given to a sub (an Intacct VENDORID on the job).
+api.sendOutsideLink = (jobId, data) => req(`${_jp(jobId)}/outside-links`, { method: 'POST', body: JSON.stringify(data) });
+api.getOutsideLinks = (jobId) => req(`${_jp(jobId)}/outside-links`);
+api.revokeOutsideLink = (linkId) => _post(`/construction/outside-links/${encodeURIComponent(linkId)}/revoke`, {});
+api.setPunchSub = (taskId, vendorId) => _post(`/construction/punch/${encodeURIComponent(taskId)}/sub`, { vendor_id: vendorId });
 
 // Mark Up "Attach to" a job photo (lib/markup.js source kind construction_media).
 async function _attachConstructionMarkup(source, { name, blob }) {

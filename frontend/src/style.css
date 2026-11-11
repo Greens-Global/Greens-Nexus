@@ -3655,22 +3655,34 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .tpl-inline::placeholder { color: #9ca3af; font-style: italic; }
 .tpl-rich { min-height: 1.7em; white-space: pre-wrap; word-break: break-word; cursor: text; }
 .tpl-rich:empty::before { content: attr(data-ph); color: #9ca3af; font-style: italic; pointer-events: none; }
+/* A variable on the page reads like a Word merge field (Neil, 11/11/2026):
+   «Name» in the text's own font, with Word's light gray field shading - not
+   an orange pill (orange is reserved for "live"). The Document Builder and
+   E-Sign templates share it. Variables > Highlight Fields turns the shading
+   off (.doc-fields-plain); Preview Results shows the value (.is-value) or,
+   with nothing to fill it, the name dashed underneath (.is-missing). */
 .tpl-chip {
-  display: inline-block;
-  padding: 0 8px;
-  margin: 0 1px;
-  border-radius: 999px;
-  background: rgba(245, 158, 11, 0.13);
-  border: 1px solid rgba(217, 119, 6, 0.35);
-  color: #92400e;
-  font-family: Inter, sans-serif;
-  font-size: 0.8em;
-  font-weight: 700;
-  line-height: 1.55;
+  display: inline;
+  padding: 0 1px;
+  margin: 0;
+  border-radius: 2px;
+  background: hsla(220, 12%, 50%, 0.16);
+  border: none;
+  color: inherit;
+  font: inherit;
   white-space: nowrap;
   user-select: none;
   cursor: default;
+  box-decoration-break: clone;
 }
+.tpl-chip::before { content: '\00AB'; opacity: 0.55; }
+.tpl-chip::after { content: '\00BB'; opacity: 0.55; }
+.tpl-chip.ProseMirror-selectednode { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; }
+.doc-fields-plain .tpl-chip { background: none; }
+.tpl-chip.is-value::before, .tpl-chip.is-value::after { content: none; }
+.tpl-chip.is-value { background: hsla(220, 12%, 50%, 0.08); }
+.doc-fields-plain .tpl-chip.is-value { background: none; }
+.tpl-chip.is-missing { text-decoration: underline dashed; text-decoration-color: hsla(220, 12%, 40%, 0.7); text-underline-offset: 3px; }
 
 .doc-bookmark {
   display: inline-block; color: #d97706; font-size: 0.85em; cursor: default; user-select: none; padding: 0 1px;
@@ -3943,10 +3955,25 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .doc-ruler-tick.is-major { height: 10px; background: #6b7280; }
 .doc-ruler-tick em { position: absolute; bottom: 9px; left: 3px; font-style: normal; font-size: 9px; color: #6b7280; font-family: Inter, sans-serif; }
 
-/* View > Navigation: the headings, beside the page rail. */
-.doc-navpane { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px; align-self: flex-start; max-height: 70vh; overflow-y: auto; }
-.doc-navpane-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
-.doc-navpane-empty { font-size: 12px; color: var(--muted); margin: 4px 0; }
+/* View > Navigation (11/11/2026): Headings, Pages, Results, in a pane that
+   floats over the desk's left margin (.nx-docb-pane). */
+.doc-navpane { display: flex; flex-direction: column; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 12px 8px; min-height: 0; height: 100%; box-sizing: border-box; box-shadow: var(--shadow-lg); font-family: Inter, sans-serif; }
+.doc-navpane-head { display: flex; align-items: center; justify-content: space-between; font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.doc-navpane-search { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 8px; padding: 0 9px; height: 32px; color: var(--muted); background: var(--card); }
+.doc-navpane-search:focus-within { border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 2px hsla(var(--color-blue), 0.15); }
+.doc-navpane-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: 400 12.5px Inter, sans-serif; color: var(--ink); }
+.doc-navpane-tabs { display: flex; gap: 14px; border-bottom: 1px solid var(--line); }
+.doc-navpane-tabs button { background: none; border: none; padding: 6px 0; margin-bottom: -1px; cursor: pointer; font: 500 12.5px Inter, sans-serif; color: var(--muted); border-bottom: 2px solid transparent; }
+.doc-navpane-tabs button:hover { color: var(--ink); }
+.doc-navpane-tabs button.is-on { color: var(--ink); font-weight: 600; border-bottom-color: var(--wk-brand, hsl(var(--color-green))); }
+.doc-navpane-tabs button:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 2px; border-radius: 3px; }
+.doc-navpane-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin: 0 -4px; padding: 0 4px 4px; }
+.doc-navpane-empty { font-size: 12px; color: var(--muted); margin: 4px 0; line-height: 1.45; }
+.doc-navpane-count { font-size: 11.5px; color: var(--muted); margin: 2px 0 4px; }
+.doc-navpane-result { text-align: left; background: none; border: 1px solid transparent; border-radius: 7px; padding: 6px 8px; cursor: pointer; font: 400 12px/1.45 Inter, sans-serif; color: var(--muted); overflow-wrap: anywhere; }
+.doc-navpane-result mark { background: rgba(250, 204, 21, 0.45); color: var(--ink); border-radius: 2px; padding: 0 1px; }
+.doc-navpane-result:hover { background: var(--mist); }
+.doc-navpane-result.is-on { border-color: var(--line); background: var(--mist); }
 .doc-navpane-item { text-align: left; background: none; border: none; cursor: pointer; font-size: 12.5px; color: var(--ink); padding: 5px 8px; border-radius: 6px; font-family: Inter, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-navpane-item:hover { background: var(--mist); }
 
@@ -4781,7 +4808,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .tab-ink--glide { transition: transform var(--dur-md) var(--ease-standard), width var(--dur-md) var(--ease-standard); }
 .tab-ink--pill { background: var(--wk-card); border: 1px solid var(--wk-line); border-radius: 9px; box-shadow: 0 1px 3px rgba(29,33,57,.08); }
 [data-theme="dark"] .tab-ink--pill { background: rgba(43,69,225,.18); border-color: var(--line); box-shadow: none; }
-.tab-ink--line { box-shadow: inset 0 -2.5px 0 var(--wk-brand); }
+/* The underline is a painted strip, not an inset shadow: at a fractional display scale (150%) Chrome bled a hairline of the inset shadow up one side of the full-height ink box - left, right or neither, by where the tab fell on the pixel grid (Neil, 11/10/2026). */
+.tab-ink--line { background: linear-gradient(var(--wk-brand), var(--wk-brand)) bottom / 100% 2.5px no-repeat; }
 .hdr-tabs:has(.tab-ink) .hdr-tab.active { background: none; border-color: transparent; box-shadow: none; }
 .module-tabs-inline:has(.tab-ink) .module-tab-inline-btn.active { box-shadow: none; }
 @media (prefers-reduced-motion: reduce) { .tab-ink--glide { transition: none; } }
@@ -10213,3 +10241,272 @@ kbd.doc-mb-key { margin-left: auto; padding-left: 18px; font: 500 11.5px Inter, 
 @media (max-width: 1200px) {
   .nx-docb-head button.nx-docb-hbtn.nx-docb-compact-md { font-size: 0; gap: 0; width: 32px; padding: 0; }
 }
+
+/* ── Document Builder redesign (Neil, 11/11/2026, plan
+   https://claude.ai/artifact/AB3yPHWobzZCUJFwpjzvVd) ───────────────────────
+   The desk: the page alone, centered on the gray. Navigation (left) and
+   Comments (right) float over the margins and push the page aside only when
+   a margin is narrower than they are: the page column's side padding grows
+   by exactly what the pane would otherwise cover. --nx-page-w is the page's
+   drawn width (the builder sets it with the zoom). */
+.nx-docb-desk { position: relative; display: flex; flex-direction: column; min-width: 0; --nx-pane-l: 0px; --nx-pane-r: 0px; --nx-page-w: 864px; }
+.nx-docb-desk.has-left { --nx-pane-l: 270px; }    /* the pane (252) and its gaps */
+.nx-docb-desk.has-right { --nx-pane-r: 334px; }   /* Comments (316) and its gaps */
+.nx-docb-canvas { background: var(--mist); border-radius: 12px; min-width: 0; }
+/* The page's left edge x = clamp(left pane, centered, room before the right
+   pane): centered while both margins hold their panes, else as close to
+   center as the panes allow; when even that does not fit, the column grows
+   past the desk and the desk scrolls sideways, so a pane never covers the
+   page. All percentages are the desk's width. */
+.nx-docb-pagecol {
+  --nx-x: clamp(var(--nx-pane-l), calc((100% - var(--nx-page-w)) / 2), calc(100% - var(--nx-pane-r) - var(--nx-page-w)));
+  box-sizing: border-box; padding: 10px 0 4px;
+  padding-left: var(--nx-x);
+  padding-right: max(var(--nx-pane-r), calc(100% - var(--nx-x) - var(--nx-page-w)));
+  min-width: calc(var(--nx-x) + var(--nx-page-w) + var(--nx-pane-r));
+}
+.nx-docb-canvas { overflow-x: auto; }
+.nx-docb-pane { position: absolute; top: 10px; bottom: 10px; z-index: 4; display: flex; flex-direction: column; min-height: 0; }
+.nx-docb-pane.is-left { left: 10px; width: 252px; }
+.nx-docb-pane.is-right { right: 10px; width: 316px; }
+.nx-docb-pane .doc-comments-pane { flex: 1; min-height: 0; max-height: none; position: static; width: auto; box-shadow: var(--shadow-lg); }
+@media (min-width: 901px) {
+  .nx-docb:not(.is-preview) .nx-docb-desk { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) {
+  .nx-docb-pane { bottom: auto; max-height: 75vh; }
+  .nx-docb-pane > * { max-height: 75vh; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nx-docb-pane { animation: nx-docb-pane-in 180ms var(--ease-out, ease-out); }
+  .nx-docb-pagecol { transition: padding 180ms var(--ease-out, ease-out); }
+}
+@keyframes nx-docb-pane-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+.nx-docb-pane.is-right { animation-name: nx-docb-pane-in-r; }
+@keyframes nx-docb-pane-in-r { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+
+/* View > Navigation > Pages: the sheets as thumbnails. */
+.nx-docb-thumbs { display: grid; grid-template-columns: repeat(auto-fill, 92px); justify-content: center; gap: 12px 16px; padding: 4px 0 8px; }
+.nx-docb-thumbs-note { grid-column: 1 / -1; margin: 0; font-size: 11px; line-height: 1.4; color: var(--muted); }
+
+/* Quick Access: Undo / Redo beside the name. */
+.nx-docb-qat { display: inline-flex; align-items: center; gap: 1px; margin-left: 2px; }
+button.nx-docb-qbtn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: none; border-radius: 7px; background: none; color: var(--ink); cursor: pointer; }
+button.nx-docb-qbtn:hover:not(:disabled) { background: var(--mist); }
+button.nx-docb-qbtn:disabled { color: var(--muted); opacity: 0.45; cursor: default; }
+button.nx-docb-qbtn:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; }
+button.nx-docb-hbtn.is-on { background: var(--mist); border-color: var(--ink); }
+
+/* Ribbon Display Options at the right end of the tab row. */
+.doc-ribbon-display { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding-bottom: 3px; }
+button.doc-ribbon-display-btn { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); font: 500 12px Inter, sans-serif; color: var(--ink); cursor: pointer; white-space: nowrap; }
+button.doc-ribbon-display-fold { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); cursor: pointer; }
+button.doc-ribbon-display-btn:hover, button.doc-ribbon-display-fold:hover { background: var(--mist); }
+button.doc-ribbon-display-btn:focus-visible, button.doc-ribbon-display-fold:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; }
+.doc-ribbon-display-tick { display: inline-flex; width: 16px; flex: 0 0 16px; color: hsl(var(--color-blue)); }
+
+/* Variables > Variables Used: the old column's list, in its menu. */
+.nx-docb-used { display: flex; flex-direction: column; gap: 6px; padding: 4px; max-height: 60vh; overflow-y: auto; }
+.nx-docb-used .nx-docb-var { cursor: grab; }
+
+/* File > Import a File...: a small centered card. */
+.modal-content.nx-docb-import { width: min(420px, calc(100vw - 32px)); height: auto; min-height: 0; max-height: none; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+
+/* Status bar: Word's three views. */
+.doc-status-views { display: inline-flex; align-items: center; gap: 2px; margin-right: 8px; }
+.doc-status-views .doc-status-btn[aria-pressed="true"] { background: var(--mist); box-shadow: inset 0 0 0 1px var(--line); }
+@media (max-width: 1100px) { .doc-status-lang { display: none; } }
+/* The ribbon's own button shape (.doc-toolbar button) stays off these lists. */
+.doc-toolbar.doc-ribbon .nx-docb-used button.nx-docb-var { width: 100%; height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; padding: 7px 9px; gap: 2px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); text-align: left; }
+.doc-toolbar.doc-ribbon .nx-docb-used button.nx-docb-var:hover { border-color: var(--pine); background: var(--card); }
+.doc-toolbar.doc-ribbon .nx-docb-used button.nx-docb-vars-lib { width: 100%; height: auto; display: block; padding: 7px 9px; }
+.doc-toolbar.doc-ribbon .nx-docb-lhpanel button, .doc-toolbar.doc-ribbon .nx-docb-mergepanel button { width: auto; height: auto; justify-content: flex-start; }
+.doc-toolbar.doc-ribbon .nx-docb-lhpanel > button, .doc-toolbar.doc-ribbon .nx-docb-lhpanel > div > button { width: 100%; }
+
+/* The Variable Library (11/11/2026): a flyout under Variables > Variable
+   Library (AnchoredMenu places it), or the old panel at the right edge. */
+.nx-varlib { display: flex; flex-direction: column; min-height: 0; background: var(--card); font-family: Inter, sans-serif; }
+.nx-varlib.is-flyout { width: 340px; max-height: min(560px, 70vh); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-lg); overflow: hidden; padding: 0; }
+.nx-varlib.is-flyout.is-pinned { box-shadow: var(--shadow-lg), 0 0 0 2px hsla(var(--color-green), 0.28); }
+.nx-varlib.is-panel { position: fixed; top: 0; right: 0; bottom: 0; width: 330px; z-index: 1200; border-left: 1px solid var(--line); box-shadow: var(--shadow-lg); }
+.nx-varlib-head { padding: 12px 12px 8px 14px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.nx-varlib-title { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.nx-varlib-title strong { flex: 1; }
+button.nx-varlib-icon { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; background: none; border-radius: 6px; color: var(--muted); cursor: pointer; }
+button.nx-varlib-icon:hover, button.nx-varlib-icon[aria-pressed="true"] { background: var(--mist); color: var(--ink); }
+.nx-varlib-search { display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); }
+.nx-varlib-search:focus-within { border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 2px hsla(var(--color-blue), 0.15); }
+.nx-varlib-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: 400 12.5px Inter, sans-serif; color: var(--ink); }
+.nx-varlib-cats { display: flex; flex-wrap: wrap; gap: 5px; }
+.nx-varlib-cats button { font: 500 11px Inter, sans-serif; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+.nx-varlib-cats button.is-on { background: var(--wk-brand, hsl(var(--color-green))); border-color: var(--wk-brand, hsl(var(--color-green))); color: #fff; }
+.nx-varlib-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 6px 8px; }
+.nx-varlib-group h4 { margin: 10px 8px 4px; font-size: 11px; font-weight: 600; color: var(--muted); }
+button.nx-varlib-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px 6px 4px; background: none; border: 1px solid transparent; border-radius: 7px; text-align: left; cursor: grab; font-family: Inter, sans-serif; color: var(--ink); }
+button.nx-varlib-row:hover, button.nx-varlib-row:focus-visible { background: var(--mist); border-color: var(--line); outline: none; }
+button.nx-varlib-row:active { cursor: grabbing; }
+.nx-varlib-grip { color: var(--line); flex-shrink: 0; }
+button.nx-varlib-row:hover .nx-varlib-grip { color: var(--muted); }
+.nx-varlib-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.nx-varlib-label { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-varlib-token { font-size: 10.5px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-varlib-desc { font-size: 10.5px; color: var(--muted); margin-top: 2px; line-height: 1.35; }
+.nx-varlib-used { font-size: 10.5px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.nx-varlib-foot { margin: 0; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); flex-shrink: 0; }
+
+/* "+ Add Page" between two pages of a document: shows while the pointer is
+   over the gap, takes no room (the pagination never moves for it). */
+.nx-docb-pagegap { position: relative; height: 0; display: flex; justify-content: center; z-index: 2; }
+.nx-docb-pagegap button {
+  position: absolute; top: -14px; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px;
+  border: 1px dashed var(--line); border-radius: 999px; background: var(--card); color: var(--muted);
+  font: 600 11.5px Inter, sans-serif; cursor: pointer; opacity: 0; transition: opacity .12s;
+}
+.nx-docb-pagegap:hover button, .nx-docb-pagegap button:focus-visible { opacity: 1; }
+.nx-docb-pagegap::before { content: ""; position: absolute; left: 0; right: 0; top: -18px; height: 32px; }
+.nx-docb-pagegap button:hover { color: var(--ink); border-color: var(--ink); }
+
+/* Word's rulers (Neil, 11/11/2026): over the page, pinned under the ribbon
+   while the pages scroll; the vertical one down the page's left edge. The
+   scales are canvases (docRibbon/Ruler.jsx); the markers take the drags. */
+.doc-rulers { position: sticky; top: 0; z-index: 3; margin: -10px 0 4px; padding: 6px 0 6px; background: var(--mist); }
+.doc-rulers-inner { position: relative; margin: 0 auto; height: 20px; }
+.doc-hruler { position: relative; height: 20px; border-radius: 3px; box-shadow: 0 0 0 1px var(--line); background: var(--card); user-select: none; touch-action: none; }
+.doc-ruler-canvas { display: block; width: 100%; height: 100%; border-radius: inherit; }
+.doc-vruler { position: absolute; left: -28px; top: 26px; width: 20px; border-radius: 3px; overflow: hidden; user-select: none; touch-action: none; }
+.doc-ruler-edge { position: absolute; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 1; }
+.doc-ruler-edge:hover { background: hsla(var(--color-blue), 0.18); }
+svg.doc-ruler-marker { position: absolute; z-index: 2; cursor: ew-resize; fill: var(--card); stroke: var(--ink); stroke-width: 1; overflow: visible; }
+svg.doc-ruler-marker:hover, svg.doc-ruler-marker.is-dragging { fill: hsl(var(--color-blue)); stroke: hsl(var(--color-blue)); }
+.doc-hruler.is-readonly { opacity: 0.85; }
+.doc-ruler-guide { position: absolute; top: 20px; height: 200vh; border-left: 1px dashed hsl(var(--color-blue)); pointer-events: none; z-index: 2; }
+.doc-ruler-tip { position: absolute; top: 24px; transform: translateX(-50%); padding: 2px 7px; border-radius: 5px; background: var(--ink); color: var(--card); font: 600 11px Inter, sans-serif; white-space: nowrap; pointer-events: none; z-index: 3; font-variant-numeric: tabular-nums; }
+.doc-ruler-tip.is-vertical { left: 26px; transform: translateY(-50%); }
+@media (max-width: 900px) {
+  .doc-rulers { top: calc(var(--nx-announce-h, 0px) + 64px); }
+  .doc-vruler { display: none; }
+}
+
+/* Word's tabs (lib/docTabs.js): a tab is an inline box whose width the
+   editor sets to reach the next stop; Show/Hide ¶ draws its arrow. */
+.doc-editor .doc-tab { display: inline-block; min-width: 2px; height: 1em; vertical-align: baseline; white-space: pre; overflow: hidden; color: transparent; user-select: none; }
+.doc-editor.show-marks .doc-tab { position: relative; }
+.doc-editor.show-marks .doc-tab::after { content: '\2192'; position: absolute; left: 50%; top: 0; transform: translateX(-50%); color: #93a3b8; line-height: 1; font-size: 0.85em; }
+/* The ruler's tab stops and the tab-type box in its corner. */
+.doc-ruler-tab { position: absolute; bottom: 1px; width: 10px; height: 9px; z-index: 2; cursor: ew-resize; display: flex; color: var(--ink); }
+.doc-ruler-tab svg, .doc-ruler-corner svg { fill: none; stroke: currentColor; stroke-width: 1.6; overflow: visible; }
+.doc-ruler-tab .doc-tab-glyph circle, .doc-ruler-corner .doc-tab-glyph circle { fill: currentColor; stroke: none; }
+.doc-ruler-tab.is-dragging { color: hsl(var(--color-blue)); }
+.doc-ruler-tab.is-removing { opacity: 0.35; }
+button.doc-ruler-corner { position: absolute; left: -28px; top: 0; width: 20px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 3px; background: var(--card); box-shadow: 0 0 0 1px var(--line); color: var(--ink); cursor: pointer; }
+button.doc-ruler-corner:hover:not(:disabled) { background: var(--mist); }
+button.doc-ruler-corner:disabled { opacity: 0.5; cursor: default; }
+button.doc-ruler-corner:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; }
+@media (max-width: 900px) { button.doc-ruler-corner { display: none; } }
+
+/* Ribbon Display Options > Simplified Ribbon (11/11/2026): one line - no
+   captions, the Font and Paragraph rows side by side, a labeled button
+   becomes a compact one; what does not fit goes into More, as before. */
+.doc-ribbon-bar.is-simplified { padding-top: 4px; padding-bottom: 4px; }
+.doc-ribbon-bar.is-simplified .doc-ribbon-caption { display: none; }
+.doc-ribbon-bar.is-simplified .doc-ribbon-items { flex-wrap: nowrap; max-width: none; }
+.doc-ribbon-bar.is-simplified .doc-ribbon-stack { flex-direction: row; gap: 4px; }
+.doc-toolbar.doc-ribbon.is-simplified button.doc-ribbon-big { height: 30px; min-width: 0; flex-direction: row; gap: 5px; padding: 0 8px; font-size: 11.5px; }
+.doc-toolbar.doc-ribbon.is-simplified button.doc-ribbon-big svg { width: 16px; height: 16px; }
+
+/* Word's dialog launcher in a group's caption. */
+.doc-ribbon-caption { position: relative; display: flex; align-items: center; justify-content: center; align-self: stretch; }
+.doc-toolbar.doc-ribbon button.doc-ribbon-launch { position: absolute; right: -4px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; padding: 0; border-radius: 3px; color: var(--muted); }
+.doc-toolbar.doc-ribbon button.doc-ribbon-launch:hover { color: var(--ink); background: var(--mist); }
+
+/* Home > Styles: the gallery tiles, each drawn in its own style. */
+.doc-style-gallery { display: flex; align-items: stretch; gap: 4px; }
+.doc-toolbar.doc-ribbon button.doc-style-tile {
+  width: 62px; height: 54px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 0 7px;
+  border: 1px solid var(--line); border-radius: 7px; background: #fff; color: #111827; overflow: hidden;
+}
+.doc-toolbar.doc-ribbon button.doc-style-tile:hover { border-color: var(--muted); background: #fff; }
+.doc-toolbar.doc-ribbon button.doc-style-tile.is-active { border-color: var(--wk-brand, hsl(var(--color-green))); box-shadow: 0 0 0 1px var(--wk-brand, hsl(var(--color-green))); background: #fff; color: #111827; }
+.doc-style-sample { font: 400 12px Inter, sans-serif; line-height: 1.15; white-space: nowrap; }
+.doc-style-name { font: 500 9.5px Inter, sans-serif; color: #6b7280; white-space: nowrap; }
+.doc-style-tile-h1 .doc-style-sample { font-size: 15px; font-weight: 700; }
+.doc-style-tile-h2 .doc-style-sample { font-size: 13.5px; font-weight: 700; }
+.doc-style-tile-title .doc-style-sample { font-size: 16px; font-weight: 600; }
+.doc-style-tile-nospacing .doc-style-sample { letter-spacing: -0.01em; }
+
+/* Table Design / Table Layout / Shape Format / Picture Format: Word's
+   contextual tabs, set apart from the fixed ones. */
+.doc-ribbon-tab.is-context { color: var(--wk-brand, hsl(var(--color-green))); }
+.doc-ribbon-tab.is-context.is-active { border-bottom-color: var(--wk-brand, hsl(var(--color-green))); }
+
+/* The Font and Paragraph dialogs. */
+.doc-dlg { display: flex; flex-direction: column; gap: 16px; font-family: Inter, sans-serif; }
+.doc-dlg-section { display: flex; flex-direction: column; gap: 8px; }
+.doc-dlg-section h4 { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.doc-dlg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 14px; }
+.doc-dlg-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.doc-dlg-label { font-size: 11.5px; font-weight: 500; color: var(--muted); }
+.doc-dlg-hint { font-size: 10.5px; color: var(--muted); }
+.doc-dlg-note { margin: 0; font-size: 12px; color: var(--muted); }
+.doc-dlg-tab { display: flex; align-items: center; gap: 8px; }
+.doc-dlg-tab input { width: 90px; }
+.doc-dlg-tab select { width: 120px; }
+button.doc-dlg-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--muted); cursor: pointer; }
+button.doc-dlg-icon:hover { color: hsl(var(--color-red)); }
+.doc-dlg-checks { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; }
+.doc-dlg-checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.doc-dlg-preview { border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #111827; padding: 18px; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-height: 30px; }
+
+/* KeyTips (Alt): Word's letter badges on the tabs and buttons. */
+.doc-keytips { position: fixed; inset: 0; pointer-events: none; z-index: 6000; }
+.doc-keytip { position: fixed; transform: translate(-50%, 0); min-width: 16px; padding: 1px 4px; border-radius: 4px; background: var(--ink); color: var(--card); font: 700 10.5px/1.4 Inter, sans-serif; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.25); letter-spacing: 0.02em; }
+/* Simplified keeps the everyday buttons on its one line (Word's does the
+   same); the rest stay on the Classic ribbon and in the menus. */
+.doc-ribbon-bar.is-simplified :is(button[aria-label="Subscript"], button[aria-label="Superscript"], button[aria-label="Grow Font"], button[aria-label="Shrink Font"],
+  button[aria-label="Change Case"], button[aria-label^="Sort "], button[aria-label="Show/Hide ¶"], button[aria-label="Shading"], button[aria-label="Borders"],
+  button[aria-label="Line and Paragraph Spacing"], button[aria-label="Decrease Indent"], button[aria-label="Increase Indent"], button[aria-label="Clear All Formatting"]) { display: none; }
+.doc-ribbon-bar.is-simplified .doc-ribbon-menu:has(> button[aria-label="Change Case"], > button[aria-label="Shading"], > button[aria-label="Borders"], > button[aria-label="Line and Paragraph Spacing"]) { display: none; }
+
+/* Word's footnotes (lib/docFootnote.js): the number, the note on hover; a
+   click edits it. */
+.doc-editor sup.doc-footnote { font-size: 0.7em; line-height: 0; color: hsl(var(--color-blue)); cursor: pointer; padding: 0 1px; user-select: none; }
+.doc-editor sup.doc-footnote:hover { text-decoration: underline; }
+.doc-editor sup.doc-footnote.ProseMirror-selectednode { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; border-radius: 2px; }
+
+/* The Variables rail (Sagar's, on demand since 11/11/2026): over the
+   desk's right margin, In This Document / Add More. */
+.doc-varpane { display: flex; flex-direction: column; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 12px 8px; height: 100%; min-height: 0; box-sizing: border-box; box-shadow: var(--shadow-lg); font-family: Inter, sans-serif; }
+.doc-varpane-head { display: flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.doc-varpane-n { font-size: 11px; font-weight: 600; color: var(--muted); background: var(--mist); border-radius: 999px; padding: 1px 7px; font-variant-numeric: tabular-nums; }
+button.doc-varpane-close { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+button.doc-varpane-close:hover { background: var(--mist); color: var(--ink); }
+.doc-varpane-tabs { display: flex; gap: 14px; border-bottom: 1px solid var(--line); }
+.doc-varpane-tabs button { background: none; border: none; padding: 6px 0; margin-bottom: -1px; cursor: pointer; font: 500 12.5px Inter, sans-serif; color: var(--muted); border-bottom: 2px solid transparent; }
+.doc-varpane-tabs button.is-on { color: var(--ink); font-weight: 600; border-bottom-color: var(--wk-brand, hsl(var(--color-green))); }
+.doc-varpane-tabs button:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 2px; border-radius: 3px; }
+.doc-varpane-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin: 0 -4px; padding: 2px 4px 4px; }
+.doc-varpane-body.is-library { overflow: hidden; margin: 0 -12px -8px; padding: 0; }
+.doc-varpane-search { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); flex-shrink: 0; }
+.doc-varpane-search:focus-within { border-color: hsl(var(--color-blue)); box-shadow: 0 0 0 2px hsla(var(--color-blue), 0.15); }
+.doc-varpane-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: 400 12.5px Inter, sans-serif; color: var(--ink); }
+.nx-docb-var-row { display: flex; align-items: stretch; gap: 4px; }
+.nx-docb-var-row .nx-docb-var { flex: 1; min-width: 0; flex-direction: row; align-items: flex-start; gap: 6px; padding: 7px 8px 7px 4px; }
+.nx-docb-var-grip { color: var(--line); flex-shrink: 0; margin-top: 2px; }
+.nx-docb-var-row:hover .nx-docb-var-grip { color: var(--muted); }
+.nx-docb-var-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nx-docb-var-value { font-size: 11.5px; color: var(--ink); background: var(--mist); border-radius: 4px; padding: 1px 6px; align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.nx-docb-var-go { display: inline-flex; align-items: center; justify-content: center; width: 30px; flex-shrink: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--muted); cursor: pointer; }
+button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
+.nx-varlib.is-embedded { height: 100%; border: none; box-shadow: none; }
+.nx-varlib.is-embedded .nx-varlib-head { padding-top: 10px; }
+
+/* "Name This Document" on Close (11/11/2026): a centered question card. */
+.modal-content.doc-nameclose { width: min(440px, calc(100vw - 32px)); height: auto; min-height: 0; max-height: none; padding: 20px; display: flex; flex-direction: column; gap: 12px; font-family: Inter, sans-serif; }
+.doc-nameclose h3 { margin: 0; font-size: 16px; font-weight: 700; }
+.doc-nameclose p { margin: 0; font-size: 13px; color: var(--muted); }
+.doc-nameclose-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+/* New From a Template: the name the document is saved under, shown instead of
+   a name box (Neil, 11/11/2026 - named on Close, not before). */
+.nx-newdoc-name { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2, rgba(0,0,0,.03)); font-size: 12px; color: var(--muted); }
+.nx-newdoc-name strong { color: var(--ink); font-weight: 600; word-break: break-word; }

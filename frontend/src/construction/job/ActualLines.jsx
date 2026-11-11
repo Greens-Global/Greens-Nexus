@@ -11,11 +11,13 @@ import { actualQueries, actualReport, keepFor } from '../lib/moneyDrill';
 
 export default function ActualLines({ money: m, row = null, onClose }) {
   const link = m?.link || {};
-  const title = row ? `${row.label} - Actual to Date` : 'Actual to Date';
+  // A client figure (Round Three) is its own title; it is a credit or a part
+  // of a balance, so the "lines add up" check (debits less credits) is left off.
+  const title = row ? (row.client ? row.label : `${row.label} - Actual to Date`) : 'Actual to Date';
   return (
     <LinesPanel key={title} label={title} title={title}
       caption={`Project-Job ${link.project} - ${link.entityName || link.entity} - through ${formatDate(m.asOf, m.asOf)}`}
       queries={actualQueries(m, row)} report={row ? actualReport(m, row) : null} keep={keepFor(m, row)}
-      figure={row ? row.amount : m?.actual?.amount ?? null} widthsKey="construction-money" onClose={onClose} />
+      figure={row ? (row.client ? null : row.amount) : m?.actual?.amount ?? null} widthsKey="construction-money" onClose={onClose} />
   );
 }

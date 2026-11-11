@@ -133,7 +133,7 @@ function MyDayCard(props) {
   return <MyDayWidget myDay={myDay} {...props} />;
 }
 
-export default function HomeView({ onNavigate }) {
+export default function HomeView({ onNavigate, actions }) {
   const store = useTasks();
   const { tasks, projects, teams, notifications, myEmail, nameOf, createTask, toggleComplete, bookmarks } = store;
   const [tab, setTab] = useState('Upcoming');
@@ -184,7 +184,10 @@ export default function HomeView({ onNavigate }) {
   // getElementById at render time. Null (Home reached outside the module
   // shell) simply renders nothing, which is the same as the old empty row.
   const [barSlot, setBarSlot] = useState(null);
-  useEffect(() => { setBarSlot(document.getElementById('nx-tasks-bar-actions')); }, []);
+  // `actions` (Tasks.jsx, a computer): the module's buttons are drawn in the
+  // tile box instead and the bar's slot is gone - look again when it flips.
+  const inCard = !!actions;
+  useEffect(() => { setBarSlot(document.getElementById('nx-tasks-bar-actions')); }, [inCard]);
   const isMobile = useIsMobile();
   const rangeRef = useRef(null);
   // The layout lives in the person's profile (the "home" document in
@@ -723,6 +726,15 @@ export default function HomeView({ onNavigate }) {
   const overlayOff = { opacity: 0.4, cursor: 'default', boxShadow: 'none' };
   const overlayBtn = { width: 26, height: 26, borderRadius: '50%', border: `1px solid ${NX.border}`, background: NX.surface, color: NX.dim, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.12)', cursor: 'pointer', padding: 0 };
 
+  const pageControls = customizing ? (
+    <>
+      <button onClick={toggleAutofit} title="Pack widgets to fill gaps" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap', background: autofit ? NX.hover : undefined }}>{autofit ? <Check size={14} /> : null} Autofit</button>
+      <button onClick={() => { setCustomizing(false); setDragKey(null); setOverKey(null); }} style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap' }}><Check size={14} /> Done</button>
+    </>
+  ) : (
+    <button onClick={() => setCustomizing(true)} title="Customize Widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><SlidersHorizontal size={14} /> Customize</button>
+  );
+
   return (
     <div className="nx-page" style={{ padding: '24px 24px 76px', fontFamily: FONT, color: NX.ink, height: '100%', overflow: 'auto' }}>
       {/* The page-level controls (Customize, or Autofit + Done while
@@ -731,17 +743,7 @@ export default function HomeView({ onNavigate }) {
           date and the counts went, so it cost a row to show one button. The
           range picker and task stats sit in the "My Tasks" card they actually
           scope. */}
-      {barSlot && createPortal(
-        customizing ? (
-          <>
-            <button onClick={toggleAutofit} title="Pack widgets to fill gaps" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap', background: autofit ? NX.hover : undefined }}>{autofit ? <Check size={14} /> : null} Autofit</button>
-            <button onClick={() => { setCustomizing(false); setDragKey(null); setOverKey(null); }} style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap' }}><Check size={14} /> Done</button>
-          </>
-        ) : (
-          <button onClick={() => setCustomizing(true)} title="Customize Widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><SlidersHorizontal size={14} /> Customize</button>
-        ),
-        barSlot,
-      )}
+      {!inCard && barSlot && createPortal(pageControls, barSlot)}
 
       {/* The four tiles (Neil, Oct 23 2026): Overdue / Due Today / This Week /
           In Progress, each a tint of what it means, each switching the Tasks
@@ -750,7 +752,7 @@ export default function HomeView({ onNavigate }) {
           whose "/N" divided by every task the person ever had. Not on phones
           (Neil, Oct 14): the list's tabs carry the same counts there, and the
           tiles pushed the list below the fold. */}
-      {!isMobile && <FocusTiles counts={tiles} focus={focus} onPick={pickTile} active={activeTile} />}
+      {!isMobile && <FocusTiles counts={tiles} focus={focus} onPick={pickTile} active={activeTile} actions={inCard ? actions(pageControls) : null} />}
 
       {/* The core. At a desk Updates LEADS (Neil, 10/31/2026): it answers
           "what changed that affects what I do next", so it takes the LEFT

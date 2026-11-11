@@ -57,7 +57,7 @@ const SHELL_KEY = '/index.html';
 const CURRENT = MANIFEST ? `${PREFIX}${MANIFEST.build}` : '';
 const NAV_TIMEOUT_MS = 10000;
 // Never answered here, whatever they are.
-const PASS_PREFIXES = ['/api/', '/auth-popup', '/outlook-addin/', '/pdf-editor-app/', '/careers', '/assets-404'];
+const PASS_PREFIXES = ['/api/', '/auth-popup', '/outlook-addin/', '/pdf-editor-app/', '/careers', '/outside/', '/assets-404'];
 const PASS_EXACT = new Set(['/api', '/version.json', '/sw.js']);
 
 function route(request) {

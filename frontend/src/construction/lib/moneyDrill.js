@@ -9,9 +9,11 @@ import { lineQuery } from '../../components/accounting/reportModel';
 
 // A commitment's Billed to Date (Round Two item 8) is a row with `vendor`:
 // the job's Project-Job lines for that one vendor.
+// The client's figures (Round Three, 11/11/2026) are rows with `client`:
+// every line on those accounts for the Project-Job, no cost code filter.
 const dimsFor = (link, row, by) => ({
   project: [link.project],
-  ...(row?.vendor ? { vendor: [row.vendor] } : by === 'item' && row?.code ? { item: [row.code] } : {}),
+  ...(row?.client ? {} : row?.vendor ? { vendor: [row.vendor] } : by === 'item' && row?.code ? { item: [row.code] } : {}),
 });
 
 /**
@@ -33,7 +35,7 @@ export function actualQueries(m, row = null) {
 }
 
 /** "No Cost Code" adds up the lines with no item: its panel keeps only those. */
-export const keepFor = (m, row) => (m?.actual?.by === 'item' && row && !row.code && !row.vendor ? (l) => !l.item_id : null);
+export const keepFor = (m, row) => (m?.actual?.by === 'item' && row && !row.code && !row.vendor && !row.client ? (l) => !l.item_id : null);
 
 /** Open in Reports for a row of one account - the same lines on the General Ledger. */
 export function actualReport(m, row) {

@@ -89,9 +89,11 @@ export default function OverviewTab({ e, employees = [], canEdit = false, canSyn
 
   return (
     <div className="pr-section">
-      {!isRemoved && e.work_email && (
+      {/* The record's payload is camelCase (11/11/2026: these read work_email /
+          first_name, always empty, so the section never showed). */}
+      {!isRemoved && e.workEmail && (
         <Suspense fallback={null}>
-          <PersonPerformanceSection email={e.work_email} name={[e.first_name, e.last_name].filter(Boolean).join(' ')} toastOk={toastOk} toastErr={toastErr} />
+          <PersonPerformanceSection email={e.workEmail} name={[e.firstName, e.lastName].filter(Boolean).join(' ')} toastOk={toastOk} toastErr={toastErr} />
         </Suspense>
       )}
 

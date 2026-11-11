@@ -16,6 +16,8 @@ vi.mock('../api', () => ({ api: {
 } }));
 
 const { punchDurable, replayPending, readPending, clearPending, holdPunch, signedIn } = await import('./punchQueue');
+// Round Three (11/11/2026): the same module instance punchQueue reads (a later test resets modules).
+const { setPunchCostCode, rememberCode, rememberedCode } = await import('./punchCostCode');
 
 const netErr = () => new Error('Failed to fetch');                 // no .status - unknown outcome
 const httpErr = (status, message = 'nope') => Object.assign(new Error(message), { status });
@@ -237,5 +239,40 @@ describe('a sign-in that expired while the tab sat open', () => {
     expect(await signedIn()).toBe(true);
     timeStatus.mockResolvedValueOnce({ allowed: ['in'] });
     expect(await signedIn()).toBe(true);
+  });
+});
+
+// Construction Round Three item 3 (11/11/2026): the cost code picked on the
+// Time Clock page goes with an IN punch only, parks with it, and replays.
+describe('the cost code at punch-in', () => {
+  afterEach(() => setPunchCostCode(null));
+
+  it('goes with an IN punch and never with an OUT', async () => {
+    setPunchCostCode({ jobId: 'job-1', code: 'CC-100' });
+    timePunch.mockResolvedValue({ punch: { id: 'p1', kind: 'in' } });
+    await run(() => punchDurable({ kind: 'in', tzOffsetMin: 480 }));
+    expect(timePunch.mock.calls[0][0]).toMatchObject({ cost_code: 'CC-100', cost_code_job: 'job-1' });
+    await run(() => punchDurable({ kind: 'out', tzOffsetMin: 480 }));
+    expect(timePunch.mock.calls[1][0].cost_code).toBeUndefined();
+  });
+
+  it('parks with a punch that could not be sent and replays with it', async () => {
+    setPunchCostCode({ jobId: 'job-1', code: 'CC-200' });
+    timePunch.mockRejectedValue(netErr());
+    timeStatus.mockRejectedValue(netErr());
+    await run(() => punchDurable({ kind: 'in', tzOffsetMin: 480 }));
+    expect(readPending()).toMatchObject({ kind: 'in', cost_code: 'CC-200', cost_code_job: 'job-1' });
+    setPunchCostCode(null);
+    timePunch.mockReset().mockResolvedValue({ punch: { id: 'p2', kind: 'in' } });
+    timeStatus.mockReset().mockResolvedValue({ allowed: ['in'] });
+    await run(() => replayPending());
+    expect(timePunch.mock.calls[0][0]).toMatchObject({ kind: 'in', cost_code: 'CC-200', cost_code_job: 'job-1' });
+  });
+
+  it('remembers the last code per person and per job', async () => {
+    rememberCode('Pat@Example.com', 'job-1', 'CC-100');
+    expect(rememberedCode('pat@example.com', 'job-1')).toBe('CC-100');
+    expect(rememberedCode('sam@example.com', 'job-1')).toBe('');
+    expect(rememberedCode('pat@example.com', 'job-2')).toBe('');
   });
 });

@@ -25,7 +25,7 @@ import RunningTimerChip from '../tasks/RunningTimerChip';
 import { useIsMobile } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn as btnStyle } from '../tasks/theme';
-import ModuleTabs from '../components/ModuleTabs';
+import ModuleTabs, { useNarrow } from '../components/ModuleTabs';
 import GuidedTour from '../components/GuidedTour';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
 import TasksLoading from '../tasks/TasksLoading';
@@ -75,24 +75,26 @@ const FAB_CREATES = {
   teams: 'team',
 };
 const DEFAULT_SUB = 'home';
+// The pages that draw the module's buttons themselves on a computer.
+const PAGE_ACTION_SUBS = ['home', 'projects', 'portfolios', 'teams'];
 const ALL_SUBS = [...TASK_SUBS, 'manage'];
 
-function SubView({ sub, projectId, returnTo, onNavigate, onExitManage }) {
+function SubView({ sub, projectId, returnTo, onNavigate, onExitManage, pageActions }) {
   switch (sub) {
-    case 'home':       return <HomeView onNavigate={onNavigate} />;
+    case 'home':       return <HomeView onNavigate={onNavigate} actions={pageActions} />;
     case 'mine':       return <MyTasksView onOpenTask={(id) => onNavigate('open-task', id)} onNavigate={onNavigate} />;
     /* Back returns to wherever the drill-in STARTED (Home widgets link into
        projects too) - a hardcoded 'projects' stranded people who came from
        Home with a back button that went somewhere they'd never been. */
     case 'tasks':      return <TasksWorkspace lockedProjectId={projectId} onBack={() => onNavigate(returnTo || 'projects')} />;
-    case 'projects':   return <ProjectsView onNavigate={onNavigate} />;
-    case 'portfolios': return <PortfoliosView onNavigate={onNavigate} />;
+    case 'projects':   return <ProjectsView onNavigate={onNavigate} actions={pageActions} />;
+    case 'portfolios': return <PortfoliosView onNavigate={onNavigate} actions={pageActions} />;
     /* Building a project from a template drills straight into it, the same
        way Projects does - the point of the click is the new project. */
     case 'templates':  return <TemplatesView onNavigate={onNavigate} />;
-    case 'teams':      return <TeamsView onNavigate={onNavigate} />;
+    case 'teams':      return <TeamsView onNavigate={onNavigate} actions={pageActions} />;
     case 'manage':     return <ManageView onExit={onExitManage} />;
-    default:           return <HomeView onNavigate={onNavigate} />;
+    default:           return <HomeView onNavigate={onNavigate} actions={pageActions} />;
   }
 }
 
@@ -215,6 +217,13 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   // get it: that bar is down to Manage alone at phone width, and the floating
   // "+" is the better shape for a thumb anyway.
   const inlineCreate = !isMobile;
+  // On a computer these pages draw the module's buttons in their own first
+  // line - Home's tile box, the Projects / Portfolios / Teams headers (Neil,
+  // 11/10/2026: the bar held nothing else once the tabs went up to the top
+  // header, so it cost a row). The bar stays mounted, hidden - its ModuleTabs
+  // is what publishes the tabs to the top header.
+  const narrow = useNarrow();
+  const actionsInPage = PAGE_ACTION_SUBS.includes(sub) && !narrow && !person && !personTasks;
   // ...and on a phone the floating "+" makes this page's own thing (see
   // FAB_CREATES). Computers have no floating button (Neil, 11/02/2026).
   const fabCreate = FAB_CREATES[sub] || '';
@@ -256,6 +265,38 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The module's buttons: the running timer, the sub-view's own controls
+  // (`pageControls` - Home's Customize, or the portal slot for them), Manage,
+  // then Create. Drawn in the bar, or in Home's tile box on a computer.
+  const barActions = (pageControls) => (
+    <>
+      <RunningTimerChip />
+      {pageControls}
+      {/* Outside the tab strip's own scroller, so it cannot scroll away on
+          a narrow window the way Manage used to. */}
+      {canManage && (
+        <button data-tour="task-manage" className="nx-iconbtn" onClick={() => go('manage')} title="Manage"
+          style={{ ...btnStyle('outline'), flexShrink: 0 }}>
+          <Settings size={14} /> <span className="nx-btn-label">Manage</span>
+        </button>
+      )}
+      {/* Create is LAST, and that is the whole point (Neil, Sept 7). It used
+          to come first of the three, on a left-to-right "make something,
+          arrange the page, then administer" reading - but everything after
+          it in this bar is conditional (Home portals a Customize button in,
+          the others portal nothing), so the button moved horizontally as
+          you changed tabs and you had to re-find the same control on every
+          screen. Anchored at the right edge, only what sits to its LEFT
+          changes, so Create is in one place module-wide. Anything added to
+          this bar later goes BEFORE it. */}
+      {inlineCreate && (
+        <span data-tour="task-create">
+          <CreateMenu variant="inline" onNavigate={go} taskDefaults={taskDefaults} />
+        </span>
+      )}
+    </>
+  );
+
   // Tab styling matches the SOP module's Playbook/Learn bar exactly: Plus
   // Jakarta Sans, var(--text-primary)/var(--text-secondary), a 2.5px rounded
   return (
@@ -276,7 +317,7 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           shares the row. Hidden on Manage, which has no module tabs and
           carries its own Exit on its sub-tab strip. */}
       {!onManage && !personFromOutside && (
-        <div className="nx-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)', flexShrink: 0 }}>
+        <div className="nx-primary-bar" style={{ display: actionsInPage ? 'none' : 'flex', alignItems: 'center', gap: 12, padding: '0 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)', flexShrink: 0 }}>
           {/* Phones get the module's tabs from MobileNav's bottom bar instead,
               so the strip is only rendered from ~641px up. */}
           {/* The page trail rides the bar here (Neil, 11/04/2026): Tasks has no
@@ -297,31 +338,9 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
               by the sub-view itself (Home's Customize / Done - see HomeView).
               It sits here rather than in the page body so the module's
               top-level controls read as one group in the same bar, instead of
-              one floating over the widget grid a row below the other. */}
-          <RunningTimerChip />
-          <div id="nx-tasks-bar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }} />
-          {/* Outside the tab strip's own scroller, so it cannot scroll away on
-              a narrow window the way Manage used to. */}
-          {canManage && (
-            <button data-tour="task-manage" className="nx-iconbtn" onClick={() => go('manage')} title="Manage"
-              style={{ ...btnStyle('outline'), flexShrink: 0 }}>
-              <Settings size={14} /> <span className="nx-btn-label">Manage</span>
-            </button>
-          )}
-          {/* Create is LAST, and that is the whole point (Neil, Sept 7). It used
-              to come first of the three, on a left-to-right "make something,
-              arrange the page, then administer" reading - but everything after
-              it in this bar is conditional (Home portals a Customize button in,
-              the others portal nothing), so the button moved horizontally as
-              you changed tabs and you had to re-find the same control on every
-              screen. Anchored at the right edge, only what sits to its LEFT
-              changes, so Create is in one place module-wide. Anything added to
-              this bar later goes BEFORE it. */}
-          {inlineCreate && (
-            <span data-tour="task-create">
-              <CreateMenu variant="inline" onNavigate={go} taskDefaults={taskDefaults} />
-            </span>
-          )}
+              one floating over the widget grid a row below the other. On the
+              PAGE_ACTION_SUBS at a computer the page draws the group instead. */}
+          {!actionsInPage && barActions(<div id="nx-tasks-bar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }} />)}
         </div>
       )}
 
@@ -375,7 +394,8 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
             onOpenProject={(id) => { setPerson(null); subNavigate({ projectId: id }); }}
           />
         ) : (
-          <SubView sub={sub} projectId={projectId} returnTo={returnSub} onNavigate={subNavigate} onExitManage={() => go('home')} />
+          <SubView sub={sub} projectId={projectId} returnTo={returnSub} onNavigate={subNavigate} onExitManage={() => go('home')}
+            pageActions={actionsInPage ? barActions : undefined} />
         )}
       </div>
       {/* A task opened from header search - hosted here so it works from any tab. */}

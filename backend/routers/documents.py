@@ -1110,9 +1110,11 @@ def create_template(body: TemplateIn, user: dict = Depends(get_current_user), db
     doc_type = body.docType or "document"
     if doc_type not in _TEMPLATE_TYPES:
         raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
-    if (doc_type == "form" and not department and _MANAGER_LEVEL <= user.get("level", 0) < _ADMIN_LEVEL):
-        # A manager's new form is their department's (they may manage it);
-        # company-wide forms stay an administrator's.
+    if not department and _MANAGER_LEVEL <= user.get("level", 0) < _ADMIN_LEVEL:
+        # A manager's new form or template is their department's (they may
+        # manage it); company-wide ones stay an administrator's. New Template
+        # opens a blank draft at once (Neil, 11/11/2026) with no department
+        # picked, so this is what lets a department head start one.
         department = _caller_department(db, user)
     _require_template_manager(db, user, department)
     status = body.status or "active"
@@ -1556,7 +1558,9 @@ def get_template(tid: str, user: dict = Depends(get_current_user), db: Session =
     row = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
     if not row:
         raise HTTPException(404, "Template not found")
-    return _ser_template(row)
+    out = _ser_template(row)
+    out["mine"] = (row.created_by or "").lower() == (user.get("email") or "").lower()
+    return out
 
 
 @router.patch("/templates/{tid}")
@@ -1750,6 +1754,22 @@ def preview_template(tid: str, user: dict = Depends(get_current_user), db: Sessi
     pdf_bytes = render_pdf(tpl.name, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup)
     return Response(content=pdf_bytes, media_type="application/pdf",
                     headers={"Content-Disposition": _content_disposition(tpl.name, "pdf")})
+
+
+@router.get("/templates/{tid}/export/docx")
+def export_template_docx(tid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A template as a Word file (Neil, 11/11/2026): the wording as it stands
+    in the editor, its variables as Word merge fields («token») so Word's own
+    mail merge - and an import back into Nexus - knows them as variables.
+    Reading templates is open to the company, as the preview is."""
+    from types import SimpleNamespace
+    tpl = _get_template(db, tid)
+    page = SimpleNamespace(content=tpl.content or {}, letterhead_id=tpl.letterhead_id if tpl.requires_letterhead else "")
+    header_blocks, pages_blocks, footer_blocks, letterhead, page_setup = render_parts(db, page, {})
+    docx_bytes = render_docx(tpl.name, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup,
+                             comments=docx_comments(db, "template", tpl.id), merge_fields=True)
+    return Response(content=docx_bytes, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": _content_disposition(tpl.name, "docx")})
 
 
 @router.get("/templates/{tid}/versions")
@@ -2063,6 +2083,9 @@ def _full_document(db: Session, row: Document, user: dict) -> dict:
     out = _ser_document(row, statuses.get(row.sign_request_id, ""))
     can = _access(row, user, db)
     out["access"] = can
+    # The caller's own document (not an administrator's reach): the builder
+    # drops a blank, unnamed draft of yours on Close (11/11/2026).
+    out["mine"] = (row.owner_email or "").lower() == (user.get("email") or "").lower()
     # Who else is on it: editors and the owner see the list; a viewer does not.
     out["sharedWith"] = _shares(row) if can != "view" else []
     return out
@@ -2831,10 +2854,31 @@ def export_document_pdf(did: str, user: dict = Depends(get_current_user), db: Se
                     headers={"Content-Disposition": _content_disposition(row.title, "pdf")})
 
 
+def docx_comments(db: Session, kind: str, doc_id: str) -> dict:
+    """The Review tab's open comment threads, for the Word file (Neil,
+    11/11/2026: "fully word compatible"): {thread id: {author, initials,
+    text}}, a thread's replies written under its first comment. Resolved
+    threads stay out - they are done."""
+    from models import DocComment
+    rows = (db.query(DocComment).filter(DocComment.doc_kind == kind, DocComment.doc_id == doc_id)
+            .order_by(DocComment.created_at).all())
+    out = {}
+    for c in rows:
+        if c.parent_id or c.resolved_at:
+            continue
+        name = c.author_name or c.author_email or "Nexus"
+        out[c.id] = {"author": name, "initials": "".join(w[0] for w in name.split()[:3]).upper(), "text": c.body or ""}
+    for c in rows:
+        if c.parent_id in out and (c.body or "").strip():
+            out[c.parent_id]["text"] += f"\n\nReply from {c.author_name or c.author_email}: {c.body}"
+    return out
+
+
 @router.get("/{did}/export/docx")
 def export_document_docx(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup = _export_prep(db, did, user)
-    docx_bytes = render_docx(row.title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup)
+    docx_bytes = render_docx(row.title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup,
+                             comments=docx_comments(db, "document", row.id))
     return Response(content=docx_bytes, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": _content_disposition(row.title, "docx")})
 

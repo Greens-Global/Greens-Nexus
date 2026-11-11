@@ -13,6 +13,7 @@ import { useCallback, useMemo } from 'react';
 import {
   Excalidraw, MainMenu, THEME, CaptureUpdateAction, restoreElements,
   exportToBlob, exportToSvg, exportToClipboard, convertToExcalidrawElements,
+  getVisibleSceneBounds, zoomToFitBounds,
 } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 import { CAPTURE } from './index';
@@ -330,8 +331,30 @@ export const diagram = {
   },
 };
 
+/**
+ * Follow mode (Neil, 11/10/2026): the engine draws the avatars, "Following
+ * <name>" and stops following when the follower pans; we carry the views.
+ * `view` is what a person's screen shows, as board bounds [x1, y1, x2, y2];
+ * `fit` puts those bounds on this screen; `follow` starts (or with null
+ * stops) following a collaborator by their socket id.
+ */
+export const follow = {
+  view(appState) {
+    try { return getVisibleSceneBounds(appState).map((n) => Math.round(n)); } catch { return null; }
+  },
+  fit(handle, bounds) {
+    try {
+      const { appState } = zoomToFitBounds({ bounds, appState: handle.getAppState(), fitToViewport: true, viewportZoomFactor: 1 });
+      handle.updateScene({ appState: { scrollX: appState.scrollX, scrollY: appState.scrollY, zoom: appState.zoom }, captureUpdate: CaptureUpdateAction.NEVER });
+    } catch { /* engine not ready */ }
+  },
+  follow(handle, socketId, username = '') {
+    try { handle.updateScene({ appState: { userToFollow: socketId ? { socketId, username } : null }, captureUpdate: CaptureUpdateAction.NEVER }); } catch { /* engine not ready */ }
+  },
+};
+
 /** The contract's capture words are the engine's own strings (store.ts) - checked by excalidraw.test.jsx. */
 export const captureWords = () => ({ IMMEDIATELY: CaptureUpdateAction.IMMEDIATELY, NEVER: CaptureUpdateAction.NEVER });
 
-const engine = { Canvas, toScene, fromScene, exportPng, exportSvg, reconcile, version, restore, copyPng, Menu, CAPTURE, markup, diagram };
+const engine = { Canvas, toScene, fromScene, exportPng, exportSvg, reconcile, version, restore, copyPng, Menu, CAPTURE, markup, diagram, follow };
 export default engine;

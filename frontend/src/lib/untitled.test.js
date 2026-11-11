@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { isUntitled, suggestName, askForName } from './untitled';
+import { isUntitled, suggestName, askForName, defaultName } from './untitled';
 
 // A document or sheet starts unnamed and is named on Close (Neil, 11/10/2026).
 describe('untitled', () => {
@@ -25,5 +25,19 @@ describe('untitled', () => {
     expect(await askForName(dialog)).toBe(null);
     dialog.prompt.mockResolvedValue('Untitled Document');
     expect(await askForName(dialog)).toBe(null);
+  });
+});
+
+describe('the default name', () => {
+  it('is the kind and the day, US format', () => {
+    const d = new Date(2026, 10, 11);
+    expect(defaultName('document', d)).toBe('Document - 11/11/2026');
+    expect(defaultName('template', d)).toBe('Template - 11/11/2026');
+    expect(defaultName('sheet', d)).toBe('Sheet - 11/11/2026');
+  });
+  it('knows an untitled template', () => {
+    expect(isUntitled('Untitled Template')).toBe(true);
+    expect(isUntitled('Untitled Template (2)')).toBe(true);
+    expect(isUntitled('Template - 11/11/2026')).toBe(false);
   });
 });

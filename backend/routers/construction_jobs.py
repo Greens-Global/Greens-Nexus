@@ -133,7 +133,9 @@ def _project_view(db: Session, p, user: dict) -> dict:
                             "doneMediaId": m.done_media_id or "", "doneBy": m.done_by or "",
                             "doneByName": mnames.get(m.done_by or "", ""), "doneAt": m.done_at or "",
                             "verifiedBy": m.verified_by or "", "verifiedByName": mnames.get(m.verified_by or "", ""),
-                            "verifiedAt": m.verified_at or ""} for tid, m in meta.items()},
+                            "verifiedAt": m.verified_at or "",
+                            # Round Three item 4: the sub whose item it is (an Intacct VENDORID).
+                            "subVendorId": getattr(m, "sub_vendor_id", "") or ""} for tid, m in meta.items()},
     }
 
 
@@ -891,6 +893,29 @@ def my_jobs(user: dict = Depends(get_current_user), db: Session = Depends(get_db
     mine.sort(key=lambda p: (p.id not in today_keys, (p.name or "").lower()))
     return {"jobs": [{"id": p.id, "name": p.name, "onShiftToday": p.id in today_keys,
                       "jobType": construction_tasks.job_type_of(p)} for p in mine]}
+
+
+@router.get("/my-cost-codes")
+def my_cost_codes(date: str = "", minute: int = -1, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """What the Time Clock offers at punch-in (Round Three item 3, 11/11/2026):
+    the job the caller is placed at on `date` (their local day) and its
+    labor cost codes - {jobId, jobName, codes: [{code, name}]}, or
+    {codes: []} when the day's shift is on no job with labor codes. Code
+    names only, never a figure. `minute` (the caller's local minute of the
+    day) picks the placement holding that time when there are several -
+    the same rule the punch's jobsite stamp uses (review, 11/11/2026)."""
+    import re as _re
+    day = (date or "").strip()[:10]
+    if not _re.match(r"^\d{4}-\d{2}-\d{2}$", day):
+        return {"codes": []}
+    js = construction_labor.placement_jobsite(db, _me(user), day, minute if 0 <= minute < 1440 else None)
+    if not js.startswith(construction_labor.PROJECT):
+        return {"codes": []}
+    p = db.get(models.ConstructionProject, js[len(construction_labor.PROJECT):])
+    if p is None or p.deleted_at or not _may_read(db, user, p):
+        return {"codes": []}
+    codes = construction_labor.labor_codes_of(p)
+    return {"jobId": p.id, "jobName": p.name, "codes": codes} if codes else {"codes": []}
 
 
 @router.get("/search")

@@ -23,7 +23,9 @@ and write the same rows (models.NexusNote).
                 day that already has one returns that one.
   Sharing     - only with the curated Nexus People list (the same list and
                 company wall as /myhr/directory), one bell to the person.
-                Mentions inside a note send nothing - a note is private.
+                Mentions inside a note send nothing - a note is private -
+                except in a BOARD's comment threads (Neil, 11/10/2026):
+                POST /board-mentions bells the board's own people.
   Delete      - only from the Trash, only the owner; the versions go with it.
 
 Working together (Neil, Oct 30 2026):
@@ -1035,6 +1037,61 @@ def unshare_note(note_id: str, email: str, user: dict = Depends(get_current_user
     if can != "owner":
         return {"ok": True}
     return _full(n, me)
+
+
+# ── board comment mentions ─────────────────────────────────────────────────
+# Neil, 11/10/2026: an @mention in a BOARD comment thread sends a bell - the
+# one exception to "mentions inside a note send nothing". The thread lives in
+# the scene (the browser writes it); this route only sends the bells, one per
+# person, pin and board, rewritten in place on the next mention.
+_PIN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+MENTION_TEXT_MAX, MENTION_EMAILS_MAX, MENTION_CLIP = 1000, 20, 140
+
+
+class BoardMentionIn(BaseModel):
+    pin: str
+    text: str
+    emails: List[str]
+
+
+@router.post("/{note_id}/board-mentions")
+def board_mentions(note_id: str, body: BoardMentionIn, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """Bell the people @mentioned in one board comment. Only the people who
+    can open the board (its owner and its shares) are belled, never the
+    caller; the rest come back in `skipped`. The text is never logged."""
+    me = _me(user)
+    n, can = _get_or_404(db, note_id, me)
+    if (n.kind or "note") != "board":
+        raise HTTPException(400, "Only a board has comment mentions")
+    if can == "read" or n.trashed_at:
+        raise HTTPException(403, "Only the board's editors mention people in its comments")
+    pin = (body.pin or "").strip()
+    text = re.sub(r"\s+", " ", body.text or "").strip()
+    if not _PIN.match(pin):
+        raise HTTPException(400, "Not a comment")
+    if not text or len(text) > MENTION_TEXT_MAX:
+        raise HTTPException(400, f"A comment is 1 to {MENTION_TEXT_MAX} characters")
+    if not body.emails or len(body.emails) > MENTION_EMAILS_MAX:
+        raise HTTPException(400, f"Mention 1 to {MENTION_EMAILS_MAX} people")
+    emails = list(dict.fromkeys(e for e in ((x or "").strip().lower() for x in body.emails) if e))
+    members = {(n.owner_email or "").lower()} | {s["email"] for s in _shares(n)}
+    sent = [e for e in emails if e in members and e != me]
+    skipped = [e for e in emails if e not in sent]
+    if sent:
+        import notify_rollup
+        from auth import company_of
+        who = user.get("name") or me
+        title = (n.title or "").strip() or "Untitled Board"
+        clip = text if len(text) <= MENTION_CLIP else text[:MENTION_CLIP - 3].rstrip() + "..."
+        for email in sent:
+            notify_rollup.upsert_rollup(
+                db, recipient=email, key=f"board-mention:{n.id}:{pin}", title="Mentioned on a Board",
+                line=f"{who} mentioned you on {title[:80]}: {clip}",
+                action={"view": "dashboard", "sub": f"notes:{n.id}~{pin}"},   # NotesPage opens the board at the pin
+                company=company_of(email, db) or "", requested_by=me, replace=True)
+        db.commit()
+    return {"sent": sent, "skipped": skipped}
 
 
 # ── versions ───────────────────────────────────────────────────────────────

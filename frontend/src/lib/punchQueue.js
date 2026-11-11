@@ -1,5 +1,6 @@
 import { api } from '../api';
 import { replayPendingBods } from './bodQueue';
+import { punchCostCodeFields } from './punchCostCode';
 
 // ── A punch must never be lost ────────────────────────────────────────────────
 // The day-message gate posts to Teams BEFORE the punch (BodModal.send() ->
@@ -83,6 +84,8 @@ export async function punchDurable({ kind, tzOffsetMin, clickedAt = '', pos = nu
     kind, ...(pos || {}), tz_offset_min: tzOffsetMin,
     ...(!pos && locationOff ? { location_off: true } : {}),   // shows Location Off, not No Location
     ...(clickedAt ? { clicked_at: clickedAt } : {}),
+    // Round Three (11/11/2026): the cost code picked on the Time Clock page, IN punches only.
+    ...punchCostCodeFields(kind),
     ...(extra || {}),
   };
   let lastErr = null;
@@ -116,7 +119,7 @@ export async function punchDurable({ kind, tzOffsetMin, clickedAt = '', pos = nu
   }
   const queued = writePending({
     kind, at: clickedAt || utcStamp(), tz_offset_min: tzOffsetMin,
-    ...(pos || {}), queued_at: utcStamp(),
+    ...(pos || {}), ...punchCostCodeFields(kind), queued_at: utcStamp(),
   });
   // `extra` (the shared-PC pair nonce) is deliberately NOT parked: it belongs to
   // this browser's live pairing challenge and is meaningless on a later replay.
@@ -141,7 +144,7 @@ export async function holdPunch({ kind, clickedAt = '', tzOffsetMin }, run) {
   const hold = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   liveHolds.add(hold);
   const at = clickedAt || utcStamp();
-  writePending({ kind, at, tz_offset_min: tzOffsetMin, queued_at: utcStamp(), hold });
+  writePending({ kind, at, tz_offset_min: tzOffsetMin, ...punchCostCodeFields(kind), queued_at: utcStamp(), hold });
   try {
     return await run();
   } finally {
@@ -202,6 +205,7 @@ async function _replayPending() {
       const r = await api.timePunch({
         kind: p.kind, lat: p.lat, lng: p.lng, accuracy_m: p.accuracy_m,
         tz_offset_min: p.tz_offset_min, clicked_at: p.at,
+        ...(p.cost_code ? { cost_code: p.cost_code, cost_code_job: p.cost_code_job } : {}),
       });
       return { restored: true, punch: r.punch, entry: p };
     }

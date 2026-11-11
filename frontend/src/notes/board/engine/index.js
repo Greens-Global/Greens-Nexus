@@ -40,6 +40,10 @@
 // arrow tied to its boxes, box ids kept; grow(root, side) - the next box on that
 // side, tied } - board/diagram/; a board whose engine has none shows no
 // Diagram button).
+// and the optional `follow` ({ view(appState) -> [x1, y1, x2, y2], fit(handle,
+// bounds), follow(handle, socketId | null, username) } - follow mode, Bring
+// Everyone Here and a presenter's view, Neil 11/10/2026; a board whose engine
+// has none simply does not follow).
 //
 // `NexusScene` is the saved `nexus-board` JSON (scene.js) - unchanged on
 // disk by any of this.

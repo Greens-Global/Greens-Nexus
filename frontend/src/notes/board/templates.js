@@ -71,12 +71,82 @@ function floorPlan() {
   return withElements(els, { gridModeEnabled: true, gridSize: 20 });
 }
 
+// Named frames on a grid of 360-wide columns, the Kanban spacing (400 apart).
+const frames = (names, perRow, h, top = 0) => names.map((name, i) => frame((i % perRow) * 400, top + Math.floor(i / perRow) * (h + 40), 360, h, name));
+
+const heading = (title, sub) => [
+  text(0, -100, title, { size: 28 }),
+  text(0, -50, sub, { size: 16, color: NEXUS_COLORS.slate }),
+];
+
+function retro() {
+  return withElements([
+    ...heading('Retro', 'One sticky per thought. Vote on what to try next.'),
+    ...frames(['What Went Well', 'What Did Not', 'What We Will Try'], 3, 720),
+  ]);
+}
+
+function kickoff() {
+  return withElements([
+    text(0, -60, 'Kickoff', { size: 28 }),
+    ...frames(['Goals', 'Scope', 'People and Roles', 'Risks', 'First Milestones'], 3, 400),
+  ]);
+}
+
+function swot() {
+  return withElements([
+    text(0, -60, 'SWOT', { size: 28 }),
+    ...frames(['Strengths', 'Weaknesses', 'Opportunities', 'Threats'], 2, 400),
+  ]);
+}
+
+function fishbone() {
+  const els = [
+    ...heading('Fishbone', 'Write each cause on a sticky along its bone.'),
+    line(0, 300, 1000, 0, { strokeWidth: 2 }),
+    rect(1020, 260, 200, 80, { strokeWidth: 2 }),
+    text(1060, 285, 'Problem', { size: 20 }),
+  ];
+  // Three bones above the spine and three below, each angled in toward the head.
+  [['People', -1], ['Process', -1], ['Equipment', -1], ['Materials', 1], ['Site', 1], ['Weather', 1]].forEach(([name, side], i) => {
+    const x = 300 + (i % 3) * 300;
+    const y = 300 + side * 220;
+    els.push(line(x - 160, y, 160, -side * 220));
+    els.push(text(x - 200, side < 0 ? y - 30 : y + 8, name, { size: 18 }));
+  });
+  return withElements(els);
+}
+
+function siteWalk() {
+  return withElements([
+    text(0, -130, 'Site Walk', { size: 28 }),
+    text(0, -84, formatDate(new Date()), { size: 16, color: NEXUS_COLORS.slate }),
+    text(0, -50, 'Drop a photo and a sticky in each stop.', { size: 16, color: NEXUS_COLORS.slate }),
+    ...frames(['Stop 1', 'Stop 2', 'Stop 3', 'Stop 4', 'Stop 5', 'Stop 6'], 3, 360),
+  ]);
+}
+
+function huddle() {
+  const monday = new Date();
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  return withElements([
+    ...heading('Weekly Huddle', `Week of ${formatDate(monday)}`),
+    ...frames(['Wins', 'Priorities This Week', 'Blockers', 'Shout-Outs'], 4, 600),
+  ]);
+}
+
 export const TEMPLATES = [
   { key: 'blank', label: 'Blank', hint: 'An empty board, Clean look', scene: () => emptyScene('clean') },
   { key: 'grid', label: 'Grid', hint: 'Snaps to a grid for tidy diagrams', scene: grid },
   { key: 'kanban', label: 'Kanban', hint: 'To Do, Doing and Done columns', scene: kanban },
   { key: 'timeline', label: 'Timeline', hint: 'Seven weeks from this Sunday, dated', scene: timeline },
   { key: 'floorplan', label: 'Floor Plan', hint: 'A 1 ft grid and a room to start from', scene: floorPlan },
+  { key: 'retro', label: 'Retro', hint: 'What went well, what did not, what to try', scene: retro },
+  { key: 'kickoff', label: 'Kickoff', hint: 'Goals, scope, people, risks and milestones', scene: kickoff },
+  { key: 'swot', label: 'SWOT', hint: 'Strengths, weaknesses, opportunities, threats', scene: swot },
+  { key: 'fishbone', label: 'Fishbone', hint: 'Find the root cause of an incident', scene: fishbone },
+  { key: 'sitewalk', label: 'Site Walk', hint: 'Six stops for photos and notes, dated today', scene: siteWalk },
+  { key: 'huddle', label: 'Weekly Huddle', hint: 'Wins, priorities, blockers and shout-outs', scene: huddle },
 ];
 
 export const templateByKey = (key) => TEMPLATES.find((t) => t.key === key) || TEMPLATES[0];

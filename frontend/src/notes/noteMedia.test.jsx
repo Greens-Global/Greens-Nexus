@@ -56,7 +56,7 @@ describe('NoteEditor media', () => {
     const { container, unmount } = render(<NoteEditor value={body} onChange={() => {}} />);
     await waitFor(() => expect(container.querySelector('audio')).toBeTruthy());   // node views mount a tick later
     expect(container.querySelector('audio').getAttribute('src')).toBe(`${SRC}.webm`);
-    expect(container.querySelector('video').getAttribute('src')).toBe(`${SRC}.mp4`);
+    expect(container.querySelector('video').getAttribute('src')).toBe(`${SRC}.mp4#t=0.1`);   // a tile: the first frame as its preview
     expect(screen.getByRole('button', { name: 'Remove Voice Note' })).toBeTruthy();
     unmount();
     const ro = render(<NoteEditor value={body} readOnly onChange={() => {}} />);
@@ -185,7 +185,7 @@ describe('NoteEditor on a phone', () => {
     expect(bar.classList.contains('nt-pb')).toBe(true);
     const labels = [...bar.querySelectorAll('.nt-pb-main button')].map((b) => b.getAttribute('aria-label'));
     expect(labels.slice(0, 5)).toEqual(['Checklist', 'Bulleted List', 'Numbered List', 'Outdent', 'Indent']);
-    expect(labels).toContain('Add a Video');
+    expect(labels).toContain('Photo or Video - take one or pick from the library');
     expect(labels).toContain('More Formatting');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Bulleted List' })); });
     expect(onChange.mock.calls.at(-1)[0]).toContain('<ul>');

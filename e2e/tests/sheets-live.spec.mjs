@@ -48,7 +48,8 @@ test('a sheet computes, saves and reopens', async ({ page }) => {
   await openApp(page);
   await page.goto('/documents');
   await skipTour(page);
-  await page.getByRole('button', { name: 'New Sheet' }).click();
+  await page.getByRole('button', { name: 'More ways to start a document' }).click();
+  await page.getByRole('menuitem', { name: 'Blank Sheet' }).click();
   await expect(page.locator('[role=grid]')).toBeVisible({ timeout: 20_000 });
   const name = page.getByLabel('Sheet name');
   await name.fill(title);
@@ -67,7 +68,8 @@ test('two people editing at once both keep their edits', async ({ browser }) => 
   await openApp(a);
   await a.goto('/documents');
   await skipTour(a);
-  await a.getByRole('button', { name: 'New Sheet' }).click();
+  await a.getByRole('button', { name: 'More ways to start a document' }).click();
+  await a.getByRole('menuitem', { name: 'Blank Sheet' }).click();
   await expect(a.locator('[role=grid]')).toBeVisible({ timeout: 20_000 });
   await a.getByLabel('Sheet name').fill(title);
   await a.getByLabel('Sheet name').press('Enter');
@@ -123,7 +125,8 @@ test('a pivot table sums by region and follows its data', async ({ page }) => {
   await openApp(page);
   await page.goto('/documents');
   await skipTour(page);
-  await page.getByRole('button', { name: 'New Sheet' }).click();
+  await page.getByRole('button', { name: 'More ways to start a document' }).click();
+  await page.getByRole('menuitem', { name: 'Blank Sheet' }).click();
   await expect(page.locator('[role=grid]')).toBeVisible({ timeout: 20_000 });
   const rows = [['Region', 'Rep', 'Amount'], ['East', 'Ann', '100'], ['East', 'Bo', '30'], ['North', 'Ann', '20'], ['West', 'Bo', '50']];
   await page.locator('[role=grid]').focus();
@@ -149,7 +152,8 @@ test('a sheet downloads as .xlsx and imports back with its values and formula', 
   await openApp(page);
   await page.goto('/documents');
   await skipTour(page);
-  await page.getByRole('button', { name: 'New Sheet' }).click();
+  await page.getByRole('button', { name: 'More ways to start a document' }).click();
+  await page.getByRole('menuitem', { name: 'Blank Sheet' }).click();
   await expect(page.locator('[role=grid]')).toBeVisible({ timeout: 20_000 });
   await typeAt(page, [], '40');
   await typeAt(page, ['ArrowDown'], '2');

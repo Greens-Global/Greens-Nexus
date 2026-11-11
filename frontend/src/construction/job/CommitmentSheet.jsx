@@ -5,7 +5,7 @@
 // A new amount asks why (kept with before and after on the job's activity).
 // Waivers are the vendor's own signed (state) form, attached as received -
 // Nexus never writes waiver wording.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Paperclip } from 'lucide-react';
 import { api } from '../../api';
 import { Modal, DateField } from '../../tasks/components';
@@ -52,9 +52,35 @@ function FileAttach({ projectId, url, name, onChange, label }) {
   );
 }
 
-const blank = { kind: 'subcontract', title: '', amount: '', retainagePct: 0, contractUrl: '', contractName: '', notes: '', status: 'active', reason: '' };
+// The cost code (Round Three, 11/11/2026): an Intacct item, the same code the
+// job's cost lines carry, so Committed sits beside Actual per code. The list
+// is the server's (the job's own codes first); typing one not listed is fine.
+function CostCodeRow({ projectId, value, onChange }) {
+  const [codes, setCodes] = useState([]);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve().then(() => api.getJobCostCodes(projectId))
+      .then((d) => { if (live) setCodes(d?.codes || []); })
+      .catch(() => { if (live) setCodes([]); });
+    return () => { live = false; };
+  }, [projectId]);
+  return (
+    <SettingRow title="Cost Code" htmlFor="cm-code" desc="The Intacct item its costs post to. Left empty, it counts under No Cost Code."
+      control={(
+        <span>
+          <input id="cm-code" aria-label="Cost Code" className="form-input" list="cm-code-list" style={{ width: 'min(240px, 52vw)' }}
+            value={value} maxLength={60} placeholder="Type or pick a code" onChange={(e) => onChange(e.target.value)} />
+          <datalist id="cm-code-list">
+            {codes.map((c) => <option key={c.code} value={c.code}>{c.name ? `${c.code} - ${c.name}` : c.code}</option>)}
+          </datalist>
+        </span>
+      )} />
+  );
+}
+
+const blank = { kind: 'subcontract', title: '', costCode: '', amount: '', retainagePct: 0, contractUrl: '', contractName: '', notes: '', status: 'active', reason: '' };
 const savedOf = (c) => (c ? {
-  kind: c.kind, title: c.title, amount: String(c.amount), retainagePct: c.retainagePct || 0, contractUrl: c.contractUrl,
+  kind: c.kind, title: c.title, costCode: c.costCode || '', amount: String(c.amount), retainagePct: c.retainagePct || 0, contractUrl: c.contractUrl,
   contractName: c.contractName, notes: c.notes, status: c.status, reason: '',
 } : blank);
 
@@ -131,7 +157,7 @@ export default function CommitmentSheet({ project, commitment: c = null, onClose
     if (busy || missing) return;
     setBusy(true); setError('');
     const body = {
-      title: draft.title.trim(), amount: Number(draft.amount), retainage_pct: Number(draft.retainagePct || 0),
+      title: draft.title.trim(), cost_code: draft.costCode.trim(), amount: Number(draft.amount), retainage_pct: Number(draft.retainagePct || 0),
       contract_url: draft.contractUrl, contract_name: draft.contractName, notes: draft.notes,
     };
     try {
@@ -171,6 +197,7 @@ export default function CommitmentSheet({ project, commitment: c = null, onClose
             <input id="cm-title" aria-label="Scope" className="form-input" style={{ width: '100%' }} value={draft.title} maxLength={200}
               onChange={(e) => patch({ title: e.target.value })} placeholder="e.g. Plumbing rough-in and finish" />
           </SettingRow>
+          <CostCodeRow projectId={project.id} value={draft.costCode} onChange={(v) => patch({ costCode: v })} />
           <SettingRow title="Amount" htmlFor="cm-amount" desc={c && c.originalAmount !== c.amount ? `Originally ${usd(c.originalAmount)}.` : 'What the signed contract or order is for.'}
             control={(
               <span className="nx-set-number">

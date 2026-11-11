@@ -53,6 +53,8 @@ vi.mock('../api', () => ({ api: {
   getPeopleDirectory: vi.fn(),
   getTicketProperties: vi.fn(),
   getTaskProjectTemplates: vi.fn(),
+  // Round Three (11/11/2026): an answered RFI made into a change order.
+  createChangeOrder: vi.fn(),
 } }));
 
 // The capture screen talks to Supabase Storage directly. Stubbed at the helper
@@ -62,6 +64,7 @@ vi.mock('./lib/upload', () => ({
   validate: () => '',
   kindOf: () => 'photo',
   filesFromPaste: () => [],
+  uploadJobDocument: vi.fn(async () => ({ url: '', name: '', error: null })),
   BUCKET: 'construction-media',
   MAX_BYTES: { photo: 1, video: 1, audio: 1 },
   ALLOWED_MIME: { photo: [], video: [], audio: [] },
@@ -298,6 +301,47 @@ describe('Registers', () => {
   it('renders read-only for a worker', async () => {
     const { container } = render(<Registers project={project} canReview={false} />);
     await waitFor(() => expect(container).not.toBeEmptyDOMElement());
+  });
+
+  // Round Three (11/11/2026): files on an RFI, Cost Impact for the people who
+  // may see money, and an answered RFI priced as ONE change order.
+  const answered = {
+    id: 'q2', projectId: 'p1', number: 'RFI-003', subject: 'Footing depth', question: '24 or 36 in?',
+    answer: 'Go to 36 in.', status: 'answered', ballInCourt: 'Engineer', submittedBy: '', submittedOn: '',
+    dueOn: '', answeredOn: '2026-11-10', costImpact: 3800, scheduleImpactDays: 2, responderEmail: '',
+    documentUrls: ['https://x.supabase.co/storage/v1/object/public/construction-media/construction/p1/sketch.jpg'],
+    changeOrder: null, createdAt: '2026-11-01T00:00:00Z',
+  };
+
+  it('a manager who sees money makes a change order from an answered RFI', async () => {
+    api.getConstructionRegister.mockResolvedValue([answered]);
+    api.createChangeOrder.mockResolvedValue({ id: 'co1', number: 'CO-001' });
+    const onOpenChanges = vi.fn();
+    render(<Registers project={{ ...project, contractValue: 250000 }} canReview onOpenChanges={onOpenChanges} />);
+    fireEvent.click(await screen.findByText(/RFI-003/));
+    expect(await screen.findByText('sketch.jpg')).toBeInTheDocument();
+    expect(screen.getByLabelText('Cost Impact ($)')).toHaveValue(3800);
+    fireEvent.click(screen.getByRole('button', { name: 'Make Change Order' }));
+    await waitFor(() => expect(onOpenChanges).toHaveBeenCalled());
+    expect(api.createChangeOrder).toHaveBeenCalledWith('p1', expect.objectContaining({ rfi_id: 'q2' }));
+  });
+
+  it('an RFI already priced names its change order instead', async () => {
+    api.getConstructionRegister.mockResolvedValue([{ ...answered, changeOrder: { id: 'co1', number: 'CO-002' } }]);
+    render(<Registers project={{ ...project, contractValue: 250000 }} canReview onOpenChanges={() => {}} />);
+    expect(await screen.findByText(/On change order CO-002/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/RFI-003 · Footing depth/));
+    expect(await screen.findByRole('button', { name: 'Open Changes' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Make Change Order' })).not.toBeInTheDocument();
+  });
+
+  it('without the money there is no Cost Impact and no change order', async () => {
+    api.getConstructionRegister.mockResolvedValue([{ ...answered, costImpact: null }]);
+    render(<Registers project={project} canReview onOpenChanges={() => {}} />);
+    fireEvent.click(await screen.findByText(/RFI-003/));
+    await screen.findByText('sketch.jpg');
+    expect(screen.queryByLabelText('Cost Impact ($)')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Make Change Order' })).not.toBeInTheDocument();
   });
 });
 

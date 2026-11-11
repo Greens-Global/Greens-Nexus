@@ -21,6 +21,7 @@ import { api } from '../api';
 import { openTask } from './notesTasks';
 import { setPendingOpen } from '../lib/pendingOpen';
 import { safeRef } from '../lib/recordRef';
+import { personShort } from './notesModel';
 
 export const RECORD_KINDS = ['note', 'task', 'ticket', 'job', 'kb'];
 export { safeRef };
@@ -129,7 +130,7 @@ export function useRecordSearch(query, excludeId = '') {
       if (!alive) return;
       const rows = [];
       (notes?.notes || []).filter((n) => n.id !== excludeId && !n.trashedAt && n.kind !== 'daily').slice(0, term ? PER_KIND : 6)
-        .forEach((n) => rows.push({ key: `note:${n.id}`, kind: n.kind === 'board' ? 'board' : 'note', id: n.id, title: n.title || (n.kind === 'board' ? 'Untitled Board' : 'Untitled Note'), detail: n.mine ? '' : `from ${n.owner}` }));
+        .forEach((n) => rows.push({ key: `note:${n.id}`, kind: n.kind === 'board' ? 'board' : 'note', id: n.id, title: n.title || (n.kind === 'board' ? 'Untitled Board' : 'Untitled Note'), detail: n.mine ? '' : `from ${personShort([], n.owner)}` }));
       (tasks?.tasks || []).slice(0, PER_KIND)
         .forEach((x) => rows.push({ key: `task:${x.id}`, kind: 'task', id: x.id, title: x.title || 'Untitled Task', detail: [x.completed ? 'Done' : '', x.projectName].filter(Boolean).join(' · ') }));
       (tickets?.tickets || []).slice(0, PER_KIND)

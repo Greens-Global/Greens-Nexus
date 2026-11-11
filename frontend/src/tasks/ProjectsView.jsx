@@ -88,7 +88,7 @@ const LIST_COLS_WIDE = [
   { key: 'actions',  label: 'Actions',                    width: 104, fixed: true },
 ];
 
-export default function ProjectsView({ onNavigate }) {
+export default function ProjectsView({ onNavigate, actions }) {
   const isMobile = useIsMobile();
   const store = useTasks();
   const { projects, portfolios, tasks, nameOf, portfolioById, teams, customFields,
@@ -233,9 +233,13 @@ export default function ProjectsView({ onNavigate }) {
               a thing to make. On mobile it rides the icon-only button below
               next to search. */}
           {!isMobile && (
-            <button title="Browse and manage reusable project blueprints"
-              style={btn('outline')}
-              onClick={() => onNavigate?.('templates')}><LayoutTemplate size={15} />Templates</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <button title="Browse and manage reusable project blueprints"
+                style={btn('outline')}
+                onClick={() => onNavigate?.('templates')}><LayoutTemplate size={15} />Templates</button>
+              {/* The module's Manage / Create (views/Tasks.jsx), on a computer. */}
+              {actions?.(null)}
+            </div>
           )}
         </div>
         {/* Search · filters · view toggle - wraps on mobile rather than forcing

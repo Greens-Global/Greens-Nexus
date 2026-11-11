@@ -51,7 +51,13 @@ async function mountTemplate() {
   return document.querySelector('.doc-page .ProseMirror').editor;
 }
 
+// Sagar's rail (11/04/2026) opens on demand since the redesign (Neil,
+// 11/11/2026): Variables > Variables Used, Insert > Variables, the status bar.
 const rail = () => screen.getByRole('complementary', { name: 'Variables used in this document' });
+function openUsed() {
+  fireEvent.click(document.querySelector('[data-tab="variables"]'));
+  fireEvent.click(screen.getByTitle('Variables Used - every variable placed in this document'));
+}
 const countFields = (json) => JSON.stringify(json).split('"mergeField"').length - 1;
 
 beforeEach(() => {
@@ -61,10 +67,11 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
-describe('DocumentBuilder variables rail', () => {
+describe('DocumentBuilder variables used', () => {
   it('lists every variable placed in the document with how many places it is used', async () => {
     await mountTemplate();
     await vi.advanceTimersByTimeAsync(400);
+    openUsed();
     // waitFor only waits while the callback THROWS; a null return resolved at
     // once and the row happened to be there before the editor paginated.
     const row = await waitFor(() => { const r = rail().querySelector('.nx-docb-var'); expect(r).toBeTruthy(); return r; });
@@ -76,6 +83,7 @@ describe('DocumentBuilder variables rail', () => {
   it('places the variable again at the cursor on a click, and the count follows', async () => {
     const editor = await mountTemplate();
     await vi.advanceTimersByTimeAsync(400);
+    openUsed();
     const row = await waitFor(() => { const r = rail().querySelector('.nx-docb-var'); expect(r).toBeTruthy(); return r; });
     editor.commands.focus('end');
     fireEvent.click(row);
