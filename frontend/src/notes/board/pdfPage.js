@@ -6,17 +6,11 @@
 // refused - a markup never fetches from somewhere that is not ours.
 import { api } from '../../api';
 import { isOwnImageUrl } from '../../lib/storageView';
+import { loadPdfjs } from '../../lib/pdfjs';
 
 export const PDF_RENDER_SCALE = 1.6;    // the scale Nexus Sign renders at - crisp on a 2x screen
 export const PDF_PAGES_MAX = 40;        // the picker never lists more than this
 
-async function loadPdfjs() {
-  const pdfjs = await import('pdfjs-dist');
-  if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-    pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
-  }
-  return pdfjs;
-}
 
 // Blob -> ArrayBuffer; jsdom and old WebViews have FileReader but no Blob.arrayBuffer.
 function blobBytes(blob) {

@@ -25,6 +25,7 @@ import { PersonSelect, Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
 import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import SignTextField from './esign/SignTextField';
+import { loadPdfjs } from '../lib/pdfjs';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -604,8 +605,7 @@ function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen, onPageCount })
     let live = true;
     (async () => {
       try {
-        const pdfjs = await import('pdfjs-dist');
-        pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+        const pdfjs = await loadPdfjs();
         const buf = file ? await file.arrayBuffer() : await (await fetch(url)).arrayBuffer();
         const pdf = await pdfjs.getDocument({ data: buf }).promise;
         const out = [];

@@ -27,6 +27,7 @@
 //   for the identical limitation.
 // - .txt / .md / unknown: blank-line-separated paragraphs; **pairs** become bold.
 import { splitMdBold } from './markdownBold';
+import { loadPdfjs } from './pdfjs';
 
 const _importLimit = (name) => (/\.(pdf|docx?)$/i.test(name) ? 15 : 2) * 1024 * 1024;
 
@@ -93,8 +94,7 @@ async function importDocx(file, uploadImage) {
 // recoverable (documented scope boundary, still true for anything more
 // complex than this).
 async function importPdf(file) {
-  const pdfjs = await import('pdfjs-dist');
-  pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+  const pdfjs = await loadPdfjs();
   const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
 
   const rows = []; // { page, y, size, bold, segments: [{text, x, endX}] }

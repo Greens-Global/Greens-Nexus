@@ -12,6 +12,7 @@ import { useToast, errText } from '../components/Toast';
 import { PAGE_TYPES, readAsDataUrl } from '../lib';
 import { importFileAsIs, importKind, baseTitle } from './importFile';
 import { fileSize } from './extensions.jsx';
+import { loadPdfjs } from '../../lib/pdfjs';
 
 const MAX_FILE = 15 * 1024 * 1024;
 
@@ -34,8 +35,7 @@ async function extractDocx(file) {
 }
 
 async function extractPdf(file) {
-  const pdfjs = await import('pdfjs-dist');
-  pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+  const pdfjs = await loadPdfjs();
   const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
   const parts = [];
   for (let p = 1; p <= doc.numPages; p += 1) {

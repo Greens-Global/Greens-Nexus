@@ -9,6 +9,7 @@ import {
 import { isDocx } from '../lib/docxFile';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
+import { loadPdfjs } from '../lib/pdfjs';
 
 // ── In-browser PDF editor ──────────────────────────────────────────────────────
 // Renders pages with pdfjs (same worker pattern as PdfDoc in ESign.jsx - bytes
@@ -298,8 +299,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
       try {
         const buf = file ? await file.arrayBuffer() : await (await fetch(url)).arrayBuffer();
         const bytes = new Uint8Array(buf);
-        const pdfjs = await import('pdfjs-dist');
-        pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+        const pdfjs = await loadPdfjs();
         pdfjsRef.current = pdfjs;
         // pdfjs transfers the buffer to its worker (detaching it) - hand it a
         // copy so the original bytes stay intact for the pdf-lib bake.
