@@ -1684,6 +1684,7 @@ export const api = {
   timeOffOnBehalf:   (data)      => req('/timeclock/timeoff/on-behalf', { method: 'POST', body: JSON.stringify(data) }),
   timeOffDecide:     (id, data)  => req(`/timeclock/timeoff/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeOffCancel:     (id)        => req(`/timeclock/timeoff/${id}/cancel`, { method: 'POST' }),
+  timeOffManagerCancel: (id, reason = '') => req(`/timeclock/timeoff/${id}/manager-cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
   // Second Approval By HR (Oct 27 2026): HR's queue and decision door.
   timeOffAwaitingHr: ()          => req('/timeclock/timeoff/awaiting-hr'),
   timeOffHrDecide:   (id, data)  => req(`/timeclock/timeoff/${id}/hr-decision`, { method: 'POST', body: JSON.stringify(data) }),

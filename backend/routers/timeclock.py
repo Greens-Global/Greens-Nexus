@@ -13699,6 +13699,120 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
 
+# ── A manager cancels approved time off (Pranshu, 11/11/2026) ────────────────
+# From the Shift Planner's leave bar: plans changed and the approved leave has
+# to go. Whoever could decide the request may cancel it (the same team, privacy
+# and delegation rules as decide_timeoff), never their own. A leave that has
+# already started keeps the days before the employee's today (they were taken)
+# and loses the rest; one that has not started is canceled whole. The employee
+# gets a priority notice and an email with a Teams button to talk to the
+# manager. The response names the person's usual shift and the days it could
+# go back on, so the planner can offer to add them (as drafts - they reach the
+# employee when the manager Shares the week).
+class ManagerCancelIn(BaseModel):
+    reason: Optional[str] = ""
+
+
+def _usual_shift_days(db: Session, email: str, lo: str, hi: str) -> Optional[dict]:
+    """The person's usual preset and the days in [lo, hi] it could fill: its
+    working days, not a company holiday, no shift already there, no other
+    live time off."""
+    a = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == email).first()
+    s = db.query(Shift).filter(Shift.id == a.shift_id).first() if a and a.shift_id else None
+    if not s or not lo or lo > hi:
+        return None
+    works = {int(x) for x in str(s.days or "").split(",") if x.strip().isdigit()}   # ISO, Mon=1
+    taken = {r.work_date for r in db.query(ScheduledShift.work_date)
+             .filter(ScheduledShift.employee_email == email, ScheduledShift.work_date >= lo,
+                     ScheduledShift.work_date <= hi, ScheduledShift.pending_delete == 0).all()}
+    off = [(r.start_date, r.end_date) for r in db.query(TimeOffRequest)
+           .filter(TimeOffRequest.employee_email == email, TimeOffRequest.status.in_(["approved", "pending"]),
+                   TimeOffRequest.start_date <= hi, TimeOffRequest.end_date >= lo).all()]
+    holidays = {d for _e, d in _holiday_days(db, [email], lo, hi)}
+    days, d = [], date.fromisoformat(lo)
+    while d.isoformat() <= hi:
+        ds = d.isoformat()
+        if (d.isoweekday() in works and ds not in taken and ds not in holidays
+                and not any(a0 <= ds <= b0 for a0, b0 in off)):
+            days.append(ds)
+        d += timedelta(days=1)
+    return {"shiftId": s.id, "name": s.name or "", "start": s.start_hhmm or "", "end": s.end_hhmm or "",
+            "dates": days} if days else None
+
+
+@router.post("/timeoff/{req_id}/manager-cancel")
+def manager_cancel_timeoff(req_id: str, body: ManagerCancelIn, bt: BackgroundTasks,
+                           user: dict = Depends(require_approval_write), db: Session = Depends(get_db)):
+    row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).with_for_update().first()
+    if not row:
+        raise HTTPException(404, "Request not found")
+    em = (row.employee_email or "").strip().lower()
+    me = (user.get("email") or "").strip().lower()
+    if em == me:
+        raise HTTPException(403, "This is your own time off - cancel it from My Time Off.")
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "You can only cancel your own team's time off.")
+    priv = _TimeoffPrivacy(db, me)
+    if not priv.can_decide(row):
+        raise HTTPException(403, f"Only {priv.reviewer_names(row) or 'the approver'} can cancel this time off.")
+    if row.status != "approved":
+        raise HTTPException(409, f"Only approved time off can be canceled here - this one is {row.status}.")
+    today = _employee_today(db, em)
+    if (row.end_date or row.start_date) < today:
+        raise HTTPException(409, "This time off is already over.")
+    started = bool(row.start_date) and row.start_date < today
+    cut_from = today if started else row.start_date
+    _guard_review(db, em, cut_from, me)
+    reason = (body.reason or "").strip()[:400]
+    manager = _display_name(db, me)
+    kind = _bell_kind(row)
+    old_end = row.end_date or row.start_date
+    canceled_span = _us_span(cut_from, old_end)
+    when = canceled_span + ("" if started else _timeoff_window(row.start_time or "", row.end_time or ""))
+    if started:
+        # The days before today were taken; the leave now ends yesterday.
+        row.end_date = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+        kept = f"The days already taken ({_us_span(row.start_date, row.end_date)}) stay as time off."
+    else:
+        row.status = "cancelled"
+        kept = ""
+    row.decided_at = _now_iso()
+    row.decide_note = (f"Canceled by {manager}" + (f" ({canceled_span})" if started else "")
+                       + (f": {reason}" if reason else ""))[:500]
+    workflows.emit(db, "time_off.cancelled", subject=row, actor=me,
+                   changes={"end_date": (old_end, row.end_date)} if started else {"status": ("approved", "cancelled")},
+                   extra={"wasApproved": True, "by": "manager", "reason": reason, "canceledFrom": cut_from})
+    _audit_delegated(db, user, em, "Canceled approved time off", "time_off_requests", row.id)
+    _hr_notify(db, em, "Your Manager Canceled Your Time Off",
+               f"{manager} canceled your approved {kind} time off {when}."
+               + (f"\n{kept}" if kept else "") + (f"\nReason: {reason}" if reason else ""),
+               ref_id=row.id, requested_by=me, action={"view": "timeclock", "sub": ""}, priority=1)
+    _notify_team_alert(db, employee_email=em, actor_email=me, title="Time Off Canceled",
+                       body=f"{manager} canceled {_display_name(db, em)}'s {kind} time off {when}.",
+                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    # Their own reports hear about the canceled days only (a started leave's
+    # row now ends yesterday).
+    from types import SimpleNamespace
+    _tell_reports_manager_off(db, SimpleNamespace(id=row.id, employee_email=em, start_date=cut_from, end_date=old_end,
+                                                  start_time="" if started else row.start_time,
+                                                  end_time="" if started else row.end_time),
+                              "Your Manager's Time Off Is Canceled", "is no longer off")
+    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == em).first()
+    import timeoff_cancel_mail
+    mail = timeoff_cancel_mail.build(db, employee_email=em, employee_first=(emp.first_name if emp else "") or "",
+                                     manager_email=me, manager_name=manager, kind=kind, when=when,
+                                     reason=reason, kept_note=kept)
+    db.flush()
+    usual = _usual_shift_days(db, em, cut_from, old_end)
+    db.commit()
+    bt.add_task(timeoff_cancel_mail.send, [mail])
+    out = _ser_timeoff(row, priv=priv)
+    out["usual"] = usual
+    out["employeeName"] = _display_name(db, em)
+    return out
+
+
 # ── Second Approval By HR (Neil, Oct 27 2026) ───────────────────────────────
 # A per-company switch (Settings > Time Off & Leave > Time Off Approval, layered
 # through scoped_settings, off by default). When it is on, a manager's

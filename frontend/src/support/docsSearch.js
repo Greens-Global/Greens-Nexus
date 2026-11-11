@@ -51,8 +51,9 @@ const Q_FUZZY = 0.75;   // one typo
 // the guide's size), so the edge pair the tests pin drifts: Oct 21 "vacat"
 // measured 3.495 and the junk "movie times" 3.401; after the Oct 29 2026
 // guide refresh "vacat" measures 3.433 and "movie times" 3.357, so the floor
-// sits between them.
-export const MIN_SCORE = 3.4;
+// sits between them. 11/11/2026 (Cancel Time Off entry): "vacat" 3.399,
+// "movie times" 3.364.
+export const MIN_SCORE = 3.38;
 // Ticket suggestions sit inside a form, so they need to be surer.
 export const TICKET_MIN_SCORE = 4;
 // Results under this share of the best result's score are dropped as noise.

@@ -157,6 +157,14 @@ export const isAllDayOff = (t) => !!t && (t.allDay === true || !(t.startTime && 
 export const timeOffWhen = (t) => (isAllDayOff(t) ? 'All Day' : timeText(t.startTime, t.endTime));
 export const timeOffShort = (t) => (isAllDayOff(t) ? '' : shortTimeText(t.startTime, t.endTime));
 export const isApprovedOff = (t) => t?.status === 'approved';
+// A time-off pill a manager may cancel (11/11/2026) is a button: click, Enter
+// or Space runs `onCancel` (ShiftSchedule's cancelOff) and never selects the
+// cell underneath.
+export const cancelProps = (onCancel, label) => (onCancel ? {
+  role: 'button', tabIndex: 0, 'aria-haspopup': 'dialog', 'aria-label': `${label} - Cancel Time Off`,
+  onClick: (e) => { e.stopPropagation(); onCancel(); },
+  onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onCancel(); } },
+} : {});
 // A whole approved day off - the one case a person is not expected at all.
 export const dayFullyOff = (entries) => (entries || []).some((t) => isApprovedOff(t) && isAllDayOff(t));
 
