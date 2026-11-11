@@ -2859,7 +2859,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>SOCIAL LINKS</label>
                   <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 8px' }}>
-                    Shown as icons on every employee's email signature (Sincerely / Kind Regards templates).
+                    Shown as icons on every employee's email signature.
                   </p>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     {field('FACEBOOK', 'facebook_url', { placeholder: 'https://facebook.com/...' })}

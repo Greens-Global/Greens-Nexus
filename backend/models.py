@@ -1633,6 +1633,8 @@ class HrEntity(Base):
     # Signature template (Sep 16, Pranshu): an admin-picked, company-wide
     # default in Settings - not a per-employee choice (myhr.SIGNATURE_TEMPLATES).
     signature_template = Column(String, default="classic")
+    # The signature's accent color, hex; '' = Greens green (Neil, 11/11/2026).
+    signature_color    = Column(String, default="")
     # signature_closing here is ALSO VESTIGIAL (Sep 19) - sign-off moved to
     # the employee too (NexusEmployee.signature_closing): "Admin should not
     # have the control of Sign off... it should be employee specific."

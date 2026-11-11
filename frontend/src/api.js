@@ -1382,7 +1382,7 @@ export const api = {
   // see services/logo_video.py) - the default 18s fetch timeout would abort
   // a slow conversion well before the server even times out.
   uploadEntityLogo: (id, form) => req(`/hr/entities/${id}/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
-  getEntitySignatureTemplates: (id) => req(`/hr/entities/${id}/signature-templates`),
+  getEntitySignatureTemplates: (id, color) => req(`/hr/entities/${id}/signature-templates${color == null ? '' : `?color=${encodeURIComponent(color)}`}`),
   // Sender template overrides - global, not per-company (Sep 22: an override
   // email can belong to any company or none at all).
   getSignatureSenderOverrides: () => req('/hr/signature-sender-overrides'),
@@ -1736,6 +1736,7 @@ export const api = {
   mySignatureSave: (body)  => req('/myhr/signature', { method: 'PUT', body: JSON.stringify(body) }),
   mySignatureLogoUpload: (form) => req('/myhr/signature/logo', { method: 'POST', body: form }),
   mySignatureLogoRemove: ()     => req('/myhr/signature/logo', { method: 'DELETE' }),
+  mySignaturePreview: (body) => req('/myhr/signature/preview', { method: 'POST', body: JSON.stringify(body) }),
   myHrDocs:        ()      => req('/myhr/documents'),
   myHrDocDownload: (rid)   => req(`/myhr/documents/${rid}/download`),
   myPaystubs:      ()      => req('/myhr/paystubs'),
