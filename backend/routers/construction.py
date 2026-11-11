@@ -1439,6 +1439,20 @@ def _register(kind: str):
 _REGISTER_PREFIX = {"rfis": "RFI", "submittals": "SUB"}
 
 
+def _next_register_number(db: Session, model, project_id: str, prefix: str) -> str:
+    """One past the highest number of OUR OWN form (RFI-007) on the job, void
+    and removed rows included. A number typed in another form (the
+    architect's "ASI-2024") is kept as typed and never moves the sequence
+    (review, 11/11/2026)."""
+    own = re.compile(rf"^{re.escape(prefix)}-(\d{{1,6}})$")
+    top = 0
+    for (n,) in db.query(model.number).filter(model.project_id == project_id).all():
+        m = own.match(str(n or "").strip())
+        if m:
+            top = max(top, int(m.group(1)))
+    return f"{prefix}-{top + 1:03d}"
+
+
 def _register_out(db: Session, user: dict, p, kind: str, rows: list) -> list:
     """The register rows as the caller may read them. An RFI's Cost Impact is
     a dollar figure, so it follows the contract value (_may_see_cost): None
@@ -1505,8 +1519,7 @@ def create_register(project_id: str, kind: str, body: dict,
                 raise HTTPException(409, "That id is taken.")
             return _register_out(db, user, p, kind, [was])[0]
     if kind in _REGISTER_PREFIX and not str(data.get("number") or "").strip():
-        import construction_changes
-        data["number"] = construction_changes.next_number(db, model, p.id, _REGISTER_PREFIX[kind])
+        data["number"] = _next_register_number(db, model, p.id, _REGISTER_PREFIX[kind])
     row = model(id=rid or gen_id(), project_id=p.id, created_at=now, modified_at=now, **data)
     db.add(row)
     _log_activity(db, project_id=p.id, entity_kind=entity, entity_id=row.id,
@@ -1545,6 +1558,10 @@ def update_register(kind: str, row_id: str, body: dict,
                          else getattr(row, "approver_email", "") if kind == "submittals" else "") or ""}
     for k, v in data.items():
         setattr(row, k, v)
+    # An answer given or the RFI reopened inside Nexus is no longer the
+    # outside party's (review, 11/11/2026): the outside credit goes.
+    if kind == "rfis" and ("answer" in data or data.get("status") == "open"):
+        row.answered_by = ""
     # Confirming a milestone is a human act with a name attached, and the only
     # way ai_detected_at's suggestion ever becomes a state change.
     if kind == "milestones" and data.get("status") in ("hit", "missed"):

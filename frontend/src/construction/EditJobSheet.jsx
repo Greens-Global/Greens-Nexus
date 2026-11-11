@@ -37,7 +37,7 @@ export default function EditJobSheet({ project, money = null, onClose, onSaved }
   const { draft, patch, dirty: jobDirty, reset: resetJob } = useDraft(saved);
   const books = useBooksDraft(project, money);
   // Round Three item 2 (11/11/2026): the client, an Intacct customer - its own call under the one Save.
-  const client = useClientDraft(project);
+  const client = useClientDraft(project, books.show);
   // Round Three item 3: the labor cost codes, with the Books rows' gate.
   const labor = useLaborCodesDraft(project, books.show);
   const dirty = jobDirty || books.dirty || client.dirty || labor.dirty;
@@ -151,7 +151,7 @@ export default function EditJobSheet({ project, money = null, onClose, onSaved }
           </select>
         </SettingRow>
       </SettingCard>
-      <ClientRows client={client} />
+      {client.show && <ClientRows client={client} />}
       {books.show && <BooksRows books={books} />}
       {labor.show && <LaborCodesRows labor={labor} />}
       <SettingCard>

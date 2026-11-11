@@ -56,6 +56,9 @@ class Numbering(Base):
         self.assertEqual(self._rfi()["number"], "RFI-001")
         self.assertEqual(self._rfi(number="RFI-014")["number"], "RFI-014")
         self.assertEqual(self._rfi()["number"], "RFI-015")
+        # Review (11/11/2026): a number in another form never moves the sequence.
+        self.assertEqual(self._rfi(number="ASI-2024")["number"], "ASI-2024")
+        self.assertEqual(self._rfi()["number"], "RFI-016")
         s = self.client.post("/construction/projects/pa/register/submittals", json={"title": "Rebar shop drawings"})
         self.assertEqual(s.json()["number"], "SUB-001")
         self.as_(MGR_B)

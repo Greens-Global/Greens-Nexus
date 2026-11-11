@@ -13,7 +13,9 @@ const savedOf = (p) => ({
   contactName: p.clientContactName || '', contactEmail: p.clientContactEmail || '',
 });
 
-export function useClientDraft(project) {
+// `show`: the Money gate (a job manager with Accounting access) - Intacct's
+// customer list carries contacts, so only they pick the client (review, 11/11/2026).
+export function useClientDraft(project, show = true) {
   const saved = useMemo(() => savedOf(project), [project]);
   const { draft, patch, dirty, reset } = useDraft(saved);
   const email = draft.contactEmail.trim();
@@ -21,7 +23,7 @@ export function useClientDraft(project) {
   const save = () => api.setJobClient(project.id, {
     client_id: draft.clientId, contact_name: draft.contactName.trim(), contact_email: email.toLowerCase(),
   });
-  return { draft, patch, dirty, reset, invalid, save, projectId: project.id };
+  return { show, draft, patch, dirty: show && dirty, reset, invalid: show ? invalid : '', save, projectId: project.id };
 }
 
 

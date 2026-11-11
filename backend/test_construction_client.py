@@ -29,7 +29,7 @@ os.environ.pop("ANTHROPIC_API_KEY", None)
 import cache                 # noqa: E402
 import construction_money    # noqa: E402
 import models                # noqa: E402
-from construction_jobs_testkit import CREW, MGR_A, MGR_B, JobsBase  # noqa: E402
+from construction_jobs_testkit import CREW, MGR_A, MGR_A2, MGR_B, JobsBase  # noqa: E402
 from routers import accounting, accounting_partners  # noqa: E402
 
 GROUP = "grp-client-acct"
@@ -103,6 +103,14 @@ class ClientTests(JobsBase):
         self.assertEqual(self.set_client(client_id="C-GE").status_code, 403)
         self.as_(MGR_B)
         self.assertEqual(self.set_client(client_id="C-GE").status_code, 404)
+        # Review (11/11/2026): Intacct's customers carry contacts - a manager
+        # without Accounting access neither searches nor sets them.
+        job = self.db.get(models.ConstructionProject, "pa")
+        job.manager_emails = [MGR_A, MGR_A2]
+        self.db.commit()
+        self.as_(MGR_A2)
+        self.assertEqual(self.client.get("/construction/projects/pa/customers?q=a").status_code, 403)
+        self.assertEqual(self.set_client(client_id="C-GE").status_code, 403)
         self.as_(MGR_A)
         self.assertEqual(self.set_client(client_id="C-NOPE").status_code, 422)
         found = self.client.get("/construction/projects/pa/customers?q=escondido").json()["customers"]

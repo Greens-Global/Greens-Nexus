@@ -896,17 +896,19 @@ def my_jobs(user: dict = Depends(get_current_user), db: Session = Depends(get_db
 
 
 @router.get("/my-cost-codes")
-def my_cost_codes(date: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def my_cost_codes(date: str = "", minute: int = -1, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """What the Time Clock offers at punch-in (Round Three item 3, 11/11/2026):
     the job the caller is placed at on `date` (their local day) and its
     labor cost codes - {jobId, jobName, codes: [{code, name}]}, or
     {codes: []} when the day's shift is on no job with labor codes. Code
-    names only, never a figure."""
+    names only, never a figure. `minute` (the caller's local minute of the
+    day) picks the placement holding that time when there are several -
+    the same rule the punch's jobsite stamp uses (review, 11/11/2026)."""
     import re as _re
     day = (date or "").strip()[:10]
     if not _re.match(r"^\d{4}-\d{2}-\d{2}$", day):
         return {"codes": []}
-    js = construction_labor.placement_jobsite(db, _me(user), day)
+    js = construction_labor.placement_jobsite(db, _me(user), day, minute if 0 <= minute < 1440 else None)
     if not js.startswith(construction_labor.PROJECT):
         return {"codes": []}
     p = db.get(models.ConstructionProject, js[len(construction_labor.PROJECT):])

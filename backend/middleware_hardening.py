@@ -227,8 +227,8 @@ class RequestRateLimit(BaseHTTPMiddleware):
     # Public uploads refused by Content-Length before the body is read: the
     # careers resume is capped at 10 MB, the multipart form around it is small.
     BODY_CAPS_BYTES = (("/careers/apply/", 11 * 1024 * 1024),
-                       # an outside answer or a Done photo: up to 4 files of 25 MB
-                       ("/construction-outside/", 101 * 1024 * 1024))
+                       # an outside answer (at most 3 files of 20 MB) or one Done photo
+                       ("/construction-outside/", 61 * 1024 * 1024))
     BODY_CAPS = tuple(p for p, _ in BODY_CAPS_BYTES)
     ENABLED = os.getenv("NEXUS_RATE_LIMIT", "on").strip().lower() not in ("off", "0", "false", "no")
     MAX_KEYS = 20000                 # bound memory under spoofed floods

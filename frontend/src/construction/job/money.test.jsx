@@ -270,7 +270,8 @@ describe('Round Three - the client and cost codes', () => {
     api.searchJobCustomers.mockResolvedValue({ customers: [{ id: 'C-1', name: 'Sample Owner LLC', contactName: 'Dana Owens', contactEmail: 'Dana@Owner.com' }] });
     api.setJobClient.mockResolvedValue({ ok: true });
     const onSaved = vi.fn();
-    render(<EditJobSheet project={job} money={loaded({ allowed: false })} onClose={() => {}} onSaved={onSaved} />);
+    api.getBookProjects.mockResolvedValue({ limited: false, entities: [], codes: [], entity: '' });
+    render(<EditJobSheet project={job} money={loaded(money())} onClose={() => {}} onSaved={onSaved} />);
     fireEvent.change(screen.getByRole('textbox', { name: 'Find a customer' }), { target: { value: 'sample' } });
     fireEvent.click(await screen.findByRole('option', { name: /Sample Owner LLC/ }));
     expect(screen.getByRole('textbox', { name: 'Who Signs' })).toHaveValue('Dana Owens');
@@ -302,6 +303,8 @@ describe('Edit Job - the Books rows', () => {
   it('no Books rows without Money access', () => {
     render(<EditJobSheet project={job} money={loaded({ allowed: false })} onClose={() => {}} />);
     expect(screen.queryByRole('combobox', { name: 'Entity' })).toBeNull();
+    // Nor the Client picker: Intacct's customer list carries contacts (review, 11/11/2026).
+    expect(screen.queryByRole('textbox', { name: 'Find a customer' })).toBeNull();
     expect(api.getBookProjects).not.toHaveBeenCalled();
   });
 });

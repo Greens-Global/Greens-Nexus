@@ -602,8 +602,6 @@ export default function App() {
       </Suspense>
     );
   }
-  // Customer unit map (/find/<token>, Oct 20 2026) - the link in a rental
-  // confirmation: one unit and the route to it, no login (routers/unit_map.py).
   // A construction outside link (/outside/<token>, Round Three item 4, 11/11/2026):
   // the architect answering one RFI or a sub marking their punch items done have
   // no login; the token in the URL is the credential.
@@ -615,6 +613,8 @@ export default function App() {
       </Suspense>
     );
   }
+  // Customer unit map (/find/<token>, Oct 20 2026) - the link in a rental
+  // confirmation: one unit and the route to it, no login (routers/unit_map.py).
   if (parsePath().view === 'find') {
     const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
     return (

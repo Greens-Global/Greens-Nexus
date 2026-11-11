@@ -251,6 +251,9 @@ def _resolve(db: Session, token: str, kind: str | None = None):
     sender = task_automation._person_user(db, link.created_by or "")
     if p is None or p.deleted_at or sender is None or not _may_review(db, sender, p):
         raise HTTPException(410, GONE)
+    # A sub taken off the job loses their punch list at once (review, 11/11/2026).
+    if link.kind == "sub" and link.ref_id not in {lk.ref_id for lk in vc.live_subs(db, [p.id])}:
+        raise HTTPException(410, GONE)
     return link, p, sender
 
 
@@ -320,9 +323,9 @@ def outside_page(token: str, db: Session = Depends(get_db)):
     return out
 
 
-def _store(p, f: UploadFile, types: dict) -> dict:
-    """One file into the job's construction-media folder; its canonical URL."""
-    from routers import esign
+def _read(f: UploadFile, types: dict) -> dict:
+    """One uploaded file, checked (type, size) and read - nothing stored yet,
+    so a bad file later in the same request leaves nothing behind."""
     ctype = (f.content_type or "").lower().split(";")[0].strip()
     if ctype not in types:
         raise HTTPException(422, "Attach a PDF or a photo." if "application/pdf" in types else "Attach a photo.")
@@ -331,14 +334,20 @@ def _store(p, f: UploadFile, types: dict) -> dict:
         raise HTTPException(422, "That file is empty.")
     if len(data) > MAX_FILE_BYTES:
         raise HTTPException(413, "Each file can be at most 20 MB.")
+    return {"data": data, "mime": ctype, "ext": types[ctype],
+            "name": re.sub(r"[^A-Za-z0-9 ._-]", "_", f.filename or "")[-120:]}
+
+
+def _put(p, got: dict) -> dict:
+    """A checked file into the job's construction-media folder; its canonical URL."""
+    from routers import esign
     prefix = storage.public_prefix()
     if not prefix:
         raise HTTPException(503, "File storage is not set up on this server.")
-    path = f"construction/{p.id}/outside-{uuid.uuid4().hex}.{types[ctype]}"
-    if not esign._storage_put(storage.BUCKET, path, data, ctype).is_success:
+    path = f"construction/{p.id}/outside-{uuid.uuid4().hex}.{got['ext']}"
+    if not esign._storage_put(storage.BUCKET, path, got["data"], got["mime"]).is_success:
         raise HTTPException(503, "The file could not be saved just now - please try again in a minute.")
-    return {"url": prefix + path, "path": path, "mime": ctype, "size": len(data),
-            "name": re.sub(r"[^A-Za-z0-9 ._-]", "_", f.filename or "")[-120:]}
+    return {"url": prefix + path, "path": path, "mime": got["mime"], "size": len(got["data"]), "name": got["name"]}
 
 
 @public_router.post("/{token}/answer")
@@ -358,7 +367,8 @@ def outside_answer(token: str, answer: str = Form(""), files: List[UploadFile] =
         raise HTTPException(410, GONE)
     if (r.status or "open") != "open":
         raise HTTPException(409, "This RFI was already answered.")
-    stored = [_store(p, f, FILE_TYPES) for f in (files or []) if f is not None and (f.filename or f.content_type)]
+    checked = [_read(f, FILE_TYPES) for f in (files or []) if f is not None and (f.filename or f.content_type)]
+    stored = [_put(p, g) for g in checked]
     today = construction_company.local_today(db, p).isoformat()
     r.answer, r.status, r.answered_on = text[:6000], "answered", today
     r.answered_by = _who(link)[:200]
@@ -391,10 +401,12 @@ def outside_done(token: str, task_id: str, background_tasks: BackgroundTasks, ph
     pairs = {t.id: (t, m) for t, m in _punch_items(db, p, link.ref_id)}
     if task_id not in pairs:
         raise HTTPException(404, "That punch item is not on your list.")
-    t, _m = pairs[task_id]
-    if t.completed:
+    # One Done per item however often the phone resends (review, 11/11/2026):
+    # the task row is locked before it is read as not done.
+    t = db.query(models.Task).filter(models.Task.id == task_id).with_for_update().first()
+    if t is None or t.completed:
         raise HTTPException(409, "That punch item is already done.")
-    s = _store(p, photo, PHOTO_TYPES)
+    s = _put(p, _read(photo, PHOTO_TYPES))
     media = make_media(db, sender, p, JobMediaBody(kind="photo", url=s["url"], storage_path=s["path"], mime_type=s["mime"],
                                                    size_bytes=s["size"], original_name=s["name"],
                                                    description=(f"Done - {link.name or link.email}: {note.strip()}" if note.strip()
@@ -402,7 +414,9 @@ def outside_done(token: str, task_id: str, background_tasks: BackgroundTasks, ph
                        task_id=t.id, extra_tags=("punch",))
     meta = _meta(db, p, t.id)
     meta.done_media_id, meta.done_photo_url = media.id, media.url or ""
-    meta.done_by, meta.done_at, meta.modified_at = (link.email or "").lower()[:200], now_iso(), now_iso()
+    # Who did it: the outside person's email, else their name (a copy-only link has no email).
+    meta.done_by = ((link.email or "").lower() or link.name or "outside link")[:200]
+    meta.done_at, meta.modified_at = now_iso(), now_iso()
     _touch(link)
     _log_activity(db, project_id=p.id, entity_kind="punch", entity_id=t.id, type="done_outside",
                   actor_email=_me(sender), detail=f"{_who(link)} marked {t.title or 'a punch item'} Done through an outside link"[:500])

@@ -115,6 +115,9 @@ class Outside(JobsBase):
         self.assertTrue(self.db.query(models.NexusNotification).filter_by(recipient=MGR_A).count() >= 1)
         self.assertEqual(self.client.post(f"/construction-outside/{tok}/answer", data={"answer": "again"}).status_code, 409)
         self.assertFalse(self.client.get(f"/construction-outside/{tok}").json()["canAnswer"])
+        # Reopened and answered inside: the outside credit goes (review, 11/11/2026).
+        self.client.patch("/construction/register/rfis/r1", json={"status": "open"})
+        self.assertEqual(self.fresh(models.ConstructionRfi, "r1").answered_by, "")
         bad = self.client.post(f"/construction-outside/{tok}/answer", data={"answer": "x y"},
                                files=[("files", ("a.exe", b"MZ", "application/octet-stream"))])
         self.assertIn(bad.status_code, (409, 422))
@@ -161,6 +164,13 @@ class Outside(JobsBase):
         self.assertEqual((meta.done_by, meta.verified_by), ("office@acme.com", ""))
         self.assertTrue(meta.done_media_id)
         self.assertEqual(self.client.post(f"/construction-outside/{tok}/done/p-1", files={"photo": PNG}).status_code, 409)
+        # Review (11/11/2026): a sub taken off the job loses the link at once.
+        lk = self.db.get(models.ConstructionJobLink, "lk1")
+        lk.ended_at = iso()
+        self.db.commit()
+        self.assertEqual(self.client.get(f"/construction-outside/{tok}").status_code, 410)
+        lk.ended_at = ""
+        self.db.commit()
         # an RFI link never acts on a punch list, nor the other way
         rfi_tok = self.token(self.send())
         self.assertEqual(self.client.post(f"/construction-outside/{rfi_tok}/done/p-1", files={"photo": PNG}).status_code, 404)

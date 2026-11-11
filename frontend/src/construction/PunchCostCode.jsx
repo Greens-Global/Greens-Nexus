@@ -23,7 +23,10 @@ export default function PunchCostCode() {
 
   useEffect(() => {
     let live = true;
-    Promise.resolve().then(() => api.getMyCostCodes(localDay()))
+    // The minute picks the shift holding now when there are two jobs in a day - the
+    // same placement the punch's jobsite stamp uses.
+    const now = new Date();
+    Promise.resolve().then(() => api.getMyCostCodes(localDay(), now.getHours() * 60 + now.getMinutes()))
       .then((d) => {
         if (!live || !d?.codes?.length) return;
         const last = rememberedCode(myEmail, d.jobId);

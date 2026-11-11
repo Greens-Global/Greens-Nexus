@@ -109,9 +109,16 @@ async def _customer(customer_id: str) -> dict | None:
 
 
 def _review_ctx(job_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """The job's managers who may also open its Money (review, 11/11/2026):
+    the customer list carries Intacct's contacts, so it takes the same gate
+    as Accounting > Vendors & Customers - a manager with Accounting access."""
+    import construction_money
     p = _project(db, job_id, user)                  # 404 behind the wall
     if not _may_review(db, user, p):
         raise HTTPException(403, "Only a job manager sets the client.")
+    why = construction_money.money_gate(db, user, p)
+    if why:
+        raise HTTPException(403, why)
     return {"p": p, "db": db, "user": user}
 
 

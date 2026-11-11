@@ -3775,7 +3775,7 @@ api.setJobClient = (jobId, data) => req(`${_jp(jobId)}/client`, { method: 'PUT',
 api.getJobCostCodes = (jobId) => req(`${_jp(jobId)}/cost-codes`);
 // Labor by cost code (Round Three item 3, 11/11/2026): the job's labor codes and the Time Clock's offer.
 api.setJobLaborCodes = (jobId, codes) => req(`${_jp(jobId)}/labor-codes`, { method: 'PUT', body: JSON.stringify({ codes }) });
-api.getMyCostCodes = (date) => req(`/construction/my-cost-codes?date=${encodeURIComponent(date)}`);
+api.getMyCostCodes = (date, minute = -1) => req(`/construction/my-cost-codes?date=${encodeURIComponent(date)}&minute=${encodeURIComponent(minute)}`);
 // Outside parties (Round Three item 4, 11/11/2026; routers/construction_outside.py): a job
 // manager sends one person a link for one RFI or one sub's punch list; the URL is in the
 // send answer only. A punch item is given to a sub (an Intacct VENDORID on the job).

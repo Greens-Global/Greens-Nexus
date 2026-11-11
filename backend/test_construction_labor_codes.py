@@ -85,6 +85,18 @@ class LaborCodes(JobsBase):
         self.as_(CREW2)   # job B has no labor codes
         self.assertEqual(self.client.get(f"/construction/my-cost-codes?date={DAY}").json(), {"codes": []})
 
+    def test_two_jobs_in_a_day_offer_the_one_holding_now(self):
+        # Review (11/11/2026): the offer follows the same placement the punch stamp picks.
+        self.db.get(models.ConstructionProject, "pb").labor_codes = [{"code": "CC-900", "name": "Landscaping"}]
+        for sid, js, a, b in (("am", "project-pa", "07:00", "11:00"), ("pm", "project-pb", "12:00", "16:00")):
+            self.db.add(models.ScheduledShift(id=sid, employee_email=CREW, work_date=DAY, start_hhmm=a, end_hhmm=b,
+                                              published=1, pending_delete=0, jobsite=js, weather_status="",
+                                              break_min=0, created_at=iso()))
+        self.db.commit()
+        self.as_(CREW)
+        self.assertEqual(self.client.get(f"/construction/my-cost-codes?date={DAY}&minute=480").json()["jobId"], "pa")
+        self.assertEqual(self.client.get(f"/construction/my-cost-codes?date={DAY}&minute=725").json(), {"codes": []})
+
     def test_a_code_is_kept_only_for_the_stamped_job_and_never_blocks_the_punch(self):
         self._shift("s1", CREW, "project-pa")
         self.db.commit()
