@@ -7,8 +7,8 @@ const pdfjs = vi.hoisted(() => {
   const doc = { numPages: 3, getPage: vi.fn(async () => page) };
   return { GlobalWorkerOptions: {}, getDocument: vi.fn(() => ({ promise: Promise.resolve(doc) })), render, doc };
 });
-vi.mock('pdfjs-dist', () => pdfjs);
-vi.mock('pdfjs-dist/build/pdf.worker.min.mjs?url', () => ({ default: '/worker.js' }));
+vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => pdfjs);
+vi.mock('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url', () => ({ default: '/worker.js' }));
 const apiMock = vi.hoisted(() => ({ viewerBlob: vi.fn() }));
 vi.mock('../../api', () => ({ api: apiMock }));
 vi.mock('../../lib/storageView', () => ({ isOwnImageUrl: (u) => /supabase\.co\/storage/.test(u || '') }));
