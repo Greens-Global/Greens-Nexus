@@ -703,7 +703,7 @@ class NexusGroup(Base):
     id              = Column(String, primary_key=True)
     name            = Column(String, nullable=False)
     department      = Column(String, default="")
-    allowed_modules = Column(String, default="")   # comma-separated "moduleId:level" pairs, e.g. "it:viewer,inventory:full" - level ∈ viewer/editor/full/owner (see auth.MODULE_LEVELS)
+    allowed_modules = Column(String, default="")   # comma-separated "moduleId:level" pairs, e.g. "it:viewer,inventory:full" - level ∈ viewer/editor/full (see auth.MODULE_LEVELS; a legacy "owner" reads as full)
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     # Roles & Access redesign (Jul 2026): a "Job Role" is an Access Group flagged

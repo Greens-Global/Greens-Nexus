@@ -14,7 +14,7 @@ from typing import Optional
 from database import get_db
 import workflows
 from notify_company import notification_company
-from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited, admits_blank
+from auth import require_module_grant, require_owner, hr_scope, is_team_scope, get_current_user, hr_team_limited, admits_blank
 from routers.stepup import require_stepup
 from currency import is_currency
 from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
@@ -22,11 +22,12 @@ from services import logo_video
 
 # HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
 # supervisor/manager role no longer auto-opens HR - they need an explicit "hr"
-# Access Group grant. Reads need viewer; writes editor; hard deletes owner-grant
-# (or Global Admin). IT Admin+ bypass reads/writes; deletes stay owner-only.
+# Access Group grant. Reads need viewer; writes editor. Deleting a person is a
+# Super Administrator's by TIER, no grant opens it (the Owner grant level was
+# retired - Pranshu, 11/12/2026). Administrator+ bypass reads/writes.
 require_hr_read   = require_module_grant("hr", "viewer")
 require_hr_write  = require_module_grant("hr", "editor")
-require_hr_delete = require_module_grant("hr", "owner", bypass_level="owner")
+require_hr_delete = require_owner
 # Compensation + bank are salary-sensitive (Section B): only Global Admins (owner)
 # bypass; everyone else needs an explicit "hr_comp" Access Group grant.
 require_hr_comp_read  = require_module_grant("hr_comp", "viewer", bypass_level="owner")

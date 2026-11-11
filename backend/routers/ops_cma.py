@@ -94,7 +94,7 @@ def _role_ok(user: dict, role: str, db: Session) -> bool:
     except Exception:  # noqa: BLE001
         grant = 0
     if role == "owner":
-        return lvl >= 4 or grant >= auth._MODULE_LEVEL_RANK["owner"]
+        return lvl >= 4 or grant >= auth._MODULE_LEVEL_RANK["full"]
     if role == "ops_manager":
         return lvl >= 3 or grant >= auth._MODULE_LEVEL_RANK["full"]
     return False

@@ -52,7 +52,7 @@ client = TestClient(_app)
 def _env():
     models.Base.metadata.create_all(bind=database.engine)
     saved = (auth._grants_for, auth.is_global_admin)
-    auth._grants_for = lambda email, db: {"build-mode": 1}
+    auth._grants_for = lambda email, db: {"build-mode": 2}
     auth.is_global_admin = lambda user, db: False
     yield
     auth._grants_for, auth.is_global_admin = saved

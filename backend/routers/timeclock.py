@@ -92,8 +92,30 @@ require_team_write = require_level_or_module(3, "hr", "editor")
 # NOTE: unlike require_team_read, a plain manager/supervisor role does NOT open the
 # screen - only an explicit grant does (or admin) - matching its grant-driven
 # sidebar/route visibility.
-require_tracking      = require_module_grant("employee-tracking", "viewer")
-require_tracking_full = require_module_grant("employee-tracking", "full")
+_tracking_viewer_grant = require_module_grant("employee-tracking", "viewer")
+_tracking_full_grant   = require_module_grant("employee-tracking", "full")
+
+
+def _tracking_reach(user: dict, db: Session) -> dict:
+    """The grant's REACH on the monitoring routes only (11/12/2026), the
+    Workforce Scorecard's rule: Viewer = direct reports (what every manager
+    has), Editor = the whole reporting line, Full = the company (inside the
+    walls). Read by _visible_emails like `_deleg` and `_sched_extra`; never
+    set on a time sheet, payroll or approval route."""
+    rank = _module_level(user["email"], "employee-tracking", db)
+    if rank >= _MODULE_LEVEL_RANK["full"]:
+        user["_tracking_reach"] = "company"
+    elif rank >= _MODULE_LEVEL_RANK["editor"]:
+        user["_tracking_reach"] = "line"
+    return user
+
+
+def require_tracking(user: dict = Depends(_tracking_viewer_grant), db: Session = Depends(get_db)) -> dict:
+    return _tracking_reach(user, db)
+
+
+def require_tracking_full(user: dict = Depends(_tracking_full_grant), db: Session = Depends(get_db)) -> dict:
+    return _tracking_reach(user, db)
 # Monitoring data is Workforce Analytics' alone (Neil, 10/29/2026: "only
 # those who should have access to it" - it moved into Team, which everyone
 # has). Coverage, top apps, app ratings, alerts, saved views, the location
@@ -370,7 +392,8 @@ def _visible_emails(db: Session, user: dict):
             return set(extra) | {(user.get("email") or "").lower()}
         base = _visible_emails(db, {k: v for k, v in user.items() if k != "_sched_extra"})
         return None if base is None else base | set(extra)
-    if user.get("level", 0) >= 4:
+    reach = user.get("_tracking_reach")   # Workforce Analytics Editor / Full (_tracking_reach)
+    if user.get("level", 0) >= 4 or reach == "company":
         # An Administrator sees their companies' people (plus their own
         # directs); only an unrestricted caller - a Super Administrator -
         # sees everyone (walled only once the walls are on - Pranshu, 11/11/2026).
@@ -389,6 +412,9 @@ def _visible_emails(db: Session, user: dict):
     import backup_manager
     directs = backup_manager.managed_directly(db, user["email"])
     directs.add(user["email"])
+    if reach == "line":
+        from auth import team_emails
+        directs |= team_emails(db, user["email"])
     # A company's HR contact is the lead approver for its people who have NO
     # manager on file (Neil, Oct 16: HR and the Global Admins decide then,
     # never "any manager") - their requests already reach the HR contact.

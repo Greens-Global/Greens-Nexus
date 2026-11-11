@@ -1,9 +1,11 @@
 """
-An Owner grant on Tasks makes its holder a manager inside the Task module
-(Oct 15 2026): Urmi held Tasks at Owner through an Access Group and still had
+A FULL grant on Tasks makes its holder a manager inside the Task module
+(Oct 15 2026, as the Owner grant; Owner retired and Full took its place -
+Pranshu, 11/12/2026): Urmi held Tasks through an Access Group and still had
 no Manage button, because every Task-module manager check read the global
 role only. auth.module_owner_acts_as raises the request's level on the Task
 routers; auth.level_in_module answers the same question about someone else.
+A legacy `tasks:owner` still stored on a group reads as Full.
 
 Neither reaches outside the module, and an external account never rises.
 
@@ -26,12 +28,13 @@ import database
 import models
 from routers import tasks as T, task_config as TC, task_projects as TP
 
-OWNER  = "owner@greensglobal.com"    # Tasks at Owner through a group
+OWNER  = "owner@greensglobal.com"    # Tasks at Full through a group
 EDITOR = "editor@greensglobal.com"   # Tasks at Editor
-GUEST  = "guest@partner.com"         # external account, Tasks at Owner
+GUEST  = "guest@partner.com"         # external account, Tasks at Full
+LEGACY = "legacy@greensglobal.com"   # a group row still saying tasks:owner
 
 
-class TasksOwnerGrantTests(unittest.TestCase):
+class TasksFullGrantTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         models.Base.metadata.create_all(bind=database.engine)
@@ -45,8 +48,10 @@ class TasksOwnerGrantTests(unittest.TestCase):
         self.db = database.SessionLocal()
         for m in (models.NexusGroup, models.NexusGroupMember, models.NexusEmployee, models.NexusRole):
             self.db.query(m).delete()
-        self.db.add(models.NexusGroup(id="g1", name="Task Owners", allowed_modules="tasks:owner,tickets:viewer"))
+        self.db.add(models.NexusGroup(id="g1", name="Task Managers", allowed_modules="tasks:full,tickets:viewer"))
         self.db.add(models.NexusGroup(id="g2", name="Task Editors", allowed_modules="tasks:editor"))
+        self.db.add(models.NexusGroup(id="g3", name="Old Task Owners", allowed_modules="tasks:owner"))
+        self.db.add(models.NexusGroupMember(group_id="g3", email=LEGACY))
         self.db.add(models.NexusGroupMember(group_id="g1", email=OWNER))
         self.db.add(models.NexusGroupMember(group_id="g1", email=GUEST))
         self.db.add(models.NexusGroupMember(group_id="g2", email=EDITOR))
@@ -64,8 +69,14 @@ class TasksOwnerGrantTests(unittest.TestCase):
         return auth.module_owner_acts_as(module, 3)(user=user, db=self.db)
 
     # ── the request's own caller ─────────────────────────────────────────────
-    def test_a_tasks_owner_is_a_manager_in_the_module(self):
+    def test_a_tasks_full_grant_is_a_manager_in_the_module(self):
         self.assertEqual(self._lift({"email": OWNER, "level": 1})["level"], 3)
+
+    def test_three_levels_and_a_stored_owner_reads_as_full(self):
+        self.assertEqual(auth.MODULE_LEVELS, ("viewer", "editor", "full"))
+        self.assertEqual(auth.grant_level("owner"), "full")
+        self.assertEqual(auth._module_level(LEGACY, "tasks", self.db), auth._MODULE_LEVEL_RANK["full"])
+        self.assertEqual(self._lift({"email": LEGACY, "level": 1})["level"], 3)
 
     def test_an_editor_grant_changes_nothing(self):
         self.assertEqual(self._lift({"email": EDITOR, "level": 1})["level"], 1)

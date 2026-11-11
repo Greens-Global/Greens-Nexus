@@ -475,7 +475,7 @@ def lock(file_id: str, request: Request, user: dict = Depends(_read), db: Sessio
 # A "pfs" grant that comes from some OTHER group is shown (`otherGroups`) but
 # not changed here. Owners only may change it; every change is audited.
 PFS_GROUPS = {"viewer": ("grp-pfs-viewer", "PFS Viewer"), "editor": ("grp-pfs-editor", "PFS Editor")}
-_LEVEL_NAMES = {0: "none", 1: "viewer", 2: "editor", 3: "full", 4: "owner"}
+_LEVEL_NAMES = {0: "none", 1: "viewer", 2: "editor", 3: "full"}   # "owner" below is the TIER word, never a grant level
 
 
 def _owner_only(user: dict = Depends(_read)) -> dict:

@@ -16,9 +16,11 @@ import uuid
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from auth import get_current_user
+from database import get_db
 from models import (TaskNotification, TaskActivity, NexusRole, NexusNotification, TaskProject,
                     TaskTeam, Task, TaskComment, TaskAttachment, TaskChecklistItem,
                     TaskTimeEntry)
@@ -336,6 +338,20 @@ def is_manager(user: dict) -> bool:
     A Tasks Owner grant reaches level 3 here too (auth.module_owner_acts_as
     on the Task routers)."""
     return (user or {}).get("level", 0) >= 3
+
+
+def require_task_creator(user: dict = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Route dependency (`user: dict = Depends(require_task_creator)`): creating
+    a task, a project or an import takes Tasks Editor or the Manager tier
+    (11/12/2026; a Tasks Full is lifted to 3 by the router). A Tasks Viewer
+    reads, edits and completes what is shared with them - the per-task roles
+    decide that - but starts nothing new. In-process callers (a ticket's
+    task, an automation, the tests) call the handler with their own user
+    dict and never pass through here."""
+    import auth
+    if is_manager(user) or auth._module_level(user["email"], "tasks", db) >= auth._MODULE_LEVEL_RANK["editor"]:
+        return user
+    raise HTTPException(403, "You need Editor access to Tasks to create tasks and projects")
 
 
 def email_list(raw) -> list[str]:

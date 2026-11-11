@@ -345,9 +345,8 @@ def _safe_insight(modules: list, mod_id: str, label: str, nav: str, fn):
 
 
 @router.get("/insights")
-def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if user["level"] < 2:
-        raise HTTPException(403, "Manager access required")
+def insights(user: dict = Depends(auth.require_level_or_module(2, "bi", "viewer")), db: Session = Depends(get_db)):
+    # Supervisor+ by tier OR a `bi` grant - what App.jsx opens Insights for (11/12/2026)
     M = models
 
     def _compute() -> dict:
@@ -820,10 +819,8 @@ def _list(items: list, title: str) -> dict:
 
 
 @router.get("/insights/drilldown")
-def insights_drilldown(module: str, metric: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if user["level"] < 2:
-        raise HTTPException(403, "Manager access required")
-
+def insights_drilldown(module: str, metric: str, user: dict = Depends(auth.require_level_or_module(2, "bi", "viewer")),
+                       db: Session = Depends(get_db)):
     M = models
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")

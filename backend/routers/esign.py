@@ -64,6 +64,29 @@ from routers.hr import (require_hr_read, require_hr_write, require_hr_delete,
 
 router = APIRouter(prefix="/esign", tags=["esign"])
 
+
+def _hr_or_documents(hr_gate, doc_level: str):
+    """Additive (11/12/2026): a Files (`documents`) grant at `doc_level` passes
+    where only the People gate did. Editor sends and keeps templates, Full
+    also voids, corrects and deletes. HR packets and employee records keep
+    their People gates - nothing here is wired to them."""
+    import inspect
+    from auth import _module_level, _MODULE_LEVEL_RANK
+    rank = _MODULE_LEVEL_RANK[doc_level]
+    takes_db = "db" in inspect.signature(hr_gate).parameters   # require_level gates take only `user`
+
+    def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+        if _module_level(user["email"], "documents", db) >= rank:
+            return user
+        return hr_gate(user=user, db=db) if takes_db else hr_gate(user=user)
+    return _check
+
+
+require_sender  = _hr_or_documents(require_hr_write, "editor")   # templates, sending, reminders
+require_sender_read = _hr_or_documents(require_hr_read, "editor")  # what a sender reads: templates, their envelopes
+require_voider  = _hr_or_documents(require_hr_write, "full")    # void, correct a party
+require_deleter = _hr_or_documents(require_hr_delete, "full")    # delete a template
+
 # NEXUS_APP_URL override, else derived per environment (see app_url.py) - the
 # old hardcoded dev default made PROD e-sign emails link to dev.nexus. Called
 # fresh at each use rather than cached at import - a worker that first
@@ -1556,13 +1579,13 @@ class TemplateIn(BaseModel):
 
 
 @router.get("/templates")
-def list_templates(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+def list_templates(user: dict = Depends(require_sender_read), db: Session = Depends(get_db)):
     rows = db.query(HrSignTemplate).order_by(HrSignTemplate.name).all()
     return [_ser_template(t) for t in rows]
 
 
 @router.post("/templates")
-def create_template(body: TemplateIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def create_template(body: TemplateIn, user: dict = Depends(require_sender), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     if body.kind not in _TEMPLATE_KINDS:
@@ -1583,7 +1606,7 @@ def create_template(body: TemplateIn, user: dict = Depends(require_hr_write), db
 
 
 @router.patch("/templates/{tid}")
-def update_template(tid: str, body: TemplateIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def update_template(tid: str, body: TemplateIn, user: dict = Depends(require_sender), db: Session = Depends(get_db)):
     row = db.query(HrSignTemplate).filter(HrSignTemplate.id == tid).first()
     if not row:
         raise HTTPException(404, "Template not found")
@@ -1616,7 +1639,7 @@ def update_template(tid: str, body: TemplateIn, user: dict = Depends(require_hr_
 
 
 @router.delete("/templates/{tid}")
-def delete_template(tid: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+def delete_template(tid: str, user: dict = Depends(require_deleter), db: Session = Depends(get_db)):
     row = db.query(HrSignTemplate).filter(HrSignTemplate.id == tid).first()
     if row:
         db.delete(row); db.commit()
@@ -1665,7 +1688,7 @@ _STARTER_TEMPLATES = [
 
 
 @router.post("/templates/starters")
-def seed_starter_templates(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def seed_starter_templates(user: dict = Depends(require_sender), db: Session = Depends(get_db)):
     """Add the three standard templates if missing (EntitiesModal seedDefaults idiom)."""
     existing = {t.name for t in db.query(HrSignTemplate).all()}
     now = _now_iso(); added = []
@@ -1722,7 +1745,7 @@ def convert_docx(file: UploadFile = File(...), user: dict = Depends(get_current_
 
 
 @router.post("/templates/attachments")
-def upload_template_attachment(file: UploadFile = File(...), user: dict = Depends(require_hr_write)):
+def upload_template_attachment(file: UploadFile = File(...), user: dict = Depends(require_sender)):
     """Upload a PDF to be attached to a template (multi-document packet). Returns
     {name, path, pages}; the frontend adds it to the template's attachments list."""
     if (file.content_type or "") not in ("application/pdf", "application/octet-stream"):
@@ -1746,7 +1769,7 @@ def upload_template_attachment(file: UploadFile = File(...), user: dict = Depend
 
 
 @router.get("/templates/attachment-url")
-def template_attachment_url(path: str, user: dict = Depends(require_hr_read)):
+def template_attachment_url(path: str, user: dict = Depends(require_sender_read)):
     """Short-lived signed URL to render an attached PDF in the field placer."""
     if not path.startswith("esign/"):
         raise HTTPException(400, "Invalid attachment path")
@@ -2119,7 +2142,7 @@ def envelope_from_documents(db: Session, user: dict, *, documents: list, parties
 
 
 @router.post("/requests")
-def send_request(body: SendIn, request: Request, user: dict = Depends(require_hr_write),
+def send_request(body: SendIn, request: Request, user: dict = Depends(require_sender),
                  db: Session = Depends(get_db)):
     """Template-sourced envelope - see envelope_from_template."""
     tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == body.template_id).first()
@@ -2139,7 +2162,7 @@ def send_request(body: SendIn, request: Request, user: dict = Depends(require_hr
 
 @router.post("/requests/pdf")
 def send_pdf_request(request: Request, file: UploadFile = File(...), payload: str = Form(...),
-                     user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+                     user: dict = Depends(require_sender), db: Session = Depends(get_db)):
     """PDF-sourced envelope: upload the source, store field boxes (normalized page
     coords), create parties. payload = JSON {title, employeeId?, candidateId?,
     entityId?, message?, expiresOn?, fields:[{id,role,type,page,x,y,w,h,required}],
@@ -2507,10 +2530,26 @@ def list_requests(status: str = "", user: dict = Depends(require_hr_read), db: S
     return [_ser_request(r, parties=by_req.get(r.id, [])) for r in rows]
 
 
+def _files_only(user: dict, db: Session) -> bool:
+    """Admitted by the Files (documents) Editor grant and not by People."""
+    from auth import _module_level, _MODULE_LEVEL_RANK
+    if _module_level(user["email"], "documents", db) < _MODULE_LEVEL_RANK["editor"]:
+        return False
+    try:
+        require_hr_read(user=user, db=db)
+        return False
+    except HTTPException:
+        return True
+
+
 @router.get("/requests/{rid}")
-def get_request(rid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+def get_request(rid: str, user: dict = Depends(require_sender_read), db: Session = Depends(get_db)):
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req:
+        raise HTTPException(404, "Request not found")
+    # A Files Editor opens only the envelopes they sent (11/12/2026); every
+    # other envelope stays HR's. 404, so nothing else is admitted to exist.
+    if _files_only(user, db) and (req.created_by or "").lower() != user["email"].lower():
         raise HTTPException(404, "Request not found")
     _require_view(db, req, user)
     _check_expiry(db, req)
@@ -2526,7 +2565,7 @@ def get_request(rid: str, user: dict = Depends(require_hr_read), db: Session = D
 
 
 @router.post("/requests/{rid}/remind")
-def remind(rid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def remind(rid: str, user: dict = Depends(require_sender), db: Session = Depends(get_db)):
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req:
         raise HTTPException(404, "Request not found")
@@ -2546,7 +2585,7 @@ def remind(rid: str, user: dict = Depends(require_hr_write), db: Session = Depen
 
 
 @router.post("/requests/{rid}/void")
-def void_request(rid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def void_request(rid: str, user: dict = Depends(require_voider), db: Session = Depends(get_db)):
     # Lock + re-read so a void can't race a concurrent final signature (else the
     # envelope could seal 'completed' after the sender thought they'd voided it).
     db.query(HrSignRequest).filter(HrSignRequest.id == rid).with_for_update().first()
@@ -2667,7 +2706,7 @@ def _require_pay_access(db: Session, req: HrSignRequest, user: dict) -> None:
 
 @router.patch("/requests/{rid}/parties/{pid}")
 def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
-                  user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+                  user: dict = Depends(require_voider), db: Session = Depends(get_db)):
     """Fix a recipient's name/email/access code on a live envelope (typo'd email
     is THE support case). Email change rotates the token so the old link dies,
     and re-notifies if it was already their turn."""
@@ -2710,7 +2749,7 @@ def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
 
 
 @router.get("/requests/{rid}/parties/{pid}/link")
-def party_link(rid: str, pid: str, user: dict = Depends(require_hr_write),
+def party_link(rid: str, pid: str, user: dict = Depends(require_sender),
                db: Session = Depends(get_db)):
     """The external recipient's signing link, for the sender to copy into a chat
     (email fallback). Write grant + audit trail - this link signs as them."""

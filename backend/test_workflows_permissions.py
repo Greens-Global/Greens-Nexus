@@ -52,7 +52,7 @@ EDNA = "edna.perm@greensglobal.com"       # another editor in ENTITY (not an own
 VERA = "vera.perm@greensglobal.com"       # Workflows viewer, ENTITY
 MAX = "max.perm@greensglobal.com"         # manager role, no grant, ENTITY
 HANA = "hana.perm@greensglobal.com"       # HR contact of ENTITY
-TOP = "tess.perm@greensglobal.com"        # an employee holding the Workflows OWNER grant (rank 4)
+TOP = "tess.perm@greensglobal.com"        # an employee holding the Workflows FULL grant (rank 3, the top; Owner retired 11/12/2026)
 EXT = "ext.perm@partner.example"          # an external identity in ENTITY
 ZED = "zed.perm@greensglobal.com"         # Workflows editor, OTHER
 
@@ -96,7 +96,7 @@ def _setup():
     s.add(models.NexusGroupMember(group_id="g-perm-ed", email=ZED))
     s.add(models.NexusGroup(id="g-perm-vw", name="Workflow Viewers", allowed_modules="workflows:viewer"))
     s.add(models.NexusGroupMember(group_id="g-perm-vw", email=VERA))
-    s.add(models.NexusGroup(id="g-perm-top", name="Workflow Owners", allowed_modules="workflows:owner"))
+    s.add(models.NexusGroup(id="g-perm-top", name="Workflow Owners", allowed_modules="workflows:full"))
     s.add(models.NexusGroupMember(group_id="g-perm-top", email=TOP))
     s.add(models.NexusSetting(key="company_walls", value="on"))
     s.commit()
@@ -202,8 +202,6 @@ def test_reown_never_hands_more_access_than_the_caller_has(client, db):
     as_user(FULL)                                                     # manager (3), Workflows full (3)
     r = client.post(f"/workflows/{wf.id}/reown", json={"owner": GAIL})
     assert r.status_code == 403 and "higher role" in r.json()["detail"]
-    r = client.post(f"/workflows/{wf.id}/reown", json={"owner": TOP})
-    assert r.status_code == 403 and "higher Workflows grant" in r.json()["detail"]
     r = client.post(f"/workflows/{wf.id}/reown", json={"owner": FULL2})
     assert r.status_code == 403 and "outside your companies" in r.json()["detail"]
     r = client.post(f"/workflows/{wf.id}/reown", json={"owner": EXT})

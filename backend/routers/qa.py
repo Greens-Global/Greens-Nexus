@@ -42,6 +42,7 @@ _AI_MODEL = "claude-haiku-4-5-20251001"   # cheap: one small call per conversion
 # as every other restricted screen. Editors approve AI drafts / manage cases.
 require_qa_read  = require_module_grant("testing", "viewer")
 require_qa_write = require_module_grant("testing", "editor")
+require_qa_full  = require_module_grant("testing", "full")    # deleting a run and its results (11/12/2026)
 
 
 def _gate():
@@ -329,7 +330,7 @@ def create_run(body: RunIn, user: dict = Depends(require_qa_read), db: Session =
 
 
 @router.delete("/runs/{run_id}", status_code=204)
-def delete_run(run_id: str, user: dict = Depends(require_qa_write), db: Session = Depends(get_db)):
+def delete_run(run_id: str, user: dict = Depends(require_qa_full), db: Session = Depends(get_db)):
     _gate()
     run = db.get(QaRun, run_id)
     if not run:
