@@ -2667,7 +2667,31 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     if (!isEmpty && !(await dialog.confirm('This will replace the current document content. Continue?', { confirmText: 'Replace' }))) return;
     setImporting(true);
     try {
-      const { html, json: directJson, pageSetup: importedPageSetup, header: importedHeader, footer: importedFooter, warnings } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
+      const { html, json: rawJson, pageSetup: importedPageSetup, header: rawHeader, footer: rawFooter, warnings, comments: importedComments } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
+      // A Word file's comments become this document's Review threads (Neil,
+      // 11/11/2026: "fully word compatible"); the marks are pointed at them.
+      // Each says who wrote it in Word - the thread itself is the importer's.
+      const commentIds = {};
+      for (const c of importedComments || []) {
+        try {
+          const who = c.author ? `${c.author} (in Word): ` : 'From Word: ';
+          const made = await commentStore.add(`${who}${c.text}`, c.quote);
+          if (made?.id) commentIds[c.id] = made.id;
+        } catch { /* the words stay; the mark goes below */ }
+      }
+      const pointComments = (node) => {
+        if (!node || typeof node !== 'object') return node;
+        const out = { ...node };
+        if (Array.isArray(out.marks)) {
+          out.marks = out.marks.flatMap((m) => (m.type !== 'comment' ? [m] : commentIds[m.attrs?.id] ? [{ ...m, attrs: { ...m.attrs, id: commentIds[m.attrs.id] } }] : []));
+          if (!out.marks.length) delete out.marks;
+        }
+        if (Array.isArray(out.content)) out.content = out.content.map(pointComments);
+        return out;
+      };
+      const directJson = rawJson ? pointComments(rawJson) : rawJson;
+      const importedHeader = rawHeader ? pointComments(rawHeader) : rawHeader;
+      const importedFooter = rawFooter ? pointComments(rawFooter) : rawFooter;
       const json = directJson || generateJSON(html || '<p></p>', BODY_EXTENSIONS);
       // The imported doc still carries pageBreak markers (docxToTiptap.js
       // preserves Word's own page breaks) - split it into real pages the same
@@ -2716,8 +2740,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       const found = tokens.length
         ? ` ${tokens.length} variable${tokens.length === 1 ? '' : 's'} detected${added.length ? `, ${added.length} added to this template` : ''}.`
         : '';
-      if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}${found}`);
-      else toastOk?.(`Imported - review formatting before sending.${found}`);
+      const filed = Object.keys(commentIds).length;
+      if (filed) { setCommentsOpen(true); }
+      const commentNote = filed ? ` ${filed} comment${filed === 1 ? '' : 's'} from Word ${filed === 1 ? 'is' : 'are'} on the Review tab.` : '';
+      if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}${found}${commentNote}`);
+      else toastOk?.(`Imported - review formatting before sending.${found}${commentNote}`);
       setImportPopoverOpen(false);
       scheduleSave();
     } catch (e) {

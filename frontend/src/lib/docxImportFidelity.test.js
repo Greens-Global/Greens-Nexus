@@ -635,3 +635,33 @@ describe('Word import keeps tabs and tab stops', () => {
     expect(JSON.stringify(p2)).not.toContain('    ');
   });
 });
+
+// The Word redesign (Neil, 11/11/2026): variables, notes and a later
+// section's header come through.
+describe('Word import brings variables, notes and headers', () => {
+  it('reads «Name» text and a simple MERGEFIELD as variables', async () => {
+    const body = '<w:p><w:r><w:t xml:space="preserve">Dear «First_Name», welcome to </w:t></w:r>'
+      + '<w:fldSimple w:instr=" MERGEFIELD company \\* MERGEFORMAT "><w:r><w:t>«company»</w:t></w:r></w:fldSimple></w:p>';
+    const { body: doc } = await convertDocxToTiptap(await docxFile(body), {});
+    const p = doc.content[0];
+    expect(p.content.filter((n) => n.type === 'mergeField').map((n) => n.attrs.token)).toEqual(['first_name', 'company']);
+    expect(JSON.stringify(p)).not.toContain('«');
+  });
+
+  it('reads an endnote as a footnote, in place', async () => {
+    const body = '<w:p><w:r><w:t>Rent</w:t></w:r><w:r><w:endnoteReference w:id="2"/></w:r><w:r><w:t xml:space="preserve"> is due monthly.</w:t></w:r></w:p>';
+    const file = await docxWithParts({ body, parts: { 'word/endnotes.xml': `<?xml version="1.0"?><w:endnotes ${DOC_NS}><w:endnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:endnote><w:endnote w:id="2"><w:p><w:r><w:t>Before the 5th.</w:t></w:r></w:p></w:endnote></w:endnotes>` } });
+    const { body: doc } = await convertDocxToTiptap(file, {});
+    expect(doc.content[0].content.map((n) => n.type)).toEqual(['text', 'footnote', 'text']);
+    expect(doc.content[0].content[1].attrs.text).toBe('Before the 5th.');
+  });
+
+  it('takes the header of the first section that has one', async () => {
+    const hdr = `<?xml version="1.0"?><w:hdr ${DOC_NS}><w:p><w:r><w:t>Section Two Header</w:t></w:r></w:p></w:hdr>`;
+    const body = '<w:p><w:pPr><w:sectPr/></w:pPr><w:r><w:t>One</w:t></w:r></w:p><w:p><w:r><w:t>Two</w:t></w:r></w:p>'
+      + '<w:sectPr><w:headerReference w:type="default" r:id="rIdH"/></w:sectPr>';
+    const file = await docxWithParts({ body, rels: [{ id: 'rIdH', type: 'header', target: 'header1.xml' }], parts: { 'word/header1.xml': hdr } });
+    const { header } = await convertDocxToTiptap(file, {});
+    expect(JSON.stringify(header)).toContain('Section Two Header');
+  });
+});

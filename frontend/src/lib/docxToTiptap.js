@@ -19,12 +19,16 @@
 // forms Word writes), pictures, text boxes, page breaks, headers and
 // footers, and the page size/orientation/margins.
 //
-// Explicit, permanent limits (this editor's schema has no equivalent, so no
-// importer could preserve them without a different editor): footnotes and
-// endnotes, per-section headers/footers beyond the first section, tracked
-// changes and comments (insertions are kept, deletions are dropped - i.e.
-// imported "as if accepted"), floating shapes/WordArt/embedded objects, drop
-// caps and kerning. Tabs and tab stops come through since 11/11/2026.
+// Since the Word redesign (Neil, 11/11/2026) these come through too: tabs
+// and tab stops, footnotes and endnotes (as the editor's footnotes), tracked
+// changes as tracked changes, comments (the builder files them as Review
+// threads, see `comments` in the result), MERGEFIELDs and «Name» text as
+// variables, and the header / footer of the first section that has one.
+// Explicit, permanent limits (this editor's schema has no equivalent):
+// different headers per section, floating shapes / WordArt / embedded
+// objects, macros, SmartArt, content controls' logic, drop caps, kerning.
+
+import { slugifyToken } from './mergeFieldTypes';
 
 const NS = {
   w: 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
@@ -585,11 +589,26 @@ async function runToNodes(runEl, styleRunProps, link, ctx, state) {
   const rStyleId = rStyleEl && attr(rStyleEl, 'w', 'val');
   const inherited = rStyleId ? resolvedRunProps(rStyleId, ctx.styles, styleRunProps) : styleRunProps;
   const props = runPropsFrom(rPr, inherited, ctx.styles.theme);
-  const marks = marksFor(props, link || state.fieldLink, state.change);
+  const withComments = (list) => {
+    for (const cid of ctx.activeComments || []) list.push({ type: 'comment', attrs: { id: `docx-${cid}` } });
+    return list;
+  };
+  const marks = withComments(marksFor(props, link || state.fieldLink, state.change));
+  const pushPlain = (t) => { if (t) nodes.push(marks.length ? { type: 'text', text: t, marks: [...marks] } : { type: 'text', text: t }); };
   const pushText = (text) => {
     if (!text) return;
     const t = props.caps ? text.toUpperCase() : text;
-    nodes.push(marks.length ? { type: 'text', text: t, marks } : { type: 'text', text: t });
+    // «Name» - how Word shows a merge field, and how another system's merge
+    // template often arrives as plain text - is a variable here.
+    const re = /«([A-Za-z][A-Za-z0-9_.]{0,79})»/g;
+    let at = 0;
+    for (let m = re.exec(t); m; m = re.exec(t)) {
+      pushPlain(t.slice(at, m.index));
+      nodes.push({ type: 'mergeField', attrs: { token: slugifyToken(m[1]) } });
+      ctx.stats.mergeFields = (ctx.stats.mergeFields || 0) + 1;
+      at = m.index + m[0].length;
+    }
+    pushPlain(t.slice(at));
   };
   for (const child of Array.from(runEl.childNodes)) {
     if (child.nodeType !== 1) continue;
@@ -602,14 +621,25 @@ async function runToNodes(runEl, styleRunProps, link, ctx, state) {
         const m = /^\s*HYPERLINK\s+"([^"]+)"/i.exec(state.instr || '');
         state.fieldLink = m ? m[1] : null;
         if (/^\s*(PAGE|NUMPAGES|SECTIONPAGES)\b/i.test(state.instr || '')) state.pageField = true;
-        marks.length = 0; marks.push(...marksFor(props, link || state.fieldLink, state.change));
-      } else if (kind === 'end') { state.field = null; state.instr = ''; state.fieldLink = null; marks.length = 0; marks.push(...marksFor(props, link, state.change)); }
+        // A Word merge field is a variable; its shown result («Name») is not text.
+        const mf = /^\s*MERGEFIELD\s+"?([^"\s\\]+)"?/i.exec(state.instr || '');
+        state.mergeToken = mf ? slugifyToken(mf[1]) : null;
+        marks.length = 0; marks.push(...withComments(marksFor(props, link || state.fieldLink, state.change)));
+      } else if (kind === 'end') {
+        if (state.mergeToken) { nodes.push({ type: 'mergeField', attrs: { token: state.mergeToken } }); ctx.stats.mergeFields = (ctx.stats.mergeFields || 0) + 1; }
+        state.field = null; state.instr = ''; state.fieldLink = null; state.mergeToken = null;
+        marks.length = 0; marks.push(...withComments(marksFor(props, link, state.change)));
+      }
     } else if (tag === 'instrText') {
       state.instr = (state.instr || '') + child.textContent;
     } else if (state.field === 'instr') {
       // Between begin and separate there is only the field code; nothing to show.
     } else if (tag === 't' || tag === 'delText') {
-      if (!state.pageField) pushText(child.textContent);
+      if (!state.pageField && !(state.field === 'result' && state.mergeToken)) pushText(child.textContent);
+    } else if (tag === 'footnoteReference' || tag === 'endnoteReference') {
+      // Word's footnote / endnote: the note's words, as the editor's footnote.
+      const text = (tag === 'footnoteReference' ? ctx.notes?.footnote : ctx.notes?.endnote)?.[attr(child, 'w', 'id')];
+      if (text) nodes.push({ type: 'footnote', attrs: { text } });
     } else if (tag === 'tab') {
       nodes.push({ type: 'tab' });   // a real tab, laid out to its stop (lib/docTabs.js)
     } else if (tag === 'br') {
@@ -657,9 +687,18 @@ async function inlineNodes(parentEl, styleRunProps, link, ctx, state) {
       const href = rel ? rel.target : anchor ? `#${anchor}` : null;
       const r = await inlineNodes(child, styleRunProps, href || link, ctx, state);
       nodes.push(...r.nodes); after.push(...r.after);
+    } else if (isW(child, 'commentRangeStart') || isW(child, 'commentRangeEnd')) {
+      // A Word comment: its range marks the runs between start and end.
+      const cid = attr(child, 'w', 'id');
+      if (cid != null && ctx.commentInfo?.[cid]) {
+        if (!ctx.activeComments) ctx.activeComments = new Set();
+        if (isW(child, 'commentRangeStart')) ctx.activeComments.add(cid); else ctx.activeComments.delete(cid);
+      }
     } else if (isW(child, 'fldSimple')) {
       const instr = attr(child, 'w', 'instr') || '';
       if (/^\s*(PAGE|NUMPAGES|SECTIONPAGES)\b/i.test(instr)) { state.pageField = true; continue; }
+      const mf = /^\s*MERGEFIELD\s+"?([^"\s\\]+)"?/i.exec(instr);
+      if (mf) { nodes.push({ type: 'mergeField', attrs: { token: slugifyToken(mf[1]) } }); ctx.stats.mergeFields = (ctx.stats.mergeFields || 0) + 1; continue; }
       const m = /^\s*HYPERLINK\s+"([^"]+)"/i.exec(instr);
       const r = await inlineNodes(child, styleRunProps, (m && m[1]) || link, ctx, state);
       nodes.push(...r.nodes); after.push(...r.after);
@@ -955,10 +994,15 @@ function readPageSetup(bodyEl) {
   return setup;
 }
 
-// The first section's default header / footer part, converted like the body.
+// The default header / footer of the first section that has one, converted
+// like the body. Sections in document order: each earlier one's w:sectPr
+// sits in its last paragraph, the final one's is the body's own.
 async function headerFooterFrom(bodyEl, kind, ctx, readText) {
-  const sectPr = firstChild(bodyEl, 'w', 'sectPr');
-  const refs = childEls(sectPr, 'w', `${kind}Reference`);
+  const sects = [...childEls(bodyEl, 'w', 'p').map((p) => firstChild(firstChild(p, 'w', 'pPr'), 'w', 'sectPr')).filter(Boolean),
+    firstChild(bodyEl, 'w', 'sectPr')].filter(Boolean);
+  const refsOf = (sp) => childEls(sp, 'w', `${kind}Reference`);
+  const sectPr = sects.find((sp) => refsOf(sp).length) || null;
+  const refs = refsOf(sectPr);
   const ref = refs.find(r => attr(r, 'w', 'type') === 'default') || refs[0];
   const rel = ref && ctx.rels[ref.getAttributeNS(NS.r, 'id')];
   if (!rel) return null;
@@ -973,12 +1017,39 @@ async function headerFooterFrom(bodyEl, kind, ctx, readText) {
   return { type: 'doc', content };
 }
 
-async function countFootnotes(readText) {
-  const xml = await readText('word/footnotes.xml');
-  if (!xml) return 0;
-  const doc = parseXml(xml);
-  // Word always writes two housekeeping notes (ids -1 and 0: the separators).
-  return els(doc, 'w', 'footnote').filter(f => !['-1', '0'].includes(attr(f, 'w', 'id'))).length;
+// Word's footnotes / endnotes as {id: words}. Word always writes two
+// housekeeping notes per part (the separators), which have a w:type.
+async function readNotes(readText, part, tag) {
+  const xml = await readText(`word/${part}.xml`);
+  const out = {};
+  if (!xml) return out;
+  for (const n of els(parseXml(xml), 'w', tag)) {
+    if (attr(n, 'w', 'type')) continue;
+    const text = els(n, 'w', 'p').map((p) => els(p, 'w', 't').map((t) => t.textContent).join('')).join(' ').replace(/\s+/g, ' ').trim();
+    if (text) out[attr(n, 'w', 'id')] = text;
+  }
+  return out;
+}
+
+// Word's comments as {id: {author, date, text}}.
+async function readComments(readText) {
+  const xml = await readText('word/comments.xml');
+  const out = {};
+  if (!xml) return out;
+  for (const c of els(parseXml(xml), 'w', 'comment')) {
+    const text = els(c, 'w', 'p').map((p) => els(p, 'w', 't').map((t) => t.textContent).join('')).join('\n').trim();
+    if (text) out[attr(c, 'w', 'id')] = { author: attr(c, 'w', 'author') || '', date: attr(c, 'w', 'date') || '', text };
+  }
+  return out;
+}
+
+// Each comment's words: the text its mark covers, for the thread's quote.
+function quotesOf(nodes, out = {}) {
+  for (const n of nodes || []) {
+    if (n.type === 'text') for (const m of n.marks || []) if (m.type === 'comment') out[m.attrs.id] = (out[m.attrs.id] || '') + n.text;
+    quotesOf(n.content, out);
+  }
+  return out;
 }
 
 export async function convertDocxToTiptap(file, { uploadImage } = {}) {
@@ -1005,8 +1076,12 @@ export async function convertDocxToTiptap(file, { uploadImage } = {}) {
   const doc = parseXml(documentXml);
   const bodyEl = firstChild(doc.documentElement, 'w', 'body');
 
+  const [footnoteText, endnoteText, commentInfo] = await Promise.all([
+    readNotes(readText, 'footnotes', 'footnote'), readNotes(readText, 'endnotes', 'endnote'), readComments(readText),
+  ]);
   const ctx = {
     styles, numbering, rels, zip, uploadImage, imgCounter: { n: 0 }, stats: {},
+    notes: { footnote: footnoteText, endnote: endnoteText }, commentInfo, activeComments: new Set(),
     baseRunProps: baseRunPropsOf(styles),
     baseParaProps: baseParaPropsOf(styles),
     columnPx: textColumnPx(bodyEl),
@@ -1017,8 +1092,10 @@ export async function convertDocxToTiptap(file, { uploadImage } = {}) {
   const footer = await headerFooterFrom(bodyEl, 'footer', ctx, readText);
 
   const warnings = [];
-  const footnotes = await countFootnotes(readText);
-  if (footnotes) warnings.push(`${footnotes} footnote${footnotes === 1 ? '' : 's'} could not be brought in - the editor has no footnotes.`);
+  // The comments that mark something, for the builder to file as threads.
+  const quotes = quotesOf([...content, ...(header?.content || []), ...(footer?.content || [])]);
+  const comments = Object.entries(commentInfo).filter(([cid]) => quotes[`docx-${cid}`] != null)
+    .map(([cid, c]) => ({ id: `docx-${cid}`, author: c.author, date: c.date, text: c.text, quote: quotes[`docx-${cid}`].slice(0, 300) }));
   if (ctx.stats.deletions) warnings.push('Tracked changes came in as changes: accept or reject them on the Review tab.');
   if (ctx.imgCounter.dropped) warnings.push(`${ctx.imgCounter.dropped} picture${ctx.imgCounter.dropped === 1 ? '' : 's'} could not be read.`);
   if (ctx.stats.pageNumberLines) warnings.push('Page numbers come from Nexus and were left out of the header and footer.');
@@ -1029,5 +1106,6 @@ export async function convertDocxToTiptap(file, { uploadImage } = {}) {
     header,
     footer,
     warnings,
+    comments,
   };
 }
