@@ -1918,6 +1918,8 @@ export const api = {
   // ── Documents (DMS) - Phase 4: PDF/DOCX export with merge resolution ──
   exportDocumentPdf:  (id) => reqBlob(`/documents/${id}/export/pdf`),
   exportDocumentDocx: (id) => reqBlob(`/documents/${id}/export/docx`),
+  // A template as Word, its variables as MERGEFIELDs (11/11/2026).
+  exportTemplateDocx: (id) => reqBlob(`/documents/templates/${encodeURIComponent(id)}/export/docx`),
   // Open in Word (Nov 2026): a signed path Word on the computer fetches with no sign-in.
   documentWordLink: (id) => req(`/documents/word-link/${encodeURIComponent(id)}`, { method: 'POST' }),
 

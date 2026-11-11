@@ -15,6 +15,7 @@ import { boldTextNode } from './markdownBold';
 import { CommentMark } from './docCommentMark';
 import { TrackChanges } from './docTrackChanges';
 import { Tab, TAB_STOPS_ATTR } from './docTabs';
+import { Footnote } from './docFootnote';
 
 // Word-style cell shading - TipTap's stock TableCell/TableHeader carry no
 // background-color attribute, so both are extended identically with one
@@ -138,7 +139,7 @@ export const BODY_EXTENSIONS = [
   StyledTable.configure({ resizable: true }),
   TableRow, TableHeader, TableCell,
   MergeField, PageBreak, DocShape, DocTextbox, Bookmark, SectionBox,
-  SignatureBlock, Tab,
+  SignatureBlock, Tab, Footnote,
   TextStyleKit,
   Subscript, Superscript, Highlight.configure({ multicolor: true }),
   TextAlign.configure({ types: ['paragraph', 'heading'] }),

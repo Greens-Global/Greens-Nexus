@@ -1752,6 +1752,22 @@ def preview_template(tid: str, user: dict = Depends(get_current_user), db: Sessi
                     headers={"Content-Disposition": _content_disposition(tpl.name, "pdf")})
 
 
+@router.get("/templates/{tid}/export/docx")
+def export_template_docx(tid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A template as a Word file (Neil, 11/11/2026): the wording as it stands
+    in the editor, its variables as Word merge fields («token») so Word's own
+    mail merge - and an import back into Nexus - knows them as variables.
+    Reading templates is open to the company, as the preview is."""
+    from types import SimpleNamespace
+    tpl = _get_template(db, tid)
+    page = SimpleNamespace(content=tpl.content or {}, letterhead_id=tpl.letterhead_id if tpl.requires_letterhead else "")
+    header_blocks, pages_blocks, footer_blocks, letterhead, page_setup = render_parts(db, page, {})
+    docx_bytes = render_docx(tpl.name, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup,
+                             comments=docx_comments(db, "template", tpl.id), merge_fields=True)
+    return Response(content=docx_bytes, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": _content_disposition(tpl.name, "docx")})
+
+
 @router.get("/templates/{tid}/versions")
 def list_template_versions(tid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = (db.query(DocTemplateVersion).filter(DocTemplateVersion.template_id == tid)
@@ -2831,10 +2847,31 @@ def export_document_pdf(did: str, user: dict = Depends(get_current_user), db: Se
                     headers={"Content-Disposition": _content_disposition(row.title, "pdf")})
 
 
+def docx_comments(db: Session, kind: str, doc_id: str) -> dict:
+    """The Review tab's open comment threads, for the Word file (Neil,
+    11/11/2026: "fully word compatible"): {thread id: {author, initials,
+    text}}, a thread's replies written under its first comment. Resolved
+    threads stay out - they are done."""
+    from models import DocComment
+    rows = (db.query(DocComment).filter(DocComment.doc_kind == kind, DocComment.doc_id == doc_id)
+            .order_by(DocComment.created_at).all())
+    out = {}
+    for c in rows:
+        if c.parent_id or c.resolved_at:
+            continue
+        name = c.author_name or c.author_email or "Nexus"
+        out[c.id] = {"author": name, "initials": "".join(w[0] for w in name.split()[:3]).upper(), "text": c.body or ""}
+    for c in rows:
+        if c.parent_id in out and (c.body or "").strip():
+            out[c.parent_id]["text"] += f"\n\nReply from {c.author_name or c.author_email}: {c.body}"
+    return out
+
+
 @router.get("/{did}/export/docx")
 def export_document_docx(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup = _export_prep(db, did, user)
-    docx_bytes = render_docx(row.title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup)
+    docx_bytes = render_docx(row.title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup,
+                             comments=docx_comments(db, "document", row.id))
     return Response(content=docx_bytes, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": _content_disposition(row.title, "docx")})
 

@@ -10466,3 +10466,9 @@ button.doc-dlg-icon:hover { color: hsl(var(--color-red)); }
   button[aria-label="Change Case"], button[aria-label^="Sort "], button[aria-label="Show/Hide ¶"], button[aria-label="Shading"], button[aria-label="Borders"],
   button[aria-label="Line and Paragraph Spacing"], button[aria-label="Decrease Indent"], button[aria-label="Increase Indent"], button[aria-label="Clear All Formatting"]) { display: none; }
 .doc-ribbon-bar.is-simplified .doc-ribbon-menu:has(> button[aria-label="Change Case"], > button[aria-label="Shading"], > button[aria-label="Borders"], > button[aria-label="Line and Paragraph Spacing"]) { display: none; }
+
+/* Word's footnotes (lib/docFootnote.js): the number, the note on hover; a
+   click edits it. */
+.doc-editor sup.doc-footnote { font-size: 0.7em; line-height: 0; color: hsl(var(--color-blue)); cursor: pointer; padding: 0 1px; user-select: none; }
+.doc-editor sup.doc-footnote:hover { text-decoration: underline; }
+.doc-editor sup.doc-footnote.ProseMirror-selectednode { outline: 2px solid hsl(var(--color-blue)); outline-offset: 1px; border-radius: 2px; }

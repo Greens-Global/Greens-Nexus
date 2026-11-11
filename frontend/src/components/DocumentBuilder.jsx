@@ -26,6 +26,7 @@ import StyleGallery from './docRibbon/StyleGallery';
 import StatusBar from './docRibbon/StatusBar';
 import { HRuler, VRuler, TabGlyph, TAB_LABEL } from './docRibbon/Ruler';
 import { cleanTabStops, TAB_ALIGNS } from '../lib/docTabs';
+import { numberFootnotes } from '../lib/docFootnote';
 import { useTableValue } from '../tasks/tableCols';
 import NavigationPane from './docRibbon/NavigationPane';
 import RibbonDisplay from './docRibbon/RibbonDisplay';
@@ -782,6 +783,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       else if (key === '/' && !e.shiftKey && !e.altKey) hit(k.shortcuts);
       else if (key === 'c' && e.shiftKey && !e.altKey) hit(k.wordCount);
       else if (key === 'd' && !e.shiftKey && !e.altKey) hit(k.font);
+      else if (key === 'f' && e.altKey && !e.shiftKey) hit(k.footnote);
       else if (e.key === 'F1') hit(k.collapseRibbon);
     };
     // Capture: Ctrl+Enter must reach this before the editor makes it a line break.
@@ -1603,7 +1605,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const doExport = (format) => {
     setExporting(format);
     flushPendingSave()
-      .then(() => (format === 'pdf' ? api.exportDocumentPdf(docId) : api.exportDocumentDocx(docId)))
+      .then(() => (format === 'pdf' ? api.exportDocumentPdf(docId)
+        : kind === 'template' ? api.exportTemplateDocx(docId) : api.exportDocumentDocx(docId)))
       .then(downloadBlob).catch(e => toastErr?.(e.message || 'Export failed')).finally(() => setExporting(''));
   };
 
@@ -2347,6 +2350,61 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     f.e.chain().focus().setNodeSelection(f.pos).run();
     requestAnimationFrame(() => f.e.view.nodeDOM(f.pos)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }));
   };
+  // References > Footnotes (Word's): numbered across every page, in order.
+  useEffect(() => { numberFootnotes(pages.map((pg) => editorsRef.current.get(pg.id))); }, [pages, selectionTick]);
+  const footnoteList = () => {
+    const out = [];
+    pages.forEach((pg) => {
+      const e = editorsRef.current.get(pg.id);
+      if (!e || e.isDestroyed) return;
+      e.state.doc.descendants((n, pos) => { if (n.type.name === 'footnote') out.push({ e, pos, text: n.attrs.text || '' }); });
+    });
+    return out;
+  };
+  const insertFootnote = async () => {
+    const e = activeEditor;
+    if (!e) return;
+    const at = e.state.selection.to;
+    const text = await dialog.prompt('Footnote', { defaultValue: '', confirmText: 'Insert', required: true, placeholder: 'The note at the foot of the page' });
+    if (!text || !text.trim() || e.isDestroyed) return;
+    e.chain().focus().insertContentAt(at, { type: 'footnote', attrs: { text: text.trim() } }).run();
+  };
+  const editFootnote = async (e, pos) => {
+    const node = e.state.doc.nodeAt(pos);
+    if (!node || node.type.name !== 'footnote') return;
+    const text = await dialog.prompt('Footnote', { defaultValue: node.attrs.text || '', confirmText: 'Save' });
+    if (text == null || e.isDestroyed) return;
+    const cur = e.state.doc.nodeAt(pos);
+    if (!cur || cur.type.name !== 'footnote') return;
+    if (!text.trim()) e.chain().focus().deleteRange({ from: pos, to: pos + cur.nodeSize }).run();
+    else e.chain().focus().command(({ tr }) => { tr.setNodeMarkup(pos, undefined, { ...cur.attrs, text: text.trim() }); return true; }).run();
+  };
+  const editFootnoteRef = useRef(editFootnote);
+  editFootnoteRef.current = editFootnote;
+  useEffect(() => {
+    const onClick = (ev) => {
+      const el = ev.target.closest?.('sup.doc-footnote');
+      if (!el || !el.closest('.doc-page')) return;
+      for (const e of editorsRef.current.values()) {
+        if (!e.view.dom.contains(el)) continue;
+        if (!e.isEditable) return;
+        editFootnoteRef.current(e, e.view.posAtDOM(el, 0));
+        return;
+      }
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, []);
+  const stepFootnote = () => {
+    const list = footnoteList();
+    if (!list.length) { toastOk?.('There are no footnotes in this document yet.'); return; }
+    const curPos = activeEditor?.state.selection.from ?? -1;
+    const pageOrder = pages.map((pg) => editorsRef.current.get(pg.id));
+    const ai = pageOrder.indexOf(activeEditor);
+    const f = list.find((x) => pageOrder.indexOf(x.e) > ai || (x.e === activeEditor && x.pos > curPos)) || list[0];
+    f.e.chain().focus().setNodeSelection(f.pos).run();
+    requestAnimationFrame(() => f.e.view.nodeDOM(f.pos)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }));
+  };
   const openLibrary = () => { setRibbonCollapsed(false); setRibbonTab('variables'); setVariableLibraryOpen(true); };
 
   // Converts every {{token}} already sitting on the page into a real merge
@@ -2735,6 +2793,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     find: () => setFindOpen(true), link: editing ? linkCmd : null, pageBreak: editing ? pageBreak : null, comment: commentCmd,
     clearFormatting: editing ? clearFormatting : null, shortcuts: () => setShortcutsOpen(true), wordCount: () => setWordCountOpen(true), collapseRibbon: toggleRibbon,
     font: editing && ed ? () => setFontDlg(true) : null,
+    footnote: editing && ed ? insertFootnote : null,
     cycleCase: editing && ed ? () => {
       const { from, to, empty } = ed.state.selection;
       if (empty) return;
@@ -2768,6 +2827,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         { label: 'PDF Document (.pdf)', disabled: !!exporting, onClick: () => doExport('pdf') },
         { label: 'Word Document (.docx)', disabled: !!exporting, onClick: () => doExport('docx') },
       ] },
+      !isDoc && { label: 'Download as Word (.docx)', icon: FileDown, hint: 'Variables as merge fields', disabled: !!exporting, onClick: () => doExport('docx') },
       isDoc && { label: 'Open in Word', icon: PageIcon, disabled: !!exporting, onClick: openInWord },
       isDoc && { label: 'Save as Template', icon: FileStack, disabled: savingTemplate, onClick: saveAsTemplate },
       isDoc && { label: 'Preview & Send', icon: Send, onClick: () => { setPreview(true); openPdfPreview(); } },
@@ -3903,7 +3963,20 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             <BigBtn icon={Trash2} label="Remove" title="Remove Table of Contents" onClick={removeTableOfContents} disabled={!findTocRange()} />
           </Group>
           <Group label="Footnotes">
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', padding: '0 4px', maxWidth: 220 }}>Footnotes, endnotes and citations are not in this editor yet. Use a bookmark and a link for a cross-reference.</span>
+            <BigBtn icon={SuperscriptIcon} label="Insert Footnote" title="Insert Footnote (Ctrl+Alt+F) - a numbered note at the foot of the page" disabled={!editing} onClick={insertFootnote} />
+            <BigBtn icon={ChevronRight} label="Next Footnote" title="Next footnote" onClick={stepFootnote} />
+            <Menu big icon={ListOrdered} label="Notes" title="Every footnote in this document" width={300}>
+              {(closeMenu) => {
+                const list = footnoteList();
+                return list.length ? list.map((f, i) => (
+                  <button key={`${i}-${f.pos}`} type="button" className="doc-ribbon-item" title="Edit this footnote"
+                    onClick={() => { closeMenu(); editFootnote(f.e, f.pos); }}>
+                    <span style={{ fontWeight: 700, minWidth: 18 }}>{i + 1}</span>
+                    <span style={{ whiteSpace: 'normal' }}>{f.text}</span>
+                  </button>
+                )) : <div className="doc-ribbon-pick-none">No footnotes yet.</div>;
+              }}
+            </Menu>
           </Group>
           </>
           )}
