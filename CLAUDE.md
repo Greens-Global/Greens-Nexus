@@ -160,9 +160,15 @@ keep the diff minimal.
   the words people see are Employee, Supervisor, Manager, **Administrator**
   (4) and **Super Administrator** (5) - never "Global Admin" / "IT Admin"
   (`frontend/scripts/check-role-copy.mjs` fails the lint). An Administrator
-  is ALWAYS company-walled (`auth.company_scope`, walls switch on or off);
-  only level 5 or a member of a group flagged `is_global_admin` passes the
-  walls (`auth.is_global_admin` - no level-4 fallback).
+  is company-walled only while the walls switch is ON (`auth.company_scope`;
+  Pranshu, 11/11/2026 - walled with the switch off hid every untagged
+  record, e.g. most of the Items catalog); once armed, only level 5 or a
+  member of a group flagged `is_global_admin` passes the walls
+  (`auth.is_global_admin` - no level-4 fallback). With the walls off
+  an Administrator still never adds an entity scope row, changes their own
+  or another Administrator's limits, or changes a shared group / job role
+  (`auth.bound_by_super_rules`) - nothing set up then widens their reach
+  once the walls are armed.
   Exception - TICKETS (hotfix 11/04/2026, Pranshu with Neil's approval):
   an Administrator sees and works every company's tickets; ticket code reads
   `ticket_roles.company_scope` / `ticket_roles.assert_company`, never

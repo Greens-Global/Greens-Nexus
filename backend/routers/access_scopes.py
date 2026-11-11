@@ -45,10 +45,11 @@ def _guard_walled(user: dict, db: Session, email: str, scope_type: str = "",
     company ids by hr_scope), must be one of the caller's companies, and a
     `project` id must be a project of theirs."""
     scope = auth.company_scope(user, db)
-    if scope is None:
+    if scope is None and not auth.bound_by_super_rules(user, db):
         return
     email = (email or "").lower()
-    auth.assert_person_in_scope(email, user, db)
+    if scope is not None:
+        auth.assert_person_in_scope(email, user, db)
     if scope_type == "entity":
         raise HTTPException(403, "Only a Super Administrator limits a person to companies")
     if email == (user.get("email") or "").lower():
@@ -56,7 +57,7 @@ def _guard_walled(user: dict, db: Session, email: str, scope_type: str = "",
     if auth.level_for(email, db) >= auth._LEVELS["administrator"]:
         raise HTTPException(403, "Only a Super Administrator changes an Administrator's access limits")
     sid = (scope_id or "").strip()
-    if not sid:
+    if not sid or scope is None:   # walls off: any company's ids
         return
     names_company = db.query(HrEntity.id).filter(HrEntity.id == sid).first() is not None
     if (names_company or module_id in ("hr", "company")) and sid not in scope:

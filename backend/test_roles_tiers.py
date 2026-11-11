@@ -1,6 +1,6 @@
 """Tiers (Neil, 11/02/2026, docs/superpowers/plans/2026-11-02-roles-tiers.md,
-Task 2): an Administrator (level 4) is company-walled whether or not the
-`company_walls` switch is on; only a Super Administrator (level 5, or a
+Task 2): an Administrator (level 4) is company-walled once the
+`company_walls` switch is on (with it off they see every company - 11/11/2026); only a Super Administrator (level 5, or a
 member of a group flagged is_global_admin) sees past the walls; a level-4
 caller cannot flag a group, touch a flagged group's members, arm the walls
 or grant the administrator / owner tier; the five Super Administrators are
@@ -119,14 +119,22 @@ class WallRuleTests(_Base):
             # Levels 1-3 keep the switch's meaning: off = unrestricted.
             self.assertIsNone(auth.company_scope({"email": AEMP, "level": 1}, db))
             self.assertIsNone(auth.company_scope({"email": AEMP, "level": 3}, db))
-            # Level 4 is walled regardless; no company anywhere = nothing (fail closed).
-            self.assertEqual(auth.company_scope({"email": ADMIN_A, "level": 4}, db), {COA})
-            self.assertEqual(auth.company_scope({"email": ADMIN_NOCO, "level": 4}, db), set())
+            # Level 4 too, with the walls off (11/11/2026).
+            self.assertIsNone(auth.company_scope({"email": ADMIN_A, "level": 4}, db))
+            self.assertIsNone(auth.hr_scope({"email": ADMIN_A, "level": 4}, db))
             # Level 5 is never walled.
             self.assertIsNone(auth.company_scope({"email": SUPER, "level": 5}, db))
-            # hr_scope follows: an Administrator's People reach is their company.
-            self.assertEqual(auth.hr_scope({"email": ADMIN_A, "level": 4}, db), {COA})
             self.assertIsNone(auth.hr_scope({"email": SUPER, "level": 5}, db))
+        finally:
+            db.close()
+        self._walls(True)
+        db = self._db()
+        try:
+            # Armed: level 4 is walled; no company anywhere = nothing (fail closed).
+            self.assertEqual(auth.company_scope({"email": ADMIN_A, "level": 4}, db), {COA})
+            self.assertEqual(auth.company_scope({"email": ADMIN_NOCO, "level": 4}, db), set())
+            self.assertEqual(auth.hr_scope({"email": ADMIN_A, "level": 4}, db), {COA})
+            self.assertIsNone(auth.company_scope({"email": SUPER, "level": 5}, db))
         finally:
             db.close()
 
@@ -159,7 +167,8 @@ class WallRuleTests(_Base):
         finally:
             db.close()
 
-    def test_level_4_gets_404_on_company_b_person_walls_off(self):
+    def test_level_4_gets_404_on_company_b_person_walls_on(self):
+        self._walls(True)
         self._as(ADMIN_A)
         self.assertEqual(self.client.get(f"/hr/employees/e-{BEMP}/documents").status_code, 404)
         self.assertEqual(self.client.get(f"/hr/employees/e-{AEMP}/documents").status_code, 200)
@@ -182,7 +191,7 @@ class WallRuleTests(_Base):
         self._as(SUPER)
         self.assertEqual(self.client.get("/task-tickets/tkt-tiers-b/comments").status_code, 200)
 
-    def test_level_4_gets_404_on_company_b_announcement_walls_off(self):
+    def test_level_4_gets_404_on_company_b_announcement_walls_on(self):
         db = self._db()
         try:
             db.add(models.Announcement(id="ann-tiers-a", title="A", body="a", author_email=AEMP,
@@ -192,13 +201,15 @@ class WallRuleTests(_Base):
             db.commit()
         finally:
             db.close()
+        self._walls(True)
         self._as(ADMIN_A)
         self.assertEqual(self.client.get("/announcements/ann-tiers-b/reads").status_code, 404)
         self.assertEqual(self.client.get("/announcements/ann-tiers-a/reads").status_code, 200)
         self._as(SUPER)
         self.assertEqual(self.client.get("/announcements/ann-tiers-b/reads").status_code, 200)
 
-    def test_level_4_gets_404_on_company_b_setting_walls_off(self):
+    def test_level_4_gets_404_on_company_b_setting_walls_on(self):
+        self._walls(True)
         self._as(ADMIN_A)
         self.assertEqual(self.client.get(f"{SETTINGS}?company={COB}").status_code, 404)
         self.assertEqual(self.client.get(f"{SETTINGS}?company={COA}").status_code, 200)

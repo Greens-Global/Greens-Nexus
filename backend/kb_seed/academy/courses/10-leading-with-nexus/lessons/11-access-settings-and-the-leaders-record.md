@@ -12,7 +12,7 @@ A new assistant manager at Murrieta cannot see the ticket desk. Her manager coul
 {"kind": "steps", "title": "The Five Tiers", "items": [{"label": "Employee", "note": "their own work"}, {"label": "Supervisor", "note": "plus the screens a grant opens"}, {"label": "Manager", "note": "approves for their team"}, {"label": "Administrator", "note": "runs one company"}, {"label": "Super Administrator", "note": "across every company"}]}
 ```
 
-Greens runs several companies in one Nexus, and a **company wall** keeps each one's people, departments, approvers and settings to itself. An **Administrator is always walled**: they run their company and see no other. Only a **Super Administrator**, or a member of a group flagged as global, crosses the walls. Tickets are the one exception: an Administrator works every company's tickets, while the people pickers stay walled.
+Greens runs several companies in one Nexus, and a **company wall** keeps each one's people, departments, approvers and settings to itself. With the walls on, an **Administrator is walled**: they run their company and see no other. Only a **Super Administrator**, or a member of a group flagged as global, crosses the walls. Tickets are the one exception: an Administrator works every company's tickets, while the people pickers stay walled.
 
 Under a person's name Nexus shows their job title, never the tier. The tier is a small mark: a filled shield for a Super Administrator, an outline shield for an Administrator, a people glyph for a Manager.
 
@@ -58,7 +58,7 @@ The Murrieta manager raises a ticket from Help Center asking the administrator t
 
 ## Key Points
 
-- Five tiers. An Administrator is always walled; only a Super Administrator or a global group crosses, and Tickets are the one exception.
+- Five tiers. With the walls on, an Administrator is walled; only a Super Administrator or a global group crosses, and Tickets are the one exception.
 - A tier is reach; a grant opens a module at a level. Request access; never share a sign-in.
 - Settings has one scope per setting; administrators change it, leaders ask.
 - Everything a leader does is recorded with a name and a time, and that record protects the leader who decides in Nexus.

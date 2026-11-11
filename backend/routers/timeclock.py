@@ -373,7 +373,7 @@ def _visible_emails(db: Session, user: dict):
     if user.get("level", 0) >= 4:
         # An Administrator sees their companies' people (plus their own
         # directs); only an unrestricted caller - a Super Administrator -
-        # sees everyone (Neil, 11/02/2026: walled, the switch on or off).
+        # sees everyone (walled only once the walls are on - Pranshu, 11/11/2026).
         # People with no company are shared (auth.AdminScope), as in People.
         from auth import company_scope, admits_blank
         cscope = company_scope(user, db)
@@ -7704,7 +7704,7 @@ def _schedule_read_scope(db: Session, user: dict, write_scope, all_groups=None, 
 
       - Administrator and up: their `write_scope` as is - a Super
         Administrator (or a member of a global-admin group) everyone, an
-        Administrator their companies' people (always company-walled).
+        Administrator their companies' people (company-walled once the switch is on).
       - An unrestricted People grant (HR's own office, write_scope None):
         everyone, as before - HR reads the whole schedule.
       - Everyone else (managers, group schedulers, a company-limited People

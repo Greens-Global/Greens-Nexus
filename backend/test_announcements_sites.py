@@ -198,9 +198,13 @@ class AnnouncementsSiteTests(unittest.TestCase):
         self.assertEqual(a["workSiteId"], "")
         self.assertEqual(a["workSiteName"], "")
         self.assertIn(ANYSITE, self._bells(a["id"]))
-        # Alpha's Administrator is walled to Alpha (11/02/2026): Beta's people
-        # are not in a company post of theirs; a Super Administrator's reaches them.
-        self.assertNotIn(BFAR, self._bells(a["id"]))
+        # Walls off: Alpha's Administrator reaches Beta's people too (11/11/2026).
+        self.assertIn(BFAR, self._bells(a["id"]))
+        # Walls on: Alpha's Administrator is walled to Alpha; a Super Administrator's
+        # company post still reaches Beta.
+        self._walls("on")
+        c = self._post(audience="company", work_site_id="").json()
+        self.assertNotIn(BFAR, self._bells(c["id"]))
         b = self._post(as_email=GA, audience="company", work_site_id="").json()
         self.assertIn(BFAR, self._bells(b["id"]))
 
@@ -238,11 +242,8 @@ class AnnouncementsSiteTests(unittest.TestCase):
         r = self._post(work_site_id="site-nowhere")
         self.assertEqual(r.status_code, 422, r.text)
         self.assertEqual(r.json()["detail"], "That work site does not exist.")
-        # An Administrator is walled to their companies whatever the switch
-        # says (Neil, 11/02/2026): Beta's site is refused with walls off too.
-        r = self._post(work_site_id=FAR)
-        self.assertEqual(r.status_code, 422, r.text)
-        self.assertEqual(r.json()["detail"], "That work site is not one of your companies' sites.")
+        # Walls off: an Administrator may post to any company's site (11/11/2026).
+        self.assertEqual(self._post(work_site_id=FAR).status_code, 201)
         self._walls("on")
         r = self._post(work_site_id=FAR)
         self.assertEqual(r.status_code, 422, r.text)
