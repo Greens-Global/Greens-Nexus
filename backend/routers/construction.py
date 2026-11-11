@@ -208,6 +208,12 @@ def project_to_dict(p: models.ConstructionProject, *, with_cost: bool, db: Sessi
         "closeout": dict(getattr(p, "closeout", None) or {}),
         # Round Two (11/05/2026): the job's size, for cost per unit / square foot.
         "units": getattr(p, "units", 0) or 0, "squareFeet": getattr(p, "square_feet", 0) or 0,
+        # Round Three (11/11/2026): the client, an Intacct customer, and who
+        # signs for them - the default signer of a change order and a field
+        # ticket. No money here, so every reader of the job gets it.
+        "clientId": _nz(getattr(p, "client_id", "")), "clientName": getattr(p, "client_name", "") or "",
+        "clientContactName": getattr(p, "client_contact_name", "") or "",
+        "clientContactEmail": getattr(p, "client_contact_email", "") or "",
     }
     if db is not None:
         import construction_closeout

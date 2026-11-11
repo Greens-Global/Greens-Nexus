@@ -3747,6 +3747,11 @@ api.addCommitment = (jobId, data) => _post(`${_jp(jobId)}/commitments`, data);
 api.updateCommitment = (id, data) => req(`/construction/commitments/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
 api.addCommitmentWaiver = (id, data) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers`, data);
 api.removeCommitmentWaiver = (id, waiverId) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers/${encodeURIComponent(waiverId)}/remove`, {});
+// The client and cost codes, read from Intacct (Round Three item 2, 11/11/2026;
+// routers/construction_subs.py and construction_money.py).
+api.searchJobCustomers = (jobId, q) => req(`${_jp(jobId)}/customers?q=${encodeURIComponent(q)}`);
+api.setJobClient = (jobId, data) => req(`${_jp(jobId)}/client`, { method: 'PUT', body: JSON.stringify(data) });
+api.getJobCostCodes = (jobId) => req(`${_jp(jobId)}/cost-codes`);
 
 // Mark Up "Attach to" a job photo (lib/markup.js source kind construction_media).
 async function _attachConstructionMarkup(source, { name, blob }) {

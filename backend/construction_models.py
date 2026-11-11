@@ -129,6 +129,18 @@ class ConstructionProject(Base):
     # 0 = not known.
     units              = Column(Integer, default=0)
     square_feet        = Column(Integer, default=0)
+    # The client (Round Three, Neil, 11/11/2026): who the job is built for -
+    # an Intacct CUSTOMER, picked through Accounting > Vendors & Customers'
+    # read (routers/accounting_partners), never a Nexus customer list. The
+    # name is Intacct's, copied so lists never call the accounting app; the
+    # contact is who signs (change orders, field tickets) and is prefilled
+    # from Intacct's customer contact, editable. A Greens build is a job of
+    # Aarav Construction whose client is the Greens company that owns the
+    # property. '' = no client set (general_contractor stays as written).
+    client_id            = Column(String, default="", index=True)
+    client_name          = Column(String, default="")
+    client_contact_name  = Column(String, default="")
+    client_contact_email = Column(String, default="")
 
 
 class ConstructionDailyLog(Base):
@@ -793,6 +805,10 @@ class ConstructionCommitment(Base):
     original_amount = Column(Float, default=0.0)
     amount          = Column(Float, default=0.0)
     retainage_pct   = Column(Float, default=0.0)          # 0-20, held from each payment
+    # The cost code it is for (Round Three, 11/11/2026): the Intacct ITEM the
+    # job's cost lines carry (construction_money "BY"), so Committed sits
+    # beside Actual per code. '' = not coded.
+    cost_code       = Column(String, default="")
     status          = Column(String, default="active", index=True)
     contract_url    = Column(String, default="")          # construction-media, this job's folder
     contract_name   = Column(String, default="")

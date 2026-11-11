@@ -385,6 +385,10 @@ def create_change_order(job_id: str, body: COBody, user: dict = Depends(get_curr
         c.signer_name, c.signer_email = t.customer_name or t.signed_name or "", t.customer_email or ""
     if body.rfi_id and t is None:
         _from_rfi(db, p, c, body.rfi_id)
+    # Round Three (11/11/2026): who signs defaults to the job's client contact.
+    if not (c.signer_name or "").strip() and not (c.signer_email or "").strip():
+        c.signer_name = getattr(p, "client_contact_name", "") or ""
+        c.signer_email = getattr(p, "client_contact_email", "") or ""
     _apply_co(db, user, p, c, body.model_dump(exclude_unset=True))
     if not (c.title or "").strip():
         raise HTTPException(422, "Give the change order a title.")

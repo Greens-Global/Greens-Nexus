@@ -68,12 +68,29 @@ function Table({ tableKey, label, cols, children }) {
   );
 }
 
-const ACTUAL_COLS = (by) => [
+const ACTUAL_COLS = (by, withCommitted = false) => [
   { key: 'code', label: by === 'item' ? 'Cost Code' : 'GL Account', width: 240 },
   { key: 'accounts', label: 'Accounts', width: 280 },
+  // Round Three (11/11/2026): the commitments coded to each cost code.
+  ...(withCommitted ? [{ key: 'committed', label: 'Committed', width: 130, num: true }] : []),
   { key: 'amount', label: 'Actual to Date', width: 140, num: true },
   { key: 'share', label: 'Share of Actual', width: 120, num: true },
 ];
+
+// The cost code rows with Committed beside Actual: a code with commitments
+// and nothing posted yet gets a row of its own (nothing to drill), and
+// commitments with no code sit on "No Cost Code".
+function codeRows(actual, byCode) {
+  const committed = byCode || {};
+  const rows = actual.rows.map((r) => ({ ...r, committed: committed[r.code || ''] || 0 }));
+  const seen = new Set(actual.rows.map((r) => r.code || ''));
+  for (const [code, amount] of Object.entries(committed)) {
+    if (!seen.has(code) && amount) {
+      rows.push({ key: code || '-', code, label: code || 'No Cost Code', accounts: [], amount: 0, committed: amount, onlyCommitted: true });
+    }
+  }
+  return rows.sort((a, b) => ((a.code ? 0 : 1) - (b.code ? 0 : 1)) || String(a.code).localeCompare(String(b.code)));
+}
 const CHANGE_COLS = [
   { key: 'number', label: 'Number', width: 100 }, { key: 'title', label: 'Change', width: 280 },
   { key: 'status', label: 'Status', width: 130 }, { key: 'amount', label: 'Amount', width: 130, num: true },
@@ -95,6 +112,7 @@ const PR_COLS = [
 // Held are worked out.
 const COMMIT_COLS = [
   { key: 'number', label: 'Number', width: 90 }, { key: 'vendor', label: 'Vendor', width: 200 },
+  { key: 'code', label: 'Cost Code', width: 110 },
   { key: 'title', label: 'Scope', width: 220 }, { key: 'amount', label: 'Amount', width: 130, num: true },
   { key: 'billed', label: 'Billed to Date', width: 130, num: true }, { key: 'remaining', label: 'Remaining', width: 120, num: true },
   { key: 'retainage', label: 'Retainage Held', width: 120, num: true }, { key: 'waiver', label: 'Lien Waiver', width: 220 },
@@ -119,6 +137,11 @@ export default function MoneyTab({ project, money, onEdit }) {
   const changes = m.changes || { rows: [], approved: 0, pending: 0 };
   const commits = m.commitments || { rows: [], total: 0, open: 0 };
   const openCommit = sheet && sheet !== 'new' ? commits.rows.find((c) => c.id === sheet) : null;
+  const byCode = m.committedByCode || {};
+  const withCommitted = actual?.by === 'item' && Object.values(byCode).some(Boolean);
+  const client = m.client;
+  // What is left to bill is worked out: the contract with its approved changes, less what was billed.
+  const contract = m.budget?.amount || 0;
 
   return (
     <div className="acct-module" data-money-tab={project.id} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -179,30 +202,61 @@ export default function MoneyTab({ project, money, onEdit }) {
         )}
       </div>
 
+      {/* Round Three (11/11/2026): the client side, read from the same
+          Project-Job lines - revenue billed, receivable paid. */}
+      {client && (
+        <div data-money-client="" style={{ ...CARD, marginBottom: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <h3 style={h3}>{project.clientName ? `From the Client - ${project.clientName}` : 'From the Client'}</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+            <Figure testId="billed" label="Billed to Client" value={client.billed.amount}
+              hint="Revenue posted to this Project-Job. Open it for the ledger lines."
+              onDrill={client.billed.accounts.length ? () => setLines({ row: { key: 'client-billed', label: 'Billed to Client', client: true, code: '', amount: client.billed.amount, accounts: client.billed.accounts } }) : null} />
+            <Figure testId="received" label="Received" value={client.received.amount}
+              hint="Payments credited to this Project-Job's receivable. A payment posted without the job's Project-Job does not show here."
+              onDrill={client.received.accounts.length ? () => setLines({ row: { key: 'client-received', label: 'Receivable Lines', client: true, code: '', amount: client.received.amount, accounts: client.received.accounts } }) : null} />
+            <Figure testId="owed" label="Still Owed" value={client.open}
+              hint={client.open == null ? 'No receivable lines carry this Project-Job.' : 'Worked out: invoiced less received on the receivable lines.'} />
+            {contract > 0 && (
+              <Figure testId="to-bill" label="Left to Bill" value={Math.round((contract - client.billed.amount) * 100) / 100}
+                hint="Worked out: the contract with its approved changes, less what was billed." />
+            )}
+          </div>
+          {!project.clientId && <div style={quiet}>No client is set on this job. Pick the Intacct customer on Edit Job.</div>}
+        </div>
+      )}
+
       {actual && (
         <div style={{ ...CARD, marginBottom: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <h3 style={h3}>{actual.by === 'item' ? 'Actual to Date by Cost Code' : 'Actual to Date by GL Account'}</h3>
           {actual.rows.length === 0 ? <div style={quiet}>Nothing has posted to this Project-Job yet.</div> : (
-            <Table tableKey="construction-money-actual" label="Actual to date" cols={ACTUAL_COLS(actual.by)}>
+            <Table tableKey="construction-money-actual" label="Actual to date" cols={ACTUAL_COLS(actual.by, withCommitted)}>
               {(w) => (
                 <>
-                  {actual.rows.map((r) => (
+                  {(withCommitted ? codeRows(actual, byCode) : actual.rows).map((r) => (
                     <tr key={r.key} data-money-row={r.key}>
                       <td style={cellStyle(w.width('code'))} title={r.label}>{r.code && r.label !== r.code ? <><span className="acct-code">{r.code}</span>{r.label}</> : r.label}</td>
                       <td style={cellStyle(w.width('accounts'))} title={r.accounts.map((a) => `${a.account_no} ${a.title}`).join(', ')}>
                         {r.accounts.map((a) => `${a.account_no} ${a.title}`).join(', ')}
                       </td>
+                      {withCommitted && (
+                        <td className="acct-num" style={cellStyle(w.width('committed'))} title="Kept in Nexus: the subcontracts and purchase orders coded here">
+                          <Amount value={r.committed} zero="dash" />
+                        </td>
+                      )}
                       <td className="acct-num" style={cellStyle(w.width('amount'))}>
-                        <button type="button" className="acct-drill" aria-label={`Ledger lines behind ${r.label}`} title="See the ledger lines behind this amount"
-                          onClick={() => open(r)}>
-                          <Amount value={r.amount} zero="dash" />
-                        </button>
+                        {r.onlyCommitted ? <Amount value={0} zero="dash" /> : (
+                          <button type="button" className="acct-drill" aria-label={`Ledger lines behind ${r.label}`} title="See the ledger lines behind this amount"
+                            onClick={() => open(r)}>
+                            <Amount value={r.amount} zero="dash" />
+                          </button>
+                        )}
                       </td>
-                      <td className="acct-num" style={cellStyle(w.width('share'))} title="Worked out">{actual.amount ? pct(r.amount / actual.amount) : '-'}</td>
+                      <td className="acct-num" style={cellStyle(w.width('share'))} title="Worked out">{actual.amount && !r.onlyCommitted ? pct(r.amount / actual.amount) : '-'}</td>
                     </tr>
                   ))}
                   <tr className="acct-grand">
                     <td colSpan={2} className="acct-label">Total</td>
+                    {withCommitted && <td className="acct-num"><Amount value={Object.values(byCode).reduce((a, b) => a + b, 0)} /></td>}
                     <td className="acct-num">
                       <button type="button" className="acct-drill" aria-label="Ledger lines behind the total" onClick={() => open()}>
                         <Amount value={actual.amount} />
@@ -248,6 +302,7 @@ export default function MoneyTab({ project, money, onEdit }) {
                       {m.canMap ? <button type="button" className="acct-drill" onClick={() => setSheet(c.id)} title="Open this commitment">{c.number}</button> : c.number}
                     </td>
                     <td style={cellStyle(w.width('vendor'))} title={`${c.vendorName} (${c.vendorId})`}>{c.vendorName}</td>
+                    <td style={cellStyle(w.width('code'))} title={c.costCode || 'Not coded'}>{c.costCode || '-'}</td>
                     <td style={cellStyle(w.width('title'))} title={c.title}>{c.title || c.kindLabel}{c.status === 'closed' ? ' (Closed)' : ''}</td>
                     <td className="acct-num" style={cellStyle(w.width('amount'))}><Amount value={c.amount} /></td>
                     <td className="acct-num" style={cellStyle(w.width('billed'))} title={c.sharedVendor ? 'Every line for this vendor on the job - it has more than one commitment here.' : undefined}>

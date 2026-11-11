@@ -16,6 +16,8 @@ vi.mock('../../api', () => ({ api: {
   weather: vi.fn(), getPeopleDirectory: vi.fn(async () => []), getTicketProperties: vi.fn(async () => ({ properties: [] })),
   getBookProjects: vi.fn(), mapJobBooks: vi.fn(), updateConstructionProject: vi.fn(), getSpendJobs: vi.fn(),
   getConstructionRegister: vi.fn(async () => []),
+  // Round Three item 2 (11/11/2026): the client and cost codes.
+  searchJobCustomers: vi.fn(), setJobClient: vi.fn(), getJobCostCodes: vi.fn(async () => ({ codes: [] })),
 } }));
 vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ can: (r) => !!role[r], myEmail: 'pat.manager@example.com' }) }));
 vi.mock('../../ui/dialog', () => ({ dialog: { confirm: vi.fn(async () => true), alert: vi.fn() } }));
@@ -229,6 +231,53 @@ describe('The Money tab', () => {
     expect(screen.queryByRole('table', { name: 'Actual to date' })).toBeNull();
     expect(screen.getByRole('button', { name: /Map to the Books/ })).toBeInTheDocument();
     expect(api.searchAccountingLedger).not.toHaveBeenCalled();
+  });
+});
+
+describe('Round Three - the client and cost codes', () => {
+  const client = { billed: { amount: 900, accounts: [{ account_no: '40100', title: 'Revenue', amount: 900 }] },
+    received: { amount: 600, accounts: [{ account_no: '12000', title: 'Accounts Receivable', amount: 600 }] }, open: 300 };
+
+  it('the client card reads billed, received and owed, and billed opens its lines without a cost code', async () => {
+    const { container } = render(<MoneyTab project={{ ...job, clientId: 'C-1', clientName: 'Sample Owner LLC' }} money={loaded(money({ client }))} />);
+    expect(screen.getByText('From the Client - Sample Owner LLC')).toBeInTheDocument();
+    expect(container.querySelector('[data-money-figure="billed"]').textContent).toContain('$900.00');
+    expect(container.querySelector('[data-money-figure="owed"]').textContent).toContain('$300.00');
+    expect(container.querySelector('[data-money-figure="to-bill"]').textContent).toContain('$100.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind Billed to Client' }));
+    await waitFor(() => expect(api.searchAccountingLedger).toHaveBeenCalledTimes(1));
+    const q = api.searchAccountingLedger.mock.calls[0][0];
+    expect(q).toMatchObject({ account: '40100', project: 'PJ-1', location: 'E1' });
+    expect(q.item).toBeUndefined();
+  });
+
+  it('a job with no client says where to set it', () => {
+    render(<MoneyTab project={job} money={loaded(money({ client }))} />);
+    expect(screen.getByText(/No client is set on this job/)).toBeInTheDocument();
+  });
+
+  it('Committed sits beside Actual per cost code, a code with only commitments gets its own row', () => {
+    render(<MoneyTab project={job} money={loaded(money({ committedByCode: { 'CC-1': 300, 'CC-9': 200 } }))} />);
+    const table = screen.getByRole('table', { name: 'Actual to date' });
+    expect(within(table).getByRole('columnheader', { name: /Committed/ })).toBeInTheDocument();
+    const nine = table.querySelector('[data-money-row="CC-9"]');
+    expect(nine.textContent).toContain('200.00');
+    expect(nine.textContent).not.toContain('0.0%');
+    expect(within(nine).queryByRole('button')).toBeNull();
+  });
+
+  it('Edit Job picks the client from Intacct and the one Save sets it with the contact', async () => {
+    api.searchJobCustomers.mockResolvedValue({ customers: [{ id: 'C-1', name: 'Sample Owner LLC', contactName: 'Dana Owens', contactEmail: 'Dana@Owner.com' }] });
+    api.setJobClient.mockResolvedValue({ ok: true });
+    const onSaved = vi.fn();
+    render(<EditJobSheet project={job} money={loaded({ allowed: false })} onClose={() => {}} onSaved={onSaved} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find a customer' }), { target: { value: 'sample' } });
+    fireEvent.click(await screen.findByRole('option', { name: /Sample Owner LLC/ }));
+    expect(screen.getByRole('textbox', { name: 'Who Signs' })).toHaveValue('Dana Owens');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Save' }).at(-1));
+    await waitFor(() => expect(api.setJobClient).toHaveBeenCalledWith('j1', { client_id: 'C-1', contact_name: 'Dana Owens', contact_email: 'dana@owner.com' }));
+    expect(api.updateConstructionProject).not.toHaveBeenCalled();
+    expect(onSaved).toHaveBeenCalled();
   });
 });
 

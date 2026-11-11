@@ -21,6 +21,7 @@ Aug 2 freeze); the async handlers only await the accounting app.
   PATCH /construction/commitments/{id}                  edit; a new amount needs a reason
   POST /construction/commitments/{id}/waivers           a lien waiver received
   POST /construction/commitments/{id}/waivers/{w}/remove
+  GET  /construction/projects/{id}/cost-codes           the commitment's cost code picker (Round Three)
 """
 from __future__ import annotations
 
@@ -130,7 +131,8 @@ async def job_money(ctx: dict = Depends(_money_context)):
     allowed = ctx.pop("allowedEntities")
     commitments = ctx.pop("commitmentRows")
     link = ctx["link"]
-    out = {**ctx, "book": "accrual", "mapped": bool(link["project"] and link["entity"]), "actual": None, "booksError": ""}
+    out = {**ctx, "book": "accrual", "mapped": bool(link["project"] and link["entity"]), "actual": None, "client": None,
+           "booksError": ""}
     billed = None
     if out["mapped"]:
         if not await _entity_ok(allowed, link["entity"]):
@@ -142,12 +144,16 @@ async def job_money(ctx: dict = Depends(_money_context)):
                 "to": out["asOf"], "by": "item", "location": link["entity"], "project": link["project"]})
             chart = await _chart()
             out["actual"] = money.actual_from_buckets(data.get("rows") or [], data.get("labels") or {}, chart)
+            # Round Three (11/11/2026): billed to and received from the client,
+            # from the same read.
+            out["client"] = money.client_side(data.get("rows") or [], chart)
             link["entityName"] = await _entity_name(link["entity"])
             if commitments:
                 billed = await _billed(link, out["asOf"], chart)
         except HTTPException as e:
             out["booksError"] = str(e.detail)
     out["commitments"] = money.commitments_view(commitments, billed)
+    out["committedByCode"] = money.committed_by_code(commitments)
     # The forecast adds what is committed and not billed yet (Round Two item 8).
     out.update(money.worked_out(
         actual=(out["actual"] or {}).get("amount") if out["actual"] else None,
@@ -398,9 +404,17 @@ def _dollars(v) -> str:
     return f"${float(v or 0):,.2f}"
 
 
+def _cost_code(v) -> str:
+    code = (v or "").strip()
+    if code and not _CODE.match(code):
+        raise HTTPException(422, "That is not a cost code.")
+    return code
+
+
 class CommitmentIn(BaseModel):
     kind: Optional[str] = "subcontract"
     vendor_id: str
+    cost_code: Optional[str] = ""
     title: Optional[str] = ""
     amount: float
     retainage_pct: Optional[float] = 0
@@ -426,7 +440,8 @@ def _create(ctx: dict, body: CommitmentIn, vid: str, vendor_name: str) -> dict:
           vendor_name=vendor_name, title=(body.title or "").strip()[:_TITLE_MAX], original_amount=amount, amount=amount,
           retainage_pct=_retainage(body.retainage_pct), status="active", contract_url=_file(body.contract_url, p.id),
           contract_name=(body.contract_name or "").strip()[:_TITLE_MAX], waivers=[],
-          notes=(body.notes or "").strip()[:_NOTE_MAX], created_by=me, created_at=now_iso(), modified_at=now_iso())
+          notes=(body.notes or "").strip()[:_NOTE_MAX], cost_code=_cost_code(body.cost_code),
+          created_by=me, created_at=now_iso(), modified_at=now_iso())
     db.add(c)
     _log_activity(db, project_id=p.id, entity_kind="commitment", entity_id=c.id, type="commitment_added", actor_email=me,
                   detail=f"{c.number} {vendor_name}: {_dollars(amount)}")
@@ -452,6 +467,7 @@ async def add_commitment(body: CommitmentIn, ctx: dict = Depends(_commit_ctx)):
 
 class CommitmentPatch(BaseModel):
     title: Optional[str] = None
+    cost_code: Optional[str] = None
     amount: Optional[float] = None
     reason: Optional[str] = ""
     retainage_pct: Optional[float] = None
@@ -483,6 +499,8 @@ def _patch(ctx: dict, body: CommitmentPatch) -> dict:
         c.retainage_pct = _retainage(body.retainage_pct)
     if body.title is not None:
         c.title = body.title.strip()[:_TITLE_MAX]
+    if body.cost_code is not None:
+        c.cost_code = _cost_code(body.cost_code)
     if body.contract_url is not None:
         c.contract_url = _file(body.contract_url, p.id)
     if body.contract_name is not None:
@@ -573,3 +591,34 @@ def _remove_waiver(ctx: dict, waiver_id: str) -> dict:
 async def remove_waiver(waiver_id: str, ctx: dict = Depends(_found_ctx)):
     await _entity_gate(ctx)
     return await asyncio.to_thread(_remove_waiver, ctx, waiver_id)
+
+
+# ── Cost codes for a commitment (Round Three item 2, 11/11/2026) ───────────
+@router.get("/projects/{project_id}/cost-codes")
+async def job_cost_codes(ctx: dict = Depends(_commit_ctx)):
+    """The cost codes (Intacct items) a commitment on this job may carry.
+    Company-wide accounting access lists every item on the ledger
+    (/reports/dimensions?kind=item); a caller limited to certain entities
+    cannot read that list, so they get the items already on the job's
+    entity's lines. Codes on the job's own lines come first."""
+    await _entity_gate(ctx)
+    p, allowed = ctx["p"], ctx["allowed"]
+    entity = p.intacct_entity or ""
+    on_job: dict = {}
+    if entity and p.intacct_project_id:
+        data = await acct._acct_get("/api/internal/reports/buckets", {
+            "to": ctx["today"], "by": "item", "location": entity, "project": p.intacct_project_id})
+        labels = data.get("labels") or {}
+        on_job = {c: labels.get(c) or "" for c in {str(r.get("bucket") or "").strip() for r in data.get("rows") or []} - {""}}
+    codes: dict = {}
+    if allowed is None:
+        data = await acct._acct_get("/api/internal/reports/dimensions", {"kind": "item"})
+        codes = {str(v.get("code")): v.get("name") or "" for v in data.get("values") or [] if v.get("code")}
+    elif entity:
+        data = await acct._acct_get("/api/internal/reports/buckets", {"to": ctx["today"], "by": "item", "location": entity})
+        labels = data.get("labels") or {}
+        codes = {c: labels.get(c) or "" for c in {str(r.get("bucket") or "").strip() for r in data.get("rows") or []} - {""}}
+    codes.update(on_job)
+    rows = [{"code": c, "name": n, "onJob": c in on_job} for c, n in codes.items()]
+    rows.sort(key=lambda r: (not r["onJob"], r["code"]))
+    return {"codes": rows, "limited": allowed is not None}

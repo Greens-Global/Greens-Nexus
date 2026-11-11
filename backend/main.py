@@ -1616,6 +1616,11 @@ def _run_migrations():
             # Construction Round Three fixes (Neil, 11/11/2026) - see the Postgres list.
             "ALTER TABLE construction_rfis ADD COLUMN document_urls JSON DEFAULT '[]'",
             "ALTER TABLE construction_change_orders ADD COLUMN rfi_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN client_id VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN client_name VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN client_contact_name VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_projects ADD COLUMN client_contact_email VARCHAR DEFAULT ''",
+            "ALTER TABLE construction_commitments ADD COLUMN cost_code VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3860,6 +3865,14 @@ def _run_migrations():
         # RLS. models.ConstructionRfi / ConstructionChangeOrder.
         "ALTER TABLE construction_rfis ADD COLUMN IF NOT EXISTS document_urls JSON DEFAULT '[]'",
         "ALTER TABLE construction_change_orders ADD COLUMN IF NOT EXISTS rfi_id VARCHAR DEFAULT ''",
+        # The client on a job (an Intacct customer and who signs) and a
+        # commitment's cost code (Round Three item 2, 11/11/2026). Existing
+        # tables, no new RLS. models.ConstructionProject / ConstructionCommitment.
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS client_id VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS client_name VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS client_contact_name VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_projects ADD COLUMN IF NOT EXISTS client_contact_email VARCHAR DEFAULT ''",
+        "ALTER TABLE construction_commitments ADD COLUMN IF NOT EXISTS cost_code VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

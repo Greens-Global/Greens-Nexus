@@ -54,8 +54,10 @@ function COSheet({ project, data, from, co, onClose, onSaved }) {
     title: co?.title || (src ? (src.description || '').split('\n')[0].slice(0, 120) : ''),
     reason: co?.reason || 'owner_request', description: co?.description || src?.description || '',
     amount: co ? String(co.amount) : '', schedule_impact_days: co ? String(co.scheduleImpactDays || 0) : '0',
-    approver_email: co?.approverEmail || '', signer_name: co?.signerName || src?.customerName || '',
-    signer_email: co?.signerEmail || src?.customerEmail || '',
+    approver_email: co?.approverEmail || '',
+    // Round Three (11/11/2026): a new one defaults to the job's client contact.
+    signer_name: co ? (co.signerName || '') : (src?.customerName || project.clientContactName || ''),
+    signer_email: co ? (co.signerEmail || '') : (src?.customerEmail || project.clientContactEmail || ''),
   }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
