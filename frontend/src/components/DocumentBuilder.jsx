@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { generateJSON, generateHTML } from '@tiptap/core';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -664,6 +664,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   // It floats in the desk margin beside the page and is off until opened -
   // the old always-on Pages rail lives in its Pages tab.
   const [navTab, setNavTab] = useState('headings');
+  const [navQuery, setNavQuery] = useState('');
+  const [navHit, setNavHit] = useState(-1);
   const openNav = (tab) => { setNavTab(tab); setPref('nav', true); };
   // Review > Track Changes (Pranshu, 11/05/2026), as Word Online has it:
   // Off / For Everyone (saved with the document, so whoever opens it next
@@ -2051,6 +2053,25 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     setFindIndex(all.length ? 0 : -1);
     if (all.length) jumpToMatch(all[0]);
   };
+  const navShown = !preview && !isMobile && viewPrefs.nav;
+  const commentsShown = !preview && !isMobile && commentsOpen;
+  const navResults = (() => {
+    const q = navQuery.trim();
+    if (!navShown || navTab !== 'results' || !q) return null;
+    const out = [];
+    pages.forEach((pg) => {
+      const ed = editorsRef.current.get(pg.id);
+      if (!ed || ed.isDestroyed) return;
+      const size = ed.state.doc.content.size;
+      findInEditor(ed, q).forEach((m) => {
+        if (out.length >= 200) return;
+        const before = ed.state.doc.textBetween(Math.max(0, m.from - 32), m.from, ' ');
+        const after = ed.state.doc.textBetween(m.to, Math.min(size, m.to + 48), ' ');
+        out.push({ pageId: pg.id, from: m.from, to: m.to, before: (m.from - 32 > 0 ? '…' : '') + before, match: ed.state.doc.textBetween(m.from, m.to, ' '), after });
+      });
+    });
+    return out;
+  })();
   const findStep = (dir) => {
     if (!findMatches.length) return;
     const next = (findIndex + dir + findMatches.length) % findMatches.length;
@@ -2472,12 +2493,18 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   // Pages panel actions - each page is a real array entry (see the `pages`
   // state comment above), so these are ordinary array splices, not
   // ProseMirror position math against one shared document.
-  const addPage = () => {
+  const addPage = (at = null) => {
     const id = genPageId();
     pendingFocusId.current = id;
-    setPages(prev => [...prev, { id, json: null }]);
+    setPages(prev => {
+      if (at == null || at >= prev.length) return [...prev, { id, json: null }];
+      const next = [...prev]; next.splice(Math.max(0, at), 0, { id, json: null }); return next;
+    });
     scheduleSave(); // new page mounts with content already in place, which never fires onUpdate on its own
   };
+  // Insert > Blank Page: Word's - a new page right after the one you are on.
+  const activeIdx = () => Math.max(0, pages.findIndex((pg) => pg.id === activePageId));
+  const blankPage = () => addPage(activeIdx() + 1);
   const duplicatePage = (idx, withContent) => {
     const src = pages[idx];
     if (!src) return;
@@ -2729,7 +2756,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         '-', { label: 'Remove Page Numbers', onClick: () => updatePageSetup({ pageNumbers: 'none' }) },
       ] },
       { label: 'Page Break', icon: SeparatorHorizontal, shortcut: 'Mod+Enter', disabled: !editing || !ed, onClick: pageBreak },
-      isDoc && { label: 'New Page', icon: PageIcon, disabled: !editing, onClick: addPage },
+      isDoc && { label: 'Blank Page', icon: FilePlus, disabled: !editing, onClick: blankPage },
       '-',
       { label: 'Special Characters...', icon: Smile, disabled: !editing, onClick: () => openOnRibbon('insert', () => setSymbolPopoverOpen(true)) },
       { label: 'Signature Block...', icon: PenLine, disabled: !editing, onClick: () => openOnRibbon('insert', () => { setSigPopoverOpen(true); setSigDraft((d) => ({ ...d, role: d.role || signerOptions[0]?.key || '' })); }) },
@@ -3028,6 +3055,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             return (
           <div key={`${p.id}:${slice}`} style={{ position: 'relative' }}>
             <div onClick={() => goToSheet(p.id, slice)}
+              onContextMenu={isFirst ? (e) => { e.preventDefault(); e.stopPropagation(); setPageMenuOpen(p.id); } : undefined}
               style={{ width: thumbW, height: thumbH, border: (isFirst && p.id === activePageId) ? '2px solid hsl(var(--color-blue))' : '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', background: '#fff', boxShadow: 'var(--shadow-sm)', cursor: 'pointer' }}>
               <div style={{ width: canvas.maxWidth, boxSizing: 'border-box', padding: `${padV}px ${padH}px`,
                   transform: `scale(${scale}) translateY(${-slice * sheet}px)`, transformOrigin: 'top left', pointerEvents: 'none' }}
@@ -3069,15 +3097,13 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             );
           });
         }); })()}
-        <button onClick={addPage}
+        <button onClick={() => addPage()}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: thumbW, height: 40, border: '1px dashed var(--line)', borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
           <Plus size={14} /> Add page
         </button>
       </div>
     );
   };
-  const navShown = !preview && !isMobile && viewPrefs.nav;
-  const commentsShown = !preview && !isMobile && commentsOpen;
 
   return (
     <div className={`nx-docb${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}${fieldShading ? '' : ' doc-fields-plain'}${previewResults ? ' doc-previewing' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
@@ -3414,7 +3440,13 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           <>
           <Group label="Pages">
             <BigBtn icon={SeparatorHorizontal} label="Page Break" title="Start the next line on a new page" onClick={() => activeEditor.chain().focus().insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run()} />
-            {kind === 'document' && <BigBtn icon={PageIcon} label="New Page" title="Add a page at the end" onClick={addPage} />}
+            {kind === 'document' && <BigBtn icon={FilePlus} label="Blank Page" title="Add a blank page after this one" onClick={blankPage} />}
+            {kind === 'document' && (
+              <Menu big icon={Copy} label="Duplicate Page" title="Duplicate this page" items={[
+                { label: 'With All Contents', onClick: () => duplicatePage(activeIdx(), true) },
+                { label: 'With Format Only (Layout, No Text)', onClick: () => duplicatePage(activeIdx(), false) },
+              ]} />
+            )}
           </Group>
           <Group label="Tables">
             <Menu big icon={TableIcon} label="Table" width={220}>
@@ -4133,13 +4165,25 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             </div>
           </div>
         ) : null;
+        // Between two pages (and after the last), a "+ Add Page" that shows
+        // on hover - zero height, so it never moves the pagination.
+        const gap = kind === 'document' && !preview && !isMobile && !isLocked && !viewingOnly && !readOnly && (
+          <div className="nx-docb-pagegap">
+            <button type="button" onClick={() => addPage(i + 1)} title={isLast ? 'Add a page at the end' : `Add a page after page ${i + 1}`}>
+              <Plus size={12} /> Add Page
+            </button>
+          </div>
+        );
         return (
-          <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked && !viewingOnly && !readOnly} live={live} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
+          <Fragment key={p.id}>
+          <DocPage pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked && !viewingOnly && !readOnly} live={live} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
             firstSheetPx={isFirst ? firstSheetPx : undefined} showMarks={showMarks}
             bandInfo={bandInfo} sheetBase={sheetStarts[i]} onSheets={onSheets} paginate={viewPrefs.paginate}
             topSlot={topSlot} headerSlot={headerSlot} footerSlot={footerSlot}
             onReady={registerPageEditor} onUpdate={onPageUpdate}
             onActivity={onPageActivity} onPaste={onBodyPaste} onVariableDrop={onVariableDrop} onTocClick={goToTocLink} />
+          {gap}
+          </Fragment>
         );
       })}
       </div>
@@ -4148,7 +4192,9 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       {navShown && (
         <aside className="nx-docb-pane is-left" aria-label="Navigation">
           <NavigationPane tab={navTab} onTab={setNavTab} headings={headingsOf(editorsRef.current, pages)} onGo={goToHeading}
-            pages={kind === 'document' ? pageThumbs() : null} onClose={() => setPref('nav', false)} />
+            pages={kind === 'document' ? pageThumbs() : null} onClose={() => setPref('nav', false)}
+            query={navQuery} onQuery={(q) => { setNavQuery(q); setNavHit(-1); }}
+            results={navResults} activeResult={navHit} onResult={(i) => { setNavHit(i); jumpToMatch(navResults[i]); }} />
         </aside>
       )}
       {commentsShown && (
