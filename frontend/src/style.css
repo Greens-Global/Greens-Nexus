@@ -10499,3 +10499,14 @@ button.nx-docb-var-go { display: inline-flex; align-items: center; justify-conte
 button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .nx-varlib.is-embedded { height: 100%; border: none; box-shadow: none; }
 .nx-varlib.is-embedded .nx-varlib-head { padding-top: 10px; }
+
+/* "Name This Document" on Close (11/11/2026): a centered question card. */
+.modal-content.doc-nameclose { width: min(440px, calc(100vw - 32px)); height: auto; min-height: 0; max-height: none; padding: 20px; display: flex; flex-direction: column; gap: 12px; font-family: Inter, sans-serif; }
+.doc-nameclose h3 { margin: 0; font-size: 16px; font-weight: 700; }
+.doc-nameclose p { margin: 0; font-size: 13px; color: var(--muted); }
+.doc-nameclose-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+/* New From a Template: the name the document is saved under, shown instead of
+   a name box (Neil, 11/11/2026 - named on Close, not before). */
+.nx-newdoc-name { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2, rgba(0,0,0,.03)); font-size: 12px; color: var(--muted); }
+.nx-newdoc-name strong { color: var(--ink); font-weight: 600; word-break: break-word; }

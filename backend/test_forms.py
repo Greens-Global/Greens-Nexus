@@ -221,10 +221,13 @@ class FormsTests(unittest.TestCase):
         # Theirs to change afterwards.
         r = self.client.patch(f"/documents/templates/{r.json()['id']}", json={"name": "Yard Walk 2"})
         self.assertEqual(r.status_code, 200, r.text)
-        # A document template still needs its department named; an employee may not create a form.
+        # A document template is theirs the same way since New Template opens a
+        # blank draft at once (Neil, 11/11/2026) - never company-wide, which
+        # stays an administrator's. An employee may not create a form.
         r = self.client.post("/documents/templates", json={"name": "Letter", "docType": "document",
                                                              "category": "hr"})
-        self.assertEqual(r.status_code, 403, r.text)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["department"], "Operations")
         self._as(REP)
         r = self.client.post("/documents/templates", json={"name": "Mine", "docType": "form",
                                                              "category": "safety", "fieldDefs": FIELDS[:1]})

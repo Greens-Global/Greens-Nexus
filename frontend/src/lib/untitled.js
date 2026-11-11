@@ -6,10 +6,23 @@
 // reads like this. One rule, read by the list and both editors.
 export const UNTITLED_DOCUMENT = 'Untitled Document';
 export const UNTITLED_SHEET = 'Untitled Sheet';
+// A template starts the same way since 11/11/2026 (Neil: "I don't like the
+// step where it makes you name it before you make one").
+export const UNTITLED_TEMPLATE = 'Untitled Template';
 
 export function isUntitled(title) {
   const t = String(title ?? '').trim();
-  return !t || /^untitled (document|sheet)(\s*\(\d+\))?$/i.test(t);
+  return !t || /^untitled (document|sheet|template)(\s*\(\d+\))?$/i.test(t);
+}
+
+// The name offered when the words give none: "Document - 11/11/2026" (Neil,
+// 11/11/2026: "with an auto saved name as a default").
+export function defaultName(kind = 'document', when = new Date()) {
+  const what = kind === 'sheet' ? 'Sheet' : kind === 'template' ? 'Template' : 'Document';
+  const d = when instanceof Date ? when : new Date(when);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${what} - ${mm}/${dd}/${d.getFullYear()}`;
 }
 
 // A first guess at a name: the first line of text, up to 60 characters,
@@ -28,7 +41,7 @@ export async function askForName(dialog, { kind = 'document', suggestion = '' } 
   const what = kind === 'sheet' ? 'Sheet' : 'Document';
   const name = await dialog.prompt(`Give this ${what.toLowerCase()} a name before you close it, so it is easy to find in Files.`, {
     title: `Name This ${what}`,
-    defaultValue: suggestion,
+    defaultValue: suggestion || defaultName(kind),
     placeholder: kind === 'sheet' ? 'e.g. Q3 Budget' : 'e.g. Vendor Agreement',
     required: true,
     confirmText: 'Save & Close',

@@ -1110,9 +1110,11 @@ def create_template(body: TemplateIn, user: dict = Depends(get_current_user), db
     doc_type = body.docType or "document"
     if doc_type not in _TEMPLATE_TYPES:
         raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
-    if (doc_type == "form" and not department and _MANAGER_LEVEL <= user.get("level", 0) < _ADMIN_LEVEL):
-        # A manager's new form is their department's (they may manage it);
-        # company-wide forms stay an administrator's.
+    if not department and _MANAGER_LEVEL <= user.get("level", 0) < _ADMIN_LEVEL:
+        # A manager's new form or template is their department's (they may
+        # manage it); company-wide ones stay an administrator's. New Template
+        # opens a blank draft at once (Neil, 11/11/2026) with no department
+        # picked, so this is what lets a department head start one.
         department = _caller_department(db, user)
     _require_template_manager(db, user, department)
     status = body.status or "active"
@@ -1556,7 +1558,9 @@ def get_template(tid: str, user: dict = Depends(get_current_user), db: Session =
     row = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
     if not row:
         raise HTTPException(404, "Template not found")
-    return _ser_template(row)
+    out = _ser_template(row)
+    out["mine"] = (row.created_by or "").lower() == (user.get("email") or "").lower()
+    return out
 
 
 @router.patch("/templates/{tid}")
@@ -2079,6 +2083,9 @@ def _full_document(db: Session, row: Document, user: dict) -> dict:
     out = _ser_document(row, statuses.get(row.sign_request_id, ""))
     can = _access(row, user, db)
     out["access"] = can
+    # The caller's own document (not an administrator's reach): the builder
+    # drops a blank, unnamed draft of yours on Close (11/11/2026).
+    out["mine"] = (row.owner_email or "").lower() == (user.get("email") or "").lower()
     # Who else is on it: editors and the owner see the list; a viewer does not.
     out["sharedWith"] = _shares(row) if can != "view" else []
     return out

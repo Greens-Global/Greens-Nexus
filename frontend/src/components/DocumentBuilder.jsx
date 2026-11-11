@@ -43,7 +43,8 @@ import { useRole } from '../contexts/RoleContext';
 import { canDictate, useDictation, spokenAfter } from '../lib/voice';
 import { listChanges } from '../lib/docTrackChanges';
 import { dialog } from '../ui/dialog';
-import { isUntitled, suggestName, askForName, UNTITLED_DOCUMENT } from '../lib/untitled';
+import { isUntitled, suggestName, defaultName, UNTITLED_DOCUMENT, UNTITLED_TEMPLATE } from '../lib/untitled';
+import NameOnClose from './docRibbon/NameOnClose';
 import MenuBar, { ShortcutsCard } from './docRibbon/MenuBar';
 import { STYLES as PARA_STYLES, currentStyle } from './docRibbon/StyleGallery';
 import FullScreenButton, { useFullScreen } from './FullScreenButton';
@@ -82,7 +83,7 @@ const FONT_GROUPS = {
 // Does this content say anything at all? Text, a picture, a variable chip, a
 // shape or a table all count; a lone empty paragraph does not. Used to refuse
 // a save that would blank a document that had content a moment ago.
-const SUBSTANTIVE = new Set(['image', 'mergeField', 'docShape', 'docTextbox', 'table', 'pageBreak', 'bookmark', 'signatureBlock']);
+const SUBSTANTIVE = new Set(['image', 'mergeField', 'docShape', 'docTextbox', 'table', 'pageBreak', 'bookmark', 'signatureBlock', 'footnote']);
 
 // Who signs, when a template has no Signers list yet (Oct 14).
 const DEFAULT_SIGNERS = [{ key: 'employee', label: 'Employee', order: 1 }, { key: 'company', label: 'Company', order: 2 }];
@@ -1148,7 +1149,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       if (cancelled) return;
       setDoc(d);
       // An unnamed document shows an empty title box saying "Untitled Document" (lib/untitled.js).
-      setTitle(kind === 'document' && isUntitled(d[nameKey]) ? '' : d[nameKey]);
+      setTitle(isUntitled(d[nameKey]) ? '' : d[nameKey]);
       setLetterheadId(d.letterheadId || '');
       setRequiresLetterhead(!!d.requiresLetterhead);
       setEmployeeId(d.employeeId || '');
@@ -1381,18 +1382,23 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       .catch(e => toastErr?.(e.message || 'Failed to rename'));
   };
 
-  // Who is asked to name an unnamed document on Close: an editor of a draft.
-  const mayName = kind === 'document' && !readOnly && !isLocked && doc?.access !== 'view';
-  // "Name This Document" (Neil, 11/10/2026): an unnamed document cannot be
-  // closed without a name; Keep Editing stays put. Suggests the first line.
+  // Who is asked to name an unnamed document or template on Close: an editor
+  // of a draft.
+  const mayName = (kind === 'document' || kind === 'template') && !readOnly && !isLocked && doc?.access !== 'view';
+  // "Name This Document" (Neil, 11/10/2026, and templates since 11/11/2026):
+  // an unnamed one cannot be closed without a name; Keep Editing stays put.
+  // The name is filled in already - the first line, else "Document - <date>".
+  const [nameAsk, setNameAsk] = useState(null);   // { suggestion, resolve }
   const askName = async () => {
     const text = pages.map((p) => editorsRef.current.get(p.id)?.getText?.({ blockSeparator: '\n' }) || '').join('\n');
-    const name = await askForName(dialog, { kind: 'document', suggestion: suggestName(text) });
-    if (!name) return false;
+    const answer = await new Promise((resolve) => setNameAsk({ suggestion: suggestName(text) || defaultName(kind), resolve }));
+    setNameAsk(null);
+    if (!answer || isUntitled(answer.name)) return false;
+    const name = answer.name;
     try {
-      await apiUpdate(docId, { [nameKey]: name });
+      await apiUpdate(docId, { [nameKey]: name, ...(kind === 'template' && answer.category ? { category: answer.category } : {}) });
       setTitle(name);
-      setDoc((d) => (d ? { ...d, [nameKey]: name } : d));
+      setDoc((d) => (d ? { ...d, [nameKey]: name, ...(kind === 'template' && answer.category ? { category: answer.category } : {}) } : d));
       return true;
     } catch (e) {
       toastErr?.(e.message || 'Failed to rename');
@@ -1409,6 +1415,19 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       setPreview(false);
       closePdfPreview();
       return Promise.resolve(false);
+    }
+    // Still unnamed and nothing written in it: a draft somebody opened and
+    // closed again is not kept, so the list does not fill with empty
+    // "Untitled" rows (11/11/2026). Only the owner's own unshared draft.
+    // `mine` is the server's word (GET /documents/{id}, /templates/{id}).
+    const mine = doc?.mine === true;
+    if (mayName && mine && !(doc?.sharedWith || []).length && isUntitled(title.trim() || doc?.[nameKey])
+        && doc?.status === 'draft' && !doc?.publishedVersion && isEmptyContent(currentContentRef.current?.())) {
+      if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+      return (kind === 'template' ? api.deleteDocTemplate(docId) : api.deleteDocument(docId))
+        .then(() => toastOk?.(`Nothing was written, so the blank ${kind} was not kept.`))
+        .catch(() => {})
+        .then(() => { onClose?.(); return true; });
     }
     // Still unnamed: ask for a name first; Keep Editing cancels the close.
     // Resolves true once it really closed (File > New Document waits on it).
@@ -2296,7 +2315,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   // via the same create endpoint the Templates library itself uses.
   const [savingTemplate, setSavingTemplate] = useState(false);
   const saveAsTemplate = async () => {
-    const name = ((await dialog.prompt('Template name', { defaultValue: title || 'Untitled Template' })) || '').trim();
+    const name = ((await dialog.prompt('Template name', { defaultValue: title || UNTITLED_TEMPLATE })) || '').trim();
     if (!name) return;
     setSavingTemplate(true);
     api.createDocTemplate({ name, category: 'general', requiresLetterhead, letterheadId, content: currentContent() })
@@ -3264,8 +3283,8 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         <div className="nx-docb-titlecol">
         <div className="nx-docb-titlerow">
         <input ref={titleRef} className="nx-inline-edit nx-docb-title" value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
-          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setTitle(isUntitled(doc?.[nameKey]) && kind === 'document' ? '' : doc?.[nameKey] || ''); e.target.blur(); } }}
-          placeholder={kind === 'document' ? UNTITLED_DOCUMENT : 'Untitled Template'} aria-label={kind === 'document' ? 'Document name' : 'Template name'}
+          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setTitle(isUntitled(doc?.[nameKey]) ? '' : doc?.[nameKey] || ''); e.target.blur(); } }}
+          placeholder={kind === 'document' ? UNTITLED_DOCUMENT : UNTITLED_TEMPLATE} aria-label={kind === 'document' ? 'Document name' : 'Template name'}
           readOnly={readOnly || isLocked} />
         <span className="nx-docb-save" style={{ color: saveStatus === 'error' ? 'hsl(var(--color-red))' : undefined }}>
           {saveStatus === 'saving' && <Spinner size={12} />}
@@ -4500,6 +4519,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         />
       )}
       {shortcutsOpen && <ShortcutsCard menus={docMenus} onClose={() => setShortcutsOpen(false)} />}
+      {nameAsk && <NameOnClose kind={kind} suggestion={nameAsk.suggestion} category={doc?.category} onDone={nameAsk.resolve} />}
       {!preview && !isMobile && <KeyTips rootRef={rootRef} onTab={keyTipTab} />}
     </div>
   );
