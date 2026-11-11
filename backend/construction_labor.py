@@ -101,19 +101,57 @@ def stamp_jobsite(db: Session, punch) -> str:
     return js
 
 
+# ── Cost codes on a punch (Round Three item 3, Neil, 11/11/2026) ────────────
+# The person picks one of the job's labor codes (an Intacct item, the job's
+# `labor_codes`) at punch-in; the phone remembers the last one per job and
+# sends it with the job it was picked for. It is KEPT only on an IN punch
+# whose stamped jobsite is that job, with the code on that job's list -
+# anything else is dropped, and the punch always lands.
+
+def offer_cost_code(punch, code: str, job_id: str = "") -> None:
+    """Put the picked code on a new IN punch, to be checked at flush."""
+    punch.cost_code = (code or "").strip()[:60]
+    punch._cost_code_job = (job_id or "").strip()[:64]
+
+
+def labor_codes_of(job) -> list:
+    """The job's labor codes, cleaned: [{code, name}]."""
+    out = []
+    for c in (getattr(job, "labor_codes", None) or []):
+        if isinstance(c, dict) and str(c.get("code") or "").strip():
+            out.append({"code": str(c["code"]).strip(), "name": str(c.get("name") or "").strip()})
+    return out
+
+
+def check_cost_code(db: Session, punch) -> str:
+    import models
+    code = (getattr(punch, "cost_code", "") or "").strip()
+    if not code:
+        return ""
+    js = getattr(punch, "jobsite", "") or ""
+    wanted = getattr(punch, "_cost_code_job", "") or ""
+    job = db.get(models.ConstructionProject, js[len(PROJECT):]) if (punch.kind or "") == "in" and js.startswith(PROJECT) else None
+    ok = (job is not None and not job.deleted_at and (not wanted or wanted == job.id)
+          and code in {c["code"] for c in labor_codes_of(job)})
+    punch.cost_code = code if ok else ""
+    return punch.cost_code
+
+
 def wire(session_factory) -> None:
     @event.listens_for(session_factory, "before_flush")
     def _stamp_new_in_punches(session, _ctx, _instances):
         import models
         new = [o for o in session.new if isinstance(o, models.TimePunch) and (o.kind or "") == "in"
-               and not (getattr(o, "jobsite", "") or "")]
+               and (not (getattr(o, "jobsite", "") or "") or (getattr(o, "cost_code", "") or ""))]
         if not new:
             return
         with session.no_autoflush:
             for p in new:
                 try:
                     stamp_jobsite(session, p)
+                    check_cost_code(session, p)
                 except Exception as e:   # noqa: BLE001 - a stamp never fails a punch
+                    p.cost_code = ""
                     print(f"[construction-labor] stamp {getattr(p, 'id', '')}: {e}")
 
 
@@ -182,7 +220,8 @@ def _pairs(punches: list) -> list:
 
 
 def hours(db: Session, job, *, date_from: str = "", date_to: str = "", only_email: str = "") -> dict:
-    """{rows: [{date, email, hours}], byPerson: {email: h}, byDay: {date: h}, total}"""
+    """{rows: [{date, email, hours}], byPerson: {email: h}, byDay: {date: h},
+    byCode: [{code, name, hours}] ('' = Not Coded), total}"""
     import models
     from routers.timeclock import _leave_class
     T = models.TimePunch
@@ -195,17 +234,25 @@ def hours(db: Session, job, *, date_from: str = "", date_to: str = "", only_emai
     if only_email:
         q = q.filter(T.employee_email == only_email.lower())
     days = {((em or "").lower(), d) for em, d in q.distinct().all() if em and d}
-    rows, by_person, by_day = [], {}, {}
+    rows, by_person, by_day, by_code_min = [], {}, {}, {}
     for em, d in sorted(days, key=lambda x: (x[1], x[0])):
         punches = (db.query(T).filter(T.employee_email == em, T.local_date == d,
                                       (T.voided == 0) | (T.voided.is_(None))).all())
-        mins = sum(m for p, m in _pairs(punches)
-                   if (getattr(p, "jobsite", "") or "") == key_for(job.id) and not _leave_class(p.category or ""))
+        pairs = [(p, m) for p, m in _pairs(punches)
+                 if (getattr(p, "jobsite", "") or "") == key_for(job.id) and not _leave_class(p.category or "")]
+        mins = sum(m for _p, m in pairs)
         if mins <= 0:
             continue
+        # Round Three item 3: the same minutes by the IN punch's cost code.
+        for p, m in pairs:
+            k = getattr(p, "cost_code", "") or ""
+            by_code_min[k] = by_code_min.get(k, 0) + m
         h = round(mins / 60.0, 2)
         rows.append({"date": d, "email": em, "hours": h})
         by_person[em] = round(by_person.get(em, 0) + h, 2)
         by_day[d] = round(by_day.get(d, 0) + h, 2)
-    return {"rows": rows, "byPerson": by_person, "byDay": by_day,
+    names = {c["code"]: c["name"] for c in labor_codes_of(job)}
+    by_code = [{"code": k, "name": names.get(k, "") if k else "Not Coded", "hours": round(v / 60.0, 2)}
+               for k, v in sorted(by_code_min.items(), key=lambda kv: (kv[0] == "", kv[0])) if v > 0]
+    return {"rows": rows, "byPerson": by_person, "byDay": by_day, "byCode": by_code,
             "total": round(sum(r["hours"] for r in rows), 2)}

@@ -164,7 +164,8 @@ function renderLanding() {
 // account to fill it out" (Neil); without it here a candidate with no session
 // lands on the sign-in screen instead of their form.
 // /careers is the public careers page and apply form (Oct 27 2026).
-const PUBLIC_PATH = /^\/(sign|verify|privacy|terms|activate|intake|careers)(\/|$)/;
+// /outside is a construction outside link - one RFI or one sub's punch list (11/11/2026).
+const PUBLIC_PATH = /^\/(sign|verify|privacy|terms|activate|intake|careers|outside)(\/|$)/;
 const isPublicPath = PUBLIC_PATH.test(window.location.pathname);
 
 // BFF cookie mode: resolve the server session BEFORE the first render. If signed

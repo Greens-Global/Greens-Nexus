@@ -24,6 +24,9 @@ import { googleMapsUrl } from '../lib/addressSearch';
 import { useDraft } from '../lib/useDraft';
 import { PROJECT_STATUS } from './ui';
 import BooksRows from './BooksRows';
+import ClientRows from './ClientRows';
+import LaborCodesRows from './LaborCodesRows';
+import { useClientDraft, useLaborCodesDraft } from './lib/client';
 import { JOB_TYPE } from './lib/job';
 import { useBooksDraft } from './lib/money';
 import { useNexusPeople, useProperties, savedOf, changesFor, invalidReason, targetMoved } from './lib/jobForm';
@@ -33,13 +36,17 @@ export default function EditJobSheet({ project, money = null, onClose, onSaved }
   const saved = useMemo(() => savedOf(project), [project]);
   const { draft, patch, dirty: jobDirty, reset: resetJob } = useDraft(saved);
   const books = useBooksDraft(project, money);
-  const dirty = jobDirty || books.dirty;
-  const reset = () => { resetJob(); books.reset(); };
+  // Round Three item 2 (11/11/2026): the client, an Intacct customer - its own call under the one Save.
+  const client = useClientDraft(project, books.show);
+  // Round Three item 3: the labor cost codes, with the Books rows' gate.
+  const labor = useLaborCodesDraft(project, books.show);
+  const dirty = jobDirty || books.dirty || client.dirty || labor.dirty;
+  const reset = () => { resetJob(); books.reset(); client.reset(); labor.reset(); };
   const people = useNexusPeople();
   const properties = useProperties();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const invalid = invalidReason(draft, saved) || books.invalid;
+  const invalid = invalidReason(draft, saved) || books.invalid || client.invalid;
   const moved = targetMoved(saved, draft);
 
   const save = async () => {
@@ -48,6 +55,8 @@ export default function EditJobSheet({ project, money = null, onClose, onSaved }
     try {
       const next = jobDirty ? await api.updateConstructionProject(project.id, changesFor(saved, draft, { canCost })) : project;
       if (books.dirty) await books.save();
+      if (client.dirty) await client.save();
+      if (labor.dirty) await labor.save();
       setBusy(false);
       onSaved?.(next);
     } catch (e) {
@@ -142,7 +151,9 @@ export default function EditJobSheet({ project, money = null, onClose, onSaved }
           </select>
         </SettingRow>
       </SettingCard>
+      {client.show && <ClientRows client={client} />}
       {books.show && <BooksRows books={books} />}
+      {labor.show && <LaborCodesRows labor={labor} />}
       <SettingCard>
         <SettingRow title="Crew" desc="Who files daily logs on this job.">
           <div style={{ width: '100%' }} data-job-team="crew">

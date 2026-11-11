@@ -14,6 +14,7 @@ import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { CARD, TONE, personName } from '../ui';
 import { clientId, useLoad } from '../lib/job';
+import { formatHoursWords } from '../../lib/hoursText';
 
 const go = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }));
 const h3 = { fontSize: '1rem', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 };
@@ -58,6 +59,18 @@ function Hours({ project }) {
                 <span>Total</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{data.total} h</span>
               </div>
             </div>
+            {/* Round Three (11/11/2026): the same hours by the cost code picked at punch-in. */}
+            {(data.byCode || []).some((c) => c.code) && (
+              <div data-hours-by-code="">
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>By Cost Code</div>
+                {data.byCode.map((c) => (
+                  <div key={c.code || '-'} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: '0.86rem', padding: '4px 0', borderTop: '1px solid var(--border-color)' }}>
+                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.code ? (c.name ? `${c.code} - ${c.name}` : c.code) : 'Not Coded'}</span>
+                    <b style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{formatHoursWords(c.hours, { compact: true })}</b>
+                  </div>
+                ))}
+              </div>
+            )}
             <div>
               <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>By Day</div>
               {days.map((d) => (

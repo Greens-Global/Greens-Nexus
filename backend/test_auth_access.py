@@ -49,6 +49,13 @@ KNOWN_PUBLIC = {
     "/site-models/public/{pid}",           # customer unit finder (/map/<id>): geometry + unit numbers, never occupancy (routers/site_models.public_view)
     "/unit-map/t/{token}",                 # customer unit map (/find/<token>): HMAC-signed {model, unit}; one unit + geometry, never occupancy (routers/unit_map.py)
     "/unit-map/u",                         # Cubby template link: per-facility HMAC key -> the signed token; same customer view
+    # Construction outside links (Round Three item 4, 11/11/2026): the URL token
+    # is the credential (only its SHA-256 is stored), it expires and may be
+    # revoked, and it reaches ONE RFI or ONE sub's punch list on one job;
+    # every write runs as the link's sender (routers/construction_outside.py).
+    "/construction-outside/{token}",
+    "/construction-outside/{token}/answer",
+    "/construction-outside/{token}/done/{task_id}",
     "/branding/config",                    # login screen needs it pre-auth
     "/policy/privacy-notice",              # the public /privacy page, linked from the login screen (legal pass, 11/02/2026)
     "/stepup/config",                      # same posture

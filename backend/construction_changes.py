@@ -103,6 +103,7 @@ def co_to_dict(c, names: dict | None = None) -> dict:
         "reason": c.reason or "", "reasonLabel": REASON_LABEL.get(c.reason or "", ""),
         "description": c.description or "", "amount": c.amount or 0.0,
         "scheduleImpactDays": c.schedule_impact_days or 0, "fieldTicketId": c.field_ticket_id or "",
+        "rfiId": getattr(c, "rfi_id", "") or "",
         "status": c.status or "draft", "approverEmail": c.approver_email or "",
         "approverName": names.get((c.approver_email or "").lower(), ""),
         "approvedBy": c.approved_by or "", "approvedAt": c.approved_at or "",

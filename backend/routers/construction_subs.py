@@ -19,6 +19,8 @@ review a job - names and ids only, never the contact details.
 """
 from __future__ import annotations
 
+import asyncio
+import re
 import uuid
 from typing import Optional
 
@@ -85,6 +87,99 @@ async def search_vendors(q: str = "", job_id: str = "", user: dict = Depends(get
             out.append({"id": r["id"], "name": r["displayName"] or r["name"] or r["id"],
                         "inactive": str(r["status"]).strip().lower().startswith("inactive")})
     return {"vendors": out[:25]}
+
+
+# ── The client (Round Three item 2, Neil, 11/11/2026) ───────────────────────
+# Who the job is built for is one of Intacct's CUSTOMERS, read through the
+# same accounting_partners read the vendors use - names and ids for the
+# picker, Intacct's contact copied as the default signer. Nothing is written
+# to Intacct. A job's managers set it (Edit Job). The database work runs in
+# a thread (sync dependency / asyncio.to_thread): only the accounting call
+# is awaited on the event loop.
+
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+async def _customer(customer_id: str) -> dict | None:
+    raw = await accounting_partners._get({"kind": "customer", "q": customer_id})
+    for c in raw:
+        if isinstance(c, dict) and str(c.get("id") or c.get("code") or "") == customer_id:
+            return accounting_partners._record(c)
+    return None
+
+
+def _review_ctx(job_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """The job's managers who may also open its Money (review, 11/11/2026):
+    the customer list carries Intacct's contacts, so it takes the same gate
+    as Accounting > Vendors & Customers - a manager with Accounting access."""
+    import construction_money
+    p = _project(db, job_id, user)                  # 404 behind the wall
+    if not _may_review(db, user, p):
+        raise HTTPException(403, "Only a job manager sets the client.")
+    why = construction_money.money_gate(db, user, p)
+    if why:
+        raise HTTPException(403, why)
+    return {"p": p, "db": db, "user": user}
+
+
+@router.get("/projects/{job_id}/customers")
+async def search_customers(q: str = "", ctx: dict = Depends(_review_ctx)):
+    """Intacct's customers matching `q`, for the Client picker on Edit Job:
+    id, name, active, and the contact Intacct holds (prefills who signs)."""
+    text = (q or "").strip()[:120]
+    if not text:
+        return {"customers": []}
+    raw = await accounting_partners._get({"kind": "customer", "q": text})
+    out = []
+    for r in (accounting_partners._record(x) for x in raw if isinstance(x, dict)):
+        if r["id"]:
+            out.append({"id": r["id"], "name": r["displayName"] or r["name"] or r["id"],
+                        "inactive": str(r["status"]).strip().lower().startswith("inactive"),
+                        "contactName": r["contactName"], "contactEmail": r["email"]})
+    return {"customers": out[:25]}
+
+
+class ClientIn(BaseModel):
+    client_id: Optional[str] = ""
+    contact_name: Optional[str] = None
+    contact_email: Optional[str] = None
+
+
+def _save_client(ctx: dict, cid: str, name: str, contact_name: str, contact_email: str) -> dict:
+    db, p, me = ctx["db"], ctx["p"], _me(ctx["user"])
+    before = {"clientId": p.client_id or "", "clientName": p.client_name or "",
+              "contactName": p.client_contact_name or "", "contactEmail": p.client_contact_email or ""}
+    p.client_id, p.client_name = cid, name
+    p.client_contact_name, p.client_contact_email = contact_name, contact_email
+    after = {"clientId": cid, "clientName": name, "contactName": contact_name, "contactEmail": contact_email}
+    if after != before:
+        p.modified_at = now_iso()
+        db.add(models.ConstructionActivity(
+            id=str(uuid.uuid4()), project_id=p.id, entity_kind="project", entity_id=p.id, type="client_set",
+            actor_email=me, at=now_iso(),
+            detail=(f"set the client to {name} ({cid})" if cid else "cleared the client")[:500],
+            before=before, after=after))
+    db.commit()
+    return {"ok": True, **after}
+
+
+@router.put("/projects/{job_id}/client")
+async def set_client(body: ClientIn, ctx: dict = Depends(_review_ctx)):
+    """Set (or clear, with an empty id) the job's client: an Intacct customer
+    by id - refused when Intacct does not know it - and who signs for them.
+    With no contact given, Intacct's customer contact is copied."""
+    cid = (body.client_id or "").strip()[:60]
+    if not cid:
+        return await asyncio.to_thread(_save_client, ctx, "", "", "", "")
+    c = await _customer(cid)
+    if c is None:
+        raise HTTPException(422, f"Customer {cid} is not on the Intacct customer list.")
+    name = (c["displayName"] or c["name"] or cid)[:200]
+    contact_name = " ".join((body.contact_name if body.contact_name is not None else c["contactName"] or "").split())[:120]
+    contact_email = (body.contact_email if body.contact_email is not None else c["email"] or "").strip().lower()[:200]
+    if contact_email and not _EMAIL.match(contact_email):
+        raise HTTPException(422, f"{contact_email!r} is not an email address")
+    return await asyncio.to_thread(_save_client, ctx, cid, name, contact_name, contact_email)
 
 
 # ── A job's subs ─────────────────────────────────────────────────────────────

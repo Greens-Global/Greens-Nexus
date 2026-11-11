@@ -3557,6 +3557,27 @@ export const fetchCareersOpening = (slug, id) => _publicCareers(`public/${encode
 // linkedin_url, consent, nx_f2 (the honeypot - always empty) and resume.
 export const submitCareersApplication = (openingId, form) => _publicCareers(`apply/${encodeURIComponent(openingId)}`, { method: 'POST', body: form });
 
+// A construction outside link (/outside/<token>, Round Three item 4, 11/11/2026): the
+// architect answering one RFI or a sub marking their punch items done. No login - the URL
+// token is the credential - so plain fetches with credentials 'omit', like the careers page.
+async function _publicOutside(path, init = {}) {
+  const res = await fetch(`${BASE}/construction-outside/${path}`, { credentials: 'omit', ...init });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    const err = new Error(typeof detail === 'string' && detail ? detail
+      : res.status === 429 ? 'Too many tries - please wait a minute and try again.' : `Could not load this page (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+export const fetchOutsideLink = (token) => _publicOutside(encodeURIComponent(token));
+// `form` is a FormData: answer and up to three files.
+export const submitOutsideAnswer = (token, form) => _publicOutside(`${encodeURIComponent(token)}/answer`, { method: 'POST', body: form });
+// `form` is a FormData: photo and an optional note.
+export const submitOutsideDone = (token, taskId, form) => _publicOutside(`${encodeURIComponent(token)}/done/${encodeURIComponent(taskId)}`, { method: 'POST', body: form });
+
 // Web Push devices (Frontline Reach, Neil 11/02/2026; backend routers/push.py).
 // `pushConfig` says whether the server has keys and which public key the
 // browser subscribes with; the rest register and remove THIS device.
@@ -3750,6 +3771,21 @@ api.addCommitment = (jobId, data) => _post(`${_jp(jobId)}/commitments`, data);
 api.updateCommitment = (id, data) => req(`/construction/commitments/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
 api.addCommitmentWaiver = (id, data) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers`, data);
 api.removeCommitmentWaiver = (id, waiverId) => _post(`/construction/commitments/${encodeURIComponent(id)}/waivers/${encodeURIComponent(waiverId)}/remove`, {});
+// The client and cost codes, read from Intacct (Round Three item 2, 11/11/2026;
+// routers/construction_subs.py and construction_money.py).
+api.searchJobCustomers = (jobId, q) => req(`${_jp(jobId)}/customers?q=${encodeURIComponent(q)}`);
+api.setJobClient = (jobId, data) => req(`${_jp(jobId)}/client`, { method: 'PUT', body: JSON.stringify(data) });
+api.getJobCostCodes = (jobId) => req(`${_jp(jobId)}/cost-codes`);
+// Labor by cost code (Round Three item 3, 11/11/2026): the job's labor codes and the Time Clock's offer.
+api.setJobLaborCodes = (jobId, codes) => req(`${_jp(jobId)}/labor-codes`, { method: 'PUT', body: JSON.stringify({ codes }) });
+api.getMyCostCodes = (date, minute = -1) => req(`/construction/my-cost-codes?date=${encodeURIComponent(date)}&minute=${encodeURIComponent(minute)}`);
+// Outside parties (Round Three item 4, 11/11/2026; routers/construction_outside.py): a job
+// manager sends one person a link for one RFI or one sub's punch list; the URL is in the
+// send answer only. A punch item is given to a sub (an Intacct VENDORID on the job).
+api.sendOutsideLink = (jobId, data) => req(`${_jp(jobId)}/outside-links`, { method: 'POST', body: JSON.stringify(data) });
+api.getOutsideLinks = (jobId) => req(`${_jp(jobId)}/outside-links`);
+api.revokeOutsideLink = (linkId) => _post(`/construction/outside-links/${encodeURIComponent(linkId)}/revoke`, {});
+api.setPunchSub = (taskId, vendorId) => _post(`/construction/punch/${encodeURIComponent(taskId)}/sub`, { vendor_id: vendorId });
 
 // Mark Up "Attach to" a job photo (lib/markup.js source kind construction_media).
 async function _attachConstructionMarkup(source, { name, blob }) {

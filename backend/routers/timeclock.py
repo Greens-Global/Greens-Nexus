@@ -1108,6 +1108,12 @@ class PunchIn(BaseModel):
     # No coordinates because the browser has location BLOCKED for Nexus (not
     # just slow): recorded as "Location Off" instead of "No Location".
     location_off: Optional[bool] = False
+    # Construction Round Three item 3 (11/11/2026): the cost code picked at
+    # punch-in and the job it was picked for. construction_labor's hook keeps
+    # it only on an IN punch stamped to that job with that code on its list -
+    # never refuses the punch.
+    cost_code: Optional[str] = ""
+    cost_code_job: Optional[str] = ""
 
 
 @router.get("/status")
@@ -1399,6 +1405,9 @@ def punch(body: PunchIn, request: Request,
                     note=(body.note or "").strip()[:300],
                     ip=ip, user_agent=ua, source="web",
                     created_by=email, created_at=now, **geo)
+    if body.kind == "in" and (body.cost_code or "").strip():
+        import construction_labor
+        construction_labor.offer_cost_code(row, body.cost_code, body.cost_code_job)
     db.add(row)
     _early_punch_alert(db, row, email)
     # Soft-gate escalation (Charmi / Visesh, Sep 25): an out-of-fence punch IN

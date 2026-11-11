@@ -322,7 +322,7 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
         {active === 'changes' && <Suspense fallback={tabWait}><ChangesTab project={project} /></Suspense>}
         {active === 'field' && <FieldTab project={project} />}
         {active === 'rfis' && (
-          <Registers project={project} canReview={!!project.canEdit} onChanged={onChanged} />
+          <Registers project={project} canReview={!!project.canEdit} onChanged={onChanged} onOpenChanges={() => onTab('changes')} />
         )}
         {active === 'permits' && <Suspense fallback={tabWait}><PermitsTab project={project} /></Suspense>}
         {active === 'subs' && <Suspense fallback={tabWait}><SubsTab project={project} /></Suspense>}
