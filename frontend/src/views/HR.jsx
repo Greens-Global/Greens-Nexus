@@ -373,6 +373,9 @@ export function WorkLogsSection({ employee }) {
 function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
   const [docs, setDocs] = useState(null);
   const [kind, setKind] = useState('other');
+  // Expires (11/11/2026): the server always took one - the daily check reminds
+  // HR before it and the Records Audit flags it after - but the upload never asked.
+  const [expiresOn, setExpiresOn] = useState('');
   const [uploading, setUploading] = useState(false);
   useEffect(() => { api.getEmployeeDocs(employeeId).then(setDocs).catch(() => setDocs([])); }, [employeeId]);
 
@@ -383,8 +386,10 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
       const form = new FormData();
       form.append('file', file);
       form.append('kind', kind);
+      if (expiresOn) form.append('expires_on', expiresOn);
       const doc = await api.uploadEmployeeDoc(employeeId, form);
       setDocs(prev => [doc, ...(prev || [])]);
+      setExpiresOn('');
       toastOk(`${file.name} uploaded.`);
     } catch (err) { toastErr(err?.message || 'Upload failed.'); }
     setUploading(false);
@@ -397,6 +402,8 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
     try { await api.deleteEmployeeDoc(doc.id); setDocs(prev => prev.filter(d => d.id !== doc.id)); toastOk('Document removed.'); }
     catch (err) { toastErr(err?.message || 'Could not delete.'); }
   }
+  const now = new Date();
+  const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const fmtSize = b => b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
 
   return (
@@ -410,6 +417,8 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
         <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ padding: '3px 8px', fontSize: 11.5, height: 28 }}>
           {DOC_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
+        <DateField value={expiresOn} onChange={v => setExpiresOn(v || '')} title="Expires (optional)" placeholder="Expires (optional)"
+          style={{ fontSize: 11.5, width: 150, height: 28, padding: '0 8px', border: '1px solid var(--line)', borderRadius: 8 }} />
         <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', padding: '5px 12px' }}>
           {uploading ? <Spinner size={12} /> : <Plus size={12} />} Upload
           <input type="file" hidden onChange={e => { upload(e.target.files?.[0]); e.target.value = ''; }} />
@@ -425,6 +434,7 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
             <button onClick={() => view(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontWeight: 600, fontSize: 12.5, fontFamily: 'Inter,sans-serif', padding: 0, flex: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {d.fileName}
             </button>
+            {d.expiresOn && <span style={{ color: d.expiresOn.slice(0, 10) < todayLocal ? 'hsl(var(--color-red))' : 'var(--muted)', fontSize: 11, flexShrink: 0 }}>Expires {formatDate(d.expiresOn)}</span>}
             <span style={{ color: 'var(--muted)', fontSize: 11, flexShrink: 0 }}>{fmtSize(d.sizeBytes)}</span>
             <button onClick={() => remove(d)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 }}><X size={13} /></button>
           </div>

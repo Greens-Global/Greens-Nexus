@@ -81,6 +81,11 @@ def save_profile(body: ProfileIn, user: dict = Depends(get_current_user), db: Se
     """Self-service subset only: contact details + emergency contact. Anything
     else (name, job, department, bank, …) goes through HR."""
     e = _me(db, user["email"])
+    em_before = dict((e.personal or {}).get("emergency") or {})
+    before = {"personal_email": e.personal_email or "", "phone": e.phone or "",
+              "emergency_name": em_before.get("name") or "",
+              "emergency_relationship": em_before.get("relationship") or "",
+              "emergency_phone": em_before.get("phone") or ""}
     if body.personal_email is not None:
         e.personal_email = body.personal_email.strip()[:200]
     if body.phone is not None:
@@ -97,6 +102,22 @@ def save_profile(body: ProfileIn, user: dict = Depends(get_current_user), db: Se
         personal["emergency"] = emergency
         e.personal = personal
     e.updated_at = _now()
+    # Field-level audit, the same row an HR edit writes (hr.apply_profile_update,
+    # Sep 22): old -> new per field, so a changed phone or emergency contact can
+    # be traced to the employee who changed it (11/11/2026 - this save wrote none).
+    em_after = dict((e.personal or {}).get("emergency") or {})
+    after = {"personal_email": e.personal_email or "", "phone": e.phone or "",
+             "emergency_name": em_after.get("name") or "",
+             "emergency_relationship": em_after.get("relationship") or "",
+             "emergency_phone": em_after.get("phone") or ""}
+    changes = {k: [before[k][:120], after[k][:120]] for k in after if before[k] != after[k]}
+    if changes:
+        from models import AuditLog
+        db.add(AuditLog(timestamp=datetime.now(timezone.utc).isoformat(), user_email=user["email"],
+                        user_role=str(user.get("role") or ""), action="Changed employee fields",
+                        resource_type="employee", resource_id=e.id,
+                        details=json.dumps({"employee": e.work_email, "changes": changes,
+                                            "source": "My HR (self-service)"})[:4000]))
     db.commit()
     return _profile_dict(e, db)
 
