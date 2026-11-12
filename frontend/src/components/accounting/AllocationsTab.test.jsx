@@ -75,7 +75,7 @@ describe('AllocationsTab', () => {
   it('shows the basis and the entry preview, flagging what is unmapped', async () => {
     render(<AllocationsTab canEdit />);
     expect(await screen.findByText('Pat Test')).toBeTruthy();
-    expect(screen.getByText('1 unmapped')).toBeTruthy();
+    expect(screen.getByText('1 Unmapped')).toBeTruthy();
     const b = screen.getByText('Rental B').closest('tr');
     expect(within(b).getAllByText('Unmapped').length).toBe(2);
     expect(within(b).getByText('25.0%')).toBeTruthy();

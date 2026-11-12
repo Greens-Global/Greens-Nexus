@@ -7,6 +7,7 @@ import { useNameResolver } from '../../lib/useNameResolver';
 import { BarSearchSlot, control } from './reportControls';
 import { catalogue, standardEntries } from './reportCatalog';
 import { parkSavedReport } from './drill';
+import { StatusLabel } from '../StatusLabel';
 
 // Accounting -> Reports -> Report Center (Neil, 10/22 call, item 05: "All
 // Reports doesn't actually bring up anything different ... change all reports
@@ -27,10 +28,10 @@ import { parkSavedReport } from './drill';
 // every entity it names is one of theirs - anything else would open empty.
 
 const TYPES = {
-  standard: { label: 'Standard', style: { background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' } },
-  memorized: { label: 'Memorized', style: { background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' } },
-  saved: { label: 'Saved', style: { background: 'color-mix(in srgb, #f59e0b 22%, var(--bg-card))', color: 'var(--warn-fg, #b45309)' } },
-  published: { label: 'Published', style: { background: 'color-mix(in srgb, #16a34a 18%, var(--bg-card))', color: 'var(--ok-fg, #15803d)' } },
+  standard: { label: 'Standard', color: '#64748b' },
+  memorized: { label: 'Memorized', color: '#2563eb' },
+  saved: { label: 'Saved', color: '#d97706' },
+  published: { label: 'Published', color: '#16a34a' },
 };
 const FILTERS = [{ key: 'all', label: 'All Reports' }, { key: 'standard', label: 'Standard' }, { key: 'memorized', label: 'Memorized and Saved' }];
 
@@ -119,7 +120,7 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
                     <td style={{ whiteSpace: 'normal', minWidth: 220 }}>
                       <button type="button" className="acct-drill" onClick={() => open(r)} title="Open this report">{r.label}</button>
                     </td>
-                    <td><span style={{ ...CHIP, ...TYPES[r.type].style }}>{TYPES[r.type].label}</span></td>
+                    <td><StatusLabel size="sm" color={TYPES[r.type].color} label={TYPES[r.type].label} /></td>
                     <td style={{ color: 'var(--text-secondary)', whiteSpace: 'normal' }}>{r.about || ''}</td>
                     <td style={{ color: 'var(--text-secondary)' }}>{r.saved ? (r.saved.mine ? 'You' : nameOf(r.saved.owner) || r.saved.owner) : ''}</td>
                     <td style={{ color: 'var(--text-secondary)' }}>
@@ -143,4 +144,3 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
   );
 }
 
-const CHIP = { display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 600, lineHeight: 1.5, whiteSpace: 'nowrap' };

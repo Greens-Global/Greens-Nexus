@@ -23,6 +23,7 @@ import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckS
 import { CompletenessButton, CompletenessPanel, gapCount, mriGaps, useJumpToRow } from './completeness';
 import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
 import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
+import { StatusLabel } from '../StatusLabel';
 
 // Accounting -> Leasing: leases and monthly recurring income (Neil and
 // Charmi, Sep 25). Rent was tracked in a workbook and chased by hand; this is
@@ -356,8 +357,8 @@ const PAYER_FILTERS = filterColumnsOf(PAYER_COLUMNS, { instead: { dates: PAYER_C
 function StandingChips({ row }) {
   return (
     <>
-      {row.expired && <span style={chipStyle()} title="The lease has ended">Expired</span>}
-      {row.customerActive === false && <span style={chipStyle('bad')} title="The customer is inactive in Intacct">Inactive</span>}
+      {row.expired && <StatusLabel size="sm" color="#64748b" label="Expired" title="The lease has ended" style={{ marginLeft: 6 }} />}
+      {row.customerActive === false && <StatusLabel size="sm" color="#dc2626" label="Inactive" title="The customer is inactive in Intacct" style={{ marginLeft: 6 }} />}
     </>
   );
 }
@@ -812,8 +813,8 @@ function TenantName({ row, style }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span className="acct-code" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginRight: 0 }}>{code}</span>
           <strong style={{ fontSize: '0.9rem' }}>{c.name || name}</strong>
-          {(info ? info.active === false : row.customerActive === false) && <span style={chipStyle('bad')}>Inactive</span>}
-          {row.expired && <span style={chipStyle()}>Expired</span>}
+          {(info ? info.active === false : row.customerActive === false) && <StatusLabel size="sm" color="#dc2626" label="Inactive" style={{ marginLeft: 6 }} />}
+          {row.expired && <StatusLabel size="sm" color="#64748b" label="Expired" style={{ marginLeft: 6 }} />}
         </div>
         {failed ? <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>{failed}</div> : !info && !row.customer ? <SkeletonBlocks count={2} /> : (
           <div>
@@ -1674,7 +1675,7 @@ function CustomerCombo({ id, text, value, customers, picked, onType, onPick }) {
               style={{ display: 'flex', gap: 8, border: 'none', background: i === active ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', borderRadius: 6, padding: '4px 8px', font: 'inherit', fontSize: '0.8rem', cursor: 'pointer', textAlign: 'left', color: c.active === false ? 'var(--text-muted)' : 'var(--text-primary)' }}>
               <span style={{ color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{c.code}</span>
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name || c.code}</span>
-              {c.active === false && <span style={chipStyle('bad')}>Inactive</span>}
+              {c.active === false && <StatusLabel size="sm" color="#dc2626" label="Inactive" style={{ marginLeft: 6 }} />}
             </button>
           ))}
           {!options.length && <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', padding: 6 }}>{customers.length ? 'No Intacct customer matches - the name typed is kept.' : 'No Intacct customers to pick from - type the name.'}</div>}
