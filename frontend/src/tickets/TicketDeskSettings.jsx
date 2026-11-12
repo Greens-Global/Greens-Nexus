@@ -54,12 +54,12 @@ function DeskRoster({ title, hint, value, people, onChange, status, icon, childr
     <div style={{ ...card, padding: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         {icon}
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{title}</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{title}</div>
       </div>
-      {hint && <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 10, lineHeight: 1.5 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 12, color: NX.faint, marginBottom: 10, lineHeight: 1.5 }}>{hint}</div>}
       <PersonMultiSelect value={value} people={people} onChange={onChange} placeholder="Select ticket agents" />
       {status && (
-        <div style={{ fontSize: 11.5, color: TONE[status.tone], marginTop: 8, lineHeight: 1.5, fontWeight: status.tone === 'warn' ? 600 : 400 }}>
+        <div style={{ fontSize: 12, color: TONE[status.tone], marginTop: 8, lineHeight: 1.5, fontWeight: status.tone === 'warn' ? 600 : 400 }}>
           {status.text}
         </div>
       )}
@@ -133,13 +133,13 @@ function DepartmentHeads({ companyId, companyName, depts, people, agents, onSetE
         </div>
       )}
       {!hasDepts && (
-        <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 12, color: NX.faint, marginBottom: 8, lineHeight: 1.5 }}>
           No departments yet for {companyName}. Add them in {manageLink} - they show up here automatically.
         </div>
       )}
       {(hasDepts && !open) ? null : hasDepts && (
         <>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginBottom: 8, lineHeight: 1.5 }}>
             Departments are managed in {manageLink}, the same list every module uses. Turn one off to stop
             offering it on Submit a Ticket.
           </div>
@@ -155,10 +155,10 @@ function DepartmentHeads({ companyId, companyName, depts, people, agents, onSetE
                   {handle}
                   <SwitchButton on={on} label={`Offer ${d.name} on Submit a Ticket`}
                     onClick={() => onSetEnabled(d.id, !on).catch((e) => dialog.alert(e.message || 'Could not update department.'))} />
-                  <span style={{ width: 110, flexShrink: 0, fontSize: 12.5, color: on ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  <span style={{ width: 110, flexShrink: 0, fontSize: 13, color: on ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={on ? d.name : `${d.name} - off for tickets`}>{d.name}</span>
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', gap: 8, flexWrap: 'wrap', opacity: on ? 1 : 0.6 }}>
-                    <div style={{ flex: '1 1 160px', minWidth: 0, fontSize: 12.5, color: d.leadEmail ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', alignSelf: 'center' }}
+                    <div style={{ flex: '1 1 160px', minWidth: 0, fontSize: 13, color: d.leadEmail ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', alignSelf: 'center' }}
                       title="Department Head - gets escalations. Set under Settings > Companies > the company > Departments.">
                       {d.leadEmail ? ((people || []).find((p) => (p.email || '').toLowerCase() === d.leadEmail.toLowerCase())?.name || d.leadEmail) : 'No department head set'}
                     </div>
@@ -273,7 +273,7 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
   // blank). Same wording as the notifications tab.
   if (myLevel < 3) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>
         Manager access or above is required to configure the service desk.
       </div>
     );
@@ -360,7 +360,7 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
               <e.Icon size={14} style={{ color: active ? 'var(--wk-brand)' : NX.dim, flexShrink: 0 }} />
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', fontSize: 13, fontWeight: active ? 700 : 600, color: active ? 'var(--wk-brand)' : NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name}</span>
-                <span style={{ display: 'block', fontSize: 11.5, color: TONE[st.tone] }}>{st.text}</span>
+                <span style={{ display: 'block', fontSize: 12, color: TONE[st.tone] }}>{st.text}</span>
               </span>
               <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: TONE[st.tone], flexShrink: 0 }} />
             </button>
@@ -393,7 +393,7 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
-      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14, maxWidth: 900, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 13, color: NX.dim, marginBottom: 14, maxWidth: 900, lineHeight: 1.5 }}>
         New tickets go to the agents of the company they belong to. A company with no agents uses
         Default Agents, and if that is empty too, every administrator is notified.
       </div>
@@ -408,11 +408,11 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
             </div>
           )}
           <div aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 14, minHeight: 20 }}>
-            {saving && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.dim }}><Spinner size={13} /> Saving…</span>}
+            {saving && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.dim }}><Spinner size={13} /> Saving…</span>}
             {!saving && <SavedCheck show={saved} />}
-            {err && <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</span>}
+            {err && <span style={{ fontSize: 13, color: NX.red, fontWeight: 600 }}>{err}</span>}
           </div>
-          <div style={{ fontSize: 11.5, color: NX.faint, lineHeight: 1.5, marginTop: 6 }}>
+          <div style={{ fontSize: 12, color: NX.faint, lineHeight: 1.5, marginTop: 6 }}>
             Every change here saves as you make it. Agents don't need administrator access. Administrators can always
             act on tickets, so a mistake here can never lock anyone out.
           </div>

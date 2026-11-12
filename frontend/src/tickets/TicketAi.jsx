@@ -91,9 +91,9 @@ export function TicketAiSummary({ ticketId, canWorkQueue }) {
     <div data-testid="ticket-ai-summary" style={{ ...card, padding: '12px 14px', marginTop: 12, fontFamily: FONT }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <Sparkles size={15} style={{ color: NX.purple, flexShrink: 0 }} />
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: NX.ink }}>AI Summary</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>AI Summary</div>
         {s && data.generatedAt && (
-          <span style={{ fontSize: 11.5, color: NX.faint }}>Updated {formatDateTime(data.generatedAt)}</span>
+          <span style={{ fontSize: 12, color: NX.faint }}>Updated {formatDateTime(data.generatedAt)}</span>
         )}
         <span style={{ flex: 1 }} />
         {s ? (
@@ -104,7 +104,7 @@ export function TicketAiSummary({ ticketId, canWorkQueue }) {
           </button>
         ) : (
           <button type="button" onClick={() => run(false)} disabled={busy}
-            style={{ ...btn('primary'), padding: '6px 11px', fontSize: 12.5, opacity: busy ? 0.7 : 1 }}>
+            style={{ ...btn('primary'), padding: '6px 11px', fontSize: 13, opacity: busy ? 0.7 : 1 }}>
             {busy ? 'Summarizing…' : <><Sparkles size={13} /> Summarize</>}
           </button>
         )}
@@ -118,14 +118,14 @@ export function TicketAiSummary({ ticketId, canWorkQueue }) {
         <dl style={{ margin: '10px 0 0', display: 'grid', gap: 8 }}>
           {ROWS.map(([k, label]) => (
             <div key={k}>
-              <dt style={{ fontSize: 11.5, fontWeight: 700, color: NX.dim }}>{label}</dt>
+              <dt style={{ fontSize: 12, fontWeight: 700, color: NX.dim }}>{label}</dt>
               <dd style={{ margin: '2px 0 0', fontSize: 13, color: NX.ink, lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{s[k] || '-'}</dd>
             </div>
           ))}
         </dl>
       )}
       {s && data.stale && !busy && (
-        <div style={{ fontSize: 11.5, color: NX.amber, fontWeight: 600, marginTop: 8 }}>
+        <div style={{ fontSize: 12, color: NX.amber, fontWeight: 600, marginTop: 8 }}>
           This ticket has changed since this summary was made - Refresh to update it.
         </div>
       )}
@@ -146,7 +146,7 @@ function TopicChips({ suggestions, onPick, value, label = 'Suggested Help Topic'
   if (!shown.length) return null;
   return (
     <div data-testid="suggested-topics" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6, fontFamily: FONT }}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600, color: NX.dim }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: NX.dim }}>
         <Sparkles size={12} style={{ color: NX.purple }} />{label}:
       </span>
       {shown.map((s) => (

@@ -57,7 +57,7 @@ function TicketMobileFilters({
   const anyFilter = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter, assigneeFilter]
     .some((v) => v !== 'all');
   const wrap = { marginBottom: 14 };
-  const lab = { ...label, fontSize: 12.5 };
+  const lab = { ...label, fontSize: 13 };
   // MobileTaskBar renders filterSheet(...) raw - the caller supplies the sheet
   // chrome (same contract as the task module's MobileFilters).
   return (
@@ -207,7 +207,7 @@ function TicketFilterMenu({
         )}
         {active > 0 && (
           <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all'); }}
-            style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 12.5 }}>Clear Filters</button>
+            style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 13 }}>Clear Filters</button>
         )}
       </AnchoredMenu>
     </>
@@ -289,7 +289,7 @@ function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showG
           </>
         )}
         <div style={sectionLabel}>Saved Views</div>
-        {views.length === 0 && <div style={{ padding: '0 12px 8px', fontSize: 12.5, color: NX.faint }}>No saved views yet.</div>}
+        {views.length === 0 && <div style={{ padding: '0 12px 8px', fontSize: 13, color: NX.faint }}>No saved views yet.</div>}
         {views.map((v) => (
           <div key={v.id} style={{ display: 'flex', alignItems: 'center' }}>
             <button onClick={() => { onApply(v); setOpen(false); }} style={{ ...item, flex: 1, minWidth: 0 }}>
@@ -338,7 +338,7 @@ export function SaveViewDialog({ onSave, onClose }) {
         <input id="ticket-view-name" autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }}
           placeholder="e.g. My open hardware tickets" style={{ ...inputStyle, fontFamily: FONT }} />
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+        <div style={{ fontSize: 12, color: NX.faint, marginTop: 6 }}>
           Saves the tab, filters, department, search, sort and grouping you have on screen now.
         </div>
         {err && <div role="alert" style={{ ...requiredHint, marginTop: 8 }}>{err}</div>}
