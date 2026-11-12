@@ -26,7 +26,7 @@ vi.mock('./hooks', () => ({
 }));
 vi.mock('./registry', () => ({
   SIZE_LABEL: {}, SIZES: ['md'], WIDGET_CATS: [], WIDGET_LIST: [],
-  WIDGETS: { valuation: { title: 'Portfolio Value & Leverage' }, partners: { title: 'Partner Capital & Distributions' } },
+  WIDGETS: { cashForecast: { title: 'Monthly Cash Forecast' }, valuation: { title: 'Portfolio Value & Leverage' }, partners: { title: 'Partner Capital & Distributions' } },
   WidgetPanel: ({ id }) => <div data-testid={`widget-${id}`} />, useDashNav: () => (to) => { nav.to = to; },
 }));
 
@@ -98,6 +98,16 @@ describe('Overview role views', () => {
     expect(screen.getByRole('button', { name: 'Delete View' })).toBeTruthy();
   });
 
+  it('sends a folded cash forecast to Trackers > Budgets, where a budget is set up', () => {
+    views.current = { ...SAVED, views: [{ ...SAVED.views[0], widgets: [{ type: 'cashForecast', size: 'md' }, { type: 'valuation', size: 'md' }] }, ...SAVED.views.slice(1)] };
+    empty.current = { cashForecast: 'no budget posted from 11/2026', valuation: 'no cap rates' };
+    render(<OverviewTab canEdit />);
+    fireEvent.click(screen.getByRole('button', { name: 'Set Up in Trackers > Budgets' }));
+    expect(nav.to).toBe('budget');
+    fireEvent.click(screen.getByRole('button', { name: 'Set Up in Tools > Reference Data' }));
+    expect(nav.to).toBe('data');
+  });
+
   // 11/11/2026 (picture 4): empty cards fold into one line where the first stood.
   it('folds the cards with nothing to show into one line, and shows them all while arranging', () => {
     views.current = { ...SAVED, views: [{ ...SAVED.views[0], widgets: [{ type: 'kpiCash', size: 'xs' }, { type: 'valuation', size: 'md' }, { type: 'partners', size: 'md' }] }, ...SAVED.views.slice(1)] };
@@ -109,6 +119,8 @@ describe('Overview role views', () => {
     expect(screen.getByRole('note').textContent).toContain('Portfolio Value & Leverage (no cap rates) · Partner Capital & Distributions (no investor classes)');
     fireEvent.click(screen.getByRole('button', { name: 'Set Up in Tools > Reference Data' }));
     expect(nav.to).toBe('data');
+    // One link per place, not per card.
+    expect(screen.getAllByRole('button', { name: /^Set Up in/ })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
     fireEvent.click(screen.getByRole('button', { name: /Arrange Widgets/ }));
     expect(screen.getByTestId('widget-valuation')).toBeTruthy();

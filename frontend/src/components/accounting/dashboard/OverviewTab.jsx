@@ -148,6 +148,8 @@ export default function OverviewTab({ canEdit }) {
     setForm(null);
   };
 
+  // Where a folded card is set up: a budget on Trackers > Budgets, the rest on Reference Data.
+  const SETUP_AT = { cashForecast: ['budget', 'Trackers > Budgets'], default: ['data', 'Tools > Reference Data'] };
   // 11/11/2026 (picture 4): cards with nothing to show fold into one line where the first
   // of them stood; arranging shows every card, and the view itself is never changed.
   const folded = editing ? [] : widgets.filter((w) => empty[w.type]);
@@ -264,7 +266,9 @@ export default function OverviewTab({ canEdit }) {
               <div key="folded" role="note" style={{ ...card, gridColumn: 'span 12', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                 <Info size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}><b style={{ color: 'var(--text-primary)' }}>Nothing to show yet:</b> {folded.map((x) => `${WIDGETS[x.type].title} (${empty[x.type]})`).join(' · ')}</span>
-                <button type="button" onClick={() => nav('data')} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Set Up in Tools &gt; Reference Data</button>
+                {[...new Map(folded.map((x) => SETUP_AT[x.type] || SETUP_AT.default).map((at) => [at[0], at])).values()].map(([to, where]) => (
+                  <button key={to} type="button" onClick={() => nav(to)} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Set Up in {where}</button>
+                ))}
               </div>
             ) : null) : (
               <div key={`${i}:${w.type}`} id={`acct-widget-${w.type}`} draggable={editing}
