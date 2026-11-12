@@ -27,10 +27,11 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Node, mergeAttributes } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
-import { X, Play, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { X, Play, ChevronLeft, ChevronRight, Trash2, AudioLines } from 'lucide-react';
 import { storeTaskFile } from '../tasks/lib';
 import { isOwnImageUrl } from '../lib/storageView';
 import { MEDIA_MAX, checkMedia, mediaKind, withType } from '../lib/voice';
+import { transcribeOn } from './meetings/access';
 
 // The recorder, dictation and the clip limits live in lib/voice.js so every
 // module can use them (Neil, Oct 30 2026); re-exported for Notes' callers.
@@ -175,6 +176,28 @@ function MediaView({ node, editor, getPos }) {
   const kind = node.type.name === 'noteImage' ? 'image' : node.type.name === 'noteVideo' ? 'video' : 'audio';
   const [viewing, setViewing] = useState(null);   // { items, start } while open
   const what = kind === 'image' ? 'Photo' : kind === 'video' ? 'Video' : 'Voice Note';
+  // Transcribe (Meeting Notes Phase 3, Neil 11/12/2026, testers first): the
+  // voice note turned into text on this device, put under it as a folded
+  // Transcript - the recording is read here and never sent anywhere.
+  const [tr, setTr] = useState(null);   // { working, text } | { error }
+  const transcribe = async () => {
+    setTr({ working: true, text: 'Turning it into text on this device' });
+    try {
+      const [{ api }, { transcribeRecording }] = await Promise.all([import('../api'), import('./meetings/capture/useTranscriber')]);
+      const blob = await api.viewerBlob(raw);
+      const lines = await transcribeRecording(blob, (p) => setTr({ working: true,
+        text: `Getting the speech model ready - ${Math.round((p.loaded || 0) / 1e6)} of ${Math.round((p.total || 0) / 1e6)} MB, once on this device` }));
+      if (!lines.length) { setTr({ error: 'No words were heard in this voice note.' }); return; }
+      const pos = getPos();
+      if (typeof pos !== 'number' || editor.isDestroyed) return;
+      const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      editor.chain().setMeta(EDITED, true).insertContentAt(pos + node.nodeSize,
+        `<div data-type="toggle" data-summary="Transcript" data-open="true">${lines.map((l) => `<p>${esc(l)}</p>`).join('')}</div>`).run();
+      setTr(null);
+    } catch (e) {
+      setTr({ error: `Could not transcribe it: ${e?.message || 'try again'}` });
+    }
+  };
   const removeAt = (pos, size) => editor.chain().setMeta(EDITED, true).deleteRange({ from: pos, to: pos + size }).run();
   const remove = () => {
     const pos = getPos();
@@ -188,6 +211,16 @@ function MediaView({ node, editor, getPos }) {
   return (
     <NodeViewWrapper className={`nt-media is-${kind}${kind === 'audio' ? '' : ' is-tile'}`} contentEditable={false} data-drag-handle="">
       {kind === 'audio' && <audio src={src} controls preload="metadata" />}
+      {kind === 'audio' && src && editor.isEditable && transcribeOn() && (
+        <div className="nt-media-tr">
+          <button type="button" className="nt-text-btn" onClick={transcribe} disabled={!!tr?.working}
+            title="Turn this voice note into text, on this device">
+            <AudioLines size={13} aria-hidden="true" /> {tr?.working ? 'Transcribing…' : 'Transcribe'}
+          </button>
+          {tr?.working && <span role="status">{tr.text}</span>}
+          {tr?.error && <span role="alert" className="is-bad">{tr.error}</span>}
+        </div>
+      )}
       {kind !== 'audio' && (
         <button type="button" className="nt-tile" onClick={open} aria-label={`Open ${what}`} title={`Open ${what}`} disabled={!src}>
           {kind === 'image'
