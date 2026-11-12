@@ -116,6 +116,14 @@ def _hdr(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def _listening():
+    """The current user's terminal watcher is running (its first call): from
+    here Send Instantly really sends. Returns the Build Token."""
+    token = _token()["token"]
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(token)).status_code == 200
+    return token
+
+
 def _bells(type_=None):
     db = database.SessionLocal()
     try:
@@ -202,6 +210,12 @@ def test_create_joins_one_collecting_session_and_numbers_pins():
 def test_send_instantly_dispatches_at_once():
     r = client.put("/dev-notes/settings", json={"sendInstantly": True})
     assert r.status_code == 200 and r.json()["sendInstantly"] is True
+    # 11/12/2026: with no Claude Code connected the composer says "this saves
+    # the pin" - and now it does: it stays open, to be sent from the Queue.
+    waiting = _create()
+    assert waiting["status"] == "open" and waiting["dispatchedAt"] == ""
+    assert client.get("/dev-notes/sessions").json()[0]["status"] == "collecting"
+    _listening()
     n = _create()
     assert n["status"] == "dispatched" and n["dispatchedAt"]
     s = client.get("/dev-notes/sessions").json()[0]
@@ -963,6 +977,7 @@ def test_not_held_when_the_author_owns_the_file_and_held_skips_send_instantly():
         assert n["ownerEmail"] == NEIL["email"] and n["held"] is False
         assert _bells("dev_note_owner") == []
         client.put("/dev-notes/settings", json={"sendInstantly": True})
+        _listening()
         h = _held_pin()
         assert h["held"] is True and h["status"] == "open"          # never sent while held
         assert _create()["status"] == "dispatched"                  # an ordinary pin still is
@@ -1056,6 +1071,7 @@ def test_release_moves_a_pin_out_of_a_sent_session_and_follows_the_authors_send_
         # created held under Send Instantly: the next instant pin sends the
         # session it sits in, so it is left in a sent session
         client.put("/dev-notes/settings", json={"sendInstantly": True})
+        _listening()
         h = _held_pin()
         other = _create()
         assert other["sessionId"] == h["sessionId"] and other["status"] == "dispatched"

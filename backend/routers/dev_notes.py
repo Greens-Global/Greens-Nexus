@@ -731,6 +731,24 @@ def _target_for(db: Session, email: str) -> str:
     return "local"
 
 
+def _terminal_live(db: Session, email: str) -> tuple:
+    """(live, lastSeen): is one of this person's Build Tokens in use right now
+    - their terminal watcher asks every ~25 s (CONNECTED_SEC)."""
+    now = _now()
+    rows = (db.query(DevNoteToken)
+            .filter(DevNoteToken.email == (email or "").lower(), or_(DevNoteToken.revoked_at == "", DevNoteToken.revoked_at.is_(None)))
+            .all())
+    last = max((t.last_used_at for t in rows if t.last_used_at and (t.expires_at or "") > now), default="")
+    live = bool(last) and (datetime.fromisoformat(now) - datetime.fromisoformat(last)).total_seconds() <= CONNECTED_SEC
+    return live, last
+
+
+def _connected(db: Session, email: str) -> bool:
+    """Can a pin this person sends reach a Claude Code right now: the cloud
+    (nothing has to be running) or a live terminal watcher."""
+    return _target_for(db, email) == "cloud" or _terminal_live(db, email)[0]
+
+
 def _cloud_start(db: Session, notes: list, by: str) -> dict:
     """Start the sender's Claude Code in the cloud for pins that were just
     sent or answered (build_mode_cloud.py). Call it AFTER the commit that made
@@ -915,7 +933,11 @@ def create_note(body: dict, user: dict = Depends(require_build_mode), db: Sessio
     _assign_owner(db, n)
     _audit(db, user, "create", n.id, {"kind": n.kind, "route": n.route, "session": s.id,
                                       "heldFor": n.owner_email if _held(n) else ""}, kind="create")
-    if settings.get("sendInstantly") and not _held(n):
+    # Send Instantly sends only when a Claude Code can receive it (11/12/2026):
+    # with nothing connected the composer says "this saves the pin", and the
+    # server used to send it anyway and call it sent. It now stays open in
+    # the Build Session, to be sent from the Queue once connected.
+    if settings.get("sendInstantly") and not _held(n) and _connected(db, email):
         db.flush()
         _dispatch_notes(db, [n], email)
         _audit(db, user, "dispatch", n.id, {"session": s.id, "instant": True})
@@ -1351,12 +1373,7 @@ def claude_connection(user: dict = Depends(require_build_mode), db: Session = De
     used in the last CONNECTED_SEC. `apiBase` is this API's public address for
     the connect command ('' when running locally - the browser knows it then)."""
     from app_url import public_base
-    now = _now()
-    rows = (db.query(DevNoteToken)
-            .filter(DevNoteToken.email == user["email"].lower(), or_(DevNoteToken.revoked_at == "", DevNoteToken.revoked_at.is_(None)))
-            .all())
-    last = max((t.last_used_at for t in rows if t.last_used_at and (t.expires_at or "") > now), default="")
-    terminal = bool(last) and (datetime.fromisoformat(now) - datetime.fromisoformat(last)).total_seconds() <= CONNECTED_SEC
+    terminal, last = _terminal_live(db, user["email"])
     # In the cloud nothing has to be running: a saved trigger that is the
     # person's choice IS connected (11/12/2026).
     cloud = _target_for(db, user["email"]) == "cloud"

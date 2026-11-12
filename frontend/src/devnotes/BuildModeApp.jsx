@@ -312,7 +312,10 @@ export default function BuildModeApp({ view, sub }) {
       // On someone else's area the server holds the pin for them (v2) - only
       // its word counts: no `held` = not held.
       const heldFor = note.held === true ? (note.ownerName || 'its owner') : '';
-      let sent = CLAUDE_SEND_ON && !!s.settings?.sendInstantly && !heldFor;
+      // Whether it was sent is the server's word (11/12/2026): Send Instantly
+      // sends only when a Claude Code is connected, and this used to say
+      // "sent" from the setting alone. An older server gives no status: the setting stands.
+      let sent = CLAUDE_SEND_ON && !heldFor && (note.status ? note.status === 'dispatched' : !!s.settings?.sendInstantly);
       if (CLAUDE_SEND_ON && sendNow && !sent && !heldFor) {
         try { await api.devNotesDispatch({ noteIds: [note.id] }); sent = true; }
         catch (e) { toast(`Pin #${note.number} saved, but not sent: ${e?.message || 'dispatch failed'}`); }
@@ -320,8 +323,10 @@ export default function BuildModeApp({ view, sub }) {
       removeDraft(draft.id);
       setDraft(null); setRecorded(null);
       store.set((st) => ({ pick: null, markup: [], version: st.version + 1 }));
-      if (heldFor) toast(`Pin #${note.number} saved - it waits for ${heldFor}`);
-      else if (sent || !sendNow) toast(sent ? `Pin #${note.number} sent to Claude Code` : `Pin #${note.number} saved to your Build Session`);
+      // A pin with no picture says so - the screenshot can time out or be refused, and it used to save silently.
+      const bare = !screenshotUrl && !pageShotUrl ? ' No picture could be taken, so it has none - add one with Ctrl+V if it matters.' : '';
+      if (heldFor) toast(`Pin #${note.number} saved - it waits for ${heldFor}.${bare}`, bare ? 6000 : undefined);
+      else if (sent || !sendNow) toast(`${sent ? `Pin #${note.number} sent to Claude Code` : `Pin #${note.number} saved to your Build Session`}${bare ? `.${bare}` : ''}`, bare ? 6000 : undefined);
     } catch (e) {
       toast(e?.message || 'The pin could not be saved');
     } finally { setSaving(''); }
