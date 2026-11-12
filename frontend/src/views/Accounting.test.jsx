@@ -18,8 +18,8 @@ vi.mock('../components/accounting/PackagesTab', () => ({ default: () => <div>pac
 vi.mock('../components/accounting/AccessTab', () => ({ default: () => <div>access-tab</div> }));
 vi.mock('../components/accounting/PfsTab', () => ({ default: () => <div>pfs-tab</div> }));
 vi.mock('../components/accounting/MriTab', () => ({ default: () => <div>mri-tab</div> }));
-vi.mock('../components/accounting/dashboard/DashContext', () => ({ DashProvider: ({ children }) => children }));
-vi.mock('../components/accounting/dashboard/registry', () => ({ DashNav: { Provider: ({ children }) => children } }));
+vi.mock('../components/accounting/dashboard/DashContext', () => ({ DashProvider: ({ children }) => <div data-testid="dash-provider">{children}</div> }));
+vi.mock('../components/accounting/dashboard/nav', () => ({ DashNav: { Provider: ({ children }) => children } }));
 vi.mock('../components/accounting/dashboard/OverviewTab', () => ({ default: () => <div>overview-tab</div> }));
 vi.mock('../components/accounting/dashboard/CashTab', () => ({ default: () => <div>cash-tab</div> }));
 vi.mock('../components/accounting/dashboard/PerformanceTab', () => ({ default: () => <div>performance-tab</div> }));
@@ -61,6 +61,19 @@ describe('Accounting view', () => {
     expect(await screen.findByText('mri-tab')).toBeTruthy();
   });
 
+  // 11/11/2026 (speed pass): the dashboard provider fires ten ledger reads the
+  // moment it mounts, so only the screens that read it get it.
+  it('loads the dashboard figures only on the dashboard and its data grids', async () => {
+    apiMock.getMyAccountingAccess.mockResolvedValue({ limited: false });
+    const { unmount } = render(<Accounting activeSub="rpt-balance-sheet" onSubChange={() => {}} />);
+    expect(await screen.findByTestId('reports')).toBeTruthy();
+    expect(screen.queryByTestId('dash-provider')).toBeNull();
+    unmount();
+    render(<Accounting activeSub="cash" onSubChange={() => {}} />);
+    expect(await screen.findByText('cash-tab')).toBeTruthy();
+    expect(screen.getByTestId('dash-provider')).toBeTruthy();
+  });
+
   it('shows a skeleton, never nothing, while access is being asked', () => {
     apiMock.getMyAccountingAccess.mockReturnValue(new Promise(() => {}));
     const { container } = render(<Accounting activeSub="overview" onSubChange={() => {}} />);
@@ -92,7 +105,7 @@ describe('Accounting view', () => {
     const upFront = [...src.matchAll(/^import .* from '\.\.\/components\/accounting\/([^']+)';\r?$/gm)].map((m) => m[1]).sort();
     // ModuleSearch (the header search, chat 10/26 item 13) brings reportControls' `control` with it, as before;
     // the search's toolbar slot (BarSearchSlotContext, 11/06/2026) comes from the same module - nothing new loads.
-    expect(upFront).toEqual(['ModuleSearch', 'assumptions', 'dashboard/DashContext', 'dashboard/registry', 'drill', 'prefs', 'reportControls', 'reportModel']);
-    expect(src).toMatch(/const OverviewTab = lazy\(/);
+    expect(upFront).toEqual(['ModuleSearch', 'assumptions', 'dashboard/DashContext', 'dashboard/nav', 'drill', 'prefs', 'reportControls', 'reportModel']);
+    expect(src).toMatch(/const OverviewTab = screen\(/);
   });
 });
