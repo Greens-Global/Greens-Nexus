@@ -163,7 +163,7 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
   const focusNoGps = focused && focusPunches.every((p) => !p.lat || !p.lng);
   const showAll = () => { setFocused(false); setSelected(new Set((data?.punches || []).map((p) => p.id))); };
   const th = { textAlign: 'left', fontSize: 11, fontWeight: 700, padding: '8px 10px', background: 'var(--bg-secondary, #f3f4f6)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-  const td = { padding: '8px 10px', borderBottom: '1px solid var(--line)', fontSize: 12.5, verticalAlign: 'middle' };
+  const td = { padding: '8px 10px', borderBottom: '1px solid var(--line)', fontSize: 13, verticalAlign: 'middle' };
   const btn = (on) => ({ padding: '6px 14px', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--line)'}`, background: on ? 'var(--wk-brand, #2b45e1)' : 'var(--card)', color: on ? '#fff' : 'var(--ink)', borderRadius: 8, fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer', letterSpacing: '.03em', textTransform: 'uppercase' });
 
   return (
@@ -179,7 +179,7 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" style={btn(!onlyOut)} onClick={() => setOnlyOut(false)}>All Punches</button>
             <button type="button" style={btn(onlyOut)} onClick={() => setOnlyOut(true)}>Out of Fence{outCount ? ` (${outCount})` : ''}</button>
-            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Location" style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', minWidth: 200 }}>
+            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Location" style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 13, background: 'var(--card)', color: 'var(--ink)', minWidth: 200 }}>
               <option value="">All locations</option>
               {sites.map((s) => <option key={s.id} value={s.id}>{s.name}{s.assigned ? ' (assigned)' : ''}</option>)}
             </select>
@@ -192,18 +192,18 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
           {!data && !error && <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>}
           <div ref={mapEl} style={{ height: 'min(480px, 48vh)', borderRadius: 10, border: '1px solid var(--line)', display: data ? 'block' : 'none' }} />
           {data && (focused || onEditSite) && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, fontSize: 12.5, padding: '8px 12px', marginBottom: 10, borderRadius: 10, background: 'var(--wk-brand-tint, rgba(43,69,225,0.08))', color: 'var(--ink)' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, fontSize: 13, padding: '8px 12px', marginBottom: 10, borderRadius: 10, background: 'var(--wk-brand-tint, rgba(43,69,225,0.08))', color: 'var(--ink)' }}>
               <span style={{ flex: 1, minWidth: 200 }}>
                 {focused ? <>Showing {focusLabel || 'this shift'}.</> : <>Showing every punch in the period.</>}
                 {focusNoGps && <span style={{ color: '#b91c1c', fontWeight: 600 }}> No GPS was captured for this punch, so there is no pin to show.</span>}
               </span>
-              {focused && <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={showAll}>Show All Punches</button>}
-              {onEditSite && <button type="button" className="primary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={onEditSite}>Change Location</button>}
+              {focused && <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={showAll}>Show All Punches</button>}
+              {onEditSite && <button type="button" className="primary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={onEditSite}>Change Location</button>}
             </div>
           )}
           {data && (
             <>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', fontSize: 11.5, color: 'var(--muted)', padding: '10px 0' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', fontSize: 12, color: 'var(--muted)', padding: '10px 0' }}>
                 {['in_fence', 'out_of_fence', 'remote', 'no_location'].map((k) => <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pin status={k} size={11} /> = {LABEL[k]}</span>)}
                 <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
                   <button type="button" className="secondary-btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setSelected(new Set((data.punches || []).map((p) => p.id)))}>Select All</button>
