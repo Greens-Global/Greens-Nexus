@@ -14,7 +14,7 @@ import Composer from './Composer';
 import EditInPlace, { restoreAllEdits, restoreEdit } from './EditInPlace';
 import Panel from './Panel';
 import { store, useBuildStore, turnOff, saveSettings, takePendingPin, toast, loadDrafts, saveDraft, removeDraft, newId } from './store';
-import { describeTarget, rectOf, regionTarget, anchorRect, stateOf, preloadSourceFiles } from './lib/capture';
+import { describeTarget, rectOf, regionTarget, anchorRect, stateOf, preloadSourceFiles, resolveSource } from './lib/capture';
 import { startTabCapture, stopTabCapture, grabBestFrame, makeShots, shiftItems, wantsTabCapture, AREA_PAD } from './lib/screenshot';
 import { useRole, MODULES } from '../contexts/RoleContext';
 import { startRecording, stopRecording, isRecording, startSpeech, speechSupported, setRecordAudio, recordAudioOn } from './lib/recorder';
@@ -123,6 +123,9 @@ export default function BuildModeApp({ view, sub }) {
   }, [s.version, s.panelOpen]);
 
   // ── Deep link: /dev-notes?pin=<id> or a bell ─────────────────────────────
+  // Runs on mount AND whenever a new pin is asked for: a bell clicked while
+  // the mode is already on used to do nothing, because this only ran once
+  // (11/12/2026). Taking the pin empties `pendingPin`, so the rerun is a no-op.
   useEffect(() => {
     const id = takePendingPin();
     if (!id) return;
@@ -132,7 +135,7 @@ export default function BuildModeApp({ view, sub }) {
         window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: n.route, sub: n.sub || null } }));
       }
     }).catch((e) => toast(e?.message || 'That pin could not be found'));
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [s.pendingPin]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Drafts ───────────────────────────────────────────────────────────────
   const updateDraft = useCallback((patch) => {
@@ -285,7 +288,13 @@ export default function BuildModeApp({ view, sub }) {
         if (recorded.sheet) contactSheetUrl = await uploadDevNoteFile(draft.id, 'sheet', recorded.sheet, 'png');
       }
       const { consoleLog, networkLog } = snapshotBuffers();
-      const target = pick.target;
+      // A pick made before the source-file table arrived carries "file #12":
+      // give it its path now, so the server can route it to the file's owner.
+      let target = pick.target;
+      if (/^file #\d+$/.test(target?.source?.file || '')) {
+        await preloadSourceFiles();
+        target = { ...target, source: resolveSource(target.source) };
+      }
       const body = {
         id: draft.id, kind: draft.kind, priority: draft.priority, comment: draft.comment || '',
         route: view, sub: sub || '', url: window.location.href, buildId: BUILD_ID, viewport: vp,
