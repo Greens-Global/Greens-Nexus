@@ -8,6 +8,7 @@ import { usePhotoMap } from '../../lib/peoplePhotos';
 import { formatDateTime } from '../../lib/datetime';
 import { control, entityOptions } from './reportControls';
 import { PersonSelect } from '../../tasks/components';
+import { WarnMark } from './warnMark';
 
 // Accounting -> Access (Neil, Sep 25): "even the accounting team should only
 // have access to certain items ... different people at different levels on
@@ -429,7 +430,7 @@ function IntacctImport({ names, onClose, onApplied }) {
         </div>
         <div style={{ padding: '6px 18px 10px', display: 'grid', gap: 8 }}>
           {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
-          {(data?.notes || []).map((n) => <div key={n} style={{ fontSize: '0.78rem', color: '#92400e' }}>{n}</div>)}
+          {(data?.notes || []).map((n) => <div key={n} style={{ fontSize: '0.78rem', color: 'var(--warn-fg)' }}><WarnMark />{n}</div>)}
           {!data && !error && <SkeletonBlocks count={4} />}
           {data && (
             <>

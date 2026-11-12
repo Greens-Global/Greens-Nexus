@@ -29,6 +29,9 @@ const pnl = {
 };
 const cash = { ...pnl, sections: [{ ...pnl.sections[0], total: 1200, accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1200 }] }, pnl.sections[1]] };
 
+// DateField as a plain box (the house date picker, 11/11/2026 picture 11), so a test can type a date.
+vi.mock('../../tasks/components', async (importOriginal) => ({ ...(await importOriginal()),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} data-datefield="1" value={value || ''} onChange={(e) => onChange(e.target.value)} /> }));
 vi.mock('../PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../../api', () => ({
   api: {

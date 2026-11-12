@@ -9,6 +9,7 @@ import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
 import { cellStyle, headStyle } from './columnStyles';
 import { downloadBlob } from './reportModel';
 import { SHOCKS, normalizeLoan, stressAmortMonths, stressLoan, stressPortfolio } from './loanMath';
+import { WarnMark } from './warnMark';
 
 // Accounting -> Loans & Financing -> Stress Test (Charmi and Neil, 10/06: "if
 // the interest rate were to go up, we should be able to calculate if the
@@ -36,7 +37,7 @@ import { SHOCKS, normalizeLoan, stressAmortMonths, stressLoan, stressPortfolio }
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const warn = { fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' };
+const warn = { fontSize: '0.78rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' };
 const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 };
@@ -167,7 +168,7 @@ export default function LoanStress({ loan, canEdit = false }) {
           <span style={{ ...label, margin: 0 }}>Shock</span>
           <ShockPicker value={pick} custom={p.custom} onPick={setPick} onCustom={(v) => { set({ custom: v }); setPick('custom'); }} />
         </div>
-        {missing.length > 0 && <div style={warn}>Enter {missing.join(', ')} to test this loan.</div>}
+        {missing.length > 0 && <div style={warn}><WarnMark />Enter {missing.join(', ')} to test this loan.</div>}
         {fixed && <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>A fixed rate holds the payment until maturity{l.maturity ? ` (${formatDate(l.maturity)})` : ''}: the shocked columns show what a refinance at that rate would cost.</div>}
       </div>
 
@@ -428,7 +429,7 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
         </div>
       </div>
       {error && <div style={bad}>{error}</div>}
-      {noRate > 0 && <div style={warn}>{noRate} {noRate === 1 ? 'loan has' : 'loans have'} no rate on file and {noRate === 1 ? 'is' : 'are'} tested at 0% - type the rate on the loan (pencil) to include it properly.</div>}
+      {noRate > 0 && <div style={warn}><WarnMark />{noRate} {noRate === 1 ? 'loan has' : 'loans have'} no rate on file and {noRate === 1 ? 'is' : 'are'} tested at 0% - type the rate on the loan (pencil) to include it properly.</div>}
       {ytdLoading && <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Reading the year-to-date NOI from the ledger...</div>}
       {!rowsShown.length ? <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>{f.belowOnly && out.entities.length ? 'No entity is below its covenant at this shock.' : 'No active loans with a balance to test.'}</div> : (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }}>

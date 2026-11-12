@@ -4,6 +4,7 @@ import { SkeletonBlocks } from '../../AsyncState';
 import { SectionTabs, card, input } from './Bits';
 import { useDash } from './DashContext';
 import { EntityPicker } from '../reportControls';
+import { DateField } from '../../../tasks/components';
 
 // Accounting -> Data. The figures the ledger does not carry: loans and
 // covenants, intercompany balances, brokerage holdings, partner capital, cap
@@ -155,7 +156,8 @@ function EditRow({ def, row, isNew, act, ix, onSaved, onDelete }) {
       }
       case 'json': return <input value={typeof v === 'string' ? v : JSON.stringify(v ?? [])} onChange={(e) => set(k, e.target.value)} onBlur={() => save(draft)} placeholder="monthly: [1] · dates: [[4,15],[6,15]]" aria-label={label} style={{ ...style, fontFamily: 'monospace' }} />;
       case 'number': return <input type="number" step={extra ?? '0.01'} value={v == null ? '' : String(v)} onChange={(e) => set(k, e.target.value)} onBlur={() => save(draft)} aria-label={label} style={{ ...style, textAlign: 'right' }} />;
-      case 'date': return <input type="date" value={v ? String(v).slice(0, 10) : ''} onChange={(e) => set(k, e.target.value || null)} onBlur={() => save(draft)} aria-label={label} style={style} />;
+      // The house date box (11/11/2026 Accounting pass, picture 11): a pick saves, as a select does.
+      case 'date': return <span style={{ ...style, display: 'flex', alignItems: 'center' }}><DateField value={v ? String(v).slice(0, 10) : ''} onChange={(picked) => setAndSave(k, picked || null)} placeholder="MM/DD/YYYY" title={label} style={{ width: '100%' }} /></span>;
       default: return <input value={v ?? ''} onChange={(e) => set(k, e.target.value)} onBlur={() => save(draft)} onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }} aria-label={label} style={style} />;
     }
   };

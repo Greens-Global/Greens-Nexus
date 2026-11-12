@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useIsMobile as useMedia } from '../../../lib/useIsMobile';
 import { TARGET_CLOSE_DAY } from '../../../accounting/dashboard/model/close';
-import { fmtMD, monthLabel, monthLong, mShort, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
+import { fmtMDY, monthLabel, monthLong, mShort, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
 import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Panel, SectionTabs, Tile, input, mono, num, toneColor } from './Bits';
 import { ColoredBars, Lines } from './Charts';
@@ -16,6 +16,8 @@ import { TaskViewSwitch, useCloseViews } from './closeViews';
 // lines to code, activity, and days-to-close history. One section at a time.
 
 const SECTIONS = ['checklist', 'recon', 'flux', 'controls'];
+// "09/01": the house MM/DD (11/11/2026 Accounting pass, picture 5).
+const md = (iso) => fmtMDY(iso).slice(0, 5);
 
 export default function CloseTab({ canEdit, meName = '' }) {
   const { period, act, m, loading } = useDash();
@@ -59,30 +61,30 @@ export default function CloseTab({ canEdit, meName = '' }) {
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      <Toolbar right={state ? <Chip tone={state.status === 'Behind' ? 'bad' : state.status === 'Closed' ? 'ok' : 'neutral'}>{state.status}{state.late.length ? ` · ${state.late.length} past due` : ''}</Chip> : null} />
-      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Close · {monthLong(period)}{state ? ` · Business day ${state.dayN} · target close day ${TARGET_CLOSE_DAY} (${fmtMD(state.targetDate)})` : ''}</div>
+      <Toolbar right={state ? <Chip tone={state.status === 'Behind' ? 'bad' : state.status === 'Closed' ? 'ok' : 'neutral'}>{state.status}{state.late.length ? ` · ${state.late.length} Past Due` : ''}</Chip> : null} />
+      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Close · {monthLong(period)}{state ? ` · Business Day ${state.dayN} · Target Close Day ${TARGET_CLOSE_DAY} (${md(state.targetDate)})` : ''}</div>
       {isLoading || !state ? <LoadingBox height={84} /> : state.n ? (
         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-          <Tile label="Tasks complete" value={`${state.nDone}/${state.n}`} sub={pctTxt(state.nDone / state.n, 0)} />
-          <Tile label="Past due" value={<span style={{ color: state.late.length ? BAD : undefined }}>{state.late.length}</span>} sub={state.late.length ? state.late.slice(0, 2).map((t) => t.title).join('; ') : 'nothing overdue'} />
-          <Tile label="Last month closed" value={prevClosed != null ? `day ${prevClosed}` : '-'} sub={avg != null ? `6-month avg day ${avg.toFixed(1)}` : 'no history yet'} />
-          <Tile label="Target" value={`day ${TARGET_CLOSE_DAY}`} sub={fmtMD(state.targetDate)} />
+          <Tile label="Tasks Complete" value={`${state.nDone}/${state.n}`} sub={pctTxt(state.nDone / state.n, 0)} />
+          <Tile label="Past Due" value={<span style={{ color: state.late.length ? BAD : undefined }}>{state.late.length}</span>} sub={state.late.length ? state.late.slice(0, 2).map((t) => t.title).join('; ') : 'nothing overdue'} />
+          <Tile label="Last Month Closed" value={prevClosed != null ? `Day ${prevClosed}` : '-'} sub={avg != null ? `6-month average day ${avg.toFixed(1)}` : 'no history yet'} />
+          <Tile label="Target" value={`Day ${TARGET_CLOSE_DAY}`} sub={md(state.targetDate)} />
         </div>
       ) : null}
       <SectionTabs tabs={tabs} value={SECTIONS.includes(section) ? section : 'checklist'} onChange={setSection} />
 
       {section === 'checklist' ? (
         <div style={grid}>
-          <Panel title="Close pace" sub={state ? `${state.nDone} of ${state.n} tasks complete · ${state.expected} expected by today` : undefined} style={col(5)}
-            right={canEdit && state?.status === 'Closed' && !history.some((h) => h.period === period) ? <button type="button" className="secondary-btn" style={{ fontSize: '0.7rem', padding: '2px 8px' }} onClick={recordDay}>Record close day {state.dayN}</button> : null}>
+          <Panel title="Close Pace" sub={state ? `${state.nDone} of ${state.n} tasks complete · ${state.expected} expected by today` : undefined} style={col(5)}
+            right={canEdit && state?.status === 'Closed' && !history.some((h) => h.period === period) ? <button type="button" className="secondary-btn" style={{ fontSize: '0.7rem', padding: '2px 8px' }} onClick={recordDay}>Record Close Day {state.dayN}</button> : null}>
             {isLoading || !state ? <LoadingBox /> : !state.n ? <EmptyBox title="No close plan yet" body="Add the checklist under the Data tab. A default plan is seeded for new companies." /> : (
               <>
-                <Lines data={paceData} xKey="label" height={170} series={[{ key: 'planned', label: 'Planned pace', color: '#0998c3', dashed: true }, { key: 'actual', label: 'Completed', color: 'var(--wk-brand, #2b45e1)' }]} />
+                <Lines data={paceData} xKey="label" height={170} count series={[{ key: 'planned', label: 'Planned Pace', color: '#0998c3', dashed: true }, { key: 'actual', label: 'Completed', color: 'var(--wk-brand, #2b45e1)' }]} />
                 <Footnote>Business day since period end (0 to 12). Target day {TARGET_CLOSE_DAY}.</Footnote>
               </>
             )}
           </Panel>
-          <Panel title="Close checklist" sub="Tick a task and everyone sees who completed it" style={col(7)} bodyStyle={{ padding: 0 }}
+          <Panel title="Close Checklist" sub="Tick a task and everyone sees who completed it" style={col(7)} bodyStyle={{ padding: 0 }}
             right={state?.n ? (
               <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                 <select value={pickedRole} onChange={(e) => setRole(e.target.value)} style={{ ...input, padding: '3px 6px', fontSize: '0.74rem' }} aria-label="My close role">
@@ -105,8 +107,8 @@ export default function CloseTab({ canEdit, meName = '' }) {
                           <td><input type="checkbox" checked={!!r.done} disabled={!canEdit || busy === r.id} onChange={() => toggle(r)} aria-label={`${r.done ? 'Reopen' : 'Complete'} ${r.title}`} /></td>
                           <td style={r.done ? { textDecoration: 'line-through' } : undefined}>{r.title}</td>
                           <td style={{ fontSize: '0.78rem' }}>{r.owner}</td>
-                          <td style={{ fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>Day {r.day_offset} · {fmtMD(r.due)}</td>
-                          <td>{r.done ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Chip tone="ok">Done</Chip><span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.done.completed_by} · {whenTxt(r.done.completed_at)}</span></span> : r.state === 'past_due' ? <Chip tone="bad">Past due</Chip> : r.state === 'due_today' ? <Chip tone="wait">Due today</Chip> : <Chip>Open</Chip>}</td>
+                          <td style={{ fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>Day {r.day_offset} · {md(r.due)}</td>
+                          <td>{r.done ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Chip tone="ok">Done</Chip><span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.done.completed_by} · {whenTxt(r.done.completed_at)}</span></span> : r.state === 'past_due' ? <Chip tone="bad">Past Due</Chip> : r.state === 'due_today' ? <Chip tone="wait">Due Today</Chip> : <Chip>Open</Chip>}</td>
                         </tr>
                       ))}
                     </PhaseRows>
@@ -121,7 +123,7 @@ export default function CloseTab({ canEdit, meName = '' }) {
       {section === 'recon' ? <WidgetPanel id="recon" compact={false} /> : null}
 
       {section === 'flux' ? (
-        <Panel title="Balance sheet flux - explain changes over $25K or 10%" sub={loading ? 'Loading...' : hasPrior ? `${explained} of ${flux.length} explained` : 'No prior month to compare'} bodyStyle={{ padding: 0 }} onOpenReport={() => nav('reports')}>
+        <Panel title="Balance Sheet Flux - Explain Changes Over $25K or 10%" sub={loading ? 'Loading...' : hasPrior ? `${explained} of ${flux.length} explained` : 'No prior month to compare'} bodyStyle={{ padding: 0 }} onOpenReport={() => nav('reports')}>
           {loading ? <div style={{ padding: 16 }}><LoadingBox /></div> : !hasPrior ? <EmptyBox title="No prior month to compare." style={{ margin: 16 }} /> : !flux.length ? <EmptyBox title="No material balance changes" style={{ margin: 16 }} /> : (
             <div className="req-table-wrapper"><table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
               <thead><tr><th>Account</th><th style={num}>{mShort(prevKey)}</th><th style={num}>{mShort(period)}</th><th style={num}>Change</th><th style={{ width: '38%' }}>Explanation</th></tr></thead>
@@ -156,10 +158,10 @@ export default function CloseTab({ canEdit, meName = '' }) {
           <div style={col(4)}><WidgetPanel id="ic" style={{ height: '100%' }} /></div>
           <div style={col(8)}><WidgetPanel id="uncat" style={{ height: '100%' }} /></div>
           <div style={col(6)}><WidgetPanel id="activity" style={{ height: '100%' }} /></div>
-          <Panel title="Days to close · last six months" style={col(6)}>
+          <Panel title="Days to Close · Last Six Months" style={col(6)}>
             {!last6.length ? <EmptyBox title="No close history yet" body="When a month reaches Closed, record its close day and it charts here." /> : (
               <>
-                <ColoredBars data={last6.map((h) => ({ label: monthLabel(h.period), value: h.closed_day, color: h.closed_day <= 7 ? 'var(--wk-brand, #2b45e1)' : '#d97706' }))} height={150} valueLabel={(v) => `day ${v}`} />
+                <ColoredBars data={last6.map((h) => ({ label: monthLabel(h.period), value: h.closed_day, color: h.closed_day <= 7 ? 'var(--wk-brand, #2b45e1)' : '#d97706' }))} height={150} valueLabel={(v) => `Day ${v}`} />
                 <Footnote>Target is business day {TARGET_CLOSE_DAY}. Months in the brand color closed in seven days or fewer.</Footnote>
               </>
             )}

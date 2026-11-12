@@ -11,6 +11,8 @@ import { AvatarName } from '../../tasks/components';
 import { useBackdropClose } from './LoanDialogs';
 import { LineFacts } from './AskAccountantDialog';
 import { AMA_GL_PICKER_LIMIT, AMA_OFFSET_BATCH, AMA_OFFSET_DISPLAY, AMA_RECLASS_MODE_DEFAULT } from './assumptions';
+import { dialog } from '../../ui/dialog';
+import { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // AMA, change request 13 (Charmi, Oct 22 call):
 //   - Other Side: the account(s) the money came from or went to, read from
@@ -265,6 +267,12 @@ export function usePushFlow(onDone) {
   return { preview, busy, error, result, load, push, reset: () => { setPreview(null); setResult(null); setError(''); } };
 }
 
+// A live push edits the books in Intacct: press and hold (11/11/2026 Accounting
+// pass, picture 10). One reclass holds HOLD_RECORD_MS, several HOLD_MAJOR_MS.
+const holdPush = (count, go) => dialog.confirm(
+  count > 1 ? `Push ${count} reclass changes to Intacct? This edits the books and cannot be taken back here.` : 'Push this reclass to Intacct? This edits the books and cannot be taken back here.',
+  { title: 'Push To Intacct?', hold: true, holdMs: count > 1 ? HOLD_MAJOR_MS : HOLD_RECORD_MS, confirmText: 'Push To Intacct', doneText: 'Pushed', holdIcon: Send, onConfirm: go });
+
 const OUTCOME = { edited: 'Edited in Intacct', already_done: 'Already done in Intacct - marked pushed', dry_run: 'Recorded what would be sent (push switched off)', failed: 'Did not go through', stale: 'Changed in Intacct since the preview - nothing sent', unconfirmed: 'Sent, but Intacct reads back differently - check it in Intacct', not_tried: 'Not tried' };
 
 export function PushResult({ result }) {
@@ -320,7 +328,7 @@ export function PushBatchDialog({ rows, limit, live, onClose, onDone }) {
         <div className="modal-footer" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '10px 24px 16px' }}>
           <button type="button" className="secondary-btn" onClick={onClose} style={small}>Close</button>
           <button type="button" className="secondary-btn" disabled={!picked.length || !!flow.busy} onClick={() => flow.load(picked)} style={small}>{flow.busy === 'preview' ? 'Reading Intacct...' : 'Preview Change'}</button>
-          <button type="button" className="primary-btn" disabled={!flow.preview?.previewId || !!flow.busy} onClick={() => flow.push().then((r) => { if (r) setPicked([]); })}
+          <button type="button" className="primary-btn" disabled={!flow.preview?.previewId || !!flow.busy} onClick={() => { const go = () => flow.push().then((r) => { if (r) setPicked([]); }); return live ? holdPush(picked.length, go) : go(); }}
             style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> {flow.busy === 'push' ? 'Pushing...' : live ? 'Push To Intacct' : 'Record Dry Run'}</button>
         </div>
       </div>
@@ -536,14 +544,14 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, reclassM
             </button>
           )}
           {canPreview && (
-            <button type="button" className="primary-btn" disabled={!!busy || !!flow.busy || dirty || !flow.preview?.previewId} onClick={flow.push}
+            <button type="button" className="primary-btn" disabled={!!busy || !!flow.busy || dirty || !flow.preview?.previewId} onClick={() => (pushToIntacct ? holdPush(1, flow.push) : flow.push())}
               style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }}
               title={!flow.preview ? 'Preview the change first' : pushToIntacct ? 'Edits the original entry in Intacct exactly as previewed' : 'The Intacct push is switched off on this server - records what it would send'}>
               <Send size={13} /> {flow.busy === 'push' ? 'Pushing...' : pushToIntacct ? 'Approve & Push To Intacct' : 'Approve & Record Dry Run'}
             </button>
           )}
           {isBookkeeper && editable && !editMode && (
-            <button type="button" className="primary-btn" disabled={!!busy || !to} onClick={push} style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            <button type="button" className="primary-btn" disabled={!!busy || !to} onClick={() => (pushToIntacct ? holdPush(1, push) : push())} style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }}
               title={pushToIntacct ? 'Creates a new reclass entry in Intacct' : 'Pushing straight to Intacct is switched off on this server - the reclass is recorded for the Intacct import file'}>
               <Send size={13} /> {busy === 'push' ? 'Pushing...' : pushToIntacct ? 'Approve & Push To Intacct' : 'Approve & Record For Import'}
             </button>

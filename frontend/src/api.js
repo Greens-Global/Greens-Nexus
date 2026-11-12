@@ -3828,3 +3828,13 @@ api.getTaskProjectBaselines = (projectId) => req(`/task-projects/${encodeURIComp
 api.takeTaskProjectBaseline = (projectId, name = '') => req(`/task-projects/${encodeURIComponent(projectId)}/baselines`, { method: 'POST', body: JSON.stringify({ name }) });
 api.getTaskProjectBaselineDiff = (projectId, baselineId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}/diff`);
 api.deleteTaskProjectBaseline = (projectId, baselineId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}`, { method: 'DELETE' });
+// Meeting Notes (Neil, 11/12/2026; routers/meetings.py): the caller's Teams
+// meetings between two times (their own calendar), their note for one (made
+// once), the meeting behind a note, and its transcript read from Teams each
+// time - Nexus keeps no copy of a transcript or a recording.
+// Testers first (11/12/2026): whether Meetings shows for this person.
+api.meetingsAccess = () => req('/meetings/access');
+api.meetingsDay = (start, end) => req(`/meetings/day?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+api.meetingNoteOpen = (eventId, day) => req('/meetings/notes', { method: 'POST', body: JSON.stringify({ eventId, day }) });
+api.meetingOfNote = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}`);
+api.meetingTranscript = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/transcript`);

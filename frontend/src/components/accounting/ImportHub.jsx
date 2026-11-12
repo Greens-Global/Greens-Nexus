@@ -292,7 +292,7 @@ function StatementToIntacct() {
                       onChange={(e) => setPick(l.index, { vendorId: e.target.value.trim(), vendorName: partnerName('vendors', e.target.value.trim()) })} style={cellInput} /></td>
                     <td><input value={l.customerId} list="ih-customers" placeholder="None" aria-label={`Customer for line ${l.index + 1}`} title={l.customerName || partnerName('customers', l.customerId) || undefined}
                       onChange={(e) => setPick(l.index, { customerId: e.target.value.trim(), customerName: partnerName('customers', e.target.value.trim()) })} style={cellInput} /></td>
-                    <td style={{ fontSize: '0.74rem', whiteSpace: 'nowrap', color: l.classified ? 'var(--text-secondary)' : 'var(--warning, #b45309)', fontWeight: l.classified ? 400 : 600 }}>
+                    <td style={{ fontSize: '0.74rem', whiteSpace: 'nowrap', color: l.classified ? 'var(--text-secondary)' : 'var(--warn-fg)', fontWeight: l.classified ? 400 : 600 }}>
                       {l.how === 'hand' ? 'Set on the Line' : l.rule ? `Rule: ${l.rule.matchText}` : 'Unclassified'}
                     </td>
                     <td><button type="button" className="secondary-btn" onClick={() => setRulesOpen({ draft: ruleFromLine(l) })} aria-label={`Save line ${l.index + 1} as a rule`} style={{ fontSize: '0.72rem', padding: '3px 8px', whiteSpace: 'nowrap' }}>Save as Rule</button></td>
