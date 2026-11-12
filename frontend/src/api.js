@@ -3819,3 +3819,5 @@ api.meetingsDay = (start, end) => req(`/meetings/day?start=${encodeURIComponent(
 api.meetingNoteOpen = (eventId, day) => req('/meetings/notes', { method: 'POST', body: JSON.stringify({ eventId, day }) });
 api.meetingOfNote = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}`);
 api.meetingTranscript = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/transcript`);
+// Phase 2 (11/12/2026): the person's own opt-in to the Transcript Ready bell.
+api.meetingAlerts = (on) => req('/meetings/alerts', { method: 'PUT', body: JSON.stringify({ on: !!on }) });

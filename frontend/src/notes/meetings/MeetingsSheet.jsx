@@ -2,12 +2,14 @@
 // person's own Outlook calendar (GET /meetings/day), each with Take Notes /
 // Open Notes and Join. Opening one makes its note once (POST /meetings/notes)
 // and hands the id back to the Notes page. A sheet from the right on a
-// computer, the bottom sheet on a phone - the shared Modal.
+// computer, the bottom sheet on a phone - the shared Modal. Phase 2: the
+// person's own opt-in to the Transcript Ready bell sits at its foot.
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Video, NotebookPen, CalendarX2 } from 'lucide-react';
 import { api } from '../../api';
 import { Modal } from '../../tasks/components';
 import { SkeletonBlocks } from '../../components/AsyncState';
+import { SwitchRow } from '../../components/settings/SettingsUI';
 import { formatTime } from '../../lib/datetime';
 import { addDays, dayHeading, localDay } from '../notesModel';
 import { dayBounds, joinable, meetingPhase } from './meetingModel';
@@ -51,6 +53,21 @@ export default function MeetingsSheet({ onClose, onOpened }) {
   const [data, setData] = useState(null);     // { enabled, reason, meetings }
   const [error, setError] = useState('');
   const [opening, setOpening] = useState('');
+  // The Transcript Ready bell: off until the person turns it on (opt-in, Neil 11/12/2026).
+  const [alerts, setAlerts] = useState(null);
+  const [alertsMsg, setAlertsMsg] = useState('');
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(api.meetingsAccess?.()).then((r) => { if (live) setAlerts(!!r?.alerts); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const toggleAlerts = async (on) => {
+    setAlerts(on); setAlertsMsg('');
+    try {
+      await api.meetingAlerts(on);
+      setAlertsMsg(on ? 'On - you get a bell when a transcript is ready.' : 'Off.');
+    } catch (e) { setAlerts(!on); setAlertsMsg(e?.message || 'Could not change it'); }
+  };
 
   const load = useCallback(async () => {
     setData(null); setError('');
@@ -101,6 +118,13 @@ export default function MeetingsSheet({ onClose, onOpened }) {
         <ul className="nt-mtg-list">
           {meetings.map((m) => <Row key={m.eventId} m={m} busy={opening === m.eventId} onOpen={open} />)}
         </ul>
+      )}
+      {data?.enabled && alerts !== null && (
+        <div className="nt-mtg-alerts">
+          <SwitchRow id="nt-mtg-alerts" title="Tell Me When a Transcript Is Ready" checked={alerts} onChange={toggleAlerts}
+            desc="After a meeting you took notes for, a bell when Teams publishes its transcript - it opens your notes with the transcript beside them." />
+          {alertsMsg && <div className="nt-mtg-alerts-msg" role="status">{alertsMsg}</div>}
+        </div>
       )}
       {data?.enabled && (
         <p className="nt-mtg-foot">

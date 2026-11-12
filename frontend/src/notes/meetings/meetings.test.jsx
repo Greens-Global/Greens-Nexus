@@ -1,14 +1,14 @@
 // Meeting Notes (Neil, 11/12/2026) - the meeting clock on a note's lines,
 // the pure helpers, and the Notes page's Meetings sheet, band and transcript.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { Editor } from '@tiptap/core';
 
 const apiMock = vi.hoisted(() => ({
   notesList: vi.fn(), noteGet: vi.fn(), noteCreate: vi.fn(), noteUpdate: vi.fn(), noteShare: vi.fn(),
   noteVersions: vi.fn(), notePresence: vi.fn(), noteMentions: vi.fn(),
   getPeopleDirectory: vi.fn(),
-  meetingsAccess: vi.fn(), meetingsDay: vi.fn(), meetingNoteOpen: vi.fn(), meetingOfNote: vi.fn(), meetingTranscript: vi.fn(),
+  meetingsAccess: vi.fn(), meetingAlerts: vi.fn(), createTask: vi.fn(), meetingsDay: vi.fn(), meetingNoteOpen: vi.fn(), meetingOfNote: vi.fn(), meetingTranscript: vi.fn(),
 }));
 vi.mock('../../api', () => ({ api: apiMock }));
 vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@greensglobal.com' }) }));
@@ -124,7 +124,56 @@ describe('Notes page - meetings', () => {
     apiMock.notePresence.mockResolvedValue({ people: [], rev: 1 });
     apiMock.noteMentions.mockResolvedValue({ items: [], notes: [] });
     apiMock.meetingOfNote.mockResolvedValue(MEETING);
-    apiMock.meetingsAccess.mockResolvedValue({ enabled: true });
+    apiMock.meetingsAccess.mockResolvedValue({ enabled: true, alerts: false });
+  });
+
+  it('lets a person opt in to the Transcript Ready bell from the Meetings sheet', async () => {
+    apiMock.meetingsDay.mockResolvedValue({ enabled: true, meetings: [] });
+    apiMock.meetingAlerts.mockResolvedValue({ on: true });
+    render(<NotesPage activeSub="notes" onSubChange={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Meetings/ }));
+    const sw = await screen.findByRole('switch', { name: 'Tell Me When a Transcript Is Ready' });
+    expect(sw.checked).toBe(false);
+    fireEvent.click(sw);
+    await waitFor(() => expect(apiMock.meetingAlerts).toHaveBeenCalledWith(true));
+    expect(await screen.findByText(/you get a bell when a transcript is ready/)).toBeTruthy();
+  });
+
+  it('shows Last Time with the open tasks, and highlights with Make a Task', async () => {
+    apiMock.meetingOfNote.mockResolvedValue({
+      ...MEETING, transcriptReady: true,
+      previous: { noteId: 'note_prev', title: 'Weekly Ops', start: '2026-11-05T15:00:00Z', latest: true,
+        openTasks: [{ id: 't1', title: 'Send rent roll', code: 'T-12' }] },
+    });
+    apiMock.meetingTranscript.mockResolvedValue({ cues: [
+      { at: 1794495600, speaker: 'Neil', text: 'Rent roll first.' },
+      { at: 1794495700, speaker: 'Bob Brown', text: 'I will fix the gate codes by Friday.' },
+    ], recordings: 0, chatThreadId: '', transcripts: 1, truncated: false,
+    highlights: { actions: [{ i: 1, at: 1794495700, speaker: 'Bob Brown', text: 'I will fix the gate codes by Friday.', due: 'by Friday' }],
+      decisions: [], questions: [] } });
+    apiMock.createTask.mockResolvedValue({ id: 'task_9' });
+    const onSubChange = vi.fn();
+    render(<NotesPage activeSub="notes:note_m" onSubChange={onSubChange} />);
+    expect(await screen.findByText('Last Time:')).toBeTruthy();
+    expect(screen.getByText('1 open task')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Send rent roll/ })).toBeTruthy();
+    expect(screen.getByText('Ready')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Weekly Ops · 11\/05\/2026/ }));
+    expect(onSubChange).toHaveBeenCalledWith('notes:note_prev');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Transcript/ }));
+    expect(await screen.findByRole('tab', { name: /Highlights/, selected: true })).toBeTruthy();
+    expect(screen.getByText('Possible Action Items')).toBeTruthy();
+    expect(screen.getByText('by Friday')).toBeTruthy();
+    const panel = within(screen.getByRole('complementary', { name: 'Transcript' }));
+    fireEvent.click(panel.getByRole('button', { name: /Make a Task/ }));
+    await waitFor(() => expect(apiMock.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'I will fix the gate codes by Friday.', assignee_emails: ['neil@greensglobal.com'] })));
+    expect(await panel.findByRole('button', { name: /Open Task/ })).toBeTruthy();
+    // The time on a highlight shows it in the full transcript.
+    fireEvent.click(panel.getByTitle('See it in the transcript'));
+    expect(await screen.findByRole('tab', { name: 'Transcript', selected: true })).toBeTruthy();
+    await waitFor(() => expect(document.querySelector('.nt-tx-list li.is-hit')?.textContent).toContain('gate codes'));
   });
 
   it('shows no Meetings button to someone it is not turned on for', async () => {
