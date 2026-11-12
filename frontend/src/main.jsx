@@ -29,6 +29,7 @@ if (typeof window !== 'undefined' && !window.EXCALIDRAW_ASSET_PATH) window.EXCAL
 import 'prosemirror-view/style/prosemirror.css'
 import 'prosemirror-gapcursor/style/gapcursor.css'
 import 'prosemirror-tables/style/tables.css'
+import './fonts.css'
 import './style.css'
 import App from './App.jsx'
 import LoginPage from './views/LoginPage'

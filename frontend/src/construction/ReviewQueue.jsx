@@ -77,7 +77,7 @@ function LogCard({ log, onDecide, busy, aiEnabled }) {
                 : <ChevronRight size={16} style={{ marginTop: 3, flexShrink: 0 }} />}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <strong style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{log.projectName}</strong>
+              <strong>{log.projectName}</strong>
               <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{formatDate(log.logDate, log.logDate)}</span>
               {(log.tags || []).map((t) => <StatusLabel key={t} size="sm" label={tagLabel(t)} color={TAG_COLOR[t]} />)}
               {safety.length > 0 && (
@@ -248,7 +248,7 @@ export default function ReviewQueue({ projectId = '', onDecided }) {
 
   return (
     <div style={CARD}>
-      <h3 style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>
+      <h3 style={{ fontSize: 18, marginBottom: 4 }}>
         Review Queue
       </h3>
       <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>

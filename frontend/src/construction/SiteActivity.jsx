@@ -193,7 +193,7 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
           )}
 
           <div style={CARD}>
-            <h3 style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Daily Logs</h3>
+            <h3 style={{ fontSize: 18, marginBottom: 4 }}>Daily Logs</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
               What the crew filed from site, newest first
             </p>
@@ -220,7 +220,7 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <strong style={{ fontSize: 15, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{formatDate(l.logDate, l.logDate)}</strong>
+                            <strong style={{ fontSize: 15 }}>{formatDate(l.logDate, l.logDate)}</strong>
                             <StatusLabel size="sm" label={s.label} color={s.color} />
                             {(l.tags || []).map((t) => <StatusLabel key={t} size="sm" label={tagLabel(t)} color={TAG_COLOR[t]} />)}
                             {/* Advisory, never enforced - see _within_geofence. Shown so a

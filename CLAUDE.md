@@ -254,7 +254,8 @@ keep the diff minimal.
   `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
   Shrink / Expand button; short answers keep the small card
   (`support/HelpWidget.jsx`).
-- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter and every
+- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter, bundled
+  with the app (`src/fonts.css` - never Google Fonts or a second family), and every
   text size is on the scale - `FS` in `lib/typeScale.js` (meta 11, label 12,
   body 13, read 14, title 15, section 18, page 24, figure 32) or the `--fs-*`
   tokens. `scripts/check-type.mjs` (in `npm run lint`) fails a new off-scale

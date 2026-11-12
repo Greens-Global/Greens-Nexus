@@ -66,7 +66,7 @@ export function SiteWeatherStrip({ onOpen }) {
   return (
     <div style={CARD} aria-label="Weather at each site">
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>Weather At Each Site</h3>
+        <h3 style={{ fontSize: 18, margin: 0 }}>Weather At Each Site</h3>
         <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Today at every active jobsite - open a site for its week</span>
       </div>
       {data === null ? <SkeletonBlocks count={2} height={64} borderRadius={8} /> : (
@@ -159,7 +159,7 @@ export function SiteWeatherCard({ project }) {
   return (
     <div style={{ ...CARD, backgroundImage: data ? `linear-gradient(160deg, rgba(${rgb},0.12), transparent 60%)` : undefined }} aria-label="Site weather">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>Weather At This Site</h3>
+        <h3 style={{ fontSize: 18, margin: 0 }}>Weather At This Site</h3>
         <FlagChip weather={site} />
         <span style={{ color: 'var(--text-secondary)', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%' }}>
           <MapPin size={12} style={{ flexShrink: 0 }} />
