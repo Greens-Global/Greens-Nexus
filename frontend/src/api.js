@@ -2178,7 +2178,7 @@ export const api = {
   timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),
   // quickbooksCompanyName (Oct 19): the IIF header's company; undefined leaves it, '' clears it.
   // quickbooksCreateTime (Charmi, 11/03/2026): the TIMERHDR's COMPANYCREATETIME, same semantics.
-  timeExportCodesSet:  (company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob }) }),
+  timeExportCodesSet:  (company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob, quickbooksTimerHeader) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob, quickbooksTimerHeader }) }),
   // Shift differentials + call-back pay (Oct 17): one company's rule, off by default.
   timePremiumsGet:     (company) => req(`/timeclock/payroll/premiums?company=${encodeURIComponent(company || '')}`),
   timePremiumsSet:     (company, cfg) => req('/timeclock/payroll/premiums', { method: 'PUT', body: JSON.stringify({ ...cfg, company }) }),
