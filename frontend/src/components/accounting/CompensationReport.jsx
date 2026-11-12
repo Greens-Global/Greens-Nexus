@@ -714,7 +714,7 @@ function LedgerLinesPanel({ panel, periods, onClose, onBack, onReports }) {
           ))}
         </div>
       )}
-      {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+      {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
     </SidePanel>
   );
 }

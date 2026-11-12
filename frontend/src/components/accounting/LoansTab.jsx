@@ -792,7 +792,7 @@ export default function LoansTab({ canEdit = false }) {
       {dialog?.edit && <EditLoanDialog loan={dialog.edit} to={to} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); load(); }} />}
       {dialog?.plan === 'amortization' && <LoanAmortizationDialog loan={dialog.loan} canEdit={canEdit} month={to.slice(0, 7)} onClose={() => setDialog(null)} />}
       {dialog?.plan === 'stress' && <LoanStressDialog loan={dialog.loan} canEdit={canEdit} onClose={() => setDialog(null)} />}
-      {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+      {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
       {sending && (
         <SendReportDialog mode={sending} title="Loans & Financing" baseName={`Loans & Financing - ${entityLabel} - ${formatDate(to).replace(/\//g, '-')}`.replace(/[\\/:*?"<>|]+/g, ' ')} what="loan list"
           makeFile={async (format, name) => linesFile(table(), format, name)}

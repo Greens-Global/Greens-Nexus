@@ -54,6 +54,10 @@ describe('LinesPanel', () => {
     await waitFor(() => expect(within(table).getByRole('columnheader', { name: /Description/ }).style.width).toBe('60px'));
     fireEvent.click(within(table).getByRole('button', { name: 'AP-2001' }));
     await waitFor(() => expect(api.getAccountingEntry).toHaveBeenCalledWith('e-1'));
+    // Picture 9 (11/11/2026): the entry opens as a side panel over this one, with Open Full - never the centered box.
+    const entry = screen.getByRole('dialog', { name: /Journal entry/ });
+    expect(entry.getAttribute('data-testid')).toBe('acct-side-panel');
+    expect(within(entry).getByRole('button', { name: /Open Full/ })).toBeTruthy();
     // Escape closes the entry first, not the panel.
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
