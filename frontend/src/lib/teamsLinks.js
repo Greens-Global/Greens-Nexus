@@ -31,3 +31,7 @@ export function canReachOnTeams(person, myEmail = '') {
   if (myEmail && email.toLowerCase() === clean(myEmail).toLowerCase()) return false;
   return true;
 }
+
+/** A Teams meeting's chat (Meeting Notes, 11/12/2026): where Teams keeps the
+ *  meeting's recording and its own recap - Nexus links there, never copies. */
+export const teamsMeetingChatUrl = (threadId) => `${TEAMS}/chat/${encodeURIComponent(String(threadId || '').trim())}/0`;

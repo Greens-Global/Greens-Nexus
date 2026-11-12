@@ -890,6 +890,23 @@ keep the diff minimal.
   Make a Task works on the page and in Quick Note. A new editor feature goes
   in BOTH the web toolbar and the phone bar (`NoteEditor.jsx`).
 
+- **Meeting Notes (Neil, 11/12/2026, `routers/meetings.py`,
+  `frontend/src/notes/meetings/`, `docs/Meeting-Notes.md`).** A Teams
+  meeting's notes are a Notes note (source kind `meeting`, one
+  `nexus_meeting_notes` row per person per occurrence, RLS on dev and prod)
+  made from the person's own calendar. Teams transcribes; Nexus LINKS, never
+  copies: the transcript is read through Graph when opened (15 minutes in
+  memory), the recording is reached through the meeting chat - never write
+  either to the database or storage. The join link and transcript are only
+  for the invite's people, whoever the note is shared with; externals and
+  Act As are refused. A line written during the meeting carries `data-at`
+  (Unix seconds, `meetings/meetingClock.js`, in every Notes schema) - keep
+  it in the sanitizer. Graph lookups reuse `routers/meeting_files.py`. The
+  background pass is opt-in (Phase 2); a summary is AI, behind the switch.
+  TESTERS FIRST: only the emails in the `meeting_notes.access`
+  nexus_settings row (per database; `"everyone": true` opens it) may use
+  it - `meetings.may_use`, never a code default.
+
 - **Documents (Neil, 10/31/2026, plan https://claude.ai/artifact/VZxM4iUKKnmPfxsNvxxPdJ,
   `routers/documents.py`, `components/DocumentsBrowser.jsx`,
   `lib/documentLibrary.js`).** Four tabs: Documents (one library, `documents-browse`;

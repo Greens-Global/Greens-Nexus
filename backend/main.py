@@ -3926,6 +3926,9 @@ def _run_migrations():
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_ir_funds_intacct_entity ON ir_funds (intacct_entity) WHERE intacct_entity <> ''",
         # A member's percentage in the operating agreement (Neil, 11/11/2026).
         "ALTER TABLE ir_commitments ADD COLUMN IF NOT EXISTS membership_pct DOUBLE PRECISION",
+        # Meeting Notes (Neil, 11/12/2026): which note is whose notes for which
+        # Teams meeting - a new table, explicit RLS. models.NexusMeetingNote.
+        "ALTER TABLE nexus_meeting_notes ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -6012,3 +6015,5 @@ from routers import notes_diagram as notes_diagram_router  # noqa: E402 - one ne
 app.include_router(notes_diagram_router.router)  # Notes boards: Diagram From a Sentence - OFF unless AI is on for Nexus AND a Super Administrator turns it on (Neil, 11/08/2026)
 from routers import investor_books as investor_books_router  # noqa: E402 - no new table (columns on ir_funds / ir_investors)
 app.include_router(investor_books_router.router)  # Investor Relations live from Intacct: deal = entity, investor = partner equity accounts (Neil, 11/11/2026)
+from routers import meetings as meetings_router  # noqa: E402
+app.include_router(meetings_router.router)  # Meeting Notes: a Notes note for a Teams meeting - transcript and recording stay in Teams, linked (Neil, 11/12/2026)
