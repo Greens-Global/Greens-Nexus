@@ -700,6 +700,13 @@ keep the diff minimal.
   `teams_subscriptions`) and polling (`kudos_teams_loop`) call the same
   `sync_one`. Reading needs the delegated read scopes
   (`bff_session.GRAPH_KUDOS_*_READ_SCOPES`); without them it waits.
+  Kudos from a closed ticket (Neil, 11/12/2026: "shouldn't be too obvious
+  or people will always do it"): `tickets/TicketKudos.jsx` is ONE quiet line
+  under the satisfaction stars - only for the requester, only on a resolved
+  or closed ticket, only after a 4-5 star rating, only when another Nexus
+  person (not an outside guest) worked it, never on an Ask HR ticket
+  (`kudosOffered` is the rule). It opens the ordinary `GiveKudosModal` with
+  the assignee picked; no prompt, no bell, no second kudos path.
 - **Federal forms (Neil, 11/02/2026, `backend/federal_forms/`,
   `docs/Federal-Forms.md`):** Form W-4, Form I-9 (Section 2 by HR) and the
   Direct Deposit Authorization are filled and signed in Nexus Sign - from

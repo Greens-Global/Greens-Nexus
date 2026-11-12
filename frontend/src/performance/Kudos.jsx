@@ -52,7 +52,7 @@ export function ValuePicker({ values = [], value, onChange }) {
   );
 }
 
-export function GiveKudosModal({ me, to = '', onClose, onGiven, toastErr }) {
+export function GiveKudosModal({ me, to = '', onClose, onGiven, toastErr, placeholder = '' }) {
   const people = usePeople();
   const [who, setWho] = useState(to);
   const [msg, setMsg] = useState('');
@@ -93,7 +93,7 @@ export function GiveKudosModal({ me, to = '', onClose, onGiven, toastErr }) {
         <label className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
           <span style={LBL}>What They Did <span style={{ fontWeight: 400 }}>({msg.length} of {MAX})</span></span>
           <textarea className="form-input" value={msg} onChange={e => setMsg(e.target.value.slice(0, MAX))} rows={5}
-            placeholder="Stayed late to get the Escondido walkthrough ready - the client noticed." style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16, resize: 'vertical', flex: 1, minHeight: 110 }} />
+            placeholder={placeholder || 'Stayed late to get the Escondido walkthrough ready - the client noticed.'} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16, resize: 'vertical', flex: 1, minHeight: 110 }} />
         </label>
         {teamsChat && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--ink)' }}>
