@@ -254,6 +254,30 @@ describe('Panel - your own Claude Code (Oct 26 2026)', () => {
     expect(screen.getByTestId('bm-claude-connected').textContent).toMatch(/Your Claude Code is connected/);
   });
 
+  // Claude Code in the cloud (Neil, 11/12/2026)
+  it('in the cloud: a sent pin links to its Claude session; one that did not start gets Start Claude Code', async () => {
+    notes = [
+      { ...pinRow, id: 'c1', number: 4, status: 'dispatched', dispatchTarget: 'cloud', comment: 'Working', progress: 'Claude Code is starting in the cloud', claudeSessionUrl: 'https://claude.ai/code/session_01' },
+      { ...pinRow, id: 'c2', number: 5, status: 'dispatched', dispatchTarget: 'cloud', comment: 'Stuck', progress: 'Claude Code did not start: Claude Code did not accept your trigger token', claudeSessionUrl: '' },
+      { ...pinRow, id: 'c3', number: 6, status: 'dispatched', dispatchTarget: 'cloud', comment: 'Spoofed', progress: 'Claude Code is starting in the cloud', claudeSessionUrl: 'https://evil.example/session' },
+    ];
+    const { store } = await import('./store');
+    store.set({ claude: { connected: true, terminal: false, cloud: true, lastSeen: '', apiBase: '' } });
+    const { api } = await import('../api');
+    api.devNotesCloudStart = vi.fn(() => Promise.resolve({ cloud: { started: true, sessionUrl: 'https://claude.ai/code/session_02' }, notes: [{ ...notes[1], progress: 'Claude Code is starting in the cloud', claudeSessionUrl: 'https://claude.ai/code/session_02' }] }));
+    render(<Panel {...props} />);
+    await screen.findByText('Working');
+    expect(screen.getByTestId('bm-claude-connected').textContent).toMatch(/starts it in the cloud, on your Claude subscription/);
+    // Only Claude's own address is ever a link.
+    const links = screen.getAllByRole('link', { name: /Open Claude Session/ });
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['https://claude.ai/code/session_01']);
+    // One Start button: on the pin whose session did not start.
+    const start = screen.getAllByRole('button', { name: /Start Claude Code/ });
+    expect(start).toHaveLength(1);
+    fireEvent.click(start[0]);
+    await waitFor(() => expect(api.devNotesCloudStart).toHaveBeenCalledWith(['c2']));
+  });
+
   it('opened from Done: Send To Claude Code is the way out - the Teams chat list stays shut (Pranshu, Oct 27)', async () => {
     notes = [pinRow];
     const { store } = await import('./store');

@@ -3110,6 +3110,13 @@ export const api = {
   // { owner: {name, email} | null, held } for a source stamp - the composer
   // asks before saving whether the pin would be held for that owner.
   devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
+  // Claude Code in the cloud (Neil, 11/12/2026): the developer's own scheduled
+  // task trigger, saved once - Send To Claude Code then starts a cloud session.
+  // The server never sends the trigger token back.
+  devNotesCloud: () => req("/dev-notes/cloud"),
+  devNotesCloudSave: (fireUrl, token) => req("/dev-notes/cloud", { method: "PUT", body: JSON.stringify({ fireUrl, token }) }),
+  devNotesCloudClear: () => req("/dev-notes/cloud", { method: "DELETE" }),
+  devNotesCloudStart: (noteIds = []) => req("/dev-notes/cloud/start", { method: "POST", body: JSON.stringify({ noteIds }) }),
   // ── More Details: custom fields on employee records (Oct 27 2026) ──
   // Definitions (Settings > People & Access); one person's values in People
   // ({ fields, values, canEdit } - HR Only ones only for HR); My HR's own.

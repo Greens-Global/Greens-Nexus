@@ -13,7 +13,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import { anchorRect } from './lib/capture';
 import { placeCard } from './lib/anchor';
-import { pinMeta, pinReady, pinHeld, pinReopened, pinChecked, pinAwaitsClaude, isLocalPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf } from './meta';
+import { pinMeta, pinReady, pinHeld, pinReopened, pinChecked, pinAwaitsClaude, isLocalPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf, isClaudeSession } from './meta';
 import { toast } from './store';
 
 const MINE = import.meta.env.VITE_BUILD_ID || 'dev';
@@ -307,6 +307,9 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
         )}
         {pin.progress && (
           <div className="bm-progress"><Loader2 size={12} className={m.pulse ? 'bm-spin' : ''} /> <span>{pin.progress}</span>{pin.progressAt && <span className="bm-dim"> · {formatDateTime(pin.progressAt)}</span>}</div>
+        )}
+        {isClaudeSession(pin.claudeSessionUrl) && pin.status !== 'done' && pin.status !== 'dismissed' && (
+          <a className="bm-link" href={pin.claudeSessionUrl} target="_blank" rel="noreferrer"><ExternalLink size={12} /> Open Claude Session</a>
         )}
         {waiting && <div className="bm-hint">Waiting for Claude Code to pick up your reply.</div>}
         {held && (

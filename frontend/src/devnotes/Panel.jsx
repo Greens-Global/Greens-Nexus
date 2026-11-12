@@ -12,8 +12,9 @@ import { toViewUrl } from '../lib/storageView';
 import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import HoldButton from '../ui/HoldButton';
-import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND, CLAUDE_SEND_ON } from './meta';
-import { toast, useBuildStore, setAllTools } from './store';
+import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND, CLAUDE_SEND_ON, isClaudeSession, canStartInCloud } from './meta';
+import ConnectCloud from './ConnectCloud';
+import { toast, useBuildStore, setAllTools, store } from './store';
 import { MODULES } from '../contexts/RoleContext';
 import { wantsTabCapture, setWantsTabCapture, startTabCapture, stopTabCapture } from './lib/screenshot';
 import { formatHoursWords } from '../lib/hoursText';
@@ -55,6 +56,18 @@ function PinRow({ pin, onOpen, onChanged }) {
   const [busy, setBusy] = useState(false);
   const act = async (fn, msg) => { setBusy(true); try { const n = await fn(); onChanged?.(n); if (msg) toast(msg); } catch (e) { toast(e?.message || 'That did not work.'); } finally { setBusy(false); } };
   const shot = pin.screenshotUrl || pin.pageShotUrl;
+  const claude = useBuildStore((st) => st.claude);
+  // Claude Code in the cloud did not start (or the pin went to a terminal and
+  // the cloud is connected now): one button starts it.
+  const startCloud = async () => {
+    setBusy(true);
+    try {
+      const r = await api.devNotesCloudStart([pin.id]);
+      const mine = (r?.notes || []).find((x) => x.id === pin.id);
+      if (mine) onChanged?.(mine);
+      toast(r?.cloud?.started ? `Claude Code is starting on Pin #${pin.number}` : `Claude Code did not start: ${r?.cloud?.error || 'try again in a minute'}`);
+    } catch (e) { toast(e?.message || 'Claude Code did not start.'); } finally { setBusy(false); }
+  };
   return (
     <div className={`bm-row${m.faded ? ' is-faded' : ''}`} data-testid="bm-queue-row">
       <span className="bm-pin bm-pin-inline" style={{ '--c': m.color }} aria-hidden="true"><span className="bm-pin-no">{pin.number}</span></span>
@@ -65,6 +78,7 @@ function PinRow({ pin, onOpen, onChanged }) {
           {prio && pin.priority !== 'normal' && <span className="bm-row-prio" style={{ color: prio.color }}>{prio.label}</span>}
           <StatusLabel label={m.label} color={m.color} size="sm" />
           {pin.prUrl && <a className="bm-link" href={pin.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} /> PR #{pin.prNumber}</a>}
+          {isClaudeSession(pin.claudeSessionUrl) && pin.status !== 'done' && pin.status !== 'dismissed' && <a className="bm-link" href={pin.claudeSessionUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} /> Open Claude Session</a>}
           {pinReady(pin) && isLocalPreview(pin.preview?.url) && <a className="bm-link" href={pin.preview.url} target="_blank" rel="noreferrer"><ExternalLink size={11} /> Open Preview</a>}
           {pin.videoUrl && <a className="bm-link" href={toViewUrl(pin.videoUrl)} target="_blank" rel="noreferrer"><ExternalLink size={11} /> Video</a>}
         </div>
@@ -79,6 +93,7 @@ function PinRow({ pin, onOpen, onChanged }) {
         </div>
       </div>
       <div className="bm-row-actions">
+        {CLAUDE_SEND_ON && canStartInCloud(pin, claude) && <button type="button" className="bm-btn bm-btn-sm" disabled={busy} onClick={startCloud} title="Start Claude Code in the cloud on this pin"><Send size={13} /> Start Claude Code</button>}
         {pin.status === 'dismissed'
           ? <button type="button" className="bm-btn bm-btn-sm" disabled={busy} onClick={() => act(() => api.devNotesPatch(pin.id, { status: 'open' }), `Pin #${pin.number} reopened`)}><RotateCcw size={13} /> Reopen</button>
           : pin.status !== 'done' && <button type="button" className="bm-btn bm-btn-sm bm-btn-ghost" disabled={busy} onClick={() => act(() => api.devNotesPatch(pin.id, { status: 'dismissed' }), `Pin #${pin.number} dismissed`)} title="Dismiss"><Trash2 size={13} /></button>}
@@ -197,12 +212,14 @@ function ConnectClaude({ claude }) {
     finally { setBusy(false); }
   };
   if (claude?.connected) {
-    return <div className="bm-connect is-ok" data-testid="bm-claude-connected"><span className="bm-claude-dot" /> Your Claude Code is connected - Send To Claude Code starts it in your VS Code terminal.</div>;
+    return <div className="bm-connect is-ok" data-testid="bm-claude-connected"><span className="bm-claude-dot" /> Your Claude Code is connected - Send To Claude Code starts it {claude.cloud ? 'in the cloud, on your Claude subscription.' : 'in your VS Code terminal.'}</div>;
   }
   const cmd = minted?.token ? connectCommand(minted.token, apiBaseFor(claude)) : '';
   return (
+    <>
+    <ConnectCloud apiBase={apiBaseFor(claude)} />
     <div className="bm-connect" data-testid="bm-connect">
-      <div className="bm-sec-title"><Plug size={13} /> Connect Your Claude Code - Once</div>
+      <div className="bm-sec-title"><Plug size={13} /> Or In Your Terminal - Once</div>
       {!minted ? (
         <>
           <div className="bm-small bm-dim">Send To Claude Code starts Claude Code in YOUR VS Code terminal - nobody else&apos;s. Connect it once on this computer.</div>
@@ -220,6 +237,7 @@ function ConnectClaude({ claude }) {
         </>
       )}
     </div>
+    </>
   );
 }
 
@@ -256,7 +274,8 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
   // Sessions already sent or done fold away under Sent And Completed (Pranshu,
   // Oct 27) - unless a pin in them still waits on someone: not sent yet,
   // Needs Input, or Ready To Check.
-  const waiting = (p) => p.status === 'open' || p.status === 'needs_input' || pinReady(p);
+  // ... or sent with no Claude Code working it (the cloud session did not start).
+  const waiting = (p) => p.status === 'open' || p.status === 'needs_input' || pinReady(p) || canStartInCloud(p, claude);
   const activeGroups = groups.filter((g) => g.pins.some(waiting));
   const sentGroups = groups.filter((g) => !g.pins.some(waiting));
   const queued = activeGroups.reduce((n, g) => n + g.pins.length, 0);
@@ -285,7 +304,11 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
       const held = Array.isArray(r?.held) ? r.held : [];
       const waits = held.map((h) => `Pin #${h.number} waits for ${h.ownerName || 'its owner'}`).join('; ');
       const sentLine = `${n} pin${n === 1 ? '' : 's'} sent`;
-      toast(waits ? `${sentLine} - ${waits}` : n ? `${sentLine} to Claude Code` : 'Build Session sent to Claude Code');
+      // In the cloud the server starts Claude Code itself and says how it went.
+      const cloud = r?.cloud || {};
+      if (cloud.started === false) toast(`${sentLine}, but Claude Code did not start: ${cloud.error || 'try Start Claude Code on the pin'}`, 7000);
+      else if (cloud.started) toast(waits ? `${sentLine} - Claude Code is starting in the cloud - ${waits}` : `${sentLine} - Claude Code is starting in the cloud`);
+      else toast(waits ? `${sentLine} - ${waits}` : n ? `${sentLine} to Claude Code` : 'Build Session sent to Claude Code');
       onDispatched?.();
     }
     catch (e) { toast(e?.message || 'Nothing was sent.'); }
@@ -334,7 +357,7 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
           </button>
         )}
         {CLAUDE_SEND_ON && !notConnected && (
-          <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!canSend || sending} title={canSend ? 'Starts Claude Code in your own VS Code terminal' : 'Nothing to send yet'}>
+          <button type="button" className="bm-btn bm-btn-primary" onClick={send} disabled={!canSend || sending} title={!canSend ? 'Nothing to send yet' : claude?.cloud ? 'Starts Claude Code in the cloud, on your Claude subscription' : 'Starts Claude Code in your own VS Code terminal'}>
             {sending ? <Loader2 size={14} className="bm-spin" /> : <Send size={14} />} Send To Claude Code
           </button>
         )}
@@ -508,6 +531,7 @@ function SettingsTab({ settings, onSettings }) {
   return (
     <div className="bm-settings nx-fill">
       {claude && <section className="bm-settings-sec"><ConnectClaude claude={claude} /></section>}
+      {claude?.connected && <section className="bm-settings-sec"><ConnectCloud apiBase={apiBaseFor(claude)} /></section>}
       <section className="bm-settings-sec">
         <div className="bm-sec-title">Sending</div>
         <Switch label="Send Instantly" hint="On: every pin goes to Claude Code the moment you save it. Off: pins collect in your Build Session and go together when you click Done > Send To Claude Code." checked={!!settings.sendInstantly} disabled={busy === 'sendInstantly'} onChange={(v) => change({ sendInstantly: v })} />
@@ -515,7 +539,8 @@ function SettingsTab({ settings, onSettings }) {
         <div className="bm-field-block">
           <div className="bm-switch-label">Dispatch Target</div>
           <div className="bm-radios" role="radiogroup" aria-label="Dispatch Target">
-            <label className="bm-radio"><input type="radio" name="bm-dispatch" checked={(settings.dispatchTarget || 'local') === 'local'} onChange={() => change({ dispatchTarget: 'local' })} /> Local Terminal <span className="bm-dim bm-small">- the watcher running in your VS Code</span></label>
+            <label className="bm-radio"><input type="radio" name="bm-dispatch" checked={settings.dispatchTarget === 'cloud'} onChange={() => change({ dispatchTarget: 'cloud' }).then(() => api.devNotesClaudeConnection().then((c) => store.set({ claude: c })).catch(() => {}))} /> Claude Code In The Cloud <span className="bm-dim bm-small">- no terminal; connect it above first</span></label>
+            <label className="bm-radio"><input type="radio" name="bm-dispatch" checked={(settings.dispatchTarget || 'local') === 'local'} onChange={() => change({ dispatchTarget: 'local' }).then(() => api.devNotesClaudeConnection().then((c) => store.set({ claude: c })).catch(() => {}))} /> Local Terminal <span className="bm-dim bm-small">- the watcher running in your VS Code</span></label>
             <label className="bm-radio is-disabled" title="Coming later"><input type="radio" name="bm-dispatch" disabled /> GitHub Issue <span className="bm-dim bm-small">- Coming Later</span></label>
           </div>
         </div>
