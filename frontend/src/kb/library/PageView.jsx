@@ -115,7 +115,7 @@ function Comments({ page, me }) {
   };
   return (
     <section id="comments" style={{ marginTop: 28 }}>
-      <h2 style={{ fontFamily: "'Figtree','Inter',sans-serif", fontSize: 18, margin: '0 0 8px' }}>Comments <span className="kb-meta" style={{ fontWeight: 400 }}>{rows.length || ''}</span></h2>
+      <h2 style={{ fontFamily: "'Inter', sans-serif", fontSize: 18, margin: '0 0 8px' }}>Comments <span className="kb-meta" style={{ fontWeight: 400 }}>{rows.length || ''}</span></h2>
       {rows.map((c) => (
         <div key={c.id} className="kb-cmt">
           <Av name={c.author_name} email={c.author_email} />
@@ -271,7 +271,7 @@ export default function PageView({ id, me }) {
 
               {page.related.length > 0 && (
                 <>
-                  <h2 id="related" style={{ fontFamily: "'Figtree','Inter',sans-serif", fontSize: 18, margin: '28px 0 10px' }}>Related Pages</h2>
+                  <h2 id="related" style={{ fontFamily: "'Inter', sans-serif", fontSize: 18, margin: '28px 0 10px' }}>Related Pages</h2>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {page.related.map((r) => <button key={r.id} type="button" className="kb-btn" onClick={() => goKb('page', r.id)}><TypeChip type={r.page_type} />{r.title}</button>)}
                   </div>

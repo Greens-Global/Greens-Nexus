@@ -349,7 +349,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
 
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <div style={{ minWidth: 0 }}>
-            <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>Daily Log</h3>
+            <h3 style={{ margin: 0 }}>Daily Log</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>
               {project.name} &middot; {formatDate(log.logDate, log.logDate)}
             </p>

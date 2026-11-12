@@ -10,7 +10,7 @@ import { Spinner } from '../components/AsyncState';
 // employees get. Branded to match the login page; never renders blank - every
 // state (loading, invalid, error) paints something.
 
-const page = { minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f4f5f7', fontFamily: "'Figtree','Inter',sans-serif", padding: 20 };
+const page = { minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f4f5f7', fontFamily: "'Inter', sans-serif", padding: 20 };
 const card = { width: 440, maxWidth: '100%', background: '#ffffff', borderRadius: 16, border: '1px solid #e5e7eb', padding: '30px 30px 26px', boxSizing: 'border-box' };
 const field = { width: '100%', padding: '11px 13px', borderRadius: 9, border: '1px solid #d1d5db', fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box', color: '#111827', background: '#fff' };
 const label = { fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 5, display: 'block' };

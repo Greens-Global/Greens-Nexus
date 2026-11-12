@@ -470,7 +470,7 @@ export default function Registers({ project, canReview, onChanged, onOpenChanges
     <div style={CARD}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
-          <h3 style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>
+          <h3 style={{ fontSize: 18, marginBottom: 4 }}>
             {title}
           </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>{cfg.blurb}</p>
@@ -529,7 +529,7 @@ export default function Registers({ project, canReview, onChanged, onOpenChanges
                 }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <strong style={{ fontSize: 15, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                    <strong style={{ fontSize: 15 }}>
                       {cfg.title(r)}
                     </strong>
                     <Chip cfg={cfg} status={r.status} />

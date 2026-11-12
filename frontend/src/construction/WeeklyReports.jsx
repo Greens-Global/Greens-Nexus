@@ -131,7 +131,7 @@ function Section({ sectionKey, section, locked, onChange, showAiOriginal }) {
   return (
     <div style={{ marginBottom: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <strong style={{ fontSize: 15, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{label}</strong>
+        <strong style={{ fontSize: 15 }}>{label}</strong>
         {edited && (
           <button type="button" onClick={() => setShowAi((v) => !v)}
             title="See what the AI originally wrote"
@@ -276,7 +276,7 @@ export default function WeeklyReports({ project, canReview }) {
     <div style={CARD}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
         <div>
-          <h3 style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>
+          <h3 style={{ fontSize: 18, marginBottom: 4 }}>
             Weekly Reports
           </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
@@ -347,7 +347,7 @@ export default function WeeklyReports({ project, canReview }) {
           {open && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
-                <strong style={{ fontSize: 15, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{open.title}</strong>
+                <strong style={{ fontSize: 15 }}>{open.title}</strong>
                 {locked && open.status === 'published' && (
                   <span title="A published report is immutable. Generate again to create a new version."
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.75rem',

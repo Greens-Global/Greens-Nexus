@@ -29,6 +29,7 @@ if (typeof window !== 'undefined' && !window.EXCALIDRAW_ASSET_PATH) window.EXCAL
 import 'prosemirror-view/style/prosemirror.css'
 import 'prosemirror-gapcursor/style/gapcursor.css'
 import 'prosemirror-tables/style/tables.css'
+import './fonts.css'
 import './style.css'
 import App from './App.jsx'
 import LoginPage from './views/LoginPage'
@@ -92,7 +93,7 @@ function BootConnecting({ waitedMs = 0 }) {
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center',
       background: 'var(--wk-bg, #f6f7fb)', color: 'var(--wk-dim, #676879)',
-      fontFamily: "'Figtree','Inter',system-ui,sans-serif" }}>
+      fontFamily: "'Inter', system-ui,sans-serif" }}>
       <div style={{ textAlign: 'center' }}>
         <div className="nxl-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
           <Spinner size="page" label="Reconnecting" />

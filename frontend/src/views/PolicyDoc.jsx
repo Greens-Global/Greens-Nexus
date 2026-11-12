@@ -16,7 +16,7 @@
 export default function PolicyDoc({ title, updated, sections, embedded = false, before = null }) {
   const wrapStyle = embedded
     ? { fontFamily: "'Inter',sans-serif", color: 'var(--ink, #111827)' }
-    : { minHeight: '100dvh', background: '#f6f7f9', fontFamily: "'Figtree','Inter',sans-serif", color: '#323338' };
+    : { minHeight: '100dvh', background: '#f6f7f9', fontFamily: "'Inter', sans-serif", color: '#323338' };
   const mutedColor = embedded ? 'var(--muted, #6b7280)' : '#9699a6';
   const bodyColor = embedded ? 'var(--ink, #111827)' : '#3d3f47';
 
