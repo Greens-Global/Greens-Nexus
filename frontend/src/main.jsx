@@ -92,7 +92,7 @@ function BootConnecting({ waitedMs = 0 }) {
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center',
       background: 'var(--wk-bg, #f6f7fb)', color: 'var(--wk-dim, #676879)',
-      fontFamily: "'Figtree','Inter',system-ui,sans-serif" }}>
+      fontFamily: "'Inter', system-ui,sans-serif" }}>
       <div style={{ textAlign: 'center' }}>
         <div className="nxl-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
           <Spinner size="page" label="Reconnecting" />

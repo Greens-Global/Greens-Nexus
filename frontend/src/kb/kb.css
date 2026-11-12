@@ -1,5 +1,5 @@
 /* Knowledge Base (Oct 2026 rebuild). Scoped under .kb so nothing leaks.
-   Tokens follow the app: Inter body, Figtree headings, --nx-* surfaces (dark
+   Tokens follow the app: Inter throughout, --nx-* surfaces (dark
    mode flips them), the sidebar's green as the module accent. */
 .kb { --kb-green: #1e7b4e; --kb-green-soft: color-mix(in srgb, var(--kb-green) 12%, var(--kb-card)); --kb-ink: var(--nx-ink, #0f172a); --kb-dim: var(--nx-dim, #64748b);
       --kb-line: var(--nx-border, rgba(0,0,0,.08)); --kb-card: var(--nx-surface, #fff); --kb-paper: var(--nx-canvas, #f4f5f7);
@@ -9,8 +9,8 @@
 html.nx-kb .page-trail { text-transform: none; letter-spacing: 0; font-size: 13px; }
 .kb a { color: #2b45e1; text-decoration: none; }
 .kb a:hover { text-decoration: underline; }
-.kb .kb-h1 { font-family: 'Figtree', 'Inter', sans-serif; font-size: 32px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; margin: 8px 0 6px; }
-.kb .kb-h2 { font-family: 'Figtree', 'Inter', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: -.01em; margin: 0; }
+.kb .kb-h1 { font-family: 'Inter', sans-serif; font-size: 32px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; margin: 8px 0 6px; }
+.kb .kb-h2 { font-family: 'Inter', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: -.01em; margin: 0; }
 .kb .kb-h3 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
 .kb .kb-sub { font-size: 13px; color: var(--kb-dim); margin: 2px 0 0; }
 .kb .kb-meta { font-size: 13px; color: var(--kb-dim); }
@@ -125,7 +125,7 @@ html.nx-kb .page-trail { text-transform: none; letter-spacing: 0; font-size: 13p
 .kb .kb-doc { font-size: 15px; line-height: 1.6; color: var(--kb-ink); min-width: 0; }
 .kb .kb-doc > * { min-width: 0; }
 .kb .kb-doc p { margin: 0 0 12px; }
-.kb .kb-doc h2 { font-family: 'Figtree', 'Inter', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: -.01em; margin: 28px 0 10px; scroll-margin-top: 80px; }
+.kb .kb-doc h2 { font-family: 'Inter', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: -.01em; margin: 28px 0 10px; scroll-margin-top: 80px; }
 .kb .kb-doc h3 { font-size: 15px; font-weight: 700; margin: 20px 0 8px; scroll-margin-top: 80px; }
 .kb .kb-doc h1 { font-size: 24px; font-weight: 700; margin: 24px 0 10px; }
 .kb .kb-doc ul, .kb .kb-doc ol { margin: 0 0 12px; padding-left: 22px; }
@@ -260,7 +260,7 @@ html.nx-kb .page-trail { text-transform: none; letter-spacing: 0; font-size: 13p
    on a title page. Everything reads through type and spacing. */
 .kb .kb-shelf { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .kb .kb-shelf-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 0 2px; }
-.kb .kb-shelf-title { font-family: 'Figtree', 'Inter', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: -.015em; margin: 0; }
+.kb .kb-shelf-title { font-family: 'Inter', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: -.015em; margin: 0; }
 .kb .kb-shelf-count { margin-left: auto; white-space: nowrap; }
 .kb .kb-shelf-body { background: var(--kb-card); border: 1px solid var(--kb-line); border-radius: 12px; box-shadow: 0 1px 2px rgba(29,33,57,.04); min-width: 0; overflow: hidden; }
 .kb .kb-page > .kb-shelf + .kb-shelf, .kb .kb-main > .kb-shelf + .kb-shelf { margin-top: 8px; }
@@ -280,7 +280,7 @@ html.nx-kb .page-trail { text-transform: none; letter-spacing: 0; font-size: 13p
 .kb .kb-crow:hover, .kb .kb-prow:hover { background: var(--kb-hover); }
 .kb .kb-crow:focus-visible, .kb .kb-prow:focus-visible { outline: 2px solid var(--kb-green); outline-offset: -2px; }
 .kb .kb-crow-text, .kb .kb-prow-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.kb .kb-prow-title { font-family: 'Figtree', 'Inter', sans-serif; font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; color: var(--kb-ink); }
+.kb .kb-prow-title { font-family: 'Inter', sans-serif; font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; color: var(--kb-ink); }
 .kb .kb-crow:hover .kb-prow-title, .kb .kb-prow:hover .kb-prow-title { color: var(--kb-green); }
 .kb .kb-prow-desc { font-size: 13px; color: var(--kb-dim); line-height: 1.45; max-width: 68ch; }
 .kb .kb-crow-facts { display: flex; flex-wrap: wrap; gap: 2px 14px; align-items: center; margin-top: 2px; }
@@ -314,7 +314,7 @@ html.nx-kb .page-trail { text-transform: none; letter-spacing: 0; font-size: 13p
 /* continue where you left off */
 .kb .kb-continue { display: flex; gap: 28px; align-items: center; padding: 24px 28px; background: var(--kb-card); border: 1px solid var(--kb-line); border-radius: 14px; box-shadow: 0 4px 12px rgba(29,33,57,.05); min-width: 0; }
 .kb .kb-continue-text { flex: 1 1 auto; min-width: 0; }
-.kb .kb-continue-title { font-family: 'Figtree', 'Inter', sans-serif; font-size: 24px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; margin: 4px 0 6px; }
+.kb .kb-continue-title { font-family: 'Inter', sans-serif; font-size: 24px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; margin: 4px 0 6px; }
 .kb .kb-continue-side { flex: 0 0 auto; }
 /* a title page (a path, a course home) */
 .kb .kb-read { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
@@ -329,8 +329,8 @@ html.nx-kb .page-trail { text-transform: none; letter-spacing: 0; font-size: 13p
 /* a stage on a path page */
 .kb .kb-stage { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 0 16px; }
 .kb .kb-stage-head { grid-column: 1 / -1; display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 0 16px; align-items: baseline; padding: 0 2px 10px; }
-.kb .kb-stage-n { font-family: 'Figtree', 'Inter', sans-serif; font-size: 32px; font-weight: 700; letter-spacing: -.03em; color: var(--kb-dim); line-height: 1; text-align: right; font-variant-numeric: tabular-nums; }
-.kb .kb-stage-title { font-family: 'Figtree', 'Inter', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: -.015em; margin: 0; }
+.kb .kb-stage-n { font-family: 'Inter', sans-serif; font-size: 32px; font-weight: 700; letter-spacing: -.03em; color: var(--kb-dim); line-height: 1; text-align: right; font-variant-numeric: tabular-nums; }
+.kb .kb-stage-title { font-family: 'Inter', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: -.015em; margin: 0; }
 .kb .kb-stage-count { white-space: nowrap; }
 .kb .kb-stage-items { grid-column: 2; background: var(--kb-card); border: 1px solid var(--kb-line); border-radius: 12px; overflow: hidden; }
 .kb .kb-item { display: flex; gap: 14px; align-items: flex-start; padding: 14px 18px 14px 14px; border-top: 1px solid var(--kb-line); cursor: pointer; transition: background .15s; }
@@ -436,7 +436,7 @@ html.nx-kb .page-trail { text-transform: none; letter-spacing: 0; font-size: 13p
 
 /* ── Figures (Neil, 11/07/2026): diagrams drawn from data, inside a page ── */
 .kb .kb-fig { display: flex; flex-direction: column; align-items: stretch; gap: 0; margin: 6px 0 18px; padding: 16px 18px 14px; border: 1px solid var(--kb-line); border-radius: 12px; background: var(--kb-card); min-width: 0; overflow: hidden; }   /* the app styles a bare <figure> as a row; this one is a column */
-.kb .kb-fig-title { display: block; font-family: 'Figtree', 'Inter', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 12px; color: var(--kb-ink); }
+.kb .kb-fig-title { display: block; font-family: 'Inter', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 12px; color: var(--kb-ink); }
 .kb .kb-fig-caption { display: block; font-size: 13px; color: var(--kb-dim); margin: 10px 0 0; line-height: 1.4; }
 .kb .kb-fig-body { min-width: 0; }
 .kb .kb-fig-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; line-height: 1.35; }
@@ -462,7 +462,7 @@ html.nx-kb .page-trail { text-transform: none; letter-spacing: 0; font-size: 13p
 .kb .kb-fig-compare { display: grid; grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr)); gap: 0 18px; }
 .kb .kb-fig-col { min-width: 0; padding: 0 0 4px; border-left: 1px solid var(--kb-line); padding-left: 14px; }
 .kb .kb-fig-col:first-child { border-left: 0; padding-left: 0; }
-.kb .kb-fig-colname { font-family: 'Figtree', 'Inter', sans-serif; font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+.kb .kb-fig-colname { font-family: 'Inter', sans-serif; font-weight: 700; font-size: 15px; margin-bottom: 2px; }
 .kb .kb-fig-colnote { font-size: 13px; color: var(--kb-dim); margin-bottom: 6px; }
 .kb .kb-fig-col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; font-size: 13px; line-height: 1.4; }
 .kb .kb-fig-col li { padding-left: 12px; position: relative; }
@@ -484,7 +484,7 @@ html.nx-kb .page-trail { text-transform: none; letter-spacing: 0; font-size: 13p
 /* stats */
 .kb .kb-fig-stats { display: flex; flex-wrap: wrap; gap: 14px 28px; margin: 0; }
 .kb .kb-fig-stats > div { display: flex; flex-direction: column; min-width: 110px; max-width: 200px; }
-.kb .kb-fig-stats dd { margin: 0; font-family: 'Figtree', 'Inter', sans-serif; font-size: 24px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; color: var(--kb-ink); font-variant-numeric: tabular-nums; }
+.kb .kb-fig-stats dd { margin: 0; font-family: 'Inter', sans-serif; font-size: 24px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; color: var(--kb-ink); font-variant-numeric: tabular-nums; }
 .kb .kb-fig-stats dt { font-size: 13px; color: var(--kb-dim); margin-top: 3px; line-height: 1.35; }
 .kb .kb-fig-stats dt span { display: block; font-size: 12px; }
 /* layout: a wireframe */

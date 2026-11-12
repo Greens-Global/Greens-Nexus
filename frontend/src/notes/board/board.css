@@ -10,7 +10,7 @@
    walk-through, 11/02/2026). Pinned to the stage's box instead. */
 .nx-board .excalidraw { position: absolute; inset: 0; height: auto; width: auto; }
 .nx-board .excalidraw {
-  --ui-font: var(--wk-font, 'Figtree', 'Inter', sans-serif);
+  --ui-font: var(--wk-font, sans-serif);
   --color-primary: var(--wk-brand, #15803d);
   --color-primary-darker: var(--wk-brand-hov, #166534);
   --color-primary-darkest: var(--wk-brand-hov, #14532d);
@@ -402,7 +402,7 @@
 
 /* The sticky composer and Private Writing's own stickies sit on the canvas. */
 .nx-sticky-compose, .nx-tray-sticky {
-  position: absolute; z-index: 7; box-sizing: border-box; border-radius: 6px; color: #1e1e1e; font-family: var(--wk-font, 'Figtree', 'Inter', sans-serif);
+  position: absolute; z-index: 7; box-sizing: border-box; border-radius: 6px; color: #1e1e1e; font-family: var(--wk-font, sans-serif);
   box-shadow: 0 8px 24px rgba(15, 23, 42, .16);
 }
 .nx-sticky-compose { padding: 16px; border: 2px solid var(--wk-brand, #15803d); resize: none; outline: none; text-align: center; line-height: 1.25; }

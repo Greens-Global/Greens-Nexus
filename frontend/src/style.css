@@ -263,6 +263,9 @@
 
 /* â”€â”€ Reset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+/* Buttons and fields do not take the page font by themselves (the user menu
+   showed in Arial). One font everywhere - Inter (Neil, 11/12/2026). */
+button, input, select, textarea { font-family: inherit; }
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -4292,7 +4295,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
    WORK OS - committed visual world (Jul 28, 2026; see DESIGN.md)
    White, professional, enterprise-grade. Craft bar: monday.com.
    White cards on a soft cool-gray canvas, one brand accent, colored icon
-   chips for meaning, friendly Figtree type. No dark chrome, no mono/terminal
+   chips for meaning, friendly Inter type. No dark chrome, no mono/terminal
    styling, no heavy gradients.
    ========================================================================== */
 
@@ -4320,7 +4323,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   --wk-r:         8px;
   --wk-shadow:    0 4px 12px rgba(29,33,57,.05);
   --wk-shadow-hov:0 8px 20px rgba(29,33,57,.09);
-  --wk-font:      'Figtree', 'Inter', sans-serif;
+  --wk-font:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 /* Dark mode for the Work OS token layer (Sep 19, Pranshu: "audit across
@@ -4704,7 +4707,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .breadcrumb-prev:hover { color: var(--ink); }
 .breadcrumb-current { font-weight: 700; }
 
-/* Sidebar on the kit (Jul 28): Figtree, brand-tint active pill (no side bars) */
+/* Sidebar on the kit (Jul 28): Inter, brand-tint active pill (no side bars) */
 .sidebar { font-family: var(--wk-font); }
 .nav-item { font-size: 13px; }
 .nav-item.active { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 700; }
@@ -4816,7 +4819,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 
 /* ── Work OS buttons - app-wide restyle of the shared button classes ──────
    Primary: brand-filled (was near-black --pine). Secondary: white with a real
-   border (was a gray tint pill). Both Figtree, radius 8, quiet 150ms hovers. */
+   border (was a gray tint pill). Both Inter, radius 8, quiet 150ms hovers. */
 .primary-btn, .btn-primary {
   background: var(--wk-brand);
   color: #fff;
@@ -5751,7 +5754,7 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
    Scoped under .dash-grid so the legacy Overview/SOP screens keep their own
    .dash-card look until those modules migrate to the wk world. Same chrome as
    .dk-card / .dk-stat: white card, 1px wk-line2 border, wk radius + shadow,
-   Figtree type, hover lift. */
+   Inter type, hover lift. */
 .dash-grid { font-family: var(--wk-font); }
 .dash-grid .dash-card {
   background: var(--wk-card);
