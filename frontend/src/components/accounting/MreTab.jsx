@@ -22,6 +22,7 @@ import { EgnyteField } from './LoanDialogs';
 import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
 import { CompletenessButton, CompletenessPanel, gapCount, mreGaps, useJumpToRow } from './completeness';
 import { DateField } from '../../tasks/components';
+import HoldButton from '../../ui/HoldButton';
 
 export { CUSTOM_MAX_MONTHS, frequencyLabel, stepMonths };
 
@@ -1003,7 +1004,6 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
   const [vendors, setVendors] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [confirm, setConfirm] = useState(false);
   const set = (p) => setL((x) => ({ ...x, ...p }));
   useEffect(() => {
     api.getAccountingDimensionValues('vendor').then((d) => setVendors(d?.values || [])).catch(() => setVendors([]));
@@ -1178,12 +1178,11 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
           </div>
         </div>
         <div className="modal-footer" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 24px 16px' }}>
-          {l.id && canDelete && (confirm ? (
-            <>
-              <span style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>Delete for good? A bill that stopped should be ended instead.</span>
-              <button type="button" className="secondary-btn" disabled={busy} onClick={() => run(api.deleteMreLine(l.id).then(() => ({ deleted: l.id })))}>Delete</button>
-            </>
-          ) : <button type="button" className="secondary-btn" onClick={() => setConfirm(true)}>Delete</button>)}
+          {/* Press and hold (11/11/2026 Accounting pass, picture 10): one record, no second click. */}
+          {l.id && canDelete && (
+            <HoldButton size="sm" label="Delete" doneLabel="Deleted" disabled={busy} fallbackMessage="Delete this expense for good? A bill that stopped should be ended instead."
+              onConfirm={() => api.deleteMreLine(l.id).then(() => onSaved({ deleted: l.id }))} />
+          )}
           {l.id && l.status !== 'ended' && <button type="button" className="secondary-btn" disabled={busy} onClick={() => run(api.endMreLine(l.id, iso(new Date())))}>End Today</button>}
           <span style={{ flex: 1 }} />
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>

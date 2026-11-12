@@ -11,6 +11,7 @@ import { requestReportDrill } from '../drill';
 import { BAD, Chip, OK, input, num } from './Bits';
 import { useDash } from './DashContext';
 import { loanIdOf } from './liabilityRecon';
+import { dialog } from '../../../ui/dialog';
 
 // One account of the reconciliation list opened on the right (Charmi, 10/25,
 // item 08: "Need to have the ability to drill down"), the list still beside
@@ -64,19 +65,28 @@ export default function ReconPanel({ row, entityName, fullLink, onNavigate, canE
   const [entry, setEntry] = useState(null);
   const [dirty, setDirty] = useState(false);
   const loanId = loanIdOf(row.key);
-  const close = () => {
-    if (dirty && !window.confirm('Discard the reconciliation you typed?')) return;
+  // The house dialog, never the browser's (11/11/2026 Accounting pass, picture 10).
+  // `asking` keeps the Escape that answers the dialog from asking again.
+  const asking = useRef(false);
+  const close = async () => {
+    if (dirty) {
+      if (asking.current) return;
+      asking.current = true;
+      const ok = await dialog.confirm('Discard the reconciliation you typed?', { title: 'Discard Changes?', confirmText: 'Discard', danger: true });
+      asking.current = false;
+      if (!ok) return;
+    }
     onClose();
   };
   // Escape closes the panel - not while a journal entry is open on top of it.
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape' || entry) return;
-      if (dirty && !window.confirm('Discard the reconciliation you typed?')) return;
-      onClose();
+      close();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- close reads dirty / onClose, listed here
   }, [entry, dirty, onClose]);
 
   const openReports = () => requestReportDrill({ account: row.gl, accountName: row.name, from: mStart(period), to: mEnd(period), entity: row.entityCode || '' });
