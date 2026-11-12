@@ -35,13 +35,13 @@
 .wfc[data-skin="night"] {
   /* the app's own dark palette (style.css [data-theme="dark"]), inside the canvas only */
   color-scheme: dark;
-  --paper: #0d1117; --card: #161b27; --ink: #e8edf5; --muted: #8b97b0; --line: rgba(255,255,255,0.09); --mist: #161b27;
+  --paper: #0b0c0e; --card: #141619; --ink: #eef0f3; --muted: #b4bac4; --line: rgba(255,255,255,0.12); --mist: #141619;
   --ok-bg: #0a2218; --ok-fg: #4ade80; --warn-bg: #1c1206; --warn-fg: #fbbf24; --bad-bg: #200d0d; --bad-fg: #f87171; --info-bg: #0c1830; --info-fg: #60a5fa;
-  --bg-primary: var(--paper); --bg-secondary: #161b27; --bg-card: var(--card);
-  --border-color: rgba(255,255,255,0.09); --border-hover: rgba(255,255,255,0.16);
-  --text-primary: var(--ink); --text-secondary: var(--muted); --text-muted: #5c687e;
+  --bg-primary: var(--paper); --bg-secondary: #141619; --bg-card: var(--card);
+  --border-color: rgba(255,255,255,0.12); --border-hover: rgba(255,255,255,0.22);
+  --text-primary: var(--ink); --text-secondary: var(--muted); --text-muted: #8a919c;
   --shadow-sm: 0 1px 3px rgba(0,0,0,.5), 0 1px 6px rgba(0,0,0,.35); --shadow-md: 0 2px 12px rgba(0,0,0,.6), 0 4px 24px rgba(0,0,0,.45);
-  --nx-canvas: #0d1117; --nx-surface: #171c29; --nx-surface2: #10141e; --nx-ink: #e8edf5; --nx-dim: #9aa6bd; --nx-faint: #6b7688;
+  --nx-canvas: #0b0c0e; --nx-surface: #16181c; --nx-surface2: #101215; --nx-ink: #eef0f3; --nx-dim: #b4bac4; --nx-faint: #8a919c;
   --nx-border: rgba(255,255,255,0.10); --nx-border2: rgba(255,255,255,0.055); --nx-hover: rgba(255,255,255,0.06); --nx-zebra: rgba(255,255,255,0.022);
   /* the sheet itself: deeper than the app's dark, with a cyan grid */
   --cv-bg: #0a1020; --cv-minor: rgba(125,211,252,.07); --cv-major: rgba(125,211,252,.15);
