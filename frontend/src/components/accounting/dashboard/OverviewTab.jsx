@@ -191,7 +191,7 @@ export default function OverviewTab({ canEdit }) {
 
       {note ? (
         <div role="status" style={{ ...card, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          <AlertTriangle size={14} style={{ color: '#b45309', flexShrink: 0 }} />
+          <AlertTriangle size={14} style={{ color: 'var(--warn-fg)', flexShrink: 0 }} />
           <span style={{ flex: 1 }}>{note}</span>
           <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => setNote('')} style={{ padding: 4 }}><X size={13} /></button>
         </div>
@@ -219,7 +219,7 @@ export default function OverviewTab({ canEdit }) {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--ok-fg, #15803d)' }}><CheckCircle2 size={14} /> Nothing needs attention</span>
           ) : (
             <>
-              <AlertTriangle size={14} style={{ color: '#b45309' }} />
+              <AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />
               {shown.map((a, i) => (
                 <button key={i} type="button" onClick={() => goFor(a.target)} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}>
                   <Chip tone={a.severity === 0 ? 'bad' : a.severity === 1 ? 'wait' : 'ok'}>{a.text}</Chip>

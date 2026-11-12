@@ -6,6 +6,7 @@ import Amount, { AmountInput, formatAmount } from './Amount';
 import { EntityPicker, control } from './reportControls';
 import { formatDate } from '../../lib/datetime';
 import FolderPickModal from '../../egnyte/EgnyteFolderPick';
+import { WarnMark } from './warnMark';
 
 // Accounting -> Loans & Financing: Change Loan and + Add > Manual (Charmi and
 // Neil, 10/03-10/04).
@@ -144,7 +145,7 @@ export function EgnyteField({ id, labelText, value, url, onChange }) {
         {value && <button type="button" className="secondary-btn" onClick={() => onChange('')} aria-label={`Clear ${labelText}`} style={{ fontSize: '0.78rem', height: 30, padding: '0 10px' }}>Clear</button>}
         {url && <a href={url} target="_blank" rel="noreferrer" aria-label={`Open ${labelText} in Egnyte`} title="Open in Egnyte" style={{ ...control, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, padding: 0, color: 'var(--text-secondary)' }}><ExternalLink size={14} /></a>}
       </div>
-      {note && <div role="status" style={{ ...hint, color: '#92400e' }}>{note}</div>}
+      {note && <div role="status" style={{ ...hint, color: 'var(--warn-fg)' }}><WarnMark />{note}</div>}
       {browsing && createPortal(
         <FolderPickModal startPath={value && value.startsWith('/') ? value : '/Shared'} showTree title={`${labelText} - Pick a Folder`}
           hint='Click through to the folder, then press "Use This Folder".'

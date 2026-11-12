@@ -23,6 +23,7 @@ import { POLL_MS } from './LedgerScan';
 import { LoanAmortizationDialog } from './LoanAmortization';
 import { LoanStressDialog, LoanStressPortfolio } from './LoanStress';
 import LoanPlanning from './LoanPlanning';
+import { WarnMark } from './warnMark';
 
 // Accounting -> Loans & Financing (Neil and Charmi, 10/02: "Nothing has been
 // done on Loans & Financing for me to review"). The loans table was empty on
@@ -321,7 +322,7 @@ function Maturities({ month, rows }) {
             const cell = by.get(m);
             return (
               <div key={m} title={cell ? cell.loans.map((l) => `${l.lender}${l.loanNo ? ` #${l.loanNo}` : ''} (${l.entityName}) ${formatAmount(l.balance)}`).join('\n') : ''}
-                style={{ minWidth: 86, flex: '0 0 auto', border: `1px solid ${cell ? '#b45309' : 'var(--border-color)'}`, borderRadius: 8, padding: '4px 8px', background: cell ? 'rgba(180,83,9,0.10)' : 'var(--bg-secondary)', fontSize: '0.7rem' }}>
+                style={{ minWidth: 86, flex: '0 0 auto', border: `1px solid ${cell ? 'var(--warn-fg)' : 'var(--border-color)'}`, borderRadius: 8, padding: '4px 8px', background: cell ? 'var(--warn-bg)' : 'var(--bg-secondary)', fontSize: '0.7rem' }}>
                 <div style={{ fontWeight: 700 }}>{monthLabel(m)}</div>
                 <div style={{ fontVariantNumeric: 'tabular-nums' }}>{cell ? <><Amount value={cell.balance} /><div style={{ color: 'var(--text-muted)' }}>{cell.loans.map((l) => l.lender || l.loanNo).join(', ')}</div></> : dash}</div>
               </div>
@@ -615,7 +616,7 @@ export default function LoansTab({ canEdit = false }) {
           <button type="button" className="secondary-btn" onClick={() => setSent(null)} style={{ fontSize: '0.74rem', padding: '2px 10px' }}>Dismiss</button>
         </div>
       )}
-      {(review?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{review.notes.join(' · ')} - open again to retry.</div>}
+      {(review?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' }}><WarnMark />{review.notes.join(' · ')} - open again to retry.</div>}
 
       {error && (unavailable ? (
         <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
@@ -699,7 +700,7 @@ export default function LoansTab({ canEdit = false }) {
                         {r.originalPrincipal == null ? dash : <><Amount value={r.originalPrincipal} />{r.originalPrincipalEdited && <span style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginLeft: 4 }}>edited</span>}</>}
                       </td>,
                       balance: <td style={cell('balance', true)} title={r.debitBalance ? DEBIT_NOTE : r.wiring === 'ok' ? `GL ${r.glAccount} as of ${formatDate(to)} - click for the ledger lines` : undefined}>
-                        {r.debitBalance && <span style={{ marginRight: 6, fontSize: '0.64rem', fontWeight: 700, color: '#92400e' }}>Check Sign</span>}
+                        {r.debitBalance && <span style={{ marginRight: 6, fontSize: '0.64rem', fontWeight: 700, color: 'var(--warn-fg)' }}><WarnMark size={11} />Check Sign</span>}
                         {r.wiring === 'missing' ? dash : r.wiring === 'ok' && r.glAccount
                           ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the balance of ${r.lender || r.loanNo}`} onClick={(e) => drill(e, r.glAccount, r.glTitle || r.lender, r.entityCode, false)}><Amount value={r.balance} /></button>
                           : <Amount value={r.balance} />}

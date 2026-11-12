@@ -19,6 +19,7 @@ import SidePanel, { PanelSection } from './SidePanel';
 import Amount from './Amount';
 import { AvatarName } from '../../tasks/components';
 import { StatusLabel } from '../StatusLabel';
+import { WarnMark } from './warnMark';
 
 // A vendor's papers (Construction Round Two item 7, 11/05/2026): the same form
 // the job's Subs tab draws, on the vendor's own record - one row per VENDORID.
@@ -706,7 +707,8 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
             </p>
           )}
           {Object.keys(rec.intacctChanged || {}).length > 0 && (
-            <p role="note" style={{ margin: 0, fontSize: '0.76rem', color: '#92400e' }}>
+            <p role="note" style={{ margin: 0, fontSize: '0.76rem', color: 'var(--warn-fg)' }}>
+              <WarnMark />
               Changed in Intacct after the approval, so Intacct&apos;s value is shown: {changedInIntacctText(rec.intacctChanged)}.
             </p>
           )}

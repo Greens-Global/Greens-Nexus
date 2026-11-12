@@ -179,7 +179,7 @@ const optionalValue = (line, key) => (key === 'variancePct' ? `${Number(line.var
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const STATUS = {
   paid: { label: 'Paid', fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' },
-  short: { label: 'Short', fg: '#92400e', bg: 'rgba(180,83,9,0.13)' },
+  short: { label: 'Short', fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' },
   over: { label: 'Over', fg: 'var(--info-fg)', bg: 'var(--info-bg)' },
   missed: { label: 'Missed', fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
   upcoming: { label: 'Upcoming', fg: 'var(--text-muted)', bg: 'transparent' },
@@ -603,7 +603,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
 
         {error && <div style={bad}>{error}</div>}
         {data?.warning && (
-          <div style={{ ...card, padding: '8px 12px', borderColor: '#b45309', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.82rem', color: '#92400e' }}>
+          <div style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.82rem', color: 'var(--warn-fg)' }}>
             <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{data.warning}
           </div>
         )}
@@ -1311,7 +1311,7 @@ export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onC
                         <td style={num} title={`${p.stableMonths} at the expected amount; first ${monthLabel(p.firstMonth)}, last ${monthLabel(p.lastMonth)}`}>{p.postedMonths} ({p.stableMonths} Stable)</td>
                         <td style={num}><Amount value={p.paid12} /></td>
                         <td>{isNew
-                          ? <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: 999, color: '#92400e', background: 'rgba(180,83,9,0.13)' }}>New</span>
+                          ? <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: 999, color: 'var(--warn-fg)', background: 'var(--warn-bg)' }}>New</span>
                           : <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: 999, color: 'var(--ok-fg, #15803d)', background: 'rgba(21,128,61,0.10)' }}>Set Up</span>}
                         </td>
                       </tr>

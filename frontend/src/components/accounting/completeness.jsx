@@ -3,6 +3,7 @@ import { ListChecks } from 'lucide-react';
 import SidePanel from './SidePanel';
 import { formatDate } from '../../lib/datetime';
 import { frequencyLabel, stepMonths } from './recurringShared';
+import { WarnMark } from './warnMark';
 
 // The completeness check on MRE, MRI and PFS (10/25, Neil: "Need some sort of
 // a completeness and data quality check added to MRE MRI and PFS as these
@@ -152,7 +153,7 @@ export function CompletenessPanel({ caption, rule, groups, onPick, onClose, note
   return (
     <SidePanel label="Completeness" title="Completeness" caption={`${caption} · ${n ? `${n} ${n === 1 ? 'gap' : 'gaps'} on ${groups.length} ${groups.length === 1 ? 'line' : 'lines'}` : 'nothing missing'}`} onClose={onClose}>
       <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{rule}</p>
-      {note && <div role="status" style={{ fontSize: '0.78rem', color: '#92400e' }}>{note}</div>}
+      {note && <div role="status" style={{ fontSize: '0.78rem', color: 'var(--warn-fg)' }}><WarnMark />{note}</div>}
       {!groups.length ? (
         <div style={{ fontSize: '0.86rem', color: 'var(--ok-fg, #15803d)', fontWeight: 600 }}>Nothing missing for the entity and period picked.</div>
       ) : (

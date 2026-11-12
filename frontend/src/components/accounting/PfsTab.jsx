@@ -416,9 +416,9 @@ export default function PfsTab({ canEdit = false }) {
             {note && <div role="status" style={{ fontSize: '0.8rem', color: 'var(--ok-fg, #15803d)' }}>{note}</div>}
             {shownMismatch && <ShareMismatch data={shownMismatch} onUpdate={() => resolveMismatch('update')} onKeep={() => resolveMismatch('keep')} />}
             {(statement?.warnings || []).length > 0 && (
-              <div style={{ ...card, padding: '8px 12px', borderColor: '#b45309', display: 'grid', gap: 4 }}>
+              <div style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'grid', gap: 4 }}>
                 {statement.warnings.map((w) => (
-                  <div key={w} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.8rem', color: '#92400e' }}><AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{w}</div>
+                  <div key={w} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.8rem', color: 'var(--warn-fg)' }}><AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{w}</div>
                 ))}
               </div>
             )}
@@ -595,8 +595,8 @@ function ShareMismatch({ data, onUpdate, onKeep }) {
   const act = (fn) => { setBusy(true); Promise.resolve(fn()).finally(() => setBusy(false)); };
   const n = data.count;
   return (
-    <div role="region" aria-label="Share differs from Affiliated Entities" style={{ ...card, padding: '8px 12px', borderColor: '#b45309', display: 'grid', gap: 6 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: '0.8rem', color: '#92400e' }}>
+    <div role="region" aria-label="Share differs from Affiliated Entities" style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'grid', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: '0.8rem', color: 'var(--warn-fg)' }}>
         <AlertTriangle size={14} style={{ flexShrink: 0 }} />
         <span style={{ flex: '1 1 260px' }}>{n} {n === 1 ? 'line uses' : 'lines use'} a different % than Affiliated Entities.</span>
         <button type="button" style={linkBtn} onClick={() => setOpen((v) => !v)}>{open ? 'Hide' : 'Show'}</button>

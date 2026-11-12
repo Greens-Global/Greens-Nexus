@@ -244,7 +244,7 @@ export default function AllocationsTab({ canEdit = false }) {
                   <thead><tr><th style={th}>Entry</th><th style={th}>Account</th><th style={th}>Entity</th><th style={th}>Dept</th><th style={th}>Memo</th><th style={thNum}>Debit</th><th style={thNum}>Credit</th></tr></thead>
                   <tbody>
                     {lines.map((l, i) => (
-                      <tr key={i} style={l.mapped ? undefined : { background: 'rgba(180,83,9,0.06)' }}>
+                      <tr key={i} style={l.mapped ? undefined : { background: 'var(--warn-bg)' }}>
                         <td style={{ ...td, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{l.entry}</td>
                         <td style={td}>{l.acct_no || <Warn>Unmapped</Warn>}</td>
                         <td style={td}>{l.location_id || <Warn>Unmapped</Warn>}</td>
