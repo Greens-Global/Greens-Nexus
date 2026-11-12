@@ -74,7 +74,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from html import escape
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import quote
 
 import httpx
@@ -195,18 +195,36 @@ def _calendar_headers() -> dict:
     return {**h, "Prefer": 'outlook.timezone="UTC", outlook.body-content-type="text"'}
 
 
-_EVENT_FIELDS = "subject,start,end,isOnlineMeeting,onlineMeeting,organizer,attendees,iCalUId,isCancelled,seriesMasterId,type"
+_EVENT_FIELDS = ("subject,start,end,isOnlineMeeting,onlineMeeting,organizer,attendees,iCalUId,isCancelled,"
+                 "seriesMasterId,type,isAllDay,location,onlineMeetingUrl")
+# Phase 3: a meeting on another service is still a meeting - its link, when the
+# invite carries one, opens it (Zoom, Google Meet, Webex, GoTo).
+_OTHER_LINK = re.compile(r"https://[A-Za-z0-9.-]*(zoom\.us|meet\.google\.com|webex\.com|gotomeeting\.com|goto\.com)/[^\s<>\"']{1,500}", re.I)
+
+
+def _other_link(ev: dict) -> str:
+    loc = ev.get("location") or {}
+    for text in (ev.get("onlineMeetingUrl") or "", loc.get("locationUri") or "", loc.get("displayName") or "",
+                 ((ev.get("body") or {}).get("content") or "")):
+        m = _OTHER_LINK.search(text or "")
+        if m:
+            return m.group(0)
+    return ""
 
 
 def _meeting_out(ev: dict, me: str) -> dict:
     org = _person(ev.get("organizer") or {})
+    join = _join_url(ev)
     return {
         "eventId": ev.get("id") or "", "icalUid": ev.get("iCalUId") or "",
-        "subject": (ev.get("subject") or "").strip() or "Teams Meeting",
+        "subject": (ev.get("subject") or "").strip() or ("Teams Meeting" if join else "Meeting"),
         "start": _graph_time(ev.get("start")), "end": _graph_time(ev.get("end")),
         "organizer": org, "isOrganizer": org["email"] == me,
-        "attendees": _attendees(ev), "joinUrl": _join_url(ev),
+        "attendees": _attendees(ev), "joinUrl": join,
         "seriesId": (ev.get("seriesMasterId") or "")[:500],
+        "kind": "teams" if join else "other",
+        "onlineUrl": "" if join else _other_link(ev),
+        "location": ((ev.get("location") or {}).get("displayName") or "").strip()[:200],
     }
 
 
@@ -214,7 +232,7 @@ def _meeting_out(ev: dict, me: str) -> dict:
 @router.get("/day")
 def meetings_day(start: str = Query(...), end: str = Query(...),
                  user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """The caller's Teams meetings from `start` to `end` (the browser's own day,
+    """The caller's meetings from `start` to `end` (the browser's own day,
     ISO with an offset), earliest first, each with `noteId` - the caller's note
     for it, else one shared with them, else ''. `enabled: false` with a reason
     when Graph cannot read calendars yet (the screen says so, never an error)."""
@@ -235,8 +253,11 @@ def meetings_day(start: str = Query(...), end: str = Query(...),
         return {"enabled": False, "reason": "There is no Outlook calendar for your account", "meetings": []}
     if not r.is_success:
         raise HTTPException(502, f"Could not read your calendar ({r.status_code})")
+    # Every meeting on the calendar (Phase 3): Teams ones get the Teams
+    # transcript, the rest are transcribed on the device. All-day items are
+    # not meetings.
     meetings = [_meeting_out(ev, me) for ev in r.json().get("value") or []
-                if not ev.get("isCancelled") and _join_url(ev) and ev.get("iCalUId")]
+                if not ev.get("isCancelled") and not ev.get("isAllDay") and ev.get("iCalUId")]
     found = _readable_notes(db, me, [m["icalUid"] for m in meetings])
     for m in meetings:
         m["noteId"] = found.get(m["icalUid"], "")
@@ -306,8 +327,8 @@ def open_meeting_note(body: OpenIn, user: dict = Depends(get_current_user), db: 
         raise HTTPException(502, f"Could not read the meeting ({r.status_code})")
     ev = r.json()
     m = _meeting_out(ev, me)
-    if not m["joinUrl"] or not m["icalUid"]:
-        raise HTTPException(400, "That meeting has no Teams link")
+    if not m["icalUid"]:
+        raise HTTPException(400, "That calendar item is not a meeting")
 
     row = (db.query(models.NexusMeetingNote)
            .filter(models.NexusMeetingNote.owner_email == me, models.NexusMeetingNote.ical_uid == m["icalUid"]).first())
@@ -331,6 +352,8 @@ def open_meeting_note(body: OpenIn, user: dict = Depends(get_current_user), db: 
     row.start_at, row.end_at = m["start"], m["end"]
     row.attendees = json.dumps([m["organizer"], *m["attendees"]] if m["organizer"]["email"] else m["attendees"])
     row.series_id = m["seriesId"]
+    row.kind = m["kind"]
+    row.online_url = m["onlineUrl"]
     n.source = json.dumps({"kind": SOURCE_KIND, "id": row.id, "label": m["subject"][:notes.SOURCE_LABEL_MAX], "url": ""})
     notes._content_changed(n, me)
     db.add(n)
@@ -360,6 +383,8 @@ def _row_for_note(db: Session, note_id: str, me: str) -> tuple:
 
 
 def _invited(row: models.NexusMeetingNote, me: str) -> bool:
+    if (row.kind or "teams") == "adhoc":
+        return meeting_files._canon(row.owner_email) == me     # a meeting with no invite is its owner's
     people = {meeting_files._canon(p.get("email", "")) for p in notes._loads(row.attendees, []) if isinstance(p, dict)}
     return me in people or me == meeting_files._canon(row.organizer)
 
@@ -378,6 +403,12 @@ def meeting_of_note(note_id: str, user: dict = Depends(get_current_user), db: Se
         "invited": invited, "joinUrl": row.join_url if invited else "", "mine": can == "owner",
         "transcriptReady": bool(row.transcript_ready_at) and invited,
         "previous": _previous_in_series(db, user, me, row),
+        # Phase 3: what kind of meeting, its link elsewhere, and the transcript
+        # made in Nexus (who may record one: the note's owner and Can Edit).
+        "kind": row.kind or "teams",
+        "onlineUrl": row.online_url if invited else "",
+        "mayRecord": can in ("owner", "edit"),
+        "recorded": _recorded_summary(db, row.note_id),
     }
 
 
@@ -483,6 +514,7 @@ def ready_pass(db: Session, now: Optional[datetime] = None) -> int:
     stale = (now - READY_RECHECK).isoformat()
     rows = (db.query(models.NexusMeetingNote)
             .filter(models.NexusMeetingNote.transcript_ready_at == "",
+                    models.NexusMeetingNote.join_url != "",
                     models.NexusMeetingNote.end_at >= lo, models.NexusMeetingNote.end_at <= hi,
                     models.NexusMeetingNote.ready_checked_at < stale)
             .order_by(models.NexusMeetingNote.end_at).limit(READY_BATCH).all())
@@ -641,6 +673,8 @@ def meeting_transcript(note_id: str, user: dict = Depends(get_current_user), db:
     there). 404 with a plain reason while there is none yet."""
     me = _guard(user, db)
     _, _, row = _row_for_note(db, note_id, me)
+    if (row.kind or "teams") != "teams" or not row.join_url:
+        raise HTTPException(404, "This meeting is not on Teams - its transcript is the one recorded in Nexus")
     if not _invited(row, me):
         raise HTTPException(403, "The transcript is only for the people invited to the meeting")
     key = row.join_url
@@ -675,3 +709,242 @@ def meeting_transcript(note_id: str, user: dict = Depends(get_current_user), db:
         db.commit()
     _remember(key, out)
     return out
+
+
+# ── Phase 3: meetings outside Teams, transcribed on the device ─────────────
+# (Neil, 11/12/2026: "Text lives in Nexus"; consent asked every time; Whisper
+# on the device with the browser's own speech service as the fallback; testers
+# first.) The audio never reaches the server - the browser turns speech into
+# text (frontend/src/notes/meetings/capture/) and sends only the words, a few
+# lines at a time, so a closed tab loses at most the last few seconds. The
+# words live in nexus_meeting_transcripts, one row per note: whoever may read
+# the note reads them (the note is where they were written), its owner and Can
+# Edit add to them, only its owner deletes them. Every recording starts with a
+# session that records who confirmed everyone agreed to be transcribed, and
+# when - a session without that is refused.
+
+SEGMENTS_MAX = 20000
+TEXT_MAX = 2000
+CHARS_MAX = 2_000_000
+SPEAKER_MAX = 60
+ENGINES = ("whisper", "browser")
+SOURCES = ("mic", "mic+tab", "file")
+_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class AdhocIn(BaseModel):
+    title: Optional[str] = ""
+    day: Optional[str] = ""
+
+
+@router.post("/adhoc")
+def new_adhoc_meeting(body: AdhocIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A meeting note for something not on the calendar (a site walk, a
+    hallway decision): the caller's own, starting now."""
+    me = _guard(user, db)
+    day = (body.day or "").strip()
+    if day and not _DAY.match(day):
+        raise HTTPException(400, "Day must be YYYY-MM-DD")
+    title = re.sub(r"\s+", " ", body.title or "").strip()[:notes.TITLE_MAX] or "Meeting"
+    now = datetime.now(timezone.utc)
+    n = notes._new_note(me, kind="note", title=title, day=day or now.strftime("%Y-%m-%d"), color="", pinned=False)
+    notes._set_body(n, "<p></p>")
+    row = models.NexusMeetingNote(
+        id="mtg_" + uuid.uuid4().hex, owner_email=me, ical_uid="adhoc-" + uuid.uuid4().hex, note_id=n.id,
+        kind="adhoc", subject=title[:300], organizer=me, start_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"), end_at="",
+        attendees=json.dumps([{"email": me, "name": user.get("name") or ""}]), created_at=now.isoformat())
+    n.source = json.dumps({"kind": SOURCE_KIND, "id": row.id, "label": title[:notes.SOURCE_LABEL_MAX], "url": ""})
+    notes._content_changed(n, me)
+    db.add(row)
+    db.add(n)
+    db.commit()
+    return {"noteId": n.id, "created": True}
+
+
+def _recorded(db: Session, note_id: str, lock: bool = False) -> Optional[models.NexusMeetingTranscript]:
+    q = db.query(models.NexusMeetingTranscript).filter(models.NexusMeetingTranscript.note_id == note_id)
+    return (q.with_for_update() if lock else q).first()
+
+
+def _recorded_summary(db: Session, note_id: str) -> dict:
+    t = _recorded(db, note_id)
+    if t is None:
+        return {"exists": False, "segments": 0, "live": False}
+    sessions = notes._loads(t.sessions, [])
+    segs = notes._loads(t.segments, [])
+    return {"exists": bool(segs or sessions), "segments": len(segs),
+            "live": any(isinstance(x, dict) and not x.get("endedAt") for x in sessions)}
+
+
+def _note_for_recording(db: Session, note_id: str, me: str, write: bool, lock: bool = False):
+    """(note, access) for a meeting note; a write needs owner or Can Edit and a live note."""
+    n, can = notes._get_or_404(db, note_id, me, lock=lock)
+    src = notes._loads(n.source, {})
+    if src.get("kind") != SOURCE_KIND:
+        raise HTTPException(404, "This note is not linked to a meeting")
+    if write and (can not in ("owner", "edit") or n.trashed_at):
+        raise HTTPException(403, "Only the note's owner and the people who can edit it record its meeting")
+    return n, can
+
+
+def _recorded_out(t: Optional[models.NexusMeetingTranscript], can: str) -> dict:
+    segs = notes._loads(t.segments, []) if t else []
+    speakers = notes._loads(t.speakers, {}) if t else {}
+    named = lambda label: speakers.get(label) or label   # noqa: E731
+    cues = [{"id": s.get("id"), "at": s.get("at"), "end": s.get("end"), "speaker": named(s.get("speaker") or ""),
+             "label": s.get("speaker") or "", "text": s.get("text") or "", "session": s.get("session") or ""}
+            for s in segs if isinstance(s, dict)]
+    return {
+        "cues": cues,
+        "sessions": notes._loads(t.sessions, []) if t else [],
+        "speakers": speakers,
+        "highlights": meeting_highlights.extract(cues),
+        "mayRecord": can in ("owner", "edit"), "mayDelete": can == "owner",
+        "rev": (t.rev or 1) if t else 0,
+    }
+
+
+@router.get("/notes/{note_id}/recorded")
+def get_recorded(note_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The transcript recorded in Nexus for this meeting note (words only)."""
+    me = _guard(user, db)
+    _, can = _note_for_recording(db, note_id, me, write=False)
+    return _recorded_out(_recorded(db, note_id), can)
+
+
+class SessionIn(BaseModel):
+    id: str
+    engine: str
+    source: str
+    consent: bool = False
+
+
+@router.post("/notes/{note_id}/recorded/sessions")
+def start_recording(note_id: str, body: SessionIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Start a recording session. Refused unless the person confirmed that
+    everyone present agreed to be transcribed - kept with who and when."""
+    me = _guard(user, db)
+    if not body.consent:
+        raise HTTPException(400, "Confirm that everyone in the meeting agreed to be transcribed")
+    if not _ID.match(body.id or "") or body.engine not in ENGINES or body.source not in SOURCES:
+        raise HTTPException(400, "Not a recording session")
+    _note_for_recording(db, note_id, me, write=True)
+    t = _recorded(db, note_id, lock=True)
+    now = datetime.now(timezone.utc).isoformat()
+    if t is None:
+        t = models.NexusMeetingTranscript(id="mtr_" + uuid.uuid4().hex, note_id=note_id, owner_email=me,
+                                          segments="[]", sessions="[]", speakers="{}", rev=1, created_at=now, updated_at=now)
+        db.add(t)
+    sessions = notes._loads(t.sessions, [])
+    if not any(isinstance(x, dict) and x.get("id") == body.id for x in sessions):
+        sessions.append({"id": body.id, "by": me, "startedAt": now, "consentAt": now, "endedAt": "",
+                         "engine": body.engine, "source": body.source})
+    t.sessions = json.dumps(sessions[-200:])
+    t.rev = (t.rev or 1) + 1
+    t.updated_at = now
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()        # two first sessions at once: the other made the row - add to it
+        return start_recording(note_id, body, user, db)
+    return {"ok": True, "startedAt": now}
+
+
+class SegmentIn(BaseModel):
+    id: str
+    at: float
+    end: Optional[float] = None
+    speaker: Optional[str] = ""
+    text: str
+
+
+class SegmentsIn(BaseModel):
+    sessionId: str
+    segments: List[SegmentIn]
+
+
+@router.post("/notes/{note_id}/recorded/segments")
+def add_segments(note_id: str, body: SegmentsIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Add words to a session (the same segment id twice is kept once, so a
+    resend after a dropped connection never doubles a line)."""
+    me = _guard(user, db)
+    _note_for_recording(db, note_id, me, write=True)
+    t = _recorded(db, note_id, lock=True)
+    if t is None or not any(isinstance(x, dict) and x.get("id") == body.sessionId for x in notes._loads(t.sessions, [])):
+        raise HTTPException(409, "Start the recording first")
+    segs = notes._loads(t.segments, [])
+    have = {s.get("id") for s in segs if isinstance(s, dict)}
+    added = 0
+    for s in body.segments[:200]:
+        text = re.sub(r"\s+", " ", s.text or "").strip()[:TEXT_MAX]
+        if not text or not _ID.match(s.id or "") or s.id in have or not (1e9 < s.at < 1e10):
+            continue
+        segs.append({"id": s.id, "at": round(s.at, 2), "end": round(s.end, 2) if s.end and s.end >= s.at else round(s.at, 2),
+                     "speaker": re.sub(r"\s+", " ", s.speaker or "").strip()[:SPEAKER_MAX], "text": text,
+                     "session": body.sessionId})
+        have.add(s.id)
+        added += 1
+    if len(segs) > SEGMENTS_MAX:
+        raise HTTPException(413, "This transcript is full - start a new meeting note for the rest")
+    raw = json.dumps(sorted(segs, key=lambda x: x.get("at") or 0), separators=(",", ":"))
+    if len(raw) > CHARS_MAX:
+        raise HTTPException(413, "This transcript is full - start a new meeting note for the rest")
+    if added:
+        t.segments = raw
+        t.rev = (t.rev or 1) + 1
+        t.updated_at = datetime.now(timezone.utc).isoformat()
+        db.commit()
+    return {"added": added, "total": len(segs)}
+
+
+@router.post("/notes/{note_id}/recorded/sessions/{session_id}/end")
+def end_recording(note_id: str, session_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    me = _guard(user, db)
+    _note_for_recording(db, note_id, me, write=True)
+    t = _recorded(db, note_id, lock=True)
+    if t is None:
+        raise HTTPException(404, "No recording on this note")
+    sessions = notes._loads(t.sessions, [])
+    for x in sessions:
+        if isinstance(x, dict) and x.get("id") == session_id and not x.get("endedAt"):
+            x["endedAt"] = datetime.now(timezone.utc).isoformat()
+    t.sessions = json.dumps(sessions)
+    t.rev = (t.rev or 1) + 1
+    db.commit()
+    return {"ok": True}
+
+
+class SpeakersIn(BaseModel):
+    speakers: dict
+
+
+@router.put("/notes/{note_id}/recorded/speakers")
+def name_speakers(note_id: str, body: SpeakersIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Put names on the transcript's voices ("Others" -> "Visesh")."""
+    me = _guard(user, db)
+    _, can = _note_for_recording(db, note_id, me, write=True)
+    t = _recorded(db, note_id, lock=True)
+    if t is None:
+        raise HTTPException(404, "No recording on this note")
+    clean = {}
+    for k, v in list((body.speakers or {}).items())[:50]:
+        k = re.sub(r"\s+", " ", str(k)).strip()[:SPEAKER_MAX]
+        v = re.sub(r"\s+", " ", str(v or "")).strip()[:SPEAKER_MAX]
+        if k and v and v != k:
+            clean[k] = v
+    t.speakers = json.dumps(clean)
+    t.rev = (t.rev or 1) + 1
+    db.commit()
+    return _recorded_out(t, can)
+
+
+@router.delete("/notes/{note_id}/recorded")
+def delete_recorded(note_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete the recorded transcript - the note's owner only, the words gone for good."""
+    me = _guard(user, db)
+    _, can = _note_for_recording(db, note_id, me, write=False)
+    if can != "owner":
+        raise HTTPException(403, "Only the note's owner deletes its transcript")
+    db.query(models.NexusMeetingTranscript).filter(models.NexusMeetingTranscript.note_id == note_id).delete()
+    db.commit()
+    return {"ok": True}

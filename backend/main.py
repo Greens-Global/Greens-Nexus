@@ -1643,6 +1643,8 @@ def _run_migrations():
             "ALTER TABLE nexus_meeting_notes ADD COLUMN transcript_ready_at VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_meeting_notes ADD COLUMN ready_checked_at VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_nexus_meeting_notes_series_id ON nexus_meeting_notes (series_id)",
+            "ALTER TABLE nexus_meeting_notes ADD COLUMN kind VARCHAR DEFAULT 'teams'",
+            "ALTER TABLE nexus_meeting_notes ADD COLUMN online_url TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3939,6 +3941,12 @@ def _run_migrations():
         "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS transcript_ready_at VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS ready_checked_at VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_nexus_meeting_notes_series_id ON nexus_meeting_notes (series_id)",
+        # Meeting Notes Phase 3 (Neil, 11/12/2026): what kind of meeting and
+        # another service's link (existing table); the transcripts made on the
+        # device - a new table, explicit RLS. models.NexusMeetingTranscript.
+        "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'teams'",
+        "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS online_url TEXT DEFAULT ''",
+        "ALTER TABLE nexus_meeting_transcripts ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
