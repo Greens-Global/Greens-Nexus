@@ -122,11 +122,21 @@ export function stickyParts(elements) {
   return out;
 }
 
-/** The elements with one sticky's words replaced (refit, re-centered, a new version). */
+/** The elements with one sticky's words replaced (refit, re-centered, a new version).
+ *
+ *  A sticky is born with no words, and the drawing engine's repair marks a
+ *  text with no words DELETED (its restore does, on every element put on the
+ *  board from outside). So the words of a new sticky are found among the
+ *  deleted elements too and brought back - before 11/12/2026 they were looked
+ *  for among the live ones only, never found, and what a person typed on a
+ *  new sticky was thrown away (seen in a real browser; the unit tests' engine
+ *  stand-in repairs nothing, so they passed). */
 export function withStickyText(elements, boxId, text, { look = 'clean', now = Date.now(), measureAt } = {}) {
   const p = stickyParts(elements).get(boxId);
-  if (!p?.text) return elements;
-  const next = bump(p.text, textPatch(p.box, text, look, measureAt), now);
+  if (!p) return elements;
+  const words = p.text || (elements || []).find((e) => e && e.type === 'text' && e.containerId === boxId);
+  if (!words) return elements;
+  const next = bump(words, { ...textPatch(p.box, text, look, measureAt), isDeleted: false }, now);
   return elements.map((e) => (e.id === next.id ? next : e));
 }
 
@@ -241,8 +251,14 @@ export function sortStickies(elements, ids, by = 'color', { now = Date.now() } =
     else if (!e.isDeleted && e.type === 'frame' && isOldSort(e) && !stillIn.has(e.id)) rest.push(bump(e, { isDeleted: true }, now));
     else rest.push(e);
   }
+  // What rides on a moved sticky - a comment pin with its words, a vote line -
+  // stays on top of it: the stickies are drawn again at the front, so their
+  // riders are too (seen in a real browser: a sorted sticky covered its own pin).
+  const movedBoxes = new Set([...parts.keys()]);
+  const pins = new Set(rest.filter((e) => !e.isDeleted && movedBoxes.has(e.customData?.nexusOn?.id)).map((e) => e.id));
+  const rides = (e) => !e.isDeleted && (pins.has(e.id) || (e.containerId && pins.has(e.containerId)) || movedBoxes.has(e.customData?.nexusVoteLine));
   // A section is drawn after what it holds (the engine reads a frame's members before it).
-  return [...rest, ...columns.flatMap((c) => [...c.ids.map((id) => moved.get(id)), c.frame])];
+  return [...rest.filter((e) => !rides(e)), ...columns.flatMap((c) => [...c.ids.map((id) => moved.get(id)), c.frame]), ...rest.filter(rides)];
 }
 
 /** Stickies in a selection (by any of their parts), top to bottom, left to right. */

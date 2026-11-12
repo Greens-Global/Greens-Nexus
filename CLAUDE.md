@@ -464,7 +464,8 @@ keep the diff minimal.
   (`customData.nexusComment`), so it saves, syncs and exports like any
   shape. ONE tool bar, the best of both: the engine's own tool strip is
   hidden everywhere and its other tools (ellipse, diamond, line, image,
-  frame, laser pointer) are under More Tools; a computer keeps the engine's
+  laser pointer) are under More Tools (Section - the engine's frame - is on
+  the bar itself since 11/12/2026); a computer keeps the engine's
   hints and properties panel, a phone opens that panel above the dock from
   Style. Never bring back a second tool strip.
   **Running a meeting on a board** (Neil, 11/10/2026: "copy from the best of
@@ -495,6 +496,38 @@ keep the diff minimal.
   Pictures) places the KB drawings (`kb/components/drawings.jsx`) as board
   images stored like any picture (`kit-<name>`). Six more templates: Retro,
   Kickoff, SWOT, Fishbone, Site Walk, Weekly Huddle.
+  **Six lifts from Claude Whiteboards** (Neil, 11/12/2026: "Do all 1-6
+  together"; plan https://claude.ai/artifact/VSwYrjHekNh4fhf4vUWd2k). All
+  ordinary board elements and rules - no AI, no new table. SECTIONS
+  (`board/sections.js`): a section is the engine's frame and the ONE way a
+  board groups things - Section is on the main bar ("Section can join the
+  main bar"); Sort puts each group of stickies in a named section they
+  BELONG to (`frameId`; `customData.nexusSortFrame`), never under loose
+  headings, and never touches a section someone drew; a new sticky lands
+  fully inside the section under it (`placeInSection`). THINGS RIDE ALONG
+  (`board/rideAlong.js`): a comment pin belongs to the item it was put on
+  (`customData.nexusOn = { id, dx, dy }`) and moves with it, as does a
+  vote's result line; `Board.jsx`'s `commit` and its `local` change hook
+  both run `rideAlong`, so a new way of moving things gets it for free -
+  whoever moves an item moves its riders, everyone else receives both.
+  WRAP UP (`board/wrapUp.js`): the board as a Note by RULES - sections as
+  headings, stickies with their authors and votes, open comment threads as
+  Open Questions, tasks made as record links, the board embedded on top -
+  shared with the same people as the board ("can be shared with the same
+  people as the board", `wrapUpPeople`), a Record Card on the board
+  (`customData.nexusWrapUp`) opening it, and pressed again it updates that
+  Note. A vote still under way is private and never in it. ARRANGE
+  (`board/arrange.js`): Tidy Up for any selection or a whole section, Align
+  and Space Evenly - the same elements MOVED, never made again; boxes joined
+  by arrows stay with Diagram > Tidy Up. TALK TO THE BOARD: `useDictation`
+  (lib/voice.js) - each sentence a sticky, no button where the browser has
+  no dictation. Every template opens with a title and what it is for
+  (Blank and Grid stay empty); a plain process longer than
+  `graph.CHAIN_WRAP` (6) boxes wraps to the next line. A sticky's words are
+  found among DELETED elements too (`withStickyText`): the engine's repair
+  deletes an empty text, and before 11/12/2026 that lost what was typed on
+  a new sticky - the engine stand-in in the unit tests repairs nothing, so
+  check sticky changes in a real browser.
   Import (the markup bar's Import button, `board/boardImport.js`): a picture
   or every page of a PDF (`pdfPage.renderPdfPages`, 40 at most) goes in
   BEHIND the drawing and LOCKED, stacked top to bottom, and the Pen comes up;

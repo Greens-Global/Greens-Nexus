@@ -105,5 +105,10 @@ describe('ride along', () => {
     expect([p.x, p.y]).toEqual([950 + dx, 320 + dy]);
     const l = after.find((e) => e.id === line.id);
     expect([l.x, l.y]).toEqual([line.x + dx, line.y + dy]);
+    // and they stay ON TOP of the sticky they ride on (a sorted sticky is drawn again at the front)
+    const top = after.indexOf(after.find((e) => e.id === b[0].id));
+    expect(after.indexOf(p)).toBeGreaterThan(top);
+    expect(after.indexOf(after.find((e) => e.containerId === pin[0].id))).toBeGreaterThan(top);
+    expect(after.indexOf(l)).toBeGreaterThan(top);
   });
 });

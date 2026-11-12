@@ -41,6 +41,22 @@ describe('stickies', () => {
     expect(nextSpot(a[0], 'down', els)).toEqual({ x: 0, y: STICKY_SIZE + STICKY_GAP });
   });
 
+  // 11/12/2026, found in a real browser: the engine's repair marks a text with
+  // no words deleted, so a NEW sticky's words element arrives deleted - and
+  // what a person typed was looked for among the live ones only and lost.
+  it('the words typed on a new sticky land even though the engine deleted its empty text', () => {
+    const fresh = sticky({ x: 0, y: 0, text: '', name: 'Ana Ruiz', now: NOW });
+    const repaired = fresh.map((e) => (e.type === 'text' && !e.text ? { ...e, isDeleted: true, version: e.version + 1 } : e));   // what restore does
+    expect(stickyParts(repaired).get(fresh[0].id).text).toBeNull();
+    const typed = withStickyText(repaired, fresh[0].id, 'Order more paint', { now: NOW });
+    const p = stickyParts(typed).get(fresh[0].id);
+    expect(stickyWords(p)).toBe('Order more paint');
+    expect(p.text.isDeleted).toBe(false);
+    expect(p.text.id).toBe(fresh[1].id);                 // the same element brought back, not a second one
+    expect(p.text.version).toBeGreaterThan(repaired[1].version);
+    expect(typed.filter((e) => e.containerId === fresh[0].id)).toHaveLength(1);
+  });
+
   // Neil, 11/12/2026: Sort puts each group in a SECTION of its own (a named
   // frame the stickies belong to), so a column moves as one and is a slide.
   const sortFrames = (els) => els.filter((e) => e.type === 'frame' && e.customData?.nexusSortFrame && !e.isDeleted);

@@ -57,7 +57,7 @@ import { pinParts, selectedPin, threadOf, withThread, newThread, withReply, with
 import { recognizeInk, shapeFromInk } from './inkShape';
 import { parseLength, scaleAt, dimension, area as areaShape, refreshMeasures } from './measure';
 import { createViewStore } from './viewStore';
-import { sectionAt } from './sections';
+import { placeInSection } from './sections';
 import { carrierAt, tiePin, positions, rideAlong } from './rideAlong';
 import { arrange, unitsOf, ARRANGE_ACTIONS } from './arrange';
 import { wrapUpNote, wrapUpPeople, wrapUpCard } from './wrapUp';
@@ -859,11 +859,11 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
       return;
     }
     const els = api.getSceneElementsIncludingDeleted();
-    // It joins the section it was put on (sections.js), so the section carries it.
-    const frameId = sectionAt(els, { x: x + STICKY_SIZE / 2, y: y + STICKY_SIZE / 2 });
-    const built = prep(sticky({ x, y, colorKey, by: who.email, name: who.name, look: lookRef.current, frameId }));
+    // It joins the section it was put on, fully inside it (sections.js), so the section carries it and never cuts it off.
+    const at = placeInSection(els, { x, y, width: STICKY_SIZE, height: STICKY_SIZE });
+    const built = prep(sticky({ x: at.x, y: at.y, colorKey, by: who.email, name: who.name, look: lookRef.current, frameId: at.frameId }));
     commit([...els, ...built], { appState: { selectedElementIds: {} } });
-    setComposer({ key: built[0].id, boxId: built[0].id, x, y, text: '', colorKey });
+    setComposer({ key: built[0].id, boxId: built[0].id, x: at.x, y: at.y, text: '', colorKey });
   }, [api, prep, who, commit, meetMap, setTrayBoth]);
   const placeSticky = useCallback((e) => {
     if (!api) return;
@@ -897,7 +897,10 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     setComposer((c) => (c?.trayId ? null : c));
     if (!words.length) return;
     const els = api.getSceneElementsIncludingDeleted();
-    const built = words.flatMap((t) => prep(sticky({ x: t.x, y: t.y, text: t.text, colorKey: t.colorKey, by: who.email, name: who.name, look: lookRef.current, measureAt: (x, size) => measureFn(x) * (size / 16), frameId: sectionAt(els, { x: t.x + STICKY_SIZE / 2, y: t.y + STICKY_SIZE / 2 }) })));
+    const built = words.flatMap((t) => {
+      const at = placeInSection(els, { x: t.x, y: t.y, width: STICKY_SIZE, height: STICKY_SIZE });
+      return prep(sticky({ x: at.x, y: at.y, text: t.text, colorKey: t.colorKey, by: who.email, name: who.name, look: lookRef.current, measureAt: (x, size) => measureFn(x) * (size / 16), frameId: at.frameId }));
+    });
     commit([...els, ...built]);
     flash(`Your ${words.length} ${words.length === 1 ? 'sticky is' : 'stickies are'} on the board.`);
   }, [meet.silent, api, canEdit, tray.length]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -1007,8 +1010,8 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
       setTrayBoth((cur) => [...cur, { id, x: at.x, y: at.y, text: words, colorKey }]);
       return;
     }
-    const frameId = sectionAt(els, { x: at.x + STICKY_SIZE / 2, y: at.y + STICKY_SIZE / 2 });
-    const built = prep(sticky({ x: at.x, y: at.y, text: words, colorKey, by: who.email, name: who.name, look: lookRef.current, frameId, measureAt: (t, size) => measureFn(t) * (size / 16) }));
+    const into = placeInSection(els, { x: at.x, y: at.y, width: STICKY_SIZE, height: STICKY_SIZE });
+    const built = prep(sticky({ x: into.x, y: into.y, text: words, colorKey, by: who.email, name: who.name, look: lookRef.current, frameId: into.frameId, measureAt: (t, size) => measureFn(t) * (size / 16) }));
     commit([...els, ...built]);
   }, [api, stageCenter, meetMap, setTrayBoth, prep, who, measureFn, commit]);
   const talk = useDictation(onSaid);

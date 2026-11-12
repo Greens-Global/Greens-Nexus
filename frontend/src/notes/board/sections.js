@@ -44,3 +44,24 @@ export function sectionOf(elements, e, frames = null) {
 }
 
 export const sectionName = (f) => String(f?.name || '').trim() || 'Section';
+
+const EDGE = 12;   // how far inside a section's edge a new thing lands
+
+/**
+ * Where a new box (a sticky) lands when it is put at (x, y): inside the
+ * section under its middle, moved in from the edge so the section never cuts
+ * it off (the engine clips what a section holds - seen in a real browser: a
+ * sticky tapped near an edge joined the section and lost its side). A
+ * section too small to hold it does not take it. Returns { x, y, frameId }.
+ */
+export function placeInSection(elements, { x, y, width, height }) {
+  const id = sectionAt(elements, { x: x + width / 2, y: y + height / 2 });
+  const f = id ? (elements || []).find((e) => e.id === id) : null;
+  if (!f || f.width < width + EDGE * 2 || f.height < height + EDGE * 2) return { x, y, frameId: null };
+  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+  return {
+    x: clamp(x, f.x + EDGE, f.x + f.width - width - EDGE),
+    y: clamp(y, f.y + EDGE, f.y + f.height - height - EDGE),
+    frameId: f.id,
+  };
+}
