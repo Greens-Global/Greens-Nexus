@@ -178,6 +178,29 @@ class ShiftCompanyTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_a_new_zone_on_a_shift_type_carries_to_its_placements_from_yesterday_on(self):
+        past = (datetime.now(timezone.utc).date() - timedelta(days=5)).isoformat()
+        db = database.SessionLocal()
+        try:
+            for sid, day, tz in (("zp-future", DAY, "America/Los_Angeles"), ("zp-past", past, "America/Los_Angeles"),
+                                 ("zp-own", DAY, "America/New_York")):
+                db.add(models.ScheduledShift(id=sid, employee_email=A, work_date=day, start_hhmm="18:30",
+                                             end_hhmm="02:30", published=1, created_by=BOSS, group_id=GROUP,
+                                             shift_id=P_SHARED, timezone=tz, created_at="2026-10-30T00:00:00"))
+            db.commit()
+        finally:
+            db.close()
+        r = self.client.patch(f"/timeclock/shifts/{P_SHARED}", json=self._preset_body(timezone="Asia/Kolkata"))
+        self.assertEqual(r.status_code, 200, r.text)
+        db = database.SessionLocal()
+        try:
+            got = {x.id: x.timezone for x in db.query(models.ScheduledShift).all()}
+        finally:
+            db.close()
+        # The one on the old zone follows; a past day and a hand-picked zone keep theirs.
+        self.assertEqual(got, {"zp-future": "Asia/Kolkata", "zp-past": "America/Los_Angeles",
+                               "zp-own": "America/New_York"})
+
     # ── Presets: who may change what ──────────────────────────────────────
     def test_a_plain_manager_cannot_add_edit_or_delete_shift_types(self):
         self._as(MGR)
