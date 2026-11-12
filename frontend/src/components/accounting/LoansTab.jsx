@@ -574,9 +574,12 @@ export default function LoansTab({ canEdit = false }) {
         <BarSearch value={text} onChange={setText} label="Filter loans" placeholder="Filter loans" width={190} />
         <TableViewBar view={tv} />
         <div className="acct-bar-end">
-          <BarSummary level={3}>
-            Loans <strong>{rows.length}</strong> · Balance <strong><Amount value={totals.balance} /></strong>
-          </BarSummary>
+          {/* Nothing read yet: a placeholder, never "Loans 0 · Balance 0.00" (11/11/2026 pass, picture 6). */}
+          {review ? (
+            <BarSummary level={3}>
+              Loans <strong>{rows.length}</strong> · Balance <strong><Amount value={totals.balance} /></strong>
+            </BarSummary>
+          ) : loading ? <span className="nx-skel" role="status" aria-label="Loading" style={{ display: 'inline-block', width: 150, height: 12, borderRadius: 6, verticalAlign: 'middle' }} /> : null}
           <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!review} syncedAt={ts.syncedAt} />
           </BarMore>

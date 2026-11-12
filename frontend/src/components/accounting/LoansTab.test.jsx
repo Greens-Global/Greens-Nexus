@@ -601,12 +601,16 @@ describe('LoansTab', () => {
     api.getLoansReview.mockImplementation(() => new Promise((_r, rej) => { fail = rej; }));
     const { container } = render(<LoansTab canEdit />);
     await waitFor(() => expect(container.querySelectorAll('.nx-skel').length).toBeGreaterThan(10));
+    // No fake zeros in the bar while nothing is read (11/11/2026, picture 6).
+    expect(container.textContent).not.toMatch(/Loans\s*0\s*·\s*Balance/);
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeTruthy();
     const e = new Error('Accounting service error: timeout');
     e.status = 424;
     fail(e);
     await screen.findByText(/timeout/);
     expect(screen.queryByText(/No loans set up/)).toBeNull();
     expect(screen.getByRole('button', { name: 'Try Again' })).toBeTruthy();
+    expect(screen.queryByRole('status', { name: 'Loading' })).toBeNull();
   });
 
   it('says what it looked for when nothing is set up', async () => {

@@ -475,9 +475,12 @@ ${FILTER_CSS}`}</style>
         <BarSearch value={text} onChange={setText} label="Filter agreements" placeholder="Filter agreements" width={200} />
         <TableViewBar view={view} />
         <div className="acct-bar-end">
-          <BarSummary level={3}>
-            Agreements <strong>{rows.length}</strong> · Calculated Fee <strong><Amount value={sum('calculatedFee')} /></strong> · Billed YTD <strong><Amount value={sum('billedYtd')} /></strong>
-          </BarSummary>
+          {/* Nothing read yet: a placeholder, never zeros (11/11/2026 pass, picture 6). */}
+          {data ? (
+            <BarSummary level={3}>
+              Agreements <strong>{rows.length}</strong> · Calculated Fee <strong><Amount value={sum('calculatedFee')} /></strong> · Billed YTD <strong><Amount value={sum('billedYtd')} /></strong>
+            </BarSummary>
+          ) : loading ? <span className="nx-skel" role="status" aria-label="Loading" style={{ display: 'inline-block', width: 150, height: 12, borderRadius: 6, verticalAlign: 'middle' }} /> : null}
           <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           </BarMore>
