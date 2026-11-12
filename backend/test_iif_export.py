@@ -402,6 +402,24 @@ class IifExportTests(unittest.TestCase):
                          "TIMERHDR\t8\t0\tIIF Bravo Homes\tN\tY\t0")
 
     # ── Duration (Charmi, 11/12/2026) ───────────────────────────────────────
+    def test_emp_carries_the_employee_code(self):
+        """Charmi, 11/13/2026: QuickBooks names are "Name(Code)" with no space;
+        a plain name made a second employee on import."""
+        from routers.timeclock import _iif_emp
+        self.assertEqual(_iif_emp("Pat Smith", "E-0005"), "Pat Smith(E-0005)")
+        self.assertEqual(_iif_emp("Pat Smith", ""), "Pat Smith")
+        db = database.SessionLocal()
+        try:
+            db.get(models.NexusEmployee, f"emp-{PAT}").employee_code = "E-0042"
+            db.commit()
+        finally:
+            db.close()
+        text = self._get("&finalized_only=false").text
+        emps = {ln.split("\t")[3] for ln in text.split("\r\n") if ln.startswith("TIMEACT\t")}
+        self.assertIn("Pat Test(E-0042)", emps)
+        self.assertNotIn("Pat Test", emps)
+        self.assertIn("Quinn Test", emps)                 # no code: the name alone
+
     def test_duration_is_hours_and_minutes_not_decimals(self):
         """QuickBooks adds the rows and multiplies by the rate: 71:40 sent as
         decimals came to 71.67 h ($1,791.75 at $25, not $1,791.67) and 0:29 to
