@@ -180,7 +180,11 @@ export function DashProvider({ children }) {
   }, [noiT12Q.data, inScopeRow]);
 
   const currency = scopeCurrency(ix, scope);
-  const m = useCallback((v, opts = {}) => money(v, { currency, fx: FX_INR_DEFAULT, ...opts }), [currency]);
+  // `report: true` (11/11/2026, picture 4): a table cell in the Reports statements' format -
+  // "10,119,967.00", negatives in parentheses, no dollar sign (rupees keep their sign).
+  const m = useCallback((v, { report, ...opts } = {}) => (report
+    ? money(v, { currency, fx: FX_INR_DEFAULT, cents: true, paren: true }).replace('$', '')
+    : money(v, { currency, fx: FX_INR_DEFAULT, ...opts })), [currency]);
 
   const tables = tablesQ.data ?? null;
   const invalidate = useCallback((subject) => qc.invalidateQueries({ queryKey: subject ? [KEY, subject] : [KEY] }), [qc]);

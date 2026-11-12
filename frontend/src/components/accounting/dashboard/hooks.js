@@ -171,6 +171,25 @@ export function useForecastMonthly() {
   return useMemo(() => (ledger ? forecastMonthly(ledger, budgetAhead, loans, period, cashSplit.onHand, monthlyDist) : null), [ledger, budgetAhead, loans, period, cashSplit.onHand, monthlyDist]);
 }
 
+/**
+ * 11/11/2026 (picture 4): the Overview cards with nothing to show yet, and why -
+ * { widgetId: reason }. The Overview folds them into one line; a card comes
+ * back by itself once its data is there. Nothing while the figures load.
+ */
+export function useEmptyWidgets() {
+  const { loading, cashSplit } = useDash();
+  const f = useForecastMonthly();
+  const { v, isLoading } = useValuation();
+  const { summary } = usePartners();
+  if (loading || isLoading || !f) return {};
+  const out = {};
+  // No cash accounts in scope is a scope message, not a setup gap - the card keeps it.
+  if (cashSplit.onHandEntities.length && !f.hasBudget) out.cashForecast = `no budget posted from ${f.months[0].slice(5)}/${f.months[0].slice(0, 4)}`;
+  if (v.rows.length && v.rows.every((r) => r.capRate == null)) out.valuation = 'no cap rates';
+  if (!summary.rows.length) out.partners = 'no investor classes';
+  return out;
+}
+
 export function useFlux() {
   const { ledger, period } = useDash();
   return useMemo(() => (ledger ? fluxRows(ledger, period) : { rows: [], hasPrior: false }), [ledger, period]);
