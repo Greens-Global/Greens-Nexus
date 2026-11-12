@@ -6779,7 +6779,17 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shif
     s.days = body.days[:40]
     s.grace_min = max(0, int(body.grace_min or 0))
     s.color = (body.color or "#2563eb")[:9]
+    old_tz = (s.timezone or "").strip() or _team_tz(db)
     s.timezone = _valid_tz(body.timezone)
+    if s.timezone != old_tz:
+        # Placements are stamped with the type's zone when made; one still on the
+        # old zone follows the fix (11/12/2026: an India shift placed while the type
+        # said Pacific showed 8 AM - 4 PM). From yesterday on - past days keep theirs.
+        since = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+        (db.query(ScheduledShift)
+         .filter(ScheduledShift.shift_id == s.id, ScheduledShift.timezone == old_tz,
+                 ScheduledShift.work_date >= since)
+         .update({ScheduledShift.timezone: s.timezone}, synchronize_session=False))
     s.break_min = _clamp_break(body.break_min)   # new placements only; placed shifts keep theirs
     if body.group_ids is not None:
         s.group_ids = _clean_shift_groups(db, body.group_ids)
