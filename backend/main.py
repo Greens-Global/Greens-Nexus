@@ -1643,6 +1643,9 @@ def _run_migrations():
             "ALTER TABLE nexus_meeting_notes ADD COLUMN transcript_ready_at VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_meeting_notes ADD COLUMN ready_checked_at VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_nexus_meeting_notes_series_id ON nexus_meeting_notes (series_id)",
+            # Build Mode in the cloud (Neil, 11/12/2026) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN claude_session_url VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_note_sessions ADD COLUMN claude_session_url VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3939,6 +3942,11 @@ def _run_migrations():
         "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS transcript_ready_at VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS ready_checked_at VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_nexus_meeting_notes_series_id ON nexus_meeting_notes (series_id)",
+        # Build Mode in the cloud (Neil, 11/12/2026): the Claude Code cloud
+        # session a sent pin is being worked in, shown as Open Claude Session
+        # on the pin and its Build Session (build_mode_cloud.py).
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS claude_session_url VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_note_sessions ADD COLUMN IF NOT EXISTS claude_session_url VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4375,6 +4383,15 @@ def _tier_seeds():
         except Exception as e:
             db.rollback()
             print(f"[startup] tier words pass skipped: {e}")
+        try:
+            import build_mode_access_seed   # Build Mode is its own access (Neil, 11/12/2026)
+            res = build_mode_access_seed.apply_once(db)
+            if res is not None:
+                print(f"[startup] Build Mode access set - group: {res['group'] or 'one already grants it, left alone'}; "
+                      f"added: {', '.join(res['added']) or 'none'}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] Build Mode access seed skipped: {e}")
         try:
             import record_links   # [[ links written before the link table existed (11/07/2026)
             res = record_links.backfill_once(db)

@@ -31,7 +31,9 @@ DEV = {"email": "dev@greensglobal.com", "role": "employee", "level": 1}       # 
 ADMIN = {"email": "admin@greensglobal.com", "role": "administrator", "level": 4}  # no grant: no access
 
 CURRENT = {"user": DEV}
-GRANTS = {DEV["email"]: {"build-mode": 1}}
+# Build Mode is its own grant (Neil, 11/12/2026): GA is a Super Administrator
+# who ALSO holds it - the tier alone opens nothing (its own test below).
+GRANTS = {DEV["email"]: {"build-mode": 1}, GA["email"]: {"build-mode": 1}}
 MEDIA = "https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/n1/screenshot-1.png"
 
 _app = FastAPI()
@@ -75,6 +77,7 @@ def _patched_auth():
 def _clean():
     CURRENT["user"] = DEV
     GRANTS[DEV["email"]] = {"build-mode": 1}
+    GRANTS[GA["email"]] = {"build-mode": 1}
     db = database.SessionLocal()
     for m in (models.DevNote, models.DevNoteSession, models.DevNoteToken,
               models.NexusNotification, models.NexusSetting, models.AuditLog, models.QaTestCase):
@@ -161,7 +164,7 @@ def test_admin_without_grant_is_not_enabled_and_everything_else_is_403():
         assert r.json()["detail"] == "Build Mode is not enabled for you"
 
 
-def test_grant_holder_and_global_admin_are_enabled():
+def test_the_grant_opens_build_mode_and_no_tier_does_by_itself():
     r = client.get("/dev-notes/enabled")
     assert r.json()["enabled"] is True
     assert r.json()["settings"] == {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True,
@@ -169,6 +172,13 @@ def test_grant_holder_and_global_admin_are_enabled():
     _as(GA)
     assert client.get("/dev-notes/enabled").json()["enabled"] is True
     assert client.get("/dev-notes").status_code == 200
+    # Neil, 11/12/2026: "granted as a separate access through roles" - a Super
+    # Administrator WITHOUT the grant has no Build Mode, in the app or by token.
+    token = _token()["token"]
+    GRANTS[GA["email"]] = {}
+    assert client.get("/dev-notes/enabled").json() == {"enabled": False}
+    assert client.get("/dev-notes").status_code == 403
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(token)).status_code == 403
 
 
 # ── pins and sessions ─────────────────────────────────────────────────────────
@@ -1449,7 +1459,7 @@ def test_per_caller_flags_and_is_global_admin():
         assert len(client.get("/dev-notes").json()) >= 5
     finally:
         auth.is_global_admin = real
-    assert len(calls) == 2           # the access check + the flags
+    assert len(calls) == 1           # the flags only - access is the grant, not the tier (11/12/2026)
 
 
 def test_owner_of_endpoint():
@@ -1647,3 +1657,211 @@ def test_claude_connection_is_the_callers_own_watcher():
     client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"]))
     assert client.delete(f"/dev-notes/tokens/{minted['id']}").status_code == 204
     assert client.get("/dev-notes/claude-connection").json()["connected"] is False
+
+
+# ── Claude Code in the cloud (Neil, 11/12/2026) ───────────────────────────────
+from routers.dev_notes import _cloud as CLOUD  # noqa: E402
+
+FIRE_URL = "https://api.anthropic.com/v1/claude_code/routines/trig_01ABCDEFGHJKLMNOP/fire"
+TRIGGER_TOKEN = "sk-ant-oat01-" + "x" * 40
+
+
+class _Resp:
+    def __init__(self, status=200, body=None, headers=None):
+        self.status_code, self._body, self.headers = status, body, headers or {}
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("no body")
+        return self._body
+
+
+def _session_resp(n=1):
+    return _Resp(200, {"type": "routine_fire", "claude_code_session_id": f"session_0{n}",
+                       "claude_code_session_url": f"https://claude.ai/code/session_0{n}"})
+
+
+@pytest.fixture
+def fired(monkeypatch):
+    """Every outbound call the cloud module would make, recorded; answers 200."""
+    calls = []
+
+    def post(url, headers, body):
+        calls.append({"url": url, "headers": headers, "body": body})
+        return post.answer(len(calls)) if callable(post.answer) else post.answer
+
+    post.answer = _session_resp
+    monkeypatch.setattr(CLOUD, "_post", post)
+    post.calls = calls
+    return post
+
+
+def _connect_cloud():
+    r = client.put("/dev-notes/cloud", json={"fireUrl": FIRE_URL, "token": TRIGGER_TOKEN})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _setting(key):
+    db = database.SessionLocal()
+    try:
+        row = db.get(models.NexusSetting, key)
+        return row.value if row else None
+    finally:
+        db.close()
+
+
+def test_cloud_connect_keeps_the_token_secret_and_only_takes_claudes_own_address(fired):
+    assert client.get("/dev-notes/cloud").json() == {"connected": False, "task": "", "savedAt": "",
+                                                     "lastStartedAt": "", "lastError": "", "target": "local"}
+    # Anything but Claude Code's own Fire URL is refused - a saved token is never posted elsewhere.
+    for bad in ("", "https://evil.example/v1/claude_code/routines/trig_01ABCDEFGH/fire",
+                "http://api.anthropic.com/v1/claude_code/routines/trig_01ABCDEFGH/fire",
+                "https://api.anthropic.com.evil.example/v1/claude_code/routines/trig_01ABCDEFGH/fire",
+                "https://api.anthropic.com/v1/messages",
+                "https://api.anthropic.com/v1/claude_code/routines/trig_01ABCDEFGH/fire?x=1"):
+        r = client.put("/dev-notes/cloud", json={"fireUrl": bad, "token": TRIGGER_TOKEN})
+        assert r.status_code == 400 and "Fire URL" in r.json()["detail"], bad
+    for bad in ("", "nxbn_abc", "sk-ant-api03-" + "x" * 40, "sk-ant-oat01-short"):
+        r = client.put("/dev-notes/cloud", json={"fireUrl": FIRE_URL, "token": bad})
+        assert r.status_code == 400 and "trigger token" in r.json()["detail"], bad
+    assert client.put("/dev-notes/settings", json={"dispatchTarget": "cloud"}).status_code == 400   # not connected yet
+    out = _connect_cloud()
+    assert out["connected"] is True and out["target"] == "cloud" and out["task"] == "...KLMNOP"
+    # The token: encrypted at rest, in no response, in no audit row.
+    stored = _setting(f"dev_notes_cloud:{DEV['email']}")
+    assert TRIGGER_TOKEN not in stored and json.loads(stored)["routineId"] == "trig_01ABCDEFGHJKLMNOP"
+    for r in (client.get("/dev-notes/cloud"), client.get("/dev-notes/settings"), client.get("/dev-notes/enabled"),
+              client.get("/dev-notes/claude-connection")):
+        assert "sk-ant" not in r.text
+    db = database.SessionLocal()
+    assert all("sk-ant" not in (a.details or "") for a in db.query(models.AuditLog).all())
+    db.close()
+    assert fired.calls == []          # connecting calls nothing: a test call would start a real session
+    # Connected in the cloud = connected, with nothing running; someone else's is not mine.
+    assert client.get("/dev-notes/claude-connection").json()["connected"] is True
+    assert client.get("/dev-notes/claude-connection").json()["terminal"] is False
+    _as(GA)
+    assert client.get("/dev-notes/cloud").json()["connected"] is False
+    assert client.get("/dev-notes/claude-connection").json()["connected"] is False
+    _as(DEV)
+    assert client.delete("/dev-notes/cloud").status_code == 204
+    assert client.get("/dev-notes/cloud").json()["connected"] is False
+    assert client.get("/dev-notes/settings").json()["dispatchTarget"] == "local"
+    assert _setting(f"dev_notes_cloud:{DEV['email']}") is None
+
+
+def test_send_starts_claude_code_in_the_cloud_and_the_terminal_never_sees_the_pin(fired):
+    token = _token()["token"]
+    _connect_cloud()
+    a, b = _create(), _create(comment="Second")
+    out = _dispatch()
+    assert out["cloud"] == {"started": True, "sessionUrl": "https://claude.ai/code/session_01"}
+    # ONE call for the whole send, to the developer's own trigger, with their token and the pin ids as data.
+    assert len(fired.calls) == 1
+    call = fired.calls[0]
+    assert call["url"] == FIRE_URL
+    assert call["headers"]["Authorization"] == f"Bearer {TRIGGER_TOKEN}"
+    assert a["id"] in call["body"]["text"] and b["id"] in call["body"]["text"] and DEV["email"] in call["body"]["text"]
+    for n in out["notes"]:
+        assert n["status"] == "dispatched" and n["dispatchTarget"] == "cloud"
+        assert n["claudeSessionUrl"] == "https://claude.ai/code/session_01" and n["progress"] == D.CLOUD_STARTING
+    assert client.get("/dev-notes/sessions").json()[0]["claudeSessionUrl"] == "https://claude.ai/code/session_01"
+    # A terminal watcher that is also running never gets a cloud pin - or two Claude Codes work it.
+    assert client.get("/dev-notes/cli/wait", params={"timeout": 0}, headers=_hdr(token)).json()["notes"] == []
+    # The cloud session claims it with the same Build Token routes.
+    r = client.post("/dev-notes/cli/claim", json={"noteIds": [a["id"]]}, headers=_hdr(token))
+    assert r.status_code == 200 and r.json()["notes"][0]["status"] == "building"
+
+
+def test_a_session_that_does_not_start_says_why_and_start_claude_code_tries_again(fired):
+    _connect_cloud()
+    p = _create()
+    fired.answer = _Resp(401, {"type": "error", "error": {"type": "authentication_error", "message": "x"}})
+    out = _dispatch()
+    assert out["cloud"]["started"] is False and "did not accept your trigger token" in out["cloud"]["error"]
+    got = client.get(f"/dev-notes/{p['id']}").json()
+    assert got["status"] == "dispatched" and got["claudeSessionUrl"] == ""      # sent, waiting - nothing is lost
+    assert got["progress"].startswith("Claude Code did not start: ")
+    assert "trigger token" in client.get("/dev-notes/cloud").json()["lastError"]
+    fired.answer = _Resp(429, {}, {"Retry-After": "600"})
+    r = client.post("/dev-notes/cloud/start", json={"noteIds": [p["id"]]})
+    assert r.status_code == 200 and "hourly limit" in r.json()["cloud"]["error"] and "10 min" in r.json()["cloud"]["error"]
+    fired.answer = _session_resp
+    r = client.post("/dev-notes/cloud/start", json={})
+    assert r.status_code == 200 and r.json()["cloud"]["started"] is True
+    assert r.json()["notes"][0]["claudeSessionUrl"].startswith("https://claude.ai/code/session_0")
+    assert client.get("/dev-notes/cloud").json()["lastError"] == ""
+    # Pressed again straight away: refused - a second call is a second session on the same pin.
+    n = len(fired.calls)
+    r = client.post("/dev-notes/cloud/start", json={})
+    assert r.status_code == 409 and "a moment ago" in r.json()["detail"] and len(fired.calls) == n
+    # A session address that is not Claude's is never shown as a link.
+    q = _create(comment="Other")
+    fired.answer = _Resp(200, {"claude_code_session_id": "s", "claude_code_session_url": "https://evil.example/x"})
+    assert _dispatch(noteIds=[q["id"]])["notes"][0]["claudeSessionUrl"] == ""
+
+
+def test_pins_sent_to_the_terminal_stay_there_and_can_be_moved_to_the_cloud(fired):
+    token = _token()["token"]
+    p = _create()
+    out = _dispatch()
+    assert out["cloud"] == {} and out["notes"][0]["dispatchTarget"] == "local" and fired.calls == []
+    assert client.post("/dev-notes/cloud/start", json={}).status_code == 400          # not connected
+    _connect_cloud()
+    waiting = client.get("/dev-notes/cli/wait", params={"timeout": 0}, headers=_hdr(token)).json()["notes"]
+    assert [n["id"] for n in waiting] == [p["id"]]                                    # still the terminal's
+    r = client.post("/dev-notes/cloud/start", json={"noteIds": [p["id"]]})
+    assert r.status_code == 200 and r.json()["notes"][0]["dispatchTarget"] == "cloud" and len(fired.calls) == 1
+    assert client.get("/dev-notes/cli/wait", params={"timeout": 0}, headers=_hdr(token)).json()["notes"] == []
+    # Back to the terminal by choice: the trigger stays saved, new pins go to the watcher.
+    assert client.put("/dev-notes/settings", json={"dispatchTarget": "local"}).status_code == 200
+    assert client.get("/dev-notes/claude-connection").json()["cloud"] is False
+    q = _create(comment="Other")
+    assert _dispatch(noteIds=[q["id"]])["cloud"] == {} and len(fired.calls) == 1
+
+
+def test_an_answer_to_claudes_question_starts_the_cloud_session_again(fired):
+    token = _token()["token"]
+    _connect_cloud()
+    p = _create()
+    _dispatch()
+    client.post("/dev-notes/cli/claim", json={"noteIds": [p["id"]]}, headers=_hdr(token))
+    # A comment while Claude is still working starts nothing ...
+    client.post(f"/dev-notes/{p['id']}/thread", json={"text": "also check the padding"})
+    assert len(fired.calls) == 1
+    # ... Claude asks, and the answer starts it again.
+    client.post(f"/dev-notes/cli/reply/{p['id']}", json={"text": "Which button?", "needsInput": True}, headers=_hdr(token))
+    r = client.post(f"/dev-notes/{p['id']}/thread", json={"text": "The blue one"})
+    assert r.status_code == 200 and r.json()["status"] == "building"
+    assert len(fired.calls) == 2 and p["id"] in fired.calls[1]["body"]["text"]
+    assert r.json()["claudeSessionUrl"] == "https://claude.ai/code/session_02"
+    assert r.json()["thread"][-1]["text"] == "The blue one"       # the answer stays last: the brief shows it
+
+
+def test_send_instantly_starts_the_cloud_session_per_pin(fired):
+    _connect_cloud()
+    client.put("/dev-notes/settings", json={"sendInstantly": True})
+    n = _create()
+    assert n["status"] == "dispatched" and n["dispatchTarget"] == "cloud" and len(fired.calls) == 1
+    assert n["claudeSessionUrl"] == "https://claude.ai/code/session_01"
+
+
+def test_a_build_token_in_use_renews_itself():
+    minted = _token()
+    db = database.SessionLocal()
+    soon = "2026-01-01T00:00:00+00:00"
+    db.query(models.DevNoteToken).filter_by(id=minted["id"]).update(
+        {"last_used_at": "", "expires_at": (datetime.now(timezone.utc) + D.timedelta(hours=1)).isoformat()})
+    db.commit(); db.close()
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"])).status_code == 200
+    db = database.SessionLocal()
+    row = db.get(models.DevNoteToken, minted["id"])
+    left = datetime.fromisoformat(row.expires_at) - datetime.now(timezone.utc)
+    db.close()
+    assert D.TOKEN_DAYS - 1 <= left.days <= D.TOKEN_DAYS, soon
+    # An idle one still dies.
+    db = database.SessionLocal()
+    db.query(models.DevNoteToken).filter_by(id=minted["id"]).update({"expires_at": soon})
+    db.commit(); db.close()
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"])).status_code == 401

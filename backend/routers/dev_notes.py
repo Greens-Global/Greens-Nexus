@@ -59,6 +59,7 @@ from database import get_db
 from models import AuditLog, DevNote, DevNoteSession, DevNoteToken, NexusNotification, NexusSetting, QaTestCase
 from routers import files as _files
 import build_mode_chat as _chat
+import build_mode_cloud as _cloud
 import job_switch
 
 router = APIRouter(prefix="/dev-notes", tags=["Build Mode"])
@@ -78,6 +79,8 @@ DICT_FIELD_MAX = 64 * 1024      # serialized size of one JSON dict field (state,
 TEXT_FIELD_MAX = 20 * 1024      # comment / transcript
 STATS_DAYS = 90
 PICKED_UP = "Picked up by Claude Code"
+CLOUD_STARTING = "Claude Code is starting in the cloud"
+CLOUD_RESTART_SEC = 120   # Start Claude Code is refused this long after a start: a second call is a second session
 # Screens Build Mode never captures: the client refuses on these views and the
 # server refuses a pin that names them (the records behind them are the most
 # sensitive in Nexus - CLAUDE.md on PFS and the Credential Vault).
@@ -423,10 +426,13 @@ def _allowed(user: dict, db: Session) -> bool:
     email = (user.get("email") or "").lower()
     if not email:
         return False
+    # Build Mode is its own access (Neil, 11/12/2026: "granted as a separate
+    # access through roles but no new role"): only an Access Group that
+    # grants the `build-mode` module opens it. No tier does by itself, Super
+    # Administrator included - build_mode_access_seed.py put the IT
+    # development team and Neil in the group once.
     # Module attributes on purpose (not `from auth import ...`): the tests and
     # any future override patch auth.* and this must see the patch.
-    if auth.is_global_admin(user, db):
-        return True
     return auth._module_level(email, MODULE_ID, db) >= auth._MODULE_LEVEL_RANK["viewer"]
 
 
@@ -467,6 +473,10 @@ def _resolve_token(authorization: str, db: Session) -> dict:
     last = row.last_used_at or ""
     if not last or (datetime.fromisoformat(now) - datetime.fromisoformat(last)).total_seconds() > TOKEN_TOUCH_SEC:
         row.last_used_at = now
+        # A token in use renews itself (11/12/2026): it expires TOKEN_DAYS
+        # after its LAST use, so a connected Claude Code never needs a new one
+        # and a forgotten token still dies.
+        row.expires_at = (datetime.fromisoformat(now) + timedelta(days=TOKEN_DAYS)).isoformat()
         db.commit()   # also hands the pooled connection back before a long poll
     return user
 
@@ -713,10 +723,57 @@ def _sync_session(db: Session, s: Optional[DevNoteSession]) -> None:
         s.status = "building"
 
 
+def _target_for(db: Session, email: str) -> str:
+    """Where this person's sent pins go: their Claude Code in the cloud when
+    they connected it and it is their choice, else their terminal."""
+    if _settings(db, email).get("dispatchTarget") == "cloud" and _cloud.connected(db, email):
+        return "cloud"
+    return "local"
+
+
+def _cloud_start(db: Session, notes: list, by: str) -> dict:
+    """Start the sender's Claude Code in the cloud for pins that were just
+    sent or answered (build_mode_cloud.py). Call it AFTER the commit that made
+    them wait for Claude - the session claims them within seconds. Never
+    raises: a session that did not start is said on the pin and in the
+    answer, and Start Claude Code (POST /cloud/start) tries again. Commits."""
+    notes = [n for n in notes if (n.dispatch_target or "") == "cloud"]
+    if not notes:
+        return {}
+    from app_url import public_base
+    by = (by or "").lower()
+    now = _now()
+    try:
+        res = _cloud.fire(db, by, _cloud.fire_text([n.id for n in notes], public_base(), by))
+    except _cloud.CloudError as e:
+        for n in notes:
+            n.progress = f"Claude Code did not start: {e}"[:400]
+            n.progress_at = now
+        db.commit()
+        return {"started": False, "error": str(e)}
+    url = res.get("sessionUrl") or ""
+    seen = set()
+    for n in notes:
+        n.claude_session_url = url
+        n.progress = CLOUD_STARTING
+        n.progress_at = now
+        if n.session_id and n.session_id not in seen:
+            seen.add(n.session_id)
+            s = _session(db, n.session_id)
+            if s:
+                s.claude_session_url = url
+                s.updated_at = now
+    _audit(db, {"email": by, "role": ""}, "cloud_start", notes[0].session_id or "",
+           {"notes": [n.id for n in notes], "session": res.get("sessionId") or ""})
+    db.commit()
+    return {"started": True, "sessionUrl": url}
+
+
 def _dispatch_notes(db: Session, notes: list, by: str) -> list:
     """Mark pins dispatched and their sessions sent."""
     now = _now()
     touched = []
+    target = _target_for(db, by)
     for n in notes:
         if n.status != "open":
             raise HTTPException(409, f"Pin #{n.number} is {n.status}, not open - only open pins can be sent")
@@ -725,6 +782,7 @@ def _dispatch_notes(db: Session, notes: list, by: str) -> list:
         n.status = "dispatched"
         n.dispatched_at = now
         n.dispatched_by = (by or "").lower()      # only this person's Claude Code picks it up
+        n.dispatch_target = target                 # cloud: started by _cloud_start; local: their watcher
         n.updated_at = now
         s = _session(db, n.session_id)
         if s and s not in touched:
@@ -759,8 +817,10 @@ def put_settings(body: dict, user: dict = Depends(require_build_mode), db: Sessi
     if target is not None:
         if target == "github":
             raise HTTPException(400, "GitHub dispatch is not available yet")
-        if target != "local":
-            raise HTTPException(400, "dispatchTarget must be local")
+        if target not in ("local", "cloud"):
+            raise HTTPException(400, "dispatchTarget must be local or cloud")
+        if target == "cloud" and not _cloud.connected(db, user["email"]):
+            raise HTTPException(400, "Connect Claude Code in the cloud first")
         current["dispatchTarget"] = target
     for key in ("sendInstantly", "pinsOnLoad", "onePr"):
         v = _get(body, key)
@@ -862,6 +922,8 @@ def create_note(body: dict, user: dict = Depends(require_build_mode), db: Sessio
     else:
         _sync_session(db, s)
     db.commit()
+    if n.status == "dispatched":
+        _cloud_start(db, [n], email)
     db.refresh(n)
     return _serialize(n, _viewer(user, db))
 
@@ -1082,10 +1144,13 @@ def dispatch(body: Optional[dict] = None, user: dict = Depends(require_build_mod
     held_out = [{"id": n.id, "number": n.number or 0, "ownerName": n.owner_name or n.owner_email} for n in held]
     _audit(db, user, "dispatch", s.id if s else "", {"notes": [n.id for n in notes], "held": [n.id for n in held]})
     db.commit()
+    # Claude Code in the cloud (11/12/2026): `cloud` is {} for a terminal
+    # send, else {started, sessionUrl} or {started: False, error}.
+    cloud = _cloud_start(db, notes, email)
     s = s or (touched[0] if touched else None)
     me = _viewer(user, db)
     return {"session": _serialize_session(s) if s else None, "notes": [_serialize(n, me) for n in notes],
-            "held": held_out}
+            "held": held_out, "cloud": cloud}
 
 
 # ── retention ─────────────────────────────────────────────────────────────────
@@ -1291,8 +1356,77 @@ def claude_connection(user: dict = Depends(require_build_mode), db: Session = De
             .filter(DevNoteToken.email == user["email"].lower(), or_(DevNoteToken.revoked_at == "", DevNoteToken.revoked_at.is_(None)))
             .all())
     last = max((t.last_used_at for t in rows if t.last_used_at and (t.expires_at or "") > now), default="")
-    connected = bool(last) and (datetime.fromisoformat(now) - datetime.fromisoformat(last)).total_seconds() <= CONNECTED_SEC
-    return {"connected": connected, "lastSeen": last, "apiBase": public_base()}
+    terminal = bool(last) and (datetime.fromisoformat(now) - datetime.fromisoformat(last)).total_seconds() <= CONNECTED_SEC
+    # In the cloud nothing has to be running: a saved trigger that is the
+    # person's choice IS connected (11/12/2026).
+    cloud = _target_for(db, user["email"]) == "cloud"
+    return {"connected": terminal or cloud, "terminal": terminal, "cloud": cloud, "lastSeen": last,
+            "apiBase": public_base()}
+
+
+# ── Claude Code in the cloud (build_mode_cloud.py, Neil 11/12/2026) ───────────
+def _set_target(db: Session, email: str, target: str) -> None:
+    current = _settings(db, email)
+    current["dispatchTarget"] = target
+    _save_settings(db, email, current)
+
+
+@router.get("/cloud")
+def cloud_status(user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Is the caller's Claude Code in the cloud connected? Never the token."""
+    return {**_cloud.status(db, user["email"]), "target": _target_for(db, user["email"])}
+
+
+@router.put("/cloud")
+def cloud_connect(body: dict, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Save the caller's Claude Code trigger (the scheduled task's Fire URL and
+    token). Connecting it is choosing it: their pins go to the cloud from now
+    on. Nothing is called - a test call would start a real session."""
+    email = user["email"].lower()
+    try:
+        out = _cloud.save(db, email, str(_get(body, "fireUrl") or ""), str(_get(body, "token") or ""))
+    except _cloud.CloudError as e:
+        raise HTTPException(400, str(e))
+    _set_target(db, email, "cloud")
+    _audit(db, user, "cloud_connect", "", {"task": out["task"]})
+    db.commit()
+    return {**out, "target": "cloud"}
+
+
+@router.delete("/cloud", status_code=204)
+def cloud_disconnect(user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    email = user["email"].lower()
+    if _cloud.connected(db, email):
+        _cloud.clear(db, email)
+        _audit(db, user, "cloud_disconnect", "")
+    _set_target(db, email, "local")
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/cloud/start")
+def cloud_start(body: Optional[dict] = None, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Start Claude Code In The Cloud for the caller's pins that wait for it:
+    sent, or answered. For a session that did not start, and for pins sent
+    before the cloud was connected. `noteIds` narrows it; none = all of them."""
+    email = user["email"].lower()
+    if not _cloud.connected(db, email):
+        raise HTTPException(400, "Connect Claude Code in the cloud first")
+    ids = set(_ids(body or {}))
+    notes = [n for n in _pending(db, email, cloud=True) if not ids or n.id in ids]
+    if not notes:
+        raise HTTPException(400, "No pins are waiting for Claude Code")
+    now = datetime.fromisoformat(_now())
+    for n in notes:
+        # A second call is a second session on the same pins.
+        if (n.progress or "") == CLOUD_STARTING and n.progress_at and \
+                (now - datetime.fromisoformat(n.progress_at)).total_seconds() < CLOUD_RESTART_SEC:
+            raise HTTPException(409, f"Claude Code was started for Pin #{n.number} a moment ago - give it two minutes")
+        n.dispatch_target = "cloud"
+    db.commit()
+    cloud = _cloud_start(db, notes, email)
+    me = _viewer(user, db)
+    return {"cloud": cloud, "notes": [_serialize(n, me) for n in notes]}
 
 
 @router.get("/tokens")
@@ -1331,6 +1465,8 @@ def patch_note(note_id: str, body: dict, user: dict = Depends(require_build_mode
         if not any(k for k in (body or {}) if k != "release"):
             _sync_session(db, _session(db, n.session_id))
             db.commit()
+            if n.status == "dispatched":
+                _cloud_start(db, [n], sent_by(n))
             db.refresh(n)
             return _serialize(n, _viewer(user, db))
     _own_or_admin(n.created_by, user, db, "change this pin")
@@ -1398,10 +1534,16 @@ def add_thread(note_id: str, body: dict, user: dict = Depends(require_build_mode
     if not text and not image_url:
         raise HTTPException(400, "text is required")
     _append(n, _entry(user["email"].lower(), "comment", text, image_url))
-    if n.status == "needs_input":
+    answered = n.status == "needs_input"
+    if answered:
         n.status = "building"   # Claude was waiting on this answer
     _sync_session(db, _session(db, n.session_id))
     db.commit()
+    # In the cloud nothing is listening: the answer starts Claude Code again
+    # (same branch - the brief says so). Only from Needs Input, where Claude
+    # had stopped; a comment on a pin it is still working starts nothing.
+    if answered:
+        _cloud_start(db, [n], sent_by(n))
     db.refresh(n)
     return _serialize(n, _viewer(user, db))
 
@@ -1440,6 +1582,8 @@ def verify(note_id: str, body: dict, user: dict = Depends(require_build_mode),
     db.commit()
     if accepted:
         promote_regression(db, n, user)
+    elif n.status == "dispatched":
+        _cloud_start(db, [n], sent_by(n))
     db.refresh(n)
     return _serialize(n, _viewer(user, db))
 
@@ -1628,7 +1772,7 @@ def sent_by(n) -> str:
     return ((getattr(n, "dispatched_by", "") or "") or (n.created_by or "")).lower()
 
 
-def _pending_ids(db: Session, email: str) -> list:
+def _pending_ids(db: Session, email: str, cloud: bool = False) -> list:
     """Ids of the pins THIS person's Claude Code should pick up (Pranshu,
     Oct 26: several watchers run at once - Neil's, Visesh's, mine - and a pin
     must never land in someone else's terminal): the ones they sent, plus pins
@@ -1636,8 +1780,12 @@ def _pending_ids(db: Session, email: str) -> list:
     kind by appending its own entry. Cheap on purpose - this runs every 2 s
     per waiting watcher - so only these columns are read."""
     email = (email or "").lower()
+    # A pin sent to Claude Code in the cloud is started there (_cloud_start):
+    # a terminal watcher that is also running must never pick it up, or two
+    # Claude Codes work one pin. `cloud=True` (Start Claude Code) reads all.
+    where = () if cloud else (or_(DevNote.dispatch_target != "cloud", DevNote.dispatch_target.is_(None)),)
     rows = (db.query(DevNote.id, DevNote.status, DevNote.thread, DevNote.dispatched_by, DevNote.created_by)
-            .filter(DevNote.status.in_(("dispatched", "needs_input", "building")),
+            .filter(*where, DevNote.status.in_(("dispatched", "needs_input", "building")),
                     or_(func.lower(DevNote.dispatched_by) == email,
                         and_(or_(DevNote.dispatched_by == "", DevNote.dispatched_by.is_(None)),
                              func.lower(DevNote.created_by) == email)))
@@ -1645,8 +1793,8 @@ def _pending_ids(db: Session, email: str) -> list:
     return [r.id for r in rows if r.status == "dispatched" or _answered(r.thread or [])]
 
 
-def _pending(db: Session, email: str) -> list:
-    ids = _pending_ids(db, email)
+def _pending(db: Session, email: str, cloud: bool = False) -> list:
+    ids = _pending_ids(db, email, cloud)
     if not ids:
         return []
     rows = db.query(DevNote).filter(DevNote.id.in_(ids)).all()
