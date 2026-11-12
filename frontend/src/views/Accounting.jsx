@@ -14,7 +14,7 @@ import { BarSearchSlotContext } from '../components/accounting/reportControls';
 import { dashDensityOf, useAccountingPrefs } from '../components/accounting/prefs';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
-import { DashNav } from '../components/accounting/dashboard/registry';
+import { DashNav } from '../components/accounting/dashboard/nav';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { REPORTS, REPORT_VIEWS, parseActivitySub } from '../components/accounting/reportModel';
 import { STATEMENTS_SUB } from '../components/accounting/drill';
@@ -26,35 +26,38 @@ import { BUILDER_PUBLISH_MIN_LEVEL, PAYROLL_SUMMARY_LEVEL, RECORDS_JOURNALS, REP
 // header, the bar and the dashboard's shared provider stay here; a screen on
 // its way shows the skeleton (SCREEN_LOADING), never nothing, and a file gone
 // after a deploy is the view boundary's quiet reload, as for every view.
-const ReportsTab = lazy(() => import('../components/accounting/ReportsTab'));
-const PackagesTab = lazy(() => import('../components/accounting/PackagesTab'));
-const AccessTab = lazy(() => import('../components/accounting/AccessTab'));
-const PfsTab = lazy(() => import('../components/accounting/PfsTab'));
-const MriTab = lazy(() => import('../components/accounting/MriTab'));
-const LoansTab = lazy(() => import('../components/accounting/LoansTab'));
-const MreTab = lazy(() => import('../components/accounting/MreTab'));
-const ImportHub = lazy(() => import('../components/accounting/ImportHub'));
-const OverviewTab = lazy(() => import('../components/accounting/dashboard/OverviewTab'));
-const CashTab = lazy(() => import('../components/accounting/dashboard/CashTab'));
-const PerformanceTab = lazy(() => import('../components/accounting/dashboard/PerformanceTab'));
-const CloseTab = lazy(() => import('../components/accounting/dashboard/CloseTab'));
-const DataTab = lazy(() => import('../components/accounting/dashboard/DataTab'));
-const BudgetTab = lazy(() => import('../components/accounting/BudgetTab'));
-const PartnersTab = lazy(() => import('../components/accounting/PartnersTab'));
-const AllocationsTab = lazy(() => import('../components/accounting/AllocationsTab'));
-const ManagementFeesTab = lazy(() => import('../components/accounting/ManagementFeesTab'));
+// A screen's file can start loading before it is drawn (`preload`): the first
+// one opened downloads while the access check is still out (11/11/2026).
+const screen = (load) => Object.assign(lazy(load), { preload: load });
+const ReportsTab = screen(() => import('../components/accounting/ReportsTab'));
+const PackagesTab = screen(() => import('../components/accounting/PackagesTab'));
+const AccessTab = screen(() => import('../components/accounting/AccessTab'));
+const PfsTab = screen(() => import('../components/accounting/PfsTab'));
+const MriTab = screen(() => import('../components/accounting/MriTab'));
+const LoansTab = screen(() => import('../components/accounting/LoansTab'));
+const MreTab = screen(() => import('../components/accounting/MreTab'));
+const ImportHub = screen(() => import('../components/accounting/ImportHub'));
+const OverviewTab = screen(() => import('../components/accounting/dashboard/OverviewTab'));
+const CashTab = screen(() => import('../components/accounting/dashboard/CashTab'));
+const PerformanceTab = screen(() => import('../components/accounting/dashboard/PerformanceTab'));
+const CloseTab = screen(() => import('../components/accounting/dashboard/CloseTab'));
+const DataTab = screen(() => import('../components/accounting/dashboard/DataTab'));
+const BudgetTab = screen(() => import('../components/accounting/BudgetTab'));
+const PartnersTab = screen(() => import('../components/accounting/PartnersTab'));
+const AllocationsTab = screen(() => import('../components/accounting/AllocationsTab'));
+const ManagementFeesTab = screen(() => import('../components/accounting/ManagementFeesTab'));
 // Oct 15 (Neil): AMA is Ask My Accountant; the agreements are Management Fees.
-const AskAccountantTab = lazy(() => import('../components/accounting/AskAccountantTab'));
+const AskAccountantTab = screen(() => import('../components/accounting/AskAccountantTab'));
 // Oct 15 (Charmi + Neil): Profitability and Employee Compensation under Reporting.
-const ProfitabilityReport = lazy(() => import('../components/accounting/ProfitabilityReport'));
-const CompensationReport = lazy(() => import('../components/accounting/CompensationReport'));
-const ReportCenter = lazy(() => import('../components/accounting/ReportCenter'));
-const ReportBuilder = lazy(() => import('../components/accounting/ReportBuilder'));
-const EntitiesTab = lazy(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.EntitiesTab })));
-const GlAccountsTab = lazy(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.GlAccountsTab })));
-const JournalTab = lazy(() => import('../components/accounting/JournalTab'));
-const ManualJournalEntries = lazy(() => import('../components/accounting/ManualJournalEntries'));
-const PayrollSummary = lazy(() => import('../components/accounting/PayrollSummary'));
+const ProfitabilityReport = screen(() => import('../components/accounting/ProfitabilityReport'));
+const CompensationReport = screen(() => import('../components/accounting/CompensationReport'));
+const ReportCenter = screen(() => import('../components/accounting/ReportCenter'));
+const ReportBuilder = screen(() => import('../components/accounting/ReportBuilder'));
+const EntitiesTab = screen(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.EntitiesTab })));
+const GlAccountsTab = screen(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.GlAccountsTab })));
+const JournalTab = screen(() => import('../components/accounting/JournalTab'));
+const ManualJournalEntries = screen(() => import('../components/accounting/ManualJournalEntries'));
+const PayrollSummary = screen(() => import('../components/accounting/PayrollSummary'));
 const SCREEN_LOADING = <div style={{ marginTop: 8 }}><SkeletonBlocks count={3} /></div>;
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
@@ -258,6 +261,19 @@ const reportOf = (key) => {
 };
 const viewOf = (key) => (REPORT_VIEWS[rptKey(key)] ? rptKey(key) : null);
 const DASH_SUBS = ['overview', 'cash', 'performance', 'close'];
+// The screens that read the dashboard provider (useDash): its tabs and Data's grids.
+const DASH_PROVIDER_SUBS = [...DASH_SUBS, 'data', 'intercompany', 'investments'];
+
+// The file behind each sub key, for the preload above.
+const SCREEN_OF = {
+  dashboard: OverviewTab, reporting: ReportCenter, overview: OverviewTab, cash: CashTab, performance: PerformanceTab, close: CloseTab, reports: ReportCenter,
+  'report-builder': ReportBuilder, packages: PackagesTab, mri: MriTab, loans: LoansTab, pfs: PfsTab, data: DataTab,
+  intercompany: DataTab, investments: DataTab, access: AccessTab, budget: BudgetTab, partners: PartnersTab,
+  customers: PartnersTab, allocations: AllocationsTab, mre: MreTab, imports: ImportHub, ama: AskAccountantTab,
+  'mgmt-fees': ManagementFeesTab, profitability: ProfitabilityReport, compensation: CompensationReport,
+  'payroll-summary': PayrollSummary, 'gl-accounts': GlAccountsTab, entities: EntitiesTab, 'manual-je': ManualJournalEntries,
+};
+const screenOf = (key) => (isReports(key) ? ReportsTab : journalOf(key) ? JournalTab : SCREEN_OF[key]);
 
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
@@ -289,6 +305,12 @@ export default function Accounting({ activeSub, onSubChange }) {
   const [access, setAccess] = useState(null);
   // Stamp the visit for the Access tab's "last opened" column; nothing waits on it.
   useEffect(() => { api.markAccountingOpened?.()?.catch?.(() => {}); }, []);
+  useEffect(() => {
+    // Code only, never data: a screen this person may not open just downloads its file.
+    // No sub, or a group's key, opens that group's first page.
+    screenOf(ALIAS[activeSub] || activeSub || 'overview')?.preload?.().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     let alive = true;
     api.getMyAccountingAccess()
@@ -392,6 +414,18 @@ export default function Accounting({ activeSub, onSubChange }) {
   // starts high on the page (Neil, Sep 25; Charmi, 10/02) and nothing moves
   // when switching tabs.
 
+  // The dashboard provider loads the consolidated ledger, budgets, NOI and the
+  // close tables the moment it mounts (10 reads, the tables every minute), so
+  // it wraps only the screens that read it (11/11/2026, Neil: "faster") - the
+  // Balance Sheet, Loans or MRE no longer wait behind it. Its figures stay in
+  // the query cache, so coming back to the Dashboard shows them at once.
+  const withDash = (body) => (DASH_PROVIDER_SUBS.includes(sub) ? (
+    <DashProvider>
+      {/* The dashboard's "open the report" links mean the statements (they predate the Report Center). */}
+      <DashNav.Provider value={(to) => onSubChange?.(to === 'reports' ? STATEMENTS_SUB : to)}>{body}</DashNav.Provider>
+    </DashProvider>
+  ) : body);
+
   return (
     <BarSearchSlotContext.Provider value={searchSlotApi}>
     <div className="acct-module" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -440,10 +474,7 @@ export default function Accounting({ activeSub, onSubChange }) {
             {sub === 'profitability' && <ProfitabilityReport limited />}
           </Suspense>
         </div>
-      ) : (
-        <DashProvider>
-          {/* The dashboard's "open the report" links mean the statements (they predate the Report Center). */}
-          <DashNav.Provider value={(to) => onSubChange?.(to === 'reports' ? STATEMENTS_SUB : to)}>
+      ) : withDash(
             <div style={{ marginTop: 8 }} className={DASH_SUBS.includes(sub) ? `acct-dash acct-dash--${dashDensity}` : undefined}>
               <Suspense fallback={SCREEN_LOADING}>
                 {sub === 'overview' && <OverviewTab canEdit={canEdit} />}
@@ -473,9 +504,7 @@ export default function Accounting({ activeSub, onSubChange }) {
                 {sub === 'compensation' && canManage && <CompensationReport />}
                 {sub === 'payroll-summary' && canPayrollSummary && <PayrollSummary />}
               </Suspense>
-            </div>
-          </DashNav.Provider>
-        </DashProvider>
+            </div>,
       )}
     </div>
     </BarSearchSlotContext.Provider>

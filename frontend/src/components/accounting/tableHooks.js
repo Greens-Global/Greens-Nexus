@@ -81,7 +81,7 @@ export function useColumnWidths(tableKey, defaults = {}, { min = 60, max = 1200 
     },
     onFit: (w) => (w > 0 ? setWidth(key, w) : reset(key)),
   });
-  return { width, widths: { ...defaults, ...saved }, setWidth, reset, resizer };
+  return { width, widths: { ...defaults, ...saved }, live, setWidth, reset, resizer };
 }
 
 /**

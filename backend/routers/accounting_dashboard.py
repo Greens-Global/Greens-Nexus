@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user, require_module_grant
 from database import get_db
-from routers.accounting import require_unlimited
+from routers.accounting import acct_get, require_unlimited
 
 router = APIRouter(
     prefix="/accounting/dashboard",
@@ -49,7 +49,7 @@ def _require_configured() -> None:
 
 
 def _get_sync(params: dict) -> dict:
-    r = httpx.get(f"{_BASE}{_PATH}", params=params, headers={"x-internal-api-key": _KEY}, timeout=60)
+    r = acct_get(f"{_BASE}{_PATH}", params=params, headers={"x-internal-api-key": _KEY}, timeout=60)
     if r.status_code != 200:
         try:
             detail = r.json().get("error") or f"Accounting service returned {r.status_code}"

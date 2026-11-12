@@ -1191,7 +1191,10 @@ export const api = {
   // (optional): "accrual" (default) or "cash" (Neil, Sep 25).
   getAccountingPnl: (from, to, location, dims, book) =>
     req(`/accounting/reports/pnl?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}${book === "cash" ? "&book=cash" : ""}`),
-  getAccountingLocations: () => req("/accounting/reports/locations"),
+  // Shared lists (11/11/2026, speed pass): a dozen Accounting screens ask for
+  // the same entities, journals and books - one read serves them for a few
+  // minutes. Any save, Sync (fresh reads), sign-out or Act As change drops it.
+  getAccountingLocations: () => cachedGet("/accounting/reports/locations", 120_000),
   // Values one dimension can be filtered by (vendor, customer, employee, project, item, department).
   getAccountingDimensionValues: (kind) => req(`/accounting/reports/dimensions?kind=${encodeURIComponent(kind)}`),
   getAccountingBalanceSheet: (asof, location, dims, book) =>
@@ -1219,7 +1222,9 @@ export const api = {
   // way in there (no passwords). Open the returned url immediately.
   launchAccounting: (next) => req(`/accounting/launch${next ? `?next=${encodeURIComponent(next)}` : ""}`, { method: "POST" }),
   // Whether my accounting access is limited to certain entities, and which.
-  getMyAccountingAccess: () => req("/accounting/access/me"),
+  // Only decides which tabs show; the server checks entity access on every read.
+  // A minute, so a limit someone just set reaches the tabs quickly.
+  getMyAccountingAccess: () => cachedGet("/accounting/access/me", 60_000),
   // The accounting team and each person's entity limit (Full level on Accounting).
   getAccountingAccess: () => req("/accounting/access"),
   // Entity access as Intacct has it: a preview beside what Nexus has, then apply for the people ticked.
@@ -1237,7 +1242,7 @@ export const api = {
   // Send the statement on (Charmi, 09/29): by email from my own mailbox, or shared with a teammate.
   emailAccountingReport: (fields) => { const fd = new FormData(); Object.entries(fields).forEach(([k, v]) => fd.append(k, v)); return req("/accounting/reports/email", { method: "POST", body: fd }); },
   shareAccountingReport: (body) => req("/accounting/reports/share", { method: "POST", body: JSON.stringify(body) }),
-  getAccountingSavedReports: () => req("/accounting/saved-reports"),
+  getAccountingSavedReports: () => cachedGet("/accounting/saved-reports", 60_000),
   saveAccountingReport: (body) => req("/accounting/saved-reports", { method: "POST", body: JSON.stringify(body) }),
   updateAccountingSavedReport: (id, body) =>
     req(`/accounting/saved-reports/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
@@ -2205,7 +2210,7 @@ export const api = {
   //    for the Journals filter ({available, journals}; available false = the
   //    accounting app has no list yet), and the Flux Analysis explanation
   //    notes kept per entity set, account and period ──
-  getAccountingJournals:   ()               => req('/accounting/journals'),
+  getAccountingJournals:   ()               => cachedGet('/accounting/journals', 300_000),
   // Oct 23 (CR-12): Records > General Ledger Accounts - the chart ({source, accounts}).
   getAccountingAccounts:   ()               => req('/accounting/accounts'),
   // Oct 23 (CR-10): Audit & Insights > Manual Journal Entries - who keyed each entry, read from Intacct.
@@ -2479,7 +2484,7 @@ export const api = {
   //    any params - a user-defined book (fmv, kje ...) travels as `book`.
   //    kind: pnl | balance-sheet | trial-balance | buckets. Array params go
   //    as comma-separated codes; empty ones are left out. ──
-  getAccountingBooks: () => req('/accounting/books'),
+  getAccountingBooks: () => cachedGet('/accounting/books', 300_000),
   // The Intacct budget by account and month for a period ({available, budget_id,
   // budgets, rows: [{account_no, title, section, month, amount}]}), for Actual vs
   // Budget on the Income Statement (item 43).

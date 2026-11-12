@@ -47,6 +47,7 @@ const writeLS = (patch) => { try { localStorage.setItem(LS, JSON.stringify({ ...
 const validMonth = (s) => (typeof s === 'string' && /^\d{4}-\d{2}$/.test(s) ? s : null);
 
 const NO_LIABILITY = {};
+const NO_ROWS = [];
 const rowsOf = (d) => (d && Array.isArray(d.rows) ? d.rows : []);
 const n = (v) => Number(v ?? 0);
 
@@ -94,7 +95,7 @@ export function DashProvider({ children }) {
   const freshRef = useRef(false);
   const fr = () => freshRef.current;
   const entitiesQ = useQuery({ queryKey: [KEY, 'entities'], queryFn: () => api.getAccountingDashEntities(fr()).then(rowsOf), staleTime: 5 * 60_000 });
-  const entities = entitiesQ.data ?? [];
+  const entities = entitiesQ.data ?? NO_ROWS;
   const ix = useMemo(() => indexEntities(entities), [entities]);
   const hasPartners = entities.some((e) => e.is_partner);
   // Oct 7 (Neil, comment 7): no entity is flagged as a partner one (none of
@@ -197,17 +198,33 @@ export function DashProvider({ children }) {
     return r;
   }, [qc]);
 
-  const value = {
+  // Memoized (11/11/2026, speed pass): the Accounting view re-renders on every
+  // keystroke in the header search; a fresh value each time redrew every widget.
+  const budgetAhead = budgetAheadQ.data ?? NO_ROWS;
+  const reconAccounts = reconAccountsQ.data ?? NO_ROWS;
+  const liabilityRecons = liabilityQ.data ?? NO_LIABILITY;
+  const { refetch: refetchMonthly } = monthlyQ;
+  const { refetch: refetchTables } = tablesQ;
+  const refetch = useCallback(() => { refetchMonthly(); refetchTables(); }, [refetchMonthly, refetchTables]);
+  const tablesLoading = tablesQ.isLoading;
+  const reconAccountsLoading = reconAccountsQ.isLoading;
+  const loading = monthlyQ.isLoading || entitiesQ.isLoading;
+  const error = monthlyQ.error || entitiesQ.error || tablesQ.error || null;
+  const monthly = monthlyQ.data;
+  const value = useMemo(() => ({
     scope, hasPartners, period, fromKey, isRange, periodLabel, book, scenarioId, view, setScope, setPeriod, setRange, setBook, setScenario, setView, lastClosed, periodOptions,
     ix, entities, currency, m,
-    monthly: monthlyQ.data, ledger, ledgerNc, lines, budgetAhead: budgetAheadQ.data ?? [], cashEntities, cashSplit, noiRows, noiT12ByType,
-    reconAccounts: reconAccountsQ.data ?? [], reconAccountsLoading: reconAccountsQ.isLoading,
-    liabilityRecons: liabilityQ.data ?? NO_LIABILITY,
-    tables, tablesLoading: tablesQ.isLoading,
-    loading: monthlyQ.isLoading || entitiesQ.isLoading,
-    error: monthlyQ.error || entitiesQ.error || tablesQ.error || null,
-    refetch: () => { monthlyQ.refetch(); tablesQ.refetch(); },
+    monthly, ledger, ledgerNc, lines, budgetAhead, cashEntities, cashSplit, noiRows, noiT12ByType,
+    reconAccounts, reconAccountsLoading,
+    liabilityRecons,
+    tables, tablesLoading,
+    loading,
+    error,
+    refetch,
     refetchAll, fetching, updatedAt, ledgerSyncedAt, invalidate, act,
-  };
+  }), [scope, hasPartners, period, fromKey, isRange, periodLabel, book, scenarioId, view, setScope, setPeriod, setRange, setBook, setScenario, setView, lastClosed, periodOptions,
+    ix, entities, currency, m, monthly, ledger, ledgerNc, lines, budgetAhead, cashEntities, cashSplit, noiRows, noiT12ByType,
+    reconAccounts, reconAccountsLoading, liabilityRecons, tables, tablesLoading, loading, error, refetch,
+    refetchAll, fetching, updatedAt, ledgerSyncedAt, invalidate, act]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

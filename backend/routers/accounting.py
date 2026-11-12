@@ -22,6 +22,7 @@ import contextvars
 import json
 import os
 import re
+import threading
 import time
 from datetime import date
 
@@ -36,6 +37,51 @@ _ACCT_TTL = 300.0
 # entries go on every insert and it holds at most this many, least recently
 # used out first.
 _ACCT_CACHE_MAX = 256
+
+
+# One kept-open connection pool to the accounting app (11/11/2026, speed pass,
+# Neil: "faster"): every read used to open a new TLS connection, and a General
+# Ledger run makes up to 26 reads. httpx.Client is safe to share across the
+# threads asyncio.to_thread runs these in. Reads only - writes keep httpx.post.
+_ACCT_HTTP: httpx.Client | None = None
+_ACCT_HTTP_LOCK = threading.Lock()
+
+
+def _acct_http() -> httpx.Client:
+    global _ACCT_HTTP
+    if _ACCT_HTTP is None:
+        with _ACCT_HTTP_LOCK:
+            if _ACCT_HTTP is None:
+                # Idle connections are dropped after 4s, before a Node server's
+                # own 5s keep-alive timeout closes them under us.
+                _ACCT_HTTP = httpx.Client(limits=httpx.Limits(max_connections=50, max_keepalive_connections=20, keepalive_expiry=4))
+    return _ACCT_HTTP
+
+
+def acct_timing(what: str, path: str, ms: float | None = None, status: int | None = None, size: int | None = None) -> None:
+    """One line per read that reaches the accounting app (cache hits are not
+    logged - they would bury everything else): which call, how long, how big.
+    Never a figure, a parameter or a name.
+    shortcut: stdout timing lines for a day of measuring; remove once the
+    server-side speed decisions are made (11/11/2026)."""
+    extra = "" if ms is None else f" ms={ms:.0f} status={status} kb={(size or 0) / 1024:.0f}"
+    print(f"[acct-timing] {what} pid={os.getpid()} path={path}{extra}", flush=True)
+
+
+def acct_get(url: str, *, params=None, headers=None, timeout=30) -> httpx.Response:
+    """GET on the shared pool, timed. A pooled connection the far end had
+    already closed fails at once - on sending, or with no response at all -
+    and is retried once on a new one. A read that failed while the server was
+    working on it (ReadError, a timeout) is NOT sent again."""
+    started = time.monotonic()
+    try:
+        r = _acct_http().get(url, params=params, headers=headers, timeout=timeout)
+    except (httpx.RemoteProtocolError, httpx.WriteError):
+        r = _acct_http().get(url, params=params, headers=headers, timeout=timeout)
+    path = url[len(_ACCT_BASE):] if _ACCT_BASE and url.startswith(_ACCT_BASE) else httpx.URL(url).path
+    op = (params or {}).get("op") if isinstance(params, dict) else None
+    acct_timing("upstream", f"{path}{f'#{op}' if op else ''}", (time.monotonic() - started) * 1000, r.status_code, len(r.content))
+    return r
 
 
 def cache_put(store: dict, key, value, now: float, ttl: float, cap: int) -> None:
@@ -76,7 +122,7 @@ class UpstreamError(HTTPException):
 
 
 def _acct_get_sync(path: str, params: dict) -> dict:
-    r = httpx.get(
+    r = acct_get(
         f"{_ACCT_BASE}{path}",
         params=params,
         headers={"x-internal-api-key": _ACCT_KEY},
