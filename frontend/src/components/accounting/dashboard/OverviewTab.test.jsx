@@ -20,6 +20,7 @@ const NONE = [];
 vi.mock('./hooks', () => ({
   useViews: () => VIEWS,
   useAttention: () => NONE,
+  useEmptyWidgets: () => ({}),
 }));
 vi.mock('./registry', () => ({
   SIZE_LABEL: {}, SIZES: ['md'], WIDGET_CATS: [], WIDGET_LIST: [], WIDGETS: {},

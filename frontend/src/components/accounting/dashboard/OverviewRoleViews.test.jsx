@@ -17,13 +17,17 @@ vi.mock('./DashContext', () => ({ useBooksDown: () => false, useDash: () => dash
 vi.mock('./Filters', () => ({ Toolbar: ({ right }) => <div data-testid="toolbar">{right}</div> }));
 const views = vi.hoisted(() => ({ current: null }));
 const NONE = [];
+const empty = vi.hoisted(() => ({ current: {} }));
+const nav = vi.hoisted(() => ({ to: null }));
 vi.mock('./hooks', () => ({
   useViews: () => views.current,
   useAttention: () => NONE,
+  useEmptyWidgets: () => empty.current,
 }));
 vi.mock('./registry', () => ({
-  SIZE_LABEL: {}, SIZES: ['md'], WIDGET_CATS: [], WIDGET_LIST: [], WIDGETS: {},
-  WidgetPanel: ({ id }) => <div data-testid={`widget-${id}`} />, useDashNav: () => () => {},
+  SIZE_LABEL: {}, SIZES: ['md'], WIDGET_CATS: [], WIDGET_LIST: [],
+  WIDGETS: { valuation: { title: 'Portfolio Value & Leverage' }, partners: { title: 'Partner Capital & Distributions' } },
+  WidgetPanel: ({ id }) => <div data-testid={`widget-${id}`} />, useDashNav: () => (to) => { nav.to = to; },
 }));
 
 import OverviewTab from './OverviewTab';
@@ -44,6 +48,7 @@ beforeEach(() => {
   try { localStorage.clear(); } catch { /* none */ }
   resetAccountingPrefs();
   views.current = SAVED;
+  empty.current = {};
   dash.view = 'principal';
   dash.setView = vi.fn((v) => { dash.view = v; });
   dash.act = vi.fn(async () => ({}));
@@ -91,5 +96,22 @@ describe('Overview role views', () => {
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
     fireEvent.click(screen.getByRole('button', { name: /Arrange Widgets/ }));
     expect(screen.getByRole('button', { name: 'Delete View' })).toBeTruthy();
+  });
+
+  // 11/11/2026 (picture 4): empty cards fold into one line where the first stood.
+  it('folds the cards with nothing to show into one line, and shows them all while arranging', () => {
+    views.current = { ...SAVED, views: [{ ...SAVED.views[0], widgets: [{ type: 'kpiCash', size: 'xs' }, { type: 'valuation', size: 'md' }, { type: 'partners', size: 'md' }] }, ...SAVED.views.slice(1)] };
+    empty.current = { valuation: 'no cap rates', partners: 'no investor classes' };
+    render(<OverviewTab canEdit />);
+    expect(screen.getByTestId('widget-kpiCash')).toBeTruthy();
+    expect(screen.queryByTestId('widget-valuation')).toBeNull();
+    expect(screen.queryByTestId('widget-partners')).toBeNull();
+    expect(screen.getByRole('note').textContent).toContain('Portfolio Value & Leverage (no cap rates) · Partner Capital & Distributions (no investor classes)');
+    fireEvent.click(screen.getByRole('button', { name: 'Set Up in Tools > Reference Data' }));
+    expect(nav.to).toBe('data');
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Arrange Widgets/ }));
+    expect(screen.getByTestId('widget-valuation')).toBeTruthy();
+    expect(screen.queryByRole('note')).toBeNull();
   });
 });
