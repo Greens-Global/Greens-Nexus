@@ -29,7 +29,7 @@ import { Avatar } from '../ShiftScheduleExtras';
 import { TeamMenu } from '../ShiftTeams';
 import { timeOffLabel, availText } from '../shiftScheduleLib';
 import { ShiftBlock, TimeOffBlock, HolidayBlock } from './ShiftBlock';
-import { isoDate, dayShort, fmtHrs, planMinutes, counts, isAllDayOff, isApprovedOff, shiftShortText, parseIso, sectionKey, actualFor, cancelProps } from './shiftLib';
+import { isoDate, dayShort, fmtHrs, planMinutes, counts, isAllDayOff, isApprovedOff, dayFullyOff, shiftShortText, parseIso, sectionKey, actualFor, cancelProps } from './shiftLib';
 import { TODAY_CELL, TODAY_HEAD, TODAY_INK, plannerToday } from './nowLine';
 
 export const PERSON_W = 200;
@@ -43,6 +43,10 @@ const PAD = 6;
 // tint + a 2px underline on its header.
 export const TODAY_BG = TODAY_CELL;
 export const WEEKEND_BG = 'rgba(100,116,139,0.045)';
+// A person's day of approved full-day leave (Pranshu, 11/12/2026: "grey out
+// the days if that employee is off" - easier to read than the pill alone).
+// Pending, partial-day and cancelled leave keep the normal cell.
+export const OFF_DAY_BG = 'rgba(100,116,139,0.16)';
 const ROSE_BG = 'hsla(var(--color-red),0.08)';
 const ROSE_LINE = 'hsla(var(--color-red),0.32)';
 const ROSE_INK = 'hsl(var(--color-red))';
@@ -345,7 +349,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
 
   // One day cell. `top` is the room kept for the time-off pills above it.
   const isSel = (key) => !!selected && !selected.shiftId && (selected.cells ? selected.cells.some((x) => x.key === key) : selected.key === key);
-  const dayCell = (row, email, d, c, groupId, items, r, editable, inner = null, top = 0) => {
+  const dayCell = (row, email, d, c, groupId, items, r, editable, inner = null, top = 0, offDay = false) => {
     const ds = isoDate(d);
     const ghost = !items.length && editable && on && email ? ghostOf(email, ds) : null;
     const handlers = on ? {
@@ -367,10 +371,12 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
     return (
       <div key={ds} data-cell={`${email}|${ds}`} data-r={r} data-c={c} data-group={groupId || undefined} data-today={ds === today ? '' : undefined} tabIndex={on ? (r === 0 && c === 0 ? 0 : -1) : undefined} role={cellRole}
         title={ghost ? `Double-click to place ${shiftShortText(ghost)}${ghost.name ? ` ${ghost.name}` : ''} (their usual hours). Shift+click opens the editor.` : undefined}
-        aria-label={`${email ? '' : 'Open shifts '}${formatDate(ds)}${items.length ? `, ${items.length} shift${items.length === 1 ? '' : 's'}` : ', empty'}`}
+        aria-label={`${email ? '' : 'Open shifts '}${formatDate(ds)}${offDay ? ', on approved time off' : ''}${items.length ? `, ${items.length} shift${items.length === 1 ? '' : 's'}` : ', empty'}`}
+        data-off-day={offDay ? '' : undefined}
         className={`sched-cell${pulseCells?.has(`${email}|${ds}`) ? ' m-pulse-cell' : ''}`} {...handlers}
         data-selected={isSel(`${email}|${ds}`) ? '' : undefined}
         style={cellStyle(row, c, d, { cursor: on && !items.length && editable ? 'pointer' : 'default', paddingTop: (compact ? 3 : PAD) + top,
+          ...(offDay ? { background: OFF_DAY_BG } : {}),
           ...(isSel(`${email}|${ds}`) ? { outline: '2px solid var(--wk-brand)', outlineOffset: -2, zIndex: 1 } : {}),
           ...(on ? dropStyle(email, ds) : {}) })}>
         {inner}
@@ -586,7 +592,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
                 </>
               );
               const top = lanesAt[c] ? lanesAt[c] * (PILL_H + PILL_GAP) : 0;
-              return dayCell(row, emp.email, d, c, g.id || '', items, r, editable, inner, top);
+              return dayCell(row, emp.email, d, c, g.id || '', items, r, editable, inner, top, dayFullyOff(offHere));
             })}
             {spans.map((s) => <TimeOffPill key={`${s.t.id || s.t.startDate}-${s.c0}`} t={s.t} days={days} c0={s.c0} n={s.n} lane={s.lane} row={row} compact={compact} onCancel={cancelOf(s.t)} />)}
           </div>
