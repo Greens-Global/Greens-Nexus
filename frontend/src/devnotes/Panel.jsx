@@ -1,7 +1,7 @@
 // The Build Mode panel: a 60vw sheet (full screen on phones) with Queue /
 // Sessions / Settings. Queue = pins grouped by Build Session with Send To
 // Claude Code at the top; Sessions = every session with its PR and a Stats
-// strip; Settings = Send Instantly, Dispatch Target, Pins On Load, Build
+// strip; Settings = Send Instantly, Where Claude Code Runs, Pins On Load, Build
 // Tokens and the watcher one-liner for VS Code.
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { X, Send, ExternalLink, Copy, Check, Loader2, Trash2, Pencil, RotateCcw, KeyRound, MessageSquare, Download, ChevronDown, Plug } from 'lucide-react';
@@ -533,10 +533,10 @@ function Tokens() {
   return (
     <section className="bm-settings-sec">
       <div className="bm-sec-title"><KeyRound size={13} /> Build Tokens</div>
-      <div className="bm-dim bm-small">A token lets the watcher in your terminal act as you for 30 days. It is shown once, right after minting.</div>
+      <div className="bm-dim bm-small">A token lets your Claude Code act as you in Build Mode - and nowhere else in Nexus. It keeps working while it is in use and stops 30 days after its last use. It is shown once, right after you make it.</div>
       <div className="bm-mint">
         <input className="bm-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label, e.g. Neil's MacBook" aria-label="Token label" onKeyDown={(e) => { if (e.key === 'Enter') mint(); }} />
-        <button type="button" className="bm-btn bm-btn-primary" onClick={mint} disabled={busy}>{busy ? <Loader2 size={14} className="bm-spin" /> : <KeyRound size={14} />} Mint Token</button>
+        <button type="button" className="bm-btn bm-btn-primary" onClick={mint} disabled={busy}>{busy ? <Loader2 size={14} className="bm-spin" /> : <KeyRound size={14} />} Make A Token</button>
       </div>
       {minted?.token && (
         <div className="bm-minted" role="status">
@@ -582,10 +582,10 @@ function SettingsTab({ settings, onSettings }) {
         <Switch label="Send Instantly" hint="On: every pin goes to Claude Code the moment you save it. Off: pins collect in your Build Session and go together when you click Done > Send To Claude Code." checked={!!settings.sendInstantly} disabled={busy === 'sendInstantly'} onChange={(v) => change({ sendInstantly: v })} />
         <Switch label="Collect Fixes Into One PR" hint={'On: Claude Code keeps every batch you send on one branch and waits in its terminal for the next one. Type "open a PR" there when you are done and all of it goes in one PR. In the cloud: each Send adds to your open Build Mode pull request instead of opening another.'} checked={!!settings.onePr} disabled={busy === 'onePr'} onChange={(v) => change({ onePr: v })} />
         <div className="bm-field-block">
-          <div className="bm-switch-label">Dispatch Target</div>
-          <div className="bm-radios" role="radiogroup" aria-label="Dispatch Target">
+          <div className="bm-switch-label">Where Claude Code Runs</div>
+          <div className="bm-radios" role="radiogroup" aria-label="Where Claude Code Runs">
             <label className="bm-radio"><input type="radio" name="bm-dispatch" checked={settings.dispatchTarget === 'cloud'} onChange={() => change({ dispatchTarget: 'cloud' }).then(() => api.devNotesClaudeConnection().then((c) => store.set({ claude: c })).catch(() => {}))} /> Claude Code In The Cloud <span className="bm-dim bm-small">- no terminal; connect it above first</span></label>
-            <label className="bm-radio"><input type="radio" name="bm-dispatch" checked={(settings.dispatchTarget || 'local') === 'local'} onChange={() => change({ dispatchTarget: 'local' }).then(() => api.devNotesClaudeConnection().then((c) => store.set({ claude: c })).catch(() => {}))} /> Local Terminal <span className="bm-dim bm-small">- the watcher running in your VS Code</span></label>
+            <label className="bm-radio"><input type="radio" name="bm-dispatch" checked={(settings.dispatchTarget || 'local') === 'local'} onChange={() => change({ dispatchTarget: 'local' }).then(() => api.devNotesClaudeConnection().then((c) => store.set({ claude: c })).catch(() => {}))} /> On My Computer <span className="bm-dim bm-small">- a VS Code terminal that waits for your pins</span></label>
             <label className="bm-radio is-disabled" title="Coming later"><input type="radio" name="bm-dispatch" disabled /> GitHub Issue <span className="bm-dim bm-small">- Coming Later</span></label>
           </div>
         </div>
@@ -599,7 +599,7 @@ function SettingsTab({ settings, onSettings }) {
       </section>
       <Tokens />
       <section className="bm-settings-sec">
-        <div className="bm-sec-title">The Watcher</div>
+        <div className="bm-sec-title">Claude Code On My Computer</div>
         <div className="bm-dim bm-small">Paste into a VS Code terminal at the repo root. It waits for pins and starts Claude Code on them in that same terminal; the token comes from <code>~/.config/nexus/build-notes.token</code> or <code>NEXUS_BUILD_TOKEN</code>.</div>
         <div className="bm-code-row"><code className="bm-code">{WATCHER_COMMAND}</code><CopyButton text={WATCHER_COMMAND} label="Copy" /></div>
       </section>

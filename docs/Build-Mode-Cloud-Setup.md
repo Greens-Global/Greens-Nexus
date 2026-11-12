@@ -101,8 +101,8 @@ token cannot be sent anywhere else. To stop: **Disconnect** in Nexus, or
 - A session that did not start says why on the pin ("Claude Code did not
   start: ...") and the pin gets **Start Claude Code** to try again. Claude
   Code allows 30 starts an hour for one scheduled task.
-- Prefer your terminal for a while? Settings > Dispatch Target > Local
-  Terminal. The trigger stays saved. A pin goes to one or the other, never
+- Prefer your terminal for a while? Settings > Where Claude Code Runs > On
+  My Computer. The trigger stays saved. A pin goes to one or the other, never
   both.
 
 ## When it does not work

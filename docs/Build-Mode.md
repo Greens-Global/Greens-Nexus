@@ -545,9 +545,10 @@ Pieces (one file each, all under `frontend/src/devnotes/`):
   (`components/StatusLabel.jsx` soft labels), thumbnail, video, thread,
   PR link, Dismiss / Reopen; "Send To Claude Code" (dispatches the
   collecting session; disabled with a hint when empty); Sessions: list with
-  PR links and status; Settings: Send Instantly switch, Dispatch Target
-  (Local Terminal; GitHub Issue shown disabled "Coming later"), Pins On Load
-  switch, Build Tokens (mint with label, copy once, revoke) and the watcher
+  PR links and status; Settings: Send Instantly switch, Where Claude Code Runs
+  (In The Cloud / On My Computer - "Dispatch Target" until 11/12/2026; GitHub
+  Issue shown disabled "Coming later"), Pins On Load
+  switch, Build Tokens (make with label, copy once, revoke) and the watcher
   one-liner to paste in VS Code;
 - `lib/capture.js` (selector, text, headings, html, fiber components via the
   `__reactFiber$` key, record ids from `data-*` and the React Query cache
@@ -998,7 +999,34 @@ ticket, and the ticket is good enough to build from:
   never a bell or an email to the requester, never a status change - the
   desk resolves the ticket.
 
-### 8.9 Not built yet
+### 8.9 The connector (Neil, 11/12/2026: "Build Mode only")
+
+`routers/build_mode_connector.py` - one MCP endpoint, `POST
+/build-connector/mcp` (Streamable HTTP, plain JSON answers, no stream, no
+session), so a developer's own Claude can read and work THEIR pins without
+the CLI. Setup and the exact command: `docs/Build-Mode-Connector.md`.
+
+- OFF until the server carries `NEXUS_BUILD_CONNECTOR=true` (404 otherwise).
+- The caller is a Build Token (`require_build_token`); no browser session,
+  no anonymous tool. A token reaches only the pins its owner sent.
+- Six tools, each a Build Mode `/cli/*` function: `my_pins`, `get_pin`,
+  `claim_pins`, `post_progress`, `reply`, `complete`. Nothing else in Nexus
+  is reachable - `test_build_mode_connector.py` pins that the file imports
+  one model (`DevNote`) and makes no outbound call. Pictures and evidence
+  stay with `cli.py`.
+- Not a Nexus AI feature: Claude calls Nexus; Nexus calls nothing.
+
+### 8.10 The terminal tools on Windows (11/12/2026)
+
+`tools/build_notes/stack.py` is the one place that knows the platform:
+`venv_python` (`Scripts/python.exe`), `node_bin` and `exe` (`.cmd` shims for
+vite / npm / npx), a new process group instead of a session, `tasklist` for
+"is it alive" (never `os.kill(pid, 0)`, which terminates a process on
+Windows), PowerShell for a command line, `taskkill /T` then `/F` to stop a
+tree. `WindowsStackTest` pins the shapes with Windows simulated - a real run
+of `preview.py` and `run_e2e.py` on a Windows laptop is still owed.
+
+### 8.11 Not built yet
 
 A preview anyone can open (a deployed branch preview) - the plan:
 https://claude.ai/artifact/WqEqnaipxNoFveELkctpPB .

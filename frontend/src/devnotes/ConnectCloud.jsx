@@ -79,7 +79,7 @@ export default function ConnectCloud({ apiBase = '' }) {
   if (status.connected) {
     return (
       <div className="bm-connect is-ok" data-testid="bm-cloud-connected">
-        <div><span className="bm-claude-dot" /> Claude Code is connected in the cloud{status.task ? ` (scheduled task ${status.task})` : ''}{status.target === 'cloud' ? ' - Send To Claude Code starts a session on your Claude subscription.' : ' - your pins go to your terminal for now (Settings > Dispatch Target).'}</div>
+        <div><span className="bm-claude-dot" /> Claude Code is connected in the cloud{status.task ? ` (scheduled task ${status.task})` : ''}{status.target === 'cloud' ? ' - Send To Claude Code starts a session on your Claude subscription.' : ' - your pins go to your terminal for now (Settings > Where Claude Code Runs).'}</div>
         {status.lastStartedAt && <div className="bm-small bm-dim">Last started {formatDateTime(status.lastStartedAt)}</div>}
         {status.lastError && <div className="bm-small" role="alert">Last try did not start: {status.lastError}</div>}
         <button type="button" className="bm-btn bm-btn-sm" onClick={disconnect} disabled={busy === 'disconnect'}>{busy === 'disconnect' ? <Loader2 size={13} className="bm-spin" /> : <Unplug size={13} />} Disconnect</button>

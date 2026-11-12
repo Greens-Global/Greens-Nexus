@@ -119,10 +119,29 @@ keep the diff minimal.
   own trigger - never add another Anthropic call beside it. The trigger
   token is encrypted, never returned, never logged; one call per Send and
   no retry (a second call is a second session on the same pins); a pin
-  goes to the cloud or to a terminal watcher, never both. Still to come,
-  each Neil's call: everyone outside IT comes in through a TICKET, never
-  straight to Claude Code (yes, 11/12/2026), and source marks on
-  production when that opens (yes, 11/12/2026).
+  goes to the cloud or to a terminal watcher, never both. Built the same day
+  (`docs/Build-Mode.md` 8.5 - 8.10), each Neil's call: **proof on the
+  pin** - a cloud session attaches the after picture and a clip
+  (`cli.py clip`, `record_clip.cjs`) and the author Accepts or Reopens on
+  the pin, no preview needed (`_checkable`); **Merge To Dev**
+  (`build_mode_merge.py`) - Super Administrators (tier 5) only, off until
+  `NEXUS_GITHUB_MERGE_TOKEN` is set, only a pin's own PR into `dev` with
+  every check green, pinned to the commit that was looked at, ONE GitHub
+  call never retried, the team-chat heads-up kept only when the merge went
+  through, a hold to confirm - never widen who may merge and never merge to
+  `main`; **everyone outside IT comes in through a TICKET**, never straight
+  to Claude Code: Point At It on Create a Ticket (`tickets/pointAtIt.js`,
+  the "Where:" line `build_mode_tickets.parse_where` reads back - change
+  both together) and Send To Claude Code on a ticket (grant holders; ONE
+  pin with its own COPIES of the pictures, so the pin's purge never takes
+  ticket evidence; the ticket hears only through its activity - never a
+  comment, a bell or a status change; never an Ask HR ticket); production
+  builds carry **source marks** (`VITE_NX_SRC` in `deploy-cloudflare.yml`
+  AND `archive-assets.yml` - the two must match); the **connector**
+  (`routers/build_mode_connector.py`, `docs/Build-Mode-Connector.md`)
+  reaches Build Mode pins ONLY, by Build Token, off until
+  `NEXUS_BUILD_CONNECTOR=true` - never add a tool that touches anything
+  else in Nexus.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,

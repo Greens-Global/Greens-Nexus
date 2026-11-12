@@ -136,7 +136,7 @@ describe('Panel', () => {
     const github = screen.getByLabelText(/GitHub Issue/);
     expect(github).toBeDisabled();
     expect(screen.getAllByText('python3 tools/build_notes/watch.py').length).toBeGreaterThan(0);
-    await screen.findByRole('button', { name: /Mint Token/ });
+    await screen.findByRole('button', { name: /Make A Token/ });
   });
 
   it('Settings tab: Collect Fixes Into One PR saves as onePr (Pranshu, Oct 27)', async () => {

@@ -5992,6 +5992,8 @@ from routers import accounting_manual_je  # noqa: E402
 app.include_router(accounting_manual_je.router)    # Accounting > Audit & Insights > Manual Journal Entries: who keyed each entry, read from Intacct (Neil + Charmi, CR-10, Oct 23 2026)
 from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere, no ALTER lines
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
+from routers import build_mode_connector as build_mode_connector_router  # noqa: E402 - no tables
+app.include_router(build_mode_connector_router.router)  # the Nexus connector for Claude: Build Mode pins only, off until NEXUS_BUILD_CONNECTOR=true (Neil, 11/12/2026)
 from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
 from routers import hr_custom_fields as hr_custom_fields_router  # noqa: E402 - new table: create_all + explicit RLS line above

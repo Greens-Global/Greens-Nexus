@@ -45,8 +45,9 @@ connected Nexus does not offer Send at all (Connect Claude Code First).
 ## Setup by hand (the older way)
 
 1. In Nexus open the profile menu (top right) > **Build Mode** > **Settings** >
-   **Build Tokens**, mint a token with a label ("Neil's MacBook") and copy it -
-   it is shown once. Tokens expire after 30 days and can be revoked there.
+   **Build Tokens**, make a token with a label ("Neil's MacBook") and copy it -
+   it is shown once. A token keeps working while it is in use, stops 30 days
+   after its last use, and can be revoked there.
 2. Save it where the tools look for it:
 
    ```
@@ -376,8 +377,8 @@ python3 tools/build_notes/cli.py verify <id> --repro-script <spec> --before fail
 - **"No Build Token found"** - save the token to
   `~/.config/nexus/build-notes.token` or export `NEXUS_BUILD_TOKEN`.
 - **"Your Build Token was revoked or expired - mint a new one in Nexus > Build
-  Mode > Settings"** - a 401. Tokens live 30 days; mint a new one and replace
-  the file.
+  Mode > Settings"** - a 401. A token stops 30 days after its last use; make
+  a new one and replace the file.
 - **"Build Mode is not enabled for you"** - a 403. Your account is not a Global
   Admin and no Access Group grants the `build-mode` module. The check runs on
   every call, so a token keeps working only while its owner has access.

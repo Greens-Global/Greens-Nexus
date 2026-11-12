@@ -17,6 +17,7 @@ import sqlite3
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -2075,3 +2076,70 @@ class ConnectTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WindowsStackTest(unittest.TestCase):
+    """The terminal tools on a Windows laptop (11/12/2026). Windows is
+    simulated here (stack.WINDOWS switched on, the commands recorded) - the
+    shapes are pinned, a real run on Windows is still the proof."""
+
+    def setUp(self):
+        from tools.build_notes import stack
+        self.stack = stack
+        self._was = stack.WINDOWS
+        stack.WINDOWS = True
+        self.ran = []
+        self.answers = {}
+        self.system = stack.System()
+
+        def run(cmd, cwd=None, env=None, check=True, timeout=None):
+            cmd = [str(c) for c in cmd]
+            self.ran.append(cmd)
+            return self.answers.get(cmd[0], (0, ""))
+
+        self.system.run = run
+
+    def tearDown(self):
+        self.stack.WINDOWS = self._was
+
+    def test_paths_and_commands_are_the_windows_ones(self):
+        root = Path("C:/code/Greens-Nexus")
+        self.assertEqual(self.stack.venv_python(root), root / "backend" / ".venv" / "Scripts" / "python.exe")
+        self.assertEqual(self.stack.node_bin(root / "frontend", "vite").name, "vite.cmd")
+        self.assertEqual(self.stack._argv(["npm", "ci"]), ["npm.cmd", "ci"])
+        self.assertEqual(self.stack._argv(["npx", "playwright", "test"]), ["npx.cmd", "playwright", "test"])
+        self.assertEqual(self.stack._argv(["git", "fetch"]), ["git", "fetch"])            # a real .exe: as it is
+        self.assertEqual(preview.frontend_command(root)[0], str(root / "frontend" / "node_modules" / ".bin" / "vite.cmd"))
+
+    def test_alive_asks_tasklist_and_never_signals_the_process(self):
+        killed = []
+        real_kill = os.kill
+        os.kill = lambda pid, sig: killed.append((pid, sig))
+        try:
+            self.answers["tasklist"] = (0, '"python.exe","4242","Console","1","52,340 K"\r\n')
+            self.assertTrue(self.system.alive(4242))
+            self.answers["tasklist"] = (0, "INFO: No tasks are running which match the specified criteria.\r\n")
+            self.assertFalse(self.system.alive(4242))
+        finally:
+            os.kill = real_kill
+        self.assertEqual(killed, [])            # os.kill(pid, 0) would have terminated it on Windows
+        self.assertEqual(self.ran[0][:3], ["tasklist", "/FI", "PID eq 4242"])
+
+    def test_terminate_takes_the_tree_then_forces_it(self):
+        self.answers["tasklist"] = (0, '"node.exe","77","Console","1","9 K"')
+        real_sleep, real_time = time.sleep, time.time
+        clock = {"t": 0.0}
+        time.sleep = lambda s: clock.__setitem__("t", clock["t"] + s)
+        time.time = lambda: clock["t"]
+        try:
+            self.system.terminate(77, timeout=1)
+        finally:
+            time.sleep, time.time = real_sleep, real_time
+        kills = [c for c in self.ran if c[0] == "taskkill"]
+        self.assertEqual(kills, [["taskkill", "/PID", "77", "/T"], ["taskkill", "/PID", "77", "/T", "/F"]])
+
+    def test_command_of_reads_the_command_line_without_ps(self):
+        self.answers["powershell"] = (0, "C:\\code\\.venv\\Scripts\\python.exe -m uvicorn main:app --port 8090\r\n")
+        self.assertIn("uvicorn main:app", self.system.command_of(4242))
+        self.assertEqual(self.ran[0][0], "powershell")
+        self.assertIn("ProcessId=4242", self.ran[0][-1])
