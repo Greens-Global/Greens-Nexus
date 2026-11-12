@@ -62,7 +62,7 @@ function exportPdf(rows, recordType, assetName) {
   const headers = keys.map(humanizeKey);
   const title = (assetName || 'Export') + ' - ' + recordType.plural;
   const bodyRows = rows.map((r) => '<tr>' + keys.map((k) => '<td>' + htmlEscape(r[k]) + '</td>').join('') + '</tr>').join('');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(title)}</title><style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:28px;color:#111}h1{font-size:17px;margin:0 0 14px}table{border-collapse:collapse;width:100%;font-size:11.5px}th,td{border:1px solid #d1d5db;padding:6px 9px;text-align:left;vertical-align:top}th{background:#f3f4f6;font-weight:700}</style></head><body><h1>${htmlEscape(
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(title)}</title><style>/* type-ok: printed page */body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:28px;color:#111}h1{font-size:17px;margin:0 0 14px}table{border-collapse:collapse;width:100%;font-size:11.5px}th,td{border:1px solid #d1d5db;padding:6px 9px;text-align:left;vertical-align:top}th{background:#f3f4f6;font-weight:700}</style></head><body><h1>${htmlEscape(
     title
   )}</h1><table><thead><tr>${headers.map((h) => '<th>' + htmlEscape(h) + '</th>').join('')}</tr></thead><tbody>${bodyRows}</tbody></table></body></html>`;
   const win = window.open('', '_blank');
@@ -179,10 +179,10 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
             style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', color: 'inherit', userSelect: 'none' }}
           >
             <ChevronDown size={18} aria-hidden="true" style={{ color: 'var(--text-secondary)', transition: 'transform 0.2s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }} />
-            <strong style={{ fontSize: '1rem' }}>{recordType.plural}</strong>
+            <strong style={{ fontSize: 15 }}>{recordType.plural}</strong>
           </button>
         ) : (
-          <strong style={{ fontSize: '1rem' }}>{recordType.plural}</strong>
+          <strong style={{ fontSize: 15 }}>{recordType.plural}</strong>
         )}
 
         {/* The export menu is an AnchoredMenu: closes on Escape and on a tap
@@ -197,7 +197,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
             aria-expanded={exportOpen}
             onClick={() => setExportOpen((v) => !v)}
             title="Export this list"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', fontSize: '0.8rem', opacity: displayRows.length ? 1 : 0.5 }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', fontSize: 13, opacity: displayRows.length ? 1 : 0.5 }}
           >
             <Download size={14} /> Export <ChevronDown size={13} style={{ opacity: 0.7 }} />
           </button>
@@ -212,7 +212,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
           <button
             className="primary-btn"
             onClick={() => onAdd()}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: '0.8rem' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 13 }}
           >
             <Plus size={14} /> Add
           </button>
@@ -235,7 +235,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                 backgroundColor: 'var(--bg-secondary)',
               }}
             >
-              <span style={{ fontSize: '1.05rem', flexShrink: 0 }}>{'\u{1F6E0}️'}</span>
+              <span style={{ fontSize: 18, flexShrink: 0 }}>{'\u{1F6E0}️'}</span>
               <input
                 className="form-input"
                 value={quickText}
@@ -244,7 +244,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                   if (e.key === 'Enter') submitQuickAdd();
                 }}
                 placeholder={quickAdd.placeholder}
-                style={{ flex: '1 1 240px', fontSize: '0.85rem' }}
+                style={{ flex: '1 1 240px', fontSize: 13 }}
               />
               <input
                 type="date"
@@ -252,13 +252,13 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                 value={quickDate}
                 onChange={(e) => setQuickDate(e.target.value)}
                 title="Date"
-                style={{ fontSize: '0.82rem', width: 146, flexShrink: 0 }}
+                style={{ fontSize: 13, width: 146, flexShrink: 0 }}
               />
               <button
                 className="primary-btn"
                 disabled={!quickText.trim()}
                 onClick={submitQuickAdd}
-                style={{ fontSize: '0.82rem', padding: '8px 16px', flexShrink: 0, opacity: quickText.trim() ? 1 : 0.5 }}
+                style={{ fontSize: 13, padding: '8px 16px', flexShrink: 0, opacity: quickText.trim() ? 1 : 0.5 }}
               >
                 {quickAdd.button}
               </button>
@@ -272,7 +272,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                   key={label}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}
                 >
-                  <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{value}</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, fontSize: 18, color: 'var(--text-primary)' }}>{value}</span>
                   <span style={LABEL_STYLE}>{label}</span>
                 </div>
               ))}
@@ -281,7 +281,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
 
           {displayRows.length ? (
             <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', overflowX: 'auto' }}>
-              <table className="coll-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+              <table className="coll-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr>
                     {leadColumn && (
@@ -363,7 +363,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                                 {sub ? <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 1 }}>{sub}</div> : null}
                               </>
                             ) : col.mono ? (
-                              <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: '0.8rem' }}>{col.mono(row, active)}</span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{col.mono(row, active)}</span>
                             ) : col.chip ? (
                               chip
                             ) : (

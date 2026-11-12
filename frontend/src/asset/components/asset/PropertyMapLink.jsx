@@ -133,7 +133,7 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '0.72rem',
+              fontSize: 12,
               fontWeight: 700,
               color: '#fff',
               backgroundColor: 'var(--pine)',
@@ -142,11 +142,11 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
             {number}
           </span>
         )}
-        <strong style={{ fontSize: '0.95rem' }}>Map</strong>
+        <strong style={{ fontSize: 15 }}>Map</strong>
         {customLink && open && (
           <span
             style={{
-              fontSize: '0.7rem',
+              fontSize: 11,
               fontWeight: 700,
               color: 'hsl(var(--color-green))',
               backgroundColor: 'hsl(var(--color-green) / 0.12)',
@@ -180,7 +180,7 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
             const value = e.target.value.trim();
             if (value !== customLink) onSave({ 'Google Maps Link': value });
           }}
-          style={{ width: '100%', fontSize: '0.76rem', padding: '5px 10px', marginBottom: 10 }}
+          style={{ width: '100%', fontSize: 12, padding: '5px 10px', marginBottom: 10 }}
         />
       )}
 
@@ -199,16 +199,16 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
               target="_blank"
               rel="noreferrer"
               className="secondary-btn"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', fontSize: '0.78rem', padding: '5px 12px' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', fontSize: 13, padding: '5px 12px' }}
             >
               <MapPin size={14} />
               Open in Google Maps
             </a>
-            <button className="secondary-btn" onClick={() => setFullscreen(true)} style={{ fontSize: '0.78rem', padding: '5px 12px' }}>
+            <button className="secondary-btn" onClick={() => setFullscreen(true)} style={{ fontSize: 13, padding: '5px 12px' }}>
               ⤢ Expand
             </button>
             {(customLink ? !customEmbedUrl : true) && (
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                 {customLink
                   ? 'Showing the area - paste a full maps.google.com link (with the @lat,lng) to drop the pin exactly; your link still powers Open in Google Maps'
                   : 'Paste a Google Maps link above to drop the pin exactly.'}
@@ -226,7 +226,7 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
             alignItems: 'center',
             justifyContent: 'center',
             color: 'var(--text-secondary)',
-            fontSize: '0.82rem',
+            fontSize: 13,
             backgroundColor: 'var(--bg-secondary)',
           }}
         >
@@ -248,20 +248,20 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12, color: '#fff' }}>
-            <strong style={{ fontSize: '1rem' }}>{asset.name || 'Map'}</strong>
+            <strong style={{ fontSize: 15 }}>{asset.name || 'Map'}</strong>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
               <a
                 href={openUrl}
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                style={{ color: '#fff', fontSize: '0.82rem', textDecoration: 'underline' }}
+                style={{ color: '#fff', fontSize: 13, textDecoration: 'underline' }}
               >
                 Open in Google Maps
               </a>
               <button
                 onClick={() => setFullscreen(false)}
-                style={{ border: 'none', background: 'rgba(255,255,255,0.18)', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: '0.85rem' }}
+                style={{ border: 'none', background: 'rgba(255,255,255,0.18)', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}
               >
                 Close <X size={14} style={{ verticalAlign: '-2px' }} />
               </button>

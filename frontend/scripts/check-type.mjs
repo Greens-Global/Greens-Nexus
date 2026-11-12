@@ -4,7 +4,8 @@
 // Every text size is one of the sizes in src/lib/typeScale.js (FS / the
 // --fs-* tokens in style.css). This counts the sizes that are NOT on the
 // scale - inline `fontSize: 12.5`, `fontSize: '0.78rem'`, CSS `font-size:
-// 12.5px` and the `font: 600 12.5px ...` shorthand, in .js / .jsx / .css -
+// 12.5px` and the `font: 600 12.5px ...` shorthand, both sides of a
+// `fontSize: a ? 12 : 13` conditional, in .js / .jsx / .css -
 // and fails when a file has more than its baseline. rem is read at the 16px
 // root; em depends on its parent and is not judged.
 //
@@ -15,7 +16,10 @@
 // `node scripts/check-type.mjs --update` to lower the baseline.
 //
 // A size that must stay off the scale carries `type-ok: <why>` in a comment
-// on the same line (the 16px phone form fields that stop iOS zooming in).
+// on the same line (the 16px phone form fields that stop iOS zooming in). A
+// file that builds a PRINTED page (an A4 report, a print view) carries
+// `type-ok-file: <why>` once - paper has its own sizes; the scale is for
+// screens.
 //
 // `node scripts/check-type.mjs --report` lists what is left, by module.
 import { readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
@@ -29,10 +33,14 @@ const BASELINE = fileURLToPath(new URL('./type-guard-baseline.json', import.meta
 // The scale itself.
 const ALLOWED = new Set(['lib/typeScale.js']);
 
+// Each pattern with the [value, unit] pairs it captures.
+const NUM = String.raw`(['"\`]?)(\d*\.?\d+)(px|rem|em)?`;
 const PATTERNS = [
-  /fontSize\s*:\s*(['"`]?)(\d*\.?\d+)(px|rem|em)?\1/g,
-  /font-size\s*:\s*(\d*\.?\d+)(px|rem|em)\b/g,
-  /\bfont\s*:\s*(?:(?:[a-z-]+|\d{3})\s+)*(\d*\.?\d+)(px|rem|em)\b/g,
+  [/fontSize\s*:\s*(['"`]?)(\d*\.?\d+)(px|rem|em)?\1/g, (m) => [[m[2], m[3]]]],
+  // fontSize: big ? '1rem' : '0.82rem' - both sides.
+  [new RegExp(String.raw`fontSize\s*:\s*[^?,}\n]+\?\s*${NUM}\1\s*:\s*${NUM}\4`, 'g'), (m) => [[m[2], m[3]], [m[5], m[6]]]],
+  [/font-size\s*:\s*(\d*\.?\d+)(px|rem|em)\b/g, (m) => [[m[1], m[2]]]],
+  [/\bfont\s*:\s*(?:(?:[a-z-]+|\d{3})\s+)*(\d*\.?\d+)(px|rem|em)\b/g, (m) => [[m[1], m[2]]]],
 ];
 
 function px(value, unit) {
@@ -54,15 +62,17 @@ function walk(dir, out = []) {
 // Every off-scale size in a file: [{ line, size }].
 function offScale(text) {
   const hits = [];
+  if (text.includes('type-ok-file:')) return hits;
   text.split('\n').forEach((line, i) => {
     if (line.includes('type-ok')) return;
-    for (const re of PATTERNS) {
+    for (const [re, pairs] of PATTERNS) {
       re.lastIndex = 0;
       let m;
       while ((m = re.exec(line))) {
-        const [value, unit] = re === PATTERNS[0] ? [m[2], m[3]] : [m[1], m[2]];
-        const size = px(value, unit);
-        if (size !== null && !onScale(size)) hits.push({ line: i + 1, size });
+        for (const [value, unit] of pairs(m)) {
+          const size = px(value, unit);
+          if (size !== null && !onScale(size)) hits.push({ line: i + 1, size });
+        }
       }
     }
   });

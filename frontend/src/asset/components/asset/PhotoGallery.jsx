@@ -153,7 +153,7 @@ export function PhotoGallery({ p, n, onSave }) {
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '0.72rem',
+              fontSize: 12,
               fontWeight: 700,
               color: '#fff',
               backgroundColor: 'var(--pine)',
@@ -162,7 +162,7 @@ export function PhotoGallery({ p, n, onSave }) {
             {n}
           </span>
         )}
-        <strong style={{ fontSize: '0.95rem' }}>
+        <strong style={{ fontSize: 15 }}>
           Media {images.length > 0 && `(${images.length})`}
         </strong>
         <ChevronDown
@@ -182,7 +182,7 @@ export function PhotoGallery({ p, n, onSave }) {
             onClick={startEdit}
             style={{
               padding: '4px 12px',
-              fontSize: '0.76rem',
+              fontSize: 12,
               color: 'hsl(var(--color-blue))',
               borderColor: 'hsl(var(--color-blue))',
               backgroundColor: 'hsl(var(--color-blue) / 0.08)',
@@ -287,7 +287,7 @@ export function PhotoGallery({ p, n, onSave }) {
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: 'var(--text-secondary)',
-                fontSize: '0.82rem',
+                fontSize: 13,
                 backgroundColor: 'var(--bg-secondary)',
               }}
             >
@@ -301,9 +301,9 @@ export function PhotoGallery({ p, n, onSave }) {
                 <Upload size={14} /> Upload Pictures
                 <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleUpload} />
               </label>
-              <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
               {skipNote && (
-                <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))' }}>{skipNote}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-red))' }}>{skipNote}</span>
               )}
               <button
                 className="secondary-btn"

@@ -18,20 +18,20 @@ function FlagRow({ flag, onOpen, onClearFlag, onPushFix }) {
     <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 7 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{
-          fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+          fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
           color: 'hsl(var(--color-orange))', backgroundColor: 'hsla(var(--color-orange), 0.14)', whiteSpace: 'nowrap',
         }}>
           {flag.reason || 'Needs review'}
         </span>
-        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {flag.g} · {flag.f}
         </span>
       </div>
 
-      <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
         <button
           onClick={() => onOpen && onOpen(flag.pid)}
-          style={{ border: 'none', background: 'none', padding: 0, color: 'hsl(var(--color-blue))', cursor: 'pointer', fontWeight: 600, fontSize: '0.74rem' }}
+          style={{ border: 'none', background: 'none', padding: 0, color: 'hsl(var(--color-blue))', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}
         >
           {flag.name}
         </button>
@@ -44,19 +44,19 @@ function FlagRow({ flag, onOpen, onClearFlag, onPushFix }) {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Correct value…"
-          style={{ flex: '1 1 200px', fontSize: '0.82rem' }}
+          style={{ flex: '1 1 200px', fontSize: 13 }}
         />
         <button
           className="primary-btn"
           onClick={() => onPushFix && onPushFix(flag.pid, flag.g, flag.f, draft)}
-          style={{ fontSize: '0.76rem', padding: '6px 13px', flexShrink: 0 }}
+          style={{ fontSize: 12, padding: '6px 13px', flexShrink: 0 }}
         >
           Push Fix
         </button>
         <button
           className="secondary-btn"
           onClick={() => onClearFlag && onClearFlag(flag.pid, flag.g, flag.f)}
-          style={{ fontSize: '0.76rem', padding: '6px 13px', flexShrink: 0 }}
+          style={{ fontSize: 12, padding: '6px 13px', flexShrink: 0 }}
         >
           Resolve
         </button>
@@ -96,9 +96,9 @@ export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix
     <div style={{ marginBottom: 18, border: '1px solid var(--border-color)', borderRadius: 12, backgroundColor: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
         <Flag size={16} style={{ color: 'hsl(var(--color-orange))' }} />
-        <strong style={{ fontSize: '0.95rem' }}>Flagged for Review</strong>
+        <strong style={{ fontSize: 15 }}>Flagged for Review</strong>
         <span style={{
-          marginLeft: 'auto', fontSize: '0.72rem', fontWeight: 700,
+          marginLeft: 'auto', fontSize: 12, fontWeight: 700,
           color: flags.length ? 'hsl(var(--color-orange))' : 'var(--text-muted)',
           backgroundColor: flags.length ? 'hsla(var(--color-orange), 0.12)' : 'var(--bg-secondary)',
           padding: '2px 9px', borderRadius: 999,
@@ -117,7 +117,7 @@ export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix
           ))}
         </div>
       ) : (
-        <div style={{ padding: '18px 16px', fontSize: '0.82rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+        <div style={{ padding: '18px 16px', fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center' }}>
           No fields flagged for review. On any asset's overview, use the flag beside a field to flag it and pick a reason - it will appear here, editable and ready to push a fix.
         </div>
       )}

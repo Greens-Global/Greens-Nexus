@@ -65,7 +65,7 @@ export function SyncStatus() {
         backgroundColor: 'var(--bg-card)',
         border: '1px solid var(--border-color)',
         boxShadow: 'var(--shadow-sm)',
-        fontSize: '0.72rem',
+        fontSize: 12,
         fontWeight: 600,
         color: state === 'saved' ? 'var(--text-muted)' : `hsl(var(--color-${cfg.color}))`,
         opacity: state === 'saved' ? 0.72 : 1,

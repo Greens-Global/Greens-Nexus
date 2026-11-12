@@ -37,7 +37,7 @@ export function TimelineTracker({ rows }) {
 
   return (
     <Card>
-      <strong style={{ fontSize: '0.95rem' }}>Phase Progress</strong>
+      <strong style={{ fontSize: 15 }}>Phase Progress</strong>
       <div style={{ display: 'flex', alignItems: 'flex-start', marginTop: 16, overflowX: 'auto', paddingBottom: 6 }}>
         {phases.map((phase, idx) => {
           const tone = phaseTone(phase);
@@ -69,16 +69,16 @@ export function TimelineTracker({ rows }) {
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: tone === 'mut' ? 'var(--text-muted)' : '#fff',
-                  fontSize: '0.72rem',
+                  fontSize: 12,
                   fontWeight: 700,
                 }}
               >
                 {phase.done === phase.total ? <Check size={13} /> : phase.active ? <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} /> : ''}
               </div>
-              <div style={{ fontSize: '0.72rem', fontWeight: 600, textAlign: 'center', marginTop: 7, color: 'var(--text-primary)', lineHeight: 1.2 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, textAlign: 'center', marginTop: 7, color: 'var(--text-primary)', lineHeight: 1.2 }}>
                 {phase.name}
               </div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
                 {phase.done}/{phase.total} done
               </div>
             </div>

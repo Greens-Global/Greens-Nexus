@@ -12,7 +12,8 @@
 //
 // A size that must stay off the scale (the 16px phone form fields that stop
 // iOS zooming the page, a wall clock, a hero number) carries `type-ok: <why>`
-// in a comment on the same line.
+// in a comment on the same line. A file that builds a PRINTED page (an A4
+// report) carries `type-ok-file: <why>` once - paper has its own sizes.
 
 export const FS = Object.freeze({
   meta:    11,   // timestamps, counts, fine print

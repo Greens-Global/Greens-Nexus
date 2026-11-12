@@ -54,14 +54,14 @@ export function ManageUnitsModal({ units, onSave, onClose }) {
         </>
       }
     >
-      <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 14 }}>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
         Add each suite or unit in this property. Maintenance can then be logged and filtered per unit, plus a shared Common Areas bucket.
       </div>
 
       {list.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '28px 20px', borderRadius: 12, border: '1px dashed var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-          <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-primary)' }}>No units yet</div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center' }}>No units yet - add Suite 100 to start.</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>No units yet</div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center' }}>No units yet - add Suite 100 to start.</div>
           <div style={{ width: '100%', maxWidth: 420 }}>{addRow}</div>
         </div>
       ) : (
@@ -69,7 +69,7 @@ export function ManageUnitsModal({ units, onSave, onClose }) {
           <ul aria-label="Units" style={{ listStyle: 'none', margin: '0 0 12px', padding: 0, border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
             {list.map((u, ix) => (
               <li key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px 7px 12px', borderTop: ix ? '1px solid var(--border-color)' : 'none' }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.label}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.label}</span>
                 <button
                   type="button"
                   onClick={() => setList((l) => l.filter((x, i) => i !== ix))}
