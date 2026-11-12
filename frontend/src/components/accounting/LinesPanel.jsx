@@ -169,7 +169,7 @@ export default function LinesPanel({ title, caption = '', queries, report = null
           )
         )}
       </SidePanel>
-      {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+      {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
     </>
   );
 }

@@ -363,7 +363,7 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
         )}
       </aside>
       {/* Its own clicks stay inside it: the panel behind must not close. */}
-      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} /></div>}
+      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel /></div>}
     </div>
   );
 }

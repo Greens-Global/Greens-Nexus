@@ -1344,7 +1344,7 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
           </div>
         )}
       </div>
-      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} /></div>}
+      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel /></div>}
     </div>
   );
 }
