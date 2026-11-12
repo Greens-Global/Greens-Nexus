@@ -55,6 +55,19 @@ describe('MyBriefing', () => {
     expect(screen.getAllByText('Toggle Completion')).toHaveLength(1);
   });
 
+  it('gives a Time Sheet row one solid button in place of Open (11/12/2026)', async () => {
+    getMyBriefing.mockResolvedValue({ ...BRIEFING, sections: [{ key: 'action_required', label: 'Action Required', rows: [
+      { title: 'Submit Your Time Sheet', detail: 'Pay period 11/01/2026 - 11/14/2026 ended Saturday', module: 'timecard',
+        path: '/timeclock/timesheet?start=2026-11-01&type=hourly&do=submit', comments: [],
+        cta: { label: 'Review and Submit', path: '/timeclock/timesheet?start=2026-11-01&type=hourly&do=submit' } },
+    ] }] });
+    render(<MyBriefing />);
+    const btn = await screen.findByText('Review and Submit');
+    expect(btn.getAttribute('href')).toBe('/timeclock/timesheet?start=2026-11-01&type=hourly&do=submit');
+    expect(screen.queryByText('Open')).toBeNull();
+    expect(screen.getByText('Time Sheet')).toBeTruthy();
+  });
+
   it('shows a friendly empty state', async () => {
     getMyBriefing.mockResolvedValue({ ...BRIEFING, sections: [] });
     render(<MyBriefing />);

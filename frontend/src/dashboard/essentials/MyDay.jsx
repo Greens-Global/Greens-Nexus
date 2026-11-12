@@ -55,7 +55,10 @@ export function targetFor(path) {
   const raw = segs[0] || 'dashboard';
   const params = new URLSearchParams(query);
   if (raw === 'tasks' && segs[1] === 'tickets') return { view: 'tickets', sub: null, taskId: '', ticketId: params.get('ticket') || '' };
-  return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null, taskId: params.get('task') || '', ticketId: params.get('ticket') || '' };
+  // A Time Sheet link names its period (and, for a manager, whose card):
+  // ?timecard / start / type, plus do=submit for Review and Submit (11/12/2026).
+  const sheet = params.get('start') ? { start: params.get('start'), payType: params.get('type') || '', timecard: params.get('timecard') || '', submit: params.get('do') === 'submit' } : {};
+  return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null, taskId: params.get('task') || '', ticketId: params.get('ticket') || '', ...sheet };
 }
 
 function classify(r) {
@@ -88,6 +91,9 @@ function datesIn(text) {
 // period closing today are due today; a report's time off that has already
 // started is due today, and one that has already ended is overdue.
 export function urgencyOf(r, now = new Date()) {
+  // The server says so outright for a Time Sheet row (11/12/2026).
+  if (r.urgency === 'overdue') return OVERDUE;
+  if (r.urgency === 'today') return DUE_TODAY;
   const detail = r.detail || '';
   if (/overdue|is closed/i.test(detail)) return OVERDUE;
   if (/^Due today/i.test(detail)) return DUE_TODAY;
@@ -124,7 +130,7 @@ export function buildMyDayRows(data, now = new Date()) {
   const rows = [];
   (section?.rows || []).forEach((r, i) => {
     const stamp = r.createdAt || r.since || r.at || '';
-    const base = { module: r.module || 'other', title: r.title || '', path: r.path || '', taskId: r.taskId || '', stamp, order: i };
+    const base = { module: r.module || 'other', title: r.title || '', path: r.cta?.path || r.path || '', taskId: r.taskId || '', stamp, order: i };
     if (r.subDecisions?.length) {
       r.subDecisions.forEach((d, j) => rows.push({
         ...base, id: `d-${d.id}`, kind: 'approval', Icon: KIND_ICON.approval, detail: d.detail || '',
@@ -137,7 +143,9 @@ export function buildMyDayRows(data, now = new Date()) {
     rows.push({
       ...base, kind, Icon: KIND_ICON[kind] || ArrowRight, detail: r.detail || '',
       id: r.decision ? `d-${r.decision.id}` : r.taskId ? `t-${r.taskId}` : `${base.module}-${i}-${base.title}`,
-      decision: r.decision || null, action: actionFor(kind), urgency: urgencyOf(r, now),
+      decision: r.decision || null, urgency: urgencyOf(r, now),
+      // A row's own button label (Review and Submit, Sign Time Sheet ...) wins.
+      action: r.cta?.label && !r.decision ? { type: 'nav', label: r.cta.label } : actionFor(kind),
     });
   });
   return rows
@@ -239,6 +247,9 @@ export default function MyDay({ phone }) {
     if (t) navigate(t.view, t.sub);
     if (row.taskId) openNotificationTarget({ taskId: row.taskId });
     else if (t?.ticketId) openNotificationTarget({ ticketId: t.ticketId });
+    // A Time Sheet on its period - the query was dropped by navigate().
+    else if (t?.timecard) openNotificationTarget({ timecard: t.timecard, start: t.start, payType: t.payType });
+    else if (t?.start && t.view === 'timeclock') openNotificationTarget({ view: 'timeclock', start: t.start, payType: t.payType, submit: t.submit });
   };
 
   const act = async (row, payload) => {

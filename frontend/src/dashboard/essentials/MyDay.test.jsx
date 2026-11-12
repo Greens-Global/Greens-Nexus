@@ -84,6 +84,18 @@ describe('buildMyDayRows', () => {
     expect(split[0].meta).toBe('10/20/2026 - 10/21/2026 (Vacation)');
   });
 
+  it('takes a Time Sheet row\'s button and urgency from the server (11/12/2026)', () => {
+    const submitRow = { title: 'Submit Your Time Sheet', detail: 'Pay period 09/20/2026 - 10/03/2026 ended Saturday - 80h 00m worked.', module: 'timecard',
+      path: '/timeclock/timesheet?start=2026-09-20&type=hourly&do=submit', urgency: 'overdue',
+      cta: { label: 'Review and Submit', path: '/timeclock/timesheet?start=2026-09-20&type=hourly&do=submit' } };
+    const [row] = buildMyDayRows(briefing([submitRow]), NOW);
+    expect(row.action).toEqual({ type: 'nav', label: 'Review and Submit' });
+    expect(row.urgency).toBe(OVERDUE);
+    expect(urgencyOf({ urgency: 'today', detail: '' }, NOW)).toBe(DUE_TODAY);
+    expect(targetFor(row.path)).toMatchObject({ view: 'timeclock', sub: 'timesheet', start: '2026-09-20', payType: 'hourly', submit: true });
+    expect(targetFor('/hr/hr-time?timecard=a%40x.com&start=2026-09-20&type=hourly')).toMatchObject({ view: 'hr', sub: 'hr-time', timecard: 'a@x.com', start: '2026-09-20' });
+  });
+
   it('maps the briefing paths onto the app views', () => {
     expect(targetFor('/tasks/mine?task=t1')).toMatchObject({ view: 'tasks', sub: 'mine', taskId: 't1' });
     expect(targetFor('/tickets?ticket=tk1')).toMatchObject({ view: 'tickets', sub: null, ticketId: 'tk1' });
