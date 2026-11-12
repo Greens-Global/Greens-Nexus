@@ -10302,3 +10302,29 @@ class TaskProjectBaseline(Base):
     taken_at   = Column(String, default="")
     taken_by   = Column(String, default="")
     snapshot   = Column(JSON, default=list)   # [{id, title, start, due, assignee}]
+
+
+# ── Meeting Notes (Neil, 11/12/2026, routers/meetings.py) ───────────────────
+class NexusMeetingNote(Base):
+    """Which Notes note is a person's notes for which Teams meeting. LINKS
+    only (Neil, 11/12/2026): the transcript and the recording stay in Teams
+    and are read through Graph each time; nothing of them is kept here. One
+    row per person per meeting occurrence (iCalUId is the same on every
+    invitee's calendar and differs per occurrence of a series). The invite's
+    organizer and attendees are copied at creation - they are who may read
+    the transcript through the note. New table - explicit RLS line in
+    main.py's Postgres list, on top of the _enable_rls_everywhere sweep."""
+    __tablename__ = "nexus_meeting_notes"
+    __table_args__ = (UniqueConstraint("owner_email", "ical_uid", name="ux_nexus_meeting_notes_owner_uid"),)
+    id          = Column(String, primary_key=True)          # mtg_ + hex
+    note_id     = Column(String, default="", index=True)
+    owner_email = Column(String, nullable=False, index=True)
+    ical_uid    = Column(String, nullable=False, index=True)
+    event_id    = Column(String, default="")                # the owner's own calendar event
+    join_url    = Column(Text, default="")
+    organizer   = Column(String, default="")
+    subject     = Column(String, default="")
+    start_at    = Column(String, default="")                # ISO UTC
+    end_at      = Column(String, default="")
+    attendees   = Column(Text, default="[]")                # JSON [{email, name}]
+    created_at  = Column(String, default="")

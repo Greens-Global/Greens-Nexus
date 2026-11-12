@@ -30,6 +30,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { buildExtensions } from './noteExtensions';
+import { meetingClockKey } from './meetings/meetingClock';
 import {
   Undo2, Redo2, Bold, Italic, Underline, Strikethrough, Highlighter, Code, Heading1, Heading2, Heading3,
   List, ListOrdered, ListChecks, IndentIncrease, IndentDecrease, Quote, SquareCode, AlignLeft, AlignCenter,
@@ -189,7 +190,7 @@ function MediaStatus({ voice, dictation, busy, error, onDismiss }) {
 export default function NoteEditor({
   value, onChange, readOnly = false, people, placeholder = "Write anything. Type / for blocks, @ to mention someone, [[ to link a record.",
   onMakeTask, autoFocus = false, toolbar = true, compact = false, onBusy, collab = null, onRemoteChange, noteId = '',
-  starters = true,
+  starters = true, meeting = null,
 }) {
   const [menu, setMenu] = useState(null);   // { kind: 'slash'|'mention'|'record', query, from, index }
   const [link, setLink] = useState(null);   // { href } while the link bar is open
@@ -272,6 +273,16 @@ export default function NoteEditor({
   });
 
   useEffect(() => { if (editor && !editor.isDestroyed) editor.setEditable(!readOnly); }, [editor, readOnly]);
+
+  // Meeting Notes (11/12/2026, meetings/meetingClock.js): a meeting note's
+  // lines are stamped with the time they were written and show it; the
+  // clock reads someone else's live typing as theirs, never stamping it.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !editor.storage.meetingClock) return;
+    editor.storage.meetingClock.meeting = meeting;
+    editor.storage.meetingClock.isRemote = (tr) => !!collabRef.current?.isRemote(tr);
+    editor.view.dispatch(editor.state.tr.setMeta(meetingClockKey, 'refresh'));
+  }, [editor, meeting]);
 
   // Whether the person is in the note (the phone bar shows while they are).
   // A short grace on blur: tapping a bar button must not flicker it away.

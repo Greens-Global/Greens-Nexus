@@ -14,7 +14,7 @@ import {
   ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
   Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, Link as LinkIcon, Palette,
   RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, PenTool, Image as ImageIcon, FileCode2, Copy, FileJson,
-  Paperclip, ExternalLink, ArrowLeft, Presentation, ListTree, LayoutTemplate, Pencil, FolderOpen,
+  Paperclip, ExternalLink, ArrowLeft, Presentation, ListTree, LayoutTemplate, Pencil, FolderOpen, Video,
 } from 'lucide-react';
 import { dialog } from '../ui/dialog';
 import { api } from '../api';
@@ -50,6 +50,9 @@ import {
   countWords, editedLabel, htmlToMarkdown, markdownToHtml, exportFileName, downloadText, printNote, rememberLastNote, quickNoteKeys,
   noteHeadings, personShort,
 } from './notesModel';
+import MeetingsSheet from './meetings/MeetingsSheet';
+import { MeetingBand, TranscriptView, isMeetingNote, useMeetingOfNote } from './meetings/MeetingBand';
+import { meetingTimes } from './meetings/meetingModel';
 import './notes.css';
 
 // The whiteboard engine (board/Board.jsx, Neil 11/02/2026) is its own chunk,
@@ -537,6 +540,16 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
 
   useEffect(() => { if (id) rememberLastNote(id); }, [id]);
   useEffect(() => { setMenu(''); }, [id]);
+  // Meeting Notes (Neil, 11/12/2026, meetings/): a note taken for a Teams
+  // meeting carries the meeting band, the clock on its lines and the
+  // transcript beside it. `tx.at` is the moment a stamped line points at.
+  const meetingNote = isMeetingNote(note);
+  const meeting = useMeetingOfNote(id, meetingNote);
+  const [tx, setTx] = useState({ open: false, at: 0, seq: 0 });
+  useEffect(() => { setTx({ open: false, at: 0, seq: 0 }); }, [id]);
+  const jumpTo = useCallback((at) => setTx((t) => ({ open: true, at, seq: t.seq + 1 })), []);
+  const clock = useMemo(() => (meeting ? { ...meetingTimes(meeting), onJump: meeting.invited ? jumpTo : null } : null), [meeting, jumpTo]);
+  const txFocus = useMemo(() => (tx.at ? { at: tx.at, seq: tx.seq } : null), [tx.at, tx.seq]);
   // A brand-new note starts in its title.
   useEffect(() => {
     if (note && !note.title && !note.preview && note.mine && !note.trashedAt && note.kind !== 'daily') titleRef.current?.focus();
@@ -852,6 +865,15 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
 
           {!board && tagEditor}
 
+          {meetingNote && (
+            <MeetingBand note={note} meeting={meeting} people={people} myEmail={myEmail} toast={toast}
+              transcriptOpen={tx.open} onTranscript={() => setTx((t) => ({ ...t, open: !t.open }))}
+              onShared={(n) => { sync.replace(n); onSaved?.(n); }} />
+          )}
+          {meetingNote && isPhone && tx.open && (
+            <TranscriptView inline noteId={note.id} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))} />
+          )}
+
           {trashed && (
             <div className="nt-banner is-bad" role="status">
               <span className="nt-banner-text">This note is in the Trash. Restore it to edit it again.</span>
@@ -887,11 +909,11 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
             : collab.phase === 'ready'
               ? (
                 <LiveBoundary key={`live:${collab.epoch}`} onCrash={collab.fail}>
-                  <NoteEditor collab={collab} readOnly={readOnly} people={people} noteId={note.id}
+                  <NoteEditor collab={collab} readOnly={readOnly} people={people} noteId={note.id} meeting={clock} starters={!meetingNote}
                     onChange={(html) => sync.edit({ body: html })} onRemoteChange={sync.seeRemote} onMakeTask={readOnly ? undefined : makeTask} />
                 </LiveBoundary>
               )
-              : <NoteEditor key="saved" value={note.body || ''} readOnly={readOnly} people={people} noteId={note.id}
+              : <NoteEditor key="saved" value={note.body || ''} readOnly={readOnly} people={people} noteId={note.id} meeting={clock} starters={!meetingNote}
                   onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : makeTask} />}
           {/* The other notes that link here with [[ (Record Links, 11/06/2026); nothing when none. */}
           {!board && !trashed && (
@@ -918,7 +940,14 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
   }
   return (
     <div className="nt-pane">
-      <div className="nt-pane-scroll">{doc}</div>
+      {meetingNote ? (
+        // A meeting note: the transcript sits beside the note (one wrapper for
+        // the note's whole life, so opening it never remounts the editor).
+        <div className="nt-pane-row">
+          <div className="nt-pane-scroll">{doc}</div>
+          {tx.open && <TranscriptView noteId={note.id} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))} />}
+        </div>
+      ) : <div className="nt-pane-scroll">{doc}</div>}
       {dialogs}
     </div>
   );
@@ -1038,6 +1067,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
   // New From Template (11/06/2026): a note from a starter (noteTemplates.js)
   // or a copy of one of the person's own template notes.
   const [pickingNoteTpl, setPickingNoteTpl] = useState(false);
+  // Meetings (Neil, 11/12/2026): the day's Teams meetings; a pick opens its note.
+  const [meetingsOpen, setMeetingsOpen] = useState(false);
+  const openedMeeting = async (noteId, created) => {
+    setMeetingsOpen(false);
+    if (created) await load();
+    select(noteId);
+  };
   const startNoteTemplate = async (key) => {
     setPickingNoteTpl(false);
     const t = noteTemplate(key);
@@ -1163,6 +1199,9 @@ export default function NotesPage({ activeSub, onSubChange }) {
             <input ref={fileRef} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden
               onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ''; }} />
             {isPhone
+              ? <button type="button" className="nt-icon-btn" aria-label="Meetings" title="Meetings" onClick={() => setMeetingsOpen(true)}><Video size={17} /></button>
+              : <button type="button" className="nt-text-btn" onClick={() => setMeetingsOpen(true)} title="Your Teams meetings - take notes beside the transcript"><Video size={15} /> Meetings</button>}
+            {isPhone
               ? <button type="button" className="nt-icon-btn" aria-label="New Board" title="New Board" onClick={newBoard}><PenTool size={17} /></button>
               : <button type="button" className="nt-text-btn is-board-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
             {isPhone
@@ -1263,6 +1302,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
       {toastNode}
       {showPicker && <TemplatePicker onPick={startBoard} onPickBoard={startFromBoard} onClose={closePicker} />}
       {pickingNoteTpl && <NoteTemplatePicker onPick={startNoteTemplate} onPickNote={startFromNote} onClose={() => setPickingNoteTpl(false)} />}
+      {meetingsOpen && <MeetingsSheet onClose={() => setMeetingsOpen(false)} onOpened={openedMeeting} />}
       {rowMenu && (
         <RowMenu at={rowMenu} onClose={closeRowMenu}>
           <button type="button" role="menuitem" className="nt-pop-row" onClick={() => select(rowMenu.n.id)}><FolderOpen size={15} /> Open</button>

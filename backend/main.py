@@ -3889,6 +3889,9 @@ def _run_migrations():
         "ALTER TABLE construction_punch_meta ADD COLUMN IF NOT EXISTS sub_vendor_id VARCHAR DEFAULT ''",
         "ALTER TABLE construction_rfis ADD COLUMN IF NOT EXISTS answered_by VARCHAR DEFAULT ''",
         "ALTER TABLE construction_outside_links ENABLE ROW LEVEL SECURITY",
+        # Meeting Notes (Neil, 11/12/2026): which note is whose notes for which
+        # Teams meeting - a new table, explicit RLS. models.NexusMeetingNote.
+        "ALTER TABLE nexus_meeting_notes ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5965,3 +5968,5 @@ app.include_router(construction_outside_router.router)  # Construction: outside 
 app.include_router(construction_outside_router.public_router)  # Construction: an outside link's page - one RFI or one sub's punch list, no login (11/11/2026)
 from routers import notes_diagram as notes_diagram_router  # noqa: E402 - one nexus_settings row, no new table
 app.include_router(notes_diagram_router.router)  # Notes boards: Diagram From a Sentence - OFF unless AI is on for Nexus AND a Super Administrator turns it on (Neil, 11/08/2026)
+from routers import meetings as meetings_router  # noqa: E402
+app.include_router(meetings_router.router)  # Meeting Notes: a Notes note for a Teams meeting - transcript and recording stay in Teams, linked (Neil, 11/12/2026)
