@@ -218,14 +218,14 @@ function AuthLoader({ stuck }) {
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink, #111827)' }}>Signing you in…</div>
       {stuck && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 13, marginTop: 2 }}>
-          <div style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', maxWidth: 330, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted, #6b7280)', maxWidth: 330, lineHeight: 1.5 }}>
             This is taking longer than usual. You can retry the sign-in or reload the page.
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={retry} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: 'var(--ink, #111827)', color: 'var(--paper, #fff)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+            <button onClick={retry} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: 'var(--ink, #111827)', color: 'var(--paper, #fff)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
               Sign in again
             </button>
-            <button onClick={() => window.location.reload()} style={{ padding: '9px 20px', borderRadius: 9, border: '1px solid var(--line, #e6e8eb)', background: 'transparent', color: 'var(--ink, #111827)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+            <button onClick={() => window.location.reload()} style={{ padding: '9px 20px', borderRadius: 9, border: '1px solid var(--line, #e6e8eb)', background: 'transparent', color: 'var(--ink, #111827)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
               Reload
             </button>
           </div>
@@ -268,8 +268,8 @@ function AuthStuckOverlay() {
   };
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 100000, background: 'var(--paper, #f6f7f9)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 15, fontFamily: 'Inter, sans-serif', padding: '0 24px', textAlign: 'center' }}>
-      <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--ink, #111827)' }}>Your session has expired</div>
-      <div style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', maxWidth: 360, lineHeight: 1.55 }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink, #111827)' }}>Your session has expired</div>
+      <div style={{ fontSize: 13, color: 'var(--muted, #6b7280)', maxWidth: 360, lineHeight: 1.55 }}>
         We couldn't refresh your sign-in automatically - your browser may be blocking Microsoft's background cookies. Sign in again to continue.
       </div>
       <button onClick={signIn} style={{ padding: '10px 22px', borderRadius: 10, border: 'none', background: 'var(--ink, #111827)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
@@ -384,10 +384,10 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--color-red))" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </div>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 17, color: 'var(--ink)', marginBottom: 6 }}>Access Restricted</div>
+          <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--ink)', marginBottom: 6 }}>Access Restricted</div>
           <div style={{ fontSize: 14, color: 'var(--muted)', maxWidth: 320, lineHeight: 1.5 }}>You don't have permission to view this page. Contact your administrator if you need access.</div>
         </div>
-        <button onClick={() => onNavigate('dashboard')} style={{ marginTop: 4, padding: '9px 24px', borderRadius: 9, border: 'none', background: 'var(--ink)', color: 'var(--paper)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+        <button onClick={() => onNavigate('dashboard')} style={{ marginTop: 4, padding: '9px 24px', borderRadius: 9, border: 'none', background: 'var(--ink)', color: 'var(--paper)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
           Go to Dashboard
         </button>
       </div>

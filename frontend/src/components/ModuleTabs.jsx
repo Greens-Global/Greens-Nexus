@@ -280,7 +280,7 @@ const findItem = (items, active) => {
 };
 
 const MENU_STYLE = { background: 'var(--bg-card, #fff)', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.15)', padding: 4, display: 'grid', gap: 1 };
-const rowStyle = (sel, on = sel) => ({ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: 'none', borderRadius: 7, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', font: 'inherit', fontSize: '0.84rem', fontWeight: on ? 700 : 500, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap' });
+const rowStyle = (sel, on = sel) => ({ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: 'none', borderRadius: 7, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', font: 'inherit', fontSize: 13, fontWeight: on ? 700 : 500, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap' });
 
 // A tab with a dropdown (Oct 6). The menu is portaled (AnchoredMenu): the
 // header strip scrolls sideways, and a scroller would clip a menu drawn
