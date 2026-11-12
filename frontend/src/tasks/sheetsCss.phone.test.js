@@ -37,7 +37,8 @@ describe('phone CSS for sheets and the floating bar', () => {
   });
 
   it('the rich-text editor is 16px on phones (no iOS focus zoom)', () => {
-    const phone = block(/@media \(max-width: 640px\) \{\s*\.nx-rich \.ProseMirror \{ font-size: 16px; \}\s*\}/);
+    // The rule may carry a `type-ok` note for the type scale guard (lib/typeScale.js).
+    const phone = block(/@media \(max-width: 640px\) \{\s*\.nx-rich \.ProseMirror \{ font-size: 16px; \}(?:\s*\/\*[^*]*\*\/)?\s*\}/);
     expect(phone).not.toBe('');
   });
 });
