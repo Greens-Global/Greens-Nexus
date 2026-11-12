@@ -21,6 +21,7 @@ import AskAccountantDialog, { LineFacts, PersonSelect, amountText, usePeople } f
 import { AWAITING, NoteCell, OtherSideCell, PushBatchDialog, ReclassCell, ReclassDialog, missingEntries, otherSideText, reclassLabel, sideFor, useOffsets } from './AmaReclass';
 import { AMA_PUSH_BATCH_LIMIT_DEFAULT, AMA_RECLASS_MODE_DEFAULT, AMA_SHOW_ACCOUNT_COLUMN } from './assumptions';
 import { DateField } from '../../tasks/components';
+import { pill } from './dashboard/Bits';
 
 // Accounting -> Reporting -> AMA, Ask My Accountant (Neil, 10/15: "AMA means
 // Ask My Accountant"; the agreements screen first built under the name is
@@ -653,10 +654,9 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
       </div>
 
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
-        <div role="tablist" aria-label="Status" className="scroll-tabs" style={{ display: 'inline-flex', gap: 4 }}>
+        <div role="tablist" aria-label="Status" className="scroll-tabs" style={{ display: 'inline-flex', gap: 6 }}>
           {STATUS_FILTERS.map((s) => (
-            <button key={s} type="button" role="tab" aria-selected={status === s} onClick={() => setStatus(s)} className={status === s ? 'primary-btn' : 'secondary-btn'}
-              style={{ fontSize: '0.76rem', height: 28, padding: '0 10px', whiteSpace: 'nowrap' }}>
+            <button key={s} type="button" role="tab" aria-selected={status === s} onClick={() => setStatus(s)} style={pill(status === s)}>
               {s} <span style={{ opacity: 0.8 }}>{counts[s] ?? (loading ? '' : 0)}</span>
             </button>
           ))}
