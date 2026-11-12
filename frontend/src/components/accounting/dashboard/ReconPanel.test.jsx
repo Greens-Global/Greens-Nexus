@@ -13,7 +13,7 @@ const api = vi.hoisted(() => ({
   reopenLiabilityRecon: vi.fn(),
 }));
 vi.mock('../../../api', () => ({ api }));
-vi.mock('./DashContext', () => ({ useDash: () => ({ period: '2026-09', book: 'accrual', m: (v) => `$${Number(v).toFixed(2)}` }) }));
+vi.mock('./DashContext', () => ({ useBooksDown: () => false, useDash: () => ({ period: '2026-09', book: 'accrual', m: (v) => `$${Number(v).toFixed(2)}` }) }));
 vi.mock('../../../tasks/components', () => ({ DateField: ({ value, onChange, disabled }) => <input aria-label="Statement Date" value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} /> }));
 vi.mock('../EntryDetail', () => ({ default: ({ entryNo }) => <div data-testid="entry">{entryNo}</div> }));
 vi.mock('../drill', () => ({ requestReportDrill: vi.fn() }));

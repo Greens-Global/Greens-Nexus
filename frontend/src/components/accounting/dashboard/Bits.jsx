@@ -1,6 +1,7 @@
 import { ArrowDownRight, ArrowUpRight, ExternalLink, Info } from 'lucide-react';
 import { SkeletonBlocks } from '../../AsyncState';
 import { pct } from '../../../accounting/dashboard/model/money';
+import { useBooksDown } from './DashContext';
 
 // Small pieces every dashboard tab shares, in the Nexus idiom: inline styles
 // on the app's CSS variables, Inter, the same card and pill shapes the rest
@@ -92,6 +93,8 @@ export function EmptyBox({ title, body, style }) {
 }
 
 export function LoadingBox({ height = 120 }) {
+  // The books could not be read: say so rather than wait forever (11/11/2026).
+  if (useBooksDown()) return <EmptyBox title="Could not load" style={{ minHeight: Math.min(height, 96) }} />;
   return <SkeletonBlocks count={1} height={height} borderRadius={10} />;
 }
 
