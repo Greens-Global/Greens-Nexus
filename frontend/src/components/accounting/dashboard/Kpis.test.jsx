@@ -6,7 +6,7 @@ import { render, screen } from '@testing-library/react';
 // the controllable cash. It now shows the partner entities' own cash.
 
 let dash;
-vi.mock('./DashContext', () => ({ useDash: () => dash, RUNWAY_TARGET_MONTHS: 6 }));
+vi.mock('./DashContext', () => ({ useBooksDown: () => false, useDash: () => dash, RUNWAY_TARGET_MONTHS: 6 }));
 vi.mock('./Charts', () => ({ Sparkline: () => null }));
 let trend = [];
 vi.mock('./hooks', () => ({

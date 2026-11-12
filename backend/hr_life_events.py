@@ -2571,11 +2571,11 @@ def _apply_promotion(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
     title = CHANGE_TYPES.get(d.get("change_type"), "Role Change")
     ev.apply_note = (f"{title}: {d.get('old_title') or '-'} -> {d.get('job_title')} from {us_date(eff)}"
                      + ("; new pay recorded" if ev.pay else ""))
-    entity = db.query(HrEntity).filter(HrEntity.id == emp.company).first() if emp.company else None
-    hr_contact = (entity.hr_contact_email or "").lower() if entity else ""
+    import hr_access
+    hr_contacts = set(hr_access.hr_contacts(db, emp.company or ""))   # one email or a comma list
     body = (f"{ev.subject_name}: {d.get('old_title') or '-'} -> {d.get('job_title')}, effective {us_date(eff)}."
             + (" The new pay is on Pay & Benefits from that date." if ev.pay else ""))
-    for to in {ev.created_by, (emp.manager_email or "").lower(), hr_contact} - {"", emp.work_email.lower()}:
+    for to in {ev.created_by, (emp.manager_email or "").lower(), *hr_contacts} - {"", emp.work_email.lower()}:
         _notify(db, to, f"{title} Signed - {ev.subject_name}", body, ev)
     # The Promotion checklist (Neil, Oct 19), with the new role's own steps.
     import hr_checklists
@@ -2590,7 +2590,7 @@ def _apply_promotion(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
             f"My HR > My Documents.", ev)
     if periods:
         labels = ", ".join(p["label"] for p in periods)
-        for to in {ev.created_by, hr_contact} - {""}:
+        for to in {ev.created_by, *hr_contacts} - {""}:
             from routers.hr import _hr_notify
             _hr_notify(db, to, f"Review Signed Time Sheets - {ev.subject_name}",
                        f"The new pay starts {us_date(eff)}, inside time sheets already signed or finalized "

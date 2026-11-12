@@ -368,8 +368,8 @@ def _may_see_person(db: Session, user: dict, employee: str) -> bool:
     if me == employee or _manages(db, me, employee) or timesheet_review.is_hr(db, me, employee):
         return True
     # A Super Administrator sees anyone's; an Administrator only inside their
-    # companies - timesheet_review.is_hr above already answers that (Neil,
-    # 11/02/2026: walled, the switch on or off).
+    # companies once the walls are on - timesheet_review.is_hr above
+    # already answers that (Pranshu, 11/11/2026).
     if level_for(me, db) >= _LEVELS["owner"]:
         return True
     if _module_level(me, "hr", db) >= _MODULE_LEVEL_RANK["viewer"]:

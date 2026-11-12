@@ -34,7 +34,7 @@ export function TimelineStatusModal({ current, onSave, onClose }) {
     if (next.status || next.reason) return;
     onSave(status, date, reason.trim());
   };
-  const errLine = (k) => errors[k] ? <div role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{errors[k]}</div> : null;
+  const errLine = (k) => errors[k] ? <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{errors[k]}</div> : null;
   const dirty = status !== (current || '') || date !== initialDate || !!reason.trim();
 
   return (

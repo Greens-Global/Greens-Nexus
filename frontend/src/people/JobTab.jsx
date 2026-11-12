@@ -34,6 +34,9 @@ export default function JobTab({
   e, employees = [], companyName = '', viewerEmail = '', canEdit = false, isRemoved = false,
   empTypes = [], statusLabel = '', onChangeStatus, focusProbation = false, onOffboard, onReload,
   roleHistoryKey = '', onSaved, toastOk, toastErr,
+  // A contractor's rate is pay: only the Pay & Benefits grant sees or sets it
+  // (the server leaves it out for anyone else - People review, 11/11/2026).
+  canSeePay = false,
 }) {
   const saved = useMemo(() => seedOf(e), [e]);
   const t = useTabDraft(saved, {
@@ -203,6 +206,7 @@ export default function JobTab({
               <Field label="Contract End">
                 <DateField value={d.contractor?.contract_end || ''} onChange={v => setC('contract_end', v || '')} title="Contract End" placeholder="Pick a date" style={DATE_BOX} />
               </Field>
+              {canSeePay && (<>
               {cInput('Rate', 'rate', { placeholder: 'e.g. 85' })}
               <Field label="Rate Type" htmlFor="job-c-rate_type">
                 <select id="job-c-rate_type" className="form-input" style={BOX} value={d.contractor?.rate_type || 'hourly'} onChange={ev => setC('rate_type', ev.target.value)}>
@@ -214,6 +218,7 @@ export default function JobTab({
                   {currencyOptions().map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
                 </select>
               </Field>
+              </>)}
               {cInput('Engagement Area', 'engagement_area', { placeholder: 'e.g. Escondido dev / remote' })}
               <Field label="Next Invoice Number" htmlFor="job-c-invoice_next_number" hint="Set once - the first invoice Nexus sends uses this number, then it counts up.">
                 <input id="job-c-invoice_next_number" className="form-input" style={BOX} type="number" min={1} step={1} value={d.contractor?.invoice_next_number ?? ''} onChange={ev => setC('invoice_next_number', ev.target.value)} placeholder="e.g. 1" />
@@ -229,7 +234,7 @@ export default function JobTab({
               <Row icon={Briefcase} label="Billing Client" value={c.billing_client} />
               <Row icon={CalendarOff} label="Contract Start" value={formatDate(c.contract_start)} />
               <Row icon={CalendarOff} label="Contract End" value={formatDate(c.contract_end)} />
-              <Row icon={FileText} label="Rate" value={[c.rate, c.currency, RATE_TYPES.find(([v]) => v === c.rate_type)?.[1]].filter(Boolean).join(' ')} />
+              {canSeePay && <Row icon={FileText} label="Rate" value={[c.rate, c.currency, RATE_TYPES.find(([v]) => v === c.rate_type)?.[1]].filter(Boolean).join(' ')} />}
               <Row icon={FileText} label="Engagement Area" value={c.engagement_area} />
               <Row icon={FileText} label="Next Invoice Number" value={c.invoice_next_number ? String(c.invoice_next_number) : ''} />
               <Row icon={FileText} label="Invoice Description" value={c.invoice_description} />

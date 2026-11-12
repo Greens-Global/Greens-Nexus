@@ -135,6 +135,9 @@ def jobs() -> list[dict]:
         _job("teams_post", "Teams Posts", "Delivers queued Teams posts; off means they wait.", "Every minute"),
         _job("ticket_teams_post", "Ticket Teams Messages",
              "Delivers queued ticket and workflow Teams messages; off means they wait.", "Every minute"),
+        _job("kudos_teams", "Kudos on Teams",
+             "Reads kudos posts in Teams back into Nexus - reactions and replies become thanks - and keeps "
+             "the Teams notifications renewed; off means they wait.", "Every minute", "performance:performance-kudos-chat"),
         _job("daily_briefing", "Daily Briefing", "The morning briefing email.", "Daily", "notifications:briefing"),
         _job("weekly_digest", "Weekly Digest", "The Monday digest email.", "Weekly", "notifications:digest"),
         _job("announcements_publish", "Announcements Publish",

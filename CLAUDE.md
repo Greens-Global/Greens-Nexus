@@ -160,9 +160,15 @@ keep the diff minimal.
   the words people see are Employee, Supervisor, Manager, **Administrator**
   (4) and **Super Administrator** (5) - never "Global Admin" / "IT Admin"
   (`frontend/scripts/check-role-copy.mjs` fails the lint). An Administrator
-  is ALWAYS company-walled (`auth.company_scope`, walls switch on or off);
-  only level 5 or a member of a group flagged `is_global_admin` passes the
-  walls (`auth.is_global_admin` - no level-4 fallback).
+  is company-walled only while the walls switch is ON (`auth.company_scope`;
+  Pranshu, 11/11/2026 - walled with the switch off hid every untagged
+  record, e.g. most of the Items catalog); once armed, only level 5 or a
+  member of a group flagged `is_global_admin` passes the walls
+  (`auth.is_global_admin` - no level-4 fallback). With the walls off
+  an Administrator still never adds an entity scope row, changes their own
+  or another Administrator's limits, or changes a shared group / job role
+  (`auth.bound_by_super_rules`) - nothing set up then widens their reach
+  once the walls are armed.
   Exception - TICKETS (hotfix 11/04/2026, Pranshu with Neil's approval):
   an Administrator sees and works every company's tickets; ticket code reads
   `ticket_roles.company_scope` / `ticket_roles.assert_company`, never
@@ -248,6 +254,13 @@ keep the diff minimal.
   `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
   Shrink / Expand button; short answers keep the small card
   (`support/HelpWidget.jsx`).
+- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter and every
+  text size is on the scale - `FS` in `lib/typeScale.js` (meta 11, label 12,
+  body 13, read 14, title 15, section 18, page 24, figure 32) or the `--fs-*`
+  tokens. `scripts/check-type.mjs` (in `npm run lint`) fails a new off-scale
+  size; old screens move over one module at a time (`SNAP`: 12.5 rounds up
+  to 13), then `--update` lowers its baseline. Off-scale on purpose (the 16px
+  phone fields that stop iOS zooming) = `type-ok: <why>` on the line.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 - **Every amount on every Accounting report drills down to its ledger lines
@@ -557,6 +570,18 @@ keep the diff minimal.
   answers. Never add a second form engine, a second entry store or an
   offline path outside the punch-queue pattern (the outbox above is that
   pattern; Fill a Form already uses it - `forms/formsOffline.js`).
+- **Kudos on Teams (Neil, 11/12/2026, `perf_kudos_teams.py`,
+  `docs/Kudos-Teams-Setup.md`):** a kudos posts as its sender to the
+  company's CHANNEL (Settings > Performance > Kudos on Teams,
+  `performance.kudos_teams_target`; the old chat id still resolves),
+  @mentioning the recipient, and keeps its message id. Reactions and
+  channel replies come back as the ONE thanks row (`perf_kudos_thanks`,
+  `via='teams'`) - never a second reaction store; a Nexus thanks claps on
+  the post as that person through the ticket Teams queue (`kudos_react` /
+  `kudos_unreact`). Graph change notifications (`/webhooks/teams/kudos`,
+  `teams_subscriptions`) and polling (`kudos_teams_loop`) call the same
+  `sync_one`. Reading needs the delegated read scopes
+  (`bff_session.GRAPH_KUDOS_*_READ_SCOPES`); without them it waits.
 - **Federal forms (Neil, 11/02/2026, `backend/federal_forms/`,
   `docs/Federal-Forms.md`):** Form W-4, Form I-9 (Section 2 by HR) and the
   Direct Deposit Authorization are filled and signed in Nexus Sign - from
@@ -670,6 +695,24 @@ keep the diff minimal.
   `locations` only when there are several. Anything that only exists
   consolidated (the dashboard tabs, the accounting app) takes
   `require_unlimited`.
+- **Investor Relations reads Intacct live** (Neil, 11/11/2026,
+  `investor_books.py`, `routers/investor_books.py`, `investor/Books.jsx`): a
+  deal IS an Intacct entity (`ir_funds.intacct_entity`, e.g. 67000 Greens
+  Austin, LLC) and an investor IS their own partner equity accounts
+  (`ir_investors.intacct_accounts`: 300xx "(E&C)", 310xx "(Contribution)",
+  320xx "(Distribution)", one family per NAME - the numbers do not line up).
+  Capital, cash, book equity and revenue are read through the accounting
+  proxy, never keyed or stored; a figure needs the IR read gate AND the
+  Accounting grant AND the entity in the caller's entity access. Import
+  makes the deal and a linked profile per member and never invents a
+  commitment amount. A member's Capital Account is their accounts' balance;
+  their MEMBERSHIP % is the operating agreement's, typed on the deal's
+  members (kept on `ir_commitments.membership_pct`, a commitment with no
+  amount made if needed) - never worked out from the capital. The investor
+  portal (`GET /portal/books`) shows an investor their OWN capital account
+  and membership, live, on the deals the portal already shows them - no
+  Accounting grant, never another member's accounts. Remove Sample Data
+  (Dashboard) deletes only what the demo seed made.
 - Personal financial statements (`routers/pfs.py`, Sep 2026) are the most
   sensitive records in Nexus: owners and the explicit `pfs` grant only
   (`bypass_level="owner"` - an administrator's role does NOT open them). Never

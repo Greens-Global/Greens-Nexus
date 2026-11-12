@@ -732,11 +732,11 @@ class ClaimTests(Base):
             self.db.query(models.NexusAccessScope).delete()
             self.db.commit()
             self.assertFalse(xt.can_decide(self.db, FULL, CON))
-            # Unscoped: the Full grant reaches every company; the administrator
-            # stays inside Greens US, walls on or off (11/02/2026: an
-            # Administrator is company-walled; only a Super Administrator passes).
+            # Unscoped: the Full grant reaches every company; with the walls
+            # off so does the administrator (walled only once armed, above -
+            # 11/11/2026).
             grants[FULL] = auth._MODULE_LEVEL_RANK["full"]
-            self.assertFalse(xt.can_decide(self.db, ADMIN, CON))
+            self.assertTrue(xt.can_decide(self.db, ADMIN, CON))
             self.assertTrue(xt.can_decide(self.db, FULL, CON))
             # Scoped to Greens India: yes; and never their own claim.
             self.db.add(models.NexusAccessScope(id="sc-in", email=FULL, module_id="hr", scope_type="entity", scope_id=CO))

@@ -23,6 +23,9 @@ import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckS
 import { CompletenessButton, CompletenessPanel, gapCount, mriGaps, useJumpToRow } from './completeness';
 import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
 import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
+import { StatusLabel } from '../StatusLabel';
+import HoldButton from '../../ui/HoldButton';
+import { pill } from './dashboard/Bits';
 
 // Accounting -> Leasing: leases and monthly recurring income (Neil and
 // Charmi, Sep 25). Rent was tracked in a workbook and chased by hand; this is
@@ -131,7 +134,7 @@ export const typeOf = (r) => (r.kind === 'account' ? r.type : (r.lease?.incomeTy
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const STATUS = {
   paid: { label: 'Paid', fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' },
-  short: { label: 'Short', fg: '#92400e', bg: 'rgba(180,83,9,0.13)' },
+  short: { label: 'Short', fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' },
   unpaid: { label: 'Unpaid', fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
   late: { label: 'Late', fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
   due: { label: 'Due', fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
@@ -356,8 +359,8 @@ const PAYER_FILTERS = filterColumnsOf(PAYER_COLUMNS, { instead: { dates: PAYER_C
 function StandingChips({ row }) {
   return (
     <>
-      {row.expired && <span style={chipStyle()} title="The lease has ended">Expired</span>}
-      {row.customerActive === false && <span style={chipStyle('bad')} title="The customer is inactive in Intacct">Inactive</span>}
+      {row.expired && <StatusLabel size="sm" color="#64748b" label="Expired" title="The lease has ended" style={{ marginLeft: 6 }} />}
+      {row.customerActive === false && <StatusLabel size="sm" color="#dc2626" label="Inactive" title="The customer is inactive in Intacct" style={{ marginLeft: 6 }} />}
     </>
   );
 }
@@ -574,7 +577,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
             {SECTIONS.map((s) => (
               <button key={s.key} type="button" onClick={() => setSection(s.key)} aria-pressed={section === s.key}
-                style={{ ...control, cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: section === s.key ? 700 : 500, border: `1px solid ${section === s.key ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: section === s.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', background: section === s.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' }}>
+                style={pill(section === s.key)}>
                 {s.label}{s.key === 'outstanding' && sum.behind ? ` (${sum.behind})` : ''}
               </button>
             ))}
@@ -651,7 +654,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
 
         {error && <div style={bad}>{error}</div>}
         {roll?.warning && (
-          <div style={{ ...card, padding: '8px 12px', borderColor: '#b45309', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.82rem', color: '#92400e' }}>
+          <div style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.82rem', color: 'var(--warn-fg)' }}>
             <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{roll.warning}
           </div>
         )}
@@ -812,8 +815,8 @@ function TenantName({ row, style }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span className="acct-code" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginRight: 0 }}>{code}</span>
           <strong style={{ fontSize: '0.9rem' }}>{c.name || name}</strong>
-          {(info ? info.active === false : row.customerActive === false) && <span style={chipStyle('bad')}>Inactive</span>}
-          {row.expired && <span style={chipStyle()}>Expired</span>}
+          {(info ? info.active === false : row.customerActive === false) && <StatusLabel size="sm" color="#dc2626" label="Inactive" style={{ marginLeft: 6 }} />}
+          {row.expired && <StatusLabel size="sm" color="#64748b" label="Expired" style={{ marginLeft: 6 }} />}
         </div>
         {failed ? <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>{failed}</div> : !info && !row.customer ? <SkeletonBlocks count={2} /> : (
           <div>
@@ -1342,7 +1345,7 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
           </div>
         )}
       </div>
-      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} /></div>}
+      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel /></div>}
     </div>
   );
 }
@@ -1354,7 +1357,7 @@ function LeaveConfirm({ onKeep, onDiscard }) {
   useEffect(() => { keep.current?.focus(); }, []);
   return (
     <div className="modal-footer" role="alertdialog" aria-label="Unsaved changes" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} style={{ color: '#b45309' }} />You have unsaved changes.</span>
+      <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />You have unsaved changes.</span>
       <span style={{ display: 'inline-flex', gap: 8 }}>
         <button type="button" className="secondary-btn" onClick={onDiscard} style={{ color: 'var(--bad-fg, #dc2626)' }}>Discard Edits</button>
         <button type="button" ref={keep} className="primary-btn" onClick={onKeep}>Keep Editing</button>
@@ -1373,7 +1376,6 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
   const [entities, setEntities] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [confirm, setConfirm] = useState(false);
   const set = (p) => setL((x) => ({ ...x, ...p }));
   // Oct 14 (Neil): unsaved changes ask Keep Editing / Discard Edits when the
   // form is clicked off or Escaped.
@@ -1451,13 +1453,11 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
       footer={leaving ? <LeaveConfirm onKeep={() => setLeaving(false)} onDiscard={onClose} /> : (
         <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
           <span>
-            {canDelete && l.id && !replacing && (confirm ? (
-              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: '0.8rem' }}>
-                Entered by mistake?
-                <button type="button" className="secondary-btn" style={{ color: 'var(--bad-fg, #dc2626)' }} onClick={() => api.deleteLeasingLease(l.id).then(onSaved).catch((e) => setError(e?.message || 'Could not delete.'))}>Delete Lease</button>
-                <button type="button" className="secondary-btn" onClick={() => setConfirm(false)}>Keep</button>
-              </span>
-            ) : <button type="button" style={{ ...icon, fontSize: '0.78rem', gap: 5, alignItems: 'center' }} onClick={() => setConfirm(true)}><Trash2 size={13} /> Delete</button>)}
+            {/* Press and hold (11/11/2026 Accounting pass, picture 10): one record, no second click. */}
+            {canDelete && l.id && !replacing && (
+              <HoldButton size="sm" label="Delete Lease" doneLabel="Deleted" fallbackMessage="Delete this lease? Use it only for one entered by mistake - a tenant who left is ended, not deleted."
+                onConfirm={() => api.deleteLeasingLease(l.id).then(onSaved)} />
+            )}
           </span>
           <span style={{ display: 'inline-flex', gap: 8 }}>
             <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
@@ -1674,7 +1674,7 @@ function CustomerCombo({ id, text, value, customers, picked, onType, onPick }) {
               style={{ display: 'flex', gap: 8, border: 'none', background: i === active ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', borderRadius: 6, padding: '4px 8px', font: 'inherit', fontSize: '0.8rem', cursor: 'pointer', textAlign: 'left', color: c.active === false ? 'var(--text-muted)' : 'var(--text-primary)' }}>
               <span style={{ color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{c.code}</span>
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name || c.code}</span>
-              {c.active === false && <span style={chipStyle('bad')}>Inactive</span>}
+              {c.active === false && <StatusLabel size="sm" color="#dc2626" label="Inactive" style={{ marginLeft: 6 }} />}
             </button>
           ))}
           {!options.length && <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', padding: 6 }}>{customers.length ? 'No Intacct customer matches - the name typed is kept.' : 'No Intacct customers to pick from - type the name.'}</div>}

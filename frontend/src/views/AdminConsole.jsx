@@ -89,6 +89,7 @@ import {
   PenTool,
 } from 'lucide-react';
 import { api } from '../api';
+import { imageFromPaste } from '../inventory/ui/upload';
 import { useRole } from '../contexts/RoleContext';
 import ModuleTabs from '../components/ModuleTabs';
 import { ModalLoading, SkeletonBlocks, Spinner } from '../components/AsyncState';
@@ -601,10 +602,11 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
     sub: 'The company values a kudos may be tagged with - the send form asks which one they lived. No values, no question.',
     keywords: 'kudos thanks values recognition appreciation' },
-  { id: 'performance-kudos-chat', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Kudos Teams Chat', flush: true,
+  // Kudos on Teams (Neil, 11/12/2026): a channel per company, two way - reactions come back as thanks.
+  { id: 'performance-kudos-chat', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Kudos on Teams', flush: true,
     needs: { role: 'administrator', orgWide: true },
-    sub: 'The Teams chat a company\'s kudos are posted to, as the sender. Empty = the send form offers no Teams switch for that company.',
-    keywords: 'kudos teams chat post channel' },
+    sub: 'The Teams channel a company\'s kudos are posted to, as the sender. Reactions and replies there show up in Nexus as thanks.',
+    keywords: 'kudos teams chat post channel reactions thanks two way' },
   // KPI scorecards per department (Charmi, 10/30/2026): a company's own, so a company face.
   { id: 'performance-scorecards', subject: 'performance', face: 'company', scope: 'company', icon: Target, title: 'KPI Scorecards',
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
@@ -1217,6 +1219,41 @@ function SignaturePaper({ html, height = 60, scale = 0.7 }) {
   );
 }
 
+// The signature's accent (Neil, 11/11/2026): blank = Greens green, the
+// backend's myhr._BRAND_GREEN. The Bold header sets white text on it.
+const SIG_DEFAULT_COLOR = '#1f8a4d';
+const SIG_HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+function whiteContrast(hex) {
+  let h = hex.slice(1);
+  if (h.length === 3) h = [...h].map(c => c + c).join('');
+  const [r, g, b] = [0, 2, 4].map(i => {
+    const c = parseInt(h.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 1.05 / (0.2126 * r + 0.7152 * g + 0.0722 * b + 0.05);
+}
+
+function SignatureColorRow({ id, value, onChange }) {
+  const ok = !value || SIG_HEX.test(value);
+  const hint = !ok ? 'Enter a hex color such as #1f8a4d.'
+    : value && whiteContrast(value) < 4.5 ? 'This color is light - white text on it (the Bold header, the social icons) may be hard to read.'
+      : 'Colors the title line, the side bar, the Bold header and the social icons. Blank keeps Greens green.';
+  return (
+    <div>
+      <label htmlFor={id} className="nx-set-label">Signature Color</label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <input type="color" aria-label="Pick the signature color" value={ok && value.length === 7 ? value : SIG_DEFAULT_COLOR}
+          onChange={e => onChange(e.target.value)}
+          style={{ width: 40, height: 34, padding: 2, border: '1px solid var(--line)', borderRadius: 6, background: 'none' }} />
+        <input id={id} className="form-input" style={{ width: 110 }} value={value} placeholder={SIG_DEFAULT_COLOR}
+          onChange={e => onChange(e.target.value.trim())} aria-invalid={!ok} />
+        {value && <button type="button" className="secondary-btn" onClick={() => onChange('')}>Use the Default</button>}
+      </div>
+      <div style={{ fontSize: 12, color: ok ? 'var(--muted)' : 'hsl(var(--color-red))', marginTop: 4 }}>{hint}</div>
+    </div>
+  );
+}
+
 function SignatureZoomModal({ title, html, onClose }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
@@ -1246,6 +1283,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   const [companyId, setCompanyId] = useState(company);
   const [data, setData] = useState(null);       // { templates (with html), template }
   const [selectedTemplate, setSelectedTemplate] = useState('classic');
+  const [color, setColor] = useState('');               // draft of the company's signature color
   const [previewBusy, setPreviewBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [zoomTemplate, setZoomTemplate] = useState(null);   // { label, html } | null - full-size eye-icon preview
@@ -1261,9 +1299,12 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   const [overrideModal, setOverrideModal] = useState(null);   // 'new' | index into `overrides` | null
   // One Save for the group (the Settings save pattern, Oct 23): the template
   // and the overrides are a draft until it is clicked.
+  const colorOk = !color || SIG_HEX.test(color);
   const templateDirty = !!data && !!companyId && selectedTemplate !== data.template;
+  const colorDirty = !!data && !!companyId && color.toLowerCase() !== (data.color || '');
+  const companyDirty = templateDirty || colorDirty;
   const overridesDirty = !company && !overridesLocked && JSON.stringify(overrides) !== JSON.stringify(savedOverrides);
-  const dirty = templateDirty || overridesDirty;
+  const dirty = companyDirty || overridesDirty;
 
   // Only the latest company's answer lands: picking A then B quickly must
   // never show A's templates (and save A's choice) while B is picked.
@@ -1275,10 +1316,24 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
     setPreviewBusy(true);
     setPreviewErr('');
     api.getEntitySignatureTemplates(id)
-      .then(d => { if (n === previewSeq.current) { setData(d); setSelectedTemplate(d.template); } })
+      .then(d => { if (n === previewSeq.current) { setData(d); setSelectedTemplate(d.template); setColor(d.color || ''); } })
       .catch(e => { if (n === previewSeq.current) setPreviewErr(e?.message || 'Could not load the signature templates.'); })
       .finally(() => { if (n === previewSeq.current) setPreviewBusy(false); });
   }, []);
+
+  // A new color re-draws the gallery in it before Save (debounced; only the
+  // pictures change, never the template picked).
+  useEffect(() => {
+    if (!data || !companyId || !colorOk) return undefined;
+    const t = setTimeout(() => {
+      const n = ++previewSeq.current;
+      api.getEntitySignatureTemplates(companyId, color)
+        .then(d => { if (n === previewSeq.current) setData(cur => (cur ? { ...cur, templates: d.templates } : cur)); })
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a color change re-draws
+  }, [color]);
 
   // Both halves load once, when the group mounts (it is always open now).
   // A failed load says so with Retry - never "No companies yet".
@@ -1304,9 +1359,9 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   // Another company in the box drops an unsaved template choice: ask first.
   async function pickCompany(id) {
     if (id === companyId) return;
-    if (templateDirty) {
+    if (companyDirty) {
       const name = entities.find(en => en.id === companyId)?.name || 'this company';
-      const ok = await dialog.confirm(`The template you picked for ${name} has not been saved. If you switch companies now, it will be lost.`,
+      const ok = await dialog.confirm(`The signature changes you made for ${name} have not been saved. If you switch companies now, it will be lost.`,
         { title: 'Discard Unsaved Changes?', confirmText: 'Discard Changes', cancelText: 'Keep Editing', danger: true });
       if (!ok) return;
     }
@@ -1322,13 +1377,14 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   // Resolves true once everything saved (the prompt's Save and Leave).
   async function save() {
     if (busy || !dirty) return !dirty;
+    if (colorDirty && !colorOk) { toastErr('Enter a hex color such as #1f8a4d.'); return false; }
     const forCompany = companyId;
     setBusy(true);
     let ok = true;
     try {
-      if (templateDirty) {
-        await api.updateEntity(forCompany, { signature_template: selectedTemplate });
-        setData(d => (d ? { ...d, template: selectedTemplate } : d));
+      if (companyDirty) {
+        const row = await api.updateEntity(forCompany, { signature_template: selectedTemplate, signature_color: color });
+        setData(d => (d ? { ...d, template: selectedTemplate, color: row?.signatureColor ?? color.toLowerCase() } : d));
       }
       if (overridesDirty) {
         const d = await api.saveSignatureSenderOverrides(overrides);
@@ -1336,8 +1392,8 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
         setOverrides(d.senderOverrides || []);
         setSavedOverrides(d.senderOverrides || []);
       }
-      toastOk(templateDirty && !overridesDirty
-        ? 'Signature template saved. It applies to every employee at this company.'
+      toastOk(companyDirty && !overridesDirty
+        ? 'Signature saved. It applies to every employee at this company.'
         : 'Email signature settings saved.');
     } catch (e) { ok = false; toastErr(e?.message || 'Could not save.'); }
     setBusy(false);
@@ -1345,7 +1401,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   }
   useGroupDirty(dirty, save);
   function discard() {
-    if (data) setSelectedTemplate(data.template);
+    if (data) { setSelectedTemplate(data.template); setColor(data.color || ''); }
     setOverrides(savedOverrides);
   }
 
@@ -1370,6 +1426,9 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
             <Spinner size="inline" />
           ) : data && (
             <>
+              <div style={{ marginBottom: 14 }}>
+                <SignatureColorRow id="sig-color" value={color} onChange={setColor} />
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10, marginBottom: 14 }}>
                 {data.templates.map(t => {
                   const selected = t.id === selectedTemplate;
@@ -1495,7 +1554,7 @@ const _OVERRIDE_FIELD_DEFS = [
 // logoUrl isn't in _OVERRIDE_FIELD_DEFS (it gets its own upload widget, not a
 // plain text input) but still needs a default in `fields` - the backend's
 // _OVERRIDE_FIELD_KEYS and every render function expect the key to exist.
-const _EMPTY_OVERRIDE_FIELDS = { logoUrl: '', ...Object.fromEntries(_OVERRIDE_FIELD_DEFS.map(([k]) => [k, ''])) };
+const _EMPTY_OVERRIDE_FIELDS = { logoUrl: '', accent: '', ...Object.fromEntries(_OVERRIDE_FIELD_DEFS.map(([k]) => [k, ''])) };
 
 function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastErr }) {
   const [label, setLabel] = useState(grp?.label || '');
@@ -1510,6 +1569,15 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
   const [logoBusy, setLogoBusy] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const debounceRef = useRef(null);
+  const accentOk = !fields.accent || SIG_HEX.test(fields.accent);
+  // What the sheet opened with - a close with anything changed asks first.
+  const [initial] = useState(() => JSON.stringify([label, emails, template, fields, customFields, fieldOrder]));
+  const changed = JSON.stringify([label, emails, template, fields, customFields, fieldOrder]) !== initial;
+  async function requestClose() {
+    if (changed && !(await dialog.confirm('This override has changes that are not kept yet. Close it and lose them?',
+      { title: 'Discard Unsaved Changes?', confirmText: 'Discard Changes', cancelText: 'Keep Editing', danger: true }))) return;
+    onClose();
+  }
 
   function setFieldValue(key, val) { setFields(f => ({ ...f, [key]: val })); }
 
@@ -1578,7 +1646,18 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
     return () => clearTimeout(debounceRef.current);
   }, [template, fields, customFields, fieldOrder]);
 
+  // Ctrl+V a logo anywhere in the sheet (house rule for image uploads).
+  function onPaste(e) {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') && t.type !== 'file') {
+      if (![...(e.clipboardData?.items || [])].some(it => it.type?.startsWith('image/'))) return;
+    }
+    const file = imageFromPaste(e);
+    if (file && !logoBusy) { e.preventDefault(); uploadLogo(file); }
+  }
+
   function save() {
+    if (!accentOk) { toastErr?.('Enter a hex color such as #1f8a4d.'); return; }
     onSaved({
       id: grp?.id || '', label, emails, template, fields, customFields, fieldOrder, previewHtml,
     });
@@ -1589,13 +1668,14 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
   const rowKeys = reconcileOrder(fieldOrder, customFields.length);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-label={grp ? 'Edit Override' : 'Add Override'}
-        style={{ background: 'var(--card)', borderRadius: 12, width: '60vw', minWidth: 'min(340px, 100%)', maxWidth: '96vw', maxHeight: '90vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+    <div className="modal-overlay" style={{ zIndex: 1300 }} onPaste={onPaste}
+      onClick={e => e.target === e.currentTarget && requestClose()}
+      onKeyDown={e => { if (e.key === 'Escape' && !zoomed) { e.stopPropagation(); requestClose(); } }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={grp ? 'Edit Override' : 'Add Override'}
+        style={{ padding: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{grp ? 'Edit Override' : 'Add Override'}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
+          <button onClick={requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
             <X size={18} />
           </button>
         </div>
@@ -1641,14 +1721,17 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
                 <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
                   onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadLogo(f); }} />
               </label>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or press Ctrl+V to paste one</span>
               {fields.logoUrl && (
-                <button type="button" onClick={() => setFieldValue('logoUrl', '')}
+                <button type="button" aria-label="Remove logo" onClick={() => setFieldValue('logoUrl', '')}
                   style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', alignItems: 'center', padding: '4px 8px' }}>
                   <X size={13} />
                 </button>
               )}
             </div>
           </div>
+
+          <SignatureColorRow id="sig-override-color" value={fields.accent || ''} onChange={v => setFieldValue('accent', v)} />
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {_OVERRIDE_FIELD_DEFS.map(([key, fieldLabel]) => (

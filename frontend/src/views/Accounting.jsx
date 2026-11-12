@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Activity, ArrowLeftRight, Banknote, BookOpen, Building2, Calculator, ChartColumn, CheckSquare, CreditCard, Database, FileStack, FileText,
+  Activity, ArrowLeftRight, Banknote, BookOpen, Building2, Calculator, ChartColumn, CheckSquare, ChevronRight, CreditCard, Database, FileStack, FileText,
   Hammer, HandCoins, Handshake, KeyRound, Landmark, LayoutGrid, Library, ListChecks, MessageCircleQuestion, PieChart, Receipt,
   ReceiptText, Scale, ShieldCheck, Split, Target, TrendingUp, Upload, UserPen, Users, Wallet, Wrench,
 } from 'lucide-react';
@@ -14,11 +14,11 @@ import { BarSearchSlotContext } from '../components/accounting/reportControls';
 import { dashDensityOf, useAccountingPrefs } from '../components/accounting/prefs';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
-import { DashNav } from '../components/accounting/dashboard/registry';
+import { DashNav } from '../components/accounting/dashboard/nav';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { REPORTS, REPORT_VIEWS, parseActivitySub } from '../components/accounting/reportModel';
 import { STATEMENTS_SUB } from '../components/accounting/drill';
-import { BUILDER_PUBLISH_MIN_LEVEL, PAYROLL_SUMMARY_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
+import { BUILDER_PUBLISH_MIN_LEVEL, JOURNAL_NAMES, PAYROLL_SUMMARY_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
 
 // Oct 24 (bundle budget, 10/23 meeting round 2): every screen behind the bar
 // is fetched the first time it is opened, not with the Accounting view - all
@@ -26,35 +26,38 @@ import { BUILDER_PUBLISH_MIN_LEVEL, PAYROLL_SUMMARY_LEVEL, RECORDS_JOURNALS, REP
 // header, the bar and the dashboard's shared provider stay here; a screen on
 // its way shows the skeleton (SCREEN_LOADING), never nothing, and a file gone
 // after a deploy is the view boundary's quiet reload, as for every view.
-const ReportsTab = lazy(() => import('../components/accounting/ReportsTab'));
-const PackagesTab = lazy(() => import('../components/accounting/PackagesTab'));
-const AccessTab = lazy(() => import('../components/accounting/AccessTab'));
-const PfsTab = lazy(() => import('../components/accounting/PfsTab'));
-const MriTab = lazy(() => import('../components/accounting/MriTab'));
-const LoansTab = lazy(() => import('../components/accounting/LoansTab'));
-const MreTab = lazy(() => import('../components/accounting/MreTab'));
-const ImportHub = lazy(() => import('../components/accounting/ImportHub'));
-const OverviewTab = lazy(() => import('../components/accounting/dashboard/OverviewTab'));
-const CashTab = lazy(() => import('../components/accounting/dashboard/CashTab'));
-const PerformanceTab = lazy(() => import('../components/accounting/dashboard/PerformanceTab'));
-const CloseTab = lazy(() => import('../components/accounting/dashboard/CloseTab'));
-const DataTab = lazy(() => import('../components/accounting/dashboard/DataTab'));
-const BudgetTab = lazy(() => import('../components/accounting/BudgetTab'));
-const PartnersTab = lazy(() => import('../components/accounting/PartnersTab'));
-const AllocationsTab = lazy(() => import('../components/accounting/AllocationsTab'));
-const ManagementFeesTab = lazy(() => import('../components/accounting/ManagementFeesTab'));
+// A screen's file can start loading before it is drawn (`preload`): the first
+// one opened downloads while the access check is still out (11/11/2026).
+const screen = (load) => Object.assign(lazy(load), { preload: load });
+const ReportsTab = screen(() => import('../components/accounting/ReportsTab'));
+const PackagesTab = screen(() => import('../components/accounting/PackagesTab'));
+const AccessTab = screen(() => import('../components/accounting/AccessTab'));
+const PfsTab = screen(() => import('../components/accounting/PfsTab'));
+const MriTab = screen(() => import('../components/accounting/MriTab'));
+const LoansTab = screen(() => import('../components/accounting/LoansTab'));
+const MreTab = screen(() => import('../components/accounting/MreTab'));
+const ImportHub = screen(() => import('../components/accounting/ImportHub'));
+const OverviewTab = screen(() => import('../components/accounting/dashboard/OverviewTab'));
+const CashTab = screen(() => import('../components/accounting/dashboard/CashTab'));
+const PerformanceTab = screen(() => import('../components/accounting/dashboard/PerformanceTab'));
+const CloseTab = screen(() => import('../components/accounting/dashboard/CloseTab'));
+const DataTab = screen(() => import('../components/accounting/dashboard/DataTab'));
+const BudgetTab = screen(() => import('../components/accounting/BudgetTab'));
+const PartnersTab = screen(() => import('../components/accounting/PartnersTab'));
+const AllocationsTab = screen(() => import('../components/accounting/AllocationsTab'));
+const ManagementFeesTab = screen(() => import('../components/accounting/ManagementFeesTab'));
 // Oct 15 (Neil): AMA is Ask My Accountant; the agreements are Management Fees.
-const AskAccountantTab = lazy(() => import('../components/accounting/AskAccountantTab'));
+const AskAccountantTab = screen(() => import('../components/accounting/AskAccountantTab'));
 // Oct 15 (Charmi + Neil): Profitability and Employee Compensation under Reporting.
-const ProfitabilityReport = lazy(() => import('../components/accounting/ProfitabilityReport'));
-const CompensationReport = lazy(() => import('../components/accounting/CompensationReport'));
-const ReportCenter = lazy(() => import('../components/accounting/ReportCenter'));
-const ReportBuilder = lazy(() => import('../components/accounting/ReportBuilder'));
-const EntitiesTab = lazy(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.EntitiesTab })));
-const GlAccountsTab = lazy(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.GlAccountsTab })));
-const JournalTab = lazy(() => import('../components/accounting/JournalTab'));
-const ManualJournalEntries = lazy(() => import('../components/accounting/ManualJournalEntries'));
-const PayrollSummary = lazy(() => import('../components/accounting/PayrollSummary'));
+const ProfitabilityReport = screen(() => import('../components/accounting/ProfitabilityReport'));
+const CompensationReport = screen(() => import('../components/accounting/CompensationReport'));
+const ReportCenter = screen(() => import('../components/accounting/ReportCenter'));
+const ReportBuilder = screen(() => import('../components/accounting/ReportBuilder'));
+const EntitiesTab = screen(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.EntitiesTab })));
+const GlAccountsTab = screen(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.GlAccountsTab })));
+const JournalTab = screen(() => import('../components/accounting/JournalTab'));
+const ManualJournalEntries = screen(() => import('../components/accounting/ManualJournalEntries'));
+const PayrollSummary = screen(() => import('../components/accounting/PayrollSummary'));
 const SCREEN_LOADING = <div style={{ marginTop: 8 }}><SkeletonBlocks count={3} /></div>;
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
@@ -100,7 +103,8 @@ const SCREEN_LOADING = <div style={{ marginTop: 8 }}><SkeletonBlocks count={3} /
 // Trial Balance and three Income Statement quick views), Budget (moved off
 // the bar, with Budget vs. Actual YTD / MTD), Payroll & People, Audit &
 // Insights, and Banking & Credit Cards (item 07) between Financial and
-// Budget. A `rpt-<report>` key opens that statement; `rpt-<view>` opens a
+// Budget. (Redrawn 11/11/2026, picture 2: see the Reports comment below.)
+// A `rpt-<report>` key opens that statement; `rpt-<view>` opens a
 // quick view (REPORT_VIEWS in reportModel); an activity report's key may
 // carry its account after a colon (activitySub). Older keys (rpt-pnl,
 // rpt-budget) still land.
@@ -115,66 +119,70 @@ const BASE_TABS = [
     { key: 'performance', label: 'Performance', Icon: TrendingUp },
     { key: 'close', label: 'Close', Icon: CheckSquare },
   ] },
+  // 11/11/2026 (Neil approved picture 2 of the Accounting pass): two levels,
+  // every name spelled out. All Reports, Report Builder and Packages lead;
+  // each group is one flyout with no flyout inside it. Keys never change, so
+  // every saved link, bell and bookmark still lands.
   { key: 'reporting', label: 'Reports', Icon: FileText, items: [
-    { key: 'grp-center', label: 'Report Center', Icon: FileText, items: [
-      { key: 'reports', label: 'Report Center', Icon: FileText },
-      { key: 'report-builder', label: 'Report Builder', Icon: Hammer },
-      { key: 'packages', label: 'Packages', Icon: FileStack },
-    ] },
-    { key: 'grp-financial', label: 'Financial', Icon: Scale, items: [
+    { key: 'reports', label: 'All Reports', Icon: FileText },
+    { key: 'report-builder', label: 'Report Builder', Icon: Hammer },
+    { key: 'packages', label: 'Packages', Icon: FileStack },
+    { key: 'grp-financial', label: 'Financial Statements', Icon: Scale, items: [
       rpt('balance-sheet', 'Balance Sheet', Scale),
       rpt('trial-balance', 'Trial Balance', ListChecks),
-      { key: 'grp-pnl', label: 'Income Statement', Icon: TrendingUp, items: [
-        rpt('pnl-t12', 'T12', TrendingUp),
-        rpt('pnl-ytd-py', 'YTD vs. Prior Year', TrendingUp),
-        rpt('pnl-mom', 'This Month vs. Last Month', TrendingUp),
-        // 10/27 item 16 (Charmi; Neil: "Income Statement - not Profit & Loss").
-        rpt('pnl-customer', 'Income Statement by Customer', Users),
-        rpt('pnl-job', 'Income Statement by Job', Hammer),
-        rpt('pnl-department', 'Income Statement by Department', Building2),
-      ] },
-      rpt('general-ledger', 'General Ledger', BookOpen),
-      // 10/27 item 17 (Charmi: "pull a report by vendor name").
-      rpt('vendor-spend', 'Spend by Vendor', Receipt),
+      rpt('pnl-t12', 'Income Statement - Last 12 Months', TrendingUp),
+      rpt('pnl-ytd-py', 'Income Statement - Year to Date vs. Prior Year', TrendingUp),
+      rpt('pnl-mom', 'Income Statement - This Month vs. Last Month', TrendingUp),
+      // 10/27 item 16 (Charmi; Neil: "Income Statement - not Profit & Loss").
+      rpt('pnl-customer', 'Income Statement by Customer', Users),
+      rpt('pnl-job', 'Income Statement by Job', Hammer),
+      rpt('pnl-department', 'Income Statement by Department', Building2),
       rpt('cash-flow', 'Statement of Cash Flows', ArrowLeftRight),
       rpt('cash-position', 'Cash Position', Wallet),
     ] },
     // Oct 22 (Neil, item 07): one card's or one bank account's transactions
     // without filtering the General Ledger. Every account on Overview >
     // Account Reconciliations opens these on itself (`rpt-<report>:<account>...`).
-    { key: 'grp-banking', label: 'Banking & Credit Cards', Icon: Landmark, items: [
-      rpt('card-activity', 'Credit Card Activity', CreditCard),
+    { key: 'grp-banking', label: 'Ledger & Banking', Icon: Landmark, items: [
+      rpt('general-ledger', 'General Ledger', BookOpen),
+      // 10/27 item 17 (Charmi: "pull a report by vendor name").
+      rpt('vendor-spend', 'Spend by Vendor', Receipt),
       rpt('bank-activity', 'Bank Activity', Landmark),
+      rpt('card-activity', 'Credit Card Activity', CreditCard),
+      // Oct 23 (Neil, CR-10): the entries a person keyed in Intacct - who and when.
+      { key: 'manual-je', label: 'Manual Journal Entries', Icon: UserPen },
     ] },
-    // Oct 2 (Charmi and Neil, 10/01 call): a budget per entity and year.
-    { key: 'grp-budget', label: 'Budget', Icon: Calculator, items: [
-      { key: 'budget', label: 'Budget', Icon: Calculator },
-      rpt('budget-ytd', 'Budget vs. Actual, YTD', Target),
-      rpt('budget-mtd', 'Budget vs. Actual, MTD', Target),
+    { key: 'grp-budget', label: 'Budget vs. Actual', Icon: Target, items: [
+      rpt('budget-ytd', 'Year to Date', Target),
+      rpt('budget-mtd', 'Month to Date', Target),
+    ] },
+    { key: 'grp-audit', label: 'Review', Icon: Activity, items: [
+      rpt('flux', 'Flux Analysis', Activity),
+      // Oct 15: per-entity NOI / net income / debt service vs prior year.
+      { key: 'profitability', label: 'Profitability', Icon: ChartColumn },
     ] },
     // Oct 15: wages and hours per employee (Full level on Accounting only).
-    { key: 'grp-payroll', label: 'Payroll & People', Icon: HandCoins, items: [
+    { key: 'grp-payroll', label: 'Payroll', Icon: HandCoins, items: [
       { key: 'compensation', label: 'Compensation', Icon: HandCoins },
       // Oct 23 (Neil, CR-09): QuickBooks' Payroll Summary, from the PYRJ import.
       { key: 'payroll-summary', label: 'Payroll Summary', Icon: ReceiptText },
-    ] },
-    { key: 'grp-audit', label: 'Audit & Insights', Icon: Activity, items: [
-      rpt('flux', 'Flux Analysis', Activity),
-      // Oct 6: Monthly Recurring Expenses, beside MRI.
-      { key: 'mre', label: 'MRE', Icon: Receipt },
-      { key: 'mri', label: 'MRI', Icon: KeyRound },
-      // Oct 15 (Neil: "AMA means Ask My Accountant"): questions on ledger lines
-      // and the lines parked on the Ask My Accountant account.
-      { key: 'ama', label: 'AMA', Icon: MessageCircleQuestion },
-      // Oct 23 (Neil, CR-10): the entries a person keyed in Intacct - who and when.
-      { key: 'manual-je', label: 'Manual Journal Entries', Icon: UserPen },
-      // Oct 15: per-entity NOI / net income / debt service vs prior year.
-      { key: 'profitability', label: 'Profitability', Icon: ChartColumn },
     ] },
     // 10/27 item 18 (Neil, Viral): tax forms from the ledger - Schedule C first.
     { key: 'grp-tax', label: 'Tax', Icon: Landmark, items: [
       rpt('schedule-c', 'Schedule C (Draft)', FileText),
     ] },
+  ] },
+  // 11/11/2026 (picture 2): the day-to-day working tools, not reports - full
+  // names. Management Fees is placed here by REPORT_MENU_PLACEMENT.
+  { key: 'trackers', label: 'Trackers', Icon: ListChecks, items: [
+    // Oct 6: Monthly Recurring Expenses, beside MRI.
+    { key: 'mri', label: 'Monthly Recurring Income', Icon: KeyRound },
+    { key: 'mre', label: 'Monthly Recurring Expenses', Icon: Receipt },
+    // Oct 15 (Neil: "AMA means Ask My Accountant"): questions on ledger lines
+    // and the lines parked on the Ask My Accountant account.
+    { key: 'ama', label: 'Ask My Accountant', Icon: MessageCircleQuestion },
+    // Oct 2 (Charmi and Neil, 10/01 call): a budget per entity and year.
+    { key: 'budget', label: 'Budgets', Icon: Calculator },
   ] },
   // Oct 2 (Neil and Charmi): loans set up from the ledger and reviewed per
   // month - balances, principal and interest paid, NOI, DSCR against the
@@ -200,21 +208,21 @@ const BASE_TABS = [
     { key: 'customers', label: 'Customers', Icon: Users },
     { key: 'gl-accounts', label: 'General Ledger Accounts', Icon: BookOpen },
     { key: 'entities', label: 'Entities', Icon: Building2 },
-    { key: 'grp-journals', label: 'Journals', Icon: Library, items: RECORDS_JOURNALS.map((s) => ({ key: `${JOURNAL_SUB}${s}`, label: s, Icon: BookOpen })) },
+    { key: 'grp-journals', label: 'Journals', Icon: Library, items: RECORDS_JOURNALS.map((s) => ({ key: `${JOURNAL_SUB}${s}`, label: JOURNAL_NAMES[s] || s, hint: JOURNAL_NAMES[s] ? s : undefined, Icon: BookOpen })) },
   ] },
   // Oct 6 (Neil: "create a Tools section in accounting"): the utility screens.
   { key: 'tools', label: 'Tools', Icon: Wrench, items: [
-    { key: 'data', label: 'Data', Icon: Database },
+    { key: 'data', label: 'Reference Data', Icon: Database },
     { key: 'access', label: 'Access', Icon: ShieldCheck },
     { key: 'allocations', label: 'Allocations', Icon: Split },
     { key: 'imports', label: 'Import Hub', Icon: Upload },
   ] },
 ];
-// Oct 23 (Neil, CR-04): PFS and Management Fees each go in the Reports group
-// REPORT_MENU_PLACEMENT (assumptions.js) names - PFS in Financial, Management
-// Fees in Audit & Insights - out of the Report Center.
+// Oct 23 (Neil, CR-04): PFS and Management Fees each go in the group
+// REPORT_MENU_PLACEMENT (assumptions.js) names - PFS in Financial Statements,
+// Management Fees in Trackers (11/11/2026).
 const PLACED = {
-  pfs: { key: 'pfs', label: 'PFS', Icon: Landmark },
+  pfs: { key: 'pfs', label: 'Personal Financial Statements', Icon: Landmark },
   // Oct 7 (Priyanka): Asset Management Agreements, billed read from the
   // ledger - first built as "AMA", renamed Management Fees on Oct 15.
   'mgmt-fees': { key: 'mgmt-fees', label: 'Management Fees', Icon: Handshake },
@@ -249,6 +257,39 @@ const isReports = (key) => String(key || '').startsWith('rpt-');
 const rptKey = (key) => (String(key || '').startsWith('rpt-') ? key.slice(4).split(':')[0] : null);
 /** The menu item a sub key lights: `rpt-bank-activity:11310` lights Bank Activity. */
 const menuKey = (key) => (String(key || '').startsWith('rpt-') ? key.split(':')[0] : key);
+
+/** The menu items from the bar down to `key`, or null when no menu holds it. */
+function pathTo(items, key, trail = []) {
+  for (const it of items) {
+    if (it.key === key) return [...trail, it];
+    const below = it.items && pathTo(it.items, key, [...trail, it]);
+    if (below) return below;
+  }
+  return null;
+}
+
+// 11/11/2026 (Neil approved picture 1, "Page Line is OK"): one small grey
+// line names the page - menu, group, page, in the menu's own words. It sits in
+// the page's top padding (style.css "Accounting page line"), so nothing moves,
+// and the header is untouched. A menu name opens that menu in the header.
+function PageLine({ tabs, active }) {
+  const path = pathTo(tabs, active);
+  if (!path || path.length < 2) return null;
+  const openMenu = () => {
+    const root = document.querySelector('.top-header') || document;
+    [...root.querySelectorAll('button[aria-haspopup="menu"]')].find((b) => b.textContent.trim().startsWith(path[0].label))?.click();
+  };
+  return (
+    <nav className="acct-page-line" aria-label="This page">
+      {path.map((it, i) => (
+        <Fragment key={it.key}>
+          {i > 0 && <ChevronRight size={12} aria-hidden="true" />}
+          {i === path.length - 1 ? <span aria-current="page">{it.label}</span> : <button type="button" onClick={openMenu} aria-label={`Open the ${path[0].label} menu`}>{it.label}</button>}
+        </Fragment>
+      ))}
+    </nav>
+  );
+}
 /** The statement a `rpt-` key opens: its own, or its quick view's. Unknown -> null. */
 const reportOf = (key) => {
   const k = rptKey(key);
@@ -258,6 +299,19 @@ const reportOf = (key) => {
 };
 const viewOf = (key) => (REPORT_VIEWS[rptKey(key)] ? rptKey(key) : null);
 const DASH_SUBS = ['overview', 'cash', 'performance', 'close'];
+// The screens that read the dashboard provider (useDash): its tabs and Data's grids.
+const DASH_PROVIDER_SUBS = [...DASH_SUBS, 'data', 'intercompany', 'investments'];
+
+// The file behind each sub key, for the preload above.
+const SCREEN_OF = {
+  dashboard: OverviewTab, reporting: ReportCenter, overview: OverviewTab, cash: CashTab, performance: PerformanceTab, close: CloseTab, reports: ReportCenter,
+  'report-builder': ReportBuilder, packages: PackagesTab, mri: MriTab, loans: LoansTab, pfs: PfsTab, data: DataTab,
+  intercompany: DataTab, investments: DataTab, access: AccessTab, budget: BudgetTab, partners: PartnersTab,
+  customers: PartnersTab, allocations: AllocationsTab, mre: MreTab, imports: ImportHub, ama: AskAccountantTab,
+  'mgmt-fees': ManagementFeesTab, profitability: ProfitabilityReport, compensation: CompensationReport,
+  'payroll-summary': PayrollSummary, 'gl-accounts': GlAccountsTab, entities: EntitiesTab, 'manual-je': ManualJournalEntries,
+};
+const screenOf = (key) => (isReports(key) ? ReportsTab : journalOf(key) ? JournalTab : SCREEN_OF[key]);
 
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
@@ -289,6 +343,12 @@ export default function Accounting({ activeSub, onSubChange }) {
   const [access, setAccess] = useState(null);
   // Stamp the visit for the Access tab's "last opened" column; nothing waits on it.
   useEffect(() => { api.markAccountingOpened?.()?.catch?.(() => {}); }, []);
+  useEffect(() => {
+    // Code only, never data: a screen this person may not open just downloads its file.
+    // No sub, or a group's key, opens that group's first page.
+    screenOf(ALIAS[activeSub] || activeSub || 'overview')?.preload?.().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     let alive = true;
     api.getMyAccountingAccess()
@@ -370,7 +430,17 @@ export default function Accounting({ activeSub, onSubChange }) {
     if (next !== sub) onSubChange?.(next);
   };
   // The Report Center lists what the Reports menu holds for this person.
-  const reportGroups = tabs.find((t) => t.key === 'reporting')?.items || [];
+  // 11/11/2026: the leading items (Report Builder, Packages) are its "Report
+  // Center" group, and Trackers is listed too, so nothing that moved out of
+  // Reports leaves the catalogue.
+  const reportItems = tabs.find((t) => t.key === 'reporting')?.items || [];
+  const reportLead = reportItems.filter((t) => !t.items);
+  const trackerItems = tabs.find((t) => t.key === 'trackers')?.items;
+  const reportGroups = [
+    ...(reportLead.length ? [{ key: 'grp-center', label: 'Report Center', items: reportLead }] : []),
+    ...reportItems.filter((t) => t.items),
+    ...(trackerItems ? [{ key: 'trackers', label: 'Trackers', items: trackerItems }] : []),
+  ];
   const reportCenter = sub === 'reports' && <ReportCenter groups={reportGroups} limited={limited} onOpen={(to) => onSubChange?.(to)} />;
   const reportsTab = isReports(sub) && (
     <ReportsTab report={reportOf(sub)} view={viewOf(sub)} link={parseActivitySub(sub)} onReportChange={onReportPicked} canEdit={canEdit}
@@ -391,6 +461,18 @@ export default function Accounting({ activeSub, onSubChange }) {
   // Every tab has the same one-line header (10/02): the statement still
   // starts high on the page (Neil, Sep 25; Charmi, 10/02) and nothing moves
   // when switching tabs.
+
+  // The dashboard provider loads the consolidated ledger, budgets, NOI and the
+  // close tables the moment it mounts (10 reads, the tables every minute), so
+  // it wraps only the screens that read it (11/11/2026, Neil: "faster") - the
+  // Balance Sheet, Loans or MRE no longer wait behind it. Its figures stay in
+  // the query cache, so coming back to the Dashboard shows them at once.
+  const withDash = (body) => (DASH_PROVIDER_SUBS.includes(sub) ? (
+    <DashProvider>
+      {/* The dashboard's "open the report" links mean the statements (they predate the Report Center). */}
+      <DashNav.Provider value={(to) => onSubChange?.(to === 'reports' ? STATEMENTS_SUB : to)}>{body}</DashNav.Provider>
+    </DashProvider>
+  ) : body);
 
   return (
     <BarSearchSlotContext.Provider value={searchSlotApi}>
@@ -415,6 +497,7 @@ export default function Accounting({ activeSub, onSubChange }) {
       })()}
 
       {access && <ModuleTabs tabs={withBadges(tabs, counts, 'accounting')} active={menuKey(sub)} onChange={onSubChange} compactGroups />}
+      {access && <PageLine tabs={tabs} active={menuKey(sub)} />}
 
       {!access ? (
         <div style={{ marginTop: 16 }}><SkeletonBlocks count={3} /></div>
@@ -440,10 +523,7 @@ export default function Accounting({ activeSub, onSubChange }) {
             {sub === 'profitability' && <ProfitabilityReport limited />}
           </Suspense>
         </div>
-      ) : (
-        <DashProvider>
-          {/* The dashboard's "open the report" links mean the statements (they predate the Report Center). */}
-          <DashNav.Provider value={(to) => onSubChange?.(to === 'reports' ? STATEMENTS_SUB : to)}>
+      ) : withDash(
             <div style={{ marginTop: 8 }} className={DASH_SUBS.includes(sub) ? `acct-dash acct-dash--${dashDensity}` : undefined}>
               <Suspense fallback={SCREEN_LOADING}>
                 {sub === 'overview' && <OverviewTab canEdit={canEdit} />}
@@ -473,9 +553,7 @@ export default function Accounting({ activeSub, onSubChange }) {
                 {sub === 'compensation' && canManage && <CompensationReport />}
                 {sub === 'payroll-summary' && canPayrollSummary && <PayrollSummary />}
               </Suspense>
-            </div>
-          </DashNav.Provider>
-        </DashProvider>
+            </div>,
       )}
     </div>
     </BarSearchSlotContext.Provider>

@@ -6,11 +6,20 @@ Run alone: python -m unittest test_email_signature
 """
 import html
 import os
+import tempfile
 import unittest
 
-os.environ.setdefault("DATABASE_URL", "sqlite:///./_test_email_signature.db")
+_tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+_tmp_db.close()
+os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 os.environ["NEXUS_SKIP_AUTH"] = "true"
 
+from fastapi.testclient import TestClient  # noqa: E402
+
+import auth  # noqa: E402
+import database  # noqa: E402
+import main  # noqa: E402
+import models  # noqa: E402
 from routers import myhr  # noqa: E402
 
 fmt = myhr._format_signature_phone
@@ -77,9 +86,80 @@ class Templates(unittest.TestCase):
 
     def test_rows_state_their_own_size(self):
         # Pasted HTML loses inherited table font sizes - every row says its own.
-        for tid in ("classic", "sincerely", "regards", "bold"):
+        for tid in ("classic", "sincerely", "bold"):
             out = myhr.SIGNATURE_TEMPLATES[tid][1](sample())
             self.assertIn("line-height:18px", out, tid)
+
+
+    def test_company_color_and_default(self):
+        for tid, (_, render) in myhr.SIGNATURE_TEMPLATES.items():
+            self.assertIn("#1f8a4d", render(sample()), tid)          # social badges at least
+            out = render(sample(accent="#1D4ED8"))
+            self.assertIn("#1d4ed8", out, tid)
+            self.assertNotIn("#1f8a4d", out, tid)
+            self.assertIn("#1f8a4d", render(sample(accent="red;x:y")), tid)  # not a hex = default
+
+    def test_no_style_block_travels(self):
+        for tid, (_, render) in myhr.SIGNATURE_TEMPLATES.items():
+            self.assertNotIn("<style", render(sample()), tid)
+
+    def test_kind_regards_renders_as_sincerely(self):
+        self.assertNotIn("regards", myhr.SIGNATURE_TEMPLATES)
+        self.assertEqual(myhr.template_id("regards"), "sincerely")
+        self.assertEqual(myhr.template_id("nope"), "classic")
+        self.assertEqual(myhr.template_id(None), "classic")
+        out = myhr._render_override_signature({"template": "regards", "fields": {"name": "Desk"}})
+        self.assertEqual(out["template"], "sincerely")
+
+
+ME, CO = "sig.owner@greensglobal.com", "co-sig"
+
+
+class Routes(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        assert os.path.abspath(database.engine.url.database or "") == os.path.abspath(_tmp_db.name)
+        models.Base.metadata.create_all(bind=database.engine)
+        cls.client = TestClient(main.app)
+        db = database.SessionLocal()
+        db.add(models.HrEntity(id=CO, name="Sig Co", country="US"))
+        db.add(models.NexusEmployee(id="id-sig", work_email=ME, first_name="Sig", last_name="Owner",
+                                    company=CO, status="active", phone="9492019160", country="US"))
+        db.add(models.NexusRole(email=ME, role="owner", assigned_by="test"))
+        db.commit()
+        db.close()
+        auth.SKIP_AUTH = True
+        os.environ["NEXUS_DEV_EMAIL"] = ME
+        auth.invalidate_role_cache()
+
+    @classmethod
+    def tearDownClass(cls):
+        database.engine.dispose()
+        try:
+            os.remove(_tmp_db.name)
+        except (FileNotFoundError, PermissionError):
+            pass
+
+    def test_preview_shows_the_draft_and_saves_nothing(self):
+        r = self.client.post("/myhr/signature/preview", json={"display_name": "Siggy", "phone": "949-555-0100 x9"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIn("Siggy", r.json()["html"])
+        self.assertIn("ext. 9", r.json()["html"])
+        saved = self.client.get("/myhr/signature").json()
+        self.assertNotIn("Siggy", saved["html"])
+        self.assertEqual(saved["displayNameOverride"], "")
+
+    def test_company_color_is_checked_saved_and_previewed(self):
+        self.assertEqual(self.client.patch(f"/hr/entities/{CO}", json={"signature_color": "blue"}).status_code, 400)
+        r = self.client.patch(f"/hr/entities/{CO}", json={"signature_color": "#1D4ED8", "signature_template": "bold"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["signatureColor"], "#1d4ed8")
+        self.assertIn("#1d4ed8", self.client.get("/myhr/signature").json()["html"])
+        t = self.client.get(f"/hr/entities/{CO}/signature-templates", params={"color": "#aa0000"}).json()
+        self.assertEqual(t["color"], "#1d4ed8")
+        self.assertIn("#aa0000", next(x["html"] for x in t["templates"] if x["id"] == "bold"))
+        self.client.patch(f"/hr/entities/{CO}", json={"signature_color": ""})
+        self.assertIn("#1f8a4d", self.client.get("/myhr/signature").json()["html"])
 
 
 if __name__ == "__main__":

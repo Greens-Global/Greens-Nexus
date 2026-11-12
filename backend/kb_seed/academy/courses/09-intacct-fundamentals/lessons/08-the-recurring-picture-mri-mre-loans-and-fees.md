@@ -21,7 +21,7 @@ The ledger records what happened. Some questions need what is expected too: whic
 }
 ```
 
-Both are under **Reports > Audit & Insights**.
+Both are under **Trackers**.
 
 ## MRI: Monthly Recurring Income
 

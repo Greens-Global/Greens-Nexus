@@ -5,6 +5,7 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { usePeopleDirectory } from '../lib/queries';
 import { formatCurrency, statusLabel } from './lib/format';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, PeopleSelect, StatusText, useIrLoad } from './lib/ui';
+import { InvestorBooks } from './Books';
 import { Spinner } from '../components/AsyncState';
 import HoldButton from '../ui/HoldButton';
 
@@ -126,6 +127,7 @@ export default function InvestorsTab() {
                       {inv.displayName}
                       {inv.status !== 'active' && <StatusText status={inv.status} size={11} />}
                     </div>
+                    {inv.intacctAccounts?.length > 0 && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Intacct {inv.intacctAccounts.join(', ')}</div>}
                   </td>
                   <td data-th="Type" style={{ color: 'var(--muted)' }}>{statusLabel(inv.entityType)}</td>
                   <td data-th="Contact">
@@ -206,6 +208,7 @@ export default function InvestorsTab() {
                 <textarea className="form-input" value={modal.form.notes} onChange={e => setF({ notes: e.target.value })}
                   style={{ minHeight: 64, resize: 'vertical' }} placeholder="Source of relationship, preferences, anything the team should know…" />
               </FG>
+              {modal.id && <InvestorBooks investorId={modal.id} onChanged={reload} />}
               {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{formErr}</div>}
             </div>
             <div className="modal-footer">

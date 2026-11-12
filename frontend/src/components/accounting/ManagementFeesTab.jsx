@@ -18,6 +18,7 @@ import { requestReportDrill } from './drill';
 import { Chip } from './LoanSetupDialog';
 import { Dialog } from './LoanDialogs';
 import { notAvailable } from './LoansTab';
+import { DateField } from '../../tasks/components';
 
 // Accounting -> Reporting -> Management Fees, the Asset Management Agreements
 // (Priyanka, Oct 7: "We still need to build AMA"). Oct 15 (Neil): AMA means
@@ -305,12 +306,12 @@ export function AgreementDialog({ agreement = null, entities, showHistorical = f
         </div>
         <div>
           <label style={label} htmlFor="ama-start">Start Date</label>
-          <input id="ama-start" type="date" value={d.startDate} onChange={(e) => set({ startDate: e.target.value })} style={full} />
+          <span id="ama-start" style={{ ...full, display: 'flex', alignItems: 'center' }}><DateField value={d.startDate} onChange={(picked) => { const v = picked || ''; return set({ startDate: v }); }} placeholder="MM/DD/YYYY" title="Start Date" style={{ width: '100%' }} /></span>
           {err('startDate') || <div style={hint}>Billing dates count from it.</div>}
         </div>
         <div>
           <label style={label} htmlFor="ama-end">End Date</label>
-          <input id="ama-end" type="date" value={d.endDate} onChange={(e) => set({ endDate: e.target.value })} style={full} />
+          <span id="ama-end" style={{ ...full, display: 'flex', alignItems: 'center' }}><DateField value={d.endDate} onChange={(picked) => { const v = picked || ''; return set({ endDate: v }); }} placeholder="MM/DD/YYYY" title="End Date" style={{ width: '100%' }} /></span>
           {err('endDate') || <div style={hint}>Blank = open-ended.</div>}
         </div>
         <div>
@@ -475,9 +476,12 @@ ${FILTER_CSS}`}</style>
         <BarSearch value={text} onChange={setText} label="Filter agreements" placeholder="Filter agreements" width={200} />
         <TableViewBar view={view} />
         <div className="acct-bar-end">
-          <BarSummary level={3}>
-            Agreements <strong>{rows.length}</strong> · Calculated Fee <strong><Amount value={sum('calculatedFee')} /></strong> · Billed YTD <strong><Amount value={sum('billedYtd')} /></strong>
-          </BarSummary>
+          {/* Nothing read yet: a placeholder, never zeros (11/11/2026 pass, picture 6). */}
+          {data ? (
+            <BarSummary level={3}>
+              Agreements <strong>{rows.length}</strong> · Calculated Fee <strong><Amount value={sum('calculatedFee')} /></strong> · Billed YTD <strong><Amount value={sum('billedYtd')} /></strong>
+            </BarSummary>
+          ) : loading ? <span className="nx-skel" role="status" aria-label="Loading" style={{ display: 'inline-block', width: 150, height: 12, borderRadius: 6, verticalAlign: 'middle' }} /> : null}
           <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           </BarMore>

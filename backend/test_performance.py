@@ -127,8 +127,12 @@ class GoalTests(PerfCase):
         administrator, a FULL hr grant, or the company's HR contact - an
         Editor grant is not HR. A Full grant obeys its People scope."""
         db = self.db
-        # Neil, 11/02/2026: an Administrator is company-walled; only a Super Administrator passes the walls.
-        self.assertEqual(perf.hr_reach(db, U(FAR, level=4)), {CO2})     # administrator: their company
+        # An Administrator: every company with the walls off, their own once armed (11/11/2026).
+        self.assertIsNone(perf.hr_reach(db, U(FAR, level=4)))
+        with mock.patch.object(auth, "_company_walls_on", lambda _db: True):
+            db.info.clear()                                          # hr_reach memoizes per session
+            self.assertEqual(perf.hr_reach(db, U(FAR, level=4)), {CO2})
+        db.info.clear()
         self.assertIsNone(perf.hr_reach(db, U(FAR, level=5)))            # Super Administrator: every company
         self.assertEqual(perf.hr_reach(db, U(HR)), {CO})                  # the HR contact: their company
         self.assertIs(perf.hr_reach(db, U(EMP)), False)
@@ -159,7 +163,11 @@ class GoalTests(PerfCase):
         self.assertFalse(self.see(U(OTHER_MGR), g))      # a manager of another team (Oct 6 rule)
         self.assertFalse(self.see(U(OTHER_MGR, level=3), g))
         self.assertFalse(self.see(U(FAR), g))
-        self.assertFalse(self.see(U(FAR, level=4), g))   # an administrator of another company: walled (11/02/2026)
+        self.assertTrue(self.see(U(FAR, level=4), g))    # an administrator of another company: walls off (11/11/2026)
+        with mock.patch.object(auth, "_company_walls_on", lambda _db: True):
+            self.db.info.clear()                         # hr_reach memoizes per session
+            self.assertFalse(self.see(U(FAR, level=4), g))   # ...walled once armed
+        self.db.info.clear()
         self.assertTrue(self.see(U(FAR, level=5), g))    # a Super Administrator
         team = api.list_goals("team", "", "", False, U(MGR), self.db)
         self.assertEqual([x["id"] for x in team], [g])
@@ -692,7 +700,7 @@ class ReminderTests(PerfCase):
             api.get_settings("", U(EMP), self.db)
         out = api.save_settings(api.SettingsIn(company=CO, settings={"checkinEveryDays": 500}), U(HR), self.db)
         self.assertEqual((out["settings"]["checkinEveryDays"], out["override"]), (perf.CHECKIN_DAYS_MAX, True))
-        with self.assertRaises(HTTPException):     # an Administrator is HR for their company, not for everyone (11/02/2026)
+        with mock.patch.object(auth, "_company_walls_on", lambda _db: True),                 self.assertRaises(HTTPException):  # armed: an Administrator is HR for their company, not for everyone
             api.save_settings(api.SettingsIn(company="", settings={"checkinEveryDays": 7}), U(BOSS, level=4), self.db)
         out = api.save_settings(api.SettingsIn(company="", settings={"checkinEveryDays": 7}), U(BOSS, level=5), self.db)
         self.assertEqual(out["settings"]["checkinEveryDays"], 7)

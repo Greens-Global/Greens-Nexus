@@ -14,7 +14,7 @@ vi.mock('../../api', () => ({
   api: {
     getAccountingLocations: vi.fn(async () => ({ entities: [{ code: '12000', name: 'Greens Global, Inc.' }] })),
     getManualJournalEntries: vi.fn(async () => ({ available: true, from: '2026-09-01', to: '2026-09-30', entries: ENTRIES, users: ['urmi.shah', 'vinod.bhole'], scanned: 40, excludedUsers: ['nexus_api_user', 'system'], note: '' })),
-    searchAccountingLedger: vi.fn(async () => ({ rows: [{ entry_id: 'uuid-1', entry_no: '94650', batch_no: '94650' }] })),
+    searchAccountingLedger: vi.fn(async () => ({ rows: [{ entry_id: 'uuid-1', entry_no: 'IA-502', batch_no: 502 }] })),
     getAccountingEntry: vi.fn(async () => ({ entry: { entry_no: '94650' }, lines: [], intacct: [], totals: { debit: 0, credit: 0 } })),
     getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
     saveAccountingPrefs: vi.fn(async (p) => ({ prefs: p })),
@@ -90,8 +90,23 @@ describe('Manual Journal Entries', () => {
     render(<ManualJournalEntries />);
     await screen.findByRole('table');
     fireEvent.click(screen.getByRole('button', { name: 'Open entry 94650' }));
-    await waitFor(() => expect(api.searchAccountingLedger).toHaveBeenCalledWith(expect.objectContaining({ q: '94650', journal: 'GJCA', from: '2026-10-21', to: '2026-10-21' })));
+    await waitFor(() => expect(api.searchAccountingLedger).toHaveBeenCalledWith(expect.objectContaining({ q: '502', journal: 'GJCA', from: '2026-10-21', to: '2026-10-21' })));
     await waitFor(() => expect(api.getAccountingEntry).toHaveBeenCalled());
+    // Picture 9 (11/11/2026): on the right, the list still beside it.
+    expect(screen.getByTestId('acct-side-panel').getAttribute('aria-label')).toMatch(/Journal entry/);
+    expect(document.querySelector('.modal-overlay')).toBeNull();
+  });
+
+  // 11/11/2026: a line from some other entry that the search also matched is
+  // never opened in its place - the person is told the entry is not there.
+  it('never opens a different entry than the one clicked', async () => {
+    api.searchAccountingLedger.mockResolvedValueOnce({ rows: [{ entry_id: 'uuid-9', entry_no: 'IA-999', batch_no: 999 }] });
+    api.getAccountingEntry.mockClear();
+    render(<ManualJournalEntries />);
+    await screen.findByRole('table');
+    fireEvent.click(screen.getByRole('button', { name: 'Open entry 94650' }));
+    expect(await screen.findByText(/Entry 94650 is not on the Nexus ledger copy yet/)).toBeTruthy();
+    expect(api.getAccountingEntry).not.toHaveBeenCalled();
   });
 
   // Item 14 (Charmi, 10/26: "There should be search option for all").

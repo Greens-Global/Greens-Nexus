@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, FolderUp, Loader2, Mail, Maximize2, Minimize2, Pencil, RotateCcw, Search, Share2, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
@@ -303,6 +303,11 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     setDrill({ account: row.code || '', accountName: row.title || row.label || '', ...column.drill });
     toTop();
   };
+  // Rows are drawn by a memoized StatementRow (11/11/2026, speed pass): they
+  // reach drillInto through this stable wrapper, which always calls the latest one.
+  const drillRef = useRef(drillInto);
+  useEffect(() => { drillRef.current = drillInto; });
+  const drillLatest = useCallback((row, column) => drillRef.current(row, column), []);
 
   useEffect(() => {
     api.getAccountingLocations().then((d) => { setEntities(d?.entities || []); setLimited(!!d?.limited); }).catch(() => setEntities([]));
@@ -525,16 +530,21 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
       .catch((err) => setNoteError({ code, text: err?.message || (closed ? 'Could not close the review.' : 'Could not reopen the review.') }))
       .finally(() => setNoteBusy(''));
   };
-  const noteProps = {
+  // Kept between renders so the memoized flux rows redraw only when a note
+  // changes (11/11/2026); saveNote and setReview read the report's current
+  // flux key, so they are reached through a ref that always holds the latest.
+  const noteActs = useRef({ saveNote, setReview });
+  useEffect(() => { noteActs.current = { saveNote, setReview }; });
+  const noteProps = useMemo(() => ({
     notes: fluxNotes, edit: noteEdit, remove: noteRemove, error: noteError, busy: noteBusy, canEdit,
     onEdit: (code) => { setNoteError(null); setNoteRemove(null); setNoteEdit({ code, text: fluxNoteOf(fluxNotes[code]).note }); },
-    onReview: setReview,
+    onReview: (...args) => noteActs.current.setReview(...args),
     onText: (text) => setNoteEdit((n) => (n ? { ...n, text } : n)),
     onCancel: () => setNoteEdit(null),
-    onSave: saveNote,
+    onSave: (...args) => noteActs.current.saveNote(...args),
     onAskRemove: (code) => { setNoteEdit(null); setNoteRemove(code); },
     onKeep: () => setNoteRemove(null),
-  };
+  }), [fluxNotes, noteEdit, noteRemove, noteError, noteBusy, canEdit]);
   const showInactive = !!custom.showInactiveAccounts;
   const noted = useMemo(() => {
     if (!result || result.config.report !== config.report) return null;
@@ -636,6 +646,8 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   if (pageState.key !== pageKey) { page = 1; setPageState({ page: 1, key: pageKey }); }
   page = Math.min(Math.max(1, page), Math.max(1, paged.pages.length));
   const pageRows = paged.pages[page - 1] || [];
+  // What a row's drawing depends on beyond its own data: the column widths (saved and mid-drag).
+  const widthSig = `${JSON.stringify(widths.widths)}|${widths.live ? `${widths.live.key}:${widths.live.w}` : ''}`;
   const before = paged.pages.slice(0, page - 1).reduce((n, p) => n + p.filter((r) => !r.continued).length, 0);
   const pager = {
     page, pages: paged.pages.length, total: paged.total, from: paged.total ? before + 1 : 0,
@@ -991,12 +1003,12 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
                 {pageRows.map((r, i) => {
                   const foldKey = r.kind === 'group' ? `g:${r.group}` : r.section;
                   const open = (r.kind === 'section' || r.kind === 'group') && (filterOn || !collapsed.has(foldKey));
-                  return <StatementRow key={`${r.kind}-${r.group || ''}-${r.section || ''}-${r.code || r.label}-${i}`} row={r} columns={shown.columns} open={open} width={widths.width}
-                    onToggle={() => toggleSection(foldKey)} onDrill={drillInto} onEntry={(row) => row.entryId && setEntry({ id: row.entryId, no: row.entryNo || row.values?.[0] || '' })}
+                  return <StatementRow key={`${r.kind}-${r.group || ''}-${r.section || ''}-${r.code || r.label}-${i}`} row={r} columns={shown.columns} open={open} width={widths.width} widthSig={widthSig}
+                    onToggle={() => toggleSection(foldKey)} onDrill={drillLatest} onEntry={(row) => row.entryId && setEntry({ id: row.entryId, no: row.entryNo || row.values?.[0] || '' })}
                     note={shown.flux ? noteProps : null} />;
                 })}
                 {paged.pinned.map((r, i) => (
-                  <StatementRow key={`pinned-${r.kind}-${r.label}-${i}`} row={r} columns={shown.columns} open width={widths.width} onToggle={() => {}} onDrill={drillInto} note={null} />
+                  <StatementRow key={`pinned-${r.kind}-${r.label}-${i}`} row={r} columns={shown.columns} open width={widths.width} widthSig={widthSig} onToggle={() => {}} onDrill={drillLatest} note={null} />
                 ))}
               </tbody>
             </table>
@@ -1054,7 +1066,17 @@ function plainError(text) {
 // before the period); `noDrill` keeps a computed figure (a group total, Net
 // Income on a cash flow) from opening "every line"; an entry number opens
 // the entry (item 33); `note` carries the Flux explanation editing (item 26a).
-function StatementRow({ row, columns, open, width = () => undefined, onToggle, onDrill, onEntry = null, note = null }) {
+// Memoized (11/11/2026, speed pass): opening an entry, typing in the search or
+// any other change to the screen no longer redraws every line of a long
+// General Ledger. A row redraws when its data, the columns, its fold, the
+// flux notes or the column widths change. The callbacks are left out of the
+// comparison on purpose: toggle and entry only call state setters, and drill
+// goes through ReportsTab's always-current wrapper.
+const sameRow = (a, b) => a.row === b.row && a.columns === b.columns && a.open === b.open && a.note === b.note
+  && a.widthSig === b.widthSig && !a.onEntry === !b.onEntry;
+const StatementRow = memo(StatementRowView, sameRow);
+
+function StatementRowView({ row, columns, open, width = () => undefined, onToggle, onDrill, onEntry = null, note = null }) {
   const Chevron = open ? ChevronDown : ChevronRight;
   const variance = columns.findIndex((c) => c.type === 'variance');
   const labelW = width('__label');

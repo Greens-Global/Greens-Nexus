@@ -173,10 +173,13 @@ class TeamScopeTests(unittest.TestCase):
         self.assertEqual(self._get(f"/hr/employees/{self.ids[OUT]}/compensation", who=PEER).status_code, 200)
 
     def test_administrators_reach_their_company_super_administrators_every_company(self):
-        # Neil, 11/02/2026: an Administrator is company-walled; only a Super Administrator passes the walls.
+        # An Administrator: every company with the walls off, their own once armed (11/11/2026).
+        from unittest import mock
         db = database.SessionLocal()
         try:
-            self.assertEqual(auth.hr_scope({"email": VAL, "level": 4}, db), {CO})
+            self.assertIsNone(auth.hr_scope({"email": VAL, "level": 4}, db))
+            with mock.patch.object(auth, "_company_walls_on", lambda _db: True):
+                self.assertEqual(auth.hr_scope({"email": VAL, "level": 4}, db), {CO})
             self.assertIsNone(auth.hr_scope({"email": VAL, "level": 5}, db))
         finally:
             db.close()

@@ -34,7 +34,7 @@ with database.engine.connect() as _c:
 
 COA, COB = "ent-walls-a", "ent-walls-b"
 GLOBAL = "walls.global@greensglobal.com"   # Super Administrator (owner, level 5): passes the walls
-ADMIN_A = "walls.admina@greensglobal.com"  # Administrator (level 4) of company A: walled, the switch on or off
+ADMIN_A = "walls.admina@greensglobal.com"  # Administrator (level 4) of company A: walled once the switch is on
 AEMP = "walls.aemp@greensglobal.com"       # company A employee
 AMGR = "walls.amgr@greensglobal.com"       # company A, via a company-scoped role group
 BEMP = "walls.bemp@greensglobal.com"       # company B employee
@@ -143,8 +143,17 @@ class CompanyWallsTests(unittest.TestCase):
         # Default (unarmed): the directory is the old org-wide list for all callers.
         self.assertIn(BEMP, self._dir_emails(AEMP))
         self.assertIn(AEMP, self._dir_emails(BEMP))
-        # ...except an Administrator: their company, plus the people with no
-        # company (shared), whatever the switch says (Neil, 11/02/2026).
+        # An Administrator too: walls off = every company (Pranshu, 11/11/2026).
+        auth.invalidate_role_cache()
+        self.assertIn(BEMP, self._dir_emails(ADMIN_A))
+        db = database.SessionLocal()
+        try:
+            self.assertIsNone(auth.company_scope({"email": AEMP, "level": 4}, db))
+        finally:
+            db.close()
+
+    def test_armed_administrator_is_confined_to_their_company(self):
+        self._arm(True)
         auth.invalidate_role_cache()
         mine = self._dir_emails(ADMIN_A)
         self.assertIn(AEMP, mine); self.assertIn(AMGR, mine)
@@ -177,7 +186,7 @@ class CompanyWallsTests(unittest.TestCase):
         db = database.SessionLocal()
         try:
             self.assertIsNone(auth.company_scope({"email": GLOBAL, "level": 5}, db))
-            # An Administrator (level 4) in company A is confined to it, walls on or off.
+            # Armed: an Administrator (level 4) in company A is confined to it.
             self.assertEqual(auth.company_scope({"email": AEMP, "level": 4}, db), {COA})
             self.assertEqual(auth.company_scope({"email": AEMP, "level": 1}, db), {COA})
             self.assertEqual(auth.company_scope({"email": AMGR, "level": 1}, db), {COA})
@@ -221,11 +230,12 @@ class CompanyWallsTests(unittest.TestCase):
         self.assertIn("task-walls-b", b); self.assertNotIn("task-walls-a", b)
         g = self._get_ids("/tasks", GLOBAL)          # Global Admin sees both
         self.assertTrue({"task-walls-a", "task-walls-b"} <= g)
-        for on in (True, False):                     # an Administrator: company A only, armed or not
-            self._arm(on)
-            auth.invalidate_role_cache()
-            adm = self._get_ids("/tasks", ADMIN_A)
-            self.assertIn("task-walls-a", adm); self.assertNotIn("task-walls-b", adm)
+        auth.invalidate_role_cache()                 # an Administrator, armed: company A only
+        adm = self._get_ids("/tasks", ADMIN_A)
+        self.assertIn("task-walls-a", adm); self.assertNotIn("task-walls-b", adm)
+        self._arm(False)                             # walls off: every company (11/11/2026)
+        auth.invalidate_role_cache()
+        self.assertTrue({"task-walls-a", "task-walls-b"} <= self._get_ids("/tasks", ADMIN_A))
 
     def test_armed_tickets_are_company_walled(self):
         self._mk_ticket("tkt-walls-a", COA, AEMP)
@@ -310,7 +320,10 @@ class CompanyWallsTests(unittest.TestCase):
         self.assertEqual(self.client.get("/kb/pages/kb-walls-b").status_code, 200)
         self._arm(False)
         auth.invalidate_role_cache()
-        os.environ["NEXUS_DEV_EMAIL"] = ADMIN_A      # an Administrator, walls OFF: still 404
+        os.environ["NEXUS_DEV_EMAIL"] = ADMIN_A      # an Administrator, walls OFF: open (11/11/2026)
+        self.assertEqual(self.client.get("/kb/pages/kb-walls-b").status_code, 200)
+        self._arm(True)
+        auth.invalidate_role_cache()                 # ...and walled again once armed
         self.assertEqual(self.client.get("/kb/pages/kb-walls-b").status_code, 404)
 
     def test_sub_resource_reads_are_walled(self):
@@ -325,7 +338,10 @@ class CompanyWallsTests(unittest.TestCase):
         self.assertEqual(self.client.get("/tasks/task-walls-b/comments").status_code, 200)
         self._arm(False)
         auth.invalidate_role_cache()
-        os.environ["NEXUS_DEV_EMAIL"] = ADMIN_A
+        os.environ["NEXUS_DEV_EMAIL"] = ADMIN_A      # walls off: an Administrator reads it (11/11/2026)
+        self.assertEqual(self.client.get("/tasks/task-walls-b/comments").status_code, 200)
+        self._arm(True)
+        auth.invalidate_role_cache()                 # armed: 404 across the wall
         self.assertEqual(self.client.get("/tasks/task-walls-b/comments").status_code, 404)
 
     def test_arm_switch_endpoint_arms_and_audits(self):

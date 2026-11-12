@@ -52,7 +52,7 @@ export function MultiDateInput({ value, onChange, readOnly }) {
               value={r}
               readOnly={readOnly}
               onChange={(e) => setRow(i, fmtMdy(e.target.value))}
-              style={{ fontSize: '0.85rem', flex: 1, ...(invalid ? { borderColor: 'hsl(var(--color-red))' } : {}) }}
+              style={{ fontSize: 13, flex: 1, ...(invalid ? { borderColor: 'hsl(var(--color-red))' } : {}) }}
             />
             {!readOnly && (rows.length > 1 || r) && (
               <button type="button" className="secondary-btn" onClick={() => removeRow(i)}
@@ -65,7 +65,7 @@ export function MultiDateInput({ value, onChange, readOnly }) {
       })}
       {!readOnly && (
         <button type="button" className="secondary-btn" onClick={addRow}
-          style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', fontSize: '0.78rem' }}>
+          style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', fontSize: 13 }}>
           <Plus size={13} /> Add Date
         </button>
       )}
@@ -97,7 +97,7 @@ export function FieldInput({ f, value, onChange, error, propertyId = '' }) {
     'aria-describedby': error ? id + '-err' : undefined,
     placeholder: f.placeholder || undefined,
     style: {
-      fontSize: '0.85rem',
+      fontSize: 13,
       ...(error ? { borderColor: 'hsl(var(--color-red))' } : {}),
       ...(f.readOnly ? { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'not-allowed' } : {}),
     },
@@ -109,7 +109,7 @@ export function FieldInput({ f, value, onChange, error, propertyId = '' }) {
       {f.req ? <span style={{ color: 'hsl(var(--color-red))' }}> *</span> : ''}
     </label>
   );
-  const errorLine = error ? <div id={id + '-err'} role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{error}</div> : null;
+  const errorLine = error ? <div id={id + '-err'} role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{error}</div> : null;
 
   // File upload: the file goes to the private asset-files bucket and the record
   // keeps its URL (f.k), plus the original filename on a sibling key (f.nameKey)
@@ -157,24 +157,24 @@ export function FieldInput({ f, value, onChange, error, propertyId = '' }) {
               }}
             />
           </label>
-          <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
           {value && (
             <a
               href={value}
               target="_blank"
               rel="noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.82rem', color: 'hsl(var(--color-blue))', fontWeight: 600 }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'hsl(var(--color-blue))', fontWeight: 600 }}
             >
               <FileText size={14} /> View Document
             </a>
           )}
           {value && (
-            <button type="button" className="secondary-btn" onClick={() => onChange(f.k, '')} style={{ padding: '5px 11px', fontSize: '0.76rem' }}>
+            <button type="button" className="secondary-btn" onClick={() => onChange(f.k, '')} style={{ padding: '5px 11px', fontSize: 12 }}>
               Clear
             </button>
           )}
         </div>
-        {uploadError && <div role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{uploadError}</div>}
+        {uploadError && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{uploadError}</div>}
         {errorLine}
       </div>
     );

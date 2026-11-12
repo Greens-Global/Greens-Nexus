@@ -21,6 +21,8 @@ import AnchoredMenu from '../AnchoredMenu';
 import { EgnyteField } from './LoanDialogs';
 import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
 import { CompletenessButton, CompletenessPanel, gapCount, mreGaps, useJumpToRow } from './completeness';
+import { DateField } from '../../tasks/components';
+import HoldButton from '../../ui/HoldButton';
 
 export { CUSTOM_MAX_MONTHS, frequencyLabel, stepMonths };
 
@@ -179,8 +181,8 @@ const optionalValue = (line, key) => (key === 'variancePct' ? `${Number(line.var
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const STATUS = {
   paid: { label: 'Paid', fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' },
-  short: { label: 'Short', fg: '#92400e', bg: 'rgba(180,83,9,0.13)' },
-  over: { label: 'Over', fg: '#6d28d9', bg: 'rgba(109,40,217,0.10)' },
+  short: { label: 'Short', fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' },
+  over: { label: 'Over', fg: 'var(--info-fg)', bg: 'var(--info-bg)' },
   missed: { label: 'Missed', fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
   upcoming: { label: 'Upcoming', fg: 'var(--text-muted)', bg: 'transparent' },
   unknown: { label: 'Not Read', fg: 'var(--text-muted)', bg: 'var(--bg-secondary)' },
@@ -603,7 +605,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
 
         {error && <div style={bad}>{error}</div>}
         {data?.warning && (
-          <div style={{ ...card, padding: '8px 12px', borderColor: '#b45309', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.82rem', color: '#92400e' }}>
+          <div style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.82rem', color: 'var(--warn-fg)' }}>
             <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{data.warning}
           </div>
         )}
@@ -1002,7 +1004,6 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
   const [vendors, setVendors] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [confirm, setConfirm] = useState(false);
   const set = (p) => setL((x) => ({ ...x, ...p }));
   useEffect(() => {
     api.getAccountingDimensionValues('vendor').then((d) => setVendors(d?.values || [])).catch(() => setVendors([]));
@@ -1117,12 +1118,12 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
           <div style={grid}>
             <div>
               <label style={label} htmlFor="mre-start">Start</label>
-              <input id="mre-start" type="date" value={l.startDate} onChange={(e) => set({ startDate: e.target.value })} style={{ ...control, width: '100%' }} />
+              <span id="mre-start" style={{ ...control, width: '100%', display: 'flex', alignItems: 'center' }}><DateField value={l.startDate} onChange={(picked) => { const v = picked || ''; return set({ startDate: v }); }} placeholder="MM/DD/YYYY" title="Start" style={{ width: '100%' }} /></span>
               <span style={hint}>A bill that is not monthly falls due from this month.</span>
             </div>
             <div>
               <label style={label} htmlFor="mre-end">End</label>
-              <input id="mre-end" type="date" value={l.endDate} onChange={(e) => set({ endDate: e.target.value })} style={{ ...control, width: '100%' }} />
+              <span id="mre-end" style={{ ...control, width: '100%', display: 'flex', alignItems: 'center' }}><DateField value={l.endDate} onChange={(picked) => { const v = picked || ''; return set({ endDate: v }); }} placeholder="MM/DD/YYYY" title="End" style={{ width: '100%' }} /></span>
               <span style={hint}>Leave empty while it continues.</span>
             </div>
           </div>
@@ -1177,12 +1178,11 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
           </div>
         </div>
         <div className="modal-footer" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 24px 16px' }}>
-          {l.id && canDelete && (confirm ? (
-            <>
-              <span style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>Delete for good? A bill that stopped should be ended instead.</span>
-              <button type="button" className="secondary-btn" disabled={busy} onClick={() => run(api.deleteMreLine(l.id).then(() => ({ deleted: l.id })))}>Delete</button>
-            </>
-          ) : <button type="button" className="secondary-btn" onClick={() => setConfirm(true)}>Delete</button>)}
+          {/* Press and hold (11/11/2026 Accounting pass, picture 10): one record, no second click. */}
+          {l.id && canDelete && (
+            <HoldButton size="sm" label="Delete" doneLabel="Deleted" disabled={busy} fallbackMessage="Delete this expense for good? A bill that stopped should be ended instead."
+              onConfirm={() => api.deleteMreLine(l.id).then(() => onSaved({ deleted: l.id }))} />
+          )}
           {l.id && l.status !== 'ended' && <button type="button" className="secondary-btn" disabled={busy} onClick={() => run(api.endMreLine(l.id, iso(new Date())))}>End Today</button>}
           <span style={{ flex: 1 }} />
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
@@ -1311,7 +1311,7 @@ export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onC
                         <td style={num} title={`${p.stableMonths} at the expected amount; first ${monthLabel(p.firstMonth)}, last ${monthLabel(p.lastMonth)}`}>{p.postedMonths} ({p.stableMonths} Stable)</td>
                         <td style={num}><Amount value={p.paid12} /></td>
                         <td>{isNew
-                          ? <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: 999, color: '#92400e', background: 'rgba(180,83,9,0.13)' }}>New</span>
+                          ? <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: 999, color: 'var(--warn-fg)', background: 'var(--warn-bg)' }}>New</span>
                           : <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: 999, color: 'var(--ok-fg, #15803d)', background: 'rgba(21,128,61,0.10)' }}>Set Up</span>}
                         </td>
                       </tr>

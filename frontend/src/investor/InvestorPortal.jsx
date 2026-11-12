@@ -11,6 +11,9 @@ import { EmptyState, ErrorState, LoadingState, StatusText, ThinBar, useIrLoad } 
 // the caller's own deals - the /portal endpoints scope every row server-side
 // (ungranted deals 404), this file adds nothing on top. Deliberately no Asset
 // Management links here either: investors have no access to that module.
+// The capital account and membership come from /portal/books (Neil,
+// 11/11/2026): the investor's OWN partner accounts in the books, live, and
+// their percentage in the operating agreement - never another member's.
 
 // Category → label + accent color. Mirrors CATEGORY_META in DocumentsTab.jsx
 // (not exported there) - keep the two in sync.
@@ -56,7 +59,18 @@ function SectionTitle({ children }) {
 
 // Landing card - the visual language of the GP Deal cards (status dot, thin
 // bar, stat grid), minus everything GP-only (investor count, manager, edit).
-function DealCard({ deal: d, onOpen }) {
+const pctText = v => `${+Number(v).toFixed(4)}%`;
+
+// The live capital account from the books, when the deal and profile are linked.
+function liveStats(live) {
+  if (!live) return [];
+  return [
+    ...(isNum(live.membershipPct) ? [['Membership', pctText(live.membershipPct)]] : []),
+    ...(live.live ? [['Capital Account', formatCurrency(live.capitalAccount)]] : []),
+  ];
+}
+
+function DealCard({ deal: d, live, onOpen }) {
   return (
     <div onClick={onOpen} role="button" tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter') onOpen(); }}
@@ -71,15 +85,16 @@ function DealCard({ deal: d, onOpen }) {
         <StatusText status={d.status} />
       </div>
 
-      <div>
+      {d.committed > 0 && <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 5, fontVariantNumeric: 'tabular-nums' }}>
           <span>Called <strong style={{ color: 'var(--ink)' }}>{formatCurrency(d.called)}</strong></span>
           <span>Committed {formatCurrency(d.committed)}</span>
         </div>
         <ThinBar value={d.called} max={d.committed} />
-      </div>
+      </div>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 12px' }}>
+        {liveStats(live).map(([label, value]) => stat(label, value))}
         {stat('Distributed', formatCurrency(d.distributed))}
         {stat('Unfunded', formatCurrency(d.unfunded))}
         {stat('DPI', formatMultiple(d.dpi))}
@@ -94,7 +109,7 @@ function DealCard({ deal: d, onOpen }) {
 
 // Full deal statement: terms, capital account, dated cash-flow ledger,
 // documents, and updates - mirrors the GP-side statement modal's layout.
-function PortalDealDetail({ fundId, onBack }) {
+function PortalDealDetail({ fundId, live, asOf, onBack }) {
   const { data: deal, loading, error, reload } = useIrLoad(() => api.getIrPortalDeal(fundId), [fundId]);
   // With several deals the page trail names the list above this one (My Deals).
   useTrailCrumbs(onBack ? [{ label: 'My Deals', onClick: onBack }] : [], onBack);
@@ -140,7 +155,32 @@ function PortalDealDetail({ fundId, onBack }) {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px 20px', borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)', padding: '14px 0', margin: '16px 0 20px' }}>
+      {(live?.live || isNum(live?.membershipPct)) && (
+        <div style={{ margin: '16px 0 20px' }}>
+          <SectionTitle>Your Capital Account</SectionTitle>
+          <div style={{ fontSize: 12, color: 'var(--muted)', margin: '3px 0 0' }}>
+            {live.live ? `From the books, as of ${formatDate(asOf)}` : 'Your capital account is not available yet.'}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '14px 20px', padding: '12px 0 0' }}>
+            {[
+              ...(isNum(live.membershipPct) ? [['Membership', pctText(live.membershipPct)]] : []),
+              ...(live.live ? [
+                ['Contributed', formatCurrency(live.contributed)],
+                ['Distributed', formatCurrency(live.distributed)],
+                ['E&C', formatCurrency(live.ec)],
+                ['Capital Account', formatCurrency(live.capitalAccount)],
+              ] : []),
+            ].map(([label, value]) => (
+              <div key={label}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>{label}</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {deal.committed > 0 && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px 20px', borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)', padding: '14px 0', margin: '16px 0 20px' }}>
         {[
           ['Committed', formatCurrency(deal.committed)],
           ['Called', formatCurrency(deal.called)],
@@ -155,7 +195,7 @@ function PortalDealDetail({ fundId, onBack }) {
             <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
           </div>
         ))}
-      </div>
+      </div>}
 
       {(deal.description || deal.thesis) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 22 }}>
@@ -302,6 +342,9 @@ function PortalDealDetail({ fundId, onBack }) {
 
 export default function InvestorPortal() {
   const { data: deals, loading, error, reload } = useIrLoad(() => api.getIrPortalMyDeals(), []);
+  // Live from the books; the deals still show if the books cannot be read.
+  const { data: books } = useIrLoad(() => api.getIrPortalBooks().catch(() => null), []);
+  const liveOf = id => books?.deals?.[id];
   const [selectedId, setSelectedId] = useState(null);
 
   if (loading) return <LoadingState label="Loading your deals…" />;
@@ -313,7 +356,7 @@ export default function InvestorPortal() {
   const activeId = selectedId ?? (list.length === 1 ? list[0].fundId : null);
 
   if (activeId) {
-    return <PortalDealDetail fundId={activeId} onBack={list.length > 1 ? () => setSelectedId(null) : null} />;
+    return <PortalDealDetail fundId={activeId} live={liveOf(activeId)} asOf={books?.asOf} onBack={list.length > 1 ? () => setSelectedId(null) : null} />;
   }
 
   if (list.length === 0) {
@@ -331,7 +374,7 @@ export default function InvestorPortal() {
         <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Your investments - select a deal for the full statement</p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
-        {list.map(d => <DealCard key={d.fundId} deal={d} onOpen={() => setSelectedId(d.fundId)} />)}
+        {list.map(d => <DealCard key={d.fundId} deal={d} live={liveOf(d.fundId)} onOpen={() => setSelectedId(d.fundId)} />)}
       </div>
     </div>
   );

@@ -88,7 +88,7 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
       style={{
         padding: '6px 13px',
         borderRadius: 8,
-        fontSize: '0.8rem',
+        fontSize: 13,
         fontWeight: 600,
         cursor: 'pointer',
         border: 'none',
@@ -104,7 +104,7 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
   const tabBtn = (value, label) => (
     <button key={value} role="tab" aria-selected={tab === value} onClick={() => setTab(value)}
       style={{
-        padding: '8px 14px', border: 'none', background: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '0.85rem', fontWeight: 600,
+        padding: '8px 14px', border: 'none', background: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600,
         color: tab === value ? 'var(--text-primary)' : 'var(--text-secondary)',
         borderBottom: tab === value ? '2px solid hsl(var(--color-blue))' : '2px solid transparent',
       }}>
@@ -121,17 +121,17 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
         <div className="scroll-tabs" role="tablist" style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', flex: '1 1 320px' }}>
           {tabBtn('log', 'Maintenance Log')}
           {tabBtn('needs', <>Needs Action{needs > 0
-            ? <span style={{ marginLeft: 6, padding: '1px 7px', borderRadius: 999, background: 'hsl(var(--color-red))', color: '#fff', fontSize: '0.72rem' }}>{needs}</span>
+            ? <span style={{ marginLeft: 6, padding: '1px 7px', borderRadius: 999, background: 'hsl(var(--color-red))', color: '#fff', fontSize: 12 }}>{needs}</span>
             : count(0)}</>)}
           {tabBtn('open', `Open Tickets${count(data?.open?.length || 0)}`)}
           {tabBtn('closed', `Closed Tickets${count(data?.history?.length || 0)}`)}
-          {tabBtn('services', <>Preventive Maintenance{data?.preventive?.overdue > 0 ? <span style={{ marginLeft: 6, padding: '1px 7px', borderRadius: 999, background: 'hsl(var(--color-red))', color: '#fff', fontSize: '0.72rem' }}>{data.preventive.overdue}</span> : count(data?.services?.length || 0)}</>)}
+          {tabBtn('services', <>Preventive Maintenance{data?.preventive?.overdue > 0 ? <span style={{ marginLeft: 6, padding: '1px 7px', borderRadius: 999, background: 'hsl(var(--color-red))', color: '#fff', fontSize: 12 }}>{data.preventive.overdue}</span> : count(data?.services?.length || 0)}</>)}
         </div>
         {tab === 'log' && (
           <button type="button" className="secondary-btn" onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <SlidersHorizontal size={14} /> Filters{activeFilters > 0 && (
-              <span style={{ padding: '1px 7px', borderRadius: 999, background: 'var(--pine)', color: '#fff', fontSize: '0.72rem', fontWeight: 700 }}>{activeFilters}</span>
+              <span style={{ padding: '1px 7px', borderRadius: 999, background: 'var(--pine)', color: '#fff', fontSize: 12, fontWeight: 700 }}>{activeFilters}</span>
             )}
           </button>
         )}

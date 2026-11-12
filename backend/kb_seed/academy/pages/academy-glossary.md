@@ -416,7 +416,7 @@ Look a word up under its subject. Each word appears once, under the subject wher
 - **Approvals**: The Dashboard tab that gathers every decision waiting on you, counted in one place so the badge and the list agree.
 - **Audit log**: The record of sensitive changes, with a name and a time.
 - **Board**: A drawing inside Notes; Mark Up attaches a marked-up photo back to its ticket.
-- **Company wall**: Each company's people, departments, approvers and settings kept to itself; an Administrator is always walled.
+- **Company wall**: Each company's people, departments, approvers and settings kept to itself once the walls are on; an Administrator is then walled too.
 - **Compliance (Manage)**: Your team's training status; act on Overdue and Locked.
 - **Confidential HR ticket**: An Ask HR ticket, visible only to HR's audience, never to the requester's manager.
 - **Confirm / Nudge**: A person's "I have seen it" on a shared schedule; the manager nudges those who have not.

@@ -36,7 +36,7 @@ const monthLabel = (m) => (m ? `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const chip = (tone) => ({ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, whiteSpace: 'nowrap',
-  color: tone === 'ok' ? 'var(--ok-fg, #15803d)' : '#92400e', background: tone === 'ok' ? 'rgba(21,128,61,0.10)' : 'rgba(180,83,9,0.13)' });
+  color: tone === 'ok' ? 'var(--ok-fg, #15803d)' : 'var(--warn-fg)', background: tone === 'ok' ? 'rgba(21,128,61,0.10)' : 'var(--warn-bg)' });
 const notAvailable = (e) => e?.status === 503 || /not configured|not available/i.test(e?.message || '');
 const keyOf = (p) => `${p.entityCode}|${p.customerId}`;
 

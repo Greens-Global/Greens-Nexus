@@ -1123,8 +1123,10 @@ class EmailAndRoleTests(LifeEventCase):
         self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
         self._sign(self._party(ev.sign_request_id, HR))
         subject, html = self.sealed[CAND_EMAIL]
-        self.assertEqual(subject, "You're officially part of Greens Test Co, LLC 🎉")
-        self.assertIn("Before you start", html)
+        # The hire packet's completion is the welcome with the new hire's
+        # points of contact (Pranshu, 11/04/2026 - hr_life_email._welcome).
+        self.assertEqual(subject, "Welcome to the team, Jane! Here is who is here for you 🎉")
+        self.assertIn("You're all set, Jane!", html)
         self.assertNotIn(HR, self.sealed)
 
     def test_role_sets_title_and_department(self):

@@ -266,12 +266,12 @@ def _guard_existing_role(user: dict, db: Session, jr: NexusGroup) -> None:
     company, so changing it is a Super Administrator's."""
     _guard_can_assign_tier(user, _clean_tier(jr.tier or "employee"))
     scope = company_scope(user, db)
-    if scope is None:
+    if scope is None and not auth.bound_by_super_rules(user, db):
         return
     cid = (jr.company_id or "").strip()
     if not cid:
         raise HTTPException(status_code=403, detail="Only a Super Administrator can change a shared job role")
-    if cid not in scope:
+    if scope is not None and cid not in scope:
         raise HTTPException(status_code=404, detail="Job role not found")
 
 
@@ -320,7 +320,7 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
     _guard_can_assign_tier(user, tier)  # can't create a role whose tier you couldn't grant
     company_id = _clean_company(db, body.company_id)
     _guard_company_in_scope(user, db, company_id)
-    if not company_id and company_scope(user, db) is not None:
+    if not company_id and (company_scope(user, db) is not None or auth.bound_by_super_rules(user, db)):
         # A shared role is the organization's (every company hands it out).
         raise HTTPException(status_code=403, detail="Only a Super Administrator can create a shared job role - pick your company for it")
     _guard_owner_only_grants(user, db, body.allowed_modules)
@@ -831,6 +831,12 @@ def unassign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_cur
 
     removed = db.query(NexusGroupMember).filter(
         NexusGroupMember.group_id == jr_id, NexusGroupMember.email == email).delete(synchronize_session=False)
+    if not removed:
+        # Not their role (a stale screen, or two people at once): nothing to
+        # take away - never drop the tier of a role they still hold
+        # (People review, 11/11/2026).
+        db.rollback()
+        raise HTTPException(status_code=409, detail="They no longer hold this job role - refresh to see their current role.")
     row = db.query(NexusRole).filter(NexusRole.email == email).first()
     if row:
         row.role = "employee"

@@ -28,6 +28,11 @@ const review = (over = {}) => ({
   reclassMemo: '', proposedBy: ME, proposedByName: 'Neil K', proposedAt: '2026-10-23T15:00:00Z', reviewNote: '', approvedBy: '', approvedAt: '', pushMode: '', intacctRef: '', pushError: '', history: [], note: '', ...over,
 });
 
+// The house dialog: a live push is a press-and-hold confirm (11/11/2026, picture 10).
+const held = vi.hoisted(() => []);
+vi.mock('../../ui/dialog', () => ({ dialog: {
+  confirm: vi.fn(async (msg, o = {}) => { held.push({ msg, hold: !!o.hold }); if (o.onConfirm) await o.onConfirm(); return true; }),
+  alert: vi.fn(async () => {}), undo: vi.fn() } }));
 vi.mock('../../api', () => ({
   api: {
     getAskItems: vi.fn(),
@@ -183,6 +188,7 @@ describe('AMA grid (CR-13)', () => {
     expect(push.disabled).toBe(false);
     fireEvent.click(push);
     await waitFor(() => expect(api.pushAskBatch).toHaveBeenCalledWith('P1', ['R1']));
+    expect(held.at(-1)).toEqual({ msg: expect.stringMatching(/^Push this reclass to Intacct\?/), hold: true });
     expect(api.pushAskReclass).not.toHaveBeenCalled();
     expect(await screen.findByText(/Edited in Intacct/)).toBeTruthy();
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ status: 'Pushed', pushMode: 'edit' }));

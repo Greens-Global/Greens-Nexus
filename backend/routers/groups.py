@@ -194,12 +194,12 @@ def _guard_group_company(user: dict, db: Session, company_id: str, existing: boo
     new group), and a SHARED group (company '') reaches every company, so
     creating, editing or filling one is a Super Administrator's."""
     scope = auth.company_scope(user, db)
-    if scope is None:
+    if scope is None and not auth.bound_by_super_rules(user, db):
         return
     cid = (company_id or "").strip()
     if not cid:
         raise HTTPException(status_code=403, detail="Only a Super Administrator can change a shared group - pick your company for it")
-    if cid not in scope:
+    if scope is not None and cid not in scope:
         if existing:
             raise HTTPException(status_code=404, detail="Group not found")
         raise HTTPException(status_code=403, detail="You can only manage groups for your own company")

@@ -25,7 +25,7 @@ import { Lock, MapPin } from 'lucide-react';
 import WeatherChip, { weatherText } from './WeatherChip';
 import { formatDate } from '../../lib/datetime';
 import { timeOffLabel } from '../shiftScheduleLib';
-import { DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, shiftState, shiftTimeText, shiftShortText, shortTimeText, unpaidLabel, timeOffWhen, timeOffShort, isApprovedOff, isAllDayOff, zoneDiffers, actualLabel, actualColor, actualWord, actualException, flagOf, nextDay } from './shiftLib';
+import { DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, shiftState, shiftTimeText, shiftShortText, shortTimeText, unpaidLabel, timeOffWhen, timeOffShort, isApprovedOff, isAllDayOff, zoneDiffers, actualLabel, actualColor, actualWord, actualException, flagOf, nextDay, cancelProps } from './shiftLib';
 import { zoneOptionLabel, tzAbbrev } from '../../lib/worldClockZones';
 
 // The time shrinks from 12px toward 9px as the block narrows (a share of
@@ -166,17 +166,18 @@ export function ActualSheet({ at, shift: s, actual: a, text, onClose }) {
 // "Vacation" or "2:00p - 4:00p Medical". The reason, the dates and whether
 // it is still only requested (dashed) are the hover title. Confidential
 // time off reads plain "Time Off" with a lock.
-export function TimeOffBlock({ off: t, compact = false, showReason = true, style }) {
+export function TimeOffBlock({ off: t, compact = false, showReason = true, style, onCancel = null }) {
   const approved = isApprovedOff(t);
   const type = t.confidential ? 'Time Off' : (t.type ? timeOffLabel(t.type) : 'Time Off');
   const when = timeOffWhen(t);
   const range = t.startDate && t.endDate && t.startDate !== t.endDate ? `${formatDate(t.startDate)} - ${formatDate(t.endDate)}` : '';
-  const title = [type, approved ? 'Approved' : 'Requested', range || when, showReason && !t.confidential ? t.note : ''].filter(Boolean).join('\n');
+  const title = [type, approved ? 'Approved' : 'Requested', range || when, showReason && !t.confidential ? t.note : '', onCancel ? 'Click to cancel this time off' : ''].filter(Boolean).join('\n');
   const short = timeOffShort(t);
   // The hours never cut; a long custom type ("Medical Appointment") may.
   return (
     <div data-timeoff={t.id || undefined} title={title} aria-label={`${approved ? '' : 'Requested '}${type}, ${range || when}`}
-      style={{ containerType: compact ? undefined : 'inline-size', border: `1px ${approved ? 'solid' : 'dashed'} hsla(var(--color-red),0.32)`, borderRadius: 6, background: 'hsla(var(--color-red),0.08)',
+      {...cancelProps(onCancel, `${type}, ${range || when}`)}
+      style={{ cursor: onCancel ? 'pointer' : undefined, containerType: compact ? undefined : 'inline-size', border: `1px ${approved ? 'solid' : 'dashed'} hsla(var(--color-red),0.32)`, borderRadius: 6, background: 'hsla(var(--color-red),0.08)',
         padding: compact ? '2px 4px' : '3px 7px', marginBottom: 3, minWidth: 0, overflow: 'hidden', color: 'hsl(var(--color-red))', ...style }}>
       <div style={{ ...LINE, display: 'flex', alignItems: 'center', gap: 4, fontSize: compact ? 10.5 : fit(short ? 8.5 : 9.5, 11.5), fontWeight: 700, lineHeight: 1.3 }}>
         {compact ? <span style={LINE}>{isAllDayOff(t) ? 'Off' : short}</span> : (

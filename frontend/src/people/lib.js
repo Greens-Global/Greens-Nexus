@@ -62,10 +62,26 @@ export const HINT = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4 };
 export const GRID = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, marginTop: 10 };
 
 // What changed between the saved seed and the draft, key by key - the PATCH body.
+// A record block (personal, contractor, compliance) sends only ITS keys that
+// changed, and the server merges them into what it holds (People review,
+// 11/11/2026): the whole block read when the page opened would write back
+// whatever changed since - a contractor's next invoice number moved on by a
+// finalized period, an emergency contact the person updated in My HR.
+const isPlain = v => !!v && typeof v === 'object' && !Array.isArray(v);
 export function changedKeys(saved, draft) {
   const out = {};
   for (const k of Object.keys(draft || {})) {
-    if (JSON.stringify(draft[k] ?? null) !== JSON.stringify(saved?.[k] ?? null)) out[k] = draft[k];
+    const a = draft[k], b = saved?.[k];
+    if (JSON.stringify(a ?? null) === JSON.stringify(b ?? null)) continue;
+    if (isPlain(a) && isPlain(b)) {
+      const part = {};
+      for (const sub of new Set([...Object.keys(a), ...Object.keys(b)])) {
+        if (JSON.stringify(a[sub] ?? null) !== JSON.stringify(b[sub] ?? null)) part[sub] = sub in a ? a[sub] : '';
+      }
+      out[k] = part;
+    } else {
+      out[k] = a;
+    }
   }
   return out;
 }

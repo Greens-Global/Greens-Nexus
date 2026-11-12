@@ -733,11 +733,12 @@ class OutboundAndSettingsTests(_Base):
                                  json={"inboundDefaultDepartment": {"co1": "dIT", "co2": "dIT2", "co3": ""}})
         self.assertEqual(ok.status_code, 200, ok.text)
         self.assertEqual(ok.json()["inboundDefaultDepartment"], {"co1": "dIT", "co2": "dIT2"})
-        # The co1 Administrator (walls off) sets only co1's; co2's stays as it was.
+        # The co1 Administrator with the walls off works every company (11/11/2026);
+        # armed, co2's stays as it was (test_default_departments_respect_the_company_wall).
         mine = self.as_(ADMIN).put("/task-tickets/notify/settings",
                                    json={"inboundDefaultDepartment": {"co1": "", "co2": ""}})
         self.assertEqual(mine.status_code, 200, mine.text)
-        self.assertEqual(ticket_notify.get_settings(self.db)["inboundDefaultDepartment"], {"co2": "dIT2"})
+        self.assertEqual(ticket_notify.get_settings(self.db)["inboundDefaultDepartment"], {})
 
     def test_a_department_deleted_since_does_not_block_the_save(self):
         self.db.query(models.HrDepartment).filter_by(id="dIT").delete()

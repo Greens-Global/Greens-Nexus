@@ -33,7 +33,7 @@ A ledger with two writers is two ledgers. If a site could key a payment into Nex
 
 - A tenant's payment is taken in **Cubby** and reaches the books through the bank (see the lesson How Cubby Money Reaches the Books).
 - A vendor is paid by the accounting team in Intacct, never from a site.
-- A wrong account on a line is **asked about** in Nexus, on **Reports > Audit & Insights > AMA** (Ask My Accountant). Only the bookkeeper may approve the fix and push it to Intacct.
+- A wrong account on a line is **asked about** in Nexus, on **Trackers > Ask My Accountant**. Only the bookkeeper may approve the fix and push it to Intacct.
 - An allocation or a bank import is **prepared** in Nexus as a file and **posted** by the accounting team.
 
 When a Nexus screen looks like it is editing money, it is editing Nexus's own records beside the ledger (a vendor's insurance papers, a loan's planning) or preparing a file.
@@ -58,7 +58,8 @@ Open **Accounting** from the left menu. The header carries five menus:
 | Menu | What is under it |
 |---|---|
 | **Dashboard** | Overview, Cash, Performance, Close |
-| **Reports** | Report Center, Financial, Banking & Credit Cards, Budget, Payroll & People, Audit & Insights, Tax |
+| **Reports** | All Reports, Report Builder, Packages, Financial Statements, Ledger & Banking, Budget vs. Actual, Review, Payroll, Tax |
+| **Trackers** | Monthly Recurring Income, Monthly Recurring Expenses, Management Fees, Ask My Accountant, Budgets |
 | **Financing** | Loans, Intercompany, Investments |
 | **Records** | Vendors, Customers, General Ledger Accounts, Entities, Journals |
 | **Tools** | Data, Access, Allocations, Import Hub |

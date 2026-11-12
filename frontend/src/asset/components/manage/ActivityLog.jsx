@@ -9,7 +9,7 @@ import { formatDate, formatTime } from '../../../lib/datetime';
 // each change line's field name.
 const LABEL_STYLE = { fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
 
-const DATE_INPUT_STYLE = { padding: '6px 9px', width: 'auto', fontSize: '0.8rem' };
+const DATE_INPUT_STYLE = { padding: '6px 9px', width: 'auto', fontSize: 13 };
 
 /** yyyy-mm-dd of a stamp in LOCAL time (an entry logged at 6 PM Pacific used to
  *  land under the next day's header), for day-bucketing and the date-range filter. */
@@ -126,7 +126,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        <strong style={{ fontSize: '1rem' }}>Activity Log</strong>
+        <strong style={{ fontSize: 15 }}>Activity Log</strong>
         <span style={LABEL_STYLE}>{filtered.length} entr{filtered.length === 1 ? 'y' : 'ies'}</span>
 
         {activeId && (
@@ -137,7 +137,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                 onClick={() => setScope(key)}
                 style={{
                   padding: '5px 12px', borderRadius: 999, border: 'none', cursor: 'pointer',
-                  fontSize: '0.76rem', fontWeight: 600, whiteSpace: 'nowrap',
+                  fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
                   background: scope === key ? 'var(--pine)' : 'transparent',
                   color: scope === key ? '#fff' : 'var(--text-secondary)',
                 }}
@@ -156,7 +156,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
             To <input type="date" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} style={DATE_INPUT_STYLE} />
           </label>
           {(from || to) && (
-            <button className="secondary-btn" onClick={() => { setFrom(''); setTo(''); }} style={{ padding: '5px 11px', fontSize: '0.76rem' }}>
+            <button className="secondary-btn" onClick={() => { setFrom(''); setTo(''); }} style={{ padding: '5px 11px', fontSize: 12 }}>
               Clear
             </button>
           )}
@@ -207,7 +207,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                             onClick={() => onOpenProperty(entry.propertyId)}
                             title="Open property"
                             style={{
-                              fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'inherit',
+                              fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'inherit',
                               padding: 0, border: 'none', background: 'none', cursor: 'pointer', overflow: 'hidden',
                               textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3,
                             }}
@@ -215,7 +215,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                             {entry.property}
                           </button>
                         ) : (
-                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {entry.property}
                           </span>
                         ))}
@@ -223,7 +223,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                           {sectionLabel}
                         </span>
                         {entry.item && entry.item !== entry.property && (
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: 13, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             · {entry.item}
                           </span>
                         )}
@@ -235,7 +235,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                       {entry.changes && entry.changes.length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '7px 10px', borderRadius: 7, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
                           {entry.changes.map((change, i) => (
-                            <div key={i} style={{ fontSize: '0.78rem', color: 'var(--text-primary)', wordBreak: 'break-word', lineHeight: 1.5 }}>
+                            <div key={i} style={{ fontSize: 13, color: 'var(--text-primary)', wordBreak: 'break-word', lineHeight: 1.5 }}>
                               <span style={LABEL_STYLE}>{change.field}</span>
                               {'  '}
                               <span style={{ color: 'var(--text-secondary)', textDecoration: 'line-through' }}>
@@ -252,7 +252,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
 
                       {entry.reason && (
                         <div style={{
-                          marginTop: 7, padding: '6px 10px', borderRadius: 7, fontSize: '0.76rem',
+                          marginTop: 7, padding: '6px 10px', borderRadius: 7, fontSize: 12,
                           color: 'hsl(var(--color-gold))', backgroundColor: 'hsla(var(--color-gold), 0.1)',
                           border: '1px solid hsla(var(--color-gold), 0.3)', wordBreak: 'break-word',
                         }}>
@@ -263,7 +263,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                         <span title={entry.user} style={{
                           flexShrink: 0, width: 20, height: 20, borderRadius: '50%', display: 'inline-flex',
-                          alignItems: 'center', justifyContent: 'center', fontSize: '0.68rem', fontWeight: 700,
+                          alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700,
                           color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.14)',
                         }}>
                           {initials(entry.user)}
@@ -308,7 +308,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
 
                       {confirmUndoId === entry.id && (
                         <div style={{ marginTop: 8, padding: '11px 13px', borderRadius: 9, border: '1px solid hsl(var(--color-gold) / 0.5)', backgroundColor: 'hsla(var(--color-gold), 0.08)' }}>
-                          <div style={{ fontSize: '0.78rem', color: 'var(--text-primary)', marginBottom: 9 }}>
+                          <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 9 }}>
                             Undo this change?{' '}
                             {entry.action === 'added'
                               ? 'The property will be moved to Recover.'
@@ -317,13 +317,13 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                               : 'The previous value(s) will be put back.'}
                           </div>
                           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                            <button className="secondary-btn" onClick={() => setConfirmUndoId(null)} style={{ fontSize: '0.78rem', padding: '5px 12px' }}>
+                            <button className="secondary-btn" onClick={() => setConfirmUndoId(null)} style={{ fontSize: 13, padding: '5px 12px' }}>
                               Cancel
                             </button>
                             <button
                               className="primary-btn"
                               onClick={() => { onUndo(entry); setConfirmUndoId(null); }}
-                              style={{ fontSize: '0.78rem', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                              style={{ fontSize: 13, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                             >
                               <RotateCcw size={13} /> Undo
                             </button>

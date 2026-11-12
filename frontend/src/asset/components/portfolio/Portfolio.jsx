@@ -23,7 +23,7 @@ const SORT_COLUMN_LABELS = ['Asset', 'Type', 'Location', 'Stage', 'Owner', 'Asse
 
 // Each select gives way before the row wraps (with the sidebar open at 1440 the
 // fixed 140px selects pushed "All Regions" onto its own line).
-const selectStyle = { flex: '1 1 120px', width: 'auto', minWidth: 110, maxWidth: 170, padding: '0 10px', fontSize: '0.8rem', height: 40, boxSizing: 'border-box' };
+const selectStyle = { flex: '1 1 120px', width: 'auto', minWidth: 110, maxWidth: 170, padding: '0 10px', fontSize: 13, height: 40, boxSizing: 'border-box' };
 
 // Both the "Clear Filters" button and the "Sorted: X" chip share this exact pill shape - this
 // was a real fix (they used to render with different border-radius/background/font-size before
@@ -31,7 +31,7 @@ const selectStyle = { flex: '1 1 120px', width: 'auto', minWidth: 110, maxWidth:
 const filterPillStyle = {
   display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 12px', borderRadius: 999,
   backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
-  fontSize: '0.78rem', color: 'var(--text-secondary)', flexShrink: 0, whiteSpace: 'nowrap',
+  fontSize: 13, color: 'var(--text-secondary)', flexShrink: 0, whiteSpace: 'nowrap',
 };
 
 // A stable empty parcel list, so a memoized TileCard is not re-rendered for a fresh [].
@@ -162,7 +162,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
           title={`${label} view`}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 999,
-            border: 'none', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600,
+            border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
             background: viewMode === mode ? 'var(--pine)' : 'transparent',
             color: viewMode === mode ? '#fff' : 'var(--text-secondary)',
           }}
@@ -190,7 +190,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search assets, owner, location…"
-              style={{ width: '100%', padding: '10px 14px 10px 40px', fontSize: '0.92rem', fontWeight: 500, borderRadius: 10 }}
+              style={{ width: '100%', padding: '10px 14px 10px 40px', fontSize: 13, fontWeight: 500, borderRadius: 10 }}
             />
           </div>
 
@@ -259,7 +259,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
               <button
                 onClick={() => setSortCol(null)}
                 title="Reset sort"
-                style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, marginLeft: 2, color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1 }}
+                style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, marginLeft: 2, color: 'var(--text-muted)', fontSize: 13, lineHeight: 1 }}
               >
                 <X size={13} />
               </button>

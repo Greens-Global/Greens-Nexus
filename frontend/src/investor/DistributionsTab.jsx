@@ -89,7 +89,7 @@ export default function DistributionsTab() {
     setBusy(true); setFormErr('');
     try {
       await api.createIrDistribution({
-        fundId: Number(modal.fundId),
+        fundId: String(modal.fundId),
         title: modal.title.trim(),
         distributionType: modal.distributionType,
         totalAmount: Number(modal.totalAmount) || 0,

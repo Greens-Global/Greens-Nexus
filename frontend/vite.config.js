@@ -301,6 +301,12 @@ export default defineConfig(({ command }) => ({
     setupFiles: './vitest.setup.js',
     css: false,
     include: ['src/**/*.test.{js,jsx}'],
+    // A test may hold several findBy / waitFor waits of up to 5 s each
+    // (vitest.setup.js asyncUtilTimeout); with the default 5 s per test, one
+    // slow wait on a loaded CI runner timed the whole test out before any
+    // wait could finish or fail (ShiftSchedule drag, AdminConsole Pay Rules,
+    // 11/12/2026). Room for several waits; a test that hangs still fails.
+    testTimeout: 20000,
   },
   build: {
     rollupOptions: {

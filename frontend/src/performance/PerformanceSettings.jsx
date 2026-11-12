@@ -11,6 +11,7 @@ import { SettingCard, SettingRow, SwitchRow, NumberBox } from '../components/set
 import { Spinner, ErrorBanner } from '../components/AsyncState';
 import SaveRow from '../components/SaveRow';
 import { useGroupDirty } from '../lib/groupDirty';
+import TeamsTargetPicker, { EMPTY_TEAMS_TARGET } from '../components/TeamsTargetPicker';
 
 export function PerformanceReminderSettings({ company = '', onOverride, toastOk, toastErr }) {
   const [meta, setMeta] = useState(null);
@@ -134,30 +135,38 @@ export function PerformanceKudosSettings({ company = '', onOverride, toastOk, to
   );
 }
 
-// Kudos Teams Chat (Neil, 11/08/2026): the chat a company's kudos are posted
-// to, layered the same way (an organization default, a company's own over
-// it); its group opens to a Super Administrator only (AdminConsole `needs`),
-// and the save route refuses anyone else. One Save row, as a typed field.
+// Kudos on Teams (Neil, 11/08/2026; a channel per company 11/12/2026): the
+// channel - or a group chat - a company's kudos are posted to, layered the
+// same way (an organization default, a company's own over it); its group
+// opens to a Super Administrator only (AdminConsole `needs`), and the save
+// route refuses anyone else. Reactions and replies there come back to Nexus
+// as thanks (backend/perf_kudos_teams.py). The picker is TeamsTargetPicker,
+// the one the BOD / EOD job roles use; one Save row, as a typed setting.
+const sameTarget = (a, b) => (!a?.id && !b?.id)
+  || ((a?.id || '') === (b?.id || '') && (a?.type || 'chat') === (b?.type || 'chat') && (a?.teamId || '') === (b?.teamId || ''));
+// Nothing picked yet opens on Channel - the recommended place.
+const targetOf = (m) => ({ ...EMPTY_TEAMS_TARGET, type: 'channel', ...(m?.settings?.kudosTeams || {}) });
+
 export function PerformanceKudosChatSettings({ company = '', onOverride, toastOk, toastErr }) {
   const [meta, setMeta] = useState(null);
   const [loadErr, setLoadErr] = useState('');
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(EMPTY_TEAMS_TARGET);
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => {
-    api.perfSettings(company).then(m => { setLoadErr(''); setMeta(m); setDraft(m.settings?.kudosTeamsChatId || ''); })
+    api.perfSettings(company).then(m => { setLoadErr(''); setMeta(m); setDraft(targetOf(m)); })
       .catch(e => setLoadErr(e?.message || 'Could not load the settings.'));
   }, [company]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (meta && company) onOverride?.(!!meta.override); }, [meta, company, onOverride]);
-  const saved = meta?.settings?.kudosTeamsChatId || '';
-  const dirty = !!meta && draft.trim() !== saved;
+  const saved = targetOf(meta);
+  const dirty = !!meta && !sameTarget(draft, saved);
   useGroupDirty(dirty);
 
   async function save(reset = false) {
     setBusy(true);
     try {
-      const m = await api.perfSettingsSave({ company, settings: { kudosTeamsChatId: draft.trim() }, reset });
-      setMeta(m); setDraft(m.settings?.kudosTeamsChatId || '');
+      const m = await api.perfSettingsSave({ company, settings: { kudosTeams: draft.id ? draft : {} }, reset });
+      setMeta(m); setDraft(targetOf(m));
       toastOk?.(reset ? 'Back to the default for every company.' : 'Saved.');
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
     finally { setBusy(false); }
@@ -169,9 +178,10 @@ export function PerformanceKudosChatSettings({ company = '', onOverride, toastOk
     <div style={{ display: 'grid', gap: 12 }}>
       {company && <span className="nx-set-pad" style={{ fontSize: 12, color: 'var(--muted)' }}>{meta.override ? 'This company has settings of its own.' : 'This company uses the default.'}</span>}
       <SettingCard>
-        <SettingRow title="Teams Chat" desc="The id of the Teams chat this company's kudos are posted to, as the sender (the fallback posters must be members of it). Leave it empty and the send form offers no Teams switch for this company.">
-          <input className="form-input" value={draft} onChange={e => setDraft(e.target.value)} placeholder="19:...@thread.v2" aria-label="Teams chat id"
-            style={{ width: 'min(100%, 420px)', fontSize: 12.5, padding: '5px 8px' }} />
+        <SettingRow title="Post Kudos To" desc="A channel in the company's all-staff team works best - each kudos gets its own thread. Kudos post as the sender, mentioning the recipient. Reactions and replies there come back to Nexus as thanks, and a thanks given in Nexus adds a clap there. Nothing picked = the send form offers no Teams switch for this company.">
+          <div style={{ width: 'min(100%, 420px)' }}>
+            <TeamsTargetPicker value={draft} onChange={setDraft} toastErr={toastErr} audience="Everyone who sends kudos" />
+          </div>
         </SettingRow>
       </SettingCard>
       <div className="nx-set-pad">

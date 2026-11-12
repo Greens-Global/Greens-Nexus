@@ -3,7 +3,7 @@ import { FolderSearch } from 'lucide-react';
 import { api } from '../../../api.js';
 import { egnyteFolderProblem, normalizeEgnyteFolder, HOW_WORDS } from '../../lib/egnyteFolder.js';
 
-const inputStyle = { width: '100%', padding: '5px 9px', fontSize: '0.82rem' };
+const inputStyle = { width: '100%', padding: '5px 9px', fontSize: 13 };
 const noteStyle = { fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.45 };
 
 /**
@@ -58,7 +58,7 @@ export function EgnyteFolderInput({ assetId, value, onChange }) {
           }}
           style={{ ...inputStyle, flex: 1, minWidth: 0 }} />
         <button type="button" className="secondary-btn" onClick={runFind} disabled={!!(find && find.busy)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', fontSize: '0.8rem', flexShrink: 0 }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', fontSize: 13, flexShrink: 0 }}>
           <FolderSearch size={14} /> Find Folder
         </button>
       </div>
@@ -84,10 +84,10 @@ export function EgnyteFolderInput({ assetId, value, onChange }) {
                   aria-label={`Pin ${c.path}`}
                   style={{ display: 'flex', alignItems: 'baseline', gap: 8, width: '100%', textAlign: 'left', padding: '6px 8px', border: '1px solid var(--border-color)', borderRadius: 7, background: c.path === text ? 'var(--mist)' : 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
                   <span style={{ minWidth: 0, flex: 1 }}>
-                    <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word' }}>{c.name}</span>
-                    <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', wordBreak: 'break-word' }}>{c.root}</span>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word' }}>{c.name}</span>
+                    <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', wordBreak: 'break-word' }}>{c.root}</span>
                   </span>
-                  <span style={{ fontSize: '0.72rem', fontWeight: 600, color: c.path === find.match ? 'hsl(var(--color-green))' : 'var(--text-secondary)', flexShrink: 0 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: c.path === find.match ? 'hsl(var(--color-green))' : 'var(--text-secondary)', flexShrink: 0 }}>
                     {c.path === find.match ? 'Best Match' : (HOW_WORDS[c.how] || '')}
                   </span>
                 </button>

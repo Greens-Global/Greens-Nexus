@@ -5,7 +5,7 @@ import { normLabel } from '../../lib/format.js';
 const INPUT_STYLE = {
   width: '100%',
   padding: '6px 9px',
-  fontSize: '0.8rem',
+  fontSize: 13,
   border: '1px solid var(--border-color)',
   borderRadius: 7,
   background: 'var(--bg-secondary)',
@@ -19,7 +19,7 @@ const ACTION_LINK_STYLE = {
   textAlign: 'center',
   padding: '7px 10px',
   borderRadius: 8,
-  fontSize: '0.78rem',
+  fontSize: 13,
   fontWeight: 600,
   textDecoration: 'none',
   display: 'inline-flex',
@@ -52,7 +52,7 @@ export function ContactCell({ name, label, contacts, onSave }) {
           background: 'transparent',
           padding: 0,
           cursor: 'pointer',
-          fontSize: '0.85rem',
+          fontSize: 13,
           fontWeight: 600,
           color: 'hsl(var(--color-blue))',
           display: 'inline-flex',
@@ -78,8 +78,8 @@ export function ContactCell({ name, label, contacts, onSave }) {
             boxShadow: '0 8px 28px rgba(0,0,0,0.16)',
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: 1 }}>{name}</div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.03em', fontWeight: 700 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 1 }}>{name}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.03em', fontWeight: 700 }}>
             {label}
           </div>
 
@@ -104,10 +104,10 @@ export function ContactCell({ name, label, contacts, onSave }) {
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" style={INPUT_STYLE} />
 
           <div style={{ display: 'flex', gap: 8, marginTop: 11, justifyContent: 'flex-end' }}>
-            <button className="secondary-btn" onClick={() => setOpen(false)} style={{ fontSize: '0.76rem', padding: '5px 13px' }}>
+            <button className="secondary-btn" onClick={() => setOpen(false)} style={{ fontSize: 12, padding: '5px 13px' }}>
               Close
             </button>
-            <button className="primary-btn" onClick={handleSave} style={{ fontSize: '0.76rem', padding: '5px 13px' }}>
+            <button className="primary-btn" onClick={handleSave} style={{ fontSize: 12, padding: '5px 13px' }}>
               Save
             </button>
           </div>

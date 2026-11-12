@@ -68,9 +68,12 @@ export const MGMT_FEE_DEFAULT_PERIOD = 'ytd';
 // not one; Management Fees after Profitability, the end of Neil's six Audit
 // & Insights items, so his order (Flux, MRE, MRI, AMA, Manual Journal
 // Entries, Profitability) stays as written. An `after` not found = the end.
+// 11/11/2026 (Neil approved picture 2 of the Accounting pass): Management
+// Fees is a working tool, so it moves to Trackers, after Monthly Recurring
+// Expenses; PFS stays last in Financial Statements.
 export const REPORT_MENU_PLACEMENT = {
   pfs: { group: 'grp-financial', after: 'rpt-cash-position' },
-  'mgmt-fees': { group: 'grp-audit', after: 'profitability' },
+  'mgmt-fees': { group: 'trackers', after: 'mre' },
 };
 
 // ── CR-05 Report Builder ────────────────────────────────────────────────────
@@ -207,6 +210,20 @@ export const MANUAL_JE_GROUP_BY_USER = true;
 // in Charmi's order (GJC, not GC). Add or remove a symbol here; each opens
 // that journal's lines (sub key `journal-<symbol>`).
 export const RECORDS_JOURNALS = ['APJ', 'GJCA', 'GJC', 'PYRJ', 'PEJ', 'PIJ', 'SJI', 'GJ', 'HJCA'];
+// 11/11/2026 (Neil approved picture 3): the menu names each journal by its
+// Intacct title, shortened; the code stays beside it in grey. A symbol with
+// no name here shows its code alone.
+export const JOURNAL_NAMES = {
+  APJ: 'Accounts Payable',
+  GJCA: 'General Journal, Cash and Accrual',
+  GJC: 'General Journal, Cash',
+  PYRJ: 'Payroll',
+  PEJ: 'Prepaid Expenses',
+  PIJ: 'Prepaid Income',
+  SJI: 'Storage Journal Import',
+  GJ: 'General Journal, Accrual',
+  HJCA: 'Historical, Cash and Accrual',
+};
 // CR-12 (assumption, Charmi to confirm): a journal page opens on Year to
 // Date, the period every statement opens on; the stepper changes it.
 export const JOURNAL_PAGE_DEFAULT_PRESET = 'ytd';

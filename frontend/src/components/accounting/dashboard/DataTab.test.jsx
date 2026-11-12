@@ -13,7 +13,7 @@ const tables = {
 };
 const ix = { roots: [{ code: '15000', name: 'Greens Escondido, LLC.' }, { code: '56000', name: 'MCD Services, Inc.' }] };
 
-vi.mock('./DashContext', () => ({ useDash: () => ({ tables, tablesLoading: false, act, ix }) }));
+vi.mock('./DashContext', () => ({ useBooksDown: () => false, useDash: () => ({ tables, tablesLoading: false, act, ix }) }));
 
 import DataTab from './DataTab';
 

@@ -5,7 +5,7 @@ import { cityRegion, typeLabel, tileStats, typeIcon, stageTone } from '../../lib
 import { STAT_TOOLTIPS } from '../shared/StatCell.jsx';
 
 const tagPill = (text, bg) => (
-  <span style={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 5, color: '#fff', backgroundColor: bg }}>
+  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 5, color: '#fff', backgroundColor: bg }}>
     {text}
   </span>
 );
@@ -78,25 +78,25 @@ export function ListRow({ pr: asset, openProperty, secondaries = [], expanded, o
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
           {isGroupLead && tagPill('Primary', 'var(--pine)')}
           {secondary && tagPill('Secondary', 'hsl(var(--color-purple))')}
-          <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>{asset.name}</strong>
-          <span style={{ fontSize: '0.68rem', fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: `hsl(var(--color-${tone}))`, backgroundColor: `hsla(var(--color-${tone}), 0.12)` }}>
+          <strong style={{ fontSize: 13, color: 'var(--text-primary)' }}>{asset.name}</strong>
+          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: `hsl(var(--color-${tone}))`, backgroundColor: `hsla(var(--color-${tone}), 0.12)` }}>
             {stage}
           </span>
           {isGroupLead && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.68rem', fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)' }}>
               <Link2 size={10} />
               {secondaries.length} linked
             </span>
           )}
         </div>
 
-        <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {isNonProperty ? (asset.color || asset.devStage || 'Vehicle') : `${type ? `${type} · ` : ''}${cityRegion(asset) || '-'}`}
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '3px 16px', marginTop: 7 }}>
           {stats.map((s, i) => (
-            <span key={i} title={STAT_TOOLTIPS[s.l] || s.l} style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+            <span key={i} title={STAT_TOOLTIPS[s.l] || s.l} style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               <strong style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{s.v}</strong> {s.l}
             </span>
           ))}
@@ -160,12 +160,12 @@ export function ListGroupRow({ pr: lead, secondaries, openProperty }) {
 
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>{lead.siteName || lead.name}</strong>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)' }}>
+            <strong style={{ fontSize: 13, color: 'var(--text-primary)' }}>{lead.siteName || lead.name}</strong>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)' }}>
               <Link2 size={10} /> Linked group
             </span>
           </div>
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
             {members.length} linked properties
           </div>
         </div>

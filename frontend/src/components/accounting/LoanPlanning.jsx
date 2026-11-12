@@ -9,6 +9,9 @@ import { usePaged } from './tableHooks';
 import { downloadBlob } from './reportModel';
 import { FREQUENCIES, PLAN_KINDS, RATE_INDEXES, existingDebt, mortgagePlan, normalizeLoan, planImpact, planKind, scheduleTotals, t12From, yearlySchedule } from './loanMath';
 import { NOI_BASES, entityNois } from './LoanStress';
+import { DateField } from '../../tasks/components';
+import { dialog } from '../../ui/dialog';
+import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // Accounting -> Loans & Financing -> Loan Planning (Charmi, item 25, Oct 15:
 // "New Loan Planning / Mortgage Calculator").
@@ -485,8 +488,9 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
       setMsg({ text: `Saved ${p.name}.` });
     }).catch((e) => setMsg({ text: e?.message || 'Could not save the planned loan.', bad: true })).finally(() => setBusy(''));
   };
-  const remove = (p) => {
-    if (!window.confirm(`Remove the planned loan "${p.name}"?`)) return;
+  // The house dialog, press and hold (11/11/2026 Accounting pass, picture 10).
+  const remove = async (p) => {
+    if (!await dialog.confirm(`Remove the planned loan "${p.name}"?`, { title: 'Remove Planned Loan', confirmText: 'Remove', doneText: 'Removed', hold: true, holdMs: HOLD_RECORD_MS })) return;
     api.deletePlannedLoan(p.id).then(() => {
       setPlanned((list) => (list || []).filter((y) => y.id !== p.id));
       setSelected((s) => s.filter((v) => v !== p.id));
@@ -591,7 +595,7 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
           <Field id="lp-freq" title="Payment Frequency">
             <select id="lp-freq" value={form.frequency} onChange={(e) => set({ frequency: e.target.value })} style={input}>{FREQUENCIES.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select>
           </Field>
-          <Field id="lp-start" title="Start Date" note="The first payment is one period later"><input id="lp-start" type="date" value={form.startDate || ''} onChange={(e) => set({ startDate: e.target.value })} style={input} /></Field>
+          <Field id="lp-start" title="Start Date" note="The first payment is one period later"><span id="lp-start" style={{ ...input, display: 'flex', alignItems: 'center' }}><DateField value={form.startDate || ''} onChange={(picked) => { const v = picked || ''; return set({ startDate: v }); }} placeholder="MM/DD/YYYY" title="Start Date" style={{ width: '100%' }} /></span></Field>
           {other && <>
             <Field id="lp-closing" title="Closing Costs"><AmountInput id="lp-closing" value={form.closingCosts} onChange={(v) => set({ closingCosts: v })} style={input} /></Field>
             <Field id="lp-points" title="Points %" note={plan.points ? `${formatAmount(plan.points)}` : null}><input id="lp-points" type="number" min="0" max="20" step="0.125" value={form.pointsPct ?? ''} onChange={(e) => set({ pointsPct: e.target.value })} style={input} /></Field>
@@ -615,7 +619,7 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
             <EntityPicker entities={pickerEntities} value={meta.entityCode} onChange={(code) => setMeta((m) => ({ ...m, entityCode: code || '' }))} placeholder="Pick an Entity" ariaLabel="Entity the loan is for" style={{ width: '100%' }} />
           </div>
           <Field id="lp-lender" title="Lender"><input id="lp-lender" type="text" maxLength={120} value={form.lender || ''} onChange={(e) => set({ lender: e.target.value })} style={input} /></Field>
-          <Field id="lp-close" title="Expected Close"><input id="lp-close" type="date" value={form.closeDate || ''} onChange={(e) => set({ closeDate: e.target.value })} style={input} /></Field>
+          <Field id="lp-close" title="Expected Close"><span id="lp-close" style={{ ...input, display: 'flex', alignItems: 'center' }}><DateField value={form.closeDate || ''} onChange={(picked) => { const v = picked || ''; return set({ closeDate: v }); }} placeholder="MM/DD/YYYY" title="Expected Close" style={{ width: '100%' }} /></span></Field>
           <Field id="lp-target" title="DSCR Target"><input id="lp-target" type="number" min="0.5" max="10" step="0.05" value={form.dscrTarget ?? ''} onChange={(e) => set({ dscrTarget: e.target.value })} style={input} /></Field>
           <Field id="lp-noi" title="NOI" note={ev.noiTyped ? 'Typed - clear it to use the entity\'s' : nois[meta.entityCode]?.adjusted != null ? `Entity's: ${formatAmount(nois[meta.entityCode].adjusted)}` : 'Optional - the entity\'s when blank'}>
             <AmountInput id="lp-noi" value={form.noi} onChange={(v) => set({ noi: v })} placeholder={nois[meta.entityCode]?.adjusted != null ? formatAmount(nois[meta.entityCode].adjusted) : '0.00'} style={input} />

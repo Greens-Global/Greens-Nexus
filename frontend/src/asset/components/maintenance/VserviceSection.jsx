@@ -19,7 +19,7 @@ export function VserviceSection({ p: asset, rows, filters, setFilters, highlight
       style={{
         padding: '7px 14px',
         borderRadius: 8,
-        fontSize: '0.82rem',
+        fontSize: 13,
         fontWeight: 600,
         cursor: 'pointer',
         border: 'none',

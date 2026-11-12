@@ -122,15 +122,15 @@ export function ReconWidget({ compact, onNavigate }) {
                     </div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
                     {!compact ? <td style={{ fontSize: '0.78rem' }}>{entityOf(r) || '-'}</td> : null}
                     <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}><LastReconciled r={r} /></td>
-                    <td style={num}>{r.thru ? m(r.stmt, { cents: true }) : '-'}</td>
+                    <td style={num}>{r.thru ? m(r.stmt, { report: true }) : '-'}</td>
                     <td style={num}>{r.gl ? (
                       <button type="button" title="See the ledger lines behind this balance (Reports tab)"
                         onClick={() => requestReportDrill({ account: r.gl, accountName: r.name, from: '', to: mEnd(period), entity: r.entityCode || '' })}
                         style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 }}>
-                        {m(r.book, { cents: true })}
+                        {m(r.book, { report: true })}
                       </button>
-                    ) : m(r.book, { cents: true })}</td>
-                    <td style={{ ...num, color: Math.abs(r.diff) >= 0.005 ? (r.source === 'intacct' ? 'var(--text-muted)' : BAD) : undefined }} title={r.source === 'intacct' && Math.abs(r.diff) >= 0.005 ? 'Book balance less the statement balance Intacct reconciled to - outstanding items' : undefined}>{Math.abs(r.diff) >= 0.005 ? m(r.diff, { cents: true }) : '-'}</td>
+                    ) : m(r.book, { report: true })}</td>
+                    <td style={{ ...num, color: Math.abs(r.diff) >= 0.005 ? (r.source === 'intacct' ? 'var(--text-muted)' : BAD) : undefined }} title={r.source === 'intacct' && Math.abs(r.diff) >= 0.005 ? 'Book balance less the statement balance Intacct reconciled to - outstanding items' : undefined}>{Math.abs(r.diff) >= 0.005 ? m(r.diff, { report: true }) : '-'}</td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         {r.status === 'Reconciled' ? <Chip tone="ok">Reconciled</Chip> : <Chip tone={r.status === 'Difference' || r.status === 'Behind' ? 'bad' : 'wait'}>{r.status}</Chip>}
@@ -257,9 +257,9 @@ export function FluxWidget() {
           {rows.slice(0, 10).map((r) => (
             <tr key={r.id}>
               <td><span style={mono}>{r.gl}</span>{r.name}</td>
-              <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.prior, { paren: true })}</td>
-              <td style={num}>{m(r.balance, { paren: true })}</td>
-              <td style={{ ...num, fontWeight: 600, color: toneColor(r.change >= 0) }}>{m(r.change, { paren: true })}</td>
+              <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.prior, { report: true })}</td>
+              <td style={num}>{m(r.balance, { report: true })}</td>
+              <td style={{ ...num, fontWeight: 600, color: toneColor(r.change >= 0) }}>{m(r.change, { report: true })}</td>
               <td style={{ ...num, fontSize: '0.76rem', color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</td>
             </tr>
           ))}

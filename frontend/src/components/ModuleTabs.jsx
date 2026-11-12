@@ -19,7 +19,7 @@ activeSub wiring stay in the module. They just declare the strip through
 
     <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
 
-tabs: [{ key, label, Icon?, badge? }] - Icon optional (Accounting's pills are
+tabs: [{ key, label, Icon?, badge?, hint? }] - Icon optional (Accounting's pills are
 label-only); badge is an optional count pill (falsy hides it).
 
 Oct 6 (Charmi and Neil, 10/04): a tab may carry `items: [{ key, label, Icon? }]`
@@ -330,6 +330,8 @@ function MenuRows({ items, active, onPick }) {
       onMouseEnter={() => setFlyout(null)} onClick={() => onPick(it.key)} style={rowStyle(it.key === active)}>
       {it.Icon ? <it.Icon size={15} /> : null}
       <span style={{ flex: 1 }}>{it.label}</span>
+      {/* hint: a muted code after the name (Accounting's journals, 11/11/2026). */}
+      {it.hint ? <span aria-hidden="true" style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 12 }}>{it.hint}</span> : null}
       {it.badge > 0 ? <span className="hdr-tab-badge">{it.badge}<ChangeFlash value={it.badge} /></span> : null}
       {it.key === active ? <Check size={14} /> : null}
     </button>
