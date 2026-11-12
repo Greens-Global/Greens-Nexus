@@ -39,9 +39,17 @@ export const READY_META = { label: 'Ready To Check', color: '#0d9488', ready: tr
 export const CHECKED_META = { label: 'PR Open - Checked', color: '#059669' };
 export const HELD_COLOR = '#d97706';
 
-const isReady = (pin) => (pin.readyToCheck != null
+// Ready To Check = something to judge the fix by: the preview running on the
+// developer's computer, or (11/12/2026) proof on the pin itself - the after
+// picture or clip a Claude Code cloud session attached (`checkable`).
+const isReady = (pin) => pin.checkable === true || (pin.readyToCheck != null
   ? !!pin.readyToCheck
   : pin.status === 'pr_open' && !!pin.preview?.url && pin.previewVerdict !== 'accepted');
+/** The proof Claude Code put on the pin: pictures and / or a clip. */
+export const pinProof = (pin) => {
+  const v = pin?.verification?.visual || {};
+  return (v.afterUrl || v.clipUrl) ? v : null;
+};
 
 /** Held for the owner of its area, and still open (never sent). */
 export const pinHeld = (p) => !!p?.held && p.status === 'open';

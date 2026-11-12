@@ -895,9 +895,31 @@ A token expires `TOKEN_DAYS` (30) after its LAST use, not after minting:
 most once a minute). A connected Claude Code never needs a new token; an
 idle one still dies.
 
-### 8.5 Not built yet
+### 8.5 Proof on the pin (11/12/2026)
 
-Proof on the pin (pictures and a clip from the cloud session), a preview
-anyone can open, one pull request for a day's pins, the Nexus connector,
-Merge To Dev from Nexus, and Point At It for everyone - the plan:
+A cloud session has no computer to run a preview on, so the author checks
+the fix from what Claude Code attached to the pin:
+
+- **Proof** = `verification.visual.afterUrl` (the after picture from
+  `/cli/verify` or `/cli/attach` kind `after`) or `verification.visual.clipUrl`
+  (a WebM / MP4 from `/cli/attach` kind `clip`, 25 MB at most, sniffed by its
+  first bytes; `tools/build_notes/record_clip.cjs` records one, `cli.py clip`
+  sends it). Both live in the private `qa-evidence` bucket like every other
+  pin file.
+- `_checkable(n)`: PR Open, not accepted yet, and a preview url OR proof. The
+  serializer sends `checkable`; `readyToCheck` keeps meaning "a preview
+  runs". The screen shows Ready To Check for either (`meta.js isReady`) and
+  the Accept / Reopen buttons whenever `canVerdict`.
+- `POST /dev-notes/{id}/preview-verdict` takes a verdict on a checkable pin.
+  The thread says where it was judged: "Checked On The Preview" or "Checked
+  From The Proof On The Pin". Accept = the merge closes the pin as Done with
+  no second check, exactly as before. Reopen needs a note, sends the pin
+  back to Building, clears the refused pictures and clip (the files stay in
+  the pin's history) and, for a pin that went to the cloud, starts a new
+  session on it.
+- A later `/cli/verify` keeps a clip that was attached before it.
+
+### 8.6 Not built yet
+
+A preview anyone can open (a deployed branch preview) - the plan:
 https://claude.ai/artifact/WqEqnaipxNoFveELkctpPB .

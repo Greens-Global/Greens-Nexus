@@ -205,3 +205,41 @@ describe('PinThread - regression link', () => {
     expect(screen.queryByTestId('bm-regression')).toBeNull();
   });
 });
+
+// Proof on the pin (11/12/2026): a Claude Code cloud session has no computer
+// to run a preview on, so the after picture or clip it attached is the check.
+describe('PinThread - checked from the proof on the pin', () => {
+  const AFTER = 'https://x.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/p2/after-1.png';
+  const CLIP = 'https://x.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/p2/clip-1.webm';
+  const proofPin = (over = {}) => readyPin({ preview: {}, readyToCheck: false, checkable: true, verification: { visual: { afterUrl: AFTER, clipUrl: CLIP } }, ...over });
+
+  it('is Ready To Check with the pictures, the clip and Accept / Reopen - and no preview link', async () => {
+    render(<PinThread pin={proofPin()} me={{ email: AUTHOR }} detached />);
+    expect(screen.getByTestId('bm-thread').textContent).toContain('Ready To Check');
+    expect(screen.getByTestId('bm-proof-hint').textContent).toContain('Nothing to run');
+    expect(screen.queryByRole('link', { name: /Open Preview/ })).toBeNull();
+    expect(screen.getByTestId('bm-preview').textContent).not.toContain('No preview link');
+    expect(screen.getByAltText('After')).toBeTruthy();
+    expect(screen.getByTestId('bm-clip').querySelector('video')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Reopen/ }).disabled).toBe(true);      // needs words first
+    fireEvent.click(screen.getByRole('button', { name: /Accept/ }));
+    await waitFor(() => expect(api.devNotesPreviewVerdict).toHaveBeenCalledWith('p2', { accepted: true, comment: '' }));
+  });
+
+  it('someone who may not judge it sees who it waits for and no buttons', () => {
+    render(<PinThread pin={proofPin({ canVerdict: false })} me={{ email: OTHER }} detached />);
+    expect(screen.queryByRole('button', { name: /Accept/ })).toBeNull();
+    expect(screen.getByTestId('bm-thread').textContent).toContain('to check it.');
+  });
+
+  it('after Accept with no preview: Checked From The Proof', () => {
+    render(<PinThread pin={proofPin({ checkable: false, previewVerdict: 'accepted' })} me={{ email: AUTHOR }} detached />);
+    expect(screen.getByTestId('bm-checked').textContent).toContain('Checked From The Proof');
+  });
+
+  it('a PR Open pin with no proof and no preview is still just PR Open', () => {
+    render(<PinThread pin={readyPin({ preview: {}, readyToCheck: false, checkable: false, verification: {} })} me={{ email: AUTHOR }} detached />);
+    expect(screen.queryByTestId('bm-preview')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Accept/ })).toBeNull();
+  });
+});

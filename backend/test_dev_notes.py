@@ -1881,3 +1881,94 @@ def test_a_build_token_in_use_renews_itself():
     db.query(models.DevNoteToken).filter_by(id=minted["id"]).update({"expires_at": soon})
     db.commit(); db.close()
     assert client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"])).status_code == 401
+
+
+# ── proof on the pin (11/12/2026) ─────────────────────────────────────────────
+BEFORE = "https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/n1/before-1.png"
+AFTER = "https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/n1/after-1.png"
+
+
+def test_a_pin_with_proof_is_checked_on_the_pin_with_no_preview_running(fired):
+    token = _token()["token"]
+    p = _to_pr_open(token, pr=31)
+    got = client.get(f"/dev-notes/{p['id']}").json()
+    assert got["checkable"] is False and got["readyToCheck"] is False and got["canVerdict"] is False
+    # nothing to judge yet: no verdict
+    r = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True})
+    assert r.status_code == 409
+    # Claude Code attaches what the fix looks like
+    r = client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token), json={"visual": {"beforeUrl": BEFORE, "afterUrl": AFTER}})
+    assert r.status_code == 200, r.text
+    got = client.get(f"/dev-notes/{p['id']}").json()
+    assert got["checkable"] is True and got["canVerdict"] is True
+    assert got["readyToCheck"] is False                    # no preview: the label stays PR Open
+    # someone else cannot give the verdict
+    GRANTS[DEV2["email"]] = {"build-mode": 1}
+    try:
+        _as(DEV2)
+        assert client.get(f"/dev-notes/{p['id']}").json()["canVerdict"] is False
+        assert client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True}).status_code == 403
+    finally:
+        GRANTS.pop(DEV2["email"], None)
+        _as(DEV)
+    # Reopen needs words, sends it back to Claude Code, and the refused proof is gone
+    assert client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": False}).status_code == 400
+    r = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": False, "comment": "Still too narrow"})
+    got = r.json()
+    assert got["status"] == "building" and got["checkable"] is False and got["verification"]["visual"] == {}
+    assert [e["text"] for e in got["thread"]][-2:] == ["Reopened From The Proof On The Pin", "Still too narrow"]
+    assert fired.calls == []                               # a terminal pin: the watcher picks it up, nothing is started
+    waiting = client.get("/dev-notes/cli/wait", params={"timeout": 0}, headers=_hdr(token)).json()["notes"]
+    assert [n["id"] for n in waiting] == [p["id"]]
+    # reworked, proven again, accepted from the pin: the merge then closes it with no second check
+    client.post("/dev-notes/cli/claim", json={"noteIds": [p["id"]]}, headers=_hdr(token))
+    client.post("/dev-notes/cli/complete", headers=_hdr(token),
+                json={"noteIds": [p["id"]], "prUrl": "https://github.com/x/y/pull/31", "prNumber": 31, "branch": "b"})
+    client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token), json={"visual": {"beforeUrl": BEFORE, "afterUrl": AFTER}})
+    got = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True, "comment": "Looks right"}).json()
+    assert got["previewVerdict"] == "accepted" and got["status"] == "pr_open" and got["checkable"] is False
+    assert got["thread"][-1]["text"] == "Checked From The Proof On The Pin: Looks right"
+    _mark_fixed(pr=31)
+    assert client.get(f"/dev-notes/{p['id']}").json()["status"] == "done"
+
+
+def test_a_reopen_from_the_proof_starts_the_cloud_session_again(fired):
+    token = _token()["token"]
+    _connect_cloud()
+    n = _create()
+    _dispatch()
+    client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token))
+    client.post("/dev-notes/cli/complete", headers=_hdr(token),
+                json={"noteIds": [n["id"]], "prUrl": "https://github.com/x/y/pull/32", "prNumber": 32, "branch": "claude/b"})
+    client.post(f"/dev-notes/cli/verify/{n['id']}", headers=_hdr(token), json={"visual": {"beforeUrl": BEFORE, "afterUrl": AFTER}})
+    assert len(fired.calls) == 1
+    got = client.post(f"/dev-notes/{n['id']}/preview-verdict", json={"accepted": False, "comment": "The label is cut off"}).json()
+    assert got["status"] == "building" and len(fired.calls) == 2 and n["id"] in fired.calls[1]["body"]["text"]
+    assert got["thread"][-1]["text"] == "The label is cut off"      # still last: the brief shows it
+
+
+def test_a_clip_is_proof_too_and_only_a_real_video_is_taken(monkeypatch):
+    token = _token()["token"]
+    p = _to_pr_open(token, pr=33)
+    sent = {}
+
+    def upload(note_id, kind, data, content_type):
+        sent.update(kind=kind, type=content_type, size=len(data))
+        return f"https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/{note_id}/clip-1.webm"
+
+    monkeypatch.setattr(D, "_upload_bytes", upload)
+    webm = b"\x1a\x45\xdf\xa3" + b"0" * 64
+    for bad, name in ((b"<html>not a video</html>", "x.webm"), (b"\x89PNG\r\n\x1a\n" + b"0" * 32, "x.png")):
+        r = client.post(f"/dev-notes/cli/attach/{p['id']}", headers=_hdr(token), data={"kind": "clip"},
+                        files={"file": (name, io.BytesIO(bad), "video/webm")})
+        assert r.status_code == 400 and "WebM and MP4" in r.json()["detail"]
+    r = client.post(f"/dev-notes/cli/attach/{p['id']}", headers=_hdr(token), data={"kind": "clip"},
+                    files={"file": ("fix.webm", io.BytesIO(webm), "application/octet-stream")})
+    assert r.status_code == 200, r.text
+    assert sent == {"kind": "clip", "type": "video/webm", "size": len(webm)}
+    got = client.get(f"/dev-notes/{p['id']}").json()
+    assert got["verification"]["visual"]["clipUrl"].endswith("/clip-1.webm") and got["checkable"] is True
+    # pictures recorded after it keep the clip
+    client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token), json={"visual": {"beforeUrl": BEFORE, "afterUrl": AFTER}})
+    v = client.get(f"/dev-notes/{p['id']}").json()["verification"]["visual"]
+    assert v["clipUrl"].endswith("/clip-1.webm") and v["afterUrl"] == AFTER

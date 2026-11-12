@@ -831,6 +831,31 @@ def cmd_after(client, args):
     return 0
 
 
+CLIP_TYPES = (".webm", ".mp4")
+CLIP_MAX_BYTES = 25 * 1024 * 1024
+
+
+def cmd_clip(client, args):
+    """A short recording of the fix (record_clip.cjs makes one). The author
+    plays it on the pin and Accepts or Reopens from there - the way a fix
+    made in a Claude Code cloud session, which has no preview, is checked."""
+    path = Path(args.video).expanduser()
+    if not path.is_file():
+        raise common.ConfigError("Clip not found: " + str(path))
+    if path.suffix.lower() not in CLIP_TYPES:
+        raise common.ConfigError("A clip must be webm or mp4: " + str(path))
+    if path.stat().st_size > CLIP_MAX_BYTES:
+        raise common.ConfigError("The clip is over 25 MB: " + str(path))
+    number, status = _pin_status(client, args.id)
+    if status in CLOSED_STATUSES:
+        common.eprint("Pin #" + str(number) + " is " + status_label(status) + " - nothing more can be attached to it")
+        return 1
+    data = client.upload("/cli/attach/" + args.id, path, fields={"kind": "clip"}, timeout=300) or {}
+    url = str(data.get("url") or "")
+    print("Clip attached to pin #" + str(number) + (": " + url if url else ""))
+    return 0
+
+
 def pr_number_from_url(url):
     m = re.search(r"/pull/(\d+)", str(url or ""))
     return int(m.group(1)) if m else 0
@@ -1255,6 +1280,11 @@ def build_parser():
     p.add_argument("id")
     p.add_argument("--image", required=True)
     p.set_defaults(func=cmd_after)
+
+    p = sub.add_parser("clip", help="attach a short recording of the fix (webm or mp4, 25 MB at most)")
+    p.add_argument("id")
+    p.add_argument("--video", required=True)
+    p.set_defaults(func=cmd_clip)
 
     p = sub.add_parser("complete", help="record the PR on the pins")
     p.add_argument("ids", nargs="+")

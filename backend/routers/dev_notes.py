@@ -90,7 +90,9 @@ KINDS = ("bug", "change", "question", "edit")
 PRIORITIES = ("blocking", "normal", "nice")
 STATUSES = ("open", "dispatched", "building", "needs_input", "pr_open", "fixed", "done", "dismissed")
 SESSION_STATUSES = ("collecting", "sent", "building", "pr_open", "fixed", "done")
-ATTACH_KINDS = ("after", "before", "paste")   # before-/after- files are the verify shots, paste- the rest
+ATTACH_KINDS = ("after", "before", "paste", "clip")   # before-/after- files are the verify shots, clip- a video of the fix working, paste- the rest
+CLIP_MAX_BYTES = 25 * 1024 * 1024
+_CLIP_TYPES = {"video/webm": "webm", "video/mp4": "mp4"}
 # Send to Claude Code (on since Oct 27 2026). Off, a stored Send Instantly is
 # read as off, so a saved pin never dispatches on its own. The browser's switch
 # is CLAUDE_SEND_ON in frontend/src/devnotes/meta.js - flip both together.
@@ -214,9 +216,10 @@ def _serialize(n: DevNote, viewer: Optional[dict] = None) -> dict:
         out[_camel(col.name)] = v
     out["held"] = _held(n)
     out["readyToCheck"] = _ready_to_check(n)
+    out["checkable"] = _checkable(n)          # Ready To Check, or the pin carries its proof
     me, ga = (viewer or {}).get("email") or "", bool((viewer or {}).get("ga"))
     out["canRelease"] = bool(me) and out["held"] and (ga or me == (n.owner_email or "").lower())
-    out["canVerdict"] = (bool(me) and (out["readyToCheck"] or n.status == "fixed")
+    out["canVerdict"] = (bool(me) and (out["checkable"] or n.status == "fixed")
                          and (ga or me == (n.created_by or "").lower()))
     return out
 
@@ -233,6 +236,22 @@ def _ready_to_check(n: DevNote) -> bool:
     accepted it yet (a reopen sends the pin back to building)."""
     return (n.status == "pr_open" and bool((n.preview or {}).get("url"))
             and (n.preview_verdict or "") != "accepted")
+
+
+def _has_proof(n: DevNote) -> bool:
+    """Proof on the pin (11/12/2026): Claude Code attached what the fix looks
+    like - an after picture (with its before) or a clip of it working - so
+    the author can judge it on the pin itself, from any device, with no
+    preview running on anyone's computer."""
+    v = (n.verification or {}).get("visual") or {}
+    return bool(v.get("afterUrl") or v.get("clipUrl"))
+
+
+def _checkable(n: DevNote) -> bool:
+    """The author can give a verdict before the merge: a preview is running
+    for the pin (Ready To Check), or the pin carries its proof."""
+    return (n.status == "pr_open" and (n.preview_verdict or "") != "accepted"
+            and (bool((n.preview or {}).get("url")) or _has_proof(n)))
 
 
 def _waits_for(n: DevNote) -> str:
@@ -377,7 +396,7 @@ def _upload_bytes(note_id: str, kind: str, data: bytes, content_type: str) -> st
     key = os.getenv("SUPABASE_SERVICE_KEY", "")
     if not base or not key:
         raise HTTPException(503, "File storage is not configured on this deployment (SUPABASE_URL / SUPABASE_SERVICE_KEY)")
-    ext = _IMAGE_TYPES[content_type]
+    ext = _IMAGE_TYPES.get(content_type) or _CLIP_TYPES[content_type]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
     path = f"{MEDIA_PREFIX}{note_id}/{kind}-{stamp}.{ext}"
     r = httpx.post(
@@ -419,6 +438,15 @@ def _sniff_image(data: bytes, declared: str) -> str:
         return "image/webp"
     declared = (declared or "").split(";")[0].strip().lower()
     return declared if declared in _IMAGE_TYPES else ""
+
+
+def _sniff_clip(data: bytes) -> str:
+    """video/webm or video/mp4 by the file's own first bytes, else ''."""
+    if data[:4] == b"\x1a\x45\xdf\xa3":
+        return "video/webm"
+    if data[4:8] == b"ftyp":
+        return "video/mp4"
+    return ""
 
 
 # ── access ────────────────────────────────────────────────────────────────────
@@ -1179,7 +1207,7 @@ def dispatch(body: Optional[dict] = None, user: dict = Depends(require_build_mod
 def _media_urls(n: DevNote) -> list:
     urls = [n.screenshot_url, n.page_shot_url, n.video_url, n.contact_sheet_url, *(n.attachments or [])]
     visual = (n.verification or {}).get("visual") or {}
-    urls += [visual.get("beforeUrl"), visual.get("afterUrl")]
+    urls += [visual.get("beforeUrl"), visual.get("afterUrl"), visual.get("clipUrl")]
     return [u for u in urls if isinstance(u, str) and u]
 
 
@@ -1618,8 +1646,10 @@ def preview_verdict(note_id: str, body: dict, user: dict = Depends(require_build
     accepted = _get(body, "accepted")
     if accepted is None:
         raise HTTPException(400, "accepted is required")
-    if not _ready_to_check(n):
+    if not _checkable(n):
         raise HTTPException(409, f"Pin #{n.number} is not Ready To Check")
+    # On the preview when one runs; else from the proof on the pin.
+    where = "On The Preview" if (n.preview or {}).get("url") else "From The Proof On The Pin"
     email = user["email"].lower()
     comment = str(_get(body, "comment") or "").strip()
     if not accepted and not comment:
@@ -1635,22 +1665,30 @@ def preview_verdict(note_id: str, body: dict, user: dict = Depends(require_build
     if accepted:
         n.verified_by = email
         n.verified_at = now
-        _append(n, _entry(email, "system", "Checked On The Preview" + (f": {comment}" if comment else "")))
+        _append(n, _entry(email, "system", f"Checked {where}" + (f": {comment}" if comment else "")))
     else:
         # Counts as a reopen, like the post-merge one.
         n.reopen_count = int(n.reopen_count or 0) + 1
         n.progress = ""
         n.progress_at = ""
-        _append(n, _entry(email, "system", "Reopened On The Preview"))
+        _append(n, _entry(email, "system", f"Reopened {where}"))
         _append(n, _entry(email, "comment", comment))   # LAST: /cli/wait's rule
         n.status = "building"
+        # The proof was of the fix that was just refused: the rework brings
+        # its own (the files stay on the pin's attachments for the record).
+        if (n.verification or {}).get("visual"):
+            n.verification = {**n.verification, "visual": {}}
     _audit(db, user, "preview_verdict", n.id,
-           {"accepted": bool(accepted), "pr": n.pr_number, "commit": commit, "comment": comment[:200]})
+           {"accepted": bool(accepted), "pr": n.pr_number, "commit": commit, "comment": comment[:200],
+            "proof": where != "On The Preview"})
     _sync_session(db, _session(db, n.session_id))
     db.commit()
     if accepted:
         # Not merged yet: the case waits as a draft until mark_fixed_for_pr.
         promote_regression(db, n, user, status="draft")
+    else:
+        # In the cloud nothing is listening: the reopen starts Claude Code again on the same branch.
+        _cloud_start(db, [n], sent_by(n))
     db.refresh(n)
     return _serialize(n, _viewer(user, db))
 
@@ -2030,7 +2068,8 @@ def cli_verify(note_id: str, body: dict, user: dict = Depends(require_build_mode
     if visual is not None:
         if not isinstance(visual, dict):
             raise HTTPException(400, "visual must be {beforeUrl, afterUrl}")
-        v["visual"] = {"beforeUrl": _check_media("beforeUrl", _get(visual, "beforeUrl") or ""),
+        v["visual"] = {**{k: u for k, u in (v.get("visual") or {}).items() if k == "clipUrl"},   # a clip attached earlier stays
+                       "beforeUrl": _check_media("beforeUrl", _get(visual, "beforeUrl") or ""),
                        "afterUrl": _check_media("afterUrl", _get(visual, "afterUrl") or "")}
     if all(x is None for x in (repro, style, visual)):
         raise HTTPException(400, "Nothing to record: send repro, styleCheck or visual")
@@ -2048,8 +2087,28 @@ def cli_verify(note_id: str, body: dict, user: dict = Depends(require_build_mode
 def cli_attach(note_id: str, file: UploadFile = File(...), kind: str = Form("paste"),
                user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
     if kind not in ATTACH_KINDS:
-        raise HTTPException(400, "kind must be after, before or paste")
+        raise HTTPException(400, "kind must be after, before, paste or clip")
     n = _note(db, note_id, lock=True)
+    if kind == "clip":
+        # A short video of the fix working (11/12/2026): proof the author can
+        # watch on the pin. WebM (what the browser test tool records) or MP4.
+        data = file.file.read(CLIP_MAX_BYTES + 1)
+        if not data:
+            raise HTTPException(400, "Empty file")
+        if len(data) > CLIP_MAX_BYTES:
+            raise HTTPException(413, "A clip must be 25 MB or smaller")
+        content_type = _sniff_clip(data)
+        if not content_type:
+            raise HTTPException(400, "Only WebM and MP4 clips can be attached")
+        url = _upload_bytes(n.id, kind, data, content_type)
+        v = dict(n.verification or {})
+        v["visual"] = {**(v.get("visual") or {}), "clipUrl": url}
+        v["at"] = _now()
+        n.verification = v
+        _append(n, _entry("claude", "system", "A clip of the fix is attached."))
+        n.updated_at = _now()
+        db.commit()
+        return {"url": url}
     data = file.file.read(ATTACH_MAX_BYTES + 1)
     if not data:
         raise HTTPException(400, "Empty file")

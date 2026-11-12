@@ -877,6 +877,22 @@ class BuildNotesToolsTest(unittest.TestCase):
         self.assertEqual(body, {"repro": {"script": "print('hi')\n", "before": "failing", "after": "passing", "kind": "python"}})
         self.assertIn("evidence recorded: repro failing -> passing", out)
 
+    def test_clip_checks_the_file_and_the_pin_before_it_uploads(self):
+        webm = Path(self.tmp.name) / "fix.webm"
+        webm.write_bytes(b"\x1a\x45\xdf\xa3" + b"0" * 32)
+        code, out, err = run_cli(["--api", self.server.base, "clip", NOTE_ID, "--video", str(webm)])
+        self.assertEqual(code, 0, err)
+        attach = self.server.posts("/dev-notes/cli/attach/" + NOTE_ID)[-1][2]
+        self.assertIn(b'name="kind"\r\n\r\nclip\r\n', attach["_multipart"])
+        self.assertIn("Clip attached to pin #", out)
+        before = len(self.server.posts("/dev-notes/cli/attach/"))
+        gif = Path(self.tmp.name) / "fix.gif"
+        gif.write_bytes(b"GIF89a")
+        for argv in (["clip", NOTE_ID, "--video", str(gif)], ["clip", NOTE_ID, "--video", str(Path(self.tmp.name) / "missing.webm")]):
+            code, out, err = run_cli(["--api", self.server.base] + argv)
+            self.assertNotEqual(code, 0)
+        self.assertEqual(len(self.server.posts("/dev-notes/cli/attach/")), before)   # nothing was sent
+
     def test_verify_style_json_and_images(self):
         style = Path(self.tmp.name) / "style.json"
         style.write_text(json.dumps({"checks": [

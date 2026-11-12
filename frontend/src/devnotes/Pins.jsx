@@ -13,7 +13,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import { anchorRect } from './lib/capture';
 import { placeCard } from './lib/anchor';
-import { pinMeta, pinReady, pinHeld, pinReopened, pinChecked, pinAwaitsClaude, isLocalPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf, isClaudeSession } from './meta';
+import { pinMeta, pinReady, pinHeld, pinReopened, pinChecked, pinAwaitsClaude, pinProof, isLocalPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf, isClaudeSession } from './meta';
 import { toast } from './store';
 
 const MINE = import.meta.env.VITE_BUILD_ID || 'dev';
@@ -131,7 +131,7 @@ function ThreadEntry({ e }) {
 function Evidence({ v }) {
   if (!v || typeof v !== 'object') return null;
   const checks = v.styleCheck?.checks || [];
-  const has = !!(v.repro?.before || v.repro?.after || checks.length || v.styleCheck?.passed != null || v.visual?.beforeUrl || v.visual?.afterUrl);
+  const has = !!(v.repro?.before || v.repro?.after || checks.length || v.styleCheck?.passed != null || v.visual?.beforeUrl || v.visual?.afterUrl || v.visual?.clipUrl);
   if (!has) return null;   // the CLI has not written anything yet - no empty header
   return (
     <section className="bm-evidence" aria-label="Evidence">
@@ -167,6 +167,13 @@ function Evidence({ v }) {
           ))}
         </div>
       )}
+      {v.visual?.clipUrl && (
+        // The fix in motion, recorded by Claude Code: plays in place, opens full size.
+        <div className="bm-clip" data-testid="bm-clip">
+          <video src={toViewUrl(v.visual.clipUrl)} controls muted playsInline preload="metadata" aria-label="Clip of the fix" />
+          <a className="bm-link" href={toViewUrl(v.visual.clipUrl)} target="_blank" rel="noreferrer"><ExternalLink size={12} /> Open Clip</a>
+        </div>
+      )}
     </section>
   );
 }
@@ -178,14 +185,18 @@ function PreviewBlock({ pin }) {
   const p = pin.preview || {};
   const local = isLocalPreview(p.url);
   const pr = p.prNumber || pin.prNumber;
+  // No preview running anywhere (a Claude Code cloud session has no computer
+  // to run one on): the pictures and the clip under Evidence are the check.
+  const proof = !p.url && !!pinProof(pin);
   return (
     <section className="bm-preview" aria-label="Ready To Check" data-testid="bm-preview">
       <div className="bm-preview-head">
         <span className="bm-preview-title">Ready To Check</span>
         {local
           ? <a className="bm-btn bm-btn-sm bm-btn-primary" href={p.url} target="_blank" rel="noreferrer"><ExternalLink size={13} /> Open Preview</a>
-          : <span className="bm-dim bm-small">No preview link</span>}
+          : !proof && <span className="bm-dim bm-small">No preview link</span>}
       </div>
+      {proof && <div className="bm-small" data-testid="bm-proof-hint">Claude Code attached what the fix looks like - check it under Evidence, then Accept or Reopen. Nothing to run.</div>}
       {p.host && <div className="bm-small"><Monitor size={12} /> Runs on <b>{p.host}</b> - open it on that computer.</div>}
       <div className="bm-preview-meta">
         {(p.branch || pin.branch) && <code>{p.branch || pin.branch}</code>}
@@ -322,8 +333,8 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
         {ready ? <PreviewBlock pin={pin} /> : pin.prUrl && (
           <a className="bm-link" href={pin.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={12} /> PR #{pin.prNumber}{pin.branch ? ` · ${pin.branch}` : ''}</a>
         )}
-        {ready && !rights.verdict && <div className="bm-hint">Waiting for {firstNameOf(pin.createdBy)} to check it on the preview.</div>}
-        {checked && <div className="bm-verify" data-testid="bm-checked"><Check size={13} /><span>Checked On The Preview - it is Done when the PR merges.</span></div>}
+        {ready && !rights.verdict && <div className="bm-hint">Waiting for {firstNameOf(pin.createdBy)} to check it{pin.preview?.url ? ' on the preview' : ''}.</div>}
+        {checked && <div className="bm-verify" data-testid="bm-checked"><Check size={13} /><span>{pin.preview?.url ? 'Checked On The Preview' : 'Checked From The Proof'} - it is Done when the PR merges.</span></div>}
         {pin.regressionCaseId && (
           // Testing.jsx reads no case id from navigation, so the link lands on
           // the module and the line names the case to search for there.
