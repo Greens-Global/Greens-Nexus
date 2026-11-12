@@ -2,7 +2,7 @@
 // only the listed runtime files and model files, runtime code checked against
 // its pinned SHA-256 before it is served, never an open proxy.
 import { describe, it, expect, vi } from 'vitest';
-import { webcrypto } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { resolvePath, fetchRuntime, fetchModelFile, onRequest, MODELS } from '../../../../functions/ml/[[path]].js';
 
 const PIN = '8b5a3171f8876bab2b1820a7d65eb87628e3d30bb5ea85b9dd398e76eb34decb';
@@ -28,7 +28,10 @@ describe('speech model Function', () => {
 
   it('refuses runtime code that does not match its pinned checksum', async () => {
     const f = vi.fn(async () => new Response(new Uint8Array([1, 2, 3])));
-    const r = await fetchRuntime('transformers.min.js', f, webcrypto.subtle);
+    // A stand-in digest: Node's own WebCrypto (CI runs Node 24) refuses a buffer
+    // made in the test environment's other realm; Workers have one realm.
+    const subtle = { digest: vi.fn(async (alg, data) => { expect(alg).toBe('SHA-256'); expect(data).toBeInstanceOf(Uint8Array); const h = createHash('sha256').update(Buffer.from(data)).digest(); return h.buffer.slice(h.byteOffset, h.byteOffset + h.length); }) };
+    const r = await fetchRuntime('transformers.min.js', f, subtle);
     expect(r.status).toBe(502);
     expect(await r.text()).toContain('checksum');
     expect(f).toHaveBeenCalledWith('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2/dist/transformers.min.js');

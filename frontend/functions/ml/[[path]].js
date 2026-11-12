@@ -84,7 +84,7 @@ export async function fetchRuntime(file, fetchImpl = fetch, subtle = crypto.subt
   const r = await fetchImpl(spec.url);
   if (!r.ok) return bad(`Could not fetch the speech runtime (${r.status})`);
   const buf = await r.arrayBuffer();
-  if (hex(await subtle.digest('SHA-256', buf)) !== spec.sha256) return bad('The speech runtime did not match its checksum');
+  if (hex(await subtle.digest('SHA-256', new Uint8Array(buf))) !== spec.sha256) return bad('The speech runtime did not match its checksum');
   return served(buf, spec.type);
 }
 
