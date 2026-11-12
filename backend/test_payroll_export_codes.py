@@ -48,16 +48,14 @@ START, END = "2026-09-13", "2026-09-26"
 # overtime) and a 13 h day (8 regular, 4 overtime, 1 double-time); Quinn: one
 # 9 h day. Every punch is inside the Rental A fence, so JOB is Rental A.
 GOLDEN = (
-    "!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME\r\n"
-    "TIMERHDR\t8\t0\tGreens Global\tN\tY\t0\r\n"
     "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS\r\n"
-    "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t1\r\n"
-    "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tOvertime Pay\t2.00\t\t\tY\t1\r\n"
-    "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t1\r\n"
-    "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tOvertime Pay\t4.00\t\t\tY\t1\r\n"
-    "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tDouble-time Pay\t1.00\t\t\tY\t1\r\n"
-    "TIMEACT\t9/16/2026\tRental A\tQuinn Test\t\tRegular Pay\t8.00\t\t\tY\t1\r\n"
-    "TIMEACT\t9/16/2026\tRental A\tQuinn Test\t\tOvertime Pay\t1.00\t\t\tY\t1\r\n"
+    "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t0\r\n"
+    "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tOvertime Pay\t2.00\t\t\tY\t0\r\n"
+    "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t0\r\n"
+    "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tOvertime Pay\t4.00\t\t\tY\t0\r\n"
+    "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tDouble-time Pay\t1.00\t\t\tY\t0\r\n"
+    "TIMEACT\t9/16/2026\tRental A\tQuinn Test\t\tRegular Pay\t8.00\t\t\tY\t0\r\n"
+    "TIMEACT\t9/16/2026\tRental A\tQuinn Test\t\tOvertime Pay\t1.00\t\t\tY\t0\r\n"
 )
 
 
@@ -237,12 +235,12 @@ class ExportCodesTests(unittest.TestCase):
         # Company A only: Pat's 15:00-01:00 and 15:00-04:00 (UTC) shifts get
         # 3 h and 6 h of night differential; Quinn (company B) is untouched.
         iif = self._iif()
-        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tShift Differential\t3.00\t\t\tY\t1\r\n", iif)
-        self.assertIn("TIMEACT\t9/17/2026\tRental A\tPat Test\t\tShift Differential\t6.00\t\t\tY\t1\r\n", iif)
+        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tShift Differential\t3.00\t\t\tY\t0\r\n", iif)
+        self.assertIn("TIMEACT\t9/17/2026\tRental A\tPat Test\t\tShift Differential\t6.00\t\t\tY\t0\r\n", iif)
         self.assertEqual([ln for ln in iif.split("\r\n") if "Quinn" in ln],
                          [ln for ln in GOLDEN.split("\r\n") if "Quinn" in ln])
-        self.assertEqual(iif.replace("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tShift Differential\t3.00\t\t\tY\t1\r\n", "")
-                         .replace("TIMEACT\t9/17/2026\tRental A\tPat Test\t\tShift Differential\t6.00\t\t\tY\t1\r\n", ""),
+        self.assertEqual(iif.replace("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tShift Differential\t3.00\t\t\tY\t0\r\n", "")
+                         .replace("TIMEACT\t9/17/2026\tRental A\tPat Test\t\tShift Differential\t6.00\t\t\tY\t0\r\n", ""),
                          GOLDEN)
 
 
@@ -278,12 +276,12 @@ class BreakPremiumExportTests(ExportCodesTests):
         self._premium("2026-09-17", "rest")
         got = self._iif()
         expected = GOLDEN.replace(
-            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tOvertime Pay\t2.00\t\t\tY\t1\r\n",
-            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tOvertime Pay\t2.00\t\t\tY\t1\r\n"
-            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tMeal Premium\t1.00\t\t\tY\t1\r\n").replace(
-            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tDouble-time Pay\t1.00\t\t\tY\t1\r\n",
-            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tDouble-time Pay\t1.00\t\t\tY\t1\r\n"
-            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRest Premium\t1.00\t\t\tY\t1\r\n")
+            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tOvertime Pay\t2.00\t\t\tY\t0\r\n",
+            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tOvertime Pay\t2.00\t\t\tY\t0\r\n"
+            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tMeal Premium\t1.00\t\t\tY\t0\r\n").replace(
+            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tDouble-time Pay\t1.00\t\t\tY\t0\r\n",
+            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tDouble-time Pay\t1.00\t\t\tY\t0\r\n"
+            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRest Premium\t1.00\t\t\tY\t0\r\n")
         self.assertEqual(got, expected)
         # Renamed per company like every other class.
         self._put({"mealPremium": "CA Meal Prem"})

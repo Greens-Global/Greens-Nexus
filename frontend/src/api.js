@@ -2054,6 +2054,18 @@ export const api = {
   revokeIrPortalAccess: (investorId, fundId) => req(`/investor-relations/portal-access/${investorId}/${fundId}`, { method: "DELETE" }),
   getIrPortalMyDeals:   ()       => req("/investor-relations/portal/my-deals"),
   getIrPortalDeal:      (fundId) => req(`/investor-relations/portal/deals/${fundId}`),
+  // Live from Intacct (Neil, 11/11/2026): deal = entity, investor = partner equity accounts.
+  getIrBookEntities:    ()       => req("/investor-relations/books/entities"),
+  getIrBookPartners:    ()       => req("/investor-relations/books/partners"),
+  linkIrFundBooks:      (fundId, entity) => req(`/investor-relations/funds/${fundId}/books`, { method: "PUT", body: JSON.stringify({ entity }) }),
+  linkIrInvestorBooks:  (investorId, accounts) => req(`/investor-relations/investors/${investorId}/books`, { method: "PUT", body: JSON.stringify({ accounts }) }),
+  getIrFundBooks:       (fundId) => req(`/investor-relations/funds/${fundId}/books`),
+  setIrMembership:      (fundId, investorId, pct) => req(`/investor-relations/funds/${fundId}/members/${investorId}/membership`, { method: "PUT", body: JSON.stringify({ pct }) }),
+  getIrPortalBooks:     ()       => req("/investor-relations/portal/books"),
+  removeIrSampleData:   ()       => req("/investor-relations/sample-data/remove", { method: "POST" }),
+  getIrFundsBooks:      ()       => req("/investor-relations/funds-books"),
+  getIrInvestorBooks:   (investorId) => req(`/investor-relations/investors/${investorId}/books`),
+  importIrFromBooks:    (entity) => req("/investor-relations/books/import", { method: "POST", body: JSON.stringify({ entity }) }),
 
   // ── Construction module ────────────────────────────────────────────────────
   // Media bytes are NOT in this list on purpose: the browser uploads straight to
@@ -2180,7 +2192,7 @@ export const api = {
   timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),
   // quickbooksCompanyName (Oct 19): the IIF header's company; undefined leaves it, '' clears it.
   // quickbooksCreateTime (Charmi, 11/03/2026): the TIMERHDR's COMPANYCREATETIME, same semantics.
-  timeExportCodesSet:  (company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob }) }),
+  timeExportCodesSet:  (company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob, quickbooksTimerHeader) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob, quickbooksTimerHeader }) }),
   // Shift differentials + call-back pay (Oct 17): one company's rule, off by default.
   timePremiumsGet:     (company) => req(`/timeclock/payroll/premiums?company=${encodeURIComponent(company || '')}`),
   timePremiumsSet:     (company, cfg) => req('/timeclock/payroll/premiums', { method: 'PUT', body: JSON.stringify({ ...cfg, company }) }),

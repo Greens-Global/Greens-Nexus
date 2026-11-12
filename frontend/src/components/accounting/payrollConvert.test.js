@@ -334,11 +334,11 @@ describe('payroll hours to QuickBooks', () => {
     expect(entries).toHaveLength(3);
     expect(skipped).toBe(1);
     const iif = buildIif(entries, { fallbackDate: '2026-01-17' }).split('\r\n');
-    expect(iif[0]).toBe('!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME');
-    expect(iif[2]).toBe('!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS');
-    expect(iif[3]).toBe('TIMEACT\t1/5/2026\tRental A\tPat Lane\t\tRegular Pay\t8.00\t\t\tY\t1');
-    expect(iif[4]).toBe('TIMEACT\t1/5/2026\t\tPat Lane\t\tOvertime Pay\t1.50\t\t\tY\t0');
-    expect(iif[5]).toBe('TIMEACT\t1/17/2026\t\tKim Doe\t\tSick Pay\t4.00\t\t\tY\t0');
+    // No Timer header, never billable: QuickBooks 2022+ Import > IIF Files (11/12/2026).
+    expect(iif[0]).toBe('!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS');
+    expect(iif[1]).toBe('TIMEACT\t1/5/2026\tRental A\tPat Lane\t\tRegular Pay\t8.00\t\t\tY\t0');
+    expect(iif[2]).toBe('TIMEACT\t1/5/2026\t\tPat Lane\t\tOvertime Pay\t1.50\t\t\tY\t0');
+    expect(iif[3]).toBe('TIMEACT\t1/17/2026\t\tKim Doe\t\tSick Pay\t4.00\t\t\tY\t0');
     const totals = totalsFromHoursFile(entries);
     expect(totals.find((t) => t.name === 'Pat Lane').buckets).toEqual({ 'P.REG': 8, 'P.OHR': 1.5, 'P.SHR': 0, 'P.VHR': 0 });
   });

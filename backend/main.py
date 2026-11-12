@@ -1635,6 +1635,10 @@ def _run_migrations():
             "ALTER TABLE time_punches ADD COLUMN cost_code VARCHAR DEFAULT ''",
             "ALTER TABLE construction_punch_meta ADD COLUMN sub_vendor_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_rfis ADD COLUMN answered_by VARCHAR DEFAULT ''",
+            "ALTER TABLE ir_funds ADD COLUMN intacct_entity VARCHAR DEFAULT ''",
+            "ALTER TABLE ir_investors ADD COLUMN intacct_accounts VARCHAR DEFAULT ''",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_ir_funds_intacct_entity ON ir_funds (intacct_entity) WHERE intacct_entity <> ''",
+            "ALTER TABLE ir_commitments ADD COLUMN membership_pct FLOAT",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3914,6 +3918,14 @@ def _run_migrations():
         "ALTER TABLE construction_punch_meta ADD COLUMN IF NOT EXISTS sub_vendor_id VARCHAR DEFAULT ''",
         "ALTER TABLE construction_rfis ADD COLUMN IF NOT EXISTS answered_by VARCHAR DEFAULT ''",
         "ALTER TABLE construction_outside_links ENABLE ROW LEVEL SECURITY",
+        # Investor Relations live from the books (Neil, 11/11/2026): a deal's
+        # Intacct entity, an investor's partner equity accounts.
+        # models.IrFund / IrInvestor.
+        "ALTER TABLE ir_funds ADD COLUMN IF NOT EXISTS intacct_entity VARCHAR DEFAULT ''",
+        "ALTER TABLE ir_investors ADD COLUMN IF NOT EXISTS intacct_accounts VARCHAR DEFAULT ''",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_ir_funds_intacct_entity ON ir_funds (intacct_entity) WHERE intacct_entity <> ''",
+        # A member's percentage in the operating agreement (Neil, 11/11/2026).
+        "ALTER TABLE ir_commitments ADD COLUMN IF NOT EXISTS membership_pct DOUBLE PRECISION",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5998,3 +6010,5 @@ app.include_router(construction_outside_router.router)  # Construction: outside 
 app.include_router(construction_outside_router.public_router)  # Construction: an outside link's page - one RFI or one sub's punch list, no login (11/11/2026)
 from routers import notes_diagram as notes_diagram_router  # noqa: E402 - one nexus_settings row, no new table
 app.include_router(notes_diagram_router.router)  # Notes boards: Diagram From a Sentence - OFF unless AI is on for Nexus AND a Super Administrator turns it on (Neil, 11/08/2026)
+from routers import investor_books as investor_books_router  # noqa: E402 - no new table (columns on ir_funds / ir_investors)
+app.include_router(investor_books_router.router)  # Investor Relations live from Intacct: deal = entity, investor = partner equity accounts (Neil, 11/11/2026)
