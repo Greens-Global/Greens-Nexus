@@ -96,8 +96,13 @@ token cannot be sent anywhere else. To stop: **Disconnect** in Nexus, or
 - When Claude has a question the pin turns **Needs Input** and your bell
   rings. Your reply on the pin starts Claude Code again on the same branch.
 - The pull request is opened against `dev` and recorded on the pins. There
-  is no preview to open in the cloud: after the merge the pin turns
-  **Fixed - Verify** and you Accept or Reopen it on the dev site.
+  is no preview to open in the cloud, so Claude attaches an after picture
+  (and a clip when something moves) to the pin. A pin with that proof is
+  **Ready To Check**: Accept or Reopen it right on the pin, before the
+  merge. Accepted, it closes as **Done** when the PR merges; Reopen with a
+  note and Claude Code starts again on the same branch. A pin with no proof
+  turns **Fixed - Verify** after the merge, and you check it on the dev
+  site.
 - A session that did not start says why on the pin ("Claude Code did not
   start: ...") and the pin gets **Start Claude Code** to try again. Claude
   Code allows 30 starts an hour for one scheduled task.
