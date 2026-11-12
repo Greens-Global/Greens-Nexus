@@ -1037,6 +1037,11 @@ keep the diff minimal.
   recognition (no AI, no key); a browser without it shows no microphone.
   Make a Task works on the page and in Quick Note. A new editor feature goes
   in BOTH the web toolbar and the phone bar (`NoteEditor.jsx`).
+  The page starts things from ONE "+ New" (Neil, 11/12/2026,
+  `notes/NewMenu.jsx`: Note, Board, Note From a Template..., Import a
+  File...) - never a second create button in the bar. Today's day in the
+  list carries a gentle green wash and keeps its place in the current month
+  even before anything is written in it; every other day is plain.
 
 - **Meeting Notes (Neil, 11/12/2026, `routers/meetings.py`,
   `frontend/src/notes/meetings/`, `docs/Meeting-Notes.md`).** A Teams

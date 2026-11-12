@@ -10021,7 +10021,16 @@ body:has(.apv-phone) { overflow-x: clip; }
   .module-bar-back { width: auto; min-width: 0; max-width: 220px; }
   .module-bar-back span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .module-bar-back svg { flex-shrink: 0; }
+  /* Every place you can go back to in the header says so under the pointer
+     the same way (Neil, 11/12/2026: "it changes color so you see you are
+     clicking on a link. Same like ... the main module name"): the brand
+     color AND the underline, on the Back line and on each crumb of the
+     trail, the module's name included. The Back arrow leans the way it goes. */
   .module-bar-back:hover { color: var(--wk-brand); }
+  .module-bar-back:hover span { text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+  .module-bar-back svg { transition: transform .16s var(--ease-out, ease-out); }
+  .module-bar-back:hover svg { transform: translateX(-2px); }
+  .page-trail--bar button:hover { color: var(--wk-brand); }
   .module-bar-back:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; border-radius: 3px; }
 }
 /* The module's tabs come first in the header (Neil, 11/12/2026, navigation
