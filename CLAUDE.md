@@ -901,8 +901,14 @@ keep the diff minimal.
   for the invite's people, whoever the note is shared with; externals and
   Act As are refused. A line written during the meeting carries `data-at`
   (Unix seconds, `meetings/meetingClock.js`, in every Notes schema) - keep
-  it in the sanitizer. Graph lookups reuse `routers/meeting_files.py`. The
-  background pass is opt-in (Phase 2); a summary is AI, behind the switch.
+  it in the sanitizer. Graph lookups reuse `routers/meeting_files.py`. A
+  summary is AI, behind the switch.
+  Phase 2: highlights (action items / decisions / questions) are RULES in
+  `meeting_highlights.py`, computed per read, never stored; Last Time reads
+  the series' previous note (`series_id`) and its open tasks through
+  record_links' task walls; the Transcript Ready bell is OPT-IN per person
+  (`meeting_notes.alerts:<email>`) and its pass (`meeting_ready_loop`) asks
+  Teams for the transcript LIST only, never the words, and bells once.
   TESTERS FIRST: only the emails in the `meeting_notes.access`
   nexus_settings row (per database; `"everyone": true` opens it) may use
   it - `meetings.may_use`, never a code default.
