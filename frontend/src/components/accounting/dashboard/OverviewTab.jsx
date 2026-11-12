@@ -58,7 +58,7 @@ function useColumns() {
 }
 
 export default function OverviewTab({ canEdit }) {
-  const { view, setView, act, loading } = useDash();
+  const { view, setView, act, loading, down } = useDash();
   const { views: savedViews, isLoading } = useViews();
   const views = useMemo(() => withRoleViews(savedViews), [savedViews]);
   const nav = useDashNav();
@@ -212,7 +212,8 @@ export default function OverviewTab({ canEdit }) {
 
       {!editing ? (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}>
-          {loading || isLoading ? (
+          {/* Books not reached: the notice above says so - never "Nothing needs attention". */}
+          {down ? null : loading || isLoading ? (
             <div style={{ width: 320, maxWidth: '100%' }}><SkeletonBlocks count={1} height={20} borderRadius={999} /></div>
           ) : attention.length === 0 ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--ok-fg, #15803d)' }}><CheckCircle2 size={14} /> Nothing needs attention</span>

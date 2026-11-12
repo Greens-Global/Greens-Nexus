@@ -13,7 +13,7 @@ vi.mock('../../../api', () => ({
   },
 }));
 const dash = vi.hoisted(() => ({ view: 'principal', setView: () => {}, act: null, loading: false }));
-vi.mock('./DashContext', () => ({ useDash: () => dash }));
+vi.mock('./DashContext', () => ({ useBooksDown: () => false, useDash: () => dash }));
 vi.mock('./Filters', () => ({ Toolbar: ({ right }) => <div data-testid="toolbar">{right}</div> }));
 const views = vi.hoisted(() => ({ current: null }));
 const NONE = [];
