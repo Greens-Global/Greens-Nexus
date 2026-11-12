@@ -260,6 +260,13 @@ keep the diff minimal.
   you came from (a tab, or a record's "Portfolio") - phones keep their arrow.
   `scripts/check-module-headers.mjs` (in `npm run lint`) fails a new
   `view-title-group`; record pages that name the record are on its list.
+  The module's TABS come first in the header (Neil, 11/12/2026, navigation
+  review): below 1600px the account pill is the photo alone and the search
+  starts at 200px (140px below 1181px, where the tabs sit closer) on EVERY
+  screen - by window width, never by whether the module has tabs, so the
+  search stands in the same place on every module; it still widens to 440px
+  on focus (`--hdr-search-w`). The Back line may widen the name column up
+  to 150px, never more; a longer place ends in "...".
 - **Popups are sheets from the right** (Neil, 11/01/2026): on a desktop,
   every popup that is a record, a form or a workspace is a SHEET - docked to
   the right edge, the full height, rounded only where it meets the page -
@@ -352,6 +359,14 @@ keep the diff minimal.
   Bold capped at 1.26, cascade 14ms a row,
   nothing loops, nothing on touch, the phone drawer untouched, the folded
   rail never peeks. The sidebar tooltip (`NavTip`) is the light flyout card.
+  It folds when you click outside it - except in the top header (a header
+  click folding it re-measured the tabs and ate the first click on More) -
+  unless the person keeps it open: the pin at the end of the open rail's top
+  row, the same setting as My Profile > Appearance > Sidebar (Neil,
+  11/12/2026: "keep auto-fold, but fix it"). Keyboard users get Skip to
+  Content (`.nx-skip-link` -> `#nx-main`) as the first Tab stop, and the
+  bell's closed panel is `inert` (Neil green-lit that change to Visesh's
+  `NotificationBell.jsx`).
 - **Quick Actions is the bolt (Neil, 11/12/2026, mock
   https://claude.ai/artifact/KKVpfc4ZqEjyaTUF3DDoDj):** the green bolt in
   the top header (where the "+" Create menu was, Oct 29 2026) starts things

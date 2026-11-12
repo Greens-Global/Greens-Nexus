@@ -4886,12 +4886,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
    screens, an icon-and-popover on others and a compact bar on Tasks; the
    phone sheet (.gs-*) searched different things again. Now the bar and the
    sheet share components/search/useNexusSearch. */
-.hdr-search { position: relative; width: 252px; flex-shrink: 0; transition: width .18s ease-out; }
+.hdr-search { --hdr-search-w: 252px; position: relative; width: var(--hdr-search-w); flex-shrink: 0; transition: width .18s ease-out; }
 /* With room for it, the box grows on focus to the width of its results panel,
    so the panel hangs straight under it (Neil, 11/07/2026). It grows OVER the
    header's center (the negative margin keeps its flex size), so the module
    tabs never refit into More while someone types. */
-@media (min-width: 1440px) { .hdr-search:focus-within { width: 440px; margin-left: -188px; z-index: 2; background: var(--card); border-radius: 9px; } }
+@media (min-width: 1440px) { .hdr-search:focus-within { width: 440px; margin-left: calc(var(--hdr-search-w) - 440px); z-index: 2; background: var(--card); border-radius: 9px; } }
 /* ...and it is solid while it does: the bar's own fills are see-through
    (--search-bg-focus, the blue "has text" tint), so without this the module
    tabs it covers read through the typed words. The card color under the same
@@ -4921,7 +4921,7 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 /* Narrow desktops: the bar gives up a little width and the module tabs drop
    their icons, so a four-tab module and the bar still share the row. */
 @media (max-width: 1180px) {
-  .hdr-search { width: 176px; }
+  .hdr-search { --hdr-search-w: 140px; }
   .hdr-search-kbd { display: none; }
   .hdr-tab { padding: 9px 10px; }
   .hdr-tab svg { display: none; }
@@ -10013,17 +10013,29 @@ body:has(.apv-phone) { overflow-x: clip; }
      what the module's name gives it, and a longer label ends in "..." (its
      title says the whole place). Before, "<- Monthly Recurring Expenses" over
      "Accounting" widened the column and pushed every tab right. */
-  .module-bar-back { width: 0; min-width: 100%; }
+  /* ...and never cut to the width of a short module name (Neil, 11/12/2026,
+     navigation review: "<- Da..." over Tasks read as nothing). It may widen
+     the column up to 150px - "<- Dashboard", "<- Construction" read whole -
+     and a longer place still ends in "...". */
+  .module-bar-back { width: auto; min-width: 0; max-width: 150px; }
   .module-bar-back span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .module-bar-back svg { flex-shrink: 0; }
   .module-bar-back:hover { color: var(--wk-brand); }
   .module-bar-back:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; border-radius: 3px; }
 }
-@media (min-width: 901px) and (max-width: 1439px) {
-  .top-header:has(.module-bar--header .hdr-tabs) .header-user-info { display: none; }
+/* The module's tabs come first in the header (Neil, 11/12/2026, navigation
+   review: "header width" first). Below 1600px the account pill is the photo
+   alone and the search starts at 200px - on EVERY screen, never only on one
+   that has tabs, so the search and the pill stand in the same place whatever
+   the module (Oct 14: "the same size in the same place"). At 1440 with the
+   menu open this gives the tabs about 240px more: all four of Tickets'
+   standing tabs and Other Queues fit. The search still widens to 440px on
+   focus, over the tabs, and Ctrl+F opens it. */
+@media (min-width: 901px) and (max-width: 1599px) {
+  .top-header .header-user-info { display: none; }
 }
-@media (min-width: 1181px) and (max-width: 1439px) {
-  .top-header:has(.module-bar--header .hdr-tabs) .hdr-search { width: 200px; }
+@media (min-width: 1181px) and (max-width: 1599px) {
+  .hdr-search { --hdr-search-w: 200px; }
 }
 @media (max-width: 640px) { .module-actions-row { margin-bottom: 12px; } }
 /* Tasks and Tickets: their tabs ride the top header on a computer too. The
@@ -10606,3 +10618,29 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
   --fs-page:    24px;   /* page titles, greetings */
   --fs-figure:  32px;   /* big numbers */
 }
+
+/* ── Navigation review (Neil, 11/12/2026) ─────────────────────────────── */
+/* Skip to Content: the first Tab stop, out of sight until it has focus. */
+.nx-skip-link {
+  position: fixed; left: 12px; top: 8px; z-index: 10000;
+  padding: 8px 14px; border-radius: 8px;
+  background: var(--wk-brand); color: #fff; font: 600 13px var(--wk-font); text-decoration: none;
+  transform: translateY(-160%);
+}
+.nx-skip-link:focus, .nx-skip-link:focus-visible { transform: none; outline: 2px solid var(--wk-ink); outline-offset: 2px; }
+#nx-main:focus { outline: none; }
+/* Small laptops: the module's tabs sit a little closer, so one more fits
+   beside the menu (Tickets' Unassigned at 1024 with the menu open). */
+@media (min-width: 901px) and (max-width: 1180px) {
+  .module-bar .hdr-tab { padding: 0 8px; }
+  .top-header { padding: 0 16px; gap: 8px; }
+}
+/* Keep the Menu Open: a quiet pin at the end of the open rail's top row. */
+.sidebar-pin {
+  flex-shrink: 0; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 7px; background: none; color: var(--wk-dim); cursor: pointer;
+}
+.sidebar-pin:hover { background: var(--wk-hover); color: var(--wk-ink); }
+.sidebar-pin.is-on { color: var(--wk-brand); }
+.sidebar-pin:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 1px; }
+@media (max-width: 900px) { .sidebar-pin { display: none; } }

@@ -612,6 +612,8 @@ export default function NotificationBell({ onNavigate }) {
           transition: 'background var(--transition-fast)',
         }}
         aria-label="Notifications"
+        aria-haspopup="dialog"
+        aria-expanded={open}
       >
         <Bell style={{ width: 16, height: 16 }} />
         {myUnread > 0 && (
@@ -636,8 +638,11 @@ export default function NotificationBell({ onNavigate }) {
         transition: 'opacity 0.25s ease',
       }} />
 
-      {/* Drawer - mirrors My Requests / Access Manager so the panel slides in from the side */}
-      <div className="notif-drawer" style={{
+      {/* Drawer - mirrors My Requests / Access Manager so the panel slides in from the side.
+          Closed, it is out of reach (Neil, 11/12/2026, navigation review): inert
+          takes it out of the Tab order, so focus can no longer land on its
+          off-screen buttons and scroll the whole shell sideways to show them. */}
+      <div className="notif-drawer" role="dialog" aria-label="Notifications Panel" inert={!open} style={{
         position: 'fixed', top: 0, right: 0, height: '100vh',
         width: 'min(560px, 94vw)',
         background: 'var(--card)',
