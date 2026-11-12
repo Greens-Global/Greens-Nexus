@@ -109,6 +109,10 @@ class MeetingNotesTests(unittest.TestCase):
         db = database.SessionLocal()
         db.query(models.NexusMeetingNote).delete()
         db.query(models.NexusNote).delete()
+        db.query(models.NexusSetting).filter(models.NexusSetting.key == meetings.ACCESS_KEY).delete()
+        # Testers first: Neil, Visesh (the tenant alias, same person) and Sam may use it.
+        db.add(models.NexusSetting(key=meetings.ACCESS_KEY, value=json.dumps(
+            {"everyone": False, "emails": ["Neil@greensglobal.com", "visesh.lodha@greensg.onmicrosoft.com", "sam.staff@greensglobal.com", "other.person@greensglobal.com"]})))
         db.commit()
         db.close()
 
@@ -217,12 +221,38 @@ class MeetingNotesTests(unittest.TestCase):
         self.assertIn("transcription", r.json()["detail"])
 
     def test_act_as_is_refused(self):
-        with self.assertRaises(Exception) as e:
-            meetings._guard({"email": "neil@greensglobal.com", "acting_as": "visesh.lodha@greensglobal.com"})
-        self.assertEqual(e.exception.status_code, 403)
-        with self.assertRaises(Exception) as e:
-            meetings._guard({"email": "guest@vendor.com", "external": True})
-        self.assertEqual(e.exception.status_code, 403)
+        db = database.SessionLocal()
+        try:
+            with self.assertRaises(Exception) as e:
+                meetings._guard({"email": "neil@greensglobal.com", "acting_as": "visesh.lodha@greensglobal.com"}, db)
+            self.assertEqual(e.exception.status_code, 403)
+            with self.assertRaises(Exception) as e:
+                meetings._guard({"email": "guest@vendor.com", "external": True}, db)
+            self.assertEqual(e.exception.status_code, 403)
+        finally:
+            db.close()
+
+    def test_only_testers_get_it_until_everyone_is_on(self):
+        self.as_("visesh.lodha@greensglobal.com")      # listed under the tenant alias - same person
+        self.assertEqual(self.client.get("/meetings/access").json(), {"enabled": True})
+        self.as_("charmi@greensglobal.com")
+        self.assertEqual(self.client.get("/meetings/access").json(), {"enabled": False})
+        r = self.day()
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(CALLS, [])                    # refused before anything is read from Graph
+        self.assertEqual(self.client.post("/meetings/notes", json={"eventId": "x"}).status_code, 403)
+        db = database.SessionLocal()
+        db.query(models.NexusSetting).filter(models.NexusSetting.key == meetings.ACCESS_KEY).update(
+            {"value": json.dumps({"everyone": True})})
+        db.commit()
+        db.close()
+        self.assertEqual(self.client.get("/meetings/access").json(), {"enabled": True})
+        db = database.SessionLocal()
+        db.query(models.NexusSetting).filter(models.NexusSetting.key == meetings.ACCESS_KEY).delete()
+        db.commit()
+        db.close()
+        self.as_("neil@greensglobal.com")
+        self.assertEqual(self.client.get("/meetings/access").json(), {"enabled": False})   # no row = nobody
 
     def test_a_line_stamp_survives_the_sanitizer_and_junk_does_not(self):
         out = notes.sanitize_note('<p data-at="1794495720">Gate codes</p><h2 data-at="12ab">X</h2><p data-at="17934589201">Y</p>')

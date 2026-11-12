@@ -867,6 +867,9 @@ keep the diff minimal.
   (Unix seconds, `meetings/meetingClock.js`, in every Notes schema) - keep
   it in the sanitizer. Graph lookups reuse `routers/meeting_files.py`. The
   background pass is opt-in (Phase 2); a summary is AI, behind the switch.
+  TESTERS FIRST: only the emails in the `meeting_notes.access`
+  nexus_settings row (per database; `"everyone": true` opens it) may use
+  it - `meetings.may_use`, never a code default.
 
 - **Documents (Neil, 10/31/2026, plan https://claude.ai/artifact/VZxM4iUKKnmPfxsNvxxPdJ,
   `routers/documents.py`, `components/DocumentsBrowser.jsx`,

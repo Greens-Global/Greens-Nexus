@@ -8,7 +8,7 @@ const apiMock = vi.hoisted(() => ({
   notesList: vi.fn(), noteGet: vi.fn(), noteCreate: vi.fn(), noteUpdate: vi.fn(), noteShare: vi.fn(),
   noteVersions: vi.fn(), notePresence: vi.fn(), noteMentions: vi.fn(),
   getPeopleDirectory: vi.fn(),
-  meetingsDay: vi.fn(), meetingNoteOpen: vi.fn(), meetingOfNote: vi.fn(), meetingTranscript: vi.fn(),
+  meetingsAccess: vi.fn(), meetingsDay: vi.fn(), meetingNoteOpen: vi.fn(), meetingOfNote: vi.fn(), meetingTranscript: vi.fn(),
 }));
 vi.mock('../../api', () => ({ api: apiMock }));
 vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@greensglobal.com' }) }));
@@ -124,6 +124,15 @@ describe('Notes page - meetings', () => {
     apiMock.notePresence.mockResolvedValue({ people: [], rev: 1 });
     apiMock.noteMentions.mockResolvedValue({ items: [], notes: [] });
     apiMock.meetingOfNote.mockResolvedValue(MEETING);
+    apiMock.meetingsAccess.mockResolvedValue({ enabled: true });
+  });
+
+  it('shows no Meetings button to someone it is not turned on for', async () => {
+    apiMock.meetingsAccess.mockResolvedValue({ enabled: false });
+    render(<NotesPage activeSub="notes" onSubChange={vi.fn()} />);
+    await waitFor(() => expect(apiMock.meetingsAccess).toHaveBeenCalled());
+    await screen.findByRole('button', { name: /New Note/ });
+    expect(screen.queryByRole('button', { name: /^Meetings/ })).toBeNull();
   });
 
   it('lists the day\'s Teams meetings and opens a meeting\'s notes', async () => {

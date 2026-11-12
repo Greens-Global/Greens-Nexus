@@ -3813,6 +3813,8 @@ api.deleteTaskProjectBaseline = (projectId, baselineId) => req(`/task-projects/$
 // meetings between two times (their own calendar), their note for one (made
 // once), the meeting behind a note, and its transcript read from Teams each
 // time - Nexus keeps no copy of a transcript or a recording.
+// Testers first (11/12/2026): whether Meetings shows for this person.
+api.meetingsAccess = () => req('/meetings/access');
 api.meetingsDay = (start, end) => req(`/meetings/day?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
 api.meetingNoteOpen = (eventId, day) => req('/meetings/notes', { method: 'POST', body: JSON.stringify({ eventId, day }) });
 api.meetingOfNote = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}`);

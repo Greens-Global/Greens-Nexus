@@ -1069,6 +1069,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const [pickingNoteTpl, setPickingNoteTpl] = useState(false);
   // Meetings (Neil, 11/12/2026): the day's Teams meetings; a pick opens its note.
   const [meetingsOpen, setMeetingsOpen] = useState(false);
+  // Testers first (Neil, 11/12/2026): only the people turned on see Meetings.
+  const [meetingsOn, setMeetingsOn] = useState(false);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(api.meetingsAccess?.()).then((r) => { if (live) setMeetingsOn(!!r?.enabled); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
   const openedMeeting = async (noteId, created) => {
     setMeetingsOpen(false);
     if (created) await load();
@@ -1198,9 +1205,9 @@ export default function NotesPage({ activeSub, onSubChange }) {
             <button type="button" className="nt-icon-btn" aria-label="Import a Markdown or text file" title="Import (.md, .txt)" onClick={() => fileRef.current?.click()}><Upload size={17} /></button>
             <input ref={fileRef} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden
               onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ''; }} />
-            {isPhone
+            {meetingsOn && (isPhone
               ? <button type="button" className="nt-icon-btn" aria-label="Meetings" title="Meetings" onClick={() => setMeetingsOpen(true)}><Video size={17} /></button>
-              : <button type="button" className="nt-text-btn" onClick={() => setMeetingsOpen(true)} title="Your Teams meetings - take notes beside the transcript"><Video size={15} /> Meetings</button>}
+              : <button type="button" className="nt-text-btn" onClick={() => setMeetingsOpen(true)} title="Your Teams meetings - take notes beside the transcript"><Video size={15} /> Meetings</button>)}
             {isPhone
               ? <button type="button" className="nt-icon-btn" aria-label="New Board" title="New Board" onClick={newBoard}><PenTool size={17} /></button>
               : <button type="button" className="nt-text-btn is-board-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
