@@ -83,9 +83,9 @@ export const card = {
   padding: '16px 18px', boxShadow: 'var(--wk-shadow)', minWidth: 0,
 };
 export const cardHead = { display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12, flexWrap: 'wrap' };
-export const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
+export const HD = { fontSize: 13, fontWeight: 600, color: 'var(--ink)' };
 export const LBL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
-export const muted = { fontSize: 12.5, color: 'var(--muted)' };
+export const muted = { fontSize: 13, color: 'var(--muted)' };
 // A finger-sized button (phones).
 export const TAP = { minHeight: 44 };
 

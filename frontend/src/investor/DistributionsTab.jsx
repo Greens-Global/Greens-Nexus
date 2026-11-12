@@ -110,8 +110,8 @@ export default function DistributionsTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Distributions</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Capital returned to LPs - expand a distribution to confirm investor payments</p>
+          <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Distributions</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Capital returned to LPs - expand a distribution to confirm investor payments</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-select" style={{ width: 200 }} value={fundFilter} onChange={e => setFundFilter(e.target.value)}>
@@ -141,12 +141,12 @@ export default function DistributionsTab() {
                   {open ? <ChevronDown size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} /> : <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
                   <div style={{ flex: '1 1 220px', minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{dist.title}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                       Distribution #{dist.distributionNumber} · {dist.fundName} · {statusLabel(dist.distributionType)} · {formatDate(dist.distributionDate)}
                     </div>
                   </div>
                   <div style={{ flex: '0 1 220px', minWidth: 160 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 4, fontVariantNumeric: 'tabular-nums' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 4, fontVariantNumeric: 'tabular-nums' }}>
                       <span><strong style={{ color: 'var(--ink)' }}>{formatCurrency(paid)}</strong> paid out</span>
                       <span>of {formatCurrency(total)}</span>
                     </div>
@@ -161,18 +161,18 @@ export default function DistributionsTab() {
                       {dist.status === 'draft' && (
                         <button className="primary-btn" disabled={actionBusy}
                           onClick={() => setDistStatus(dist, 'issued', 'Issue this distribution? Investor allocations become payable.')}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                           <Send size={13} /> Issue Distribution
                         </button>
                       )}
                       {dist.status === 'issued' && (
                         <button className="secondary-btn" disabled={actionBusy}
                           onClick={() => setDistStatus(dist, 'paid', 'Mark the whole distribution paid? Use the per-investor actions below if only some payments have cleared.')}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                           <Check size={13} /> Mark Distribution Paid
                         </button>
                       )}
-                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                         {dist.allocationCount ?? allocs.rows.length} allocation{(dist.allocationCount ?? allocs.rows.length) === 1 ? '' : 's'} · {formatCurrency(dist.pendingAmount)} pending
                       </span>
                     </div>
@@ -180,7 +180,7 @@ export default function DistributionsTab() {
                     {actionErr && <ErrorState message={actionErr} />}
 
                     {allocs.loading ? <LoadingState label="Loading allocations…" /> : allocs.error ? <ErrorState message={allocs.error} onRetry={() => loadAllocs(dist.id)} /> : allocs.rows.length === 0 ? (
-                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>No allocations yet - they generate when the distribution is issued.</div>
+                      <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>No allocations yet - they generate when the distribution is issued.</div>
                     ) : (
                       <div style={{ overflowX: 'auto' }}>
                         <table className="req-table">
@@ -205,12 +205,12 @@ export default function DistributionsTab() {
                                     <span style={{ display: 'inline-flex', gap: 6 }}>
                                       <button className="primary-btn" disabled={actionBusy}
                                         onClick={() => markAllocPaid(a, today())}
-                                        style={{ fontSize: 11.5, padding: '4px 10px' }}>
+                                        style={{ fontSize: 12, padding: '4px 10px' }}>
                                         Mark Paid
                                       </button>
                                       <button className="secondary-btn" disabled={actionBusy}
                                         onClick={() => setPayEdit({ allocId: a.id, paidDate: today() })}
-                                        style={{ fontSize: 11.5, padding: '4px 10px' }}>
+                                        style={{ fontSize: 12, padding: '4px 10px' }}>
                                         Pick Date…
                                       </button>
                                     </span>
@@ -222,10 +222,10 @@ export default function DistributionsTab() {
                                         style={{ width: 140, padding: '4px 8px', fontSize: 12 }} />
                                       <button className="primary-btn" disabled={actionBusy}
                                         onClick={() => markAllocPaid(a, payEdit.paidDate)}
-                                        style={{ fontSize: 11.5, padding: '4px 10px' }}>
+                                        style={{ fontSize: 12, padding: '4px 10px' }}>
                                         Save
                                       </button>
-                                      <button className="secondary-btn" onClick={() => setPayEdit(null)} style={{ fontSize: 11.5, padding: '4px 10px' }}>Cancel</button>
+                                      <button className="secondary-btn" onClick={() => setPayEdit(null)} style={{ fontSize: 12, padding: '4px 10px' }}>Cancel</button>
                                     </span>
                                   )}
                                   {a.status === 'paid' && <Check size={14} style={{ color: 'hsl(var(--color-green))' }} />}
@@ -271,7 +271,7 @@ export default function DistributionsTab() {
                 <input className="form-input" type="date" required value={modal.distributionDate}
                   onChange={e => setModal(m => ({ ...m, distributionDate: e.target.value }))} />
               </FG>
-              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{formErr}</div>}
+              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{formErr}</div>}
             </div>
             <div className="modal-footer">
               <button type="button" className="secondary-btn" onClick={() => setModal(null)}>Cancel</button>

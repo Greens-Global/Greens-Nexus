@@ -33,9 +33,9 @@ import { POLL_MS, ScanOutcome, ScanProgress, entitiesScannedText, mergeScans, us
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (m) => (m ? `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}` : '');
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
-const chip = (tone) => ({ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, whiteSpace: 'nowrap',
+const chip = (tone) => ({ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
   color: tone === 'ok' ? 'var(--ok-fg, #15803d)' : 'var(--warn-fg)', background: tone === 'ok' ? 'rgba(21,128,61,0.10)' : 'var(--warn-bg)' });
 const notAvailable = (e) => e?.status === 503 || /not configured|not available/i.test(e?.message || '');
 const keyOf = (p) => `${p.entityCode}|${p.customerId}`;
@@ -74,7 +74,7 @@ export default function LeasingFromLedger({ onClose, onCreated, pollMs = POLL_MS
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Set Up From the Ledger</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
               Customers who posted to a rent income account in the last twelve months{data?.from ? ` (${monthLabel(data.from)} to ${monthLabel(data.to)})` : ''}, one lease each. The rent is the most common amount of the last three posted months; change it after if the lease says otherwise.
             </div>
           </div>
@@ -83,24 +83,24 @@ export default function LeasingFromLedger({ onClose, onCreated, pollMs = POLL_MS
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '72vh', overflowY: 'auto' }}>
           {!done && <RentAccountsPicker value={accounts} onChange={pickAccounts} lookedFor={data?.lookedFor} />}
           {shown && (notAvailable(shown)
-            ? <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>Not available here.</strong> The accounting service is not connected on this environment, so there is no ledger to read tenants from. Use New Lease.</div>
+            ? <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>Not available here.</strong> The accounting service is not connected on this environment, so there is no ledger to read tenants from. Use New Lease.</div>
             : (
               <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span style={{ flex: 1 }}>{shown.message || 'Could not read the ledger.'}</span>
-                {scan.error && <button type="button" className="secondary-btn" onClick={scan.retry} style={{ fontSize: '0.76rem' }}>Try Again</button>}
+                {scan.error && <button type="button" className="secondary-btn" onClick={scan.retry} style={{ fontSize: 12 }}>Try Again</button>}
               </div>
             ))}
-          {data && !done && <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{entitiesScannedText(data)}</div>}
+          {data && !done && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{entitiesScannedText(data)}</div>}
           {data && !done && <ScanOutcome total={data.entitiesScanned ?? 0} failed={failed} onRetry={retry.run} running={retry.running} error={retry.error} />}
           {progress ? <ScanProgress progress={progress} /> : scan.error ? null : data === null ? <SkeletonBlocks count={2} /> : done ? (
-            <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
+            <div style={{ fontSize: 14, display: 'grid', gap: 6 }}>
               <strong>{done.created.length} {done.created.length === 1 ? 'lease' : 'leases'} set up{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>
               {done.created.map((p) => <div key={keyOf(p)}>{p.tenantName} at {p.entityName} - <Amount value={p.monthlyRent} /> a month from {monthLabel(p.firstMonth)}</div>)}
               {done.skipped.map((p) => <div key={keyOf(p)} style={{ color: 'var(--text-muted)' }}>{p.customerId} at {p.entityCode}: {p.why}</div>)}
             </div>
           ) : !rows.length ? (
             shown && notAvailable(shown) ? null : (
-              <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
+              <div style={{ fontSize: 14, color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
                 <strong style={{ color: 'var(--text-primary)' }}>{failed.length ? 'No rent postings found in the entities that were read.' : 'No rent postings found.'}</strong>
                 <span>
                   {accounts.length ? `Looked for postings to account ${accounts.join(', ')}` : `Looked for income accounts whose title says ${(data.lookedFor || ['Rent', 'Rental', 'Lease']).join(', ')}`} in {read} {read === 1 ? 'active entity' : 'active entities'}
@@ -188,20 +188,20 @@ export function RentAccountsPicker({ value, onChange, lookedFor }) {
             <>
               {shown.map((a) => (
                 <button key={a.code} type="button" role="option" aria-selected={chosen.has(a.code)} onClick={() => toggle(a.code)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, border: 'none', borderRadius: 6, background: chosen.has(a.code) ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: '0.8rem', cursor: 'pointer', textAlign: 'left', color: 'var(--text-primary)' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, border: 'none', borderRadius: 6, background: chosen.has(a.code) ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: 13, cursor: 'pointer', textAlign: 'left', color: 'var(--text-primary)' }}>
                   <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{chosen.has(a.code) ? <Check size={14} /> : null}</span>
                   <span className="acct-code">{a.code}</span>
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</span>
-                  {a.rent && <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>By Title</span>}
+                  {a.rent && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>By Title</span>}
                 </button>
               ))}
-              {!shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>{failed || (list.length ? 'No match.' : 'No income account has activity in the last twelve months.')}</div>}
+              {!shown.length && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: 6 }}>{failed || (list.length ? 'No match.' : 'No income account has activity in the last twelve months.')}</div>}
             </>
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 8 }}>
           <button type="button" className="secondary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setDraft([])}>Use Titles</button>
-          <span style={{ flex: 1, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{draft.length ? `${draft.length} picked` : 'Nothing picked: the titles decide.'}</span>
+          <span style={{ flex: 1, fontSize: 11, color: 'var(--text-muted)' }}>{draft.length ? `${draft.length} picked` : 'Nothing picked: the titles decide.'}</span>
           <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => { setOpen(false); if (draft.join(',') !== value.join(',')) onChange([...draft].sort()); }}>Done</button>
         </div>
       </PopoverPanel>

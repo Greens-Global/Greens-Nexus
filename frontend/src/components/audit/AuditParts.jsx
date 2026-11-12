@@ -70,11 +70,11 @@ export function ChangeValue({ value, kind }) {
 
 function JsonValue({ text }) {
   const lines = text.split('\n');
-  if (lines.length <= 4) return <code style={{ fontSize: 11.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</code>;
+  if (lines.length <= 4) return <code style={{ fontSize: 12, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</code>;
   return (
     <details>
       <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--muted)' }}>{lines.length} lines of data</summary>
-      <pre style={{ margin: '6px 0 0', padding: 10, background: 'var(--mist)', borderRadius: 8, fontSize: 11.5, maxHeight: 280, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</pre>
+      <pre style={{ margin: '6px 0 0', padding: 10, background: 'var(--mist)', borderRadius: 8, fontSize: 12, maxHeight: 280, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</pre>
     </details>
   );
 }
@@ -105,7 +105,7 @@ export function TextDiff({ before, after, kind }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
         <button type="button" onClick={() => setSide(s => !s)}
-          style={{ background: 'none', border: 'none', color: 'var(--wk-brand, var(--pine))', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
+          style={{ background: 'none', border: 'none', color: 'var(--wk-brand, var(--pine))', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
           {side ? 'Show Inline Changes' : 'Show Before and After'}
         </button>
       </div>
@@ -163,7 +163,7 @@ export function ChangePreview({ change, action }) {
   const b = formatValue(change.before, change.kind);
   if (action === 'comment' || ((change.kind === 'html' || change.kind === 'text') && !b && change.after)) {
     return (
-      <div style={{ fontSize: 12.5, color: 'var(--ink)', borderLeft: '2px solid var(--line)', paddingLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div style={{ fontSize: 13, color: 'var(--ink)', borderLeft: '2px solid var(--line)', paddingLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {shortValue(change.after, change.kind, 140)}
       </div>
     );

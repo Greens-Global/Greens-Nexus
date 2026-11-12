@@ -19,7 +19,7 @@ import { DateField } from '../tasks/components';
 
 const OTHER = '__other__';
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
-const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4 };
+const hint = { fontSize: 12, color: 'var(--muted)', marginTop: 4 };
 const RESUME_TYPES = '.pdf,.doc,.docx';
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -264,10 +264,10 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
               style={{ border: `1.5px dashed ${drag ? 'var(--pine)' : 'var(--line)'}`, borderRadius: 12, padding: '14px 16px', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: 10, background: drag ? 'hsla(var(--color-green),0.05)' : 'transparent' }}>
               {resume ? <CheckCircle size={18} style={{ color: 'hsl(var(--color-green))' }} /> : editing && candidate.resumeUrl ? <FileText size={18} style={{ color: 'var(--muted)' }} /> : <Upload size={18} style={{ color: 'var(--muted)' }} />}
-              <span style={{ fontSize: 12.5, flex: 1 }}>
+              <span style={{ fontSize: 13, flex: 1 }}>
                 {resume ? resume.name : editing && candidate.resumeUrl ? 'A resume is on file - drop a new one to replace it' : 'Drop the resume here, or click to choose (PDF or Word)'}
               </span>
-              {resume && <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={e => { e.stopPropagation(); setResume(null); }}>Remove</button>}
+              {resume && <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={e => { e.stopPropagation(); setResume(null); }}>Remove</button>}
             </div>
             <input ref={fileRef} type="file" accept={RESUME_TYPES} style={{ display: 'none' }} onChange={e => { takeFile(e.target.files?.[0]); e.target.value = ''; }} />
           </div>
@@ -287,7 +287,7 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
           )}
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0, flexWrap: 'wrap' }}>
-          {problems.length > 0 && dirty && <span style={{ fontSize: 11.5, color: 'var(--muted)', marginRight: 'auto' }}>Still needed: {problems.join(', ')}</span>}
+          {problems.length > 0 && dirty && <span style={{ fontSize: 12, color: 'var(--muted)', marginRight: 'auto' }}>Still needed: {problems.join(', ')}</span>}
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={!!problems.length || busy || (editing && !dirty)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy ? <Spinner size={14} /> : editing ? <CheckCircle size={14} /> : <Plus size={14} />} {editing ? 'Save Changes' : 'Add Candidate'}

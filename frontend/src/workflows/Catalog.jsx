@@ -37,7 +37,7 @@ function Section({ Icon, title, count, children }) {
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>{count}</span>
       </div>
       {count === 0
-        ? <div style={{ padding: '14px 16px', fontSize: 12.5, color: 'var(--muted)' }}>Nothing here for this module{' '}yet.</div>
+        ? <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--muted)' }}>Nothing here for this module{' '}yet.</div>
         : <div>{children}</div>}
     </section>
   );
@@ -50,7 +50,7 @@ function Row({ title, chips, children }) {
         <span style={{ fontSize: 13, fontWeight: 600 }}>{title}</span>
         {chips}
       </div>
-      {children && <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>{children}</div>}
+      {children && <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>{children}</div>}
     </div>
   );
 }
@@ -121,7 +121,7 @@ export default function Catalog() {
               </button>
             );
           })}
-          {modules.length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)', padding: 8 }}>No modules registered.</span>}
+          {modules.length === 0 && <span style={{ fontSize: 13, color: 'var(--muted)', padding: 8 }}>No modules registered.</span>}
         </nav>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <Section Icon={Zap} title="Triggers" count={events.length}>

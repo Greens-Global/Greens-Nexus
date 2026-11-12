@@ -78,7 +78,7 @@ function ToolCard({ icon: Icon, title, sub, children, testId }) {
           <Icon size={14} style={{ color: 'var(--ink)' }} />
         </span>
         <span style={{ minWidth: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</h3>
+          <h3 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{title}</h3>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.5 }}>{sub}</div>
         </span>
       </div>
@@ -99,7 +99,7 @@ export default function SettingsTools() {
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--paper)', marginBottom: 16 }}>
         <Wrench size={15} style={{ color: 'var(--muted)', marginTop: 2, flexShrink: 0 }} />
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
           <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>Actions, not settings.</strong> Nothing here changes how Nexus is set up.
           {canActAs && ' Act As is in your profile menu (top right), under Tools.'}
         </div>
@@ -116,7 +116,7 @@ export default function SettingsTools() {
                   {sync.busy ? <Spinner size={14} /> : <RefreshCw size={14} />}
                   {sync.busy ? 'Syncing…' : 'Sync Now'}
                 </button>
-                {sync.busy && <span aria-live="polite" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{sync.label}</span>}
+                {sync.busy && <span aria-live="polite" style={{ fontSize: 13, color: 'var(--muted)' }}>{sync.label}</span>}
               </div>
               {!sync.busy && sync.last && (
                 <div aria-live="polite" style={{ fontSize: 12, marginTop: 10, color: sync.last.ok ? 'var(--muted)' : 'hsl(var(--color-red))' }}>
@@ -126,7 +126,7 @@ export default function SettingsTools() {
             </ToolCard>
           )}
           {!canSync && (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No tools here for your access.</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>No tools here for your access.</div>
           )}
         </div>
       </div>

@@ -115,8 +115,8 @@ function Row({ Icon, label, value }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
       <Icon size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-      <span style={{ fontSize: 12.5, color: 'var(--muted)', width: 118, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 13.5, color: 'var(--ink)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }} title={typeof value === 'string' ? value : undefined}>{value}</span>
+      <span style={{ fontSize: 13, color: 'var(--muted)', width: 118, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }} title={typeof value === 'string' ? value : undefined}>{value}</span>
     </div>
   );
 }
@@ -343,7 +343,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
           : <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
-        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.meta}</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{d.meta}</div>
       </div>
       {d.kind === 'egnyte' && canPreview(d.file) && (
         <button className="secondary-btn" onClick={() => setPreviewFile(d.file)}
@@ -371,13 +371,13 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '10px 0 4px' }}>
       <button type="button" className="secondary-btn" disabled={page <= 1}
         onClick={() => setDocPage(p => ({ ...p, [sectionKey]: page - 1 }))}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, padding: '4px 9px' }}>
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, padding: '4px 9px' }}>
         <ChevronLeft size={12} /> Prev
       </button>
-      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Page {page} of {totalPages}</span>
+      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Page {page} of {totalPages}</span>
       <button type="button" className="secondary-btn" disabled={page >= totalPages}
         onClick={() => setDocPage(p => ({ ...p, [sectionKey]: page + 1 }))}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, padding: '4px 9px' }}>
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, padding: '4px 9px' }}>
         Next <ChevronRight size={12} />
       </button>
     </div>
@@ -425,7 +425,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
   const em = profile?.personal?.emergency || {};
   const initials = profile ? `${(profile.firstName || ' ')[0]}${(profile.lastName || ' ')[0]}`.trim().toUpperCase() : '';
   const input = { width: '100%' };
-  const lbl = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '10px 0 4px' };
+  const lbl = { fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '10px 0 4px' };
   const cardHead = (title, sub, action) => (
     <div className="dash-card-head">
       <div>
@@ -467,7 +467,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
   return (
     <div className="wd-overview" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', fontFamily: 'var(--wk-font)' }}>
       {toast && (
-        <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 14, fontSize: 12.5, fontWeight: 600,
+        <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 14, fontSize: 13, fontWeight: 600,
           background: toast.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{toast.t}</div>
       )}
@@ -523,7 +523,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
       {/* Delegate My Approvals moved to the Time Off tab (Neil, Oct 20). */}
 
       {profErr ? (
-        <div className="dash-card" style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, padding: 40 }}>{profErr}</div>
+        <div className="dash-card" style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: 40 }}>{profErr}</div>
       ) : !profile ? (
         <SkeletonBlocks count={3} height={110} />
       ) : (
@@ -543,8 +543,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                     ? <img src={profile.photoUrl} alt="" style={{ width: 54, height: 54, borderRadius: '50%', objectFit: 'cover' }} />
                     : <div style={{ width: 54, height: 54, borderRadius: '50%', background: 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 18, color: 'var(--muted)' }}>{initials || <User size={22} />}</div>}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 16.5, fontWeight: 700, color: 'var(--ink)' }}>{profile.firstName} {profile.lastName}</div>
-                    <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{[profile.jobTitle, profile.department].filter(Boolean).join(' · ')}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{profile.firstName} {profile.lastName}</div>
+                    <div style={{ fontSize: 13, color: 'var(--muted)' }}>{[profile.jobTitle, profile.department].filter(Boolean).join(' · ')}</div>
                   </div>
                   {profile.status === 'active' && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))' }}>
@@ -570,7 +570,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0 2px' }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Contact & Emergency</span>
                   {!editing && (
-                    <button className="secondary-btn" onClick={startEdit} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+                    <button className="secondary-btn" onClick={startEdit} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
                       <Pencil size={12} /> Edit
                     </button>
                   )}
@@ -582,7 +582,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                     <Row Icon={Phone} label="Phone" value={profile.phone} />
                     <Row Icon={Heart} label="Emergency" value={em.name ? [em.name, em.relationship && `(${em.relationship})`, em.phone].filter(Boolean).join(' · ') : ''} />
                     {!profile.personalEmail && !profile.phone && !em.name && (
-                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing here yet - add your contact details so HR can reach you.</div>
+                      <div style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 0' }}>Nothing here yet - add your contact details so HR can reach you.</div>
                     )}
                   </div>
                 ) : (
@@ -609,7 +609,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                         {saving ? <><Spinner size={13} /> Saving…</> : <><Check size={13} /> Save</>}
                       </button>
                     </div>
-                    <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
+                    <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
                       Name, job, department or bank changes go through HR - use "Ask HR" for those.
                     </p>
                   </div>
@@ -645,14 +645,14 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                       <div key={`a${i}`} onClick={goInventory} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
                         <Package size={14} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{a.item}</span>
-                        <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{a.since ? `since ${fmtD(a.since)}` : 'Permanent'}</span>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{a.since ? `since ${fmtD(a.since)}` : 'Permanent'}</span>
                       </div>
                     ))}
                     {(assetFilter === 'assigned' ? [] : assets.checkouts).map((c, i) => (
                       <div key={`c${i}`} onClick={goInventory} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
                         <Package size={14} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{c.item}</span>
-                        <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{c.due ? `due ${fmtD(c.due)}` : c.status.replace('_', ' ')}</span>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{c.due ? `due ${fmtD(c.due)}` : c.status.replace('_', ' ')}</span>
                       </div>
                     ))}
                     <button className="link-btn" onClick={goInventory}>Open Item Management <ArrowRight size={12} /></button>
@@ -683,7 +683,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                     .map(s => ({ ...s, rows: searching ? s.rows.filter(d => (d.title || '').toLowerCase().includes(q)) : s.rows }))
                     .filter(s => s.rows.length);
                   if (!filtered.length) {
-                    return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents match your search.</div>;
+                    return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents match your search.</div>;
                   }
                   // ONE section and no Egnyte folder data (not wired/connected, or
                   // nothing filed there yet) - nothing to browse by folder: list
@@ -721,8 +721,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                               : open
                                 ? <FolderOpen size={13} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
                                 : <Folder size={13} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />}
-                          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{s.name}</span>
-                          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.rows.length}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{s.name}</span>
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{s.rows.length}</span>
                         </button>
                         {open && (
                           <div style={{ paddingLeft: 19 }}>
@@ -801,7 +801,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                                 <Icon size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1, color: on ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
                                 <span style={{ minWidth: 0 }}>
                                   <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{label}</span>
-                                  <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>{hint}</span>
+                                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>{hint}</span>
                                 </span>
                               </button>
                             );
@@ -830,7 +830,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                           placeholder='e.g. "My visa was renewed - please update my right-to-work document."'
                           onPaste={e => { const [f] = filesFromPaste(e); if (f) { e.preventDefault(); setAskFile(f); } }}
                           onChange={e => setAskForm(f => ({ ...f, message: e.target.value }))} />
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
                           Only you, HR and anyone you add can see this request. Attach a document, or press Ctrl+V to paste a screenshot.
                         </div>
                         {/* Optional attachment - the new/updated document itself */}
@@ -861,7 +861,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                           <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>My Requests</span>
                           {(asks.some(askIsTicket) || letters.rows.length > 0) && (
                             <select className="form-input" value={askFilter} onChange={e => setAskFilter(e.target.value)} aria-label="Filter my requests"
-                              style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 28px 4px 10px', height: 'auto', width: 'auto', flex: 'none' }}>
+                              style={{ fontSize: 12, fontWeight: 600, padding: '4px 28px 4px 10px', height: 'auto', width: 'auto', flex: 'none' }}>
                               <option value="all">All</option>
                               <option value="open">Open</option>
                               <option value="resolved">Resolved</option>
@@ -869,7 +869,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                           )}
                         </div>
                         {!asks.some(askIsTicket) && letters.rows.length === 0 && (
-                          <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0 4px' }}>Nothing sent yet - HR answers here.</div>
+                          <div style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 0 4px' }}>Nothing sent yet - HR answers here.</div>
                         )}
                         {/* Tickets and letters in one list, newest first. */}
                         {[...asks.filter(askIsTicket).map(a => ({ at: a.createdAt, a })), ...letters.rows.map(r => ({ at: r.createdAt, r }))]
@@ -883,16 +883,16 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                               background: askFresh.has(a.id) ? 'hsla(var(--color-blue),0.06)' : 'transparent' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               {askFresh.has(a.id) && <span title="Updated by HR" style={{ width: 8, height: 8, borderRadius: '50%', background: 'hsl(var(--color-red))', flexShrink: 0 }} />}
-                              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+                              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
                                 {ASK_KIND_LABEL[a.type] || 'HR Request'}{a.code ? ` · #${a.code}` : ''} · {fmtD(a.createdAt?.slice(0, 10))}
                               </span>
-                              {askFresh.has(a.id) && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Updated by HR</span>}
+                              {askFresh.has(a.id) && <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Updated by HR</span>}
                               <StatusLabel size="sm" label={TICKET_STATUS_META[a.status]?.label || a.status}
                                 color={TICKET_STATUS_META[a.status]?.color || '#64748b'} />
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{a.message}</div>
                             {a.attachmentName && (
-                              <div style={{ fontSize: 11.5, color: 'hsl(var(--color-blue))', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <div style={{ fontSize: 12, color: 'hsl(var(--color-blue))', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                 <FileText size={11} /> {a.attachmentName}
                               </div>
                             )}
@@ -911,15 +911,15 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
                             background: askFresh.has(a.id) ? 'hsla(var(--color-blue),0.06)' : undefined, borderRadius: askFresh.has(a.id) ? 8 : undefined }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               {askFresh.has(a.id) && <span title="Updated by HR" style={{ width: 8, height: 8, borderRadius: '50%', background: 'hsl(var(--color-red))', flexShrink: 0 }} />}
-                              <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+                              <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
                                 {(ASK_TYPES.find(([v]) => v === a.type)?.[1]) || a.type} · {fmtD(a.createdAt?.slice(0, 10))}
                               </span>
-                              {askFresh.has(a.id) && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Updated by HR</span>}
+                              {askFresh.has(a.id) && <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Updated by HR</span>}
                               {chip(a.status)}
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{a.message}</div>
                             {a.attachmentName && (
-                              <div style={{ fontSize: 11.5, color: 'hsl(var(--color-blue))', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <div style={{ fontSize: 12, color: 'hsl(var(--color-blue))', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                 <FileText size={11} /> {a.attachmentName}
                               </div>
                             )}

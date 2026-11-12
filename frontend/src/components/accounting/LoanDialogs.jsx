@@ -46,12 +46,12 @@ import { DateField } from '../../tasks/components';
 // not in the first moments after the window opens; the window is portaled to
 // <body> so nothing in the Loans table's layout can clip or re-target it.
 
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 };
-const hint = { fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 };
+const hint = { fontSize: 11, color: 'var(--text-muted)', marginTop: 3 };
 const full = { ...control, width: '100%' };
-const section = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 4 };
+const section = { fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 4 };
 
 export const LOAN_TYPES = [['term', 'Term Loan'], ['line_of_credit', 'Line of Credit']];
 export const loanTypeLabel = (t) => (LOAN_TYPES.find(([k]) => k === t) || [null, 'Term Loan'])[1];
@@ -87,7 +87,7 @@ export function Dialog({ title, sub, onClose, onSubmit, busy, submitLabel, error
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>{title}</h3>
-            {sub && <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{sub}</div>}
+            {sub && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{sub}</div>}
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
@@ -142,8 +142,8 @@ export function EgnyteField({ id, labelText, value, url, onChange }) {
       <div style={{ display: 'flex', gap: 6 }}>
         <input id={id} type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder="/Shared/... or an Egnyte folder link" style={{ ...control, flex: 1, minWidth: 0 }} />
         <button type="button" className="secondary-btn" onClick={browse} disabled={checking} aria-haspopup="dialog" aria-label={`Browse for ${labelText}`}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}><Folder size={14} /> {checking ? 'Checking...' : 'Browse'}</button>
-        {value && <button type="button" className="secondary-btn" onClick={() => onChange('')} aria-label={`Clear ${labelText}`} style={{ fontSize: '0.78rem', height: 30, padding: '0 10px' }}>Clear</button>}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 10px' }}><Folder size={14} /> {checking ? 'Checking...' : 'Browse'}</button>
+        {value && <button type="button" className="secondary-btn" onClick={() => onChange('')} aria-label={`Clear ${labelText}`} style={{ fontSize: 13, height: 30, padding: '0 10px' }}>Clear</button>}
         {url && <a href={url} target="_blank" rel="noreferrer" aria-label={`Open ${labelText} in Egnyte`} title="Open in Egnyte" style={{ ...control, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, padding: 0, color: 'var(--text-secondary)' }}><ExternalLink size={14} /></a>}
       </div>
       {note && <div role="status" style={{ ...hint, color: 'var(--warn-fg)' }}><WarnMark />{note}</div>}
@@ -356,7 +356,7 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
       <EgnyteField id="loan-statements" labelText="Statements Folder" value={d.statementsPath} url={loan.statementsUrl} onChange={(v) => set({ statementsPath: v })} />
 
       <div><label style={label} htmlFor="loan-notes">Notes</label><input id="loan-notes" type="text" value={d.notes} maxLength={200} onChange={(e) => set({ notes: e.target.value })} style={full} /></div>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
         <input type="checkbox" checked={d.isActive} onChange={(e) => set({ isActive: e.target.checked })} /> Active (an inactive loan is closed: hidden unless Show Closed Loans)
       </label>
     </Dialog>

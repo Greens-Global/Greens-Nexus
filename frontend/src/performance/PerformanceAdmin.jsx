@@ -54,7 +54,7 @@ export default function PerformanceAdmin({ toastOk, toastErr }) {
       {(ctx.hrCompanies || []).length > 1 && (
         <label style={{ display: 'grid', gap: 4, maxWidth: 320 }}>
           <span style={LBL}>Company</span>
-          <select className="form-input" value={company} onChange={e => setCompany(e.target.value)} aria-label="Company" style={{ fontSize: 16 }}>
+          <select className="form-input" value={company} onChange={e => setCompany(e.target.value)} aria-label="Company" style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }}>
             {ctx.hrCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
@@ -89,7 +89,7 @@ export default function PerformanceAdmin({ toastOk, toastErr }) {
             <span style={LBL}>Search</span>
             <span style={{ position: 'relative', display: 'flex' }}>
               <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-              <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Goal, person or department" style={{ paddingLeft: 30, width: '100%', fontSize: 16 }} />
+              <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Goal, person or department" style={{ paddingLeft: 30, width: '100%', fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
             </span>
           </label>
         </div>

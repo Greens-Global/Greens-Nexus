@@ -46,7 +46,7 @@ export function TaskViewSwitch({ view, onChange, late, size = 'sm' }) {
     <span style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, padding: 2 }}>
       {TASK_VIEWS.map((t) => (
         <button key={t.id} type="button" onClick={() => onChange(t.id)} aria-pressed={view === t.id}
-          style={{ border: 'none', borderRadius: 6, padding: size === 'xs' ? '1px 7px' : '2px 8px', font: 'inherit', fontSize: size === 'xs' ? '0.68rem' : '0.72rem', fontWeight: 600, cursor: 'pointer', background: view === t.id ? 'var(--wk-brand, #2b45e1)' : 'transparent', color: view === t.id ? '#fff' : 'var(--text-secondary)' }}>
+          style={{ border: 'none', borderRadius: 6, padding: size === 'xs' ? '1px 7px' : '2px 8px', font: 'inherit', fontSize: size === 'xs' ? 11 : 12, fontWeight: 600, cursor: 'pointer', background: view === t.id ? 'var(--wk-brand, #2b45e1)' : 'transparent', color: view === t.id ? '#fff' : 'var(--text-secondary)' }}>
           {t.label}{t.id === 'overdue' && late ? ` (${late})` : ''}
         </button>
       ))}

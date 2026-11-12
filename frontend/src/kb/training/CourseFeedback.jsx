@@ -48,10 +48,10 @@ export function FeedbackSummary({ feedback }) {
       <h3 className="kb-h3" style={{ marginBottom: 6 }}>Feedback</h3>
       {!feedback.count ? <div className="kb-empty">No ratings yet.</div> : (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><b style={{ fontSize: 22 }}>{feedback.average}</b><Stars value={Math.round(feedback.average)} size={14} /><span className="kb-meta">from {feedback.count}</span></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><b style={{ fontSize: 24 }}>{feedback.average}</b><Stars value={Math.round(feedback.average)} size={14} /><span className="kb-meta">from {feedback.count}</span></div>
           {feedback.comments.slice(0, 10).map((c) => (
             <div key={`${c.at}${c.comment}`} className="kb-row" style={{ alignItems: 'flex-start', padding: '8px 0' }}>
-              <div className="kb-grow"><Stars value={c.rating} size={12} /><div style={{ fontSize: 13.5 }}>{c.comment}</div><div className="kb-meta">{fmtDate(c.at)}</div></div>
+              <div className="kb-grow"><Stars value={c.rating} size={12} /><div style={{ fontSize: 13 }}>{c.comment}</div><div className="kb-meta">{fmtDate(c.at)}</div></div>
             </div>
           ))}
         </>

@@ -74,7 +74,7 @@ export function MonthStepper() {
           <select value={fromKey} onChange={(e) => setRange(e.target.value, period)} aria-label="From month" style={{ ...input, ...active }}>
             {(fromOptions.includes(fromKey) ? fromOptions : [fromKey, ...fromOptions]).map((k) => <option key={k} value={k}>{monthLong(k)}</option>)}
           </select>
-          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>through</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>through</span>
         </>
       ) : null}
       {/* The stepper wraps as one piece - never "<" on one line and the month on the next (Oct 17). */}
@@ -93,7 +93,7 @@ export function BookPills() {
   const { book, setBook } = useDash();
   return (
     <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
-      {BOOKS.map(([k, label]) => <button key={k} type="button" style={{ ...pill(book === k), padding: '4px 10px', fontSize: '0.74rem' }} onClick={() => setBook(k)}>{label}</button>)}
+      {BOOKS.map(([k, label]) => <button key={k} type="button" style={{ ...pill(book === k), padding: '4px 10px', fontSize: 12 }} onClick={() => setBook(k)}>{label}</button>)}
     </div>
   );
 }
@@ -110,7 +110,7 @@ export function RefreshButton() {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       {updatedAt || synced ? (
-        <span className="acct-bar-label-2" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+        <span className="acct-bar-label-2" style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
           {updatedAt ? `Updated ${formatTime(updatedAt)}` : ''}{updatedAt && synced ? ' · ' : ''}{synced ? `Ledger synced from Intacct ${synced}` : ''}
         </span>
       ) : null}
@@ -139,7 +139,7 @@ export function Toolbar({ right, hidePeriod }) {
       <BarMore level={2} active={book !== 'accrual' ? 1 : 0}>
         <BookPills />
       </BarMore>
-      {partners ? <BarSummary style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Partner entity · {partners}</BarSummary> : null}
+      {partners ? <BarSummary style={{ fontSize: 12, color: 'var(--text-muted)' }}>Partner entity · {partners}</BarSummary> : null}
       <div className="acct-bar-end">
         {right ? <BarMore level={1}>{right}</BarMore> : null}
         <RefreshButton />

@@ -29,7 +29,7 @@ function Person({ p, ratings, onMove, busy }) {
           <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600 }}>
             {p.employeeName}{p.promotionReady && <Star size={12} aria-label="Ready for Promotion" color={NX.amber} />}
           </span>
-          <span style={{ display: 'block', ...muted, fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ display: 'block', ...muted, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {[p.department, p.managerName].filter(Boolean).join(' · ')}
           </span>
         </span>
@@ -38,7 +38,7 @@ function Person({ p, ratings, onMove, busy }) {
         )}
       </div>
       {(goals || p.calibratedFrom || !p.canMove) && (
-        <div style={{ ...muted, fontSize: 11.5, marginTop: 4 }}>
+        <div style={{ ...muted, fontSize: 12, marginTop: 4 }}>
           {[goals && `Goals: ${goals}`, p.calibratedFrom && `Manager said ${p.calibratedFromLabel}`, !p.canMove && p.stageLabel].filter(Boolean).join(' · ')}
         </div>
       )}
@@ -47,7 +47,7 @@ function Person({ p, ratings, onMove, busy }) {
           <Segmented label={`Rating for ${p.employeeName}`} value={to} onChange={setTo} options={ratings} />
           <label style={{ display: 'grid', gap: 4 }}>
             <span style={LBL}>Why (The Manager Sees This)</span>
-            <input className="form-input" value={why} onChange={e => setWhy(e.target.value)} style={{ fontSize: 16 }} />
+            <input className="form-input" value={why} onChange={e => setWhy(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
           </label>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" onClick={() => setMoving(false)}>Cancel</button>
@@ -90,13 +90,13 @@ export default function CalibrationModal({ cycleId, onClose, onChanged, toastOk,
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {b.departments.length > 1 && (
                 <label style={{ display: 'grid', gap: 4, flex: '0 1 220px' }}><span style={LBL}>Department</span>
-                  <select className="form-input" value={dept} onChange={e => setDept(e.target.value)} style={{ fontSize: 16 }}>
+                  <select className="form-input" value={dept} onChange={e => setDept(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }}>
                     <option value="">All Departments</option>{b.departments.map(d => <option key={d} value={d}>{d}</option>)}
                   </select></label>
               )}
               {b.managers.length > 1 && (
                 <label style={{ display: 'grid', gap: 4, flex: '0 1 220px' }}><span style={LBL}>Manager</span>
-                  <select className="form-input" value={mgr} onChange={e => setMgr(e.target.value)} style={{ fontSize: 16 }}>
+                  <select className="form-input" value={mgr} onChange={e => setMgr(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }}>
                     <option value="">All Managers</option>{b.managers.map(([e, n]) => <option key={e || 'hr'} value={e}>{n}</option>)}
                   </select></label>
               )}
@@ -110,8 +110,8 @@ export default function CalibrationModal({ cycleId, onClose, onChanged, toastOk,
                 return (
                   <section key={r.key} aria-label={r.label} className="nx-cal-col" style={{ '--rule': RATING_COLOR[r.key] }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, paddingBottom: 8 }}>
-                      <span style={{ fontSize: 13.5, fontWeight: 700 }}>{r.label}</span>
-                      <span style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginLeft: 'auto' }}>{col.length}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700 }}>{r.label}</span>
+                      <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginLeft: 'auto' }}>{col.length}</span>
                       <span style={{ ...muted, fontSize: 12, fontVariantNumeric: 'tabular-nums', minWidth: 34, textAlign: 'right' }}>{share}%</span>
                     </div>
                     {col.length ? col.map(p => <Person key={`${p.id}-${p.rating}`} p={p} ratings={b.ratings} onMove={move} busy={busy} />)

@@ -134,9 +134,9 @@ export function CompletenessButton({ count, onClick, open = false }) {
   return (
     <button type="button" className="secondary-btn" onClick={onClick} aria-pressed={open} aria-label={`Completeness: ${clean ? 'nothing missing' : `${count} ${count === 1 ? 'gap' : 'gaps'}`}`}
       title={clean ? 'Completeness: nothing missing in what is shown' : `Completeness: ${count} ${count === 1 ? 'gap' : 'gaps'} - click for the list`}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px', whiteSpace: 'nowrap' }}>
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 10px', whiteSpace: 'nowrap' }}>
       <ListChecks size={14} /> <span className="acct-bar-label">Completeness</span>
-      <span data-testid="completeness-count" style={{ fontSize: '0.7rem', fontWeight: 700, borderRadius: 999, padding: '0 7px', lineHeight: '18px',
+      <span data-testid="completeness-count" style={{ fontSize: 11, fontWeight: 700, borderRadius: 999, padding: '0 7px', lineHeight: '18px',
         color: clean ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)', background: clean ? 'rgba(21,128,61,0.10)' : 'rgba(220,38,38,0.10)' }}>{count}</span>
     </button>
   );
@@ -152,21 +152,21 @@ export function CompletenessPanel({ caption, rule, groups, onPick, onClose, note
   const n = gapCount(groups);
   return (
     <SidePanel label="Completeness" title="Completeness" caption={`${caption} · ${n ? `${n} ${n === 1 ? 'gap' : 'gaps'} on ${groups.length} ${groups.length === 1 ? 'line' : 'lines'}` : 'nothing missing'}`} onClose={onClose}>
-      <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{rule}</p>
-      {note && <div role="status" style={{ fontSize: '0.78rem', color: 'var(--warn-fg)' }}><WarnMark />{note}</div>}
+      <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>{rule}</p>
+      {note && <div role="status" style={{ fontSize: 13, color: 'var(--warn-fg)' }}><WarnMark />{note}</div>}
       {!groups.length ? (
-        <div style={{ fontSize: '0.86rem', color: 'var(--ok-fg, #15803d)', fontWeight: 600 }}>Nothing missing for the entity and period picked.</div>
+        <div style={{ fontSize: 14, color: 'var(--ok-fg, #15803d)', fontWeight: 600 }}>Nothing missing for the entity and period picked.</div>
       ) : (
         <ul aria-label="Gaps" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8 }}>
           {groups.map((g) => (
             <li key={g.id}>
               <button type="button" onClick={() => onPick(g)} aria-label={`Go to ${g.title}: ${g.items.map((i) => i.text).join('; ')}`}
                 style={{ width: '100%', textAlign: 'left', cursor: 'pointer', font: 'inherit', border: '1px solid var(--border-color)', borderRadius: 10, padding: '10px 12px', background: 'var(--bg-card)', display: 'grid', gap: 4 }}>
-                <span style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-primary)' }}>{g.title}</span>
-                {g.subtitle && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{g.subtitle}</span>}
+                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>{g.title}</span>
+                {g.subtitle && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{g.subtitle}</span>}
                 <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {g.items.map((i) => (
-                    <span key={i.key} style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--bad-fg, #dc2626)', background: 'rgba(220,38,38,0.08)', borderRadius: 999, padding: '1px 8px' }}>{i.text}</span>
+                    <span key={i.key} style={{ fontSize: 11, fontWeight: 600, color: 'var(--bad-fg, #dc2626)', background: 'rgba(220,38,38,0.08)', borderRadius: 999, padding: '1px 8px' }}>{i.text}</span>
                   ))}
                 </span>
               </button>

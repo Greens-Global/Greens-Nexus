@@ -126,7 +126,7 @@ export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, 
     <Modal title={editing ? "Edit Credential" : "Add Credential"} onClose={onClose} isDirty={dirty} onSave={valid ? save : undefined}
       width="clamp(480px, 56vw, 760px)"
       footer={<>
-        {error && <span style={{ color: "var(--cv-bad)", fontSize: 12.5, marginRight: "auto" }}>{error}</span>}
+        {error && <span style={{ color: "var(--cv-bad)", fontSize: 13, marginRight: "auto" }}>{error}</span>}
         <button type="button" className="cv-btn" onClick={onClose}>Cancel</button>
         <button type="button" className="cv-btn-dark" onClick={save} disabled={!valid || saving}>{saving ? "Saving…" : editing ? "Save Changes" : "Save Credential"}</button>
       </>}>
@@ -267,7 +267,7 @@ export function ImportWizard({ depts, people, myEmail, existing = [], nameOf = (
   return (
     <Modal title="Import Logins From a Spreadsheet" onClose={onClose} isDirty={step > 0 && step < 3} width="clamp(560px, 64vw, 920px)"
       footer={<>
-        {error && <span style={{ color: "var(--cv-bad)", fontSize: 12.5, marginRight: "auto" }}>{error}</span>}
+        {error && <span style={{ color: "var(--cv-bad)", fontSize: 13, marginRight: "auto" }}>{error}</span>}
         {step === 3 ? <button type="button" className="cv-btn-dark" onClick={onClose}>Done</button> : (<>
           <button type="button" className="cv-btn" onClick={onClose}>Cancel</button>
           {step > 0 && <button type="button" className="cv-btn" onClick={() => setStep(step - 1)}>Back</button>}

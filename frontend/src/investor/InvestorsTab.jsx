@@ -94,8 +94,8 @@ export default function InvestorsTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Investors</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Investors - contact, accreditation, KYC, and total capital committed</p>
+          <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Investors</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Investors - contact, accreditation, KYC, and total capital committed</p>
         </div>
         <button className="primary-btn" onClick={openAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Plus size={14} /> Add Investor
@@ -127,12 +127,12 @@ export default function InvestorsTab() {
                       {inv.displayName}
                       {inv.status !== 'active' && <StatusText status={inv.status} size={11} />}
                     </div>
-                    {inv.intacctAccounts?.length > 0 && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Intacct {inv.intacctAccounts.join(', ')}</div>}
+                    {inv.intacctAccounts?.length > 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Intacct {inv.intacctAccounts.join(', ')}</div>}
                   </td>
                   <td data-th="Type" style={{ color: 'var(--muted)' }}>{statusLabel(inv.entityType)}</td>
                   <td data-th="Contact">
-                    <div style={{ fontSize: 12.5 }}>{inv.email || '-'}</div>
-                    {inv.phone && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{inv.phone}</div>}
+                    <div style={{ fontSize: 13 }}>{inv.email || '-'}</div>
+                    {inv.phone && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{inv.phone}</div>}
                   </td>
                   <td data-th="Accredited"><StatusText status={inv.accreditedStatus} /></td>
                   <td data-th="KYC"><StatusText status={inv.kycStatus} /></td>
@@ -209,7 +209,7 @@ export default function InvestorsTab() {
                   style={{ minHeight: 64, resize: 'vertical' }} placeholder="Source of relationship, preferences, anything the team should know…" />
               </FG>
               {modal.id && <InvestorBooks investorId={modal.id} onChanged={reload} />}
-              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{formErr}</div>}
+              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{formErr}</div>}
             </div>
             <div className="modal-footer">
               {modal.id && (

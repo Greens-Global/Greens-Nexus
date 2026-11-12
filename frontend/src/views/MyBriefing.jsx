@@ -54,13 +54,13 @@ function groupByModule(rows) {
 }
 
 const btnBase = {
-  fontFamily: FONT, fontSize: 12.5, fontWeight: 600, padding: '6px 13px', borderRadius: 6,
+  fontFamily: FONT, fontSize: 13, fontWeight: 600, padding: '6px 13px', borderRadius: 6,
   cursor: 'pointer', lineHeight: 1.2, border: '1px solid transparent',
 };
 const solid = (v) => ({ ...btnBase, background: hsl(v), borderColor: hsl(v), color: '#fff' });
 const outline = { ...btnBase, background: 'var(--card)', borderColor: 'var(--line)', color: 'var(--ink)' };
 // The row's own actions: small text links on one line, not a row of buttons.
-const rowLink = { ...btnBase, padding: '2px 0', background: 'none', border: 'none', color: hsl('--color-green'), fontSize: 12.5 };
+const rowLink = { ...btnBase, padding: '2px 0', background: 'none', border: 'none', color: hsl('--color-green'), fontSize: 13 };
 const textInput = {
   fontFamily: FONT, fontSize: 13, width: '100%', boxSizing: 'border-box', padding: '8px 10px',
   borderRadius: 6, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)',
@@ -98,17 +98,17 @@ export default function MyBriefing() {
           .mb-head { display: none; }
           .mb-tiles { gap: 6px; }
           .mb-tile { padding: 10px 10px !important; }
-          .mb-tile-n { font-size: 22px !important; }
-          .mb-tile-l { font-size: 11.5px !important; }
+          .mb-tile-n { font-size: 24px !important; }
+          .mb-tile-l { font-size: 12px !important; }
         }
       `}</style>
 
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>
+          <div style={{ fontSize: 24, fontWeight: 700 }}>
             {data ? `${data.greeting}${data.firstName ? `, ${data.firstName}` : ''}.` : 'My Briefing'}
           </div>
-          <div style={{ fontSize: 13.5, color: 'var(--muted)', marginTop: 4 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
             {data
               ? `Everything since your last briefing (${formatDateTime(`${data.since}Z`)}), kept up to date.`
               : 'Your daily briefing, with everything you can act on.'}
@@ -137,8 +137,8 @@ export default function MyBriefing() {
             <button key={s.key} className="mb-tile" onClick={() => { open(s.key); document.getElementById(`mb-${s.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
               style={{ textAlign: 'left', padding: '14px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
                 background: hsl(SECTION_COLOR[s.key]), color: '#fff', fontFamily: FONT }}>
-              <div className="mb-tile-n" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>{s.rows.length}</div>
-              <div className="mb-tile-l" style={{ fontSize: 12.5, marginTop: 6, fontWeight: 500 }}>{SUMMARY_LABEL[s.key] || s.label}</div>
+              <div className="mb-tile-n" style={{ fontSize: 24, fontWeight: 700, lineHeight: 1 }}>{s.rows.length}</div>
+              <div className="mb-tile-l" style={{ fontSize: 13, marginTop: 6, fontWeight: 500 }}>{SUMMARY_LABEL[s.key] || s.label}</div>
             </button>
           ))}
         </div>
@@ -161,9 +161,9 @@ function Section({ section, collapsed, onToggle, reactions, onChanged }) {
         style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '0 0 9px', background: 'none', border: 'none',
           borderBottom: `2px solid ${hsl(color)}`, cursor: 'pointer', fontFamily: FONT, color: 'var(--ink)', textAlign: 'left' }}>
         <ChevronRight size={16} style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform .15s', color: hsl(color) }} />
-        <span style={{ fontSize: 16, fontWeight: 700 }}>{section.label}</span>
+        <span style={{ fontSize: 15, fontWeight: 700 }}>{section.label}</span>
         <span style={{ fontSize: 14, color: 'var(--muted)' }}>({section.rows.length})</span>
-        <span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: hsl(color) }}>{collapsed ? 'Show' : 'Hide'}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600, color: hsl(color) }}>{collapsed ? 'Show' : 'Hide'}</span>
       </button>
       {!collapsed && groupByModule(section.rows).map(([m, label, rows]) => (
         <ModuleTable key={m} label={label} rows={rows} color={color} reactions={reactions} onChanged={onChanged} />
@@ -177,7 +177,7 @@ function ModuleTable({ label, rows, color, reactions, onChanged }) {
   const shown = all ? rows : rows.slice(0, ROWS_SHOWN);
   return (
     <div style={{ marginTop: 16 }}>
-      <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 7 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 7 }}>
         {label} <span style={{ fontWeight: 400, color: 'var(--muted)' }}>({rows.length})</span>
       </div>
       <div style={{ border: `1px solid ${hsl(color, 0.35)}`, borderRadius: 8, overflow: 'hidden', background: hsl(color, 0.05) }}>
@@ -275,9 +275,9 @@ function Row({ row, color, first, reactions, onChanged }) {
 
       {row.comments?.length > 0 && (
         <div style={{ marginTop: 9, padding: '8px 12px', background: 'var(--card)', borderLeft: `3px solid ${hsl(color, 0.5)}`, borderRadius: 4 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>Recent Comments</div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>Recent Comments</div>
           {row.comments.map((c, i) => (
-            <div key={i} style={{ fontSize: 12.5, lineHeight: 1.5, padding: '2px 0' }}><b>{c.author}:</b> {c.body}</div>
+            <div key={i} style={{ fontSize: 13, lineHeight: 1.5, padding: '2px 0' }}><b>{c.author}:</b> {c.body}</div>
           ))}
         </div>
       )}
@@ -306,13 +306,13 @@ function Row({ row, color, first, reactions, onChanged }) {
       {panel === 'react' && (
         <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {reactions.map((e) => (
-            <button key={e} disabled={busy} aria-label={`React ${e}`} style={{ ...outline, fontSize: 16, padding: '4px 10px' }} onClick={() => task('react', e)}>{e}</button>
+            <button key={e} disabled={busy} aria-label={`React ${e}`} style={{ ...outline, fontSize: 15, padding: '4px 10px' }} onClick={() => task('react', e)}>{e}</button>
           ))}
         </div>
       )}
 
       {result && (
-        <div role="status" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600,
+        <div role="status" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600,
           color: result.ok ? hsl('--color-green') : hsl('--color-red') }}>
           {result.ok ? <Check size={14} /> : <AlertCircle size={14} />} {result.message}
         </div>

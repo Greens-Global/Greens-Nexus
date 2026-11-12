@@ -57,7 +57,7 @@ const PLATFORM_LABEL = 'Google Ads'
 
 const linkBtn = {
   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8,
-  border: '1px solid ' + C.gray200, fontSize: 12.5, fontWeight: 500, color: C.gray700, background: C.white, textDecoration: 'none',
+  border: '1px solid ' + C.gray200, fontSize: 13, fontWeight: 500, color: C.gray700, background: C.white, textDecoration: 'none',
 }
 
 // Google Ads tab. Connected to Google Ads -> the real figures (read-only:
@@ -191,7 +191,7 @@ function LiveGoogleAds(props) {
   const liveBar = (
     <>
       {data?.error && <Notice kind="warn">The last sync did not finish for every account: {data.error}</Notice>}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 16, fontSize: 12.5, color: C.gray500 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 16, fontSize: 13, color: C.gray500 }}>
         <span>
           Figures from Google Ads{data?.firstDate ? ` since ${formatDate(data.firstDate)}` : ''}, last synced {formatDateTime(data?.syncedAt || status.lastSyncAt, 'never')}.
           {status.unmappedCount > 0 && (

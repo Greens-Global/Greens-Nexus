@@ -351,15 +351,15 @@ export default function Builder({ id, go, runId = '' }) {
           background: 'transparent', color: 'var(--nx-ink)', fontFamily: 'inherit',
         }} />
         <StatusLabel label={statusMeta.label} color={statusMeta.color} />
-        {workflow?.version > 0 && <span style={{ ...chip, fontSize: 11.5 }}>Version {workflow.version}</span>}
-        {dirty && <span style={{ ...chip, fontSize: 11.5, color: 'hsl(var(--color-orange))', borderColor: 'hsl(var(--color-orange))' }}>Unsaved</span>}
+        {workflow?.version > 0 && <span style={{ ...chip, fontSize: 12 }}>Version {workflow.version}</span>}
+        {dirty && <span style={{ ...chip, fontSize: 12, color: 'hsl(var(--color-orange))', borderColor: 'hsl(var(--color-orange))' }}>Unsaved</span>}
         {notice && <span style={{ ...hint, color: 'var(--nx-primary)' }}>{notice}</span>}
         <span style={{ flex: 1 }} />
         {!isMobile && (
           <span role="group" aria-label="Builder view" style={{ display: 'inline-flex', border: '1px solid var(--nx-border)', borderRadius: 9, overflow: 'hidden' }}>
             {[['canvas', 'Canvas', Waypoints], ['recipe', 'Recipe', List]].map(([key, label, Icon]) => (
               <button key={key} type="button" aria-pressed={view === key} onClick={() => setView(key)} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', border: 0, cursor: 'pointer', font: 'inherit', fontSize: 12.5, fontWeight: 600,
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', border: 0, cursor: 'pointer', font: 'inherit', fontSize: 13, fontWeight: 600,
                 background: view === key ? 'var(--wk-brand-tint, var(--nx-hover))' : 'transparent', color: view === key ? 'var(--nx-primary)' : 'var(--nx-dim)',
               }}><Icon size={13} /> {label}</button>
             ))}
@@ -398,7 +398,7 @@ export default function Builder({ id, go, runId = '' }) {
         </div>
       )}
       {workflow?.pausedReason && status !== 'active' && <div style={{ ...hint, color: 'hsl(var(--color-orange))' }}>Paused: {workflow.pausedReason}</div>}
-      {workflow?.companyEnabled === false && <Muted style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))' }}>Paused: company switch. Workflows are off for this company in Settings &gt; Workflows.</Muted>}
+      {workflow?.companyEnabled === false && <Muted style={{ fontSize: 13, color: 'hsl(var(--color-orange))' }}>Paused: company switch. Workflows are off for this company in Settings &gt; Workflows.</Muted>}
 
       <AsyncSection loading={loading && !loadError && !catalogError} error={loadError || catalogError} isEmpty={false}
         errorMessage="This workflow could not be loaded." onRetry={() => setReload((n) => n + 1)}

@@ -43,7 +43,7 @@ export function SetUp({ view, project, onDone }) {
   );
 }
 
-const small = { padding: '6px 12px', fontSize: '0.8rem', minHeight: 36 };
+const small = { padding: '6px 12px', fontSize: 13, minHeight: 36 };
 
 function Row({ t, view, project, onChanged, canVerify, canLog, names, showState = true, local, setLocal, isPunch, subs = [] }) {
   const [busy, setBusy] = useState('');
@@ -98,18 +98,18 @@ function Row({ t, view, project, onChanged, canVerify, canLog, names, showState 
         </a>
       )}
       <div style={{ flex: '1 1 220px', minWidth: 0 }}>
-        <div style={{ fontWeight: 600, fontSize: '0.92rem', textDecoration: state !== 'open' ? 'line-through' : 'none',
+        <div style={{ fontWeight: 600, fontSize: 15, textDecoration: state !== 'open' ? 'line-through' : 'none',
           color: state !== 'open' ? 'var(--text-secondary)' : 'var(--text-primary)', overflowWrap: 'anywhere' }}>{t.title}</div>
         {(meta.location || over.location) && (
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
             <MapPin size={12} aria-hidden="true" />{over.location || meta.location}
           </div>
         )}
-        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
           {[subName ? `Sub: ${subName}` : (who || 'No one assigned'), t.dueOn ? `Due ${formatDate(t.dueOn, t.dueOn)}` : '',
             state === 'verified' && meta.verifiedByName ? `Verified by ${meta.verifiedByName}${meta.verifiedAt ? ` ${formatDateTime(meta.verifiedAt, '')}` : ''}` : ''].filter(Boolean).join(' · ')}
         </div>
-        {error && <div role="alert" style={{ fontSize: '0.78rem', color: 'hsl(var(--color-red))', marginTop: 4 }}>{error}</div>}
+        {error && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))', marginTop: 4 }}>{error}</div>}
       </div>
       {over.entryId && <SyncState id={over.entryId} />}
       {showState && <StatusLabel size="sm" label={label.label} color={label.color} />}
@@ -175,14 +175,14 @@ function AddItem({ project, people, onAdded }) {
       </select>
       <DateField value={due} onChange={(v) => setDue(v || '')} placeholder="Due Date" title="Due Date" />
       <button type="submit" className="primary-btn" disabled={!title.trim() || busy}><Plus size={14} />{busy ? 'Adding…' : 'Add Item'}</button>
-      {error && <div role="alert" style={{ width: '100%', fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{error}</div>}
+      {error && <div role="alert" style={{ width: '100%', fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</div>}
     </form>
   );
 }
 
 function SavedNote({ at }) {
   if (!at) return null;
-  return <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 10 }}>Opened from this phone (saved {formatDateTime(at, '')}).</div>;
+  return <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10 }}>Opened from this phone (saved {formatDateTime(at, '')}).</div>;
 }
 
 export default function PunchTab({ project }) {
@@ -222,7 +222,7 @@ export default function PunchTab({ project }) {
     || String(a.dueOn || '9999').localeCompare(String(b.dueOn || '9999')));
   const c = view.punch || {};
   const chip = (on) => ({
-    minHeight: 36, padding: '6px 14px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600,
+    minHeight: 36, padding: '6px 14px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
     border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: on ? 'color-mix(in srgb, var(--wk-brand, #2b45e1) 10%, transparent)' : 'var(--bg-card)',
     color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)',
   });
@@ -251,16 +251,16 @@ export default function PunchTab({ project }) {
           </select>
         )}
         <a href={`/tasks/projects?project=${encodeURIComponent(view.taskProject.id)}`} className="secondary-btn"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', fontSize: '0.82rem', textDecoration: 'none' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', fontSize: 13, textDecoration: 'none' }}>
           Open in Tasks <ExternalLink size={12} />
         </a>
       </div>
 
       {isWorkOrder && (
         <div style={CARD}>
-          <h3 style={{ fontSize: '1.05rem', marginBottom: 4 }}>Work Steps</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 14px' }}>The steps from the Work Order template - tick each one off as it is done.</p>
-          {steps.length === 0 ? <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>No steps{who ? ' for this person' : ''}.</div> : (
+          <h3 style={{ fontSize: 18, marginBottom: 4 }}>Work Steps</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '0 0 14px' }}>The steps from the Work Order template - tick each one off as it is done.</p>
+          {steps.length === 0 ? <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No steps{who ? ' for this person' : ''}.</div> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {steps.map((t) => <Row key={t.id} t={t} {...rowProps} canLog={canLog} canVerify={false} showState={false} isPunch={false} />)}
             </div>
@@ -269,8 +269,8 @@ export default function PunchTab({ project }) {
       )}
 
       <div style={CARD}>
-        <h3 style={{ fontSize: '1.05rem', marginBottom: 4 }}>Punch List</h3>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 14px' }}>
+        <h3 style={{ fontSize: 18, marginBottom: 4 }}>Punch List</h3>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '0 0 14px' }}>
           Each item is a task on the job's schedule. The crew marks it Done with a photo of the finished work; a job manager checks it and marks it Verified.
         </p>
         {canLog && <AddItem project={project} people={jobPeople} onAdded={(p) => { if (p) setPending((x) => [...x, p]); else reload(); }} />}
@@ -282,8 +282,8 @@ export default function PunchTab({ project }) {
             {sorted.map((t) => (t.entryId ? (
               <div key={t.id} data-punch-row={t.id} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '12px 14px', border: '1px dashed var(--border-color)', borderRadius: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>{t.title}</div>
-                  {t.location && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t.location}</div>}
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>{t.title}</div>
+                  {t.location && <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t.location}</div>}
                 </div>
                 <SyncState id={t.entryId} />
               </div>

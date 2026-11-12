@@ -65,24 +65,24 @@ export function TeamTable({ team, onOpen, filtered = false }) {
           <span role="cell" style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <Avatar email={p.email} name={p.name} size={32} card={false} />
             <span style={{ minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{p.name}</span>
               <span style={{ display: 'block', ...muted, fontSize: 12 }}>{p.title || p.department}</span>
             </span>
             {p.goals?.proposed > 0 && <StatusLabel label={`${p.goals.proposed} to Approve`} color="#2563eb" size="sm" />}
           </span>
           <span role="cell" title={p.score == null ? 'No score this month' : `${p.score} out of 100 this month`}
-            style={{ fontSize: 17, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: scoreColor(p.score) }}>{p.score == null ? '-' : p.score}</span>
+            style={{ fontSize: 18, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: scoreColor(p.score) }}>{p.score == null ? '-' : p.score}</span>
           <span role="cell" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', minWidth: 0 }}>
             {(p.numbers || []).length ? p.numbers.map(n => (
               <span key={n.key} style={{ minWidth: 0 }}>
                 <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{n.display}</span>
-                <span style={{ ...muted, fontSize: 11.5, marginLeft: 4 }}>{n.label}</span>
+                <span style={{ ...muted, fontSize: 12, marginLeft: 4 }}>{n.label}</span>
               </span>
             )) : <span style={muted}>No numbers yet</span>}
           </span>
           <span role="cell"><GoalCounts g={p.goals} /></span>
           <span role="cell">{p.review ? <ReviewStage stage={p.review.stage} /> : <span style={muted}>-</span>}</span>
-          <span role="cell" style={{ fontSize: 12.5, fontVariantNumeric: 'tabular-nums', color: p.nextOneOnOne?.at ? 'var(--ink)' : 'var(--muted)' }}>
+          <span role="cell" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: p.nextOneOnOne?.at ? 'var(--ink)' : 'var(--muted)' }}>
             {p.nextOneOnOne?.at ? (p.nextOneOnOne.label || formatDateTime(p.nextOneOnOne.at)) : (phone ? 'No 1:1 booked' : 'None Booked')}
           </span>
         </button>
@@ -164,7 +164,7 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
               <button type="button" className="secondary-btn" onClick={() => setPerson(null)}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minHeight: 40 }}><ChevronLeft size={15} /> My Team</button>
               <Avatar email={person.email} name={person.name} size={32} card={false} />
-              <span style={{ fontSize: 16, fontWeight: 700 }}>{person.name}</span>
+              <span style={{ fontSize: 15, fontWeight: 700 }}>{person.name}</span>
               <span style={muted}>{person.title || person.department}</span>
               <button type="button" className="secondary-btn" onClick={() => setNewOneOnOne({ reportEmail: person.email })}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', minHeight: 40 }}><Plus size={14} /> Set Up a 1:1</button>

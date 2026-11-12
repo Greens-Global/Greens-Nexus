@@ -26,7 +26,7 @@ import { DateField, Modal, AvatarName } from '../tasks/components';
 const STATUS_COLOR = {
   requested: '#64748b', in_review: '#2563eb', awaiting_signature: '#b45309', issued: '#15803d', declined: '#b91c1c',
 };
-const lbl = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px' };
+const lbl = { fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px' };
 const full = { width: '100%' };
 const small = { fontSize: 12, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 5 };
 
@@ -89,10 +89,10 @@ export function MyLetterRow({ r, fresh = false, flash }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {fresh && <span title="Updated by HR" style={{ width: 8, height: 8, borderRadius: '50%', background: 'hsl(var(--color-red))', flexShrink: 0 }} />}
         <FileSignature size={13} aria-hidden="true" style={{ color: 'var(--muted)', flexShrink: 0 }} />
-        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
           {r.typeLabel} · {formatDate(r.createdAt, '-')}
         </span>
-        {fresh && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Updated by HR</span>}
+        {fresh && <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Updated by HR</span>}
         <LetterStatus r={r} />
       </div>
       {line && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{line}</div>}
@@ -137,13 +137,13 @@ export function LetterRequestForm({ types, onCancel, onCreated }) {
                 border: '1px solid var(--line)', boxShadow: on ? 'inset 0 0 0 1px hsl(var(--color-blue))' : 'none',
                 borderColor: on ? 'hsl(var(--color-blue))' : 'var(--line)' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{t.label}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>{t.desc}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>{t.desc}</div>
             </button>
           );
         })}
       </div>
       {picked?.printsPay && (
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>This letter shows your pay. Only HR with Pay &amp; Benefits access prepares it.</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>This letter shows your pay. Only HR with Pay &amp; Benefits access prepares it.</div>
       )}
       <label style={lbl} htmlFor="letter-purpose">What Is It For?</label>
       <input id="letter-purpose" className="form-input" style={full} value={form.purpose} onChange={e => set('purpose')(e.target.value)}
@@ -162,10 +162,10 @@ export function LetterRequestForm({ types, onCancel, onCreated }) {
       <label style={lbl} htmlFor="letter-notes">Notes for HR (Optional)</label>
       <textarea id="letter-notes" className="form-input" rows={2} style={{ ...full, resize: 'vertical' }} value={form.notes}
         onChange={e => set('notes')(e.target.value)} placeholder="Anything the letter must say, or who it should go to" />
-      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
         HR prepares the letter and the company signs it. The signed copy lands in My Documents.
       </div>
-      {error && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginTop: 10 }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))', marginTop: 10 }}>{error}</div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
         <button type="button" className="secondary-btn" onClick={onCancel} disabled={busy}>Cancel</button>
         <button type="button" className="primary-btn" onClick={submit} disabled={busy || !form.letter_type || !form.purpose.trim()}
@@ -231,7 +231,7 @@ function QueueRows({ rows, onOpen }) {
             <AvatarName email={r.employeeEmail} name={r.employeeName} size={22} style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }} />
             <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {r.typeLabel}{r.companyName ? ` · ${r.companyName}` : ''}</span>
             <div style={{ fontSize: 12, color: soon(r) ? 'hsl(var(--color-orange))' : 'var(--muted)', marginTop: 2, fontWeight: soon(r) ? 600 : 400 }}>{whenLine(r)}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{r.purpose}</div>
+            <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 3 }}>{r.purpose}</div>
             {r.note && <div style={{ fontSize: 12, color: 'hsl(var(--color-orange))', marginTop: 3 }}>{r.note}</div>}
           </div>
           <LetterStatus r={r} />
@@ -373,8 +373,8 @@ export function LetterReviewModal({ id, onClose, onChanged, toastOk, toastErr })
                   <LetterStatus r={req} />
                   <span style={{ fontSize: 12, color: 'var(--muted)' }}>{whenLine(req)}{req.companyName ? ` · ${req.companyName}` : ''}</span>
                 </div>
-                <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 8 }}><strong>For:</strong> {req.purpose}</div>
-                {req.addressedTo && <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}><strong>To:</strong> {req.addressedTo}</div>}
+                <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 8 }}><strong>For:</strong> {req.purpose}</div>
+                {req.addressedTo && <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 3 }}><strong>To:</strong> {req.addressedTo}</div>}
                 {req.notes && <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 6, padding: '7px 10px', background: 'var(--mist)', borderRadius: 8 }}>{req.notes}</div>}
                 {req.note && <div style={{ fontSize: 12, color: 'hsl(var(--color-orange))', marginTop: 6 }}>{req.note}</div>}
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
@@ -382,11 +382,11 @@ export function LetterReviewModal({ id, onClose, onChanged, toastOk, toastErr })
                     ? <>Signed by <AvatarName email={review.signer.email} name={review.signer.name} size={18}><strong style={{ color: 'var(--ink)' }}>{review.signer.name}</strong></AvatarName>{review.signer.title ? `, ${review.signer.title}` : ''} ({review.signer.role}) - the only signer.</>
                     : 'Nobody can sign this letter yet.'}
                 </div>
-                {review.template && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>From the template &quot;{review.template.name}&quot; (version {review.template.version}).</div>}
+                {review.template && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>From the template &quot;{review.template.name}&quot; (version {review.template.version}).</div>}
                 {(review.fields || []).map(f => field(f))}
                 {(review.payFields || []).map(f => field(f, true))}
                 {review.printsPay && !review.canSeePay && (
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>This letter shows pay. The preview prints [Pay]; issuing it needs Pay &amp; Benefits access.</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>This letter shows pay. The preview prints [Pay]; issuing it needs Pay &amp; Benefits access.</div>
                 )}
                 {editable && review.problems?.length > 0 && (
                   <div role="status" style={{ marginTop: 12, padding: '8px 11px', borderRadius: 9, background: 'hsla(var(--color-orange),0.1)', color: 'var(--ink)', fontSize: 12 }}>
@@ -463,12 +463,12 @@ export function HrLettersSettings({ company = '', toastOk, toastErr, onOverride 
     } catch (e) { toastErr?.(e?.message || 'Could not save the HR letters.'); }
     finally { setSaving(''); }
   };
-  if (failed) return <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>The HR letter settings could not be loaded right now.</div>;
+  if (failed) return <div style={{ fontSize: 13, color: 'var(--muted)' }}>The HR letter settings could not be loaded right now.</div>;
   if (!cfg) return <SkeletonBlocks count={3} height={48} borderRadius={10} />;
   const setType = (key, patch) => save({ ...cfg, types: cfg.types.map(t => (t.key === key ? { ...t, ...patch } : t)) }, key);
   const picker = (t) => (
     <select className="form-input" aria-label={`${t.label} template`} value={t.templateId} disabled={saving === t.key}
-      onChange={e => setType(t.key, { templateId: e.target.value })} style={{ fontSize: 12.5, maxWidth: 280 }}>
+      onChange={e => setType(t.key, { templateId: e.target.value })} style={{ fontSize: 13, maxWidth: 280 }}>
       <option value="">Nexus Default</option>
       {cfg.templates.filter(x => x.id !== t.defaultTemplateId).map(x => (
         <option key={x.id} value={x.id} disabled={!x.published}>{x.name}{x.published ? '' : ' (Not Published)'}</option>
@@ -477,7 +477,7 @@ export function HrLettersSettings({ company = '', toastOk, toastErr, onOverride 
   );
   return (
     <div>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>
         The letters employees can request from My HR. Each prints from a Documents template (the &quot;HR Letter&quot; templates by default - edit them in Documents &gt; Templates and Publish) and is signed by the company&apos;s Authorized Signatory through Nexus Sign.
       </div>
       <SettingCard>
@@ -488,7 +488,7 @@ export function HrLettersSettings({ company = '', toastOk, toastErr, onOverride 
             {/* The template sits under the switch as one line, not a row of its own
                 inside the row (that drew a stray rule under the last letter). */}
             {t.on && (
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13, color: 'var(--muted)' }}>
                 Template
                 {picker(t)}
                 {!t.templateId && <span style={{ fontSize: 12 }}>{`Prints "${t.templateName || 'the Nexus default'}".`}</span>}
@@ -499,17 +499,17 @@ export function HrLettersSettings({ company = '', toastOk, toastErr, onOverride 
         <SettingRow title="Letterhead" desc="Printed on every HR letter whose template asks for one."
           control={(
             <select className="form-input" aria-label="Letterhead" value={cfg.letterheadId} disabled={!!saving}
-              onChange={e => save({ ...cfg, letterheadId: e.target.value }, 'letterhead')} style={{ fontSize: 12.5, maxWidth: 240 }}>
+              onChange={e => save({ ...cfg, letterheadId: e.target.value }, 'letterhead')} style={{ fontSize: 13, maxWidth: 240 }}>
               <option value="">The Template&apos;s Own</option>
               {cfg.letterheads.map(l => <option key={l.id} value={l.id}>{l.name}{l.isDefault ? ' (Default)' : ''}</option>)}
             </select>
           )} />
       </SettingCard>
       {company && (
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {cfg.hasOverride ? 'This company has HR letter settings of its own.' : 'Using the default for every company; a change here is this company\'s alone.'}
           {cfg.hasOverride && (
-            <button type="button" className="secondary-btn" onClick={() => save(cfg, 'reset', true)} disabled={!!saving} style={{ fontSize: 11.5 }}>Use the Default</button>
+            <button type="button" className="secondary-btn" onClick={() => save(cfg, 'reset', true)} disabled={!!saving} style={{ fontSize: 12 }}>Use the Default</button>
           )}
         </div>
       )}

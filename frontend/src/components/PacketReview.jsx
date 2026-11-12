@@ -36,20 +36,20 @@ export async function savePrintCopy(eventId) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-const lbl = { fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '0 0 5px' };
+const lbl = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '0 0 5px' };
 const h3 = { fontSize: 15, fontWeight: 800, margin: '24px 0 10px', color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 10 };
-const num = (n) => <span style={{ width: 22, height: 22, borderRadius: 11, background: 'var(--pine)', color: '#fff', fontSize: 11.5, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{n}</span>;
+const num = (n) => <span style={{ width: 22, height: 22, borderRadius: 11, background: 'var(--pine)', color: '#fff', fontSize: 12, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{n}</span>;
 const card = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' };
 const DAY_LABELS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
 const STATUS_LABEL = { intake: 'Waiting On Details', review: 'Ready For Review', awaiting_sender: 'Awaiting Company Sign-Off', sent: 'Out For Signature', completed: 'Fully Signed', declined: 'Declined', voided: 'Voided', expired: 'Expired' };
 
 const Problem = ({ children }) => (
-  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, marginTop: 8 }}>
+  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '9px 12px', fontSize: 13, marginTop: 8 }}>
     <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} /><span>{children}</span>
   </div>
 );
 const Chip = ({ tone = 'gray', children }) => (
-  <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap',
+  <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
     background: tone === 'gray' ? 'var(--mist)' : `hsla(var(--color-${tone}),0.12)`,
     color: tone === 'gray' ? 'var(--muted)' : `hsl(var(--color-${tone}))` }}>{children}</span>
 );
@@ -206,7 +206,7 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
           <div style={{ ...card, background: 'var(--mist)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
             <Mail size={15} style={{ color: 'var(--muted)' }} />
             <span style={{ flex: 1, minWidth: 200 }}>Their link went to {ev.subjectEmail}.</span>
-            <button type="button" className="secondary-btn" onClick={askAgain} disabled={!!busy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <button type="button" className="secondary-btn" onClick={askAgain} disabled={!!busy} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               {busy === 'ask' ? <Spinner size={12} /> : <Copy size={12} />} Send Link Again
             </button>
           </div>
@@ -217,7 +217,7 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
         {(data.documents || []).length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)' }}>No documents yet.</div>}
         {(data.documents || []).map((doc, i) => (
           <div key={doc.documentId} style={{ ...card, display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
-            <span style={{ width: 22, color: 'var(--muted)', fontWeight: 700, fontSize: 12.5 }}>{i + 1}</span>
+            <span style={{ width: 22, color: 'var(--muted)', fontWeight: 700, fontSize: 13 }}>{i + 1}</span>
             <FileText size={18} style={{ color: 'var(--pine)', flexShrink: 0 }} />
             <div style={{ flex: '1 1 240px', minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 700 }}>{doc.title}</div>
@@ -239,16 +239,16 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
               )}
             </div>
             {doc.canOpen
-              ? <button type="button" className="primary-btn" onClick={() => setPreview(doc)} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Eye size={13} /> Open</button>
+              ? <button type="button" className="primary-btn" onClick={() => setPreview(doc)} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Eye size={13} /> Open</button>
               : <span style={{ fontSize: 12, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock size={12} /> Needs Pay & Benefits Access</span>}
           </div>
         ))}
-        {data.outdated && <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}><RefreshCw size={12} /> A template was updated - refreshing the documents...</div>}
+        {data.outdated && <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}><RefreshCw size={12} /> A template was updated - refreshing the documents...</div>}
 
         {/* 2. What is printed - one summary, one Edit. */}
         <h3 style={h3}>
           {num(2)} Check what is printed
-          {inReview && !editing && <button type="button" className="secondary-btn" onClick={startEdit} style={{ marginLeft: 'auto', fontSize: 12.5, padding: '4px 12px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={12} /> Edit</button>}
+          {inReview && !editing && <button type="button" className="secondary-btn" onClick={startEdit} style={{ marginLeft: 'auto', fontSize: 13, padding: '4px 12px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={12} /> Edit</button>}
         </h3>
         {editing ? (
           <div style={card}>
@@ -271,7 +271,7 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
                   {DAY_LABELS.map(([k, l]) => {
                     const on = (form.work_days || []).includes(k);
                     return <button key={k} type="button" aria-pressed={on} onClick={() => set('work_days', on ? form.work_days.filter(x => x !== k) : [...(form.work_days || []), k])}
-                      style={{ padding: '5px 12px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 12.5, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                      style={{ padding: '5px 12px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
                         background: on ? 'var(--pine)' : 'var(--card)', color: on ? '#fff' : 'var(--ink)' }}>{l}</button>;
                   })}
                 </div></div>
@@ -323,7 +323,7 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
                 {d.permanent_address && <Row k="Permanent Address" v={d.permanent_address} />}
                 {!isOffer && <Row k="Emergency Contact" v={d.emergency_name && `${d.emergency_name}${d.emergency_relationship ? ` (${d.emergency_relationship})` : ''}${d.emergency_phone ? ` - ${d.emergency_phone}` : ''}`} />}
                 {(data.answers || []).map((a, i) => a.type === 'heading'
-                  ? <div key={`h-${i}`} style={{ fontSize: 12.5, fontWeight: 800, marginTop: 8 }}>{a.label}</div>
+                  ? <div key={`h-${i}`} style={{ fontSize: 13, fontWeight: 800, marginTop: 8 }}>{a.label}</div>
                   : <Row key={a.key} k={a.label} v={a.locked ? <Locked /> : a.value} />)}
               </div>
             )}
@@ -333,14 +333,14 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
         {/* 3. Who signs, then confirm. */}
         <h3 style={h3}>{num(3)} Confirm and send</h3>
         <div style={card}>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 6 }}>Signing order</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Signing order</div>
           {(data.recipients || []).map(r => (
             <div key={`${r.order}-${r.email}`} style={{ fontSize: 13, padding: '4px 0', display: 'flex', gap: 10 }}>
               <span style={{ width: 20, color: 'var(--muted)', fontWeight: 700 }}>{r.order}</span>
               <span style={{ flex: 1 }}>{r.name} <span style={{ color: 'var(--muted)' }}>- {r.isSubject ? 'the person, no login needed' : r.roleLabel} - {r.actionLabel}</span></span>
             </div>
           ))}
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 8 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
             Checked and sent by {v.name ? <b style={{ color: 'var(--ink)' }}>{v.name}</b> : 'nobody yet'} ({v.roleLabel || 'HR'}).
           </div>
         </div>
@@ -356,7 +356,7 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
                     : `${s.name} (${s.roleLabel}) signs this packet once before it can be sent.`}
                 </span>
                 {!s.signed && s.isMe && (
-                  <button type="button" className="primary-btn" onClick={() => setSigning(s)} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <button type="button" className="primary-btn" onClick={() => setSigning(s)} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                     <PenTool size={12} /> Sign Once
                   </button>
                 )}
@@ -370,11 +370,11 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
 
         {inReview && data.isVerifier && (
           <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', fontSize: 13.5 }}>
+            <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', fontSize: 13 }}>
               <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ marginTop: 3, width: 16, height: 16, accentColor: 'var(--pine)' }} />
               I checked every document - the names, dates, pay and wording are right.
             </label>
-            <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', fontSize: 13.5 }}>
+            <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', fontSize: 13 }}>
               <input type="checkbox" checked={inPerson} onChange={e => setInPerson(e.target.checked)} style={{ marginTop: 3, width: 16, height: 16, accentColor: 'var(--pine)' }} />
               <span>Sign in person, not electronically <span style={{ color: 'var(--muted)' }}>(optional) - print it, have {first} sign it face to face, then upload the signed copy.</span></span>
             </label>
@@ -416,7 +416,7 @@ function Shell({ title, sub, status, onClose, children }) {
       <div style={{ background: 'var(--card)', borderRadius: 18, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '18px 28px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'flex-start', gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 17, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               {title} {status && <Chip tone="orange">{status}</Chip>}
             </div>
             {sub && <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>{sub}</div>}

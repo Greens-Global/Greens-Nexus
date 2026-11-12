@@ -88,7 +88,7 @@ function SyncedNote({ id, people, onNote, onMakeTask }) {
   const readOnly = !!note.trashedAt || note.can === 'read';
   return (<>
     {note.kind !== 'daily' && (
-      <input className="nt-title" style={{ fontSize: 19, marginTop: 12 }} value={note.title || ''} readOnly={readOnly}
+      <input className="nt-title" style={{ fontSize: 18, marginTop: 12 }} value={note.title || ''} readOnly={readOnly}
         placeholder="Untitled Note" aria-label="Note title" onChange={(e) => sync.edit({ title: e.target.value })} />
     )}
     <NoteEditor value={note.body || ''} readOnly={readOnly} people={people} compact autoFocus

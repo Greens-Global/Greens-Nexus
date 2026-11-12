@@ -22,7 +22,7 @@ function toDisplay(monthly, period) {
   return value === 0 ? '' : String(Math.round(value * 100) / 100)
 }
 
-const cellInput = { width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12.5 }
+const cellInput = { width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13 }
 
 export default function SetBudgetModal({
   facilities,
@@ -84,7 +84,7 @@ export default function SetBudgetModal({
     <Modal title="Set Budget" onClose={onClose} width="max-w-2xl" isDirty={dirty} onSave={error ? undefined : handleSave}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
-          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 500, color: C.gray600, marginBottom: 6 }}>Budget Period</label>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: C.gray600, marginBottom: 6 }}>Budget Period</label>
           <div style={{ display: 'flex', gap: 8 }}>
             {PERIODS.map((p) => {
               const active = period === p.key
@@ -98,7 +98,7 @@ export default function SetBudgetModal({
                     padding: '6px 12px',
                     borderRadius: 8,
                     border: '1px solid ' + (active ? C.gray900 : C.gray200),
-                    fontSize: 12.5,
+                    fontSize: 13,
                     fontWeight: 500,
                     background: active ? C.gray900 : 'transparent',
                     color: active ? C.white : C.gray600,
@@ -114,14 +114,14 @@ export default function SetBudgetModal({
         </div>
 
         <div style={{ borderRadius: 8, border: '1px solid ' + C.gray100, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '8px 12px', background: C.gray50, fontSize: 11.5, fontWeight: 500, color: C.gray500 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '8px 12px', background: C.gray50, fontSize: 12, fontWeight: 500, color: C.gray500 }}>
             <div>Property</div>
             <div>Google Ads Budget</div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {facilities.map((f, i) => (
               <div key={f} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '8px 12px', alignItems: 'center', borderTop: i === 0 ? 'none' : '1px solid ' + C.gray100 }}>
-                <div style={{ fontSize: 12.5, color: C.gray700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f}</div>
+                <div style={{ fontSize: 13, color: C.gray700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f}</div>
                 <input
                   type="number"
                   min={0}
@@ -135,7 +135,7 @@ export default function SetBudgetModal({
           </div>
         </div>
 
-        {(error || saveError) && <div role="alert" style={{ fontSize: 12.5, color: C.red500 }}>{error || saveError}</div>}
+        {(error || saveError) && <div role="alert" style={{ fontSize: 13, color: C.red500 }}>{error || saveError}</div>}
 
         <div style={{ borderRadius: 8, background: C.gray50, border: '1px solid ' + C.gray100, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
           <div style={{ color: C.gray400 }}>Google Ads Total</div>

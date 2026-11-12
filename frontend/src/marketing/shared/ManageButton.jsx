@@ -55,7 +55,7 @@ export default function ManageButton({ onNavigate }) {
           <div
             style={{
               padding: '6px 10px',
-              fontSize: 10.5,
+              fontSize: 11,
               fontWeight: 600,
               textTransform: 'uppercase',
               letterSpacing: '0.025em',

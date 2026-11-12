@@ -65,13 +65,13 @@ export default function Overview({ overview, loading, error, reload, go }) {
             <SectionTitle count={attention.length || null}>Needs Attention</SectionTitle>
             <Card>
               {attention.length === 0 ? (
-                <div style={{ padding: '18px 16px', fontSize: 13.5, color: 'var(--muted)' }}>Every workflow is running as published.</div>
+                <div style={{ padding: '18px 16px', fontSize: 13, color: 'var(--muted)' }}>Every workflow is running as published.</div>
               ) : attention.map((a) => (
                 <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
                   <AlertTriangle size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 180 }}>
                     <LinkButton onClick={() => go(buildSub('builder', a.id))} style={{ color: 'var(--ink)', fontSize: 14 }}>{a.name}</LinkButton>
-                    <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>
+                    <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
                       {a.reason}{a.since ? <span title={formatDateTime(a.since)}> - since {formatDateTime(a.since)}</span> : null}
                     </div>
                   </div>
@@ -94,14 +94,14 @@ export default function Overview({ overview, loading, error, reload, go }) {
             <SectionTitle action={<LinkButton onClick={() => go('runs')} style={{ fontSize: 13 }}>Every Run</LinkButton>}>Recent Runs</SectionTitle>
             <Card>
               {recent.length === 0 ? (
-                <div style={{ padding: '18px 16px', fontSize: 13.5, color: 'var(--muted)' }}>No runs yet. A published workflow's runs show here as they happen.</div>
+                <div style={{ padding: '18px 16px', fontSize: 13, color: 'var(--muted)' }}>No runs yet. A published workflow's runs show here as they happen.</div>
               ) : recent.map((r) => {
                 const m = runStatusMeta(r.status);
                 return (
                   <button key={r.id} type="button" onClick={() => go(buildSub('run', r.id))}
                     style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '2px 12px', width: '100%', textAlign: 'left',
                       padding: '10px 16px', border: 'none', borderTop: '1px solid var(--line)', background: 'none', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', fontFamily: FONT }}>
-                    <span style={{ fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.workflowName}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.workflowName}</span>
                     <StatusLabel label={m.label} color={m.color} size="sm" />
                     <Muted style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.subjectLabel || r.summary || ''}</Muted>
                     <Muted title={r.startedAt ? formatDateTime(r.startedAt) : ''} style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>{waited(r.startedAt)}</Muted>
@@ -119,7 +119,7 @@ export default function Overview({ overview, loading, error, reload, go }) {
 function Figure({ label, value, color }) {
   return (
     <div style={{ textAlign: 'center', padding: '6px 4px' }}>
-      <div style={{ fontSize: 26, fontWeight: 800, color: color || 'var(--ink)', lineHeight: 1.1 }}>{value ?? 0}</div>
+      <div style={{ fontSize: 24, fontWeight: 800, color: color || 'var(--ink)', lineHeight: 1.1 }}>{value ?? 0}</div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>{label}</div>
     </div>
   );

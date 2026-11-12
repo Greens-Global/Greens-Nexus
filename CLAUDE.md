@@ -292,7 +292,8 @@ keep the diff minimal.
   `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
   Shrink / Expand button; short answers keep the small card
   (`support/HelpWidget.jsx`).
-- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter and every
+- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter, bundled
+  with the app (`src/fonts.css` - never Google Fonts or a second family), and every
   text size is on the scale - `FS` in `lib/typeScale.js` (meta 11, label 12,
   body 13, read 14, title 15, section 18, page 24, figure 32) or the `--fs-*`
   tokens. `scripts/check-type.mjs` (in `npm run lint`) fails a new off-scale
@@ -969,9 +970,11 @@ keep the diff minimal.
   record_links' task walls; the Transcript Ready bell is OPT-IN per person
   (`meeting_notes.alerts:<email>`) and its pass (`meeting_ready_loop`) asks
   Teams for the transcript LIST only, never the words, and bells once.
-  TESTERS FIRST: only the emails in the `meeting_notes.access`
-  nexus_settings row (per database; `"everyone": true` opens it) may use
-  it - `meetings.may_use`, never a code default.
+  WHO HAS IT: the `meeting_notes.access` nexus_settings row (per database)
+  - `"everyone": true` on dev and prod since 11/12/2026 (Neil: "Open it to
+  everyone now"), after a testers-only start; `meetings.may_use` reads it,
+  never a code default. Set `"everyone": false` to go back to the listed
+  `emails` only.
   Phase 3 (Neil, 11/12/2026): meetings outside Teams are transcribed ON THE
   DEVICE - Whisper in a Web Worker (`notes/meetings/capture/`), the
   browser's own speech service only as the fallback. This is NOT the

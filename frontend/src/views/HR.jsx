@@ -162,7 +162,7 @@ const pickRows = (list) => {
 // Directory rows ({ email, name }) for the same picker.
 const dirPickRows = (list) => list.filter(p => p.email).map(p => ({ email: p.email.toLowerCase(), name: p.name || p.email, external: !!p.external }));
 // A picker trigger the height and shape of the form's other boxes.
-const PICK_BOX = { height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13.5, fontWeight: 400 };
+const PICK_BOX = { height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13, fontWeight: 400 };
 const initials = e => `${(e.firstName || '?')[0]}${(e.lastName || '')[0] || ''}`.toUpperCase();
 const hueFor = e => AVATAR_HUES[(e.employeeCode || e.id || '').split('').reduce((n, c) => n + c.charCodeAt(0), 0) % AVATAR_HUES.length];
 
@@ -230,7 +230,7 @@ function AssetsSection({ employee }) {
       {icon}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
-        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{meta}</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{meta}</div>
       </div>
     </div>
   );
@@ -241,7 +241,7 @@ function AssetsSection({ employee }) {
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
           <Briefcase size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Assets held {data && `· ${total}`}
         </span>
-        <button className="secondary-btn" onClick={goToItems} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+        <button className="secondary-btn" onClick={goToItems} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
           Open in Item Management <ChevronRight size={12} />
         </button>
       </div>
@@ -250,7 +250,7 @@ function AssetsSection({ employee }) {
       ) : !data ? (
         <SkeletonBlocks count={4} height={40} />
       ) : total === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '6px 0' }}>
           {employee.workEmail ? 'No assigned equipment or active checkouts.' : 'No work email yet - provision the account to link assets.'}
         </div>
       ) : (
@@ -323,7 +323,7 @@ export function WorkLogsSection({ employee }) {
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
           <Clock size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Work logs (BOD/EOD)
         </span>
-        <button className="secondary-btn" onClick={() => setRange(lastWeekRange())} style={{ fontSize: 11.5, padding: '4px 10px' }}>This Week</button>
+        <button className="secondary-btn" onClick={() => setRange(lastWeekRange())} style={{ fontSize: 12, padding: '4px 10px' }}>This Week</button>
         <DateField value={start} onChange={v => v && setRange([v, end])} title="From" style={{ fontSize: 12, width: 140, height: 32, padding: '0 10px', border: '1px solid var(--line)', borderRadius: 8 }} />
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
         <DateField value={end} onChange={v => v && setRange([start, v])} title="To" style={{ fontSize: 12, width: 140, height: 32, padding: '0 10px', border: '1px solid var(--line)', borderRadius: 8 }} />
@@ -331,7 +331,7 @@ export function WorkLogsSection({ employee }) {
       {logs === null ? (
         <SkeletonBlocks count={3} height={54} />
       ) : byDate.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '6px 0' }}>
           {!employee.workEmail ? 'No work email yet - work logs key off it.' : 'No work logs posted in this date range.'}
         </div>
       ) : (
@@ -346,9 +346,9 @@ export function WorkLogsSection({ employee }) {
                   return (
                   <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
                       {slot?.punchAt && (
-                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt, slot.punchTz, g.date)}, on the employee's clock`}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt, slot.punchTz, g.date)}, on the employee's clock`}>
                           {punchLabel} {punchTime(slot.punchAt, slot.punchTz, g.date)}
                         </span>
                       )}
@@ -356,11 +356,11 @@ export function WorkLogsSection({ employee }) {
                     {posts.length ? posts.map((post, i) => (
                       <div key={post.id} style={i ? { marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--line)' } : undefined}>
                         {posts.length > 1 && (
-                          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', marginBottom: 3 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 3 }}>
                             Sent {punchTime(post.at, slot?.punchTz, g.date)}
                           </div>
                         )}
-                        <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{post.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
+                        <div style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{post.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
                         <TaskChecklist tasks={post.tasks} kind={kind} />
                       </div>
                     )) : (
@@ -431,25 +431,25 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
         </span>
         {/* Federal forms (Neil, 11/02/2026): HR++ sends a W-4, I-9 or direct deposit form to this person. */}
         {employee && <SendFederalFormMenu employee={employee} toastOk={toastOk} toastErr={toastErr} onSent={onSent} />}
-        <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ padding: '3px 8px', fontSize: 11.5, height: 28 }}>
+        <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ padding: '3px 8px', fontSize: 12, height: 28 }}>
           {DOC_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
         <DateField value={expiresOn} onChange={v => setExpiresOn(v || '')} title="Expires (optional)" placeholder="Expires (optional)"
-          style={{ fontSize: 11.5, width: 150, height: 28, padding: '0 8px', border: '1px solid var(--line)', borderRadius: 8 }} />
-        <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', padding: '5px 12px' }}>
+          style={{ fontSize: 12, width: 150, height: 28, padding: '0 8px', border: '1px solid var(--line)', borderRadius: 8 }} />
+        <label className="secondary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', padding: '5px 12px' }}>
           {uploading ? <Spinner size={12} /> : <Plus size={12} />} Upload
           <input type="file" hidden onChange={e => { upload(e.target.files?.[0]); e.target.value = ''; }} />
         </label>
       </div>
       {loadError ? <ErrorBanner message={loadError} onRetry={load} />
         : docs === null ? <Spinner size={15} />
-        : docs.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No documents yet.</div>
+        : docs.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>No documents yet.</div>
         : docs.map(d => (
-          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
-            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.05em', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 7px', color: 'var(--muted)', textTransform: 'uppercase', flexShrink: 0 }}>
+          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 7px', color: 'var(--muted)', textTransform: 'uppercase', flexShrink: 0 }}>
               {d.kind}
             </span>
-            <button onClick={() => view(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontWeight: 600, fontSize: 12.5, fontFamily: 'Inter,sans-serif', padding: 0, flex: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <button onClick={() => view(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontWeight: 600, fontSize: 13, fontFamily: 'Inter,sans-serif', padding: 0, flex: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {d.fileName}
             </button>
             {d.expiresOn && <span style={{ color: d.expiresOn.slice(0, 10) < todayLocal ? 'hsl(var(--color-red))' : 'var(--muted)', fontSize: 11, flexShrink: 0 }}>Expires {formatDate(d.expiresOn)}</span>}
@@ -510,7 +510,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'flex', flexDirection: 'column' }}>
           {!result ? (<>
-            <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.55 }}>
+            <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.55 }}>
               Creates the Microsoft 365 account (with a temp password shown once to you), assigns the license - which
               is what creates the Outlook mailbox - sets the Entra reporting line, and emails a welcome note to their
               personal address. Asana and Ignite stay manual checklist items for now.
@@ -534,7 +534,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>
                           {s.displayName || s.skuPartNumber}
-                          {s.isDefault && <span style={{ marginLeft: 7, fontSize: 9.5, fontWeight: 800, letterSpacing: '.05em', background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', borderRadius: 20, padding: '1px 7px' }}>STANDARD</span>}
+                          {s.isDefault && <span style={{ marginLeft: 7, fontSize: 11, fontWeight: 800, letterSpacing: '.05em', background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', borderRadius: 20, padding: '1px 7px' }}>STANDARD</span>}
                         </div>
                         <div style={{ fontSize: 11, color: out ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
                           {out ? 'No licenses available' : `${s.available} of ${s.total} available`}
@@ -564,10 +564,10 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.06em', color: 'hsl(var(--color-orange))', marginBottom: 5 }}>TEMP PASSWORD - SHOWN ONLY ONCE</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <code style={{ fontSize: 14, fontWeight: 700 }}>{result.tempPassword}</code>
-                  <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 10px' }}
+                  <button className="secondary-btn" style={{ fontSize: 12, padding: '4px 10px' }}
                     onClick={() => navigator.clipboard?.writeText(result.tempPassword)}>Copy</button>
                 </div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5 }}>Share it with {e.firstName} directly - they must change it on first sign-in. It is not stored anywhere.</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>Share it with {e.firstName} directly - they must change it on first sign-in. It is not stored anywhere.</div>
               </div>
             )}
           </>)}
@@ -621,8 +621,8 @@ function StatCard({ label, value, sub, tone }) {
   return (
     <div style={{ flex: '1 1 120px', minWidth: 110, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8, padding: '11px 14px' }}>
       <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 700, marginTop: 3, color, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
-      {sub && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>}
+      <div style={{ fontSize: 15, fontWeight: 700, marginTop: 3, color, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>}
     </div>
   );
 }
@@ -693,18 +693,18 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
         <FileText size={12} /> {r.attachmentName}
       </button>
       {filed[r.id] ? (
-        <span style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', fontWeight: 600 }}>✓ Added to their documents</span>
+        <span style={{ fontSize: 12, color: 'hsl(var(--color-green))', fontWeight: 600 }}>✓ Added to their documents</span>
       ) : (
         <>
           <select className="form-input" value={filedKind} onChange={e => setFiledKind(e.target.value)}
-            style={{ fontSize: 11.5, padding: '3px 22px 3px 8px', height: 'auto' }}>
+            style={{ fontSize: 12, padding: '3px 22px 3px 8px', height: 'auto' }}>
             <option value="id">ID</option>
             <option value="contract">Contract</option>
             <option value="certificate">Certificate</option>
             <option value="resume">Resume</option>
             <option value="other">Other</option>
           </select>
-          <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 10px' }}
+          <button className="secondary-btn" style={{ fontSize: 12, padding: '4px 10px' }}
             onClick={() => fileAttachment(r.id)}>
             Add to Employee Documents
           </button>
@@ -735,7 +735,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{t.requesterName}</span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {ASK_HR_KIND[t.askHrKind] || 'HR Request'} · #{t.code} · {formatDate(t.createdAt?.slice(0, 10))}</span>
-                <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{t.subject}</div>
+                <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 3 }}>{t.subject}</div>
               </div>
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', flexShrink: 0 }}>{t.assigneeId ? '' : 'Unassigned · '}Open Ticket</span>
             </div>
@@ -747,7 +747,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt?.slice(0, 10))}</span>
-                <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
+                <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
                 {attachmentRow(r)}
               </div>
               {resolving !== r.id && (
@@ -759,7 +759,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
             </div>
             {resolving === r.id && (
               <div style={{ marginTop: 8 }}>
-                <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: '0.85rem' }}
+                <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
                   placeholder="Reply to the employee (they see this on My HR)…" value={response}
                   onChange={e => setResponse(e.target.value)} autoFocus />
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
@@ -783,7 +783,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
               {earlier.map(r => (
                 <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '8px 12px' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
                   <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt?.slice(0, 10))}
                     {' · '}{r.ticketId ? 'Moved to a ticket' : (r.status === 'resolved' ? 'Resolved' : r.status)}</span>
                   <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
@@ -1017,10 +1017,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           )}
         </button>
         <div style={{ flex: 1, minWidth: 'min(100%, 260px)' }}>
-          <div style={{ fontWeight: 700, fontSize: 20, lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 700, fontSize: 18, lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             {fullName(e)}<TierMark tier={e.tier} size={16} />
             {e.identityType && e.identityType !== 'internal' && (
-              <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--muted)' }}>{e.identityType === 'guest' ? 'Guest' : 'External'}</span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--muted)' }}>{e.identityType === 'guest' ? 'Guest' : 'External'}</span>
             )}
             {isRemoved
               ? <StatusLabel label="Removed" color="hsl(var(--color-red))" size="sm" />
@@ -1039,13 +1039,13 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           {isRemoved && isAdmin && (
             <button className="primary-btn" onClick={restoreToNexus} disabled={restoreBusy}
               title="Put this person back into Nexus with their full record"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               <RotateCcw size={13} /> {restoreBusy ? 'Restoring…' : 'Restore to Nexus'}
             </button>
           )}
           {!isRemoved && !teamView && !e.m365Id && (
             <button className="primary-btn" onClick={() => setProvisionOpen(true)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               <CheckCircle size={13} /> Provision Accounts
             </button>
           )}
@@ -1053,7 +1053,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         </div>
       </div>
       {isRemoved && (
-        <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'hsla(var(--color-red),0.08)', border: '1px solid hsla(var(--color-red),0.25)', fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.55 }}>
+        <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'hsla(var(--color-red),0.08)', border: '1px solid hsla(var(--color-red),0.25)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}>
           Removed from Nexus{e.deletedBy ? ` by ${e.deletedBy}` : ''}
           {e.deletedAt ? ` on ${formatDate(e.deletedAt)}` : ''}. Their record is kept in full and
           nothing was deleted. Their Microsoft 365 account was never changed.
@@ -1235,7 +1235,7 @@ function ActionsMenu({ items }) {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" className="secondary-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
         Actions <ChevronDown size={14} />
       </button>
       {open && (
@@ -1342,7 +1342,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
     <div className="scroll-tabs" role="tablist" aria-label="Hiring" style={{ display: 'flex', gap: 4 }}>
       {[['pipeline', 'Pipeline'], ['openings', `Openings${activeOpenings.length ? ` (${activeOpenings.length})` : ''}`], ...(hcMeta.showTab ? [['headcount', 'Headcount']] : [])].map(([k, label]) => (
         <button key={k} type="button" role="tab" aria-selected={hView === k} onClick={() => { setHView(k); if (k === 'pipeline') { refreshBoard(); loadOpenings(); } }}
-          className={hView === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 12.5, padding: '5px 12px' }}>{label}</button>
+          className={hView === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 13, padding: '5px 12px' }}>{label}</button>
       ))}
     </div>
   );
@@ -1426,12 +1426,12 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
             <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{candName(c)}</div>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.roleTitle || c.department || '-'}</div>
           </div>
-          <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{daysSince(c.updatedAt)}d</span>
+          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{daysSince(c.updatedAt)}d</span>
         </div>
         {['applied', 'screening'].includes(c.stage) && c.expectedInterviewOn && !c.interview && (
           <div style={{ marginTop: 7 }}>
             <span title="Expected interview date - screening is due one business day before"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'var(--mist)', color: 'var(--muted)' }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'var(--mist)', color: 'var(--muted)' }}>
               <CalendarDays size={10} /> Interview By {formatDate(c.expectedInterviewOn)}
             </span>
           </div>
@@ -1440,7 +1440,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           <div style={{ marginTop: 7, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
             {c.interview && ['scheduled', 'live'].includes(c.interview.status) && (
               <span title={c.interview.interviewers?.length ? `With ${c.interview.interviewers.join(', ')}` : ''}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12,
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 12,
                   background: c.interview.status === 'live' ? 'hsla(var(--color-orange),0.12)' : 'hsla(var(--color-purple),0.1)',
                   color: c.interview.status === 'live' ? 'hsl(var(--color-orange))' : 'hsl(var(--color-purple))' }}>
                 <CalendarDays size={10} />
@@ -1450,13 +1450,13 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
             )}
             {c.interview?.status === 'completed' && (
               <span title="Interview done - waiting on the transcript or the score"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'var(--mist)', color: 'var(--muted)' }}>
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'var(--mist)', color: 'var(--muted)' }}>
                 <CheckCircle size={10} /> Interviewed
               </span>
             )}
             {c.interviewScore != null && (
               <span title="Calibrated interview score (0–100)"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 12,
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 12,
                   background: c.interviewScore >= 70 ? 'hsla(var(--color-green),0.12)' : c.interviewScore >= 45 ? 'hsla(var(--color-orange),0.12)' : 'hsla(var(--color-red),0.12)',
                   color: c.interviewScore >= 70 ? 'hsl(var(--color-green))' : c.interviewScore >= 45 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))' }}>
                 🏆 {c.interviewScore}
@@ -1478,7 +1478,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           <button className="secondary-btn"
             onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'hiring' } }))}
             title={needPackets.length ? `${needPackets.map(r => r.name).join(', ')} - added while hiring, no hiring documents yet` : 'Hiring documents and interview questionnaires, in Settings'}
-            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6,
+            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6,
               ...(needPackets.length ? { borderColor: '#b45309', color: '#b45309', background: 'rgba(180,83,9,0.08)', fontWeight: 700 } : {}) }}>
             {needPackets.length > 0 && <AlertTriangle size={13} />}
             Hiring Setup
@@ -1486,14 +1486,14 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
               <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#b45309', color: '#fff' }}>{needPackets.length}</span>
             )}
           </button>
-          <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
+          <button className="secondary-btn" style={{ fontSize: 13 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
           {inactive.length > 0 && (
-            <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setShowInactive(s => !s)}
+            <button className="secondary-btn" style={{ fontSize: 13 }} onClick={() => setShowInactive(s => !s)}
               title="Rejected candidates removed from the board, or rejected more than 90 days ago">
               {showInactive ? 'Hide' : 'Show'} Inactive ({inactive.length})
             </button>
           )}
-          <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setAddOpen(true)}>
+          <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }} onClick={() => setAddOpen(true)}>
             <Plus size={14} /> Add Candidate
           </button>
         </div>
@@ -1535,7 +1535,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
           <UserPlus size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
           <div style={{ fontSize: 14, fontWeight: 600 }}>No candidates yet.</div>
-          <div style={{ fontSize: 12.5, marginTop: 4 }}>Add one and walk them through Applied → Hired - hiring creates the employee record automatically.</div>
+          <div style={{ fontSize: 13, marginTop: 4 }}>Add one and walk them through Applied → Hired - hiring creates the employee record automatically.</div>
         </div>
       ) : isMobile ? (
         /* Phone: stage-grouped stacks, same data as the desktop board */
@@ -1547,7 +1547,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
               <div key={s} style={{ marginBottom: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 4px 8px' }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${STAGE_META[s].hue})` }} />
-                  <b style={{ fontSize: 11.5, letterSpacing: '.06em', textTransform: 'uppercase' }}>{STAGE_META[s].label}</b>
+                  <b style={{ fontSize: 12, letterSpacing: '.06em', textTransform: 'uppercase' }}>{STAGE_META[s].label}</b>
                   <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 20, padding: '1px 8px', color: 'var(--muted)' }}>{items.length}</span>
                 </div>
                 {items.map(card)}
@@ -1576,7 +1576,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
                 {items.map(card)}
                 {items.length === 0 && (
                   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px dashed var(--line)', borderRadius: 10, margin: '2px 2px 4px', minHeight: 90 }}>
-                    <span style={{ fontSize: 11.5, color: 'var(--muted)', opacity: 0.8 }}>No one in {STAGE_META[s].label.toLowerCase()}</span>
+                    <span style={{ fontSize: 12, color: 'var(--muted)', opacity: 0.8 }}>No one in {STAGE_META[s].label.toLowerCase()}</span>
                   </div>
                 )}
               </div>
@@ -1592,7 +1592,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
             {inactive.map(card)}
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Open one and click Reopen to put them back in the pipeline.</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Open one and click Reopen to put them back in the pipeline.</div>
         </div>
       )}
 
@@ -1723,18 +1723,18 @@ function OrgNodeCard({ e, kids, total = 0, isCollapsed, onToggle, onSelect, dnd,
         <Avatar e={e} size={40} card={false} />
         <div style={{ flex: 1, minWidth: 0, lineHeight: 1.35 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-            <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--ink)', minWidth: 0, ...line }}>{fullName(e)}</span>
+            <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)', minWidth: 0, ...line }}>{fullName(e)}</span>
             <TierMark tier={e.tier} size={12} />
           </div>
           <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)', opacity: e.jobTitle ? 0.82 : 0.4, ...line }}>
             {e.jobTitle || '-'}
             {isHead && divName && <span style={{ color: `hsl(${divColor})`, fontWeight: 600 }}> · {divName} Lead</span>}
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', ...line }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', ...line }}>
             {e.department || (ext ? '' : '-')}
             {ext && <span title={e.identityType === 'guest' ? 'Guest account (Microsoft 365 guest)' : 'External user (no Microsoft 365 login)'}>{e.department ? ' · External' : 'External'}</span>}
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', ...line }}>{company || '-'}</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', ...line }}>{company || '-'}</div>
         </div>
       </div>
       <ReportsPill count={kids} collapsed={isCollapsed} onToggle={() => onToggle(email)}
@@ -1767,8 +1767,8 @@ function OrgSidePanel({ e, people, externals = [], entityName, inheritedDivision
   const inherited = (inheritedDivision || '').trim();
   const company = ext ? (e.externalCompany || '') : (e.company ? entityName(e.company) : '');
   const row = (label, value) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) 1fr', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--line)', fontSize: 13.5 }}>
-      <span style={{ color: 'var(--muted)', fontWeight: 500, fontSize: 12.5 }}>{label}</span>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) 1fr', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
+      <span style={{ color: 'var(--muted)', fontWeight: 500, fontSize: 13 }}>{label}</span>
       <span style={{ color: value ? 'var(--ink)' : 'var(--muted)', minWidth: 0, overflowWrap: 'anywhere' }}>{value || '-'}</span>
     </div>
   );
@@ -1795,7 +1795,7 @@ function OrgSidePanel({ e, people, externals = [], entityName, inheritedDivision
             <div style={{ fontSize: 13, color: 'var(--muted)' }}>
               {[e.jobTitle, e.department].filter(Boolean).join(' · ') || '-'}{ext ? ' · External' : ''}
             </div>
-            {e.workEmail && <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{e.workEmail}</div>}
+            {e.workEmail && <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{e.workEmail}</div>}
           </div>
           <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
             <PersonActions email={e.workEmail} name={fullName(e)} external={ext} myEmail={myEmail} variant="pill" />
@@ -1860,7 +1860,7 @@ function OrgListRows({ nodes, depth = 0, childrenOf, collapsed, onToggle, onSele
             <Avatar e={n} size={34} card={false} />
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(n)}</span>
-              <span style={{ display: 'block', fontSize: 12.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ display: 'block', fontSize: 13, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {[n.jobTitle, isExternalPerson(n) ? n.externalCompany : entityName(n.company)].filter(Boolean).join(' · ') || '-'}
               </span>
             </span>
@@ -1880,7 +1880,7 @@ function NoManagerDock({ people, rows, dnd, onSetManager, onSelect, selectedId, 
   return (
     <aside aria-label="No manager" style={{ width: below ? '100%' : 272, flex: 'none', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', padding: '12px 14px', alignSelf: below ? 'stretch' : 'flex-start', maxHeight: below ? 'none' : 'max(360px, calc(100vh - 240px))', overflowY: 'auto', boxSizing: 'border-box' }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>No Manager <span style={{ color: 'var(--muted)', fontWeight: 500 }}>{people.length}</span></div>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2, marginBottom: 6, lineHeight: 1.4 }}>Pick who they report to{mobile ? '' : ', or drag them onto a manager'}.</div>
+      <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2, marginBottom: 6, lineHeight: 1.4 }}>Pick who they report to{mobile ? '' : ', or drag them onto a manager'}.</div>
       <div style={below ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', columnGap: 20 } : undefined}>
       {people.map(e => {
         const email = (e.workEmail || '').toLowerCase();
@@ -1893,7 +1893,7 @@ function NoManagerDock({ people, rows, dnd, onSetManager, onSelect, selectedId, 
                 outline: selectedId === e.id ? '2px solid hsl(var(--color-green))' : 'none', outlineOffset: 4, borderRadius: 6, opacity: dnd.draggingId === e.id ? 0.4 : 1 }}>
               <Avatar e={e} size={34} card={false} />
               <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</span>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</span>
                 <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[e.jobTitle, entityName(e.company)].filter(Boolean).join(' · ') || '-'}</span>
               </span>
             </div>
@@ -2294,7 +2294,7 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
           <input placeholder="Find a name or title…" aria-label="Find a person on the chart" value={orgQ} onChange={ev => { setOrgQ(ev.target.value); setMatchIdx(0); }}
             onKeyDown={ev => { if (ev.key === 'Enter') { ev.preventDefault(); stepMatch(ev.shiftKey ? -1 : 1); } else if (ev.key === 'Escape') setOrgQ(''); }} />
           {q && (
-            <span aria-live="polite" style={{ flexShrink: 0, fontSize: 11.5, color: matches.length ? 'var(--muted)' : 'hsl(var(--color-red))', whiteSpace: 'nowrap' }}>
+            <span aria-live="polite" style={{ flexShrink: 0, fontSize: 12, color: matches.length ? 'var(--muted)' : 'hsl(var(--color-red))', whiteSpace: 'nowrap' }}>
               {matches.length ? `${(matchIdx % matches.length) + 1} of ${matches.length}` : 'No match'}
             </span>
           )}
@@ -2307,12 +2307,12 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
           {orgQ && <button type="button" aria-label="Clear search" onClick={() => setOrgQ('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
         </div>
         <select className="form-input" value={orgCompany} onChange={ev => setOrgCompany(ev.target.value)} aria-label="Company"
-          style={{ width: 160, flex: '0 0 auto', fontSize: 12.5, fontWeight: 500, padding: '7px 26px 7px 10px', height: 34 }}>
+          style={{ width: 160, flex: '0 0 auto', fontSize: 13, fontWeight: 500, padding: '7px 26px 7px 10px', height: 34 }}>
           <option value="">All Companies</option>
           {(entities || []).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
         </select>
         <select className="form-input" value={orgDept} onChange={ev => setOrgDept(ev.target.value)} aria-label="Department"
-          style={{ width: 160, flex: '0 0 auto', fontSize: 12.5, fontWeight: 500, padding: '7px 26px 7px 10px', height: 34 }}>
+          style={{ width: 160, flex: '0 0 auto', fontSize: 13, fontWeight: 500, padding: '7px 26px 7px 10px', height: 34 }}>
           <option value="">All Departments</option>
           {departments.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
@@ -2321,12 +2321,12 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
         {liveExternals.length > 0 && (
           <button type="button" className="secondary-btn" aria-pressed={includeExternal} onClick={() => setIncludeExternal(v => !v)}
             title="Show external users (guests and contractors) on the chart, under whoever they report to"
-            style={{ fontSize: 12.5, height: 34, flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', gap: 6,
+            style={{ fontSize: 13, height: 34, flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', gap: 6,
               ...(includeExternal ? { borderColor: 'var(--ink)', color: 'var(--ink)', background: 'var(--mist)' } : {}) }}>
             External Users <span style={{ color: 'var(--muted)', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{liveExternals.length}</span>
           </button>
         )}
-        <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: '0 0 auto', whiteSpace: 'nowrap', marginLeft: 'auto' }}>
+        <span style={{ fontSize: 13, color: 'var(--muted)', flex: '0 0 auto', whiteSpace: 'nowrap', marginLeft: 'auto' }}>
           {visible.length}{filtered ? ` of ${people.length}` : ''} people
           {visUnlinked.length > 0 && ` · ${visUnlinked.length} with no manager`}
         </span>
@@ -2343,7 +2343,7 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
             return (
               <button key={d} type="button" onClick={() => spotlight(d)} aria-pressed={on}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 9px', border: 'none', borderRadius: 8, background: on ? 'var(--mist)' : 'none', cursor: 'pointer',
-                  fontFamily: 'inherit', fontSize: 12.5, fontWeight: on ? 600 : 500, color: 'var(--ink)',
+                  fontFamily: 'inherit', fontSize: 13, fontWeight: on ? 600 : 500, color: 'var(--ink)',
                   opacity: activeDiv && !on ? 0.45 : 1, transition: 'opacity 0.15s' }}>
                 <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${col})` }} />
                 {d}
@@ -2358,7 +2358,7 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
       {/* Detach zone appears only mid-drag - drag a card here to unlink it */}
       {draggingId && (
         <div data-detach="1"
-          style={{ marginBottom: 10, border: `2px dashed ${overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--line)'}`, borderRadius: 8, padding: '10px 16px', textAlign: 'center', fontSize: 12.5, fontWeight: 600, color: overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--muted)', background: overKey === '__none__' ? 'hsla(var(--color-red),0.06)' : 'transparent' }}>
+          style={{ marginBottom: 10, border: `2px dashed ${overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--line)'}`, borderRadius: 8, padding: '10px 16px', textAlign: 'center', fontSize: 13, fontWeight: 600, color: overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--muted)', background: overKey === '__none__' ? 'hsla(var(--color-red),0.06)' : 'transparent' }}>
           Drag here to remove their reporting line
         </div>
       )}
@@ -2467,7 +2467,7 @@ export function CompanyDepartments({ entity, toastOk, toastErr }) {
     }
   }
   const headPicker = (value, onPick, onClear, label) => value ? (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 12.5 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 13 }}>
       <EmailAvatar email={value} name={nameOf(value)} size={22} />
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>{nameOf(value)}</span>
       <button onClick={onClear} title={`Clear ${label}`} aria-label={`Clear ${label}`}
@@ -2496,7 +2496,7 @@ export function CompanyDepartments({ entity, toastOk, toastErr }) {
   }
   return (
     <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
-      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 14px' }}>
         Departments for <strong>{entity.name}</strong>. These are the only choices when picking a department for someone in this company.
         The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Directory.
         The head and the backup both get the HR, IT and Accounting steps of every checklist, so set a backup for anyone who can be out.
@@ -2538,13 +2538,13 @@ export function CompanyDepartments({ entity, toastOk, toastErr }) {
                 </div>
                 {[['lead_email', 'Head', d.leadEmail, `head of ${d.name}`], ['backup_email', 'Backup', d.backupEmail, `backup for ${d.name}`]].map(([field, cap, value, label]) => (
                   <div key={field} style={{ flex: '1 1 170px', minWidth: 0, display: 'grid', gap: 2 }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{cap}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{cap}</span>
                     {headPicker(value, (email) => setDeptPerson(d, field, email), () => setDeptPerson(d, field, ''), label)}
                   </div>
                 ))}
                 <label data-dept-weather={d.id} title="Rain advisories and weather calls apply to this department's people. On for Construction by default."
                   style={{ flex: '0 1 auto', display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>Weather Calls</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>Weather Calls</span>
                   <Switch checked={!!d.weather} onChange={(on) => setWeather(d, on)} label={`Weather Calls for ${d.name}`} />
                 </label>
                 <button onClick={() => remove(d)} title={`Remove ${d.name}`} aria-label={`Remove ${d.name}`}
@@ -2760,7 +2760,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
             <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Building2 size={17} color="hsl(var(--color-blue))" />
             </div>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{mode === 'new' ? 'Add Company' : editingEntity?.name || 'Edit Company'}</h3>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{mode === 'new' ? 'Add Company' : editingEntity?.name || 'Edit Company'}</h3>
           </div>
         )}
 
@@ -2800,10 +2800,10 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   <PersonSelect value={(f.signatory_email || '').toLowerCase() || null} onChange={v => set('signatory_email', v || '')}
                     people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set" disabled={!setsHrRoles}
                     ariaLabel="Authorized Signatory (Person)" style={PICK_BOX} />
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs HR packets for the company when a packet's signing order says Authorized Signatory.</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Signs HR packets for the company when a packet's signing order says Authorized Signatory.</div>
                   {f.signatory_email && f.signatory.trim() && personName(f.signatory_email)
                     && !f.signatory.toLowerCase().includes((personName(f.signatory_email).split(' ')[0] || '').toLowerCase()) && (
-                    <div style={{ fontSize: 11.5, color: 'hsl(var(--color-orange))', marginTop: 4 }}>
+                    <div style={{ fontSize: 12, color: 'hsl(var(--color-orange))', marginTop: 4 }}>
                       Letters print "{f.signatory}" as the signatory, but {personName(f.signatory_email)} signs - make the two match.
                     </div>
                   )}
@@ -2815,7 +2815,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                       {f.manager_emails.map(em => (
                         <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--mist)', borderRadius: 999, padding: '4px 6px 4px 10px', fontSize: 12 }}>
                           {personName(em) || em}
-                          {isExternal(em) && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>External</span>}
+                          {isExternal(em) && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>External</span>}
                           <button type="button" onClick={() => set('manager_emails', f.manager_emails.filter(x => x !== em))}
                             title="Remove" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
                             <X size={12} />
@@ -2839,9 +2839,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   <PersonSelect value={(f.hr_contact_email || '').toLowerCase() || null} onChange={v => set('hr_contact_email', v || '')}
                     people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set" disabled={!setsHrRoles}
                     ariaLabel="HR Contact" style={PICK_BOX} />
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
                   {!setsHrRoles && (
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
                       Only an Administrator or a Full People grant changes the HR Contact and the Authorized Signatory.
                     </div>
                   )}
@@ -2852,13 +2852,13 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   <PersonSelect value={(f.it_contact_email || '').toLowerCase() || null} onChange={v => set('it_contact_email', v || '')}
                     people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"
                     ariaLabel="IT Support Contact" style={PICK_BOX} />
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Named in the welcome email a new hire gets once their hiring packet is signed - beside their manager and the HR contact - for their work email, sign-in and equipment.</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Named in the welcome email a new hire gets once their hiring packet is signed - beside their manager and the HR contact - for their work email, sign-in and equipment.</div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL} htmlFor="entity-invoice-recipients">CONTRACTOR INVOICE RECIPIENTS</label>
                   <input id="entity-invoice-recipients" className="form-input" style={{ width: '100%' }} value={f.invoice_recipients || ''}
                     onChange={e => set('invoice_recipients', e.target.value)} placeholder="accounts@client.com, another@client.com" />
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Comma-separated. Who receives a contractor's approved invoice by email (for example the client's accounts contacts). They do not need a Nexus login.</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Comma-separated. Who receives a contractor's approved invoice by email (for example the client's accounts contacts). They do not need a Nexus login.</div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('PHYSICAL ADDRESS', 'physical_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('MAILING ADDRESS', 'mailing_address', { placeholder: 'if different from the physical address' })}</div>
@@ -2882,23 +2882,23 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     {f.logo_url
                       ? <img src={f.logo_url} alt="" style={{ height: 44, maxWidth: 160, objectFit: 'contain', borderRadius: 6, border: '1px solid var(--line)', background: '#fff' }} />
-                      : <div style={{ height: 44, width: 88, borderRadius: 6, border: '1px dashed var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, color: 'var(--muted)' }}>No logo</div>}
-                    <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: mode === 'new' ? 'not-allowed' : 'pointer', padding: '5px 12px', opacity: mode === 'new' ? 0.5 : 1 }}>
+                      : <div style={{ height: 44, width: 88, borderRadius: 6, border: '1px dashed var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'var(--muted)' }}>No logo</div>}
+                    <label className="secondary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: mode === 'new' ? 'not-allowed' : 'pointer', padding: '5px 12px', opacity: mode === 'new' ? 0.5 : 1 }}>
                       {logoBusy ? <Spinner size={12} /> : <Plus size={12} />} {logoBusy ? 'Uploading…' : 'Upload logo or video'}
                       <input type="file" accept="image/*,video/mp4,video/quicktime,.mov" hidden disabled={mode === 'new' || logoBusy} onChange={e => { uploadLogo(e.target.files?.[0]); e.target.value = ''; }} />
                     </label>
                   </div>
-                  {mode === 'new' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>Save the company first, then come back to add a logo.</p>}
-                  <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>MP4 or MOV works too - it's converted to an animated GIF (email clients never play video directly), up to 6s. Converting a video can take a few seconds.</p>
+                  {mode === 'new' && <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 0' }}>Save the company first, then come back to add a logo.</p>}
+                  <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 0' }}>MP4 or MOV works too - it's converted to an animated GIF (email clients never play video directly), up to 6s. Converting a video can take a few seconds.</p>
                   {/* Neil, Sep 22: "you should put in some language that please upload
                       your logo, please upload it transparent" - Nexus doesn't process
                       the image, so a solid-background logo will look wrong once it's
                       placed on a colored or dark surface. */}
-                  <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '4px 0 0' }}>Please upload your logo as a transparent PNG at your standard resolution - it's used as-is, not auto-processed, so a transparent background keeps it looking right on any surface, dark mode included.</p>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>Please upload your logo as a transparent PNG at your standard resolution - it's used as-is, not auto-processed, so a transparent background keeps it looking right on any surface, dark mode included.</p>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>SOCIAL LINKS</label>
-                  <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
                     Shown as icons on every employee's email signature.
                   </p>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -2909,7 +2909,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
                   {field('EMAIL DOMAINS', 'domains', { placeholder: 'e.g. aaravconstruction.com - comma-separated', readOnly: !companyWide, 'aria-readonly': !companyWide })}
-                  <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 0' }}>
                     {companyWide
                       ? 'Sync from M365 imports accounts on these domains and tags them to this company automatically (never overwrites a company already set on a profile).'
                       : 'Email domains are set by someone with access to every company - they tag people to this company automatically.'}
@@ -2986,13 +2986,13 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       {companyWide && <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>Group Manager</div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
         </div>
         <div style={{ width: 220, flexShrink: 0 }}>
           <PersonSelect disabled={groupMgrBusy} value={(groupMgr || '').toLowerCase() || null}
             onChange={v => { if ((v || '') !== (groupMgr || '').toLowerCase()) saveGroupMgr(v || ''); }}
             people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"
-            ariaLabel="Group Manager" style={{ ...PICK_BOX, fontSize: 12.5 }} />
+            ariaLabel="Group Manager" style={{ ...PICK_BOX, fontSize: 13 }} />
         </div>
       </div>}
       {entities.length === 0 ? (
@@ -3011,7 +3011,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         <div key={en.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
           <CompanyLogo name={en.name} logoUrl={en.logoUrl} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, mgrNames && `Manager${mgrEmails.length > 1 ? 's' : ''} ${mgrNames}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
           </div>
           <button className="secondary-btn" onClick={() => (onOpen ? onOpen(en.id) : startEdit(en))} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
@@ -3063,7 +3063,7 @@ function SiteVerifyBadge({ s }) {
     return (
       <a href={s.mapLink && /^https?:/i.test(s.mapLink) ? s.mapLink : googleMapsUrl(s.latitude, s.longitude)} target="_blank" rel="noreferrer"
         onClick={e => e.stopPropagation()} title="Placed from a Google Maps link - open it"
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999, verticalAlign: 'middle',
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 999, verticalAlign: 'middle',
           background: 'rgba(37,99,235,0.1)', color: '#1d4ed8', textDecoration: 'none' }}>
         <Link2 size={10} /> Google Maps
       </a>
@@ -3073,7 +3073,7 @@ function SiteVerifyBadge({ s }) {
   const noPoint = !(s.latitude && s.longitude);
   return (
     <span title={noPoint ? 'Not placed yet - edit the location and paste its Google Maps link.' : 'This location was placed with the old map pin. Edit it and paste its Google Maps link to confirm where it is.'}
-      style={{ display: 'inline-block', marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999, verticalAlign: 'middle',
+      style={{ display: 'inline-block', marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 999, verticalAlign: 'middle',
         background: 'rgba(180,83,9,0.12)', color: '#b45309' }}>
       {noPoint ? 'No Location' : 'Verify Location'}
     </span>
@@ -3107,9 +3107,9 @@ function SwitchRow({ on, onChange, label, hint }) {
         <span style={{ position: 'absolute', top: 2, left: on ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff',
           transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
       </button>
-      <span style={{ fontSize: 12.5 }}>
+      <span style={{ fontSize: 13 }}>
         <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{label}</span>
-        {hint && <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{hint}</span>}
+        {hint && <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{hint}</span>}
       </span>
     </label>
   );
@@ -3161,7 +3161,7 @@ function LocationCompanyPicker({ entities, value, onChange }) {
         <div role="listbox" aria-multiselectable="true" aria-label="Companies">
           {entities.length > 8 && (
             <input className="form-input" autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search companies"
-              style={{ width: '100%', fontSize: 12.5, marginBottom: 6 }} />
+              style={{ width: '100%', fontSize: 13, marginBottom: 6 }} />
           )}
           {!needle && (
             <>
@@ -3178,10 +3178,10 @@ function LocationCompanyPicker({ entities, value, onChange }) {
               {box(picked.has(e.id))} {e.name}
             </button>
           ))}
-          {shown.length === 0 && <div style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--muted)' }}>No companies match.</div>}
+          {shown.length === 0 && <div style={{ padding: '8px 10px', fontSize: 13, color: 'var(--muted)' }}>No companies match.</div>}
         </div>
       </AnchoredMenu>
-      <p style={{ fontSize: 11.5, color: value.length ? 'var(--muted)' : '#b45309', margin: '6px 0 0' }}>
+      <p style={{ fontSize: 12, color: value.length ? 'var(--muted)' : '#b45309', margin: '6px 0 0' }}>
         {isAll ? 'People at every company can punch in here. A company added later picks it from its own Locations tab.'
           : value.length ? `${value.length} of ${entities.length} compan${entities.length === 1 ? 'y' : 'ies'} - their people can punch in here.`
           : 'No company yet - it stays in the library until one is picked.'}
@@ -3218,7 +3218,7 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '', entitie
     <div style={{ padding: '18px 4px', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       {/* Left: every input, top to bottom in the order they are filled in. */}
       <div style={{ flex: '1 1 380px', maxWidth: 500, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {hint && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>{hint}</p>}
+        {hint && <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>{hint}</p>}
         <div>
           <label style={FL}>NAME *</label>
           <input className="form-input" style={{ width: '100%' }} value={f.name} autoFocus placeholder="e.g. Green Storage Escondido"
@@ -3249,7 +3249,7 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '', entitie
                   if (f.addr_manual && linkAddress) set('address', linkAddress);
                   set('addr_manual', !f.addr_manual);
                 }}
-                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>
                 {f.addr_manual ? (linkAddress ? "Use the Link's Address" : 'Done') : 'Enter Manually'}
               </button>
             )}
@@ -3259,9 +3259,9 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '', entitie
             placeholder={f.addr_manual ? 'e.g. 25260 N Centre City Pkwy, Escondido, CA 92026' : 'Filled in from the Google Maps link'}
             style={{ width: '100%', ...(f.addr_manual ? null : { background: 'var(--mist)' }) }} />
           {f.addr_manual && f.loc_changed && !linkAddress && (
-            <p style={{ fontSize: 11.5, color: '#b45309', margin: '5px 0 0' }}>The link does not include an address - type it in.</p>
+            <p style={{ fontSize: 12, color: '#b45309', margin: '5px 0 0' }}>The link does not include an address - type it in.</p>
           )}
-          <div style={{ fontSize: 11.5, marginTop: 6, color: good ? 'hsl(var(--color-green))' : '#b45309', lineHeight: 1.45 }}>
+          <div style={{ fontSize: 12, marginTop: 6, color: good ? 'hsl(var(--color-green))' : '#b45309', lineHeight: 1.45 }}>
             {status}
             {/* The link's result card shows the point while it is fresh. */}
             {hasPoint && !f.link_point && (
@@ -3331,12 +3331,12 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '', entitie
               return (
                 <button key={v} type="button" onClick={() => { setFtDraft(null); setFeet(v); }} aria-pressed={on}
                   style={{ padding: '2px 9px', borderRadius: 999, border: `1px solid ${on ? 'hsl(217,91%,50%)' : 'var(--line)'}`, background: on ? 'rgba(37,99,235,0.1)' : 'var(--card)',
-                    color: on ? '#1d4ed8' : 'var(--ink)', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>{v.toLocaleString('en-US')} ft</button>
+                    color: on ? '#1d4ed8' : 'var(--ink)', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{v.toLocaleString('en-US')} ft</button>
               );
             })}
-            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r > 0 ? `= ${formatDistance(2 * r)} across` : ''}</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{r > 0 ? `= ${formatDistance(2 * r)} across` : ''}</span>
           </div>
-          <p style={{ fontSize: 11.5, margin: '6px 0 0', color: r > 0 && r < 100 ? '#b45309' : 'var(--muted)', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
+          <p style={{ fontSize: 12, margin: '6px 0 0', color: r > 0 && r < 100 ? '#b45309' : 'var(--muted)', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
             {r > 0 && r < 100
               ? <><AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 2 }} /> Under 330 ft, normal phone GPS drift will mark people who are on-site as Out of Location.</>
               : 'Most locations work well at 330-1,000 ft. For a large property, put the pin in the middle of it and widen the circle to cover where people work.'}
@@ -3394,13 +3394,13 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
 
   return (
     <div style={{ padding: '18px 4px' }}>
-      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 12px' }}>{entity.name} employees can only punch at these geofenced sites.</p>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px' }}>{entity.name} employees can only punch at these geofenced sites.</p>
       {mySites.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>No locations for {entity.name} yet - add them from the library below.</div>
       ) : mySites.map(s => (
         <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}<SiteVerifyBadge s={s} /></div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{s.name}<SiteVerifyBadge s={s} /></div>
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{siteLine(s)}</div>
           </div>
           <button className="secondary-btn" onClick={() => startEdit(s)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
@@ -3416,11 +3416,11 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 200 }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>Add From Location Library</div>
-              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0' }}>Locations already in Nexus that {entity.name} doesn't use yet.</p>
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 0' }}>Locations already in Nexus that {entity.name} doesn't use yet.</p>
             </div>
             <div style={{ position: 'relative' }}>
               <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-              <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search locations" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
+              <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search locations" style={{ paddingLeft: 28, width: 200, fontSize: 13 }} />
             </div>
             <button className="secondary-btn" onClick={() => add(libraryShown)} disabled={busy || !libraryShown.length} style={{ padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <Plus size={13} /> Add All ({libraryShown.length})
@@ -3428,12 +3428,12 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
           </div>
           <div style={{ marginTop: 8 }}>
             {libraryShown.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 10px' }}>No locations match "{q}".</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 10px' }}>No locations match "{q}".</div>
             ) : libraryShown.map(s => (
               <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 10px', borderBottom: '1px solid var(--line)' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{s.name}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.address || '-'}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.address || '-'}</div>
                 </div>
                 <button className="secondary-btn" onClick={() => add([s])} disabled={busy} style={{ padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> Add</button>
               </div>
@@ -3503,10 +3503,10 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Every location, entered once. Pick the companies whose people punch in at each one - here, or under Locations with the company picked.</p>
+        <p style={{ flex: 1, minWidth: 200, fontSize: 12, color: 'var(--muted)', margin: 0 }}>Every location, entered once. Pick the companies whose people punch in at each one - here, or under Locations with the company picked.</p>
         <div style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-          <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search locations" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
+          <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search locations" style={{ paddingLeft: 28, width: 200, fontSize: 13 }} />
         </div>
         <button className="primary-btn" onClick={() => { setF({ ...SITE_BLANK, company_ids: [] }); setMode('new'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Location</button>
       </div>
@@ -3517,9 +3517,9 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
         return (
           <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}<SiteVerifyBadge s={s} /></div>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{s.name}<SiteVerifyBadge s={s} /></div>
               <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{siteLine(s)}</div>
-              <div style={{ fontSize: 11.5, color: (s.companies || []).length ? 'var(--ink)' : 'var(--muted)', marginTop: 2 }}>{usedLine}</div>
+              <div style={{ fontSize: 12, color: (s.companies || []).length ? 'var(--ink)' : 'var(--muted)', marginTop: 2 }}>{usedLine}</div>
             </div>
             <button className="secondary-btn" onClick={() => { setF({ ...siteForm(s), company_ids: [...(s.companies || [])] }); setMode(s.id); }} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
             <button onClick={() => remove(s)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
@@ -3563,8 +3563,8 @@ function StatusDonut({ segments, total, size = 118 }) {
         acc += frac * C;
         return el;
       })}
-      <text x={42} y={41} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 20, fontWeight: 700, fill: 'var(--ink)' }}>{total}</text>
-      <text x={42} y={54} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 8.5, fill: 'var(--muted)' }}>people</text>
+      <text x={42} y={41} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 18, fontWeight: 700, fill: 'var(--ink)' }}>{total}</text>
+      <text x={42} y={54} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 11, fill: 'var(--muted)' }}>people</text>
     </svg>
   );
 }
@@ -3666,7 +3666,7 @@ function PendingRoleBadge({ req, onOpen }) {
 
 // A directory filter on a phone: half the row, so four make a 2x2.
 // The multi-pick filters line up with the native selects beside them (16px on a phone - the iOS zoom rule).
-const FILTER_TRIGGER = { phone: { minHeight: 46, fontSize: 16 }, desk: { minHeight: 38, fontSize: 13.5 } };
+const FILTER_TRIGGER = { phone: { minHeight: 46, fontSize: 16 }, desk: { minHeight: 38, fontSize: 13 } }; // type-ok: iOS zooms a field under 16px
 const PHONE_FILTER = { flex: '1 1 calc(50% - 4px)', width: 'auto', minWidth: 0 };
 
 export default function HR({ activeSub, onSubChange }) {
@@ -4094,7 +4094,7 @@ export default function HR({ activeSub, onSubChange }) {
           operating it") - the steps are set up in Settings. */}
       {sub === 'hr-checklists' && (
         <>
-          <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', marginBottom: 14 }}>
+          <div style={{ fontSize: 13, color: 'var(--wk-dim)', marginBottom: 14 }}>
             Steps are set up in Settings &gt; Hiring &amp; Onboarding: the Checklist Library for the standard ones, each company&apos;s Checklists with that company picked, and Team &gt; Role Checklists for a role&apos;s own steps.
           </div>
           <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
@@ -4170,7 +4170,7 @@ export default function HR({ activeSub, onSubChange }) {
                 </div>
                 {/* Worker-type filter (Neil, Aug 24): the directory is the master
                     list, this narrows it to a category. */}
-                <select className="form-input" value={typeF} onChange={e => { setTypeF(e.target.value); setSelectedId(null); }} style={{ ...(isMobile ? PHONE_FILTER : { width: 140 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                <select className="form-input" value={typeF} onChange={e => { setTypeF(e.target.value); setSelectedId(null); }} style={{ ...(isMobile ? PHONE_FILTER : { width: 140 }), padding: '7px 10px', fontSize: 13, height: 38 }}>
                   <option value="All">All People</option>
                   <option value="employee">Employees</option>
                   <option value="contractor">Contractors</option>
@@ -4194,7 +4194,7 @@ export default function HR({ activeSub, onSubChange }) {
                     setSelectedId(null);
                     if (next === DELETED_F) loadDeleted();
                   }}
-                  style={{ ...(isMobile ? PHONE_FILTER : { width: 135 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                  style={{ ...(isMobile ? PHONE_FILTER : { width: 135 }), padding: '7px 10px', fontSize: 13, height: 38 }}>
                   <option value="All">All Statuses</option>
                   {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
                   <option value={PROBATION_F}>Probation Ending</option>
@@ -4205,14 +4205,14 @@ export default function HR({ activeSub, onSubChange }) {
                   <select className="form-input" aria-label="Show a More Details field" value={cfKey}
                     onChange={e => { setCfKey(e.target.value); setCfF(''); }}
                     title="Show one of the More Details fields on every row, and narrow the list by it"
-                    style={{ ...(isMobile ? PHONE_FILTER : { width: 165 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                    style={{ ...(isMobile ? PHONE_FILTER : { width: 165 }), padding: '7px 10px', fontSize: 13, height: 38 }}>
                     <option value="">More Details field</option>
                     {cfDefs.map(f => <option key={f.fieldKey} value={f.fieldKey}>{f.label}</option>)}
                   </select>
                 )}
                 {cfField && (cfField.fieldType === 'dropdown' || cfField.fieldType === 'checkbox' ? (
                   <select className="form-input" aria-label={`Filter by ${cfField.label}`} value={cfF} onChange={e => setCfF(e.target.value)}
-                    style={{ ...(isMobile ? PHONE_FILTER : { width: 150 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                    style={{ ...(isMobile ? PHONE_FILTER : { width: 150 }), padding: '7px 10px', fontSize: 13, height: 38 }}>
                     <option value="">Any {cfField.label}</option>
                     {cfField.fieldType === 'checkbox'
                       ? <><option value="yes">Yes</option><option value="no">No</option></>
@@ -4221,7 +4221,7 @@ export default function HR({ activeSub, onSubChange }) {
                 ) : (
                   <input className="form-input" aria-label={`Filter by ${cfField.label}`} value={cfF} onChange={e => setCfF(e.target.value)}
                     placeholder={`${cfField.label} contains…`}
-                    style={{ ...(isMobile ? PHONE_FILTER : { width: 160 }), padding: '7px 10px', fontSize: 13.5, height: 38 }} />
+                    style={{ ...(isMobile ? PHONE_FILTER : { width: 160 }), padding: '7px 10px', fontSize: 13, height: 38 }} />
                 ))}
               </div>
             </div>
@@ -4245,13 +4245,13 @@ export default function HR({ activeSub, onSubChange }) {
               <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>
                 <Trash2 size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
                 <div style={{ fontSize: 14, fontWeight: 600 }}>Nobody has been removed.</div>
-                <div style={{ fontSize: 12.5, marginTop: 4 }}>People removed from Nexus land here, and can be restored with their full record.</div>
+                <div style={{ fontSize: 13, marginTop: 4 }}>People removed from Nexus land here, and can be restored with their full record.</div>
               </div>
             ) : !showingDeleted && employees.length + extEmployees.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>
                 <Users size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
                 <div style={{ fontSize: 14, fontWeight: 600 }}>No employees yet.</div>
-                <div style={{ fontSize: 12.5, marginTop: 4 }}>Add the first one - everything else in HR builds on these records.</div>
+                <div style={{ fontSize: 13, marginTop: 4 }}>Add the first one - everything else in HR builds on these records.</div>
               </div>
             ) : filtered.length === 0 ? (
               <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No matches.</div>
@@ -4291,7 +4291,7 @@ export default function HR({ activeSub, onSubChange }) {
                         <td className="ppl-col-secondary">{e.department || '-'}</td>
                         {cfField && <td>{cfShown(e) || '-'}</td>}
                         <td>
-                          <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
+                          <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 13, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
                           {e.probation?.ending && <div style={{ marginTop: 4 }}><ProbationBadge p={e.probation} /></div>}
                           {(clProgress[e.id] || []).map(p => <div key={p.checklistId} style={{ marginTop: 4 }}><ChecklistChip p={p} compact onClick={() => openChecklistOf(e.id)} /></div>)}
                         </td>
@@ -4302,7 +4302,7 @@ export default function HR({ activeSub, onSubChange }) {
                 </tbody>
               </table>
               {totalPages > 1 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderTop: '1px solid var(--line)', fontSize: 12.5, color: 'var(--muted)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderTop: '1px solid var(--line)', fontSize: 13, color: 'var(--muted)' }}>
                   <span>{(curPage - 1) * PAGE_SIZE + 1}-{Math.min(curPage * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
                   <span style={{ flex: 1 }} />
                   <button className="secondary-btn" style={{ padding: '4px 10px', fontSize: 12 }} disabled={curPage <= 1} onClick={() => setPage(curPage - 1)}>Prev</button>
@@ -4326,7 +4326,7 @@ export default function HR({ activeSub, onSubChange }) {
                           style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none', borderBottom: '1px solid var(--line)', cursor: 'pointer', background: active ? 'var(--wk-brand-tint)' : 'none', fontFamily: 'inherit' }}>
                           <Avatar e={e} />
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
                               {fullName(e)}{isExtRow(e) && <ExternalBadge />}<TierMark tier={e.tier} />
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                             </div>
@@ -4353,9 +4353,9 @@ export default function HR({ activeSub, onSubChange }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px', borderTop: '1px solid var(--line)', fontSize: 12, color: 'var(--muted)' }}>
                       <span>{(curPage - 1) * PAGE_SIZE + 1}-{Math.min(curPage * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
                       <span style={{ flex: 1 }} />
-                      <button className="secondary-btn" style={{ padding: '3px 9px', fontSize: 11.5 }} disabled={curPage <= 1} onClick={() => setPage(curPage - 1)}>Prev</button>
+                      <button className="secondary-btn" style={{ padding: '3px 9px', fontSize: 12 }} disabled={curPage <= 1} onClick={() => setPage(curPage - 1)}>Prev</button>
                       <span style={{ fontWeight: 700 }}>{curPage}/{totalPages}</span>
-                      <button className="secondary-btn" style={{ padding: '3px 9px', fontSize: 11.5 }} disabled={curPage >= totalPages} onClick={() => setPage(curPage + 1)}>Next</button>
+                      <button className="secondary-btn" style={{ padding: '3px 9px', fontSize: 12 }} disabled={curPage >= totalPages} onClick={() => setPage(curPage + 1)}>Next</button>
                     </div>
                   )}
                 </div>
@@ -4372,7 +4372,7 @@ export default function HR({ activeSub, onSubChange }) {
                     <div style={{ padding: '64px 16px', textAlign: 'center', color: 'var(--muted)' }}>
                       <Users size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
                       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Pick a Person</div>
-                      <div style={{ fontSize: 12.5, marginTop: 4 }}>Their full profile opens right here - no page hopping.</div>
+                      <div style={{ fontSize: 13, marginTop: 4 }}>Their full profile opens right here - no page hopping.</div>
                     </div>
                   )}
                 </div>

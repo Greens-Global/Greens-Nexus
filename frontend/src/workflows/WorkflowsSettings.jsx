@@ -168,7 +168,7 @@ export function WorkflowsSettings({ company = '', onOverride, toastOk, toastErr 
           <SettingRow title="Webhook Hosts"
             desc="The hosts Call A Webhook may post to, each signed with its own secret. A secret is write-only: type a new one to replace it.">
             <div style={{ display: 'grid', gap: 8 }}>
-              {vals.webhookHosts.length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No hosts yet - workflows cannot call a webhook until one is listed.</span>}
+              {vals.webhookHosts.length === 0 && <span style={{ fontSize: 13, color: 'var(--muted)' }}>No hosts yet - workflows cannot call a webhook until one is listed.</span>}
               {vals.webhookHosts.map((h, i) => (
                 <div key={i} className="wf-webhook-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center' }}>
                   <input className="form-input" value={h} placeholder="hooks.example.com" aria-label={`Webhook host ${i + 1}`} disabled={!isGA || busy}

@@ -89,7 +89,7 @@ export default function Automations({ go }) {
           <SectionTitle>Workflows</SectionTitle>
           <Card style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', flexWrap: 'wrap' }}>
             <WorkflowIcon size={18} style={{ color: 'var(--wk-brand)' }} />
-            <div style={{ flex: 1, minWidth: 160, fontSize: 13.5 }}>
+            <div style={{ flex: 1, minWidth: 160, fontSize: 13 }}>
               {workflows ? (
                 <><strong>{workflows.length}</strong> {workflows.length === 1 ? 'workflow' : 'workflows'} in your company, <strong>{active}</strong> active</>
               ) : 'Workflows built in this module'}
@@ -103,7 +103,7 @@ export default function Automations({ go }) {
           <SectionTitle count={rules.length || null}>Task Automation Rules</SectionTitle>
           <Card>
             {rules.length === 0 ? (
-              <div style={{ padding: '18px 16px', fontSize: 13.5, color: 'var(--muted)' }}>
+              <div style={{ padding: '18px 16px', fontSize: 13, color: 'var(--muted)' }}>
                 No task automation rules yet. They are built in Tasks &gt; Manage &gt; Automation Rules.
               </div>
             ) : rules.map((r) => (
@@ -117,11 +117,11 @@ export default function Automations({ go }) {
                     {r.lastRunAt ? `, last ${formatDateTime(r.lastRunAt)}` : ''}
                   </Muted>
                 </div>
-                <LinkButton onClick={() => setRunsFor(r)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }} title="What this rule did">
+                <LinkButton onClick={() => setRunsFor(r)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13 }} title="What this rule did">
                   <History size={13} /> Runs
                 </LinkButton>
                 <button type="button" className="secondary-btn" onClick={() => navigate('tasks', 'manage')}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, padding: '5px 10px' }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, padding: '5px 10px' }}>
                   <ExternalLink size={13} /> Edit In Tasks
                 </button>
                 <Switch checked={!!r.enabled} onChange={(on) => toggle(r, on)} label={`${r.name} on`} />
@@ -134,7 +134,7 @@ export default function Automations({ go }) {
           <SectionTitle count={jobs.length || null}>Built-In Automations</SectionTitle>
           <Card>
             {jobs.length === 0 ? (
-              <div style={{ padding: '18px 16px', fontSize: 13.5, color: 'var(--muted)' }}>Nothing listed.</div>
+              <div style={{ padding: '18px 16px', fontSize: 13, color: 'var(--muted)' }}>Nothing listed.</div>
             ) : jobs.map((j) => (
               <div key={j.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
                 <Zap size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
@@ -145,7 +145,7 @@ export default function Automations({ go }) {
                 </div>
                 <Muted style={{ whiteSpace: 'nowrap' }}>{j.every}</Muted>
                 {j.settingLink?.view && (
-                  <LinkButton onClick={() => navigate(j.settingLink.view, j.settingLink.sub)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}>
+                  <LinkButton onClick={() => navigate(j.settingLink.view, j.settingLink.sub)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
                     <SettingsIcon size={13} /> Settings
                   </LinkButton>
                 )}
@@ -206,7 +206,7 @@ function RuleRunsModal({ rule, onClose }) {
           <AsyncSection loading={rows === null && !error} error={error} isEmpty={!!rows && !rows.length}
             errorMessage="The runs couldn't be loaded right now - please try again." onRetry={() => { setRows(null); setError(false); setTick((t) => t + 1); }}
             skeleton={<SkeletonBlocks count={4} height={44} borderRadius={8} />}
-            emptyContent={<div style={{ padding: '18px 4px', fontSize: 13.5, color: 'var(--muted)' }}>This rule has not fired yet.</div>}>
+            emptyContent={<div style={{ padding: '18px 4px', fontSize: 13, color: 'var(--muted)' }}>This rule has not fired yet.</div>}>
             <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>
               {(rows || []).map((x) => {
                 const m = ruleRunStatus(x.status);

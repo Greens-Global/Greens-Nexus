@@ -12,7 +12,7 @@ import { control } from './reportControls';
 
 const MATCH = [['contains', 'Contains'], ['equals', 'Equals'], ['starts_with', 'Starts With']];
 const DIRECTION = [['any', 'Any'], ['in', 'Money In'], ['out', 'Money Out']];
-const label = { display: 'grid', gap: 4, fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)' };
+const label = { display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 };
 const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const nameOf = (list, id) => (list || []).find((p) => p.id === id)?.name || '';
@@ -69,8 +69,8 @@ function RuleForm({ start, accounts, vendors, customers, onCancel, onSaved }) {
         </label>
         <div style={{ gridColumn: '1 / -1' }}>{text('notes', 'Notes', { placeholder: 'Optional' })}</div>
       </div>
-      <p style={{ margin: 0, fontSize: '0.74rem', color: 'var(--text-muted)' }}>Case and extra spaces are ignored. The first active rule that matches a line, lowest priority number first, gives it its account, vendor and customer; a pick made on the line itself always wins.</p>
-      {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'var(--danger, #dc2626)' }}>{error}</div>}
+      <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>Case and extra spaces are ignored. The first active rule that matches a line, lowest priority number first, gives it its account, vendor and customer; a pick made on the line itself always wins.</p>
+      {error && <div role="alert" style={{ fontSize: 13, color: 'var(--danger, #dc2626)' }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button type="button" className="secondary-btn" onClick={onCancel}>Cancel</button>
         <button type="submit" className="primary-btn" disabled={busy}>{busy ? 'Saving...' : d.id ? 'Save Rule' : 'Add Rule'}</button>
@@ -103,7 +103,7 @@ export default function StatementRules({ rules, draft = null, accounts = [], ven
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>{editing ? (editing.id ? 'Edit Rule' : 'New Rule') : `Statement Rules (${rules.length})`}</h3>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>Shared by the accounting team and applied to every statement uploaded here.</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>Shared by the accounting team and applied to every statement uploaded here.</div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
@@ -114,7 +114,7 @@ export default function StatementRules({ rules, draft = null, accounts = [], ven
             <>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search rules" aria-label="Search rules" style={{ ...control, width: 240 }} />
-                {note && <span role="status" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{note}</span>}
+                {note && <span role="status" style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{note}</span>}
                 <button type="button" className="primary-btn" onClick={() => { setNote(''); setEditing({ ...EMPTY_RULE }); }} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> New Rule</button>
               </div>
               <div className="req-table-wrapper nx-fill" style={{ overflow: 'auto' }}>
@@ -124,7 +124,7 @@ export default function StatementRules({ rules, draft = null, accounts = [], ven
                     {shown.map((r) => (
                       <tr key={r.id} style={r.active ? undefined : { color: 'var(--text-muted)' }}>
                         <td>{r.priority}</td>
-                        <td><strong>{r.matchText}</strong><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{MATCH.find((m) => m[0] === r.matchType)?.[1]}{r.notes ? ` - ${r.notes}` : ''}</div></td>
+                        <td><strong>{r.matchText}</strong><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{MATCH.find((m) => m[0] === r.matchType)?.[1]}{r.notes ? ` - ${r.notes}` : ''}</div></td>
                         <td>{DIRECTION.find((m) => m[0] === r.direction)?.[1]}</td>
                         <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.amount ? fmt(r.amount) : 'Any'}</td>
                         <td>{ruleTarget(r)}</td>
@@ -132,7 +132,7 @@ export default function StatementRules({ rules, draft = null, accounts = [], ven
                         <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                           {confirm === r.id ? (
                             <>
-                              <span style={{ fontSize: '0.76rem', marginRight: 6 }}>Delete this rule?</span>
+                              <span style={{ fontSize: 12, marginRight: 6 }}>Delete this rule?</span>
                               <button type="button" className="secondary-btn" onClick={() => remove(r)} style={{ padding: '3px 8px', color: 'var(--danger, #dc2626)' }}>Delete</button>{' '}
                               <button type="button" className="secondary-btn" onClick={() => setConfirm('')} style={{ padding: '3px 8px' }}>Keep</button>
                             </>

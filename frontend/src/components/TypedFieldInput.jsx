@@ -9,7 +9,7 @@ export default function TypedFieldInput({ def, value, onChange, error }) {
 
   if (RESERVED_TYPES.includes(def.type)) {
     return (
-      <div style={{ fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic', padding: '7px 0' }}>
+      <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic', padding: '7px 0' }}>
         {def.type === 'signature' || def.type === 'initials'
           ? `Placed when sent for signature - shown as "${placeholderLabel(def)}" until then.`
           : `Not attached here yet - shown as "${placeholderLabel(def)}" in the generated document.`}
@@ -27,7 +27,7 @@ export default function TypedFieldInput({ def, value, onChange, error }) {
     case 'currency':
       return (
         <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', fontSize: 12.5 }}>$</span>
+          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', fontSize: 13 }}>$</span>
           <input type="number" step="0.01" className="form-input" style={{ ...inputStyle, paddingLeft: 22 }} value={value ?? ''}
             min={def.validation?.min} max={def.validation?.max} onChange={(e) => onChange(e.target.value)} />
         </div>
@@ -64,7 +64,7 @@ export default function TypedFieldInput({ def, value, onChange, error }) {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {(def.options || []).map((o) => (
-            <label key={o} style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <label key={o} style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
               <input type="radio" name={`radio-${def.token}`} checked={value === o} onChange={() => onChange(o)} /> {o}
             </label>
           ))}
@@ -72,7 +72,7 @@ export default function TypedFieldInput({ def, value, onChange, error }) {
       );
     case 'checkbox':
       return (
-        <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+        <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
           <input type="checkbox" checked={value === true || value === 'true' || value === 'Yes'}
             onChange={(e) => onChange(e.target.checked)} /> {def.label}
         </label>

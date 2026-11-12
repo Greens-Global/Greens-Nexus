@@ -33,8 +33,8 @@ const PERSON_KINDS = [
 const EMPLOYEE_TYPES = [['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['intern', 'Intern']];
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 };
-const HINT = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
-const PICK_BOX = { height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13.5, fontWeight: 400 };
+const HINT = { fontSize: 12, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
+const PICK_BOX = { height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13, fontWeight: 400 };
 const GRID = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 14 };
 const SECTION = { fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '18px 0 10px', paddingTop: 14, borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 };
 const fullName = (e) => [e?.firstName, e?.lastName].filter(Boolean).join(' ');

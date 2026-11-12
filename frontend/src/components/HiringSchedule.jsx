@@ -25,7 +25,7 @@ import { DateField } from '../tasks/components';
 import { dialog } from '../ui/dialog';
 
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
-const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4 };
+const hint = { fontSize: 12, color: 'var(--muted)', marginTop: 4 };
 const DURATIONS = [15, 30, 45, 60, 90, 120];
 
 export function questionnaireFor(tpls, roleId) {
@@ -159,7 +159,7 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
       <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{replace ? 'Reschedule Interview' : 'Schedule Interview'} - {name}</div>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>{replace ? 'Reschedule Interview' : 'Schedule Interview'} - {name}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
               {replace ? <>Moving the round on {formatDateTime(replace.at)}. The old invite is withdrawn.</>
                 : ['decision', 'offer'].includes(c.stage) ? 'Another round - this moves them back to Interview.'
@@ -169,17 +169,17 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
-          {!c.email && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))', marginBottom: 12 }}>Add the candidate's email first (Edit) - the invite goes there.</div>}
+          {!c.email && <div style={{ fontSize: 13, color: 'hsl(var(--color-orange))', marginBottom: 12 }}>Add the candidate's email first (Edit) - the invite goes there.</div>}
           <SchedulingFields value={v} onChange={setV} roleId={c.roleId} tpls={tpls} department={c.department} leads={leads} />
         </div>
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
           {canSkip && (
             <button type="button" onClick={skip} disabled={busy} title="The interview already happened, or is not needed - move them to Decision"
-              style={{ marginRight: 'auto', background: 'none', border: 'none', padding: '6px 0', cursor: 'pointer', fontSize: 12.5, color: 'var(--muted)', textDecoration: 'underline', fontFamily: 'inherit' }}>
+              style={{ marginRight: 'auto', background: 'none', border: 'none', padding: '6px 0', cursor: 'pointer', fontSize: 13, color: 'var(--muted)', textDecoration: 'underline', fontFamily: 'inherit' }}>
               Skip Interview
             </button>
           )}
-          {problems.length > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)', marginRight: canSkip ? 0 : 'auto' }}>Still needed: {problems.join(', ')}</span>}
+          {problems.length > 0 && <span style={{ fontSize: 12, color: 'var(--muted)', marginRight: canSkip ? 0 : 'auto' }}>Still needed: {problems.join(', ')}</span>}
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={go} disabled={busy || !!problems.length || !c.email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy ? <Spinner size={14} /> : replace ? <CalendarDays size={14} /> : <Video size={14} />} {replace ? 'Reschedule' : 'Schedule And Send Invite'}

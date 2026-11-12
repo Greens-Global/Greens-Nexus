@@ -38,7 +38,7 @@ export default function SignTextField({ field: f, value, onChange, disabled = fa
       {note && (
         <span role={error ? 'alert' : undefined}
           style={{ position: 'absolute', ...noteAnchor(style), zIndex: 2, maxWidth: 'min(60ch, 100%)', boxSizing: 'border-box',
-            fontSize: 10.5, lineHeight: 1.3, fontFamily: 'Inter,sans-serif', fontWeight: error ? 700 : 600, whiteSpace: 'normal',
+            fontSize: 11, lineHeight: 1.3, fontFamily: 'Inter,sans-serif', fontWeight: error ? 700 : 600, whiteSpace: 'normal',
             color: error ? '#b91c1c' : 'var(--muted)', background: 'rgba(255,255,255,0.92)', padding: '1px 4px', borderRadius: 3,
             boxShadow: '0 1px 3px rgba(0,0,0,0.08)', pointerEvents: 'none' }}>
           {note}

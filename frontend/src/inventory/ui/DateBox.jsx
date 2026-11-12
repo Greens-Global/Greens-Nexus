@@ -8,7 +8,7 @@ export function DateBox({ value, onChange, min = '', max = '', noPast = false, p
   return (
     <span role="group" aria-label={ariaLabel} style={{
       display: 'inline-flex', alignItems: 'center', minHeight: compact ? 32 : 38, padding: compact ? '0 10px' : '0 12px',
-      border: '1px solid var(--wk-line, var(--line))', borderRadius: 8, background: 'var(--card)', fontSize: 13.5,
+      border: '1px solid var(--wk-line, var(--line))', borderRadius: 8, background: 'var(--card)', fontSize: 13,
       boxSizing: 'border-box', ...style,
     }}>
       <DateField value={value || ''} onChange={(v) => onChange(v || '')} min={min} max={max} noPast={noPast}

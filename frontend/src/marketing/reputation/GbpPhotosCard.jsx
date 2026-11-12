@@ -27,12 +27,12 @@ function PhotoTile({ p, showFacility }) {
         alt=""
         style={{ width: '100%', height: 112, objectFit: 'cover', background: C.gray100, transition: 'transform .2s', transform: hovered ? 'scale(1.05)' : 'none' }}
       />
-      <span style={{ position: 'absolute', top: 6, left: 6, padding: '2px 6px', borderRadius: 9999, fontSize: 9.5, fontWeight: 500, background: 'rgba(255,255,255,0.9)', color: C.gray700, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}>
+      <span style={{ position: 'absolute', top: 6, left: 6, padding: '2px 6px', borderRadius: 9999, fontSize: 11, fontWeight: 500, background: 'rgba(255,255,255,0.9)', color: C.gray700, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}>
         {CATEGORY_LABEL[p.category]}
       </span>
       <div style={{ padding: '6px 8px', background: C.white }}>
-        {showFacility && <div style={{ fontSize: 10, color: C.gray500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{p.facility}</div>}
-        <div style={{ fontSize: 9.5, color: C.gray400 }}>{formatDateLabel(p.uploadedDate)}</div>
+        {showFacility && <div style={{ fontSize: 11, color: C.gray500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{p.facility}</div>}
+        <div style={{ fontSize: 11, color: C.gray400 }}>{formatDateLabel(p.uploadedDate)}</div>
       </div>
     </div>
   )
@@ -72,7 +72,7 @@ export default function GbpPhotosCard({ photos, showFacility, staleWarning, onAd
         </div>
         <button
           onClick={onAddClick}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, background: C.emerald600, color: C.white, fontSize: 12.5, fontWeight: 500, border: 'none', cursor: 'pointer' }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, background: C.emerald600, color: C.white, fontSize: 13, fontWeight: 500, border: 'none', cursor: 'pointer' }}
           onMouseEnter={(e) => (e.currentTarget.style.background = C.emerald700)}
           onMouseLeave={(e) => (e.currentTarget.style.background = C.emerald600)}
         >
@@ -92,7 +92,7 @@ export default function GbpPhotosCard({ photos, showFacility, staleWarning, onAd
         {filtered.map((p) => (
           <PhotoTile key={p.id} p={p} showFacility={showFacility} />
         ))}
-        {filtered.length === 0 && <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: C.gray400, padding: '32px 0', fontSize: 12.5 }}>No photos in this category.</div>}
+        {filtered.length === 0 && <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: C.gray400, padding: '32px 0', fontSize: 13 }}>No photos in this category.</div>}
       </div>
     </div>
   )

@@ -26,10 +26,10 @@ export function DebtWidget() {
             const cov = covenantState(l);
             return (
               <tr key={l.id} style={ix.isPartner(l.entity_code) ? { color: 'var(--text-muted)' } : undefined}>
-                <td><div>{l.lender}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{ix.byCode.get(l.entity_code)?.name || l.entity_code}</div></td>
+                <td><div>{l.lender}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{ix.byCode.get(l.entity_code)?.name || l.entity_code}</div></td>
                 <td style={num}>{m(l.balance, { compact: true })}</td>
                 <td style={num}>{l.rate_pct.toFixed(2)}%</td>
-                <td style={{ fontSize: '0.78rem' }}>{matLabel(l.maturity)}{maturingSoon(l, period) ? <Chip tone="wait" style={{ marginLeft: 8 }}>Within 18 mo</Chip> : null}</td>
+                <td style={{ fontSize: 13 }}>{matLabel(l.maturity)}{maturingSoon(l, period) ? <Chip tone="wait" style={{ marginLeft: 8 }}>Within 18 mo</Chip> : null}</td>
                 <td>{cov === 'n/a' ? <span style={{ color: 'var(--text-muted)' }}>-</span> : <Chip tone={cov === 'Below' ? 'bad' : cov === 'Near' ? 'wait' : 'ok'}>{l.dscr?.toFixed(2)}x / {l.covenant_min?.toFixed(2)}x min</Chip>}</td>
               </tr>
             );
@@ -117,7 +117,7 @@ export function MaturityWidget() {
         <Tile label="Maturing within 24 mo" value={m(s.withinTwoYears, { compact: true })} />
       </div>
       {s.byYear.length ? <ColoredBars data={s.byYear.map((y) => ({ label: String(y.year), value: y.balance, color: y.soon ? '#d97706' : '#0998c3' }))} height={150} /> : null}
-      <div style={{ display: 'flex', gap: 16, fontSize: '0.7rem', color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#d97706" />Maturing within 18 months</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#0998c3" />Later maturities</span></div>
+      <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#d97706" />Maturing within 18 months</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#0998c3" />Later maturities</span></div>
       <Footnote>Refinance conversations typically start 12 to 18 months before maturity.</Footnote>
     </div>
   );

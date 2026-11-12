@@ -231,7 +231,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
         <input data-slash-search="" ref={searchRef} type="search" className="form-input" value={query} onChange={(e) => { setQuery(e.target.value); setCursor(-1); }}
           onKeyDown={onListKey} placeholder={chart ? 'Find someone on the chart…' : 'Search name, title, department, office…'} aria-label="Search people"
-          style={{ width: '100%', paddingLeft: 30, paddingRight: query ? 30 : 12, fontSize: mobile ? 16 : 13.5 }} />
+          style={{ width: '100%', paddingLeft: 30, paddingRight: query ? 30 : 12, fontSize: /* type-ok: iOS zooms a field under 16px */ mobile ? 16 : 13 }} />
         {query && (
           <button type="button" onClick={() => setQuery('')} aria-label="Clear search" style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', color: NX.faint, cursor: 'pointer', padding: 4, display: 'flex' }}>
             <X size={14} />
@@ -241,7 +241,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
       <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, flex: horizontal ? '0 0 auto' : undefined }}>
         {LENSES.map(([k, lab, Icon]) => (
           <button key={k} type="button" role="tab" aria-selected={lens === k} onClick={() => { setLens(k); setCursor(-1); }} style={{
-            flex: horizontal ? '0 0 auto' : 1, border: 'none', cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, fontWeight: 700, padding: horizontal ? '6px 12px' : '6px 8px', borderRadius: 7,
+            flex: horizontal ? '0 0 auto' : 1, border: 'none', cursor: 'pointer', fontFamily: FONT, fontSize: 13, fontWeight: 700, padding: horizontal ? '6px 12px' : '6px 8px', borderRadius: 7,
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
             background: lens === k ? NX.surface : 'transparent', color: lens === k ? NX.ink : NX.dim, boxShadow: lens === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
           }}><Icon size={13} /> {lab}</button>
@@ -258,13 +258,13 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
       {(companies.length > 1 || offices.length > 1) && (
         <div style={{ display: 'flex', gap: 6, flex: horizontal ? '0 0 auto' : undefined }}>
           {companies.length > 1 && (
-            <select className="form-input" value={company} onChange={(e) => setCompany(e.target.value)} aria-label="Company" style={{ flex: 1, minWidth: 0, width: horizontal ? 150 : undefined, fontSize: 12.5, padding: '5px 8px' }}>
+            <select className="form-input" value={company} onChange={(e) => setCompany(e.target.value)} aria-label="Company" style={{ flex: 1, minWidth: 0, width: horizontal ? 150 : undefined, fontSize: 13, padding: '5px 8px' }}>
               <option value="">All Companies</option>
               {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           )}
           {offices.length > 1 && (
-            <select className="form-input" value={office} onChange={(e) => setOffice(e.target.value)} aria-label="Office" style={{ flex: 1, minWidth: 0, width: horizontal ? 150 : undefined, fontSize: 12.5, padding: '5px 8px' }}>
+            <select className="form-input" value={office} onChange={(e) => setOffice(e.target.value)} aria-label="Office" style={{ flex: 1, minWidth: 0, width: horizontal ? 150 : undefined, fontSize: 13, padding: '5px 8px' }}>
               <option value="">All Offices</option>
               {offices.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
@@ -304,7 +304,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
               <button type="button" onClick={() => { setManaging((v) => !v); setGapsOpen(!managing); }} aria-pressed={managing} className="dir-tool" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
                 border: `1px solid ${managing ? 'transparent' : NX.border}`, background: managing ? 'rgba(37,99,235,0.12)' : NX.surface,
-                color: managing ? NX.blue : NX.ink, fontSize: 12.5, fontWeight: 600,
+                color: managing ? NX.blue : NX.ink, fontSize: 13, fontWeight: 600,
               }} title={managing ? 'Hide the directory completeness tools' : 'Directory completeness: who is missing a manager, title, photo or phone'}>
                 <Settings2 size={14} /> {managing ? 'Done' : 'Manage'}
               </button>
@@ -312,7 +312,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
             {managing && gaps && gapCount > 0 && (
               <button type="button" onClick={() => setGapsOpen((v) => !v)} aria-expanded={gapsOpen} className="dir-tool" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
-                border: '1px solid rgba(217,119,6,0.35)', background: 'rgba(217,119,6,0.10)', color: '#b45309', fontSize: 12.5, fontWeight: 700,
+                border: '1px solid rgba(217,119,6,0.35)', background: 'rgba(217,119,6,0.10)', color: '#b45309', fontSize: 13, fontWeight: 700,
               }}>
                 <AlertTriangle size={14} /> {gapCount} to complete
               </button>
@@ -320,7 +320,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
             {data && filtered.length > 0 && (
               <button type="button" onClick={exportPdf} disabled={pdfBusy} className="dir-tool" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
-                border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600, opacity: pdfBusy ? 0.6 : 1,
+                border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 13, fontWeight: 600, opacity: pdfBusy ? 0.6 : 1,
               }} title={`A printable contact sheet of the ${filtered.length} people shown, with the reporting line`}>
                 <FileText size={14} /> {pdfBusy ? 'Building PDF…' : 'Export PDF'}
               </button>
@@ -328,7 +328,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
             {canExportCsv && data && filtered.length > 0 && (
               <button type="button" onClick={() => downloadText(`directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
-                border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600,
+                border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 13, fontWeight: 600,
               }} title={`Export the ${filtered.length} people shown as CSV`}>
                 <Download size={14} /> Export CSV
               </button>
@@ -346,7 +346,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
             <button type="button" onClick={() => { setManaging((v) => !v); setGapsOpen(!managing); }} aria-pressed={managing} className="dir-tool" style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
               border: `1px solid ${managing ? 'transparent' : NX.border}`, background: managing ? 'rgba(37,99,235,0.12)' : NX.surface,
-              color: managing ? NX.blue : NX.ink, fontSize: 12.5, fontWeight: 600,
+              color: managing ? NX.blue : NX.ink, fontSize: 13, fontWeight: 600,
             }} title={managing ? 'Hide the directory completeness tools' : 'Directory completeness: who is missing a manager, title, photo or phone'}>
               <Settings2 size={14} /> {managing ? 'Done' : 'Manage'}
             </button>
@@ -354,7 +354,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
           {managing && gaps && gapCount > 0 && (
             <button type="button" onClick={() => setGapsOpen((v) => !v)} aria-expanded={gapsOpen} className="dir-tool" style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
-              border: '1px solid rgba(217,119,6,0.35)', background: 'rgba(217,119,6,0.10)', color: '#b45309', fontSize: 12.5, fontWeight: 700,
+              border: '1px solid rgba(217,119,6,0.35)', background: 'rgba(217,119,6,0.10)', color: '#b45309', fontSize: 13, fontWeight: 700,
             }}>
               <AlertTriangle size={14} /> {gapCount} to complete
             </button>
@@ -362,7 +362,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
           {data && filtered.length > 0 && (
             <button type="button" onClick={exportPdf} disabled={pdfBusy} className="dir-tool" style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
-              border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600, opacity: pdfBusy ? 0.6 : 1,
+              border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 13, fontWeight: 600, opacity: pdfBusy ? 0.6 : 1,
             }} title={`A printable contact sheet of the ${filtered.length} people shown, with the reporting line`}>
               <FileText size={14} /> {pdfBusy ? 'Building PDF…' : 'Export PDF'}
             </button>
@@ -370,7 +370,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
           {canExportCsv && data && filtered.length > 0 && (
             <button type="button" onClick={() => downloadText(`directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
-              border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600,
+              border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 13, fontWeight: 600,
             }} title={`Export the ${filtered.length} people shown as CSV`}>
               <Download size={14} /> Export CSV
             </button>
@@ -490,7 +490,7 @@ function PersonRow({ p, me, active, focused, onSelect, depth = 0, mobile = false
       <Avatar p={p} size={34} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
             {p.name}{p.email === (me || '').toLowerCase() && <span style={{ color: NX.faint, fontWeight: 500 }}> (you)</span>}<TierMark tier={p.tier} size={13} /><RoleBadge role={p.departmentRole} />
           </span>
           {!mobile && pills}
@@ -547,7 +547,7 @@ function GapsPanel({ gaps, byEmail, presenceOff, onClose, onOpen }) {
         <div style={{ fontWeight: 700, flex: 1 }}>Directory Completeness</div>
         <button type="button" onClick={onClose} aria-label="Close" style={{ border: 'none', background: 'none', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={16} /></button>
       </div>
-      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 12 }}>
+      <div style={{ fontSize: 13, color: NX.dim, marginBottom: 12 }}>
         The directory is only as good as these fields. Titles, departments, offices and phones sync both ways with Microsoft 365; photos come from Entra automatically once a person has one there.
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
@@ -559,9 +559,9 @@ function GapsPanel({ gaps, byEmail, presenceOff, onClose, onOpen }) {
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{label} <span style={{ color: NX.faint, fontWeight: 600 }}>{rows.length}</span></div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
                 {rows.map((em) => key === 'departmentLead' ? (
-                  <div key={em} style={{ fontSize: 12.5, color: NX.ink }}>{em}</div>
+                  <div key={em} style={{ fontSize: 13, color: NX.ink }}>{em}</div>
                 ) : (
-                  <button key={em} type="button" onClick={() => onOpen(em)} style={{ textAlign: 'left', border: 'none', background: 'none', padding: '2px 0', fontFamily: FONT, fontSize: 12.5, color: NX.primary, cursor: 'pointer' }}>
+                  <button key={em} type="button" onClick={() => onOpen(em)} style={{ textAlign: 'left', border: 'none', background: 'none', padding: '2px 0', fontFamily: FONT, fontSize: 13, color: NX.primary, cursor: 'pointer' }}>
                     {byEmail.get(em)?.name || em}
                   </button>
                 ))}

@@ -119,8 +119,8 @@ export default function DocumentsTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Documents</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Deal and investor paperwork - PPMs, K-1s, notices, and reports</p>
+          <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Documents</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Deal and investor paperwork - PPMs, K-1s, notices, and reports</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-select" style={{ width: 180 }} value={fundFilter} onChange={e => setFundFilter(e.target.value)}>
@@ -174,17 +174,17 @@ export default function DocumentsTab() {
                         </div>
                       </div>
                     </td>
-                    <td data-th="Category"><span style={{ color: meta.color, fontSize: 12.5, fontWeight: 600 }}>{meta.label}</span></td>
-                    <td data-th="Scope" style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+                    <td data-th="Category"><span style={{ color: meta.color, fontSize: 13, fontWeight: 600 }}>{meta.label}</span></td>
+                    <td data-th="Scope" style={{ fontSize: 13, color: 'var(--muted)' }}>
                       {[doc.fundName, doc.investorName].filter(Boolean).join(' · ') || 'All Deals'}
                     </td>
-                    <td data-th="Uploaded By" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{doc.uploadedBy ? nameOf(doc.uploadedBy) : '-'}</td>
-                    <td data-th="Date" style={{ fontSize: 12.5, fontVariantNumeric: 'tabular-nums' }}>{formatDate(doc.createdAt)}</td>
+                    <td data-th="Uploaded By" style={{ fontSize: 13, color: 'var(--muted)' }}>{doc.uploadedBy ? nameOf(doc.uploadedBy) : '-'}</td>
+                    <td data-th="Date" style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{formatDate(doc.createdAt)}</td>
                     <td style={{ textAlign: 'right' }}>
                       <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                         {doc.fileUrl ? (
                           <a href={doc.fileUrl} target="_blank" rel="noreferrer"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-blue))', fontSize: 12.5, fontWeight: 600, textDecoration: 'none' }}>
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-blue))', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
                             <ExternalLink size={13} /> Open
                           </a>
                         ) : (
@@ -217,7 +217,7 @@ export default function DocumentsTab() {
                   onChange={e => { takeFile(e.target.files?.[0]); e.target.value = ''; }} />
                 <div onClick={() => fileRef.current?.click()} role="button" tabIndex={0}
                   onKeyDown={e => { if (e.key === 'Enter') fileRef.current?.click(); }}
-                  style={{ border: '1px dashed var(--line)', borderRadius: 10, padding: '18px 16px', textAlign: 'center', cursor: 'pointer', color: 'var(--muted)', fontSize: 12.5 }}>
+                  style={{ border: '1px dashed var(--line)', borderRadius: 10, padding: '18px 16px', textAlign: 'center', cursor: 'pointer', color: 'var(--muted)', fontSize: 13 }}>
                   {modal.file ? (
                     <span style={{ color: 'var(--ink)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                       <Paperclip size={13} /> {modal.file.name}
@@ -249,7 +249,7 @@ export default function DocumentsTab() {
                   {investors.map(i => <option key={i.id} value={i.id}>{i.displayName}</option>)}
                 </select>
               </FG>
-              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{formErr}</div>}
+              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{formErr}</div>}
             </div>
             <div className="modal-footer">
               <button type="button" className="secondary-btn" onClick={() => setModal(null)}>Cancel</button>

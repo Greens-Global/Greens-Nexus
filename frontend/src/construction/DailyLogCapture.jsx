@@ -61,10 +61,10 @@ function DraftedFrom({ pre, savedAt }) {
   if (!pre) return null;
   const done = pre.punch?.done || [];
   const verified = pre.punch?.verified || [];
-  const line = { fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 };
+  const line = { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 };
   return (
     <details data-drafted-from="" open style={{ marginTop: 16, padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-primary)' }}>
-      <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>Drafted From Today</summary>
+      <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Drafted From Today</summary>
       {savedAt && <div style={line}>From this phone (saved {formatDateTime(savedAt, '')}).</div>}
       <div style={line}><b>Weather:</b> {pre.weather?.text ? `${pre.weather.text} (forecast)` : 'No forecast for this jobsite - type it in.'}</div>
       <div style={line}><b>Crew:</b> {pre.crew?.count ? `${pre.crew.count} ${pre.crew.count === 1 ? 'person' : 'people'} punched in here, ${formatHoursWords(pre.crew.hours, { compact: true })}` : 'No Time Clock punches at this jobsite yet today.'}
@@ -124,7 +124,7 @@ function Tile({ icon: Icon, label, onClick, disabled, danger }) {
         border: `1px solid ${danger ? 'hsl(var(--color-red))' : 'var(--border-color)'}`,
         backgroundColor: danger ? 'hsl(var(--color-red) / 0.08)' : 'var(--bg-card)',
         color: danger ? 'hsl(var(--color-red))' : 'var(--text-primary)',
-        opacity: disabled ? 0.5 : 1, fontFamily: 'inherit', fontSize: '0.85rem', fontWeight: 600,
+        opacity: disabled ? 0.5 : 1, fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
       }}>
       <Icon size={26} />{label}
     </button>
@@ -349,8 +349,8 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
 
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <div style={{ minWidth: 0 }}>
-            <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>Daily Log</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '4px 0 0' }}>
+            <h3 style={{ margin: 0 }}>Daily Log</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>
               {project.name} &middot; {formatDate(log.logDate, log.logDate)}
             </p>
           </div>
@@ -365,7 +365,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
 
         {/* Sent back: the reviewer's question, where the answer gets written. */}
         {log.status === 'needs_info' && log.reviewNote && (
-          <div data-review-note="" style={{ marginTop: 16, padding: '10px 14px', borderRadius: 8, fontSize: '0.85rem',
+          <div data-review-note="" style={{ marginTop: 16, padding: '10px 14px', borderRadius: 8, fontSize: 13,
             background: 'var(--bg-primary)', border: '1px solid var(--border-color)', lineHeight: 1.5 }}>
             <strong>{log.reviewedByName || 'Your manager'} asks:</strong> {log.reviewNote}
           </div>
@@ -375,8 +375,8 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
 
         {queuedSubmit && (
           <div role="status" style={{ marginTop: 16, padding: '12px 14px', borderRadius: 8, border: '1px solid var(--border-color)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <b style={{ fontSize: '0.88rem' }}>Saved on This Phone</b>
-            <span style={{ flex: 1, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>The log, its photos and your signature go out when there is signal.</span>
+            <b style={{ fontSize: 14 }}>Saved on This Phone</b>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)' }}>The log, its photos and your signature go out when there is signal.</span>
             <SyncState id={queuedSubmit} />
             <button className="primary-btn" onClick={onSubmitted}>Done</button>
           </div>
@@ -386,7 +386,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', marginTop: 16,
             borderRadius: 8, backgroundColor: 'hsl(var(--color-red) / 0.08)',
-            border: '1px solid hsl(var(--color-red) / 0.3)', fontSize: '0.85rem',
+            border: '1px solid hsl(var(--color-red) / 0.3)', fontSize: 13,
           }}>
             <AlertTriangle size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0 }} />
             <span style={{ flex: 1 }}>{error || voice.error}</span>
@@ -405,7 +405,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
         </div>
 
         {recording && (
-          <div style={{ marginTop: 12, textAlign: 'center', fontSize: '0.85rem', color: 'hsl(var(--color-red))', fontWeight: 600 }}>
+          <div style={{ marginTop: 12, textAlign: 'center', fontSize: 13, color: 'hsl(var(--color-red))', fontWeight: 600 }}>
             Recording {clock(voice.seconds)} - tap Stop when you are done
           </div>
         )}
@@ -422,7 +422,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
 
         <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', marginTop: 18 }}>
           {items.length === 0 ? (
-            <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem', padding: '20px 0' }}>
+            <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13, padding: '20px 0' }}>
               Nothing attached yet. Take a photo, record a clip, or press Ctrl+V to paste one.
             </p>
           ) : (
@@ -438,12 +438,12 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
                   {it.kind === 'photo' && it.preview
                     ? <img src={it.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     : <>{it.kind === 'video' ? <Video size={22} /> : it.kind === 'audio' ? <Mic size={22} /> : <Paperclip size={22} />}
-                       <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>{it.kind}</span></>}
+                       <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{it.kind}</span></>}
 
                   {it.status === 'uploading' && (
                     <div style={{
                       position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      backgroundColor: 'rgba(0,0,0,.55)', color: '#fff', fontSize: '0.7rem', fontWeight: 600,
+                      backgroundColor: 'rgba(0,0,0,.55)', color: '#fff', fontSize: 11, fontWeight: 600,
                     }}>Uploading&hellip;</div>
                   )}
                   {it.status === 'error' && (
@@ -451,9 +451,9 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
                       position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: 6,
                       alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,.6)', color: '#fff', padding: 6,
                     }}>
-                      <span style={{ fontSize: '0.62rem', textAlign: 'center', lineHeight: 1.25 }}>Failed</span>
+                      <span style={{ fontSize: 11, textAlign: 'center', lineHeight: 1.25 }}>Failed</span>
                       <button type="button" onClick={() => upload(it)} title="Retry"
-                        style={{ background: 'none', border: '1px solid #fff', borderRadius: 6, color: '#fff', padding: '2px 8px', fontSize: '0.65rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        style={{ background: 'none', border: '1px solid #fff', borderRadius: 6, color: '#fff', padding: '2px 8px', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         <RotateCcw size={11} />Retry
                       </button>
                     </div>
@@ -484,7 +484,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
           {failedReasons.length > 0 && (
             <div style={{
               display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 12,
-              padding: '10px 14px', borderRadius: 8, fontSize: '0.8rem',
+              padding: '10px 14px', borderRadius: 8, fontSize: 13,
               backgroundColor: 'hsl(var(--color-red) / 0.08)',
               border: '1px solid hsl(var(--color-red) / 0.3)',
             }}>
@@ -546,7 +546,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
                   <button key={t.key} type="button" aria-pressed={on} onClick={() => toggleTag(t.key)}
                     style={{
                       minHeight: 40, padding: '8px 14px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit',
-                      fontSize: '0.85rem', fontWeight: 600,
+                      fontSize: 13, fontWeight: 600,
                       border: `1px solid ${on ? TAG_COLOR[t.key] : 'var(--border-color)'}`,
                       background: on ? `color-mix(in srgb, ${TAG_COLOR[t.key]} 12%, transparent)` : 'var(--bg-card)',
                       color: on ? TAG_COLOR[t.key] : 'var(--text-primary)',
@@ -562,10 +562,10 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
           <div style={{ marginTop: 14 }} data-delays="">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span className="form-label" style={{ margin: 0 }}>Delays</span>
-              <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }}
+              <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: 13 }}
                 onClick={() => setDelays((d) => [...d, { cause: 'weather', hours: '', note: '' }])}>Add Delay</button>
             </div>
-            {delays.length === 0 && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>No delays today.</div>}
+            {delays.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>No delays today.</div>}
             {delays.map((d, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
                 <select className="form-input" aria-label="What caused it" value={d.cause} style={{ flex: '1 1 130px' }}
@@ -588,10 +588,10 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
           <div style={{ marginTop: 14 }} data-subs="">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span className="form-label" style={{ margin: 0 }}>Subs On Site</span>
-              <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }}
+              <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: 13 }}
                 onClick={() => setSubs((s) => [...s, { name: '', headcount: '', hours: '' }])}>Add Sub</button>
             </div>
-            {subs.length === 0 && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>No subcontractors on site today.</div>}
+            {subs.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>No subcontractors on site today.</div>}
             <datalist id="subs-on-job">{jobSubs.map((j) => <option key={j.vendorId} value={j.name} />)}</datalist>
             {subs.map((s, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
@@ -628,7 +628,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
               style={{ padding: 10, minWidth: 44, minHeight: 44 }} title={recording ? STOP_VOICE_FIRST : 'Save and close'}
               aria-label="Save and close"><X size={18} /></button>
           )}
-          <div style={{ flex: 1, minWidth: 90, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <div style={{ flex: 1, minWidth: 90, fontSize: 13, color: 'var(--text-secondary)' }}>
             {recording ? STOP_VOICE_FIRST
               : pending > 0 ? `Uploading ${pending}…`
               : failed > 0 ? `${attached} attached, ${failed} failed`

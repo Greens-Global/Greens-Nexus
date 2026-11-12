@@ -62,9 +62,9 @@ export default function DataTab({ only = null, exclude = null }) {
     <div style={{ display: 'grid', gap: 14 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
         {grids.length > 1 && <SectionTabs tabs={grids.map((g) => ({ id: g.id, label: g.title }))} value={def.id} onChange={setTab} />}
-        {!only && <button type="button" className="secondary-btn" style={{ marginLeft: 'auto', fontSize: '0.74rem', padding: '4px 10px' }} onClick={() => act('seed')}>Seed Defaults</button>}
+        {!only && <button type="button" className="secondary-btn" style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 10px' }} onClick={() => act('seed')}>Seed Defaults</button>}
       </div>
-      <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>{def.desc} Edits save when you leave a field.</p>
+      <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>{def.desc} Edits save when you leave a field.</p>
       {tablesLoading ? <SkeletonBlocks count={1} height={200} /> : <Grid key={def.id} def={def} rows={tables?.[def.key] ?? []} act={act} ix={ix} />}
     </div>
   );
@@ -77,7 +77,7 @@ function Grid({ def, rows, act, ix }) {
   return (
     <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px', borderBottom: '1px solid var(--border-color)' }}>
-        <button type="button" className="secondary-btn" style={{ fontSize: '0.74rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setAdding(def.blank())}><Plus size={13} /> Add Row</button>
+        <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setAdding(def.blank())}><Plus size={13} /> Add Row</button>
       </div>
       <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
         <table className="req-table">
@@ -147,7 +147,7 @@ function EditRow({ def, row, isNew, act, ix, onSaved, onDelete }) {
           const has = draft.ledger_balance != null;
           const hint = has ? `From the ledger as of ${draft.ledger_asof || 'the month shown'}` : draft.gl_account ? 'No balance on that account in this entity yet' : 'Give the loan its GL account';
           return (
-            <span aria-label={label} title={hint} style={{ display: 'block', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: has ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: '0.8rem' }}>
+            <span aria-label={label} title={hint} style={{ display: 'block', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: has ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: 13 }}>
               {has ? Number(draft.ledger_balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : draft.gl_account ? 'Not on the ledger' : 'Needs a GL account'}
             </span>
           );
@@ -169,8 +169,8 @@ function EditRow({ def, row, isNew, act, ix, onSaved, onDelete }) {
           {asking ? (
             <span role="group" aria-label="Delete this row?" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <button type="button" className="primary-btn" disabled={removing} onClick={confirmRemove}
-                style={{ fontSize: '0.72rem', height: 24, padding: '0 8px', background: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)' }}>{removing ? 'Removing...' : 'Remove'}</button>
-              <button type="button" className="secondary-btn" disabled={removing} onClick={() => setAsking(false)} style={{ fontSize: '0.72rem', height: 24, padding: '0 8px' }}>Keep</button>
+                style={{ fontSize: 12, height: 24, padding: '0 8px', background: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)' }}>{removing ? 'Removing...' : 'Remove'}</button>
+              <button type="button" className="secondary-btn" disabled={removing} onClick={() => setAsking(false)} style={{ fontSize: 12, height: 24, padding: '0 8px' }}>Keep</button>
             </span>
           ) : (
             <button type="button" className="icon-btn" aria-label="Delete row" onClick={() => (isNew ? onDelete() : setAsking(true))} style={{ padding: 4, color: 'var(--text-muted)' }}><Trash2 size={13} /></button>
@@ -179,7 +179,7 @@ function EditRow({ def, row, isNew, act, ix, onSaved, onDelete }) {
       </tr>
       {problem && (
         <tr>
-          <td colSpan={def.cols.length + 1} role="alert" style={{ padding: '2px 8px 6px', fontSize: '0.76rem', color: 'var(--bad-fg, #dc2626)' }}>{problem}</td>
+          <td colSpan={def.cols.length + 1} role="alert" style={{ padding: '2px 8px 6px', fontSize: 12, color: 'var(--bad-fg, #dc2626)' }}>{problem}</td>
         </tr>
       )}
     </Fragment>

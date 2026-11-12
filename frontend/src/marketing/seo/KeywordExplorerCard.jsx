@@ -50,7 +50,7 @@ export default function KeywordExplorerCard({ database, trackedKeywordNames, onS
 
   return (
     <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}>
-      <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Keyword Explorer</h3>
+      <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Keyword Explorer</h3>
 
       <div style={{ position: 'relative', marginBottom: 16 }}>
         <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: C.gray400 }} />
@@ -74,7 +74,7 @@ export default function KeywordExplorerCard({ database, trackedKeywordNames, onS
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${C.gray100}`, color: C.gray400, fontSize: 10.5, textTransform: 'uppercase' }}>
+            <tr style={{ borderBottom: `1px solid ${C.gray100}`, color: C.gray400, fontSize: 11, textTransform: 'uppercase' }}>
               {columns.map((col, ci) => {
                 const active = sortKey === col.key
                 return (

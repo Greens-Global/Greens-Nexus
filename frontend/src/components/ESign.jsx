@@ -168,7 +168,7 @@ const riseStyle = (on, i) => (on ? { '--i': Math.min(i, 5) } : null);
 
 const SIG_FONTS = ['"Segoe Script"', '"Brush Script MT"', '"Lucida Handwriting"'];
 
-const FL = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.05em', textTransform: 'uppercase' };
+const FL = { fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.05em', textTransform: 'uppercase' };
 
 // Name box that auto-fills the email: type a teammate's name, matching people
 // drop down beneath, picking one populates name + email. Free text stays as a
@@ -196,7 +196,7 @@ function NameCombo({ value, employees, onChange, onPick, placeholder, style }) {
         {matches.map(e => (
           <button key={e.id} onMouseDown={ev => ev.preventDefault()} onClick={() => { onPick(e); setOpen(false); }}
             style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{e.firstName} {e.lastName}</span>
+            <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{e.firstName} {e.lastName}</span>
             <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>{e.workEmail}</span>
           </button>
         ))}
@@ -215,7 +215,7 @@ function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType,
   const initials = (s) => (s || '?').split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
   return (
     <div style={{ width, borderLeft: '1px solid var(--line)', background: 'var(--card)', overflowY: 'auto', padding: '16px 18px', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 10 }}>Recipients &amp; Fields</div>
+      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>Recipients &amp; Fields</div>
       {recipientsSlot}
       <div style={{ display: 'grid', gap: 8 }}>
         {!recipientsSlot && recipients.map((r, i) => (
@@ -226,8 +226,8 @@ function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType,
             <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', flexShrink: 0 }}>{i + 1}</span>
             <span style={{ width: 30, height: 30, borderRadius: '50%', background: r.color.soft, border: `1.5px solid ${r.color.solid}`, color: r.color.solid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{initials(r.label)}</span>
             <span style={{ minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
-              {r.sub && <span style={{ display: 'block', fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.sub}</span>}
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
+              {r.sub && <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.sub}</span>}
             </span>
           </button>
         ))}
@@ -245,15 +245,15 @@ function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType,
             <span style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <M.Icon size={14} style={{ color: c.solid }} />
             </span>
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink)' }}>{M.label}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>{M.label}</span>
           </button>
         ))}
       </div>
       <div style={{ flex: 1 }} />
-      <div style={{ marginTop: 14, fontSize: 11.5, fontWeight: 700, color: placed ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
+      <div style={{ marginTop: 14, fontSize: 12, fontWeight: 700, color: placed ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
         {placed} field{placed === 1 ? '' : 's'} placed
       </div>
-      <p style={{ fontSize: 10.5, color: 'var(--muted)', margin: '6px 0 0', lineHeight: 1.5 }}>
+      <p style={{ fontSize: 11, color: 'var(--muted)', margin: '6px 0 0', lineHeight: 1.5 }}>
         Drag placed fields to move · corner handle resizes · × removes · ✎ edits choices.
         {offerFields && ' An Offer Field is printed from the offer at send (pay, start date, title) - it belongs to no signer.'}
       </p>
@@ -282,7 +282,7 @@ function FieldOptionsModal({ field, onSave, onClose }) {
             style={{ opacity: clean.length < 2 ? 0.5 : 1 }}>Save Options</button>
         </>
       )}>
-      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>The values the signer can choose from - at least two.</p>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>The values the signer can choose from - at least two.</p>
       {opts.map((o, i) => (
         <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
           <input className="form-input" value={o} placeholder={`Option ${i + 1}`} autoFocus={i === opts.length - 1 && !o}
@@ -317,7 +317,7 @@ function MergeFieldModal({ field, onSave, onClose }) {
       <select className="form-input" value={key} onChange={e => setKey(e.target.value)} style={{ width: '100%' }} autoFocus>
         {MERGE_FIELDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
       </select>
-      {key === 'salary' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 0' }}>Printed the way the typed pay reads, e.g. "$85,000.00 per year" or "₹7,00,000.00 per year".</p>}
+      {key === 'salary' && <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>Printed the way the typed pay reads, e.g. "$85,000.00 per year" or "₹7,00,000.00 per year".</p>}
     </Modal>
   );
 }
@@ -343,13 +343,13 @@ function FieldLabelModal({ field, onSave, onClose }) {
       <input className="form-input" autoFocus value={label} style={{ width: '100%' }}
         placeholder="Certificate of insurance" onChange={e => setLabel(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter') save(); }} />
-      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 14px' }}>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 14px' }}>
         Shown on the box the signer clicks, and named on the signing certificate.
       </p>
       <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer' }}>
         <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)}
           style={{ width: 15, height: 15, marginTop: 1, accentColor: 'var(--pine)' }} />
-        <span style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+        <span style={{ fontSize: 13, lineHeight: 1.5 }}>
           Required - the signer cannot finish without attaching a file.
         </span>
       </label>
@@ -538,14 +538,14 @@ export function SignaturePad({ name = '', onAdopt, onClose, zIndex = 1400 }) {
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <PenTool size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
           <span>
-            <span style={{ display: 'block', fontSize: 16, fontWeight: 800 }}>Adopt Your Signature</span>
+            <span style={{ display: 'block', fontSize: 15, fontWeight: 800 }}>Adopt Your Signature</span>
             <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--muted)', marginTop: 2 }}>This becomes your legal signature on this document.</span>
           </span>
         </span>
       )}
       footer={(close) => (
         <>
-          <span style={{ fontSize: 10.5, color: 'var(--muted)', flex: '1 1 240px' }}>By adopting, you agree this is the electronic equivalent of your handwritten signature.</span>
+          <span style={{ fontSize: 11, color: 'var(--muted)', flex: '1 1 240px' }}>By adopting, you agree this is the electronic equivalent of your handwritten signature.</span>
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="secondary-btn" onClick={() => close()}>Cancel</button>
             <button className="primary-btn" onClick={adopt} disabled={!canAdopt}
@@ -578,7 +578,7 @@ export function SignaturePad({ name = '', onAdopt, onClose, zIndex = 1400 }) {
                   <button key={i} onClick={() => setFont(i)}
                     style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 12, cursor: 'pointer', textAlign: 'left', background: '#fff', border: font === i ? '2px solid var(--pine)' : '1.5px solid var(--line)' }}>
                     <span style={{ width: 16, height: 16, borderRadius: '50%', border: font === i ? '5px solid var(--pine)' : '2px solid var(--line)', flexShrink: 0, boxSizing: 'border-box' }} />
-                    <span style={{ fontFamily: `${ff}, cursive`, fontSize: 26, color: '#111827', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{typed || 'Your name'}</span>
+                    <span style={{ fontFamily: `${ff}, cursive`, fontSize: 26, color: '#111827', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{typed || 'Your name'}</span>{/* type-ok: a signature preview */}
                   </button>
                 ))}
               </div>
@@ -658,7 +658,7 @@ function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen, onPageCount })
           style={{ position: 'relative', width: `${Math.round(zoom * 100)}%`, maxWidth: 980, boxShadow: '0 2px 12px rgba(0,0,0,0.14)', borderRadius: 4, background: '#fff' }}>
           <img src={p.dataUrl} alt={`Page ${i + 1}`} style={{ width: '100%', display: 'block', borderRadius: 4 }} draggable={false} />
           {renderOverlay?.(i)}
-          <span style={{ position: 'absolute', top: -19, right: 2, fontSize: 10.5, color: 'var(--muted)', fontWeight: 600 }}>Page {i + 1} of {pages.length}</span>
+          <span style={{ position: 'absolute', top: -19, right: 2, fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>Page {i + 1} of {pages.length}</span>
         </div>
       ))}
     </div>
@@ -681,26 +681,26 @@ function ConsentDisclosures({ payload }) {
   return (
     <>
       <button type="button" onClick={(e) => { e.preventDefault(); setOpen(o => !o); }}
-        style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', textDecoration: 'underline', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--muted)', textDecoration: 'underline', cursor: 'pointer', whiteSpace: 'nowrap' }}>
         {open ? 'Hide disclosures' : 'Read disclosures'}
       </button>
       {open && (
         <div style={{ flexBasis: '100%', order: 9, marginTop: 4, border: '1px solid var(--line)', borderRadius: 10, background: 'var(--mist)', padding: '12px 14px', maxHeight: 260, overflowY: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700 }}>Electronic Records and Signatures Disclosure</div>
-            <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Version {payload.consentVersion}</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Electronic Records and Signatures Disclosure</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Version {payload.consentVersion}</div>
           </div>
           {items.map(d => (
             <div key={d.heading} style={{ marginBottom: 9 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 2 }}>{d.heading}</div>
-              <div style={{ fontSize: 11.5, lineHeight: 1.55, color: 'var(--ink)' }}>{d.body}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 2 }}>{d.heading}</div>
+              <div style={{ fontSize: 12, lineHeight: 1.55, color: 'var(--ink)' }}>{d.body}</div>
             </div>
           ))}
-          <div style={{ fontSize: 11.5, lineHeight: 1.55, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+          <div style={{ fontSize: 12, lineHeight: 1.55, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
             <b>By checking the box you confirm:</b> {payload.consentText}
           </div>
           <button type="button" onClick={() => window.print()}
-            style={{ marginTop: 10, background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '5px 10px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+            style={{ marginTop: 10, background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
             Print or Save a Copy
           </button>
         </div>
@@ -745,12 +745,12 @@ function ConsentGate({ payload, busy, onAccept, onDecline }) {
       <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
           <StepRail current={1} />
-          <h2 style={{ fontSize: 17, fontWeight: 800, margin: '10px 0 4px' }}>Before You Sign</h2>
-          <p style={{ fontSize: 12.5, color: 'var(--muted, #6b7280)', margin: 0, lineHeight: 1.55 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 800, margin: '10px 0 4px' }}>Before You Sign</h2>
+          <p style={{ fontSize: 13, color: 'var(--muted, #6b7280)', margin: 0, lineHeight: 1.55 }}>
             Electronic signing is a separate choice from agreeing to the document itself. Please
             read the disclosure below carefully.
           </p>
-          <p style={{ fontSize: 12.5, color: 'var(--muted, #6b7280)', margin: '8px 0 0', lineHeight: 1.55 }}>
+          <p style={{ fontSize: 13, color: 'var(--muted, #6b7280)', margin: '8px 0 0', lineHeight: 1.55 }}>
             Choosing electronic signing is optional. If you prefer to sign on paper, you can
             decline electronic signing and contact the sender to arrange an alternative. Your
             choice of signing method does not change the terms of the underlying agreement.
@@ -761,7 +761,7 @@ function ConsentGate({ payload, busy, onAccept, onDecline }) {
           style={{ padding: '16px 22px', maxHeight: 340, overflowY: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Electronic Records and Signatures Disclosure</div>
-            <div style={{ fontSize: 10.5, color: 'var(--muted, #6b7280)' }}>Version {payload.consentVersion}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted, #6b7280)' }}>Version {payload.consentVersion}</div>
           </div>
           {items.map(d => (
             <div key={d.heading} style={{ marginBottom: 12 }}>
@@ -779,12 +779,12 @@ function ConsentGate({ payload, busy, onAccept, onDecline }) {
             <input type="checkbox" checked={agreed} disabled={!read}
               onChange={e => setAgreed(e.target.checked)}
               style={{ width: 15, height: 15, marginTop: 1, flexShrink: 0, accentColor: 'var(--pine, #166534)' }} />
-            <span style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+            <span style={{ fontSize: 13, lineHeight: 1.5 }}>
               I Agree to use electronic records and signatures for this document.
             </span>
           </label>
           {!read && (
-            <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)', marginTop: 8, marginLeft: 24 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted, #6b7280)', marginTop: 8, marginLeft: 24 }}>
               Scroll to the end of the disclosure to continue.
             </div>
           )}
@@ -792,12 +792,12 @@ function ConsentGate({ payload, busy, onAccept, onDecline }) {
               must not compete with it visually (review section 12). */}
           <div style={{ display: 'flex', gap: 14, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
             <button className="primary-btn" disabled={!agreed || busy} onClick={onAccept}
-              style={{ opacity: agreed && !busy ? 1 : 0.5, fontSize: 13.5, padding: '11px 26px', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              style={{ opacity: agreed && !busy ? 1 : 0.5, fontSize: 13, padding: '11px 26px', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
               {busy ? <Spinner size={14} /> : null}
               I Agree
             </button>
             <button onClick={onDecline}
-              style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted, #6b7280)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif', textDecoration: 'underline' }}>
+              style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted, #6b7280)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif', textDecoration: 'underline' }}>
               I would rather sign on paper
             </button>
           </div>
@@ -824,10 +824,10 @@ function StepRail({ current }) {
         const done = n < current, active = n === current;
         return (
           <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: active ? 800 : 600,
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: active ? 800 : 600,
               color: active ? 'var(--ink, #111827)' : 'var(--muted, #6b7280)' }}>
               <span style={{ width: 18, height: 18, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 10, fontWeight: 800, background: done ? 'hsl(142,60%,35%)' : active ? '#14532d' : 'var(--line, #e5e7eb)',
+                fontSize: 11, fontWeight: 800, background: done ? 'hsl(142,60%,35%)' : active ? '#14532d' : 'var(--line, #e5e7eb)',
                 color: done || active ? '#fff' : 'var(--muted, #6b7280)' }}>
                 {done ? <Check size={11} /> : n}
               </span>
@@ -871,8 +871,8 @@ function OtpGate({ payload, busy, onRequest, onVerify, error }) {
       <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
           <StepRail current={2} />
-          <h2 style={{ fontSize: 17, fontWeight: 800, margin: '10px 0 4px' }}>Verify It's You</h2>
-          <p style={{ fontSize: 12.5, color: 'var(--muted, #6b7280)', margin: 0, lineHeight: 1.55 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 800, margin: '10px 0 4px' }}>Verify It's You</h2>
+          <p style={{ fontSize: 13, color: 'var(--muted, #6b7280)', margin: 0, lineHeight: 1.55 }}>
             We send a single-use code before showing you the document. This is recorded on the
             signing certificate as part of how your signature was verified.
           </p>
@@ -891,8 +891,8 @@ function OtpGate({ payload, busy, onRequest, onVerify, error }) {
                         onChange={() => setChannel(c.channel)}
                         style={{ width: 15, height: 15, accentColor: 'var(--pine, #166534)' }} />
                       <span>
-                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700 }}>{chLabel(c.channel)}</span>
-                        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted, #6b7280)' }}>{c.masked}</span>
+                        <span style={{ display: 'block', fontSize: 13, fontWeight: 700 }}>{chLabel(c.channel)}</span>
+                        <span style={{ display: 'block', fontSize: 12, color: 'var(--muted, #6b7280)' }}>{c.masked}</span>
                       </span>
                     </label>
                   ))}
@@ -904,7 +904,7 @@ function OtpGate({ payload, busy, onRequest, onVerify, error }) {
                 </p>
               )}
               <button className="primary-btn" disabled={busy} onClick={() => send(channel)}
-                style={{ fontSize: 13.5, padding: '11px 26px', display: 'inline-flex', alignItems: 'center', gap: 7, opacity: busy ? 0.6 : 1 }}>
+                style={{ fontSize: 13, padding: '11px 26px', display: 'inline-flex', alignItems: 'center', gap: 7, opacity: busy ? 0.6 : 1 }}>
                 {busy ? <Spinner size={14} /> : <Send size={14} />}
                 Send Code
               </button>
@@ -917,20 +917,20 @@ function OtpGate({ payload, busy, onRequest, onVerify, error }) {
               <input autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6}
                 value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="000000"
-                style={{ width: 200, textAlign: 'center', fontSize: 26, fontWeight: 700, letterSpacing: 10,
+                style={{ width: 200, textAlign: 'center', fontSize: 24, fontWeight: 700, letterSpacing: 10,
                   padding: '12px 10px', borderRadius: 10, border: '1.5px solid var(--line, #d1d5db)',
                   fontFamily: 'Inter,sans-serif', background: 'var(--card, #fff)', color: 'var(--ink, #111827)' }} />
               {error && (
-                <p style={{ fontSize: 12.5, color: 'hsl(350,65%,48%)', margin: '10px 0 0', fontWeight: 600 }}>{error}</p>
+                <p style={{ fontSize: 13, color: 'hsl(350,65%,48%)', margin: '10px 0 0', fontWeight: 600 }}>{error}</p>
               )}
               <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginTop: 16, flexWrap: 'wrap' }}>
                 <button type="submit" className="primary-btn" disabled={code.length !== 6 || busy}
-                  style={{ fontSize: 13.5, padding: '11px 26px', opacity: code.length === 6 && !busy ? 1 : 0.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                  style={{ fontSize: 13, padding: '11px 26px', opacity: code.length === 6 && !busy ? 1 : 0.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                   {busy ? <Spinner size={14} /> : <ShieldCheck size={14} />}
                   Verify &amp; Continue
                 </button>
                 <button type="button" disabled={cooldown > 0 || busy} onClick={() => send(sent.channel)}
-                  style={{ background: 'none', border: 'none', padding: 0, fontSize: 12.5, fontWeight: 600,
+                  style={{ background: 'none', border: 'none', padding: 0, fontSize: 13, fontWeight: 600,
                     color: 'var(--muted, #6b7280)', cursor: cooldown > 0 ? 'default' : 'pointer',
                     fontFamily: 'Inter,sans-serif', textDecoration: cooldown > 0 ? 'none' : 'underline' }}>
                   {cooldown > 0 ? `Resend in ${cooldown}s` : 'Send a new code'}
@@ -969,7 +969,7 @@ export function SigningGate({ payload, gateApi, onCleared, onDecline }) {
     <>
       {error && (
         <div style={{ maxWidth: 680, margin: '0 auto 12px', padding: '10px 14px', borderRadius: 10,
-          background: 'hsla(350,65%,48%,0.08)', color: 'hsl(350,65%,48%)', fontSize: 12.5, fontWeight: 600 }}>
+          background: 'hsla(350,65%,48%,0.08)', color: 'hsl(350,65%,48%)', fontSize: 13, fontWeight: 600 }}>
           {error}
         </div>
       )}
@@ -1034,12 +1034,12 @@ function HistoryPanel({ loadHistory, onClose, zIndex = 1450 }) {
                   </span>
                   <span style={{ minWidth: 0 }}>
                     <span style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 8px', alignItems: 'baseline' }}>
-                      <b style={{ fontSize: 13.5, fontWeight: 700 }}>{r.label}</b>
+                      <b style={{ fontSize: 13, fontWeight: 700 }}>{r.label}</b>
                       {r.you && (
-                        <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase',
+                        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase',
                           color: 'var(--pine, #166534)' }}>You</span>
                       )}
-                      <span style={{ fontSize: 11.5, color: 'var(--muted)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
                         {formatDateTime(r.at)}
                       </span>
                     </span>
@@ -1078,7 +1078,7 @@ export function OtherPartyField({ field: f, style, payload }) {
   const tint = { ...style, border: '1px solid rgba(21,128,61,0.28)', background: 'rgba(16,185,129,0.07)',
     borderRadius: 4, color: '#374151', display: 'flex', alignItems: 'center', overflow: 'hidden' };
   const label = (text, extra = {}) => (
-    <span style={{ ...tint, padding: '0 5px', fontSize: 10.5, whiteSpace: 'nowrap', ...extra }}
+    <span style={{ ...tint, padding: '0 5px', fontSize: 11, whiteSpace: 'nowrap', ...extra }}
       title={`${who?.name || 'Another signer'}${f.sensitive ? ' - shown masked' : ''}`}>{text}</span>
   );
 
@@ -1145,7 +1145,7 @@ function UploadField({ field, style, innerRef, record, busy, disabled, error,
         ...style, border: `1.5px dashed ${border}`, background: bg, borderRadius: 6,
         display: 'flex', alignItems: 'center', gap: 5, padding: '0 6px', overflow: 'hidden',
         cursor: disabled ? 'default' : 'pointer', fontFamily: 'Inter,sans-serif',
-        fontSize: 10.5, fontWeight: 700, color: done ? '#065f46' : '#78350f',
+        fontSize: 11, fontWeight: 700, color: done ? '#065f46' : '#78350f',
       }}>
       <input ref={inputRef} type="file" accept={accept} style={{ display: 'none' }}
         onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
@@ -1505,7 +1505,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   const signHereTab = (key) => (
     <button ref={el => { fieldRefs.current[key] = el; }} className="nx-press" onClick={() => payload.myTurn && setPadOpen(true)} disabled={!payload.myTurn}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 22px', borderRadius: 8,
-        background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 13.5,
+        background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 13,
         cursor: payload.myTurn ? 'pointer' : 'default', fontFamily: 'Inter,sans-serif',
         boxShadow: '0 2px 6px rgba(245,158,11,0.45)', position: 'relative' }}>
       <span style={{ position: 'absolute', left: -7, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '7px solid transparent', borderBottom: '7px solid transparent', borderRight: '7px solid #fbbf24' }} />
@@ -1530,15 +1530,15 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 <button onClick={() => setPadOpen(true)} title="Change signature"
                   style={{ display: 'inline-block', minWidth: 200, background: 'rgba(16,185,129,0.06)', border: '1.5px solid #10b981', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', textAlign: 'left' }}>
                   {sigPreview(44)}
-                  <span style={{ display: 'block', borderTop: '1px solid #111827', marginTop: 5, paddingTop: 3, fontSize: 10, color: 'var(--muted)', fontFamily: 'Inter,sans-serif' }}>{payload.myName}</span>
+                  <span style={{ display: 'block', borderTop: '1px solid #111827', marginTop: 5, paddingTop: 3, fontSize: 11, color: 'var(--muted)', fontFamily: 'Inter,sans-serif' }}>{payload.myName}</span>
                 </button>
               ) : signHereTab(`sig-${pi}-${m.index}`)
             ) : othersSigned[role] ? (
               <span style={{ display: 'inline-block', minWidth: 200, padding: '8px 16px', borderRadius: 8, border: '1.5px solid rgba(21,128,61,0.3)', background: 'rgba(16,185,129,0.07)' }}>
                 {othersSigned[role].signatureKind === 'drawn' && String(othersSigned[role].signatureData || '').startsWith('data:image')
                   ? <img src={othersSigned[role].signatureData} alt={`${othersSigned[role].name} signature`} style={{ height: 44, maxWidth: 240, objectFit: 'contain', display: 'block' }} />
-                  : <span style={{ fontFamily: '"Segoe Script",cursive', fontSize: 22 }}>{othersSigned[role].signatureData || othersSigned[role].name}</span>}
-                <span style={{ display: 'block', borderTop: '1px solid #111827', marginTop: 5, paddingTop: 3, fontSize: 10, color: 'var(--muted)', fontFamily: 'Inter,sans-serif' }}>{othersSigned[role].name}</span>
+                  : <span style={{ fontFamily: '"Segoe Script",cursive', fontSize: 22 }}>{othersSigned[role].signatureData || othersSigned[role].name}</span>}{/* type-ok: a signature preview */}
+                <span style={{ display: 'block', borderTop: '1px solid #111827', marginTop: 5, paddingTop: 3, fontSize: 11, color: 'var(--muted)', fontFamily: 'Inter,sans-serif' }}>{othersSigned[role].name}</span>
               </span>
             ) : (
               <span style={{ display: 'inline-block', padding: '9px 18px', borderRadius: 8, border: '1.5px dashed var(--line)', color: 'var(--muted)', fontSize: 12, background: 'var(--mist)' }}>
@@ -1548,7 +1548,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
             )}
           </span>);
       } else if (type === 'date') {
-        parts.push(<span key={key} style={{ color: 'var(--muted)', fontSize: 12.5, fontStyle: mine ? 'italic' : 'normal', borderBottom: '1px dotted var(--line)' }}>
+        parts.push(<span key={key} style={{ color: 'var(--muted)', fontSize: 13, fontStyle: mine ? 'italic' : 'normal', borderBottom: '1px dotted var(--line)' }}>
           {mine ? (sig ? formatDate(new Date()) : 'date signed')
             : (othersSigned[role]?.signedAt ? formatDate(othersSigned[role].signedAt) : 'date signed')}</span>);
       } else if (type === 'initials') {
@@ -1572,7 +1572,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
               <input ref={el => { fieldRefs.current[k] = el; }} className="form-input" placeholder={label} value={values[k] || ''} disabled={!payload.myTurn}
                 aria-invalid={fieldErr?.field === k ? 'true' : undefined}
                 onChange={e => setVal(k, e.target.value)} style={{ display: 'inline-block', width: 220, margin: '2px 0', borderColor: fieldErr?.field === k ? '#dc2626' : '#fbbf24' }} />
-              {fieldErr?.field === k && <span role="alert" style={{ display: 'block', fontSize: 11.5, color: '#b91c1c', fontWeight: 700, fontFamily: 'Inter,sans-serif', marginTop: 2 }}>{fieldErr.message}</span>}
+              {fieldErr?.field === k && <span role="alert" style={{ display: 'block', fontSize: 12, color: '#b91c1c', fontWeight: 700, fontFamily: 'Inter,sans-serif', marginTop: 2 }}>{fieldErr.message}</span>}
             </span>
           : <span key={key} title={`${(payload.parties || []).find(p => p.roleKey === role)?.name || 'Another signer'}`}
               style={{ borderBottom: '1px solid var(--line)', minWidth: 130, display: 'inline-block', fontSize: othersFilled[k] ? 14 : 12,
@@ -1584,7 +1584,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
     if (last < para.length) parts.push(<span key={`${pi}-end`}>{para.slice(last)}</span>);
     // pre-wrap: the template editor lets authors put line breaks inside a
     // paragraph - signers must see them too, not a collapsed single line.
-    return <div key={pi} style={{ margin: '0 0 13px', fontSize: 14.5, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{parts}</div>;
+    return <div key={pi} style={{ margin: '0 0 13px', fontSize: 15, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{parts}</div>;
   }
 
   const signingOverlay = (docFields) => (pageIdx) => (
@@ -1597,11 +1597,11 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
         // down to the 11px look - same box on the page, no zoom (phone pass,
         // Oct 29 2026). Borders and padding are drawn 16/11 larger to match.
         const Z = 16 / 11;
-        const zoomSafe = { ...st, width: `${f.w * 100 * Z}%`, height: `${f.h * 100 * Z}%`, fontSize: 16, transform: `scale(${1 / Z})`, transformOrigin: '0 0' };
+        const zoomSafe = { ...st, width: `${f.w * 100 * Z}%`, height: `${f.h * 100 * Z}%`, fontSize: 16, transform: `scale(${1 / Z})`, transformOrigin: '0 0' }; // type-ok: iOS zooms a field under 16px
         if (f.type === 'merge') {
           // Printed from the offer at send; the same for every signer, never typed.
           return <span key={f.id} title={MERGE_LABEL[f.merge] || 'Offer field'}
-            style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 10.5, color: '#111827', paddingLeft: 3, whiteSpace: 'nowrap', overflow: 'hidden', fontFamily: 'Helvetica,Arial,sans-serif' }}>{f.value || ''}</span>;
+            style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 11, color: '#111827', paddingLeft: 3, whiteSpace: 'nowrap', overflow: 'hidden', fontFamily: 'Helvetica,Arial,sans-serif' }}>{f.value || ''}</span>;
         }
         if (f.type === 'sign' && mine) {
           return (
@@ -1637,7 +1637,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 border: `1.5px solid ${values[f.id] ? '#10b981' : '#fbbf24'}`, borderRadius: 4, padding: '1px 4px', overflow: 'hidden',
                 background: values[f.id] ? 'rgba(16,185,129,0.05)' : 'rgba(251,191,36,0.1)', fontFamily: 'Inter,sans-serif' }}>
               {(f.options || []).map(o => (
-                <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, whiteSpace: 'nowrap', overflow: 'hidden', cursor: payload.myTurn ? 'pointer' : 'default' }}>
+                <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', cursor: payload.myTurn ? 'pointer' : 'default' }}>
                   <input type="radio" name={f.id} checked={values[f.id] === o} disabled={!payload.myTurn}
                     onChange={() => setVal(f.id, o)} style={{ width: 11, height: 11, accentColor: '#10b981', flexShrink: 0 }} />
                   {o}
@@ -1655,10 +1655,10 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
         }
         if (f.type === 'name') {
           const nm = mine ? payload.myName : ((payload.parties || []).find(p => p.roleKey === f.role)?.name || '');
-          return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 10, color: 'var(--muted)', border: '1px dotted #d1d5db', borderRadius: 4, paddingLeft: 4, background: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden' }}>{nm}</span>;
+          return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 11, color: 'var(--muted)', border: '1px dotted #d1d5db', borderRadius: 4, paddingLeft: 4, background: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden' }}>{nm}</span>;
         }
         if (f.type === 'date' && mine) {
-          return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 10, color: 'var(--muted)', border: '1px dotted #d1d5db', borderRadius: 4, paddingLeft: 4, background: 'rgba(255,255,255,0.6)' }}>{sig ? formatDate(new Date()) : 'date signed'}</span>;
+          return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 11, color: 'var(--muted)', border: '1px dotted #d1d5db', borderRadius: 4, paddingLeft: 4, background: 'rgba(255,255,255,0.6)' }}>{sig ? formatDate(new Date()) : 'date signed'}</span>;
         }
         if (f.type === 'initials' && mine) {
           return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '"Segoe Script",cursive', fontSize: 12, border: '1px dotted #d1d5db', borderRadius: 4, background: 'rgba(255,255,255,0.6)' }}>{initialsOf(payload.myName)}</span>;
@@ -1702,7 +1702,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Printer size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
           <span>Sign on Paper</span>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>Step {paperStep} of 3</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Step {paperStep} of 3</span>
         </span>
       )}
       footer={(close) => (
@@ -1729,7 +1729,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
       )}>
         {paperStep === 1 && (
             <div>
-              <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 16px' }}>
+              <p style={{ fontSize: 13, lineHeight: 1.6, margin: '0 0 16px' }}>
                 How would you like to return the signed document?
               </p>
               <label style={{ display: 'flex', gap: 11, alignItems: 'flex-start', border: '1.5px solid var(--pine)',
@@ -1737,7 +1737,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 <input type="radio" name="paper-return" defaultChecked
                   style={{ width: 15, height: 15, marginTop: 2, accentColor: 'var(--pine)' }} />
                 <span>
-                  <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700 }}>Upload a scan</span>
+                  <span style={{ display: 'block', fontSize: 13, fontWeight: 700 }}>Upload a scan</span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.5 }}>
                     Print it, sign it, then scan or photograph it and upload it here. Your signed
                     copy goes straight onto this request.
@@ -1749,13 +1749,13 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
 
         {paperStep === 2 && (
             <div>
-              <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 14px' }}>
+              <p style={{ fontSize: 13, lineHeight: 1.6, margin: '0 0 14px' }}>
                 Download the document, print it, and sign it by hand. Come back to this page when
                 you have a scan ready - this link stays valid.
               </p>
               {(payload.copyUrl || copyApi) && (
                 <button className="primary-btn" onClick={downloadDoc} disabled={!!copyBusy}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
                   <Download size={14} /> Download the Document
                 </button>
               )}
@@ -1764,7 +1764,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
 
         {paperStep === 3 && (
             <div>
-              <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 14px' }}>
+              <p style={{ fontSize: 13, lineHeight: 1.6, margin: '0 0 14px' }}>
                 Upload your signed copy. Make sure every signed page is included and readable.
               </p>
               <label style={{ display: 'block', border: `1.5px dashed ${paperFile ? '#10b981' : 'var(--line)'}`,
@@ -1780,12 +1780,12 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                       <UploadCloud size={15} /> Choose your scanned copy
                     </span>}
               </label>
-              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '10px 0 0', lineHeight: 1.55 }}>
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '10px 0 0', lineHeight: 1.55 }}>
                 {payload.uploadLimit?.hint || 'PDF or an image'}. Once uploaded, your signature is
                 recorded on this request as a wet signature and the sender is notified.
               </p>
               {paperErr && (
-                <p style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', margin: '10px 0 0', fontWeight: 600 }}>{paperErr}</p>
+                <p style={{ fontSize: 13, color: 'hsl(var(--color-red))', margin: '10px 0 0', fontWeight: 600 }}>{paperErr}</p>
               )}
             </div>
         )}
@@ -1870,7 +1870,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
               aria-expanded={listOpen}
               title={allDone ? 'All required fields complete' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
               style={{ background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                fontSize: 11.5, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)',
+                fontSize: 12, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)',
                 display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: narrow ? 56 : 90, height: 5, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
                 <span style={{ display: 'block', height: '100%', width: '100%', transformOrigin: 'left center', transform: `scaleX(${required.length ? doneCount / required.length : 1})`,
@@ -1889,7 +1889,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                   {allDone ? 'Nothing left to fill' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
                 </div>
                 {allDone ? (
-                  <div style={{ padding: '10px 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  <div style={{ padding: '10px 14px', fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
                     Every required field is complete. Select Finish to submit your signature.
                   </div>
                 ) : outstanding.map(t => (
@@ -1897,7 +1897,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                     onClick={() => { setListOpen(false); jumpTo(t); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
                       background: 'none', border: 'none', padding: '8px 14px', cursor: 'pointer',
-                      fontFamily: 'Inter,sans-serif', fontSize: 12.5, color: 'var(--ink)' }}>
+                      fontFamily: 'Inter,sans-serif', fontSize: 13, color: 'var(--ink)' }}>
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskName(t)}</span>
                     {Number.isInteger(t.page) && (
@@ -2034,7 +2034,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
               <Printer size={13} /> {copyBusy === 'print' ? 'Preparing…' : 'Print'}
             </button>
             {copyErr && (
-              <span role="alert" style={{ fontSize: 11.5, color: 'hsl(350,62%,42%)', width: '100%', textAlign: 'right' }}>{copyErr}</span>
+              <span role="alert" style={{ fontSize: 12, color: 'hsl(350,62%,42%)', width: '100%', textAlign: 'right' }}>{copyErr}</span>
             )}
           </div>
         )}
@@ -2203,11 +2203,11 @@ export function SignModal({ partyId, onClose, onDone, toastOk, toastErr, layer =
   return (
     <div ref={boxRef} style={fillPanelStyle(boxH)}>
       <div style={{ padding: '12px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', flexShrink: 0 }}>
-        <button className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5 }}><ChevronLeft size={14} /> Back</button>
+        <button className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13 }}><ChevronLeft size={14} /> Back</button>
         <FileSignature size={18} style={{ color: 'var(--pine)' }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{payload?.title || 'Loading…'}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Review &amp; sign</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Review &amp; sign</div>
         </div>
       </div>
       <div style={{ overflowY: 'auto', flex: 1, padding: '20px clamp(12px, 6vw, 60px)' }}>
@@ -2387,7 +2387,7 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
             style={{ position: 'absolute', left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%`,
               border: `2px ${M.merge ? 'dashed' : 'solid'} ${c.solid}`, background: c.soft, borderRadius: 5, cursor: liftId === f.id ? 'grabbing' : 'grab', touchAction: 'none',
               boxShadow: liftId === f.id ? '0 8px 22px rgba(17,24,39,0.20)' : 'none', zIndex: liftId === f.id ? 2 : undefined, transition: 'box-shadow var(--dur-xs) var(--ease-out)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
-            <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
               <M.Icon size={10} /> {M.merge ? (MERGE_LABEL[f.merge] || 'Offer Field') : ((M.labeled && f.label) || M.label)}
             </span>
             {(M.opts || M.labeled || M.merge) && (
@@ -2423,14 +2423,14 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
           <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
           <span style={{ minWidth: 0 }}>
             <span style={{ display: 'block', fontWeight: 800, fontSize: 14, overflowWrap: 'anywhere' }}>{attachment.name}</span>
-            <span style={{ display: 'block', fontSize: 10.5, fontWeight: 400, color: 'var(--muted)' }}>Signing template · place the fields once, every send reuses them</span>
+            <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>Signing template · place the fields once, every send reuses them</span>
           </span>
         </span>
       )}
       footer={(close) => (
         <>
-          <button className="secondary-btn" onClick={() => close()} style={{ fontSize: 12.5 }}>Cancel</button>
-          <button className="primary-btn" onClick={() => { onSave(fields); close(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <button className="secondary-btn" onClick={() => close()} style={{ fontSize: 13 }}>Cancel</button>
+          <button className="primary-btn" onClick={() => { onSave(fields); close(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
             <CheckCircle size={13} /> Save Fields
           </button>
         </>
@@ -2442,8 +2442,8 @@ export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr 
           <label style={FL}>Included documents</label>
           <div style={{ border: '1.5px solid var(--pine)', borderRadius: 10, padding: '14px 10px', textAlign: 'center', background: 'var(--mist)' }}>
             <FileText size={26} style={{ color: 'var(--pine)' }} />
-            <div style={{ fontSize: 11.5, fontWeight: 700, marginTop: 6, wordBreak: 'break-word' }}>{attachment.name}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>{attachment.pages || '–'} page{attachment.pages === 1 ? '' : 's'}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, marginTop: 6, wordBreak: 'break-word' }}>{attachment.name}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{attachment.pages || '–'} page{attachment.pages === 1 ? '' : 's'}</div>
           </div>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '26px 20px', minWidth: 0 }}>
@@ -2674,7 +2674,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const draftBtn = (
     <button className="secondary-btn" onClick={saveDraft} disabled={savingDraft || busy}
       title="Keep this and finish it later"
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, flexShrink: 0 }}>
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, flexShrink: 0 }}>
       {savingDraft ? <Spinner size={13} /> : <Save size={13} />}
       Save Draft
     </button>
@@ -3011,7 +3011,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
             style={{ position: 'absolute', left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%`,
               border: `2px solid ${c.solid}`, background: c.soft, borderRadius: 5, cursor: liftId === f.id ? 'grabbing' : 'grab', touchAction: 'none',
               boxShadow: liftId === f.id ? '0 8px 22px rgba(17,24,39,0.20)' : 'none', zIndex: liftId === f.id ? 2 : undefined, transition: 'box-shadow var(--dur-xs) var(--ease-out)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
-            <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
               <M.Icon size={10} /> {(M.labeled && f.label) || M.label}
             </span>
             {(M.opts || M.labeled) && (
@@ -3107,7 +3107,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
       const M = FIELD_META[type] || FIELD_META.sign;
       parts.push(
         <span key={`f${m.index}`} style={{ display: type === 'sign' ? 'inline-block' : 'inline', margin: type === 'sign' ? '6px 0' : 0 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: type === 'sign' ? '7px 16px' : '2px 9px', borderRadius: 7, border: `1.5px solid ${c.solid}`, background: c.soft, color: c.solid, fontSize: type === 'sign' ? 12 : 10.5, fontWeight: 700, fontFamily: 'Inter,sans-serif' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: type === 'sign' ? '7px 16px' : '2px 9px', borderRadius: 7, border: `1.5px solid ${c.solid}`, background: c.soft, color: c.solid, fontSize: type === 'sign' ? 12 : 11, fontWeight: 700, fontFamily: 'Inter,sans-serif' }}>
             <M.Icon size={type === 'sign' ? 13 : 10} /> {M.label}{label ? ` · ${label}` : ''} - {withRoles.find(p => p.role_key === role)?.name || (tpl?.roles || []).find(r => r.key === role)?.label || role}
           </span>
         </span>);
@@ -3142,7 +3142,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 13px', borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: 'Inter,sans-serif', border: 'none', cursor: i < step ? 'pointer' : 'default',
                 background: i === step ? 'var(--pine)' : i < step ? 'hsla(var(--color-green),0.12)' : 'var(--mist)',
                 color: i === step ? '#fff' : i < step ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
-              <span style={{ width: 17, height: 17, borderRadius: '50%', background: i === step ? 'rgba(255,255,255,0.25)' : 'transparent', border: i === step ? 'none' : '1.5px solid currentColor', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5 }}>
+              <span style={{ width: 17, height: 17, borderRadius: '50%', background: i === step ? 'rgba(255,255,255,0.25)' : 'transparent', border: i === step ? 'none' : '1.5px solid currentColor', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>
                 {i < step ? <CheckCircle size={11} /> : i + 1}
               </span>
               {s}
@@ -3151,15 +3151,15 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {draftBtn}
-          {step > 0 && <button className="secondary-btn" onClick={goBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}><ChevronLeft size={13} /> Back</button>}
+          {step > 0 && <button className="secondary-btn" onClick={goBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13 }}><ChevronLeft size={13} /> Back</button>}
           {step < steps.length - 1 ? (
             <button className="primary-btn" onClick={goNext}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, opacity: stepOk() ? 1 : 0.55 }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, opacity: stepOk() ? 1 : 0.55 }}>
               Next <ChevronRight size={13} />
             </button>
           ) : (
             <button className="primary-btn" onClick={send} disabled={sendBlocked} title={sendTitle}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: sendBlocked ? 0.6 : 1 }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, opacity: sendBlocked ? 0.6 : 1 }}>
               {busy ? <Spinner size={14} /> : <Send size={13} />} Send
             </button>
           )}
@@ -3188,7 +3188,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                       {/* Blank is a real answer: anything left empty is filled
                           from the person picked in About (and the Company)
                           when the document is generated. */}
-                      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>
+                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
                         Leave a field blank to fill it from the person in <strong>About</strong> and the selected <strong>Company</strong>.
                       </p>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 11, ...(isMobile ? {} : { maxHeight: 420, overflowY: 'auto' }) }}>
@@ -3209,10 +3209,10 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                         ))}
                       </div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
-                        <button className="secondary-btn" style={{ fontSize: 12.5 }}
+                        <button className="secondary-btn" style={{ fontSize: 13 }}
                           onClick={() => { setPendingTpl(null); setFillErrors({}); }}>Back to templates</button>
                         <button className="primary-btn" disabled={!!generating} onClick={submitTemplateFill}
-                          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                           {generating ? <Spinner size={13} /> : <ArrowRight size={13} />}
                           Generate &amp; Continue
                         </button>
@@ -3225,7 +3225,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                 <div style={{ position: 'relative', marginBottom: 8 }}>
                   <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
                   <input className="form-input" value={tplQuery} onChange={e => setTplQuery(e.target.value)}
-                    placeholder="Search templates…" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }} />
+                    placeholder="Search templates…" style={{ width: '100%', fontSize: 13, paddingLeft: 30 }} />
                 </div>
                 {/* On a phone this list used to be a 340px scroller that filled the
                     whole panel, so a drag scrolled the templates and never reached
@@ -3238,8 +3238,8 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                         background: 'var(--card)', border: docTemplateId === t.id ? '2px solid var(--pine)' : '1.5px solid var(--line)' }}>
                       <FileText size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
                       <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{t.name}</span>
-                        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+                        <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{t.name}</span>
+                        <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                           {t.department || 'Company-wide'}
                           {t.usageCount > 0 && ` · used ${t.usageCount} time${t.usageCount === 1 ? '' : 's'}`}
                           {(t.signerRoles || []).length > 0 && ` · ${t.signerRoles.length} signer${t.signerRoles.length === 1 ? '' : 's'}`}
@@ -3254,7 +3254,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                     <LoadingState compact label="Loading templates…" />
                   )}
                   {docTemplates !== null && shownDocTemplates.length === 0 && (
-                    <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 16px', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
+                    <div style={{ fontSize: 13, color: 'var(--muted)', padding: '14px 16px', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
                       {tplQuery.trim()
                         ? `No active template matches "${tplQuery.trim()}".`
                         : 'No active templates yet - create one in the Templates tab, or upload a PDF →'}
@@ -3273,13 +3273,13 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                   <UploadCloud size={30} style={{ color: isPdf && file ? 'var(--pine)' : 'var(--muted)' }} />
                   {isPdf && file ? (
                     <>
-                      <span style={{ fontSize: 13.5, fontWeight: 700 }}>{file.name}</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{(file.size / 1024 / 1024).toFixed(1)} MB · click to replace</span>
+                      <span style={{ fontSize: 13, fontWeight: 700 }}>{file.name}</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{(file.size / 1024 / 1024).toFixed(1)} MB · click to replace</span>
                     </>
                   ) : (
                     <>
-                      <span style={{ fontSize: 13.5, fontWeight: 700 }}>Drop a PDF or Word file here</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or click to browse your computer</span>
+                      <span style={{ fontSize: 13, fontWeight: 700 }}>Drop a PDF or Word file here</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>or click to browse your computer</span>
                     </>
                   )}
                   <input type="file" accept="application/pdf,.docx" style={{ display: 'none' }} onChange={e => pickFile(e.target.files?.[0])} />
@@ -3290,7 +3290,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                     same round trip the filing rule exists to remove. */}
                 <button className="secondary-btn" onClick={() => setEgnyteOpen(true)} disabled={converting}
                   title="Pick a document from the company Egnyte file store"
-                  style={{ marginTop: 10, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 12.5 }}>
+                  style={{ marginTop: 10, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 13 }}>
                   <Cloud size={14} /> Choose from Egnyte
                 </button>
                 {converting && (
@@ -3302,7 +3302,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                 {isPdf && file && (
                   <button className="secondary-btn" onClick={() => setPdfEditOpen(true)}
                     title="Fix the PDF itself - text, pages, images - before placing fields"
-                    style={{ marginTop: 10, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12.5 }}>
+                    style={{ marginTop: 10, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13 }}>
                     <Pencil size={13} /> Edit PDF
                   </button>
                 )}
@@ -3313,7 +3313,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                     <PersonSelect value={subjectRows.find(r => r.key === subjectId)?.email || null}
                       onChange={v => setSubjectId(subjectRows.find(r => r.email === v)?.key || '')}
                       people={subjectRows} placeholder="Pick a person" noneLabel="None" ariaLabel="About"
-                      style={{ height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13.5, fontWeight: 400 }} />
+                      style={{ height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13, fontWeight: 400 }} />
                   </div>
                   <div>
                     <label style={FL}>Company</label>
@@ -3348,7 +3348,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                   title="In order: one signer at a time, in the numbered order. All at once: everyone is invited immediately.">
                   {[['sequential', 'Sign in order'], ['parallel', 'All at once']].map(([v, l]) => (
                     <button key={v} onClick={() => setRouting(v)}
-                      style={{ padding: '5px 14px', fontSize: 11.5, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: routing === v ? 'var(--pine)' : 'var(--card)', color: routing === v ? '#fff' : 'var(--muted)' }}>{l}</button>
+                      style={{ padding: '5px 14px', fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: routing === v ? 'var(--pine)' : 'var(--card)', color: routing === v ? '#fff' : 'var(--muted)' }}>{l}</button>
                   ))}
                 </div>
               )}
@@ -3360,12 +3360,12 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                 <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 10, alignItems: 'stretch' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, paddingTop: 10 }}>
                     <button onClick={() => movParty(i, -1)} disabled={i === 0} style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? 'var(--line)' : 'var(--muted)', display: 'flex', padding: 2 }}><ChevronUp size={14} /></button>
-                    <span style={{ width: 26, height: 26, borderRadius: '50%', background: cc ? 'var(--mist)' : c.solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: cc ? 10 : 12.5, fontWeight: 800 }}>{cc ? 'CC' : i + 1}</span>
+                    <span style={{ width: 26, height: 26, borderRadius: '50%', background: cc ? 'var(--mist)' : c.solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: cc ? 11 : 13, fontWeight: 800 }}>{cc ? 'CC' : i + 1}</span>
                     <button onClick={() => movParty(i, 1)} disabled={i === parties.length - 1} style={{ background: 'none', border: 'none', cursor: i === parties.length - 1 ? 'default' : 'pointer', color: i === parties.length - 1 ? 'var(--line)' : 'var(--muted)', display: 'flex', padding: 2 }}><ChevronDown size={14} /></button>
                   </div>
                   <div style={{ flex: 1, border: '1.5px solid var(--line)', borderLeft: `4px solid ${cc ? 'var(--line)' : c.solid}`, borderRadius: 12, padding: '13px 15px', background: 'var(--card)', opacity: cc ? 0.92 : 1 }}>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
-                      {p.roleLabel && <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: c.solid }}>{p.roleLabel}</span>}
+                      {p.roleLabel && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: c.solid }}>{p.roleLabel}</span>}
                       {/* Template roles are the document's signature slots - they must sign.
                           Free (pdf/CC) parties can flip between signing and copy-only. */}
                       {(isPdf || cc) && (
@@ -3437,12 +3437,12 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
             <div style={{ display: 'flex', gap: 8, marginLeft: 38, flexWrap: 'wrap' }}>
               {!tpl && (
                 <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '', phone: '' }])}
-                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add Signer</button>
+                  style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add Signer</button>
               )}
               <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'cc', access_code: '', phone: '' }])}
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add CC (copy only)</button>
+                style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add CC (copy only)</button>
             </div>
-            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 14, marginLeft: 38 }}>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 14, marginLeft: 38 }}>
               Teammates get a bell notification and sign inside Nexus. External recipients get a secure email link - no login needed.
               CC recipients don't sign; they receive the sealed copy when everyone else has.
             </p>
@@ -3455,9 +3455,9 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
             <div style={{ flex: 1, overflowY: 'auto', padding: '30px 20px', minWidth: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 10, position: 'sticky', top: 0, zIndex: 30 }}>
                 <button className="secondary-btn" onClick={() => setPdfEditOpen(true)} title="Edit the PDF itself (placed fields reset afterwards)"
-                  style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5 }}><Pencil size={12} /> Edit PDF</button>
+                  style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}><Pencil size={12} /> Edit PDF</button>
                 <button className="secondary-btn" onClick={() => setZoom(z => Math.max(0.6, +(z - 0.15).toFixed(2)))} style={{ padding: '5px 9px' }}><ZoomOut size={13} /></button>
-                <span style={{ alignSelf: 'center', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', width: 42, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+                <span style={{ alignSelf: 'center', fontSize: 12, fontWeight: 700, color: 'var(--muted)', width: 42, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
                 <button className="secondary-btn" onClick={() => setZoom(z => Math.min(1.6, +(z + 0.15).toFixed(2)))} style={{ padding: '5px 9px' }}><ZoomIn size={13} /></button>
               </div>
               <PdfDoc file={file} zoom={zoom} renderOverlay={editorOverlay} />
@@ -3469,13 +3469,13 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
               recipientsSlot={(
                 <div style={{ marginBottom: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', flex: 1 }}>Who signs?</span>
+                    <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', flex: 1 }}>Who signs?</span>
                     {signerParties.length > 1 && (
                       <div style={{ display: 'inline-flex', borderRadius: 7, border: '1px solid var(--line)', overflow: 'hidden' }}
                         title="In order: one at a time. All at once: everyone is invited immediately.">
                         {[['sequential', 'In order'], ['parallel', 'All at once']].map(([v, l]) => (
                           <button key={v} onClick={() => setRouting(v)}
-                            style={{ padding: '3px 9px', fontSize: 10.5, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: routing === v ? 'var(--pine)' : 'var(--card)', color: routing === v ? '#fff' : 'var(--muted)' }}>{l}</button>
+                            style={{ padding: '3px 9px', fontSize: 11, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: routing === v ? 'var(--pine)' : 'var(--card)', color: routing === v ? '#fff' : 'var(--muted)' }}>{l}</button>
                         ))}
                       </div>
                     )}
@@ -3486,18 +3486,18 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                       return (
                         <div key={i} style={{ border: '1.5px solid var(--line)', borderLeft: `4px solid ${cc ? 'var(--line)' : c.solid}`, borderRadius: 10, padding: '9px 10px', background: 'var(--card)' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, flexWrap: 'wrap' }}>
-                            <span style={{ width: 20, height: 20, borderRadius: '50%', background: cc ? 'var(--mist)' : c.solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: cc ? 9 : 11, fontWeight: 800, flexShrink: 0 }}>{cc ? 'CC' : i + 1}</span>
+                            <span style={{ width: 20, height: 20, borderRadius: '50%', background: cc ? 'var(--mist)' : c.solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{cc ? 'CC' : i + 1}</span>
                             <div style={{ display: 'inline-flex', borderRadius: 7, border: '1px solid var(--line)', overflow: 'hidden' }}>
                               {[['signer', 'Signs'], ['approver', 'Approves'],
                                 ['certified_delivery', 'Receipt'], ['cc', 'Copy']].map(([v, l]) => (
                                 <button key={v} onClick={() => setPartyRole(i, v)}
-                                  style={{ padding: '2px 8px', fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: (p.party_role || 'signer') === v ? 'var(--pine)' : 'var(--card)', color: (p.party_role || 'signer') === v ? '#fff' : 'var(--muted)' }}>{l}</button>
+                                  style={{ padding: '2px 8px', fontSize: 11, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: (p.party_role || 'signer') === v ? 'var(--pine)' : 'var(--card)', color: (p.party_role || 'signer') === v ? '#fff' : 'var(--muted)' }}>{l}</button>
                               ))}
                             </div>
                             <div style={{ display: 'inline-flex', borderRadius: 7, border: '1px solid var(--line)', overflow: 'hidden' }}>
                               {[['internal', 'Teammate'], ['external', 'External']].map(([v, l]) => (
                                 <button key={v} onClick={() => setParties(ps => ps.map((q, j) => j === i ? { ...q, kind: v, ...(v === 'internal' ? { access_code: '' } : {}) } : q))}
-                                  style={{ padding: '2px 8px', fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: p.kind === v ? 'var(--pine)' : 'var(--card)', color: p.kind === v ? '#fff' : 'var(--muted)' }}>{l}</button>
+                                  style={{ padding: '2px 8px', fontSize: 11, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: p.kind === v ? 'var(--pine)' : 'var(--card)', color: p.kind === v ? '#fff' : 'var(--muted)' }}>{l}</button>
                               ))}
                             </div>
                             <div style={{ flex: 1 }} />
@@ -3513,7 +3513,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                             onChange={e => setParty(i, 'email', e.target.value)} style={{ width: '100%', marginTop: 6, fontSize: 12 }} />
                           {!cc && (
                             <>
-                              <input className="form-input" style={{ marginTop: 6, width: '100%', fontSize: 11.5 }}
+                              <input className="form-input" style={{ marginTop: 6, width: '100%', fontSize: 12 }}
                                 placeholder="Mobile with country code (optional) - e.g. +91 98765 43210"
                                 value={p.phone || ''} maxLength={40}
                                 onChange={e => setParty(i, 'phone', e.target.value)} />
@@ -3532,9 +3532,9 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                   </div>
                   <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                     <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '', phone: '' }])}
-                      style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={11} /> Signer</button>
+                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={11} /> Signer</button>
                     <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'cc', access_code: '', phone: '' }])}
-                      style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={11} /> CC (copy only)</button>
+                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={11} /> CC (copy only)</button>
                   </div>
                   <div style={{ height: 1, background: 'var(--line)', margin: '14px 0 10px' }} />
                 </div>
@@ -3551,7 +3551,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                 <div style={{ display: 'grid', gap: 10 }}>
                   {mergeTokens.map(tk => (
                     <div key={tk}>
-                      <label style={{ ...FL, marginBottom: 3, fontSize: 10 }}>{tk.replace(/_/g, ' ')}{unresolvedTokens.includes(tk) && <span style={{ color: '#b45309' }}> · needed</span>}</label>
+                      <label style={{ ...FL, marginBottom: 3, fontSize: 11 }}>{tk.replace(/_/g, ' ')}{unresolvedTokens.includes(tk) && <span style={{ color: '#b45309' }}> · needed</span>}</label>
                       <input className="form-input" style={{ width: '100%', borderColor: unresolvedTokens.includes(tk) ? '#fbbf24' : undefined }}
                         value={merge[tk] || ''} placeholder={previewMerge[tk] || 'type a value'}
                         onChange={e => setMerge(m => ({ ...m, [tk]: e.target.value }))} />
@@ -3566,7 +3566,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                 <div style={{ marginTop: 20, paddingTop: 14, borderTop: '1px dashed #e5e7eb' }}>
                   <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 8 }}>Also in this packet</div>
                   {tpl.attachments.map((a, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '5px 0', color: '#374151' }}>
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '5px 0', color: '#374151' }}>
                       <FileText size={13} style={{ color: 'var(--pine)' }} />
                       {a.name} <span style={{ color: '#9ca3af' }}>· {a.pages} page{a.pages === 1 ? '' : 's'} · {(a.fields || []).length} field{(a.fields || []).length === 1 ? '' : 's'}</span>
                     </div>
@@ -3585,7 +3585,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                 <FileSignature size={20} style={{ color: 'var(--pine)' }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 800 }}>{title || 'Untitled envelope'}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {source === 'template' ? `Template: ${tpl?.name}` : `PDF: ${file?.name} · ${fields.length} field${fields.length === 1 ? '' : 's'}`}
                   </div>
                 </div>
@@ -3601,9 +3601,9 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                                      cc: 'receives a copy' }[p.party_role || 'signer'];
                   return (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0' }}>
-                      <span style={{ width: 22, height: 22, borderRadius: '50%', background: cc ? 'var(--mist)' : rcolor(i).solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: cc ? 9 : 11, fontWeight: 800, flexShrink: 0 }}>{cc ? 'CC' : i + 1}</span>
+                      <span style={{ width: 22, height: 22, borderRadius: '50%', background: cc ? 'var(--mist)' : rcolor(i).solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{cc ? 'CC' : i + 1}</span>
                       <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{p.name}{roleNote && <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}> · {roleNote}</span>}</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {p.kind}{p.access_code ? ' · 🔒 code' : ''}</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{p.email} · {p.kind}{p.access_code ? ' · 🔒 code' : ''}</span>
                     </div>
                   );
                 })}
@@ -3645,29 +3645,29 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
               </div>
               {classBlocked && (
                 <div style={{ marginTop: 10, padding: '11px 13px', borderRadius: 10, background: 'hsla(var(--color-red),0.10)', border: '1px solid hsla(var(--color-red),0.35)' }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'hsl(var(--color-red))' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-red))' }}>
                     This cannot be signed electronically
                   </div>
-                  <div style={{ fontSize: 11.5, lineHeight: 1.55, marginTop: 4 }}>
+                  <div style={{ fontSize: 12, lineHeight: 1.55, marginTop: 4 }}>
                     {pickedClass.citation}. {pickedClass.note}
                   </div>
                 </div>
               )}
               {!governingLaw && !classBlocked && (
-                <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
                   Leave this unset unless the agreement names a governing law. The certificate then
                   cites the federal ESIGN Act and UETA as enacted in the applicable jurisdiction,
                   which holds wherever the parties are.
                 </div>
               )}
               {governingLaw === 'CA' && !classBlocked && (
-                <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
                   California: the certificate cites Cal. Civ. Code 1633 et seq. Every signer gets a
                   standalone consent screen before the document opens, whichever law you pick.
                 </div>
               )}
               {governingLaw === 'IN' && !classBlocked && (
-                <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
                   India: the certificate cites the Information Technology Act, 2000 instead of
                   UETA. Check that the record is not one the Act's Schedule I excludes.
                 </div>
@@ -3692,7 +3692,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                   </span>
                 </label>
                 {excludedOpen && (
-                  <ul style={{ margin: '10px 0 0', padding: '10px 12px 10px 26px', background: 'var(--mist)', borderRadius: 10, fontSize: 11.5, lineHeight: 1.6 }}>
+                  <ul style={{ margin: '10px 0 0', padding: '10px 12px 10px 26px', background: 'var(--mist)', borderRadius: 10, fontSize: 12, lineHeight: 1.6 }}>
                     {excludedCats.map(c => (
                       <li key={c.label} style={{ marginBottom: 3 }}>
                         {c.label} <span style={{ color: 'var(--muted)' }}>- {c.citation}</span>
@@ -3705,7 +3705,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                 )}
               </div>
             </div>
-            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 12, textAlign: 'center' }}>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12, textAlign: 'center' }}>
               Signer 1 is notified immediately; everyone else follows in order. You can remind, void or track it under Sent requests.
             </p>
           </div>
@@ -3719,23 +3719,23 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4, flexShrink: 0 }}>
             <X size={19} />
           </button>
-          <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {step + 1}/{steps.length} · {steps[step]}
           </span>
           {step > 0 && (
-            <button className="secondary-btn" onClick={goBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, flexShrink: 0 }}>
+            <button className="secondary-btn" onClick={goBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, flexShrink: 0 }}>
               <ChevronLeft size={13} /> Back
             </button>
           )}
           {draftBtn}
           {step < steps.length - 1 ? (
             <button className="primary-btn" onClick={goNext}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, flexShrink: 0, opacity: stepOk() ? 1 : 0.55 }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, flexShrink: 0, opacity: stepOk() ? 1 : 0.55 }}>
               Next <ChevronRight size={13} />
             </button>
           ) : (
             <button className="primary-btn" onClick={send} disabled={sendBlocked} title={sendTitle}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, flexShrink: 0, opacity: sendBlocked ? 0.6 : 1 }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, flexShrink: 0, opacity: sendBlocked ? 0.6 : 1 }}>
               {busy ? <Spinner size={14} /> : <Send size={13} />} Send
             </button>
           )}
@@ -3881,10 +3881,10 @@ export function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toa
               return (
                 <div key={i} style={{ borderBottom: '1px solid var(--line)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0' }}>
-                    <span style={{ width: 22, height: 22, borderRadius: '50%', background: cc ? 'var(--mist)' : rcolor(i).solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: cc ? 9 : 11, fontWeight: 800, flexShrink: 0 }}>{cc ? 'CC' : p.ordinal}</span>
+                    <span style={{ width: 22, height: 22, borderRadius: '50%', background: cc ? 'var(--mist)' : rcolor(i).solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{cc ? 'CC' : p.ordinal}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name} <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>· {p.kind}{cc ? ' · copy only' : ''}{p.hasAccessCode ? ' · 🔒 code' : ''}</span></div>
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email}{p.declineReason && ` - "${p.declineReason}"`}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{p.email}{p.declineReason && ` - "${p.declineReason}"`}</div>
                     </div>
                     {fixable && p.kind === 'external' && !cc && (
                       <button className="secondary-btn" disabled={!!busy || req.payLocked} onClick={() => copyLink(p)} title={req.payLocked ? PAY_LOCKED_HINT : 'Copy their signing link'}
@@ -3895,7 +3895,7 @@ export function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toa
                         onClick={() => { setEditPid(editPid === p.id ? null : p.id); setPf({ name: p.name, email: p.email, access_code: '' }); }}
                         style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px' }}><Pencil size={11} /> Edit</button>
                     )}
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${formatPacificDate(p.signedAt)}` : cc && p.status !== 'signed' ? '-' : m.label}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${formatPacificDate(p.signedAt)}` : cc && p.status !== 'signed' ? '-' : m.label}</span>
                   </div>
                   {editPid === p.id && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '0 0 10px 32px', alignItems: 'center' }}>
@@ -3905,9 +3905,9 @@ export function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toa
                         <input className="form-input" style={{ fontSize: 12, width: 150 }} placeholder="New access code (blank = keep)" maxLength={40}
                           value={pf.access_code} onChange={e => setPf(f => ({ ...f, access_code: e.target.value }))} />
                       )}
-                      <button className="primary-btn" disabled={!!busy} onClick={() => saveParty(p)} style={{ fontSize: 11.5, padding: '5px 12px' }}>Save</button>
-                      <button className="secondary-btn" onClick={() => setEditPid(null)} style={{ fontSize: 11.5, padding: '5px 10px' }}>Cancel</button>
-                      <span style={{ fontSize: 10.5, color: 'var(--muted)', flexBasis: '100%' }}>
+                      <button className="primary-btn" disabled={!!busy} onClick={() => saveParty(p)} style={{ fontSize: 12, padding: '5px 12px' }}>Save</button>
+                      <button className="secondary-btn" onClick={() => setEditPid(null)} style={{ fontSize: 12, padding: '5px 10px' }}>Cancel</button>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', flexBasis: '100%' }}>
                         Changing the email kills their old link and sends a fresh invite.
                       </span>
                     </div>
@@ -3918,7 +3918,7 @@ export function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toa
 
             {req.finalSha256 && (
               <div style={{ marginTop: 14, fontSize: 11, color: 'var(--muted)' }}>
-                SHA-256: <code style={{ fontSize: 10, wordBreak: 'break-all' }}>{req.finalSha256}</code>
+                SHA-256: <code style={{ fontSize: 11, wordBreak: 'break-all' }}>{req.finalSha256}</code>
               </div>
             )}
 
@@ -4029,7 +4029,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   const empty = (Icon, text, action) => (
     <div style={{ textAlign: 'center', padding: '52px 20px', color: 'var(--muted)' }}>
       <Icon size={36} style={{ opacity: 0.3, marginBottom: 12 }} />
-      <p style={{ fontSize: 13.5, margin: '0 0 16px' }}>{text}</p>
+      <p style={{ fontSize: 13, margin: '0 0 16px' }}>{text}</p>
       {action}
     </div>
   );
@@ -4043,7 +4043,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
     const days = dayNum(new Date(`${expiresOn}T00:00:00Z`).getTime()) - dayNum(Date.now());
     if (days < 0 || days > 3) return null;
     return (
-      <span style={{ padding: '2px 9px', borderRadius: 14, fontSize: 10.5, fontWeight: 800, background: 'rgba(251,191,36,0.18)', color: '#b45309', whiteSpace: 'nowrap' }}>
+      <span style={{ padding: '2px 9px', borderRadius: 14, fontSize: 11, fontWeight: 800, background: 'rgba(251,191,36,0.18)', color: '#b45309', whiteSpace: 'nowrap' }}>
         {days <= 0 ? 'Expires today' : `Expires in ${days}d`}
       </span>
     );
@@ -4092,7 +4092,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
             </button>
           ))}
         </div>
-        <button className="primary-btn" data-tour="documents-send" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+        <button className="primary-btn" data-tour="documents-send" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <Send size={13} /> Send for Signature
         </button>
       </div>
@@ -4105,13 +4105,13 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
           <div key={item.partyId} className={riseClass(inboxIn)} style={{ ...riseStyle(inboxIn, i), display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${item.myTurn ? '#fbbf24' : 'var(--line)'}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
             <FileSignature size={17} style={{ color: item.myTurn ? '#f59e0b' : 'var(--muted)', flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>from {item.from}{item.expiresOn && ` · expires ${formatDate(item.expiresOn, item.expiresOn)}`}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>from {item.from}{item.expiresOn && ` · expires ${formatDate(item.expiresOn, item.expiresOn)}`}</div>
             </div>
             {expiryChip(item.expiresOn)}
             {item.myTurn
               ? <button className="primary-btn" onClick={() => setSignParty(item.partyId)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>Review &amp; Sign <ChevronRight size={13} /></button>
-              : <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Clock size={12} /> Waiting on others</span>}
+              : <span style={{ fontSize: 12, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Clock size={12} /> Waiting on others</span>}
           </div>
         ))
       )}
@@ -4125,13 +4125,13 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>
                 <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-                <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
+                <input className="form-input" style={{ width: '100%', fontSize: 13, paddingLeft: 30 }}
                   placeholder="Search title or recipient…" value={reqSearch} onChange={e => setReqSearch(e.target.value)} />
               </div>
               <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
                 {[['all', 'All'], ['pending', 'Awaiting'], ['completed', 'Completed'], ['declined', 'Declined'], ['voided', 'Voided'], ['expired', 'Expired']].map(([v, l]) => (
                   <button key={v} onClick={() => setReqFilter(v)}
-                    style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer', whiteSpace: 'nowrap',
+                    style={{ padding: '5px 12px', borderRadius: 16, fontSize: 12, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer', whiteSpace: 'nowrap',
                       border: reqFilter === v ? '1.5px solid var(--pine)' : '1.5px solid var(--line)',
                       background: reqFilter === v ? 'hsla(var(--color-green),0.1)' : 'var(--card)',
                       color: reqFilter === v ? 'var(--pine)' : 'var(--muted)' }}>
@@ -4141,7 +4141,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
               </div>
             </div>
             {visibleRequests.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '30px 16px', fontSize: 12.5, color: 'var(--muted)' }}>
+              <div style={{ textAlign: 'center', padding: '30px 16px', fontSize: 13, color: 'var(--muted)' }}>
                 Nothing matches - clear the search or pick another status.
               </div>
             )}
@@ -4155,8 +4155,8 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
                   style={{ ...riseStyle(requestsIn, i), display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${m.fg}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)', cursor: 'pointer' }}>
                   <FileSignature size={17} style={{ color: m.fg, flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
                       <span style={{ width: 70, height: 4, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
                         <span style={{ display: 'block', height: '100%', width: `${total ? (signed / total) * 100 : 0}%`, background: m.fg }} />
                       </span>
@@ -4185,8 +4185,8 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
                 <div key={d.id} className={riseClass(draftsIn)} style={{ ...riseStyle(draftsIn, i), display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 16px', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
                   <FilePlus2 size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />
                   <div style={{ flex: '1 1 160px', minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                       {d.recipients} recipient{d.recipients === 1 ? '' : 's'} · saved {formatDateTime(d.updatedAt)}
                     </div>
                   </div>

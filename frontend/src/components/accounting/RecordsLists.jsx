@@ -87,8 +87,8 @@ function RecordsTable({ tableKey, title, about, columns, rows, loading, error, n
           </BarMore>
         </div>
       </ControlBar>
-      {note && <div role="note" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', padding: '0 4px' }}>{note}</div>}
-      {(error || failed) && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)', fontSize: '0.84rem' }}>{error || failed}</div>}
+      {note && <div role="note" style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '0 4px' }}>{note}</div>}
+      {(error || failed) && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)', fontSize: 13 }}>{error || failed}</div>}
       {loading && !rows && <div style={{ ...card, padding: 12 }}><SkeletonBlocks count={5} /></div>}
       {rows && (
         <div style={{ ...card, padding: 0, overflow: 'hidden', opacity: syncing ? 0.6 : 1 }}>
@@ -145,7 +145,7 @@ export function GlAccountsTab() {
       columns={ACCOUNT_COLUMNS} rows={rows} loading={!res.data} error={res.error} sync={ts} syncing={!!res.data && res.tick !== ts.tick}
       note={res.data?.source === 'ledger' ? 'The accounting app does not list its chart yet: these are the accounts posted to on the ledger, up to today.' : ''}
       extra={(
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
           <input type="checkbox" checked={inactive} onChange={(e) => setInactive(e.target.checked)} /> Show inactive
         </label>
       )} />

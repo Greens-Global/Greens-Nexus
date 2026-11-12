@@ -14,7 +14,7 @@ import { useLoad } from '../lib/job';
 import VendorCompliance, { PapersLabel } from '../VendorCompliance';
 import { OutsideLinksSection, SendLinkSheet } from '../OutsideLinks';
 
-const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)' };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)' };
 
 /** Find one of Intacct's vendors (the job's managers only - names and ids,
  *  never contact details). Shared with the Money tab's commitments. */
@@ -41,8 +41,8 @@ export function VendorPicker({ projectId, pick, onPick, onError }) {
           {found.map((v) => (
             <li key={v.id}>
               <button type="button" role="option" aria-selected={false} onClick={() => { onPick(v); setFound([]); }}
-                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '6px 8px', fontFamily: 'inherit', fontSize: '0.86rem', cursor: 'pointer', color: 'var(--text-primary)' }}>
-                {v.name} <span style={{ ...quiet, fontSize: '0.76rem' }}>{v.id}{v.inactive ? ' · Inactive in Intacct' : ''}</span>
+                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '6px 8px', fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', color: 'var(--text-primary)' }}>
+                {v.name} <span style={{ ...quiet, fontSize: 12 }}>{v.id}{v.inactive ? ' · Inactive in Intacct' : ''}</span>
               </button>
             </li>
           ))}
@@ -76,7 +76,7 @@ function AddSub({ project, onAdded }) {
         <button type="submit" className="primary-btn" disabled={!pick || busy}><Plus size={14} />{busy ? 'Adding…' : 'Add Sub'}</button>
       </div>
       <div style={quiet}>A sub not on the list is added in Accounting &gt; Vendors &amp; Customers first - the vendor record is Intacct&apos;s.</div>
-      {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</div>}
     </form>
   );
 }
@@ -94,7 +94,7 @@ export default function SubsTab({ project }) {
   return (
     <>
     <section style={{ ...CARD, marginBottom: 14 }} aria-label="Subs">
-      <h3 style={{ fontSize: '1.05rem', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><HardHat size={16} />Subs</h3>
+      <h3 style={{ fontSize: 18, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><HardHat size={16} />Subs</h3>
       <p style={{ ...quiet, margin: '0 0 12px' }}>
         {subs.length === 0 ? 'No subcontractor on this job yet. ' : `${subs.length} on the job${lapsed ? `, ${lapsed} without current insurance` : ''}. `}
         Each sub is an Intacct vendor; their papers are kept once and shared with Accounting. Managers are belled 30 and 7 days before a paper lapses.
@@ -103,15 +103,15 @@ export default function SubsTab({ project }) {
         <div key={s.linkId} data-sub={s.vendorId} style={{ padding: '9px 0', borderTop: '1px solid var(--border-color)' }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-              <div style={{ fontSize: '0.88rem' }}><b>{s.name}</b>{s.trade ? ` · ${s.trade}` : ''} <span style={{ ...quiet, fontSize: '0.76rem' }}>{s.vendorId}</span></div>
+              <div style={{ fontSize: 14 }}><b>{s.name}</b>{s.trade ? ` · ${s.trade}` : ''} <span style={{ ...quiet, fontSize: 12 }}>{s.vendorId}</span></div>
               <div style={quiet}>{s.compliance?.issues?.length ? s.compliance.issues.join(' ') : 'Papers current.'}{s.since ? ` Since ${formatDate(s.since)}.` : ''}</div>
             </div>
             <PapersLabel compliance={s.compliance} />
             {data.canEdit && (
-              <button type="button" className="secondary-btn" aria-expanded={open === s.vendorId} onClick={() => setOpen(open === s.vendorId ? '' : s.vendorId)} style={{ padding: '6px 10px', fontSize: '0.8rem' }}>Papers</button>
+              <button type="button" className="secondary-btn" aria-expanded={open === s.vendorId} onClick={() => setOpen(open === s.vendorId ? '' : s.vendorId)} style={{ padding: '6px 10px', fontSize: 13 }}>Papers</button>
             )}
             {data.canEdit && (
-              <button type="button" className="secondary-btn" onClick={() => setSending(s)} style={{ padding: '6px 10px', fontSize: '0.8rem' }}>Send Punch List</button>
+              <button type="button" className="secondary-btn" onClick={() => setSending(s)} style={{ padding: '6px 10px', fontSize: 13 }}>Send Punch List</button>
             )}
             {data.canEdit && (
               <HoldButton label="Remove" ariaLabel={`Take ${s.name} off the job`} doneLabel="Removed" holdMs={HOLD_RECORD_MS} size="sm"

@@ -174,7 +174,7 @@ export default function ReportBuilder({ canPublish = true }) {
   const picked = includedAccounts(config).length;
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
   const select = (active) => ({ ...control, fontWeight: active ? 600 : 400, color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)', maxWidth: 260 });
-  const small = { fontSize: '0.76rem', height: 30, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6 };
+  const small = { fontSize: 12, height: 30, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6 };
   const iconBtn = { border: 'none', background: 'none', padding: 4, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
 
   // Folded groups hide their accounts; the group row keeps its total.
@@ -213,14 +213,14 @@ export default function ReportBuilder({ canPublish = true }) {
         </select>
         <PeriodStepper config={config} period={config.period} onChange={patch} />
         {config.period === 'range' && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
             Columns
             <select value={config.cols} onChange={(e) => patch({ cols: e.target.value })} aria-label="Columns" style={select(config.cols !== 'total')}>
               {BUILDER_COLUMNS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
             </select>
           </label>
         )}
-        <span role="group" aria-label="Compare" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+        <span role="group" aria-label="Compare" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
           Compare
           {BUILDER_COMPARE_OPTIONS.map((o) => (
             <label key={o.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
@@ -236,7 +236,7 @@ export default function ReportBuilder({ canPublish = true }) {
         <FiltersButton dims={config.dims} onChange={(dims) => patch({ dims })} showHistorical={!!prefs.showHistoricalAccounts} kinds={kinds} />
         <AccountsPicker accounts={chart || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts}
           allLabel={groups.some((g) => g.accounts.length) ? 'No Other Accounts' : 'All Accounts'} ariaLabel="GL Accounts" />
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
           <input type="checkbox" checked={config.showZero} onChange={(e) => patch({ showZero: e.target.checked })} /> Show zero balances
         </label>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -255,10 +255,10 @@ export default function ReportBuilder({ canPublish = true }) {
       <div style={{ ...card, padding: '8px 10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" onClick={() => setGroupsOpen((v) => !v)} aria-expanded={groupsOpen}
-            style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 600, fontSize: '0.86rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--text-primary)' }}>
+            style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--text-primary)' }}>
             {groupsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Row Groups{groups.length ? ` (${groups.length})` : ''}
           </button>
-          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', flex: '1 1 260px' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: '1 1 260px' }}>
             Optional. Name a line and map GL accounts to it; the report shows its total with the accounts underneath. Accounts in no group are listed one by one.
           </span>
           <button type="button" className="secondary-btn" onClick={() => { setGroupsOpen(true); addGroup(); }} style={small}><Plus size={14} /> Add Row Group</button>
@@ -267,7 +267,7 @@ export default function ReportBuilder({ canPublish = true }) {
           <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
             {groups.map((g, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ width: 22, textAlign: 'right', fontSize: '0.74rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{i + 1}.</span>
+                <span style={{ width: 22, textAlign: 'right', fontSize: 12, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{i + 1}.</span>
                 <input type="text" value={g.name} maxLength={120} onChange={(e) => renameGroup(i, e.target.value)} aria-label={`Row group ${i + 1} name`}
                   placeholder="Line name, e.g. Advertising" style={{ ...control, flex: '1 1 220px', maxWidth: 360 }} />
                 <AccountsPicker accounts={chart || []} value={g.accounts} onChange={(accounts) => groupAccounts(i, accounts)} showHistorical={!!prefs.showHistoricalAccounts}
@@ -279,7 +279,7 @@ export default function ReportBuilder({ canPublish = true }) {
             ))}
           </div>
         )}
-        {chartError && <div role="alert" style={{ marginTop: 6, fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>{chartError}</div>}
+        {chartError && <div role="alert" style={{ marginTop: 6, fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{chartError}</div>}
       </div>
 
       {/* Name it, then Save (private) or Publish (the accounting team). */}
@@ -307,7 +307,7 @@ export default function ReportBuilder({ canPublish = true }) {
         )}
         <button type="button" className="secondary-btn" onClick={startNew} style={small}><FilePlus2 size={14} /> New</button>
         {opened?.mine && (confirmDelete ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
             Delete {opened.name}?
             <button type="button" className="secondary-btn" onClick={remove} disabled={!!saving} style={{ ...small, color: 'var(--bad-fg, #dc2626)' }}>Delete</button>
             <button type="button" className="secondary-btn" onClick={() => setConfirmDelete(false)} style={small}>Keep</button>
@@ -315,7 +315,7 @@ export default function ReportBuilder({ canPublish = true }) {
         ) : (
           <button type="button" style={iconBtn} onClick={() => setConfirmDelete(true)} aria-label={`Delete ${opened.name}`} title="Delete this saved report"><Trash2 size={14} /></button>
         ))}
-        <span role="status" style={{ fontSize: '0.76rem', color: saveNote ? 'var(--ok-fg, #15803d)' : 'var(--text-muted)' }}>
+        <span role="status" style={{ fontSize: 12, color: saveNote ? 'var(--ok-fg, #15803d)' : 'var(--text-muted)' }}>
           {saveNote || (opened
             ? `${opened.mine ? '' : 'Shared by a teammate - Save keeps your own copy. '}${opened.shared ? 'Published and shared with everyone.' : opened.published ? 'Published - only you see it.' : 'Draft - only you see it.'}`
             : 'Saved reports appear in the Report Center.')}
@@ -323,10 +323,10 @@ export default function ReportBuilder({ canPublish = true }) {
         {saveNote && <button type="button" style={iconBtn} onClick={() => setSaveNote('')} aria-label="Dismiss"><X size={13} /></button>}
       </div>
 
-      {error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)', fontSize: '0.86rem' }}>{error}</div>}
+      {error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)', fontSize: 14 }}>{error}</div>}
       {running && !shown && <div role="status" aria-label="Running the report" style={{ ...card, padding: 12 }}><SkeletonBlocks count={4} /></div>}
       {!running && !shown && !error && (
-        <div style={{ ...card, padding: 22, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>
+        <div style={{ ...card, padding: 22, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 14 }}>
           {chart === null ? 'Loading the GL accounts...' : `Pick the accounts, filters and period, then Run. ${picked ? `${picked} ${picked === 1 ? 'account' : 'accounts'} picked.` : 'Nothing picked runs every account.'}`}
         </div>
       )}
@@ -334,8 +334,8 @@ export default function ReportBuilder({ canPublish = true }) {
       {shown && (
         <div style={{ ...card, padding: 10 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-            <h3 style={{ fontSize: '0.98rem', margin: 0 }}>{title}</h3>
-            <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+            <h3 style={{ fontSize: 15, margin: 0 }}>{title}</h3>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               {[shown.org, entityText(shown.config, entities), periodText(shown.config), `${books.find((b) => b.key === shown.builder.book)?.label || 'Accrual'} Book`,
                 shown.builder.cols !== 'total' ? BUILDER_COLUMNS.find((m) => m.key === shown.builder.cols)?.label : ''].filter(Boolean).join(' · ')}
               {running ? ' · updating' : stale ? ' · the controls changed - Run to update' : ''}
@@ -391,7 +391,7 @@ export default function ReportBuilder({ canPublish = true }) {
             </table>
           </div>
           {lines && <LinesPanel key={lines.key} title={lines.title} caption={lines.caption} queries={lines.queries} report={lines.report} widthsKey="report-builder" onClose={() => setLines(null)} />}
-          <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
             Generated {formatDate(shown.generatedAt)} from the Nexus Accounting ledger. Each account is in its normal balance - income, liabilities and equity as credits less debits, everything else as debits less credits - and a group or grand total adds those up as shown.
             {config.period === 'asof' ? ' As of a date, balance sheet accounts are their balance on that date and income and expense accounts their year to date.' : ''}
             {shown.builder.compare.length ? ` Variances are the ${shown.builder.cols === 'total' ? 'period' : 'Total column'} less the comparison; Variance % is that over the comparison.` : ''}

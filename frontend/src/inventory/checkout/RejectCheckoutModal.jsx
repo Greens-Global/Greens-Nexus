@@ -32,12 +32,12 @@ export function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClos
           {busy ? <Spinner size={14} /> : <XCircle size={14} />} Reject
         </button>
       </>}>
-      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
         {isMulti ? <>{items.length} items for <strong style={{ color: 'var(--ink)' }}>{first.requestedBy}</strong>. One reason goes to all of them.</>
           : <>For <strong style={{ color: 'var(--ink)' }}>{first.requestedBy}</strong>. They will see your reason.</>}
       </p>
       <label style={LABEL} htmlFor="reject-reason">Reason</label>
-      <textarea id="reject-reason" rows={3} autoFocus className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13.5 }}
+      <textarea id="reject-reason" rows={3} autoFocus className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
         placeholder="e.g. The van is booked for the Austin job that week" value={reason} onChange={e => setReason(e.target.value)} />
       {error && <p style={ERROR}>{error}</p>}
     </ItemQuestion>

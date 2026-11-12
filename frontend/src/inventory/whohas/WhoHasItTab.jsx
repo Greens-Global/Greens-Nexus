@@ -47,11 +47,11 @@ function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabe
             : <tm.Icon size={44} color={tm.color} style={{ margin:'38px 0' }} />}
         </div>
         <div style={{ padding:'16px 18px' }}>
-          <div style={{ fontWeight:800, fontSize:16, letterSpacing:'-.01em' }}>{name}</div>
+          <div style={{ fontWeight:800, fontSize:15, letterSpacing:'-.01em' }}>{name}</div>
           <div style={{ display:'flex', flexDirection:'column', gap:8, marginTop:12 }}>
             {rows.map(([label, value]) => (
               <div key={label} style={{ display:'flex', gap:10, fontSize:13 }}>
-                <span style={{ width:92, flexShrink:0, fontSize:10.5, fontWeight:800, letterSpacing:'.06em', color:'var(--muted)', textTransform:'uppercase', paddingTop:2 }}>{label}</span>
+                <span style={{ width:92, flexShrink:0, fontSize:11, fontWeight:800, letterSpacing:'.06em', color:'var(--muted)', textTransform:'uppercase', paddingTop:2 }}>{label}</span>
                 <span style={{ color:'var(--ink)', fontWeight:600, minWidth:0 }}>{value}</span>
               </div>
             ))}
@@ -180,7 +180,7 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
         <div style={{ display:'inline-flex', border:'1px solid var(--line)', borderRadius:9, overflow:'hidden', flexShrink:0 }}>
           {[['person', 'By person', User], ['location', 'By location', MapPin]].map(([k, label, Icon]) => (
             <button key={k} onClick={() => setView(k)}
-              style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px', fontSize:12.5, fontWeight:700, border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', background: view === k ? 'var(--pine)' : 'var(--card)', color: view === k ? '#fff' : 'var(--muted)' }}>
+              style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px', fontSize:13, fontWeight:700, border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', background: view === k ? 'var(--pine)' : 'var(--card)', color: view === k ? '#fff' : 'var(--muted)' }}>
               <Icon size={13} /> {label}
             </button>
           ))}
@@ -200,8 +200,8 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
                 <div style={{ display:'flex', alignItems:'center', gap:11, padding:'13px 16px', borderBottom:'1px solid var(--line)', background:'var(--mist)' }}>
                   <div style={{ width:34, height:34, borderRadius:9, background:'hsla(var(--color-green),0.14)', color:'hsl(var(--color-green))', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><MapPin size={17} /></div>
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={p.location} query={search} /></div>
-                    <div style={{ fontSize:11.5, color:'var(--muted)' }}>{p.items.length} item{p.items.length !== 1 ? 's' : ''}{p.value > 0 && <> · <strong style={{ color:'var(--ink)' }}>{fmtMoney(p.value)}</strong></>}</div>
+                    <div style={{ fontWeight:700, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={p.location} query={search} /></div>
+                    <div style={{ fontSize:12, color:'var(--muted)' }}>{p.items.length} item{p.items.length !== 1 ? 's' : ''}{p.value > 0 && <> · <strong style={{ color:'var(--ink)' }}>{fmtMoney(p.value)}</strong></>}</div>
                   </div>
                 </div>
                 <div style={{ padding:'10px 16px', display:'flex', flexDirection:'column', gap:6, maxHeight:340, overflowY:'auto' }}>
@@ -209,7 +209,7 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
                     const who = holderOf(i);
                     return (
                       <div key={i.id} onClick={() => show({ item: i, holderName: who })} title="View item details"
-                        style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
+                        style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                         <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={i.name} query={search} /></span>
                         <TypeBadge type={i.itemType} />
@@ -237,12 +237,12 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
                 style={{ display:'flex', alignItems:'center', gap:11, padding:'13px 16px', borderBottom:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', transition:'background .12s' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'hsla(var(--color-blue),0.08)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'var(--mist)'}>
-                <div style={{ width:34, height:34, borderRadius:'50%', background:'hsla(var(--color-blue),0.14)', color:'hsl(var(--color-blue))', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12.5, fontWeight:800, flexShrink:0 }}>
+                <div style={{ width:34, height:34, borderRadius:'50%', background:'hsla(var(--color-blue),0.14)', color:'hsl(var(--color-blue))', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:800, flexShrink:0 }}>
                   {initials(h.name)}
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={h.name} query={search} /></div>
-                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>
+                  <div style={{ fontWeight:700, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={h.name} query={search} /></div>
+                  <div style={{ fontSize:12, color:'var(--muted)' }}>
                     {h.transient.length > 0 && `${h.transient.length} checked out`}
                     {h.transient.length > 0 && h.permanent.length > 0 && ' · '}
                     {h.permanent.length > 0 && `${h.permanent.length} permanent`}
@@ -274,7 +274,7 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
                               actLabel: 'Open in Checkouts',
                             })}
                             title="View item details"
-                            style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
+                            style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
                             onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
                             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                             <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background: inUse ? (daysLeft < 0 ? 'var(--wk-red)' : 'var(--wk-live)') : '#64748b' }} />
@@ -312,7 +312,7 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
                             actLabel: 'Open in Assignments',
                           })}
                           title="View item details"
-                          style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
+                          style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                           <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background:'hsl(var(--color-blue))' }} />
@@ -339,7 +339,7 @@ export const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenC
                       {h.declared.map(i => (
                         <div key={i.id} onClick={() => show({ item: i, holderName: h.name })}
                           title="View item details"
-                          style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
+                          style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                           <OpStatusBadge value={i.opStatus} />

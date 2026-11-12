@@ -81,7 +81,7 @@ export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam,
     const at = s.since ? (teamZone ? formatTimeIn(s.since, teamZone) : formatTime(s.since)) : '';
     return (
       // A plain dot and the word - no pill (Neil, Oct 30 2026).
-      <span data-live={s.state} title={at ? `${since} ${at}` : undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+      <span data-live={s.state} title={at ? `${since} ${at}` : undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
         <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: LIVE_COLOR[s.state], flexShrink: 0 }} />
         {s.state === 'break' && s.since ? `${word} · ${minutesText(minsSince(s.since))}` : word}
       </span>
@@ -91,17 +91,17 @@ export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam,
   // it is one the person is not on (openShiftsAcrossTeams) - the same words
   // the request dialog uses, from the same /shift-requests/mine payload.
   const openTeam = (s) => (s.team || s.crossTeam) && (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', fontSize: 10.5, color: 'var(--muted)' }}>
+    <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', fontSize: 11, color: 'var(--muted)' }}>
       {s.team && <span>{s.team}</span>}
-      {s.crossTeam && <span data-cross-team title="A shift of another team. Your company lets open shifts be claimed across teams." style={{ fontSize: 10, fontWeight: 700, color: 'hsl(var(--color-blue))', border: '1px solid hsla(var(--color-blue),0.4)', borderRadius: 5, padding: '0 5px', lineHeight: 1.5 }}>Other Team</span>}
+      {s.crossTeam && <span data-cross-team title="A shift of another team. Your company lets open shifts be claimed across teams." style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-blue))', border: '1px solid hsla(var(--color-blue),0.4)', borderRadius: 5, padding: '0 5px', lineHeight: 1.5 }}>Other Team</span>}
     </span>
   );
   const openAction = (s, key) => (
     s.requested
-        ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-orange))' }}>Requested</span>
+        ? <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-orange))' }}>Requested</span>
         : onRequestOpen && key >= today && (
           <button type="button" onClick={() => onRequestOpen(s)} disabled={busyOpenId === s.id} aria-label={`Request the open shift on ${key}`}
-            style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6, marginTop: 3,
+            style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 6, marginTop: 3,
               border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' }}>
             <Hand size={10} /> Request
           </button>
@@ -128,7 +128,7 @@ export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam,
           teams={teams.map((t, i) => ({ id: t.id, name: t.name, color: teamColor(t.id, i), people: t.members.length, hint: t.isMember === false ? 'You manage' : '',
             ...(t.id === team.id ? { min: weekMin, open: openShifts.reduce((a, s) => a + (s.openSlots || 1), 0) } : {}) }))} />
       ) : (
-        <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{team.name} · {team.members.length} member{team.members.length === 1 ? '' : 's'}{team.isMember === false ? ' · you manage this group' : ''}</span>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>{team.name} · {team.members.length} member{team.members.length === 1 ? '' : 's'}{team.isMember === false ? ' · you manage this group' : ''}</span>
       )}
       {strip ? (
         // From the clock: In / On Break / Late / Not In over the people in the grid.
@@ -146,13 +146,13 @@ export default function TeamShiftGrid({ teams, team, allTeam = null, onPickTeam,
           })}
         </span>
       ) : thisWeek && (
-        <span style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--muted)' }}>
+        <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--muted)' }}>
           {onNow.length === 0 ? 'Nobody on shift right now' : `On shift now: ${onNow.map(firstName).join(', ')}`}
         </span>
       )}
     </div>
   );
-  const zoneLine = timeZoneLabel ? <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {timeZoneLabel}</div> : null;
+  const zoneLine = timeZoneLabel ? <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Times in {timeZoneLabel}</div> : null;
   // `body`: Team > Shifts' Month view - the same head (group picker), the month calendar under it.
   if (body) return <div style={{ marginTop: 22 }}>{head}{body}{zoneLine}</div>;
 

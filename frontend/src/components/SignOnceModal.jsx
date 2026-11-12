@@ -53,7 +53,7 @@ export default function SignOnceModal({ packetId, entityId = '', step, packetNam
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <PenTool size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
           <span style={{ minWidth: 0 }}>
-            <span style={{ display: 'block', fontWeight: 800, fontSize: 15.5 }}>Sign Once - {packetName || 'Packet'}</span>
+            <span style={{ display: 'block', fontWeight: 800, fontSize: 15 }}>Sign Once - {packetName || 'Packet'}</span>
             <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--muted)', marginTop: 1 }}>{step.roleLabel}{companyName ? ` for ${companyName}` : ''}</span>
           </span>
         </span>
@@ -68,7 +68,7 @@ export default function SignOnceModal({ packetId, entityId = '', step, packetNam
         </>
       )}>
         <div style={{ fontFamily: 'Inter,sans-serif' }}>
-          <div style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 13, lineHeight: 1.6 }}>
             Sign this packet once. Your signature then goes on every packet sent from it automatically - you are not asked again.
             If someone else becomes {step.roleLabel}, they sign once in your place.
           </div>
@@ -80,7 +80,7 @@ export default function SignOnceModal({ packetId, entityId = '', step, packetNam
               <button type="button" className="secondary-btn" onClick={() => setPad(true)} style={{ fontSize: 12 }}>Change</button>
             </div>
           ) : (
-            <button type="button" className="secondary-btn" onClick={() => setPad(true)} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button type="button" className="secondary-btn" onClick={() => setPad(true)} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <PenTool size={13} /> Adopt Your Signature
             </button>
           )}
@@ -88,7 +88,7 @@ export default function SignOnceModal({ packetId, entityId = '', step, packetNam
           <label style={lbl}>2. Verify It's You</label>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" onClick={sendCode} disabled={!!busy}
-              style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'code' ? <Spinner size={12} /> : <Mail size={13} />} {sent ? 'Send Another Code' : 'Email Me A Code'}
             </button>
             {sent && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Sent to {sent.masked}</span>}
@@ -98,7 +98,7 @@ export default function SignOnceModal({ packetId, entityId = '', step, packetNam
               placeholder="6-digit code" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} aria-label="One-time code" />
           )}
 
-          <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer', fontSize: 12.5, marginTop: 16 }}>
+          <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer', fontSize: 13, marginTop: 16 }}>
             <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} style={{ marginTop: 2, accentColor: 'var(--pine)' }} />
             I agree to sign electronically, and that this signature is applied to every {packetName || 'packet'} sent{companyName ? ` for ${companyName}` : ''} until someone else holds {step.roleLabel}.
           </label>

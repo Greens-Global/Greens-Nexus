@@ -117,7 +117,7 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
       case 'tableRow': return <tr key={i}>{kids.map(block)}</tr>;
       case 'tableCell': case 'tableHeader': return <td key={i} style={{ border: '1px solid #cbd5e1', padding: '4px 6px', verticalAlign: 'top' }}>{kids.map(block)}</td>;
       case 'signatureBlock': return (
-        <div key={i} style={{ borderTop: '1px solid #94a3b8', paddingTop: 4, margin: '18px 0 10px', fontSize: 12.5, maxWidth: 280 }}>
+        <div key={i} style={{ borderTop: '1px solid #94a3b8', paddingTop: 4, margin: '18px 0 10px', fontSize: 13, maxWidth: 280 }}>
           {n.attrs?.label ? `${n.attrs.label} - ` : ''}Signed by {signerWords(n.attrs?.role || 'employee', context, purpose)}
         </div>
       );
@@ -140,25 +140,25 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
           </span>
           <span style={{ color: 'var(--muted)' }}>became</span>
           <b>{becameOf(b)}</b>
-          {b.places?.length > 1 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{b.places.length} places</span>}
+          {b.places?.length > 1 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{b.places.length} places</span>}
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          <select className="form-input" style={{ flex: '1 1 180px', fontSize: 12.5 }} value={who} aria-label={`Who fills ${becameOf(b)}`}
+          <select className="form-input" style={{ flex: '1 1 180px', fontSize: 13 }} value={who} aria-label={`Who fills ${becameOf(b)}`}
             onChange={e => set(b.id, x => setWho(x, e.target.value, undefined, purpose))}>
             {whoChoices(b).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
           {who === 'nexus' && (
-            <select className="form-input" style={{ flex: '1 1 180px', fontSize: 12.5 }} value={b.token} aria-label={`Nexus field for ${becameOf(b)}`}
+            <select className="form-input" style={{ flex: '1 1 180px', fontSize: 13 }} value={b.token} aria-label={`Nexus field for ${becameOf(b)}`}
               onChange={e => set(b.id, x => setWho(x, 'nexus', e.target.value, purpose))}>
               {nexusOpts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           )}
           {['ask', 'hr', 'same'].includes(b.fill) && (
-            <input className="form-input" style={{ flex: '1 1 160px', fontSize: 12.5 }} value={b.label} aria-label={`Name for ${b.found || b.label}`}
+            <input className="form-input" style={{ flex: '1 1 160px', fontSize: 13 }} value={b.label} aria-label={`Name for ${b.found || b.label}`}
               onChange={e => set(b.id, x => ({ ...x, label: e.target.value }))} />
           )}
           {b.fill === 'same' && (
-            <input className="form-input" style={{ flex: '1 1 160px', fontSize: 12.5 }} value={b.value || ''} placeholder="Type it once"
+            <input className="form-input" style={{ flex: '1 1 160px', fontSize: 13 }} value={b.value || ''} placeholder="Type it once"
               aria-label={`Value for ${b.label}`} onChange={e => set(b.id, x => ({ ...x, value: e.target.value }))} />
           )}
           {(b.kind === 'text' || b.fill !== 'leave') && b.kind !== 'existing' && (
@@ -173,11 +173,11 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
     <div className="nx-fill" style={{ marginTop: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
         <div style={{ flex: '1 1 380px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 12, padding: '10px 14px', fontSize: 13.5, fontWeight: 600, color: '#065f46' }}>{counts}</div>
+          <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 12, padding: '10px 14px', fontSize: 13, fontWeight: 600, color: '#065f46' }}>{counts}</div>
 
           <div style={box}>
             <div style={cap}>Signs</div>
-            <div style={{ fontSize: 13.5, marginTop: 4 }}>
+            <div style={{ fontSize: 13, marginTop: 4 }}>
               {purpose === 'offer'
                 ? <>The new hire.{company.length > 0 && ' Only the new hire signs an offer letter, so Nexus leaves the company line off.'}</>
                 : !signers.length ? 'No signature lines were found in this file.'
@@ -200,7 +200,7 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
               <div style={{ fontSize: 14, fontWeight: 800 }}>Nexus Needs Your Help With</div>
               {section && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>"{section.label}" looks like a job description. Where should {purpose === 'promotion' ? "the new role's" : "each role's"} duties go?</div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>"{section.label}" looks like a job description. Where should {purpose === 'promotion' ? "the new role's" : "each role's"} duties go?</div>
                   <div role="radiogroup" aria-label="Where the duties go" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {[['inside', `Print Them In ${section.label} (Recommended)`], ['page', 'On Their Own Page After This'], ['none', `Not In This ${letter}`]].map(([k, l]) => (
                       <button key={k} type="button" role="radio" aria-checked={jdChoice === k} style={pill(jdChoice === k)} onClick={() => setJdChoice(k)}>{l}</button>
@@ -219,7 +219,7 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
               )}
               {asks.map(s => (
                 <div key={s.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>Who signs "{s.context}"?</div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>Who signs "{s.context}"?</div>
                   <div role="radiogroup" aria-label={`Who signs ${s.context}`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {[...signerChoices(context, purpose), ['leave', 'Not A Signature']].map(([k, l]) => {
                       const on = k === 'leave' ? s.fill !== 'sign' : s.fill === 'sign' && s.who === k;
@@ -231,7 +231,7 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
               ))}
               {unsure.map(b => (
                 <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>Who fills in "{b.context}"?</div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>Who fills in "{b.context}"?</div>
                   <div role="radiogroup" aria-label={`Who fills in ${b.context}`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {unsureChoices.map(([k, l]) => (
                       <button key={k} type="button" role="radio" aria-checked={whoOf(b, purpose) === k} style={pill(whoOf(b, purpose) === k)}
@@ -265,12 +265,12 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
             <div role="radiogroup" aria-label="Preview as" style={{ display: 'flex', gap: 4 }}>
               {[[false, 'Show Variables'], [true, event ? 'As The Employee' : 'As A Hire']].map(([v, l]) => (
                 <button key={l} type="button" role="radio" aria-checked={asHire === v} onClick={() => setAsHire(v)}
-                  style={{ ...pill(asHire === v), minHeight: 28, fontSize: 11.5, border: '1px solid #cbd5e1', background: asHire === v ? '#0f172a' : '#fff', color: asHire === v ? '#fff' : '#0f172a' }}>{l}</button>
+                  style={{ ...pill(asHire === v), minHeight: 28, fontSize: 12, border: '1px solid #cbd5e1', background: asHire === v ? '#0f172a' : '#fff', color: asHire === v ? '#fff' : '#0f172a' }}>{l}</button>
               ))}
             </div>
           </div>
           {(applied.doc.content || []).map(block)}
-          <div style={{ fontFamily: 'Inter,sans-serif', display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 18, fontSize: 11.5, color: '#475569' }}>
+          <div style={{ fontFamily: 'Inter,sans-serif', display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 18, fontSize: 12, color: '#475569' }}>
             {[['nexus', 'Nexus fills it'], ['you', 'You answer'], ['hire', event ? 'Employee fills it' : 'New hire fills it']].map(([k, l]) => (
               <span key={k}><span style={{ display: 'inline-block', width: 10, height: 10, background: WHO_COLOR[k], borderRadius: 2, marginRight: 4 }} />{l}</span>
             ))}

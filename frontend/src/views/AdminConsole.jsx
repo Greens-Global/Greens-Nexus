@@ -1160,7 +1160,7 @@ function HiringSetupSection({ id, Modal, label, chrome, toastOk, toastErr, modal
   const [open, setOpen] = useState(false);
   return (
     <Group {...GROUP_META[id]} {...chrome}>
-      <button type="button" className="primary-btn" onClick={() => setOpen(true)} style={{ fontSize: 12.5 }}>{label}</button>
+      <button type="button" className="primary-btn" onClick={() => setOpen(true)} style={{ fontSize: 13 }}>{label}</button>
       {open && (
         <Suspense fallback={<ModalFallback />}>
           <Modal onClose={() => setOpen(false)} toastOk={toastOk} toastErr={toastErr} {...modalProps} />
@@ -1260,7 +1260,7 @@ function SignatureZoomModal({ title, html, onClose }) {
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 12, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{title}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{title}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
             <X size={18} />
           </button>
@@ -1479,7 +1479,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 4, paddingRight: 64, minHeight: 28, display: 'flex', alignItems: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {grp.label || grp.emails?.[0] || 'Untitled'}
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {(grp.emails || []).join(', ') || 'No addresses yet'}
               </div>
               {grp.previewHtml ? <SignaturePaper html={grp.previewHtml} /> : (
@@ -1495,7 +1495,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
               background: 'transparent', color: 'var(--muted)',
             }}>
             <Plus size={18} />
-            <span style={{ fontSize: 11.5, fontWeight: 600 }}>Add Override</span>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Add Override</span>
           </div>}
         </div>
       </div>}
@@ -1674,7 +1674,7 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
       <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={grp ? 'Edit Override' : 'Add Override'}
         style={{ padding: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{grp ? 'Edit Override' : 'Add Override'}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{grp ? 'Edit Override' : 'Add Override'}</span>
           <button onClick={requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
             <X size={18} />
           </button>
@@ -1721,7 +1721,7 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
                 <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
                   onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadLogo(f); }} />
               </label>
-              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or press Ctrl+V to paste one</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>or press Ctrl+V to paste one</span>
               {fields.logoUrl && (
                 <button type="button" aria-label="Remove logo" onClick={() => setFieldValue('logoUrl', '')}
                   style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', alignItems: 'center', padding: '4px 8px' }}>
@@ -1780,7 +1780,7 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
                     style={{
                       display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6,
                       border: '1px solid var(--line)', background: 'var(--paper)', cursor: 'grab',
-                      opacity: dragKey === key ? 0.45 : 1, fontSize: 12.5, color: 'var(--ink)',
+                      opacity: dragKey === key ? 0.45 : 1, fontSize: 13, color: 'var(--ink)',
                     }}>
                     <GripVertical size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
                     {rowLabel}
@@ -2599,7 +2599,7 @@ function PolicyCard({ id, title, desc, enabled, onToggle, busy, foot, children }
 
 function PolicyNumber({ label, value, onChange, min = 0, max = 999, unit = 'min', width = 76 }) {
   return (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--muted)' }}>
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)' }}>
       {label}
       <NumberBox value={value} onChange={onChange} min={min} max={max} unit={unit} width={width} label={label} />
     </label>
@@ -2735,7 +2735,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
     <>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--nx-own)', flexShrink: 0 }} aria-hidden="true" />
       This company has a rule of its own.
-      <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} disabled={busy || resetting === key} onClick={() => backToDefault(key)}>Use the Default</button>
+      <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy || resetting === key} onClick={() => backToDefault(key)}>Use the Default</button>
     </>
   ) : null);
 
@@ -2781,7 +2781,7 @@ function PayRulesSection({ chrome, company, report, footer, toastOk, toastErr })
 
 function ErrorLine({ text, onRetry }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'hsl(var(--color-red))', padding: '10px 0' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'hsl(var(--color-red))', padding: '10px 0' }}>
       <span style={{ flex: 1 }}>{text}</span>
       <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={onRetry}>Retry</button>
     </div>
