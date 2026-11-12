@@ -499,3 +499,8 @@
 .nx-mk-range-value { min-width: 22px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink, #1c2420); }
 .nx-mk.is-phone .nx-mk-range input { height: 32px; }
 .nx-mk-more-sep { height: 1px; margin: 4px 6px; background: var(--line, rgba(0, 0, 0, .08)); }
+
+/* Talk To The Board (Neil, 11/12/2026): the microphone while it listens is a
+   live mode switched on - the live accent, never a hand-picked color. */
+.nx-mk-btn.is-live { background: var(--wk-live-tint); color: var(--wk-live-ink); box-shadow: inset 0 0 0 1px var(--wk-live-line); }
+.nx-board .nx-board-note.nx-talk-live { max-width: min(560px, calc(100% - 32px)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-color: var(--wk-live-line); }

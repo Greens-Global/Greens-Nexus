@@ -29,7 +29,7 @@
 // fetched only when a board opens.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
-import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, X, Presentation, ChevronLeft, ChevronRight, ChevronUp, Plus, ListPlus, ArrowDownWideNarrow } from 'lucide-react';
+import { Download, Image as ImageIcon, Copy, FileJson, Maximize2, Eraser, X, Presentation, ChevronLeft, ChevronRight, ChevronUp, Plus, ListPlus, ArrowDownWideNarrow, ClipboardList, LayoutGrid } from 'lucide-react';
 import './board.css';
 import { loadEngine, CAPTURE } from './engine';
 import BoardFallback, { EngineBoundary, BoardLoading } from './engine/fallback';
@@ -51,12 +51,17 @@ import {
   DEFAULT_MARKUP, TOOL_KEYS, MARKUP_COLORS, isSizeKey, toolByKey, strokeStyle, toolFromEngine,
   commentPin, pinMeasurer, nextCommentNumber, stageToBoard, restyle, removeSelected, PLACE_TOOLS, colorByKey,
 } from './markupTools';
-import { sticky, withStickyText, nextSpot, stickyParts, selectedStickies, stickyWords, sortStickies, linkStickies, taskStickies, refreshedStickyFeet, votable, STICKY_SIZE } from './stickies';
+import { sticky, withStickyText, nextSpot, stickyParts, selectedStickies, stickyWords, sortStickies, linkStickies, taskStickies, refreshedStickyFeet, votable, STICKY_SIZE, STICKY_GAP, STICKY_MAX } from './stickies';
 import { MEET, readMeet, startTimer, pauseTimer, resumeTimer, addMinute, stopTimer, startVote, myVotes, toggleVote, tally, castCount, clearVotes, stampVotes, startSilent, endSilent } from './meet';
 import { pinParts, selectedPin, threadOf, withThread, newThread, withReply, withResolved } from './threads';
 import { recognizeInk, shapeFromInk } from './inkShape';
 import { parseLength, scaleAt, dimension, area as areaShape, refreshMeasures } from './measure';
 import { createViewStore } from './viewStore';
+import { sectionAt } from './sections';
+import { carrierAt, tiePin, positions, rideAlong } from './rideAlong';
+import { arrange, unitsOf, ARRANGE_ACTIONS } from './arrange';
+import { wrapUpNote, wrapUpPeople, wrapUpCard } from './wrapUp';
+import { useDictation, canDictate, spokenAfter } from '../../lib/voice';
 import BoardOverlay from './BoardOverlay';
 import MeetBar from './MeetBar';
 import SiteKitSheet, { kitPng, kitImage } from './siteKit';
@@ -220,6 +225,8 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   // kit's hooks into the engine's onChange (filled further down).
   const viewStore = useMemo(() => createViewStore(), []);
   const hookRef = useRef({});
+  // Things ride along (rideAlong.js): where every item and rider was at the last look.
+  const ridePrev = useRef(null);
   const [styleOpen, setStyleOpen] = useState(false);
   const styleRef = useRef(false);
   // File meta the scene keeps (id -> {id, mimeType, url, created}); uploads add to it.
@@ -250,6 +257,8 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
 
   // The engine was re-mounted (Retry): the old handle is gone.
   useEffect(() => { setApi(null); }, [attempt]);
+  // Where everything sits when the engine comes up - the first look of rideAlong.
+  useEffect(() => { if (api) ridePrev.current = positions(api.getSceneElementsIncludingDeleted()); }, [api]);
 
   // Hand the handle up once, load the images.
   useEffect(() => {
@@ -487,7 +496,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     // Into the shared document first (the others see it as it is drawn),
     // then the save timer.
     collabRef.current?.onChange?.(elements, filesMeta.current, appState?.selectedElementIds);
-    if (onlyRemote(elements)) return;
+    if (onlyRemote(elements)) { hookRef.current.remote?.(elements); return; }
     if (hookRef.current.local?.(elements, appState)) return;   // it changed the board again; that change saves
     scheduleSave();
   }, [storeNewFiles, scheduleSave, onlyRemote, viewStore]);
@@ -723,7 +732,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   }, [api, diagramApi, flash, scheduleSave]);
   // Record Cards (11/07/2026, diagram/recordCards.js): a picked record lands
   // as one box that opens it; a task card says Open / Done.
-  const placeRecord = useCallback(async (row) => {
+  const placeRecord = useCallback(async (row, { mark = null, quiet = false } = {}) => {
     if (!api || !diagramApi || !row) return;
     const ref = `${row.kind === 'board' ? 'note' : row.kind}:${row.id}`;
     const state = row.kind === 'task' ? (await nexusApi.taskStates([row.id]).catch(() => null))?.tasks?.[row.id] : null;
@@ -733,11 +742,12 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     const center = stageToBoard({ clientX: (r?.left || 0) + (r?.width || 0) / 2, clientY: (r?.top || 0) + (r?.height || 0) / 2 }, r, api.getAppState());
     const current = api.getSceneElementsIncludingDeleted();
     const placed = layoutGraph(g, { origin: placeOrigin(center, bounds(layoutGraph(g)), current) });
-    const built = markCard(diagramApi.build(placed, { look: lookRef.current }), g.nodes[0].id, ref);
+    let built = markCard(diagramApi.build(placed, { look: lookRef.current }), g.nodes[0].id, ref);
+    if (mark) built = built.map((e) => (e.id === g.nodes[0].id ? { ...e, customData: { ...(e.customData || {}), ...mark } } : e));
     api.updateScene({ elements: [...current, ...built], appState: { selectedElementIds: { [g.nodes[0].id]: true } }, captureUpdate: CAPTURE.IMMEDIATELY });
     api.scrollToContent(built, { fitToContent: false, animate: true });
     scheduleSave();
-    flash('Added. Use the link button on the card to open it.');
+    if (!quiet) flash('Added. Use the link button on the card to open it.');
   }, [api, diagramApi, scheduleSave, flash]);
   // An editor opening the board brings each task card's Open / Done line up
   // to date - once per board open, as newer versions (they sync and save).
@@ -782,6 +792,11 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
   // An open thread reads the board as it is drawn: a change to its pin (here or from someone else) draws it again.
   const [, setDrawn] = useState(0);
   const commit = useCallback((elements, extra = {}) => {
+    // What this change moved (a Sort, a Tidy Up) brings its comment pins and
+    // vote lines with it, in the same step and the same Undo (rideAlong.js).
+    const ride = rideAlong(elements, ridePrev.current);
+    ridePrev.current = ride.next;
+    if (ride.changed.length) { const byId = new Map(ride.changed.map((e) => [e.id, e])); elements = elements.map((e) => byId.get(e.id) || e); }
     api.updateScene({ elements, captureUpdate: CAPTURE.IMMEDIATELY, ...extra });
     scheduleSave();
     setDrawn((n) => n + 1);
@@ -811,7 +826,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     else if (key === 'silent') { startSilent(meetMap, who); flash('Private Writing is on - new stickies stay hidden until they are revealed.'); }
     else if (key === 'summon') {
       try { collabRef.current?.awareness?.setLocalStateField('summon', { at: Date.now() }); flash('Everyone on the board is now following you.'); } catch { /* no session */ }
-    }
+    } else if (key === 'wrapup') wrapUpRef.current?.();
   }, [meetMap, who, flash]);
   const onTimer = useCallback((a) => {
     if (a === 'pause') pauseTimer(meetMap); else if (a === 'resume') resumeTimer(meetMap);
@@ -844,7 +859,9 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
       return;
     }
     const els = api.getSceneElementsIncludingDeleted();
-    const built = prep(sticky({ x, y, colorKey, by: who.email, name: who.name, look: lookRef.current }));
+    // It joins the section it was put on (sections.js), so the section carries it.
+    const frameId = sectionAt(els, { x: x + STICKY_SIZE / 2, y: y + STICKY_SIZE / 2 });
+    const built = prep(sticky({ x, y, colorKey, by: who.email, name: who.name, look: lookRef.current, frameId }));
     commit([...els, ...built], { appState: { selectedElementIds: {} } });
     setComposer({ key: built[0].id, boxId: built[0].id, x, y, text: '', colorKey });
   }, [api, prep, who, commit, meetMap, setTrayBoth]);
@@ -880,7 +897,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     setComposer((c) => (c?.trayId ? null : c));
     if (!words.length) return;
     const els = api.getSceneElementsIncludingDeleted();
-    const built = words.flatMap((t) => prep(sticky({ x: t.x, y: t.y, text: t.text, colorKey: t.colorKey, by: who.email, name: who.name, look: lookRef.current, measureAt: (x, size) => measureFn(x) * (size / 16) })));
+    const built = words.flatMap((t) => prep(sticky({ x: t.x, y: t.y, text: t.text, colorKey: t.colorKey, by: who.email, name: who.name, look: lookRef.current, measureAt: (x, size) => measureFn(x) * (size / 16), frameId: sectionAt(els, { x: t.x + STICKY_SIZE / 2, y: t.y + STICKY_SIZE / 2 }) })));
     commit([...els, ...built]);
     flash(`Your ${words.length} ${words.length === 1 ? 'sticky is' : 'stickies are'} on the board.`);
   }, [meet.silent, api, canEdit, tray.length]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -913,6 +930,96 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     commit(next);
   }, [api, commit, flash]);
 
+  // ---- Arrange (arrange.js, 11/12/2026): Tidy Up for anything, Align, Space Evenly ----
+  const [arr, setArr] = useState({ units: 0, section: false });   // what the selection can be arranged as
+  const [arrOpen, setArrOpen] = useState(false);
+  const doArrange = useCallback((action) => {
+    setArrOpen(false);
+    if (!api) return;
+    const els = api.getSceneElementsIncludingDeleted();
+    const r = arrange(els, api.getAppState()?.selectedElementIds, action);
+    const arrows = 'Boxes joined by arrows were left alone - use Diagram > Tidy Up for those.';
+    if (r.elements === els) { flash(r.skipped ? arrows : action === 'tidy' ? 'Already tidy - nothing had to move.' : 'Nothing had to move.'); return; }
+    commit(r.elements);
+    if (r.skipped) flash(arrows);
+  }, [api, commit, flash]);
+
+  // ---- Wrap Up (wrapUp.js, 11/12/2026): the board as a Note, shared with the board's people ----
+  const [wrapping, setWrapping] = useState(false);
+  const wrapUpRef = useRef(null);
+  const doWrapUp = useCallback(async () => {
+    if (!api || wrapping || !note?.id) return;
+    const els = api.getSceneElements();
+    const built = wrapUpNote(els, { id: note.id, title: note.title, thumbUrl: note.thumbUrl }, { by: who.name });
+    if (!built) { flash('There is nothing to wrap up yet - write on a sticky or leave a comment first.'); return; }
+    setWrapping(true);
+    try {
+      // A Wrap Up this person made from this board before is brought up to
+      // date - never a second copy beside the first.
+      const earlier = wrapUpCard(els);
+      const cur = earlier ? await nexusApi.noteGet(earlier).catch(() => null) : null;
+      const mine = !!cur && cur.can === 'owner' && !cur.trashedAt;
+      const made = mine
+        ? await nexusApi.noteUpdate(cur.id, { rev: cur.rev, title: built.title, body: built.html })
+        : await nexusApi.noteCreate({ title: built.title, body: built.html });
+      // Shared with the same people as the board, each as they may use it
+      // (Neil, 11/12/2026). Someone who cannot be shared with is counted, never dropped silently.
+      const has = new Map((made?.sharedWith || cur?.sharedWith || []).map((x) => [String(x.email || '').toLowerCase(), x.can]));
+      const people = wrapUpPeople(note, who.email).filter((x) => has.get(x.email) !== x.can);
+      let missed = 0;
+      for (const x of people) {
+        try { await nexusApi.noteShare(made.id, x.email, x.can); } catch { missed += 1; }
+      }
+      if (!mine) await placeRecord({ kind: 'note', id: made.id, title: built.title }, { mark: { nexusWrapUp: true }, quiet: true });
+      const n = wrapUpPeople(note, who.email).length - missed;
+      flash(`${mine ? 'The Wrap Up is up to date' : 'The Wrap Up is in Notes'}${n ? ` - shared with ${n === 1 ? 'the 1 other person' : `the ${n} other people`} on this board` : ''}. The card on the board opens it.${missed ? ` ${missed === 1 ? '1 person' : `${missed} people`} could not be shared with.` : ''}`);
+    } catch (e) {
+      flash(`The Wrap Up was not made: ${e?.message || 'try again in a moment'}.`, true);
+    } finally { setWrapping(false); }
+  }, [api, wrapping, note, who, flash, placeRecord]);
+  wrapUpRef.current = doWrapUp;
+
+  // ---- Talk To The Board (11/12/2026): each sentence said lands as a sticky ----
+  // The browser's own speech recognition (lib/voice.js - no AI, nothing
+  // recorded or stored); a browser without it shows no button.
+  const spokenAt = useRef(null);   // { x, y, x0 } - where the last spoken sticky went
+  const onSaid = useCallback((said) => {
+    const words = spokenAfter('', said).slice(0, STICKY_MAX);
+    if (!api || !words) return;
+    const step = STICKY_SIZE + STICKY_GAP;
+    const els = api.getSceneElementsIncludingDeleted();
+    let at;
+    if (spokenAt.current) {
+      const last = spokenAt.current;
+      // four across, then the next row - a wall of thoughts, not one long line
+      at = last.x + step > last.x0 + step * 3 + 1 ? nextSpot({ x: last.x0 - step, y: last.y + step }, 'right', els) : nextSpot({ x: last.x, y: last.y }, 'right', els);
+      at = { ...at, x0: last.x0 };
+    } else {
+      const c = stageCenter();
+      const start = { x: c.x - STICKY_SIZE / 2, y: c.y - STICKY_SIZE / 2 };
+      at = { ...nextSpot({ x: start.x - step, y: start.y }, 'right', els), x0: start.x };
+    }
+    spokenAt.current = at;
+    const colorKey = STICKY_FOR_INK[mkRef.current.color] || 'yellow';
+    if (meetMap.get('silent')) {
+      // Private Writing is on: it stays in this person's tray like a typed one.
+      const id = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      setTrayBoth((cur) => [...cur, { id, x: at.x, y: at.y, text: words, colorKey }]);
+      return;
+    }
+    const frameId = sectionAt(els, { x: at.x + STICKY_SIZE / 2, y: at.y + STICKY_SIZE / 2 });
+    const built = prep(sticky({ x: at.x, y: at.y, text: words, colorKey, by: who.email, name: who.name, look: lookRef.current, frameId, measureAt: (t, size) => measureFn(t) * (size / 16) }));
+    commit([...els, ...built]);
+  }, [api, stageCenter, meetMap, setTrayBoth, prep, who, measureFn, commit]);
+  const talk = useDictation(onSaid);
+  const talkOk = useMemo(() => canDictate(), []);
+  const toggleTalk = useCallback(() => {
+    if (talk.listening) { talk.stop(); return; }
+    spokenAt.current = null;
+    talk.start();
+  }, [talk]);
+  useEffect(() => { if (talk.error) { flash(talk.error, true); talk.setError(''); } }, [talk.error]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- Comment threads ----
   const [threadAt, setThreadAt] = useState(null);   // { pin } | { isNew, x, y }
   const closedPin = useRef('');
@@ -941,7 +1048,9 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     const els = api.getSceneElementsIncludingDeleted();
     if (threadAt.isNew) {
       const thread = newThread(text, who);
-      const pin = markupApi.prepare(commentPin({ x: threadAt.x, y: threadAt.y, text: thread.text, number: nextCommentNumber(els), colorKey: mkRef.current.color, look: lookRef.current, measure: measureFn, thread }));
+      // It belongs to the item it was put on and moves with it (rideAlong.js).
+      const carrier = els.find((e) => e.id === carrierAt(els, { x: threadAt.x, y: threadAt.y }));
+      const pin = tiePin(markupApi.prepare(commentPin({ x: threadAt.x, y: threadAt.y, text: thread.text, number: nextCommentNumber(els), colorKey: mkRef.current.color, look: lookRef.current, measure: measureFn, thread })), carrier);
       commit([...els, ...pin], { appState: { selectedElementIds: { [pin[0].id]: true } } });
       setThreadAt({ pin: pin[0].id });
       sendMentions(pin[0].id, text, emails);
@@ -1174,6 +1283,9 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
     if (key !== selSeen.current) {
       selSeen.current = key;
       setSelStickies(key ? selectedStickies(elements, ids).length : 0);
+      const u = key ? unitsOf(elements, ids).units : [];
+      setArr({ units: u.length, section: u.length === 1 && !!u[0].section });
+      setArrOpen(false);
       const pin = key ? selectedPin(elements, ids) : '';
       if (pin && pin !== closedPin.current) setThreadAt({ pin });
       else if (!pin) { closedPin.current = ''; setThreadAt((t) => (t?.isNew ? t : null)); }
@@ -1185,8 +1297,14 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
       setVoteItems((cur) => (JSON.stringify(cur) === JSON.stringify(items) ? cur : items));
     }
   };
+  // Things ride along (rideAlong.js): where every item and rider was at the
+  // last look. Someone else's change only refreshes it - whoever moved an
+  // item moves its riders, everyone else receives both.
+  hookRef.current.remote = (elements) => { ridePrev.current = positions(elements); };
   hookRef.current.local = (elements, appState) => {
     if (!api || !propsRef.current.canEdit) return false;
+    const ride = rideAlong(elements, ridePrev.current, { dragging: !!(appState?.selectedElementsAreBeingDragged || appState?.isResizing) });
+    ridePrev.current = ride.next;
     // Ink to Shape: a pen stroke just finished - a clean shape if it reads as one
     const drawing = appState?.newElement;
     if (drawing?.type === 'freedraw') inkPending.current = drawing.id;
@@ -1202,8 +1320,8 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
         return true;
       }
     } else inkPending.current = '';
-    // a measure that was stretched reads its new length
-    const changed = refreshMeasures(elements);
+    // a measure that was stretched reads its new length; a moved item's pins and vote line follow it
+    const changed = [...refreshMeasures(elements), ...ride.changed];
     if (changed.length) {
       const byId = new Map(changed.map((e) => [e.id, e]));
       api.updateScene({ elements: elements.map((e) => byId.get(e.id) || e), captureUpdate: CAPTURE.NEVER });
@@ -1230,6 +1348,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
       {canEdit && <Menu.Separator />}
       <Menu.Item icon={<Maximize2 size={14} />} onSelect={fit}>Fit to Screen</Menu.Item>
       {!isPhone && <Menu.Item icon={<Presentation size={14} />} onSelect={startPresent}>Present</Menu.Item>}
+      {canEdit && <Menu.Item icon={<ClipboardList size={14} />} onSelect={doWrapUp}>Wrap Up</Menu.Item>}
       <Menu.Separator />
       <Menu.Item icon={<ImageIcon size={14} />} onSelect={doExportPng}>Export as PNG</Menu.Item>
       <Menu.Item icon={<Download size={14} />} onSelect={doExportSvg}>Export as SVG</Menu.Item>
@@ -1332,10 +1451,10 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
         )}
         <MeetBar state={meet} canEdit={canEdit} myLeft={meet.vote ? meet.vote.perPerson - mine.length : 0} cast={votesNow ? castCount(votesNow) : 0}
           tray={tray.length} onTimer={onTimer} onVote={onVote} onReveal={() => endSilent(meetMap)} />
-        {showBar && !toolsHidden && !present && selStickies > 0 && mk.tool === 'select' && (
-          <div className="nx-sel-pill" role="toolbar" aria-label="Selected Stickies">
-            <span className="nx-sel-count">{selStickies} {selStickies === 1 ? 'Sticky' : 'Stickies'}</span>
-            <button type="button" onClick={makeTasks}><ListPlus size={15} aria-hidden /> Make {selStickies === 1 ? 'a Task' : 'Tasks'}</button>
+        {showBar && !toolsHidden && !present && (selStickies > 0 || arr.units > 1 || arr.section) && mk.tool === 'select' && (
+          <div className="nx-sel-pill" role="toolbar" aria-label={selStickies > 0 ? 'Selected Stickies' : 'Selection'}>
+            {selStickies > 0 && <span className="nx-sel-count">{selStickies} {selStickies === 1 ? 'Sticky' : 'Stickies'}</span>}
+            {selStickies > 0 && <button type="button" onClick={makeTasks}><ListPlus size={15} aria-hidden /> Make {selStickies === 1 ? 'a Task' : 'Tasks'}</button>}
             {selStickies > 1 && (
               <span className="nx-sel-sort">
                 <button type="button" aria-expanded={sortOpen} onClick={() => setSortOpen((v) => !v)}><ArrowDownWideNarrow size={15} aria-hidden /> Sort</button>
@@ -1348,6 +1467,23 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
                 )}
               </span>
             )}
+            {(arr.units > 1 || arr.section) && (
+              <span className="nx-sel-sort">
+                <button type="button" aria-expanded={arrOpen} onClick={() => { setSortOpen(false); setArrOpen((v) => !v); }}><LayoutGrid size={15} aria-hidden /> Arrange</button>
+                {arrOpen && (
+                  <span className="nx-sel-menu" role="menu" aria-label="Arrange">
+                    {ARRANGE_ACTIONS.filter((a) => (arr.section ? a.key === 'tidy' : arr.units >= a.min)).map((a) => (
+                      <button key={a.key} type="button" role="menuitem" onClick={() => doArrange(a.key)}>{arr.section && a.key === 'tidy' ? 'Tidy This Section' : a.label}</button>
+                    ))}
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+        )}
+        {talk.listening && !notice && (
+          <div className="nx-board-note nx-talk-live" role="status" aria-live="polite">
+            Listening - each sentence becomes a sticky{talk.interim ? `: ${talk.interim}` : '.'}
           </div>
         )}
         {kitOpen && <SiteKitSheet onPick={placeKit} onClose={() => setKitOpen(false)} />}
@@ -1358,7 +1494,8 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
         )}
         {showBar && !toolsHidden && !present && (
           <MarkupBar importer={{ onFiles: importPictures, onPaste: pastePicture, busy: importing }} diagram={diagramApi ? { onAction: onDiagram, canTidy: true, canRefresh } : null} phone={isPhone}
-            meet={{ onAction: onMeet, canSilent: !meet.silent, canSummon: !!(collab?.awareness && followApi && collab?.peers?.length) }}
+            meet={{ onAction: onMeet, canSilent: !meet.silent, canSummon: !!(collab?.awareness && followApi && collab?.peers?.length), canWrapUp: !wrapping }}
+            talk={talkOk ? { on: talk.listening, onToggle: toggleTalk } : null}
             snap={{ on: mk.snap !== false, onToggle: toggleSnap }} inkShape={{ on: !!mk.inkShape, onToggle: () => { const m = { ...mkRef.current, inkShape: !mkRef.current.inkShape }; mkRef.current = m; setMk(m); writeMarkupPref(m); } }} tool={mk.tool} colorKey={inkFor(mk)} sizeKey={mk.size} hasSelection={hasSelection}
             onTool={chooseTool} onColor={chooseColor} onSize={chooseSize} onUndo={undo} onRedo={redo} onDelete={deleteSelected}
             styleOpen={styleOpen} onStyle={isPhone ? toggleStyle : undefined}
@@ -1409,6 +1546,7 @@ export default function Board({ note, isPhone = false, look: lookProp, onLook, o
               <div className="nx-board-menu-kicker">Look</div>
               {lookToggle}
               {sheetRow(Maximize2, 'Fit to Screen', fit)}
+              {canEdit && sheetRow(ClipboardList, 'Wrap Up', doWrapUp)}
               {sheetRow(ImageIcon, 'Export as PNG', doExportPng)}
               {sheetRow(Copy, 'Copy as Picture', doCopy)}
               {sheetRow(FileJson, 'Download Board File', doDownload)}

@@ -41,17 +41,38 @@ describe('stickies', () => {
     expect(nextSpot(a[0], 'down', els)).toEqual({ x: 0, y: STICKY_SIZE + STICKY_GAP });
   });
 
-  it('sort by color puts each color in its own labeled column and replaces the last sort headings', () => {
+  // Neil, 11/12/2026: Sort puts each group in a SECTION of its own (a named
+  // frame the stickies belong to), so a column moves as one and is a slide.
+  const sortFrames = (els) => els.filter((e) => e.type === 'frame' && e.customData?.nexusSortFrame && !e.isDeleted);
+  it('sort by color puts each color in its own named section and replaces the last sort sections', () => {
     const els = [
       ...sticky({ x: 0, y: 0, text: 'a', colorKey: 'yellow', now: NOW }),
       ...sticky({ x: 500, y: 0, text: 'b', colorKey: 'pink', now: NOW }),
       ...sticky({ x: 900, y: 0, text: 'c', colorKey: 'pink', now: NOW }),
     ];
     const once = sortStickies(els, null, 'color', { now: NOW });
-    const heads = once.filter((e) => e.customData?.nexusSortHead && !e.isDeleted).map((e) => e.text);
-    expect(heads).toEqual(['Pink (2)', 'Yellow (1)']);
+    const frames = sortFrames(once);
+    expect(frames.map((f) => f.name)).toEqual(['Pink', 'Yellow']);
+    // every part of every sticky belongs to its section, and sits inside it
+    const parts = stickyParts(once);
+    for (const p of parts.values()) {
+      const f = frames.find((x) => x.id === p.box.frameId);
+      expect(f.name).toBe(p.box.customData.nexusSticky.color === 'pink' ? 'Pink' : 'Yellow');
+      expect([p.text.frameId, p.foot.frameId]).toEqual([f.id, f.id]);
+      expect(p.box.x).toBeGreaterThanOrEqual(f.x);
+      expect(p.box.x + p.box.width).toBeLessThanOrEqual(f.x + f.width);
+      expect(p.box.y + p.box.height).toBeLessThanOrEqual(f.y + f.height);
+    }
+    // the two pink ones stack in one column; the sections do not overlap
+    const pink = [...parts.values()].filter((p) => p.box.customData.nexusSticky.color === 'pink');
+    expect(new Set(pink.map((p) => p.box.x)).size).toBe(1);
+    expect(frames[0].x + frames[0].width).toBeLessThanOrEqual(frames[1].x);
+    // a section is drawn after what it holds, and the same stickies are moved - none made again
+    for (const f of frames) for (const e of once.filter((x) => x.frameId === f.id)) expect(once.indexOf(e)).toBeLessThan(once.indexOf(f));
+    expect(once.filter((e) => !e.isDeleted && e.type !== 'frame').map((e) => e.id).sort()).toEqual(els.map((e) => e.id).sort());
     const twice = sortStickies(once, null, 'author', { now: NOW });
-    expect(twice.filter((e) => e.customData?.nexusSortHead && !e.isDeleted).map((e) => e.text)).toEqual(['Someone (3)']);
+    expect(sortFrames(twice).map((f) => f.name)).toEqual(['Someone']);     // the last sort's sections are gone
+    expect(twice.filter((e) => e.type === 'frame' && !e.isDeleted)).toHaveLength(1);
     const one = els.slice(0, 3);
     expect(sortStickies(one, null, 'color')).toBe(one);   // one sticky: nothing to sort
   });
@@ -62,8 +83,29 @@ describe('stickies', () => {
       ...sticky({ x: 300, y: 0, text: 'Oil the gate hinge', now: NOW }),
       ...sticky({ x: 600, y: 0, text: 'New signs', now: NOW }),
     ];
-    const heads = sortStickies(els, null, 'word', { now: NOW }).filter((e) => e.customData?.nexusSortHead).map((e) => e.text);
-    expect(heads).toEqual(['Gate (2)', 'Other (1)']);
+    expect(sortFrames(sortStickies(els, null, 'word', { now: NOW })).map((f) => f.name)).toEqual(['Gate', 'Other']);
+  });
+
+  it('a board sorted before sections: its loose headings go; a section someone drew is never touched', () => {
+    const els = [
+      ...sticky({ x: 0, y: 0, text: 'a', colorKey: 'yellow', now: NOW }),
+      ...sticky({ x: 300, y: 0, text: 'b', colorKey: 'pink', now: NOW }),
+    ].map((e) => (e.customData?.nexusSticky ? { ...e, customData: { ...e.customData, nexusSticky: { ...e.customData.nexusSticky, sortId: 'old' } } } : e));
+    const head = { id: 'h1', type: 'text', x: 0, y: -40, width: 80, height: 20, text: 'Yellow (1)', customData: { nexusSortHead: 'old' }, version: 1 };
+    const out = sortStickies([...els, head], null, 'color', { now: NOW });
+    expect(out.find((e) => e.id === 'h1').isDeleted).toBe(true);
+    // stickies sitting in someone's own section are sorted out of it, under everything on the board
+    const mine = { id: 'mine', type: 'frame', x: -50, y: -50, width: 900, height: 400, name: 'What Went Well', version: 1 };
+    const inMine = [
+      ...sticky({ x: 0, y: 0, text: 'a', colorKey: 'yellow', now: NOW, frameId: 'mine' }),
+      ...sticky({ x: 300, y: 0, text: 'b', colorKey: 'pink', now: NOW, frameId: 'mine' }),
+      mine,
+    ];
+    const moved = sortStickies(inMine, null, 'color', { now: NOW });
+    const kept = moved.find((e) => e.id === 'mine');
+    expect(kept).toBe(mine);                                                 // untouched, not deleted
+    for (const f of sortFrames(moved)) expect(f.y).toBeGreaterThan(mine.y + mine.height);
+    expect([...stickyParts(moved).values()].every((p) => p.box.frameId !== 'mine')).toBe(true);
   });
 
   it('selection by any part; linked stickies carry the task and the foot follows its state', () => {

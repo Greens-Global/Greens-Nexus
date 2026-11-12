@@ -272,3 +272,46 @@ describe('graphFromElements', () => {
     expect(graphFromElements(loose, { mark: true }).graph.nodes.map((n) => n.id)).toEqual(['mark']);
   });
 });
+
+// Neil, 11/12/2026: a long straight run wraps to the next line instead of
+// running off the screen; anything with a branch or a loop keeps its layers.
+describe('a long process wraps', () => {
+  const chain = (n) => Array.from({ length: n }, (_, i) => `S${i + 1}`).join(' -> ');
+  it('six boxes or fewer stay on one line, exactly as before', () => {
+    const placed = layout(parseText(chain(6)), { dir: 'LR' });
+    expect(new Set(placed.nodes.map((n) => n.y)).size).toBe(1);
+    const tb = layout(parseText(chain(6)));
+    expect(new Set(tb.nodes.map((n) => n.x)).size).toBe(1);
+  });
+
+  it('Left to Right: the seventh box starts a second row, at the left again, in order', () => {
+    const placed = layout(parseText(chain(14)), { dir: 'LR', origin: { x: 100, y: 50 } });
+    const at = (i) => placed.nodes.find((n) => n.label === `S${i}`);
+    expect(new Set([1, 2, 3, 4, 5, 6].map((i) => at(i).y)).size).toBe(1);
+    expect(at(7).x).toBe(at(1).x);
+    expect(at(7).y).toBeGreaterThan(at(1).y + at(1).h);
+    expect(at(13).x).toBe(at(1).x);                                   // a third row
+    for (let i = 2; i <= 6; i += 1) expect(at(i).x).toBeGreaterThan(at(i - 1).x + at(i - 1).w);
+    expect(placed.edges).toHaveLength(13);
+    // no two boxes overlap, and every arrow still has a route
+    for (const a of placed.nodes) for (const b of placed.nodes) if (a !== b) expect(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h).toBe(false);
+    expect(routeAll(placed, 6).every((r) => Array.isArray(r) && r.length >= 2)).toBe(true);
+  });
+
+  it('Top to Bottom: the seventh box starts a second column, at the top again', () => {
+    const placed = layout(parseText(chain(8)));
+    const at = (i) => placed.nodes.find((n) => n.label === `S${i}`);
+    expect(at(7).y).toBe(at(1).y);
+    expect(at(7).x).toBeGreaterThan(at(1).x + at(1).w);
+    expect(at(8).y).toBeGreaterThan(at(7).y);
+  });
+
+  it('a long diagram with a branch or a loop is laid out in layers as before', () => {
+    const branched = layout(parseText(`${chain(8)}\nS3 -> X`), { dir: 'LR' });
+    const xs = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => branched.nodes.find((n) => n.label === `S${i}`).x);
+    expect(xs).toEqual([...xs].sort((a, b) => a - b));               // still one run, left to right: not wrapped
+    expect(new Set(xs).size).toBe(8);
+    const looped = layout(parseText(`${chain(8)} -> S1`), { dir: 'LR' });
+    expect(Math.max(...looped.nodes.map((n) => n.x))).toBeGreaterThan(7 * 96);
+  });
+});

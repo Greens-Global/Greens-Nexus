@@ -1,7 +1,8 @@
 // The Board's markup bar (Neil, 11/06/2026): the reviewer's tools - Select,
 // Move Around, Pen, Highlighter, Arrow, Box, Text, Comment, Eraser - one ink
 // dot that opens the inks and widths, More Tools for the rest of the
-// whiteboard (ellipse, diamond, line, image, frame, laser pointer), and on a
+// whiteboard (ellipse, diamond, line, image, laser pointer; Section - the
+// engine's frame - is on the bar itself since 11/12/2026), and on a
 // phone Undo / Redo, Style (the engine's full properties panel), Delete and
 // More. ONE bar: the engine's own tool strip is hidden wherever it shows. A computer gets a floating pill at the foot of the stage beside the
 // engine's full strip; a phone gets a dock along the bottom edge, in thumb
@@ -16,7 +17,7 @@ import {
   Undo2, Redo2, Trash2, MoreHorizontal, Check, Circle, Diamond, Minus, ImagePlus, Frame, Pointer, Shapes, SlidersHorizontal, ChevronDown,
   Workflow, RectangleHorizontal, StickyNote, FileText, Users, ListTree, RefreshCw, ArrowDownNarrowWide, ArrowRightLeft, FileSymlink, Network,
   Ruler, SquareDashed, Scaling, Warehouse, Vote, Timer, EyeOff, LocateFixed, Wand2,
-  Magnet, FileUp, ClipboardPaste, FolderOpen,
+  Magnet, FileUp, ClipboardPaste, FolderOpen, ClipboardList, Mic,
 } from 'lucide-react';
 import { MARKUP_TOOLS, MORE_TOOLS, MARKUP_COLORS, MARKUP_SIZES, colorByKey, isMoreTool, sizeByKey, WIDTH_MIN, WIDTH_MAX } from './markupTools';
 
@@ -61,11 +62,15 @@ const MEET_ROWS = [
   { kicker: 'Together' },
   { key: 'silent', label: 'Private Writing', Icon: EyeOff, needs: 'silent' },
   { key: 'summon', label: 'Bring Everyone Here', Icon: LocateFixed, needs: 'summon' },
+  // Wrap Up (Neil, 11/12/2026, wrapUp.js): the board as a Note, shared with the board's people.
+  { kicker: 'Finish' },
+  { key: 'wrapup', label: 'Wrap Up', Icon: ClipboardList, needs: 'wrapup' },
 ];
 
 export default function MarkupBar({
   diagram = null,
-  meet = null,            // { onAction(key), canSilent, canSummon }
+  meet = null,            // { onAction(key), canSilent, canSummon, canWrapUp }
+  talk = null,            // { on, onToggle } - Talk To The Board; null where the browser has no dictation
   inkShape = null,        // { on, onToggle } - the pen's Ink to Shape switch
   snap = null,            // { on, onToggle } - Snap and Align, at the foot of More Tools
   importer = null,        // { onFiles(files), onPaste(), busy } - Import: a picture or a PDF to mark up
@@ -213,7 +218,7 @@ export default function MarkupBar({
 
       {pop === 'meet' && meet && (
         <div className="nx-mk-tray nx-mk-more nx-mk-diagram" ref={mtRef} role="menu" aria-label="Run the Meeting">
-          {MEET_ROWS.filter((r) => !r.needs || (r.needs === 'silent' ? meet.canSilent : meet.canSummon)).map((r) => (r.kicker
+          {MEET_ROWS.filter((r) => !r.needs || (r.needs === 'silent' ? meet.canSilent : r.needs === 'wrapup' ? meet.canWrapUp !== false : meet.canSummon)).map((r) => (r.kicker
             ? <div key={r.kicker} className="nx-mk-tray-kicker">{r.kicker}</div>
             : (
               <button key={r.key} type="button" role="menuitem" className="nx-mk-more-row" data-meet={r.key}
@@ -261,6 +266,12 @@ export default function MarkupBar({
           <button ref={mtBtnRef} type="button" className={`nx-mk-btn${pop === 'meet' ? ' is-on' : ''}`} aria-expanded={pop === 'meet'} aria-haspopup="menu"
             aria-label="Run the Meeting" title="Run the Meeting" onClick={() => setPop((p) => (p === 'meet' ? '' : 'meet'))} data-testid="nx-mk-meet">
             <Vote size={phone ? 20 : 18} />
+          </button>
+        )}
+        {talk && (
+          <button type="button" className={`nx-mk-btn${talk.on ? ' is-on is-live' : ''}`} aria-pressed={!!talk.on} data-testid="nx-mk-talk"
+            aria-label={talk.on ? 'Stop Talking' : 'Talk To The Board'} title={talk.on ? 'Stop Talking' : 'Talk To The Board - each sentence becomes a sticky'} onClick={() => talk.onToggle?.()}>
+            <Mic size={phone ? 20 : 18} />
           </button>
         )}
         <span className="nx-mk-sep" aria-hidden />
