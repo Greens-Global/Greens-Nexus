@@ -266,7 +266,8 @@ keep the diff minimal.
   screen - by window width, never by whether the module has tabs, so the
   search stands in the same place on every module; it still widens to 440px
   on focus (`--hdr-search-w`). The Back line may widen the name column up
-  to 150px, never more; a longer place ends in "...".
+  to 220px (Neil, 11/12/2026: short names like Team cropped it), never
+  more; a longer place ends in "...".
 - **Popups are sheets from the right** (Neil, 11/01/2026): on a desktop,
   every popup that is a record, a form or a workspace is a SHEET - docked to
   the right edge, the full height, rounded only where it meets the page -

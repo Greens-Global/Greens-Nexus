@@ -13,10 +13,11 @@ import { createPortal } from 'react-dom';
 import {
   ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
   Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, Link as LinkIcon, Palette,
-  RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, PenTool, Image as ImageIcon, FileCode2, Copy, FileJson,
+  RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, Image as ImageIcon, FileCode2, Copy, FileJson,
   Paperclip, ExternalLink, ArrowLeft, Presentation, ListTree, LayoutTemplate, Pencil, FolderOpen, Video,
 } from 'lucide-react';
 import { dialog } from '../ui/dialog';
+import BoardIcon from '../components/icons/BoardIcon';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -1255,8 +1256,8 @@ export default function NotesPage({ activeSub, onSubChange }) {
               ? <button type="button" className="nt-icon-btn" aria-label="Meetings" title="Meetings" onClick={() => setMeetingsOpen(true)}><Video size={17} /></button>
               : <button type="button" className="nt-text-btn" onClick={() => setMeetingsOpen(true)} title="Your Teams meetings - take notes beside the transcript"><Video size={15} /> Meetings</button>)}
             {isPhone
-              ? <button type="button" className="nt-icon-btn" aria-label="New Board" title="New Board" onClick={newBoard}><PenTool size={17} /></button>
-              : <button type="button" className="nt-text-btn is-board-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
+              ? <button type="button" className="nt-icon-btn" aria-label="New Board" title="New Board" onClick={newBoard}><BoardIcon size={17} /></button>
+              : <button type="button" className="nt-text-btn is-board-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><BoardIcon size={15} /> New Board</button>}
             {isPhone
               ? <button type="button" className="nt-icon-btn" aria-label="New From Template" title="New From Template" onClick={() => setPickingNoteTpl(true)}><LayoutTemplate size={17} /></button>
               : <button type="button" className="nt-text-btn" onClick={() => setPickingNoteTpl(true)} title="Start a note from a layout - meeting notes, a 1:1, a site walk"><LayoutTemplate size={15} /> From Template</button>}
@@ -1303,7 +1304,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
                       {isBoard(n)
                         ? (n.thumbUrl
                           ? <img className="nt-row-thumb" src={n.thumbUrl} alt="" loading="lazy" />
-                          : <span className="nt-row-thumb is-empty" aria-hidden="true"><PenTool size={14} /></span>)
+                          : <span className="nt-row-thumb is-empty" aria-hidden="true"><BoardIcon size={14} /></span>)
                         : n.preview && <span className="nt-row-preview">{n.preview}</span>}
                       <span className="nt-row-meta">
                         {isBoard(n) ? 'Board · ' : ''}{view === 'trash' && n.trashedAt ? `Trashed ${formatDate(n.trashedAt)}` : editedLabel(n.updatedAt)}
@@ -1338,7 +1339,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
                   <button key={n.id} type="button" role="listitem" className="nt-board-card" onClick={() => select(n.id)} onContextMenu={(e) => openRowMenu(e, n)}>
                     {n.thumbUrl
                       ? <img className="nt-board-card-pic" src={n.thumbUrl} alt="" loading="lazy" />
-                      : <span className="nt-board-card-pic is-empty" aria-hidden="true"><PenTool size={20} /></span>}
+                      : <span className="nt-board-card-pic is-empty" aria-hidden="true"><BoardIcon size={20} /></span>}
                     <span className="nt-board-card-title">{noteTitle(n)}</span>
                     <span className="nt-board-card-meta">{editedLabel(n.updatedAt)}{!n.mine && <> · <Sharer email={n.owner} people={people} size={16} /></>}</span>
                   </button>

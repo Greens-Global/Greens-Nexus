@@ -46,10 +46,11 @@
 // 11/12/2026). Still off: 1:1s, Ask HR, Credentials, Send for Signature and
 // Workflows - those start from their own modules.
 import {
-  CheckSquare, NotebookPen, PenTool, FilePlus2, Package, Mail, CalendarPlus, ClipboardList,
+  CheckSquare, NotebookPen, FilePlus2, Package, Mail, CalendarPlus, ClipboardList,
   CalendarClock, Receipt, ShoppingCart, Timer, Award, Plus, Hand, Send,
 } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
+import BoardIcon from '../components/icons/BoardIcon';
 import { NAV, isNavItemVisible } from '../components/Sidebar';
 
 export const goTo = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }));
@@ -73,7 +74,7 @@ export const ACTIONS = [
     run: () => window.dispatchEvent(new CustomEvent('nexus:quick-note')) },
   // New Board (Neil, 11/02/2026): a whiteboard note, made and opened on
   // Dashboard > Notes. Loaded on click so the header stays light.
-  { key: 'board', group: 'new', label: 'New Board', short: 'Board', Icon: PenTool, module: 'dashboard',
+  { key: 'board', group: 'new', label: 'New Board', short: 'Board', Icon: BoardIcon, module: 'dashboard',
     run: () => import('../notes/newBoard').then((m) => m.newBoardFromAnywhere()) },
   { key: 'document', group: 'new', label: 'New Document', short: 'Document', Icon: FilePlus2, module: 'documents', go: ['documents', 'documents-new'] },
 

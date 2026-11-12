@@ -10014,10 +10014,11 @@ body:has(.apv-phone) { overflow-x: clip; }
      title says the whole place). Before, "<- Monthly Recurring Expenses" over
      "Accounting" widened the column and pushed every tab right. */
   /* ...and never cut to the width of a short module name (Neil, 11/12/2026,
-     navigation review: "<- Da..." over Tasks read as nothing). It may widen
-     the column up to 150px - "<- Dashboard", "<- Construction" read whole -
-     and a longer place still ends in "...". */
-  .module-bar-back { width: auto; min-width: 0; max-width: 150px; }
+     navigation review: "<- Da..." over Tasks read as nothing; then "it's
+     getting cropped too much on Team"). It may widen the column up to 220px
+     - "<- Asset Management", "<- Investor Relations", "<- Monthly Recurring
+     Ex..." - and only a longer place ends in "...". */
+  .module-bar-back { width: auto; min-width: 0; max-width: 220px; }
   .module-bar-back span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .module-bar-back svg { flex-shrink: 0; }
   .module-bar-back:hover { color: var(--wk-brand); }
